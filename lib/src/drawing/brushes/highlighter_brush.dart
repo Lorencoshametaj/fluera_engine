@@ -75,7 +75,7 @@ class HighlighterBrush {
       // Punto singolo: disegna a rectangle piatto multi-layer
       final offset = StrokeOptimizer.getOffset(points.first);
 
-      // Layer 1: Base fluorescente (more larga, blur)
+      // Layer 1: Fluorescent base (wider, blur)
       final basePaint = PaintPool.getBlurPaint(
         color: color.withValues(alpha: opacity * 0.4),
         strokeWidth: highlighterWidth * 1.3,
@@ -83,7 +83,7 @@ class HighlighterBrush {
       );
       canvas.drawCircle(offset, highlighterWidth * 0.65, basePaint);
 
-      // Layer 2: Corpo principale
+      // Layer 2: Main body
       final bodyPaint = PaintPool.getFillPaint(
         color: color.withValues(alpha: opacity),
       );

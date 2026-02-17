@@ -4,7 +4,7 @@ import '../../rendering/optimization/optimization.dart';
 /// 🚀 Characteristics and rendering of the OPTIMIZED Ballpoint brush
 ///
 /// FEATURES:
-/// - Constant width (non varia with the pressione)
+/// - Constant width (does not vary with pressure)
 /// - Uniform and opaque color
 /// - Ideal for precise writing
 /// - Ballpoint ink effect

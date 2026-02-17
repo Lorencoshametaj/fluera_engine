@@ -41,7 +41,7 @@ class LassoTool {
     return _selectionBounds?.contains(point) ?? false;
   }
 
-  /// Calculates i bounds degli selected elements
+  /// Calculates the bounds of selected elements
   void _calculateSelectionBounds() {
     if (!hasSelection) {
       _selectionBounds = null;
@@ -79,7 +79,7 @@ class LassoTool {
       }
     }
 
-    // Calculate bounds delle shapes selezionate
+    // Calculate bounds of selected shapes
     for (final shape in activeLayer.shapes) {
       if (selectedShapeIds.contains(shape.id)) {
         final rect = Rect.fromPoints(shape.startPoint, shape.endPoint);
@@ -104,7 +104,7 @@ class LassoTool {
     }
   }
 
-  /// Start il drag degli selected elements
+  /// Start dragging the selected elements
   void startDrag(Offset position) {
     _isDragging = true;
     _dragStartPosition = position;
@@ -118,17 +118,17 @@ class LassoTool {
     moveSelected(delta);
     _dragStartPosition = currentPosition;
 
-    // Sposta anche i bounds della selezione (more efficiente che ricalcolare)
+    // Also move the selection bounds (more efficient than recalculating)
     if (_selectionBounds != null) {
       _selectionBounds = _selectionBounds!.shift(delta);
     }
   }
 
-  /// Compensate the scroll of the canvas durante il drag (more efficiente, without rebuild pesanti)
+  /// Compensate the canvas scroll during drag (more efficient, without heavy rebuilds)
   void compensateScroll(Offset scrollDelta) {
     if (!_isDragging || _dragStartPosition == null) return;
 
-    // Sposta direttamente gli elementi del delta dello scroll
+    // Move elements directly by the scroll delta
     // This is more efficient than updateDrag because it doesn't recalculate everything
     moveSelected(scrollDelta);
 
@@ -185,7 +185,7 @@ class LassoTool {
     }
     path.close();
 
-    // Seleziona elementi dentro il lasso
+    // Select elements inside the lasso
     _selectElementsInPath(path);
 
     // If is not stato selezionato nulla, pulisci tutto
@@ -198,7 +198,7 @@ class LassoTool {
     _calculateSelectionBounds();
 
     // Clear the lasso path now that elements are selected
-    // Rimane only the bordo della selezione
+    // Only the selection border remains
     lassoPath.clear();
   }
 
@@ -400,7 +400,7 @@ class LassoTool {
   /// 🔄 Ruota gli selected elements di un angolo arbitrario (in radianti)
   ///
   /// Generalizzazione di rotateSelected() per rotazione libera.
-  /// [radians] Angolo di rotazione (positivo = orario)
+  /// [radians] Rotation angle (positive = clockwise)
   /// [center] Rotation center (default: selection center)
   void rotateSelectedByAngle(double radians, {Offset? center}) {
     if (!hasSelection) return;
@@ -673,7 +673,7 @@ class LassoTool {
         .toList();
   }
 
-  /// Gets i bounds della selezione corrente
+  /// Gets the bounds of the current selection
   Rect? getSelectionBounds() {
     if (_selectionBounds == null) {
       _calculateSelectionBounds();

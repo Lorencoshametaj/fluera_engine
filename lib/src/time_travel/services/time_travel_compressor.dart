@@ -20,12 +20,12 @@ import 'dart:math' as math;
 ///    N volte, codifichiamo [valore, count]. Efficienza massima su stylus
 ///    passive (without pressione) dove pressure = 0.5 for all punti.
 ///
-/// Le tre tecniche sono **composte in pipeline**: prima si quantizza,
+/// The three techniques are **composed in a pipeline**: first we quantize,
 /// poi si delta-encoda, poi GZIP (esterno) cattura le ripetizioni residue.
 ///
 /// **Lossless for the replay**: decompression reconstructs exactly
 /// i dati compressi. La quantizzazione is l'unico step lossy, ma 0.1px
-/// is impercettibile nel replay.
+/// is imperceptible in replay.
 class TimeTravelCompressor {
   /// Moltiplicatore per fixed-point encoding: 10 = 1 decimale di precisione
   /// (0.1px — sufficient for replay, vs 0.0001px of main storage)
@@ -286,12 +286,12 @@ class TimeTravelCompressor {
     return result;
   }
 
-  /// Emette un segmento RLE nel risultato
+  /// Emits an RLE segment in the result
   static void _emitRle(List<dynamic> result, double value, int count) {
     if (count >= _rleThreshold) {
       // RLE marker: valore negativo speciale per count
       // Formato: [value, -count] (il segno negativo distingue da valori reali
-      // because pressione e tilt sono sempre ≥ 0)
+      // because pressure and tilt are always ≥ 0)
       result.add(value);
       result.add(-count);
     } else {
@@ -340,15 +340,15 @@ class TimeTravelCompressor {
 
   /// Compress elementData for any Time Travel event type
   ///
-  /// Only gli stroke beneficiano delle ottimizzazioni avanzate.
-  /// For altri tipi (shape, text, image), i dati are already compatti.
+  /// Only strokes benefit from advanced optimizations.
+  /// For other types (shape, text, image), the data is already compact.
   static Map<String, dynamic>? compressElementData(
     String deltaType,
     Map<String, dynamic>? data,
   ) {
     if (data == null) return null;
 
-    // Only gli stroke hanno points[] che beneficiano della compressione
+    // Only strokes have points[] that benefit from compression
     if (deltaType == 'strokeAdded' && data.containsKey('points')) {
       return compressStrokeData(data);
     }

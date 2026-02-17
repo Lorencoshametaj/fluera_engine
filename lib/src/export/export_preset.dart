@@ -404,7 +404,7 @@ class ExportConfig {
 
 /// Extension per ExportPageFormat con utility methods
 extension ExportPageFormatUtils on ExportPageFormat {
-  /// Get la size in punti (72 DPI) per questo formato
+  /// Get the size in points (72 DPI) for this format
   Size get sizeInPoints {
     switch (this) {
       case ExportPageFormat.a4Portrait:
@@ -424,7 +424,7 @@ extension ExportPageFormatUtils on ExportPageFormat {
     }
   }
 
-  /// Get l'etichetta leggibile per questo formato
+  /// Get the readable label for this format
   String get label {
     switch (this) {
       case ExportPageFormat.a4Portrait:

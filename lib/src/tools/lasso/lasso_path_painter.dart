@@ -119,7 +119,7 @@ class LassoPathPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    // Bordo bianco
+    // White border
     canvas.drawCircle(
       point,
       5.5,

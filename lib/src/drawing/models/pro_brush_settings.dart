@@ -5,7 +5,7 @@ import './pro_drawing_point.dart';
 /// 🎛️ Modello per i parametri personalizzabili di un pennello professionale
 ///
 /// Each stroke salva i propri settings per garantire consistenza
-/// durante il rendering e la persistenza Firebase.
+/// during rendering and Firebase persistence.
 ///
 /// v2.0: Added realism parameters (jitter, inkAccumulation, smoothPath)
 class ProBrushSettings {

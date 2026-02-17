@@ -25,7 +25,7 @@ class ProStrokePainter extends CustomPainter {
   final Color backgroundColor;
   final double canvasScale; // Zoom level to optimize il margine
 
-  // Cache statica dello sfondo to avoid ridisegno continuo
+  // Static background cache to avoid continuous redrawing
   static ui.Picture? _cachedBackground;
   static String? _cachedPaperType;
   static Color? _cachedBackgroundColor;

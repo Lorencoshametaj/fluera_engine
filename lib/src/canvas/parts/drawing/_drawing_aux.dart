@@ -17,7 +17,7 @@ extension on _NebulaCanvasScreenState {
     final distanceFromTop = screenPosition.dy;
     final distanceFromBottom = screenSize.height - screenPosition.dy;
 
-    // Determina direzione dello scroll
+    // Determine scroll direction
     double scrollX = 0.0;
     double scrollY = 0.0;
 
@@ -48,7 +48,7 @@ extension on _NebulaCanvasScreenState {
       _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 16), (
         timer,
       ) {
-        // Muovi il canvas
+        // Move the canvas
         final currentOffset = _canvasController.offset;
         final newOffset = Offset(
           currentOffset.dx + scrollX,
@@ -56,9 +56,9 @@ extension on _NebulaCanvasScreenState {
         );
         _canvasController.setOffset(newOffset);
 
-        // Compensate the scroll muovendo gli elementi in the direction OPPOSTA
+        // Compensate the scroll by moving elements in the OPPOSITE direction
         // Quando il canvas scorre a destra (+scrollX), gli elementi devono andare a sinistra (-scrollX)
-        // to remain visivamente nella stessa position sullo schermo
+        // to remain visually in the same position on screen
         final compensation = Offset(-scrollX, -scrollY);
 
         if (_lassoTool.isDragging) {

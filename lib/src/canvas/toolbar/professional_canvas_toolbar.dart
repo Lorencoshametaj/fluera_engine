@@ -31,7 +31,7 @@ part '_toolbar_tools_area.dart';
 /// Design minimalista e funzionale con:
 /// - Compact status bar with essential info
 /// - Tools organized logically (type → color → width)
-/// - Quick actions sempre accessibili
+/// - Quick actions always accessible
 /// - Scroll orizzontale smooth
 /// - Collapsible to maximize canvas
 class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {

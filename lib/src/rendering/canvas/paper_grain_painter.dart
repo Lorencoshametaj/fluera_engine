@@ -16,12 +16,12 @@ enum PaperType {
 /// Render una texture di carta tiled dietro gli strokes on the canvas.
 /// The texture is applied as a semi-transparent overlay.
 ///
-/// Uso: aggiungere come CustomPaint layer sotto il DrawingPainter.
+/// Usage: add as CustomPaint layer below DrawingPainter.
 class PaperGrainPainter extends CustomPainter {
   /// Paper type
   final PaperType paperType;
 
-  /// Opacity della grana (0.0 = invisibile, 1.0 = piena)
+  /// Grain opacity (0.0 = invisible, 1.0 = full)
   final double opacity;
 
   /// Scala of the texture (adattata allo zoom)
@@ -66,7 +66,7 @@ class PaperGrainPainter extends CustomPainter {
     );
     if (texturePaint == null) return;
 
-    // Draw la texture su tutta l'area visibile
+    // Draw the texture over the entire visible area
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), texturePaint);
   }
 

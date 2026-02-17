@@ -16,7 +16,7 @@ import '../../core/engine_scope.dart';
 /// ARCHITETTURA:
 /// ```
 /// StrokePersistenceService
-///   ├── StrokeDataManager (RAM cache, sempre attivo)
+///   ├── StrokeDataManager (RAM cache, always active)
 ///   │   └── Max 10k strokes in memoria
 ///   └── DiskStrokeManager (Disk storage, auto-attivato @ 10k)
 ///       └── Chunks da 1000 strokes, LRU cache
@@ -35,7 +35,7 @@ class StrokePersistenceService {
   // 🗂️ STATE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Manager disco (null if not ancora attivato)
+  /// Disk manager (null if not yet activated)
   DiskStrokeManager? _diskManager;
 
   /// Flag attivazione disk
@@ -83,12 +83,12 @@ class StrokePersistenceService {
   // 💾 SAVE OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Saves uno stroke (RAM sempre, Disk se attivo)
+  /// Saves a stroke (RAM always, Disk if active)
   Future<void> saveStroke(ProStroke stroke) async {
     // Incrementa contatore
     _totalStrokeCount++;
 
-    // Save in RAM (sempre)
+    // Save in RAM (always)
     StrokeDataManager.registerStrokePoints(stroke.id, stroke.points);
 
     // Auto-attiva disk storage se soglia raggiunta

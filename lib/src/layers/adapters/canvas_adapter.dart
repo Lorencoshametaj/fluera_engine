@@ -48,10 +48,10 @@ abstract class CanvasAdapter {
   /// [viewOffset] - Current viewport offset
   Offset canvasToScreen(Offset canvas, double scale, Offset viewOffset);
 
-  /// Checks if a position canvas is dentro i bounds
+  /// Checks if a canvas position is within bounds
   ///
-  /// For canvas infinito, ritorna sempre true.
-  /// For PDF, verifica che sia dentro la pagina.
+  /// For infinite canvas, always returns true.
+  /// For PDF, verifies that it is within the page.
   bool isPointInBounds(Offset canvasPosition);
 
   // ============================================================================

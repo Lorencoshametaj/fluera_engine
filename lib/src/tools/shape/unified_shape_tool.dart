@@ -13,7 +13,7 @@ import '../../core/models/shape_type.dart';
 ///
 /// FEATURES:
 /// - Disegno forme: a rectangle, cerchio, linea, an arrow, a triangle
-/// - Preview in real-time durante disegno
+/// - Real-time preview during drawing
 /// - Configureble color and thickness
 class UnifiedShapeTool extends BaseTool {
   // ============================================================================
@@ -58,7 +58,7 @@ class UnifiedShapeTool extends BaseTool {
   /// Punto iniziale
   Offset? _startPoint;
 
-  /// Punto finale corrente (durante disegno)
+  /// Current end point (during drawing)
   Offset? _currentEndPoint;
 
   /// Shape in costruzione
@@ -265,7 +265,7 @@ class UnifiedShapeTool extends BaseTool {
   }
 }
 
-/// Painter per preview shape durante disegno
+/// Painter for shape preview during drawing
 class _ShapePreviewPainter extends CustomPainter {
   final GeometricShape shape;
   final Offset startScreen;

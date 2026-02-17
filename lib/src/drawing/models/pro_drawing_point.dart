@@ -30,14 +30,14 @@ class ProDrawingPoint {
   /// - Pressure: 0.01 (2 decimals sufficient for 100 levels)
   /// - Tilt/Orientation: 2 decimals (adequate angular precision)
   ///
-  /// 🎯 FIX: 2 decimali causavano curve grezze dopo load because
+  /// 🎯 FIX: 2 decimals caused rough curves after load because
   /// le piccole differenze tra punti adiacenti venivano quantizzate,
   /// corrompendo i control points del Catmull-Rom spline.
   Map<String, dynamic> toJson() => {
     'x': _round4(position.dx),
     'y': _round4(position.dy),
     'pressure': _round2(pressure),
-    // Ometti tilt/orientation se sono 0 (default) per risparmiare spazio
+    // Omit tilt/orientation if they are 0 (default) to save space
     if (tiltX != 0.0) 'tiltX': _round2(tiltX),
     if (tiltY != 0.0) 'tiltY': _round2(tiltY),
     if (orientation != 0.0) 'orientation': _round2(orientation),
@@ -93,7 +93,7 @@ class ProStroke {
   final DateTime createdAt;
   final ProBrushSettings settings; // 🎛️ Parametri pennello personalizzati
 
-  /// 🛡️ Engine version che ha prodotto questo stroke.
+  /// 🛡️ Engine version that produced this stroke.
   /// Permette migration/fallback se l'algoritmo di un brush cambia.
   /// - v1: strokes without tag (pre-versioning, backward compatible)
   /// - v2: first tagged version (current)
@@ -119,7 +119,7 @@ class ProStroke {
   }
 
   /// 🚀 CACHED BOUNDS - Calculateto una sola volta for performance O(1)
-  /// Evita ricalcolo O(n) ad every frame durante viewport culling
+  /// Avoids O(n) recalculation at every frame during viewport culling
   Rect? _cachedBounds;
 
   ProStroke({
@@ -138,7 +138,7 @@ class ProStroke {
        engineVersion = engineVersion ?? currentEngineVersion;
 
   /// 🚀 Bounds cachato - calcola una volta e riusa
-  /// Performance: da O(n) every frame a O(1) dopo primo calcolo
+  /// Performance: from O(n) every frame to O(1) after first calculation
   Rect get bounds {
     _cachedBounds ??= _calculateBounds();
     return _cachedBounds!;

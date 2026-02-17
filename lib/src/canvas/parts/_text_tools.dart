@@ -99,7 +99,7 @@ extension on _NebulaCanvasScreenState {
       _layerController.addText(newElement);
 
 
-      // 💾 Auto-save dopo aggiunta testo digitale
+      // 💾 Auto-save after adding digital text
       _autoSaveCanvas();
     }
   }
@@ -132,7 +132,7 @@ extension on _NebulaCanvasScreenState {
           _digitalTextTool.selectElement(_digitalTextElements[index]);
         });
 
-        // 💾 Auto-save dopo modifica testo digitale
+        // 💾 Auto-save after modifying digital text
         _autoSaveCanvas();
       }
     }

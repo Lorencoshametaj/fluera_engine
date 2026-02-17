@@ -32,11 +32,11 @@ enum TextureRotationMode {
 class BrushTexture {
   BrushTexture._();
 
-  // Cache singleton delle texture caricate
+  // Singleton cache of loaded textures
   static final Map<TextureType, ui.Image?> _cache = {};
   static final Map<TextureType, bool> _loading = {};
 
-  /// Path dell'asset per ogni type of texture
+  /// Asset path for each texture type
   static const Map<TextureType, String> _assetPaths = {
     TextureType.pencilGrain: 'assets/textures/pencil_grain.png',
     TextureType.charcoal: 'assets/textures/charcoal.png',
@@ -79,7 +79,7 @@ class BrushTexture {
     return _cache[type];
   }
 
-  /// Pre-carica tutte le texture (da chiamare all'avvio of the canvas)
+  /// Pre-load all textures (call at canvas startup)
   static Future<void> preloadAll() async {
     final futures = TextureType.values
         .where((t) => t != TextureType.none)

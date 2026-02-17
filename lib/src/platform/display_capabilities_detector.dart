@@ -60,7 +60,7 @@ class DisplayCapabilitiesDetector {
       final now = DateTime.now();
       frameCount++;
 
-      // Skip warm-up period (frame iniziali sono more lenti)
+      // Skip warm-up period (initial frames are slower)
       if (frameCount <= warmupFrames) {
         SchedulerBinding.instance.scheduleFrameCallback(frameCallback);
         return;

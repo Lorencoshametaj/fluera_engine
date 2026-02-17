@@ -147,7 +147,7 @@ class _StrokeNotifier extends ValueNotifier<List<ProDrawingPoint>> {
   /// completed stroke doesn't extend beyond what the user saw.
   int lastRenderedCount = 0;
 
-  /// Forza repaint dopo mutazione in-place della lista.
+  /// Force repaint after in-place mutation of the list.
   /// The lista viene modificata direttamente (add/clear), qui notifichiamo solo.
   void forceRepaint() {
     notifyListeners();
@@ -249,7 +249,7 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// 🆕 ID univoco of the canvas (generato o ricevuto)
   late final String _canvasId;
 
-  /// 🆕 Nome/Titolo della nota (caricato o ricevuto)
+  /// 🆕 Note name/title (loaded or received)
   String? _noteTitle;
 
   // ============================================================================
@@ -290,19 +290,19 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// Configuretion rendering adattiva basata su display
   AdaptiveRenderingConfig? _renderingConfig;
 
-  /// Raw input processor per 120Hz mode (quando applicabile)
+  /// Raw input processor for 120Hz mode (when applicable)
   RawInputProcessor120Hz? _rawInputProcessor120Hz;
 
   /// ⏱️ Timer per debouncing save
   Timer? _saveDebounceTimer;
 
-  /// 🔄 Flag per disabilitare auto-save durante caricamento
+  /// 🔄 Flag to disable auto-save during loading
   bool _isLoading = false;
 
   /// Layer controller per gestire i layer
   late final LayerController _layerController;
 
-  /// 🔧 FIX ZOOM LAG: Cache delle liste shapes
+  /// 🔧 FIX ZOOM LAG: Cache of shape lists
   List<GeometricShape> _cachedAllShapes = const [];
 
   /// ⏱️ Snapshot of live layers before entering Time Travel
@@ -312,7 +312,7 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// Layer panel key per controllare apertura/chiusura
   final GlobalKey<LayerPanelState> _layerPanelKey = GlobalKey();
 
-  /// Notifier per indicare quando l'utente sta disegnando
+  /// Notifier to indicate when the user is drawing
   final ValueNotifier<bool> _isDrawingNotifier = ValueNotifier(false);
 
   /// 🚀 PERFORMANCE: Tratto corrente con notifier ottimizzato
@@ -408,7 +408,7 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   Color get _effectiveColor =>
       _effectiveSelectedColor.withValues(alpha: _effectiveOpacity);
 
-  /// Auto-scroll durante il drag
+  /// Auto-scroll during drag
   Timer? _autoScrollTimer;
   final GlobalKey _canvasAreaKey = GlobalKey();
   static const double _edgeScrollThreshold = 50.0;

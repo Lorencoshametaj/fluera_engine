@@ -239,7 +239,7 @@ class BackgroundSaveService {
       final filePath = message['filePath'] as String;
       final deltaJsonList = message['deltaJsonList'] as List<dynamic>;
 
-      // ✅ FIX: WAL sempre non compresso → O(1) append!
+      // ✅ FIX: WAL always uncompressed → O(1) append!
       // JSONL puro: una riga per delta
       final file = File(filePath);
       final deltaJsonl = deltaJsonList.map((d) => jsonEncode(d)).join('\n');

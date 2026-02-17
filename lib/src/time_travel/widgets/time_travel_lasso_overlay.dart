@@ -146,7 +146,7 @@ class _TimeTravelLassoOverlayState extends State<TimeTravelLassoOverlay>
     for (final layer in widget.engine.currentLayers) {
       if (!layer.isVisible) continue;
 
-      // Test strokes: centro del bounds dentro il lasso
+      // Test strokes: center of bounds inside the lasso
       for (final stroke in layer.strokes) {
         if (stroke.points.isEmpty) continue;
         final center = stroke.bounds.center;
@@ -274,7 +274,7 @@ class _TimeTravelLassoOverlayState extends State<TimeTravelLassoOverlay>
                   // Cancel
                   TextButton(
                     onPressed: widget.onCancel,
-                    child: Text('Annulla', style: TextStyle(color: cs.error)),
+                    child: Text('Cancel', style: TextStyle(color: cs.error)),
                   ),
 
                   const SizedBox(width: 8),

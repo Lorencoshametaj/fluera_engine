@@ -62,7 +62,7 @@ extension on _NebulaCanvasScreenState {
           // ⚠️ Azzera lo stroke of the canvas normale to avoid duplicazioni
           _currentStrokeNotifier.clear();
 
-          // Continua disegno sopra l'immagine only if stiamo disegnando
+          // Continue drawing on top of the image only if we are drawing
           if (_drawingHandler.hasStroke) {
             _drawingHandler.updateStroke(
               position: canvasPosition,

@@ -288,7 +288,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Layers button (nascosto in editing mode)
+                // Layers button (hidden in editing mode)
                 if (!widget.isImageEditingMode) ...[
                   ToolbarCompactActionButton(
                     icon: Icons.layers_rounded,

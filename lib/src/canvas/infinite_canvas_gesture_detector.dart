@@ -213,7 +213,7 @@ class _InfiniteCanvasGestureDetectorState
 
     // 🚀 FIX: Start drawing IMMEDIATELY on pointer down
     // This cattura il primo punto without aspettare onPointerMove
-    // Risolve il problema della perdita dei primi punti durante la scrittura
+    // Solves the problem of losing the first points during writing
     if (_pointerCount == 1 &&
         _shouldEnableDrawing &&
         !widget.enableSingleFingerPan) {
@@ -251,7 +251,7 @@ class _InfiniteCanvasGestureDetectorState
     if (_pointerCount >= 2) return;
 
     // NON disegnare se c'era multi-touch negli ultimi 60ms
-    // Ridotto da 200ms per minimizzare input persi dopo zoom
+    // Reduced from 200ms to minimize lost input after zoom
     final timeSinceLastChange =
         DateTime.now().millisecondsSinceEpoch - _lastPointerChangeTime;
     if (_wasMultiTouch && timeSinceLastChange < 60) {
@@ -298,7 +298,7 @@ class _InfiniteCanvasGestureDetectorState
       return;
     }
 
-    // Drawing solo con 1 dito (quando pan mode is not attivo E stylus mode permette)
+    // Drawing only with 1 finger (when pan mode is not active AND stylus mode allows)
     if (_pointerCount == 1 && _shouldEnableDrawing) {
       _hasMoved = true;
 
@@ -339,7 +339,7 @@ class _InfiniteCanvasGestureDetectorState
         );
 
         // 🚀 FIX #5: INTERPOLATION IN CANVAS SPACE
-        // Invece di convertire ogni punto interpolato con screenToCanvas(),
+        // Instead of converting each interpolated point with screenToCanvas(),
         // interpoliamo direttamente among the posizioni canvas already calcolate.
         if (_lastCanvasPosition != null) {
           final distance = (event.localPosition - _lastDrawPosition!).distance;
@@ -396,7 +396,7 @@ class _InfiniteCanvasGestureDetectorState
 
     // Only se siamo all'ultimo dito e stiamo disegnando
     if (_pointerCount == 0) {
-      // Reset flag multi-touch quando tutti i diti sono sollevati
+      // Reset multi-touch flag when all fingers are lifted
       _wasMultiTouch = false;
       _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
@@ -430,7 +430,7 @@ class _InfiniteCanvasGestureDetectorState
         }
       }
 
-      // Reset stato
+      // Reset state
       _firstPointerPosition = null;
       _hasMoved = false;
       _lastDrawPosition = null; // 🚀 Reset interpolazione
@@ -456,7 +456,7 @@ class _InfiniteCanvasGestureDetectorState
       }
     }
 
-    // Reset stato
+    // Reset state
     if (_pointerCount == 0) {
       _wasMultiTouch = false;
       _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger

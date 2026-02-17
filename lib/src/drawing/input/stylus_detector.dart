@@ -3,7 +3,7 @@ import 'package:flutter/gestures.dart';
 
 /// 🖊️ STYLUS DETECTOR
 /// Handles il rilevamento e la differenziazione among thenput stylus e touch
-/// per tutte le piattaforme e i dispositivi supportati.
+/// for all supported platforms and devices.
 ///
 /// FEATURES:
 /// - ✅ Samsung S Pen (Android)
@@ -17,7 +17,7 @@ import 'package:flutter/gestures.dart';
 class StylusDetector {
   static const double _stylusPressureThreshold = 0.1;
 
-  /// Checks if the dispositivo supporta la stylus
+  /// Checks if the device supports the stylus
   static bool get isStylusSupported {
     if (Platform.isAndroid) {
       // Samsung, Wacom e altri Android devices
@@ -45,7 +45,7 @@ class StylusDetector {
     }
 
     // 2. Samsung S Pen and Apple Pencil can be detected via pressure
-    // anche quando sono registrati come PointerDeviceKind.touch
+    // even when registered as PointerDeviceKind.touch
     if (event.pressure > _stylusPressureThreshold) {
       // Pressure significativa suggerisce stylus
       // (the finger usually has pressure = 1.0 or very high)

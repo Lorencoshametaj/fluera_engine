@@ -18,10 +18,10 @@ import './spatial_index.dart';
 /// - Without culling: 10,000 rendered strokes = LAG
 /// - With culling: ~50-100 rendered strokes = SMOOTH ✨
 class ViewportCuller {
-  /// Margine examong thentorno al viewport to avoid pop-in durante pan
+  /// Margin around the viewport to avoid pop-in during pan
   static const double viewportMargin = 1000.0;
 
-  /// 🚀 QUADTREE: usa QuadTree quando ci sono molti strokes (> threshold)
+  /// 🚀 QUADTREE: uses QuadTree when there are many strokes (> threshold)
   static const int quadTreeThreshold = 500;
 
   /// 🚀 Filtra strokes visibili - con supporto QuadTree per grandi quantity

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/scheduler.dart';
 import '../../core/engine_scope.dart';
 
-/// 🚀 FRAME BUDGET MANAGER - Mantiene 60 FPS anche con 500k strokes
+/// 🚀 FRAME BUDGET MANAGER - Maintains 60 FPS even with 500k strokes
 ///
 /// PROBLEMA:
 /// Rasterizere tile con molti strokes can bloccare il main thread,
@@ -78,7 +78,7 @@ class FrameBudgetManager {
       ),
     );
 
-    // Sort per priority (alta prima)
+    // Sort by priority (highest first)
     _taskQueue.sort((a, b) => b.priority.compareTo(a.priority));
 
     _scheduleFrame();
@@ -130,7 +130,7 @@ class FrameBudgetManager {
 
     _stopwatch.stop();
 
-    // If ci sono ancora task, schedula next frame
+    // If there are still tasks, schedule next frame
     if (_taskQueue.isNotEmpty) {
       _scheduleFrame();
     }
@@ -214,7 +214,7 @@ class BudgetedTask {
   });
 }
 
-/// 🚀 MEMORY PRESSURE HANDLER - Gestisce memoria sotto pressione
+/// 🚀 MEMORY PRESSURE HANDLER - Manages memory under pressure
 ///
 /// Detects when the memoria is bassa e libera cache aggressivamente.
 class MemoryPressureHandler {

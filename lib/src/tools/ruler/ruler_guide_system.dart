@@ -245,7 +245,7 @@ class RulerGuideSystem {
   // ─── Symmetry Mode ────────────────────────────────────────────────
 
   bool symmetryEnabled = false;
-  int? symmetryAxisIndex; // indice della guida usata come asse
+  int? symmetryAxisIndex; // index of the guide used as axis
   bool symmetryAxisIsHorizontal = true; // tipo dell'asse
   int symmetrySegments = 2; // 2 = single mirror, 4/6/8 = kaleidoscope
 

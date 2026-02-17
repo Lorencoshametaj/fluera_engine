@@ -137,7 +137,7 @@ extension on _NebulaCanvasScreenState {
       }
       setState(() {});
 
-      // 💾 Auto-save dopo resize testo digitale
+      // 💾 Auto-save after resizing digital text
       _autoSaveCanvas();
       return;
     } else if (_digitalTextTool.isDragging) {
@@ -150,7 +150,7 @@ extension on _NebulaCanvasScreenState {
       }
       setState(() {});
 
-      // 💾 Auto-save dopo drag testo digitale
+      // 💾 Auto-save after dragging digital text
       _autoSaveCanvas();
       return;
     }
@@ -159,7 +159,7 @@ extension on _NebulaCanvasScreenState {
     if (_effectiveIsLasso) {
       if (_lassoTool.isDragging) {
         _lassoTool.endDrag();
-        _stopAutoScroll(); // Ferma l'auto-scroll quando termina il drag
+        _stopAutoScroll(); // Stop auto-scroll when drag ends
       } else {
         _lassoTool.completeLasso();
 
@@ -250,7 +250,7 @@ extension on _NebulaCanvasScreenState {
       _layerController.addShape(_currentShapeNotifier.value!);
       _currentShapeNotifier.value = null;
 
-      // 💾 AUTO-SAVE dopo aggiunta shape
+      // 💾 AUTO-SAVE after adding shape
       _autoSaveCanvas();
       return;
     }
@@ -394,7 +394,7 @@ extension on _NebulaCanvasScreenState {
         _currentStrokeStartTime ?? strokeEndTime,
         strokeEndTime,
       );
-      // _currentStrokeStartTime viene resettato dopo
+      // _currentStrokeStartTime is reset after
     }
     _currentStrokeStartTime = null;
 

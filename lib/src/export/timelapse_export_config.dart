@@ -93,7 +93,7 @@ class TimelapseExportConfig {
   final bool showWatermark;
 
   /// Frame skip: per sessioni molto lunghe (>5000 eventi), renderizza
-  /// solo ogni N-esimo frame per mantenere tempi ragionevoli.
+  /// only every Nth frame to maintain reasonable times.
   /// Calculateto automaticamente da [calculateFramePlan].
   final int frameSkip;
 
@@ -113,10 +113,10 @@ class TimelapseExportConfig {
     return (effectiveEvents / speed.multiplier).ceil().clamp(1, 99999);
   }
 
-  /// Stima della durata del video in secondi
+  /// Estimated video duration in seconds
   double estimatedDurationSec(int eventCount) => totalFrames(eventCount) / fps;
 
-  /// Stima della size file in MB
+  /// Estimated file size in MB
   double estimatedFileSizeMb(int eventCount) => resolution.estimatedFileSizeMb(
     totalFrames: totalFrames(eventCount),
     format: format,
@@ -137,7 +137,7 @@ class TimelapseExportConfig {
     final maxDurationSec = 120.0;
     final fps = 30;
 
-    // Calculate frameSkip to remain sotto maxDuration
+    // Calculate frameSkip to remain under maxDuration
     while (true) {
       final effectiveEvents = (eventCount / frameSkip).ceil();
       final totalFrames = (effectiveEvents / speed.multiplier).ceil();

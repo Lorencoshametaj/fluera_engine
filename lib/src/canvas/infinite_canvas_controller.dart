@@ -45,7 +45,7 @@ class InfiniteCanvasController extends ChangeNotifier {
     Size viewportSize, {
     Size canvasSize = const Size(5000, 5000),
   }) {
-    // L'origine (0,0) of the canvas mappa al centro dello schermo
+    // The origin (0,0) of the canvas maps to the center of the screen
     _offset = Offset(viewportSize.width / 2, viewportSize.height / 2);
     notifyListeners();
   }

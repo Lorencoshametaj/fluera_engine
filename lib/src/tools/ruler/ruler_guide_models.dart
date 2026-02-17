@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// Type of griglia prospettica
 enum PerspectiveType { none, onePoint, twoPoint, threePoint }
 
-/// Stile della griglia
+/// Grid style
 enum GridStyle { lines, dots, crosses }
 
 /// Unità di misura dei righelli

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-/// Painter per disegnare i pattern della carta on the canvas
+/// Painter to draw paper patterns on the canvas
 class PaperPatternPainter extends CustomPainter {
   final String paperType;
   final Color backgroundColor;
@@ -56,10 +56,10 @@ class PaperPatternPainter extends CustomPainter {
         ); // ~8mm (righe strette, stile A4)
         break;
       case 'dots':
-        _drawDots(canvas, safeSize, 1.0 * scale); // Puntini ogni 1cm
+        _drawDots(canvas, safeSize, 1.0 * scale); // Dots every 1cm
         break;
       case 'dots_dense':
-        _drawDots(canvas, safeSize, 0.5 * scale); // Puntini densi ogni 5mm
+        _drawDots(canvas, safeSize, 0.5 * scale); // Dense dots every 5mm
         break;
       case 'graph':
         _drawGraphPaper(
@@ -274,7 +274,7 @@ class PaperPatternPainter extends CustomPainter {
     final angle1 = math.pi / 6; // 30 gradi
     final angle2 = -math.pi / 6; // -30 gradi
 
-    // Linee diagonali verso destra (30°) - limitate
+    // Diagonal lines to the right (30°) - limited
     int lineCount = 0;
     for (
       double start = -size.height;
@@ -354,7 +354,7 @@ class PaperPatternPainter extends CustomPainter {
         barPaint,
       );
 
-      // Barline destra (chiusura)
+      // Right barline (closing)
       final barRight = size.width * 0.985;
       canvas.drawLine(
         Offset(barRight, startY),
@@ -381,7 +381,7 @@ class PaperPatternPainter extends CustomPainter {
           ..strokeWidth = 0.6
           ..style = PaintingStyle.stroke;
 
-    // Cue column (colonna sinistra per parole chiave) — ~25% della larghezza
+    // Cue column (left column for keywords) — ~25% of the width
     final cueWidth = size.width * 0.25;
     canvas.drawLine(
       Offset(cueWidth, 0),
@@ -393,7 +393,7 @@ class PaperPatternPainter extends CustomPainter {
     final summaryY = size.height * 0.70;
     canvas.drawLine(Offset(0, summaryY), Offset(size.width, summaryY), paint);
 
-    // Righe sottili nella zona principale (note-taking area)
+    // Thin lines in the main area (note-taking area)
     final lineSpacing = 25.0 * scale;
     final maxLines = 200;
     int lineCount = 0;
@@ -410,7 +410,7 @@ class PaperPatternPainter extends CustomPainter {
       lineCount++;
     }
 
-    // Righe nella zona summary
+    // Lines in the summary area
     lineCount = 0;
     for (
       double y = summaryY + lineSpacing;
@@ -530,7 +530,7 @@ class PaperPatternPainter extends CustomPainter {
           lightPaint,
         );
 
-        // Linea per action/description sotto il frame
+        // Line for action/description below the frame
         final actionY = y + frameHeight + size.height * 0.008;
         canvas.drawLine(
           Offset(x, actionY),
@@ -561,7 +561,7 @@ class PaperPatternPainter extends CustomPainter {
           ..strokeWidth = 0.5
           ..style = PaintingStyle.stroke;
 
-    const cols = 7; // Giorni della settimana
+    const cols = 7; // Days of the week
     final headerHeight = size.height * 0.08; // 8% per header
     final colWidth = size.width / cols;
 

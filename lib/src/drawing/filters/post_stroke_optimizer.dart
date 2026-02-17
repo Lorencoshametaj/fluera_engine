@@ -1,6 +1,6 @@
 /// 🎯 POST-STROKE OPTIMIZER
 ///
-/// Rifinisce il tratto dopo che was completato:
+/// Refines the stroke after it was completed:
 /// - Uniform resampling (punti a distanza costante)
 /// - Finale Bézier pass to eliminate micromovimenti
 /// - Anti-aliasing migliorato
@@ -76,7 +76,7 @@ class PostStrokeOptimizer {
       // Merge (rimuovi il punto duplicato)
       return [...left.sublist(0, left.length - 1), ...right];
     } else {
-      // All i punti sono vicini alla linea, tieni solo start e end
+      // All points are close to the line, keep only start and end
       return [start, end];
     }
   }

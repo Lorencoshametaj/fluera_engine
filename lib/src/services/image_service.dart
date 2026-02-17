@@ -25,7 +25,7 @@ class ImageService {
 
       if (pickedFile == null) return null;
 
-      // Save l'immagine nella directory dell'app
+      // Save the image in the app directory
       final appDir = await getApplicationDocumentsDirectory();
       final imagesDir = Directory('${appDir.path}/canvas_images');
 

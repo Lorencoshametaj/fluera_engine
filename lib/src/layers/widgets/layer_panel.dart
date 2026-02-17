@@ -13,7 +13,7 @@ enum LayerPanelVisibility {
 }
 
 /// Pannello laterale per gestire i layer
-/// Si apre/chiude dal bordo sinistro o destro dello schermo
+/// Opens/closes from the left or right edge of the screen
 class LayerPanel extends StatefulWidget {
   final NebulaLayerController controller;
   final bool isDark;
@@ -125,7 +125,7 @@ class LayerPanelState extends State<LayerPanel>
                   clipBehavior: Clip.hardEdge,
                   alignment: Alignment.center,
                   children: [
-                    // Pannello layer (visibile sia quando open che minimized per l'animazione)
+                    // Layer panel (visible both when open and minimized for animation)
                     if (_visibility != LayerPanelVisibility.closed)
                       Align(
                         alignment: Alignment.center,

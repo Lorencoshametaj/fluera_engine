@@ -7,7 +7,7 @@ import '../../drawing/brushes/brushes.dart';
 /// 🎵 SYNCHRONIZED PLAYBACK OVERLAY
 ///
 /// Widget overlay showing synchronized stroke playback
-/// mentre l'audio is being played. I tratti si "disegnano" progressivamente
+/// while the audio is being played. The strokes "draw" progressively
 /// following the original recording timing.
 class SynchronizedPlaybackOverlay extends StatelessWidget {
   final SynchronizedPlaybackController controller;
@@ -35,7 +35,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
     this.forcePageIndex,
   });
 
-  /// 🧭 Calculate if the punto di disegno corrente is visible nella viewport
+  /// 🧭 Calculate if the current drawing point is visible in the viewport
   bool _isDrawingVisible(Offset? drawingPos, Size viewportSize) {
     if (drawingPos == null) return true;
 
@@ -43,7 +43,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
     final screenX = drawingPos.dx * canvasScale + canvasOffset.dx;
     final screenY = drawingPos.dy * canvasScale + canvasOffset.dy;
 
-    // Margine per considerare "visibile" (un po' dentro lo schermo)
+    // Margin to consider "visible" (slightly inside the screen)
     const margin = 50.0;
 
     return screenX >= -margin &&
@@ -52,7 +52,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
         screenY <= viewportSize.height + margin;
   }
 
-  /// 🧭 Calculate l'angolo della an arrow verso il punto di disegno
+  /// 🧭 Calculate the angle of an arrow towards the drawing point
   double _calculateArrowAngle(Offset drawingPos, Size viewportSize) {
     // Center of the viewport
     final centerX = viewportSize.width / 2;
@@ -69,7 +69,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
     return math.atan2(dy, dx);
   }
 
-  /// 🧭 Calculate la distanza dal centro della viewport al disegno
+  /// 🧭 Calculate the distance from the center of the viewport to the drawing
   double _calculateDistance(Offset drawingPos, Size viewportSize) {
     final centerX = viewportSize.width / 2;
     final centerY = viewportSize.height / 2;
@@ -116,7 +116,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
             return Stack(
               children: [
                 // 🎨 Layer tratti con sfondo to cover i original strokes
-                // Use IgnorePointer per permettere tocchi al canvas sotto
+                // Use IgnorePointer to allow touches on the canvas below
                 Positioned.fill(
                   child: IgnorePointer(
                     ignoring: true, // Forza passthrough di tutti gli eventi
@@ -208,7 +208,7 @@ class _StrokeCompass extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Calculate position della an arrow sul bordo dello schermo
+    // Calculate position of an arrow on the screen edge
     return LayoutBuilder(
       builder: (context, constraints) {
         final centerX = constraints.maxWidth / 2;
@@ -217,7 +217,7 @@ class _StrokeCompass extends StatelessWidget {
         // Distanza dal centro al bordo (approssimata)
         final maxRadius = math.min(centerX, centerY) - 60;
 
-        // Position della an arrow
+        // Position of an arrow
         final arrowX = centerX + math.cos(angle) * maxRadius;
         final arrowY = centerY + math.sin(angle) * maxRadius;
 
@@ -405,7 +405,7 @@ class _SyncedStrokesPainter extends CustomPainter {
   }) {
     if (stroke.points.isEmpty) return;
 
-    // 🌟 GLOW: disegna prima un contorno luminoso
+    // 🌟 GLOW: draw a luminous outline first
     // L'opacity ghost is controllata dallo slider nel player!
     // ⚠️ Clamp to ensure opacity is always in the 0.0-1.0 range
     final glowColor =
@@ -422,7 +422,7 @@ class _SyncedStrokesPainter extends CustomPainter {
     // Draw il glow (contorno esterno)
     _drawStrokeSimple(canvas, stroke.points, glowColor, glowWidth);
 
-    // Draw il tratto vero sopra il glow
+    // Draw the actual stroke above the glow
     _drawStroke(canvas, stroke);
   }
 
@@ -671,7 +671,7 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                     ),
                   ),
 
-                  // Pulsante chiudi (sempre disponibile)
+                  // Close button (always available)
                   if (widget.onClose != null) ...[
                     const SizedBox(width: 4),
                     IconButton(

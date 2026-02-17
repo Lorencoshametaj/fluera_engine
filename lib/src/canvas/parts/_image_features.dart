@@ -80,7 +80,7 @@ extension on _NebulaCanvasScreenState {
       // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addImage(newImage);
 
-      // 💾 Auto-save dopo aggiunta immagine
+      // 💾 Auto-save after adding image
       _autoSaveCanvas();
 
       HapticFeedback.mediumImpact();
@@ -98,7 +98,7 @@ extension on _NebulaCanvasScreenState {
 
   /// 🎨 Enamong then mode editing for a'immagine
   void _enterImageEditMode(ImageElement imageElement) {
-    // Annulla timer
+    // Cancel timer
     _imageLongPressTimer?.cancel();
     _imageLongPressEditorTimer?.cancel();
 
@@ -122,7 +122,7 @@ extension on _NebulaCanvasScreenState {
       _imageTool.clearSelection(); // Deseleziona to avoid handles
 
       // NON caricare gli strokes esistenti - verranno visualizzati automaticamente
-      // _imageEditingStrokes contiene SOLO i nuovi strokes durante questa sessione
+      // _imageEditingStrokes contains ONLY the new strokes during this session
       _imageEditingStrokes.clear();
     });
   }
@@ -162,7 +162,7 @@ extension on _NebulaCanvasScreenState {
     // Feedback haptic
     HapticFeedback.lightImpact();
 
-    // 💾 Auto-save dopo editing immagine
+    // 💾 Auto-save after image editing
     _autoSaveCanvas();
   }
 
@@ -333,7 +333,7 @@ extension on _NebulaCanvasScreenState {
     }).toList();
   }
 
-  /// � Verify if a punto is dentro i confini of the image
+  /// � Verify if a point is within the image boundaries
   bool _isPointInsideImage(
     Offset canvasPosition,
     ImageElement imageElement,
@@ -356,7 +356,7 @@ extension on _NebulaCanvasScreenState {
       relativePos = relativePos / imageElement.scale;
     }
 
-    // Check if it is dentro i confini of the image
+    // Check if it is within the image boundaries
     final imageWidth = image.width.toDouble();
     final imageHeight = image.height.toDouble();
 
@@ -371,7 +371,7 @@ extension on _NebulaCanvasScreenState {
 
   /// �🎨 Apre editor professionale per modificare immagine (mantenuto per compatibility)
   void _openImageEditor(ImageElement imageElement, ui.Image image) {
-    // Annulla timer
+    // Cancel timer
     _imageLongPressTimer?.cancel();
     _imageLongPressEditorTimer?.cancel();
 
@@ -388,7 +388,7 @@ extension on _NebulaCanvasScreenState {
       elementToEdit = imageElement.copyWith(drawingStrokes: allStrokes);
 
 
-      // Esci da editing mode dopo aver salvato gli strokes
+      // Exit editing mode after saving strokes
       _exitImageEditMode();
     }
 
@@ -424,7 +424,7 @@ extension on _NebulaCanvasScreenState {
                 // 🔄 Sync: notify delta tracker for synchronization
                 _layerController.updateImage(updated);
 
-                // 💾 Auto-save dopo modifica immagine
+                // 💾 Auto-save after image modification
                 _autoSaveCanvas();
               }
               HapticFeedback.lightImpact();
@@ -440,7 +440,7 @@ extension on _NebulaCanvasScreenState {
               _layerController.removeImage(imageElement.id);
               if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
 
-              // 💾 Auto-save dopo eliminazione immagine
+              // 💾 Auto-save after image deletion
               _autoSaveCanvas();
 
               HapticFeedback.mediumImpact();

@@ -100,7 +100,7 @@ extension on _NebulaCanvasScreenState {
 
   /// ▶️ Enamong then mode Time Travel (carica, inizializza engine, mostra overlay)
   ///
-  /// 💡 Flush critico: la sessione corrente is ancora in memoria nel recorder.
+  /// 💡 Critical flush: the current session is still in memory in the recorder.
   /// Deve essere scritta to disk PRIMA di inizializzare il playback engine,
   /// altrimenti l'engine non troverà gli eventi appena registrati.
   Future<void> _enterTimeTravelMode() async {
@@ -134,7 +134,7 @@ extension on _NebulaCanvasScreenState {
     // 📸 Save live layers before time travel overwrites them
     _savedLiveLayersBeforeTimeTravel = List.from(_layerController.layers);
 
-    // 💾 Flush sessione corrente to disk (gli eventi sono ancora in-memory)
+    // 💾 Flush current session to disk (events are still in-memory)
     final recorder = _timeTravelRecorder;
     if (recorder != null && recorder.hasEvents) {
       debugPrint(
@@ -278,7 +278,7 @@ extension on _NebulaCanvasScreenState {
   void _exportTimelapse() {
     if (_timeTravelEngine == null) return;
 
-    // Pause playback durante l'export
+    // Pause playback during export
     _timeTravelEngine!.pause();
 
     TimelapseExportDialog.show(
@@ -389,14 +389,14 @@ extension on _NebulaCanvasScreenState {
 
     debugPrint('🔮 [Recover] ✅ Committed $total elements');
 
-    // Clear stato
+    // Clear state
     _cancelRecoveryPlacement();
 
     // Feedback aptico
     HapticFeedback.mediumImpact();
   }
 
-  /// 🔮 Annulla posizionamento recupero
+  /// 🔮 Cancel posizionamento recupero
   void _cancelRecoveryPlacement() {
     setState(() {
       _isRecoveryPlacementMode = false;

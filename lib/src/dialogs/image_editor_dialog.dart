@@ -781,7 +781,7 @@ class _CropEditorDialogState extends State<_CropEditorDialog> {
           var newLeft = _cropRect.left + dx;
           var newTop = _cropRect.top + dy;
 
-          // Mantieni dentro i bordi
+          // Keep within the borders
           if (newLeft < 0) newLeft = 0;
           if (newTop < 0) newTop = 0;
           if (newLeft + width > 1) newLeft = 1 - width;
@@ -851,7 +851,7 @@ class _CropPainter extends CustomPainter {
       Paint(),
     );
 
-    // Overlay scuro fuori dal crop
+    // Dark overlay outside the crop
     final cropPixelRect = Rect.fromLTRB(
       imageRect.left + cropRect.left * imageRect.width,
       imageRect.top + cropRect.top * imageRect.height,
@@ -902,7 +902,7 @@ class _CropPainter extends CustomPainter {
       overlayPaint,
     );
 
-    // Bordo crop
+    // Crop border
     final borderPaint =
         Paint()
           ..color = Colors.white
@@ -1069,10 +1069,10 @@ class _PreviewPainter extends CustomPainter {
     // Draw immagine
     canvas.drawImageRect(image, srcRect, dstRect, paint);
 
-    // 🎨 Draw strokes sopra l'immagine
+    // 🎨 Draw strokes on top of the image
     if (drawingStrokes.isNotEmpty) {
       // Strokes are in local image coordinates (center = 0,0)
-      // The canvas is already centrato, quindi possiamo disegnarli direttamente
+      // The canvas is already centered, so we can draw them directly
       canvas.save();
 
       // Applica la scala of the image

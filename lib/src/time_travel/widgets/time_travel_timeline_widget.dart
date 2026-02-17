@@ -107,7 +107,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
                 _buildScrubber(cs),
                 const SizedBox(height: 4),
 
-                // ─── Time labels sotto la barra ────────────
+                // ─── Time labels below the bar ────────────
                 _buildTimeLabels(cs, tt),
                 const SizedBox(height: 12),
 
@@ -278,7 +278,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
   }
 
   // ============================================================================
-  // DATE/TIME LABELS (sotto la barra scrubber)
+  // DATE/TIME LABELS (below the scrubber bar)
   // ============================================================================
 
   Widget _buildTimeLabels(ColorScheme cs, TextTheme tt) {
@@ -443,7 +443,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
                       onPressed: widget.onRecoverRequested,
                       icon: const Icon(Icons.auto_fix_high_rounded),
                       iconSize: 18,
-                      tooltip: 'Recupera nel presente',
+                      tooltip: 'Recover in the present',
                       color: cs.tertiary,
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,

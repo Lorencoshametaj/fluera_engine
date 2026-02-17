@@ -85,7 +85,7 @@ class NativeAudioPlayer {
   Stream<Duration?> get durationStream => _durationController.stream;
   Stream<bool> get playingStream => _playingController.stream;
 
-  /// Getters per stato corrente
+  /// Getters for current state
   AudioPlayerState get state => _currentState.state;
   Duration get position => _currentState.position;
   Duration? get duration => _currentState.duration;

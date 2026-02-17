@@ -3,7 +3,7 @@ import '../../drawing/models/pro_drawing_point.dart';
 import './shape_type.dart';
 
 /// 🖼️ MODELLO ELEMENTO IMMAGINE
-/// Rappresenta un'immagine posizionata on the canvas con tutte le modifiche
+/// Represents an image positioned on the canvas with all modifications
 class ImageElement {
   final String id;
   final String imagePath; // Path locale of the image
@@ -28,7 +28,7 @@ class ImageElement {
   // ✂️ Crop (cropped area, relativa all'immagine originale 0.0-1.0)
   final Rect? cropRect; // null = nessun crop
 
-  // 🎨 Strokes e shapes disegnati sopra l'immagine (in editing mode)
+  // 🎨 Strokes and shapes drawn on top of the image (in editing mode)
   final List<ProStroke> drawingStrokes;
   final List<GeometricShape> drawingShapes;
 

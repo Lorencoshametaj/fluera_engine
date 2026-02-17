@@ -8,14 +8,14 @@ class SyncedStroke {
   final ProStroke stroke;
 
   /// Start timestamp relative to the recording (milliseconds)
-  /// Quando l'utente ha iniziato a disegnare questo tratto
+  /// When the user started drawing this stroke
   final int relativeStartMs;
 
   /// End timestamp relative to the recording (milliseconds)
-  /// Quando l'utente ha completato questo tratto
+  /// When the user completed this stroke
   final int relativeEndMs;
 
-  /// 📄 Indice della pagina PDF su cui was disegnato il tratto
+  /// 📄 Index of the PDF page on which the stroke was drawn
   final int pageIndex;
 
   const SyncedStroke({
@@ -30,12 +30,12 @@ class SyncedStroke {
 
   /// Calculates quanti punti of the stroke sono visibili a un dato tempo di playback
   /// [playbackTimeMs] - tempo corrente di riproduzione in ms
-  /// Returns: number of punti da mostrare (0 if the tratto is not ancora iniziato)
+  /// Returns: number of points to show (0 if the stroke has not started yet)
   int visiblePointsAtTime(int playbackTimeMs) {
-    // If il playback non ha ancora raggiunto l'inizio of the stroke
+    // If playback has not yet reached the start of the stroke
     if (playbackTimeMs < relativeStartMs) return 0;
 
-    // If il playback ha superato la fine of the stroke, mostra tutto
+    // If playback has passed the end of the stroke, show everything
     if (playbackTimeMs >= relativeEndMs) return stroke.points.length;
 
     // Calculate la percentuale di progresso nel tratto
@@ -181,7 +181,7 @@ class SynchronizedRecording {
     );
   }
 
-  /// Numero totale di tratti nella registrazione
+  /// Total number of strokes in the recording
   int get strokeCount => syncedStrokes.length;
 
   /// Checks if the recording has strokes
@@ -274,7 +274,7 @@ class SynchronizedRecording {
       'SynchronizedRecording(id: $id, strokes: ${syncedStrokes.length}, duration: $totalDuration)';
 }
 
-/// Builder per costruire una SynchronizedRecording durante la registrazione
+/// Builder to construct a SynchronizedRecording during recording
 class SynchronizedRecordingBuilder {
   final String id;
   final String audioPath;
@@ -300,9 +300,9 @@ class SynchronizedRecordingBuilder {
 
   /// Adds a stroke to the recording
   /// [stroke] - lo stroke completato
-  /// [strokeStartTime] - timestamp di inizio of the stroke (DateTime.now() quando l'utente ha iniziato)
-  /// [strokeEndTime] - timestamp di fine of the stroke (DateTime.now() quando l'utente ha finito)
-  /// [pageIndex] - indice della pagina PDF su cui was disegnato
+  /// [strokeStartTime] - start timestamp of the stroke (DateTime.now() when the user started)
+  /// [strokeEndTime] - end timestamp of the stroke (DateTime.now() when the user finished)
+  /// [pageIndex] - index of the PDF page on which it was drawn
   void addStroke(
     ProStroke stroke,
     DateTime strokeStartTime,
@@ -370,10 +370,10 @@ class SynchronizedRecordingBuilder {
     );
   }
 
-  /// Sets esplicitamente il type of registrazione per distinguere PDF da Note
+  /// Explicitly sets the recording type to distinguish PDF from Note
   void setRecordingType(String type) {
     // 🧠 Be more tolerant: if type is already set but we DO NOT have strokes yet,
-    // permetti di cambiare idea (utile se viene inizializzato come 'pdf' ma poi si disegna su 'note')
+    // allow changing one's mind (useful if initialized as 'pdf' but then drawing on 'note')
     if (_strokes.isEmpty) {
       _recordingType = type;
       return;

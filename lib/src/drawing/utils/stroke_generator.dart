@@ -68,7 +68,7 @@ class StrokeGenerator {
 
       strokes.add(stroke);
 
-      // Log progresso ogni 1000 strokes
+      // Log progress every 1000 strokes
       if ((i + 1) % 1000 == 0) {
       }
     }
@@ -78,7 +78,7 @@ class StrokeGenerator {
 
   /// Genera un percorso curvo casuale
   ///
-  /// [enableDeltaTracking]: Se false, tutti i punti avranno lo stesso timestamp
+  /// [enableDeltaTracking]: If false, all points will have the same timestamp
   static List<ProDrawingPoint> _generateStrokePath(
     Offset start,
     int pointCount, {
@@ -103,7 +103,7 @@ class StrokeGenerator {
         ProDrawingPoint(
           position: currentPos,
           pressure: pressure,
-          // If delta tracking is disabled, usa sempre baseTimestamp
+          // If delta tracking is disabled, always use baseTimestamp
           // Altrimenti incrementa per ogni punto
           timestamp: enableDeltaTracking ? baseTimestamp + i : baseTimestamp,
         ),

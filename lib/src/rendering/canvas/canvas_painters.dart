@@ -23,7 +23,7 @@ class BackgroundImagePainter extends CustomPainter {
 
     final srcRect = Rect.fromLTWH(0, 0, imageWidth, imageHeight);
 
-    // In mode image edit da infinite canvas, il canvas is already delle dimensioni of the image
+    // In image edit mode from infinite canvas, the canvas is already the image size
     // Quindi disegna l'immagine a size piena
     final dstRect = Rect.fromLTWH(0, 0, imageWidth, imageHeight);
 

@@ -64,7 +64,7 @@ class BrushEngine {
   /// Quando cambi un algoritmo di brush:
   /// 1. Incrementa [currentEngineVersion]
   /// 2. Move old code into a method `_renderStrokeVN()`
-  /// 3. Add routing in block `engineVersion` sotto
+  /// 3. Add routing in block `engineVersion` below
   static const int currentEngineVersion = 2;
 
   /// Render uno stroke usando il brush corretto based onl [penType].
@@ -89,7 +89,7 @@ class BrushEngine {
     if (points.isEmpty) return;
 
     // 🛡️ Migration routing — when an algorithm changes in the future,
-    // qui si instrada verso il renderer della versione corretta.
+    // here it routes to the renderer of the correct version.
     // For ora v1 e v2 usano lo stesso renderer (nessun breaking change).
     // final ev = engineVersion ?? currentEngineVersion;
     // if (ev < 3) { _renderStrokeV2(...); return; }
@@ -466,7 +466,7 @@ class BrushEngine {
     }
   }
 
-  /// Calculates pressione media e speed for a sotto-segmento di punti.
+  /// Calculates average pressure and speed for a sub-segment of points.
   static _SegmentMetrics _computeSegmentMetrics(
     List<dynamic> points,
     int start,

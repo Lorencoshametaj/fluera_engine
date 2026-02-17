@@ -12,8 +12,8 @@ import './time_travel_compressor.dart';
 ///
 /// Si aggancia al `LayerController` tramite callback `onTimeTravelEvent`.
 /// Unlike the `CanvasDeltaTracker` (transient WAL consumed by
-/// salvataggio locale e from the RTDB sync), il recorder **non perde mai
-/// gli eventi** — li accumula per tutta la durata della sessione e li
+/// local save and from RTDB sync), the recorder **never loses
+/// events** — it accumulates them for the entire session duration and
 /// scrive to disk al termine (canvas close).
 ///
 /// **Performance impact during drawing: ~0ms**
@@ -21,7 +21,7 @@ import './time_travel_compressor.dart';
 /// - No serialization, no I/O, no compression
 /// - Memory cost: ~200 byte/evento × 500 stroke = ~100 KB per session
 class TimeTravelRecorder {
-  /// Buffer di eventi della sessione corrente (mai consumato)
+  /// Event buffer of the current session (never consumed)
   final List<TimeTravelEvent> _sessionEvents = [];
 
   /// Timestamp di inizio sessione (per calcolo ms relativi)
@@ -43,13 +43,13 @@ class TimeTravelRecorder {
   /// Indica if the recorder ha eventi
   bool get hasEvents => _sessionEvents.isNotEmpty;
 
-  /// Numero totale di eventi registrati nella sessione
+  /// Total number of events recorded in the session
   int get eventCount => _sessionEvents.length;
 
   /// Indica if the recorder is active
   bool get isRecording => _isRecording;
 
-  /// Lista immutabile degli eventi della sessione corrente
+  /// Immutable list of events of the current session
   List<TimeTravelEvent> get sessionEvents =>
       List<TimeTravelEvent>.unmodifiable(_sessionEvents);
 
@@ -57,7 +57,7 @@ class TimeTravelRecorder {
   // RECORDING CONTROL
   // ============================================================================
 
-  /// 🟢 Avvia la registrazione (chiamato dopo check Pro subscription)
+  /// 🟢 Start recording (called after Pro subscription check)
   void startRecording() {
     _isRecording = true;
     debugPrint(
@@ -77,11 +77,11 @@ class TimeTravelRecorder {
   // EVENT RECORDING
   // ============================================================================
 
-  /// 🎬 Registra un evento — chiamato dal LayerController dopo ogni modifica
+  /// 🎬 Record an event — called by LayerController after each modification
   ///
   /// This metodo is intenzionalmente leggero: solo un `List.add()`.
   /// The [type] and parameters correspond to those of `CanvasDeltaTracker`,
-  /// ma i dati vengono accumulati in un buffer separato e permanente.
+  /// but the data is accumulated in a separate and permanent buffer.
   void recordEvent(
     CanvasDeltaType type,
     String layerId, {
@@ -131,7 +131,7 @@ class TimeTravelRecorder {
       _elementsModified++;
     }
 
-    // Log ogni 100 eventi per debug (non ad ogni evento)
+    // Log every 100 events for debug (not every event)
     if (_sessionEvents.length % 100 == 0) {
       debugPrint(
         '🎬 [TimeTravelRecorder] ${_sessionEvents.length} events recorded',
@@ -143,7 +143,7 @@ class TimeTravelRecorder {
   // FLUSH TO DISK
   // ============================================================================
 
-  /// 💾 Scrive gli eventi della sessione to disk in formato JSONL compresso
+  /// 💾 Writes session events to disk in compressed JSONL format
   ///
   /// Called at the closing of the canvas. The heavy operation (serialization
   /// + GZIP) happens in an isolate to not block UI.

@@ -29,7 +29,7 @@ class StrokeDataManager {
   /// 10000 strokes loaded = ~10MB di punti in memoria
   static const int maxLoadedStrokes = 10000;
 
-  /// Tempo di vita of points in cache dopo ultimo accesso (ms)
+  /// Lifetime of points in cache after last access (ms)
   static const int pointsEvictionTimeMs = 30000; // 30 secondi
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -87,7 +87,7 @@ class StrokeDataManager {
   /// Gets i punti for ao stroke (carica se necessario)
   ///
   /// Questa is la funzione principale usata da TileCacheManager
-  /// quando deve rasterizzare un tile.
+  /// when it needs to rasterize a tile.
   ///
   /// [strokeId]: ID of the stroke
   /// [fallbackPoints]: Punti da usare if not in cache (per retrocompatibility)

@@ -132,7 +132,7 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
       // PHASE2:             if (_isExportMode) ...[
       // ... (all PHASE2 export/multi-page/audio/share stubs remain commented)
 
-      // Layer Panel (slide da sinistra) — overlay sopra tutto
+      // Layer Panel (slides from left) — overlay above everything
       LayerPanel(
         key: _layerPanelKey,
         controller: _layerController,

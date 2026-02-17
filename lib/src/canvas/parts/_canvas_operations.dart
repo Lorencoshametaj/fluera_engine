@@ -20,7 +20,7 @@ extension on _NebulaCanvasScreenState {
     _layerController.undoLastElement();
     // 🚀 Invalidate tile cache (l'undo potrebbe rimuovere strokes)
     DrawingPainter.invalidateAllTiles();
-    // 💾 AUTO-SAVE dopo undo
+    // 💾 AUTO-SAVE after undo
     _autoSaveCanvas();
   }
 
@@ -44,7 +44,7 @@ extension on _NebulaCanvasScreenState {
     _layerController.addStroke(restored);
     // 🚀 Invalidate tile cache for the nuovo stroke
     DrawingPainter.invalidateTilesForStroke(restored);
-    // 💾 AUTO-SAVE dopo redo
+    // 💾 AUTO-SAVE after redo
     _autoSaveCanvas();
   }
 
@@ -52,9 +52,9 @@ extension on _NebulaCanvasScreenState {
     _layerController.clearActiveLayer();
     _undoStack.clear();
     _currentStrokeNotifier.clear();
-    // 🚀 Invalidate tutta la tile cache
+    // 🚀 Invalidate the entire tile cache
     DrawingPainter.invalidateAllTiles();
-    // 💾 AUTO-SAVE dopo clear
+    // 💾 AUTO-SAVE after clear
     _autoSaveCanvas();
   }
 

@@ -27,11 +27,11 @@ enum TimeTravelPlaybackState {
 /// data integrity:
 ///
 /// - **Forward**: applies events one by one (safe, incremental)
-/// - **Backward ≤ [_inverseThreshold] eventi**: apply inverse deltas
-/// - **Backward > [_inverseThreshold] eventi**: snapshot reload + forward replay
+/// - **Backward ≤ [_inverseThreshold] events**: apply inverse deltas
+/// - **Backward > [_inverseThreshold] events**: snapshot reload + forward replay
 ///
 /// The threshold is conservative: inverse deltas work well for few steps
-/// (like user undo), ma accumulate risk on long sequences because
+/// (like user undo), but accumulate risk on long sequences because
 /// `layerModified`, `textUpdated` e `imageUpdated` do not save the state
 /// previous state in the delta.
 class TimeTravelPlaybackEngine {
@@ -57,7 +57,7 @@ class TimeTravelPlaybackEngine {
   List<TimeTravelSession> get sessions => List.unmodifiable(_sessions);
 
   /// All events flattened in chronological order
-  /// Loadti lazy per session: inizialmente vuoto, popolato on-demand
+  /// Lazy loaded per session: initially empty, populated on-demand
   final List<TimeTravelEvent> _allEvents = [];
   int get totalEventCount => _allEvents.length;
 
@@ -722,7 +722,7 @@ class TimeTravelPlaybackEngine {
   /// Between distinct blocks, fixed interval of [_blockInterval] ms.
   ///
   /// Stroke-by-stroke mode bypasses this timeline completely.
-  static const int _blockGapThreshold = 1000; // ms — gap max dentro un blocco
+  static const int _blockGapThreshold = 1000; // ms — max gap within a block
   static const int _blockInterval = 200; // ms — pausa tra blocchi
 
   void _buildCompressedTimeline() {

@@ -11,7 +11,7 @@ import '../infinite_canvas_controller.dart';
 /// - 1 rotation handle (above the box) → free rotation
 /// - Drag interno → spostamento (delegato a LassoTool)
 ///
-/// I callbacks vengono chiamati durante il drag per aggiornare
+/// The callbacks are called during drag to update
 /// gli selected elements in tempo reale.
 class SelectionTransformOverlay extends StatefulWidget {
   final LassoTool lassoTool;
@@ -102,7 +102,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
           center,
         ),
 
-        // Handle rotazione (sopra il box)
+        // Handle rotation (above the box)
         _buildRotationHandle(
           Offset(
             screenBounds.center.dx,
@@ -279,7 +279,7 @@ enum _HandleType {
   rotation,
 }
 
-/// Painter per il bordo tratteggiato del bounding box
+/// Painter for the dashed border of the bounding box
 class _DashedBorderPainter extends CustomPainter {
   final bool isDark;
 

@@ -46,7 +46,7 @@ class UnifiedImageTool extends BaseTool {
   bool get isDragging => _isDragging;
   bool get isResizing => _isResizing;
 
-  /// Size di default delle immagini (to calculate bounds)
+  /// Default image size (to calculate bounds)
   static const double _defaultImageSize = 200.0;
 
   // ============================================================================

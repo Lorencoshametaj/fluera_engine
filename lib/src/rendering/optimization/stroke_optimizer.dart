@@ -38,7 +38,7 @@ class StrokeOptimizer {
     return total / opacities.length;
   }
 
-  /// 🚀 Smoothing ottimizzato delle larghezze
+  /// 🚀 Optimized width smoothing
   ///
   /// Use weighted average for smooth transitions without too many calculations
   static List<double> smoothWidths(List<double> widths) {
@@ -61,7 +61,7 @@ class StrokeOptimizer {
     return smoothed;
   }
 
-  /// 🚀 Smoothing opacity (stessa logica delle larghezze)
+  /// 🚀 Opacity smoothing (same logic as widths)
   static List<double> smoothOpacities(List<double> opacities) {
     if (opacities.length < 3) return opacities;
 

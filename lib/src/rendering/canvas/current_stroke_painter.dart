@@ -95,7 +95,7 @@ class CurrentStrokePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final currentStroke = strokeNotifier.value;
 
-    // If lo stroke is empty, resetta tutto
+    // If the stroke is empty, reset everything
     if (currentStroke.isEmpty) {
       _predictor.reset();
       _invalidateCache();

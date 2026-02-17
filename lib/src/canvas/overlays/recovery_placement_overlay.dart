@@ -10,11 +10,11 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../infinite_canvas_controller.dart';
 
-/// 🔮 Overlay for positioning elementi recuperati dal passato
+/// 🔮 Overlay for positioning elements recovered from the past
 ///
-/// Shows una preview draggabile degli selected elements
-/// sul canvas live, permettendo all'utente di spostarli prima
-/// del commit finale. Supporta auto-pan ai bordi dello schermo.
+/// Shows a draggable preview of the selected elements
+/// on the live canvas, allowing the user to move them before
+/// the final commit. Supports auto-pan at screen edges.
 class RecoveryPlacementOverlay extends StatefulWidget {
   final List<ProStroke> strokes;
   final List<GeometricShape> shapes;
@@ -58,7 +58,7 @@ class _RecoveryPlacementOverlayState extends State<RecoveryPlacementOverlay>
   Size _viewportSize = Size.zero;
   bool _isDragging = false;
 
-  /// Bounding box complessiva di tutti gli elementi (canvas coords)
+  /// Overall bounding box of all elements (canvas coords)
   late Rect _elementsBounds;
 
   @override
@@ -128,22 +128,22 @@ class _RecoveryPlacementOverlayState extends State<RecoveryPlacementOverlay>
     double dx = 0;
     double dy = 0;
 
-    // Bordo sinistro
+    // Left edge
     if (position.dx < _autoPanEdgeZone) {
       dx = -_autoPanSpeed * (1 - position.dx / _autoPanEdgeZone);
     }
-    // Bordo destro
+    // Right edge
     else if (position.dx > _viewportSize.width - _autoPanEdgeZone) {
       dx =
           _autoPanSpeed *
           (1 - (_viewportSize.width - position.dx) / _autoPanEdgeZone);
     }
 
-    // Bordo superiore
+    // Top edge
     if (position.dy < _autoPanEdgeZone) {
       dy = -_autoPanSpeed * (1 - position.dy / _autoPanEdgeZone);
     }
-    // Bordo inferiore
+    // Bottom edge
     else if (position.dy > _viewportSize.height - _autoPanEdgeZone) {
       dy =
           _autoPanSpeed *
@@ -165,8 +165,8 @@ class _RecoveryPlacementOverlayState extends State<RecoveryPlacementOverlay>
       final panDelta = _calculateAutoPanDelta(_lastDragPosition);
 
       if (panDelta != Offset.zero) {
-        // Muovi il canvas nella direzione OPPOSTA al panDelta:
-        // panDelta positivo (bordo destro) → offset diminuisce → scroll a destra
+        // Move the canvas in the OPPOSITE direction to panDelta:
+        // positive panDelta (right edge) → offset decreases → scroll right
         final ctrl = widget.canvasController;
         ctrl.setOffset(ctrl.offset - panDelta);
 
@@ -225,7 +225,7 @@ class _RecoveryPlacementOverlayState extends State<RecoveryPlacementOverlay>
 
         return Stack(
           children: [
-            // Layer 1: Preview degli elementi + drag area
+            // Layer 1: Element preview + drag area
             Positioned.fill(
               child: GestureDetector(
                 onPanStart: _onPanStart,
@@ -279,7 +279,7 @@ class _RecoveryPlacementOverlayState extends State<RecoveryPlacementOverlay>
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Trascina per posizionare',
+                          'Drag to position',
                           style: tt.bodyMedium?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),
@@ -290,7 +290,7 @@ class _RecoveryPlacementOverlayState extends State<RecoveryPlacementOverlay>
                       TextButton(
                         onPressed: widget.onCancel,
                         child: Text(
-                          'Annulla',
+                          'Cancel',
                           style: TextStyle(color: cs.error),
                         ),
                       ),
@@ -360,7 +360,7 @@ class _PlacementPreviewPainter extends CustomPainter {
       final br = ctrl.canvasToScreen(elementsBounds.bottomRight + offset);
       final groupRect = Rect.fromPoints(tl, br).inflate(8);
 
-      // Glow pulsante
+      // Pulsing glow
       final glowAlpha = 0.15 + pulseValue * 0.1;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
@@ -372,7 +372,7 @@ class _PlacementPreviewPainter extends CustomPainter {
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
       );
 
-      // Bordo tratteggiato
+      // Dashed border
       final borderPaint =
           Paint()
             ..color = accentColor.withValues(alpha: 0.5 + pulseValue * 0.3)
@@ -383,14 +383,14 @@ class _PlacementPreviewPainter extends CustomPainter {
         borderPaint,
       );
 
-      // Icona move al centro
+      // Move icon at center
       final center = groupRect.center;
       final iconPaint =
           Paint()
             ..color = accentColor.withValues(alpha: 0.3 + pulseValue * 0.2);
       canvas.drawCircle(center, 16, iconPaint);
 
-      // Frecce direzionali
+      // Directional arrows
       final arrowPaint =
           Paint()
             ..color = accentColor.withValues(alpha: 0.6)
@@ -512,7 +512,7 @@ class _PlacementPreviewPainter extends CustomPainter {
           ..strokeWidth = 1.5,
       );
 
-      // Icona immagine al centro
+      // Image icon at center
       final iconPaint = Paint()..color = accentColor.withValues(alpha: 0.4);
       final imgCenter = imgRect.center;
       canvas.drawCircle(imgCenter, 12 * scale, iconPaint);

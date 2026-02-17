@@ -539,7 +539,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // Annulla
+                // Cancel
                 TextButton(
                   onPressed: () {
                     HapticFeedback.lightImpact();

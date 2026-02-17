@@ -1,6 +1,6 @@
 /// 🔧 UNIFIED TOOLS - Export barrel
 ///
-/// Esporta tutti i tool unificati per uso nelle views.
+/// Exports all unified tools for use in views.
 ///
 /// Usage:
 /// ```dart

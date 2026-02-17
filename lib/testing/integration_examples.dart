@@ -7,7 +7,7 @@ import './brush_testing.dart';
 /// in diversi contesti dell'app.
 
 // =============================================================================
-// ESEMPIO 1: Pulsante nella Home
+// EXAMPLE 1: Button in the Home
 // =============================================================================
 
 class HomeScreenExample extends StatelessWidget {
@@ -186,7 +186,7 @@ void showBrushTestDialog(BuildContext context) {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Annulla'),
+              child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () {

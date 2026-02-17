@@ -18,7 +18,7 @@ class ImageInteractionTool {
   /// Handle di resize in dragging (null = nessuno, altrimenti indice 0-3)
   int? _resizeHandleIndex;
 
-  /// Position precedente durante resize
+  /// Previous position during resize
   Offset? _previousResizePosition;
 
   /// Distanza totale del drag (per distinguere tap da drag)
@@ -67,7 +67,7 @@ class ImageInteractionTool {
       // Get dimensioni
       final displaySize = _getDisplaySize(element);
 
-      // Check if the punto is dentro i bounds locali CENTRATI
+      // Check if the point is inside the CENTERED local bounds
       const margin = 20.0;
       final halfWidth = displaySize.width / 2;
       final halfHeight = displaySize.height / 2;

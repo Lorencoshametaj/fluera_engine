@@ -1,10 +1,10 @@
 import '../../history/canvas_delta_tracker.dart';
 
-/// 📜 Sessione di Time Travel — raggruppa eventi per session di editing
+/// 📜 Time Travel Session — groups events per editing session
 ///
-/// Each sessione corrisponde a un'apertura-chiusura of the canvas professionale.
-/// Le sessioni sono serializzate in un file indice leggero (`index.json`);
-/// i dati effettivi degli eventi risiedono in file compressi separati.
+/// Each session corresponds to an opening-closing of the professional canvas.
+/// Sessions are serialized in a lightweight index file (`index.json`);
+/// the actual event data resides in separate compressed files.
 class TimeTravelSession {
   final String id;
   final String canvasId;
@@ -28,10 +28,10 @@ class TimeTravelSession {
     this.elementsModified = 0,
   });
 
-  /// Durata totale della sessione
+  /// Total session duration
   Duration get duration => endTime.difference(startTime);
 
-  /// Serialize per l'indice (leggero, ~100 byte per session)
+  /// Serialize for the index (lightweight, ~100 bytes per session)
   Map<String, dynamic> toJson() => {
     'id': id,
     'canvasId': canvasId,
@@ -71,7 +71,7 @@ class TimeTravelEvent {
   final String layerId;
   final int? pageIndex;
 
-  /// Millisecondi from the beginning della sessione (non epoch assoluto)
+  /// Milliseconds from the beginning of the session (not absolute epoch)
   final int timestampMs;
 
   /// Dati dell'elemento (stroke JSON, shape JSON, ecc.)

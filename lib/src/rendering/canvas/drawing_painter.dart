@@ -31,13 +31,13 @@ import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
 /// - 🚀 QuadTree for 10k+ strokes: query O(log n)
 ///
 /// ARCHITETTURA (Viewport-Level Mode):
-/// - 🚀 Positioned at viewport level (fuori da Transform)
+/// - 🚀 Positioned at viewport level (outside Transform)
 /// - 🚀 repaint: controller → paint() on every pan/zoom frame
 /// - 🚀 Per-frame cost: O(1) via cache hit (drawPicture)
 /// - 🚀 RepaintBoundary texture = viewport size (~20MB vs ~380MB)
 ///
 /// NOTA: Il current stroke is gestito da CurrentStrokePainter separato
-/// for performance ottimale (zero widget rebuild durante disegno)
+/// for optimal performance (zero widget rebuild during drawing)
 class DrawingPainter extends CustomPainter {
   final List<GeometricShape> completedShapes;
   final GeometricShape? currentShape;
@@ -175,7 +175,7 @@ class DrawingPainter extends CustomPainter {
       _paintDirect(canvas, viewport);
     }
 
-    // Draw shapes (sempre rendering diretto - tipicamente poche)
+    // Draw shapes (always direct rendering - typically few)
     _paintShapes(canvas, viewport);
 
     // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
@@ -492,12 +492,12 @@ class DrawingPainter extends CustomPainter {
       spatialIndex: spatialIndex,
     );
 
-    // Draw tutte the geometric shapes completate (SOLO visibili)
+    // Draw all completed geometric shapes (ONLY visible ones)
     for (final shape in visibleShapes) {
       ShapePainter.drawShape(canvas, shape);
     }
 
-    // Draw la current shape in preview (sempre visibile if present)
+    // Draw the current shape in preview (always visible if present)
     if (currentShape != null) {
       ShapePainter.drawShape(canvas, currentShape!, isPreview: true);
     }
@@ -556,7 +556,7 @@ class DrawingPainter extends CustomPainter {
     // 🚀 Repaint ONLY if strokes/shapes change (add/remove)
     // The parent Transform widget gestisce zoom/pan visivamente →
     // NESSUN repaint per offset/scale/viewportSize, a qualunque
-    // number of strokes. I tile cached sono bitmap GPU-scaled.
+    // number of strokes. Cached tiles are GPU-scaled bitmaps.
     // 🌲 Scene graph version-based change detection
     return oldDelegate.sceneGraph.version != sceneGraph.version ||
         oldDelegate.completedShapes != completedShapes ||
@@ -590,12 +590,12 @@ class DrawingPainter extends CustomPainter {
     }
   }
 
-  /// 🚀 Invalidate tile coinvolti da uno stroke (chiamare dopo add/remove)
+  /// 🚀 Invalidate tiles involved by a stroke (call after add/remove)
   static void invalidateTilesForStroke(ProStroke stroke) {
     _tileCacheManager?.invalidateTilesForStroke(stroke);
   }
 
-  /// 🚀 Invalidate tutti i tile (chiamare dopo undo completo o clear)
+  /// 🚀 Invalidate all tiles (call after complete undo or clear)
   static void invalidateAllTiles() {
     _tileCacheManager?.invalidateAll();
     _strokeCache.invalidateCache(); // Also invalidate vectorial cache

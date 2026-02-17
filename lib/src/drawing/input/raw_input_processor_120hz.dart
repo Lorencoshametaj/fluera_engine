@@ -58,16 +58,16 @@ class RawInputProcessor120Hz {
     );
   }
 
-  /// Processa pointer move event (durante stroke)
+  /// Process pointer move event (during stroke)
   void handlePointerMove(PointerMoveEvent event) {
     // 🚀 Handle coalesced events (punti intermedi among the frame)
     // Essenziali per 120Hz reali!
     // Nota: event.reshample is already handled da Flutter per alcuni dispositivi,
-    // ma for precision massima iteriamo su tutti i raw points.
+    // but for maximum precision we iterate over all raw points.
 
     // Lista di eventi (incluso l'ultimo)
-    // If non ci sono coalesced, is una lista con solo 'event'
-    // Ma attenzione: su Android, getCoalescedEvents() restituisce tutti i punti dal frame precedente.
+    // If there are no coalesced, it's a list with only 'event'
+    // But beware: on Android, getCoalescedEvents() returns all points from the previous frame.
 
     // For sicurezza, processiamo l'evento principale SE non usiamo i coalesced,
     // ma la best practice is iterare sui coalesced se disponibili.

@@ -5,7 +5,7 @@ import '../config/multi_page_config.dart';
 ///
 /// Permette all'utente di salvare aree frequentemente esportate
 /// per riutilizzarle rapidamente without ridefinire i bounds.
-/// Supporta anche configurazioni multi-pagina.
+/// Also supports multi-page configurations.
 class SavedExportArea {
   final String id;
   final String name;

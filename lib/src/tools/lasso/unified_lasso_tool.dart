@@ -51,7 +51,7 @@ class UnifiedLassoTool extends SelectionTool {
   /// Flag: stiamo trascinando la selezione
   bool _isDraggingSelection = false;
 
-  /// Ultimo offset to calculate delta durante drag
+  /// Last offset to calculate delta during drag
   Offset _lastDragOffset = Offset.zero;
 
   /// Strokes selezionati (copiati per modifiche)
@@ -89,13 +89,13 @@ class UnifiedLassoTool extends SelectionTool {
   void onPointerDown(ToolContext context, PointerDownEvent event) {
     beginOperation(context, event.localPosition);
 
-    // If c'è una selezione, verifica if the tap is dentro la selezione
+    // If there is a selection, check if the tap is inside the selection
     if (hasSelection && isPointInSelection(currentCanvasPosition!)) {
-      // Start drag della selezione
+      // Start selection drag
       _isDraggingSelection = true;
       _lastDragOffset = currentCanvasPosition!;
 
-      // Save stato for ado
+      // Save state for undo
       context.saveUndoState();
     } else {
       // Start nuovo percorso lasso
@@ -156,7 +156,7 @@ class UnifiedLassoTool extends SelectionTool {
   // SELECTION LOGIC
   // ============================================================================
 
-  /// Seleziona elementi che si trovano dentro il percorso lasso
+  /// Select elements that are inside the lasso path
   void _selectElementsInPath(ToolContext context) {
     if (lassoPath.length < 3) {
       lassoPath.clear();
@@ -215,7 +215,7 @@ class UnifiedLassoTool extends SelectionTool {
     return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
-  /// Calculates bounds degli selected elements
+  /// Calculates bounds of selected elements
   Rect _calculateSelectionBounds() {
     double minX = double.infinity;
     double maxX = double.negativeInfinity;

@@ -43,7 +43,7 @@ class ImagePainter extends CustomPainter {
         continue;
       }
 
-      // Save stato canvas
+      // Save canvas state
       canvas.save();
 
       // Translate alla position
@@ -120,17 +120,17 @@ class ImagePainter extends CustomPainter {
       canvas.drawImageRect(image, srcRect, dstRect, paint);
 
       // 🎨 SEMPRE disegna gli strokes salvati sull'immagine (PRIMA del restore!)
-      // Gli strokes are in coordinate relative all'immagine, quindi beneficiano delle trasformazioni
+      // Strokes are in coordinates relative to the image, so they benefit from transformations
       if (imageElement.drawingStrokes.isNotEmpty) {
         for (final stroke in imageElement.drawingStrokes) {
           _drawStroke(canvas, stroke, imageElement.scale);
         }
       }
 
-      // 🎨 Se questa immagine is in editing mode, disegna strokes temporanei
+      // 🎨 If this image is in editing mode, draw temporary strokes
       // (l'overlay will come disegnato after the restore in coordinate assolute)
       if (imageInEditMode?.id == imageElement.id) {
-        // Draw gli strokes temporanei (durante l'editing corrente)
+        // Draw temporary strokes (during current editing)
         for (final stroke in imageEditingStrokes) {
           _drawStroke(canvas, stroke, imageElement.scale);
         }
@@ -144,7 +144,7 @@ class ImagePainter extends CustomPainter {
       // Ripristina stato
       canvas.restore();
 
-      // 🎨 Se questa immagine is in editing mode, disegna overlay (in coordinate assolute)
+      // 🎨 If this image is in editing mode, draw overlay (in absolute coordinates)
       if (imageInEditMode?.id == imageElement.id) {
         _drawEditingOverlayBorder(canvas, imageElement, image);
       }
@@ -206,7 +206,7 @@ class ImagePainter extends CustomPainter {
 
     canvas.drawRect(rect.inflate(4), shadowPaint);
 
-    // Bordo selezione more sottile e professionale
+    // Thinner and more professional selection border
     final borderPaint =
         Paint()
           ..color = Colors.blue.shade600
@@ -263,7 +263,7 @@ class ImagePainter extends CustomPainter {
       height: scaledHeight,
     );
 
-    // Bordo verde brillante per indicare mode editing
+    // Bright green border to indicate editing mode
     final editBorderPaint =
         Paint()
           ..color = Colors.green.shade500

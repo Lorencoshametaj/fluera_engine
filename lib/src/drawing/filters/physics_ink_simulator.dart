@@ -17,10 +17,10 @@ class PhysicsInkSimulator {
   /// Damping coefficient (0.0 = no damping, 1.0 = stops immediately)
   final double damping;
 
-  /// Stiffness della "molla" (more alto = more rigido)
+  /// Stiffness of the "spring" (higher = more rigid)
   final double stiffness;
 
-  /// Massa virtuale della punta (more alto = more inerzia)
+  /// Virtual tip mass (higher = more inertia)
   final double mass;
 
   /// Speed corrente

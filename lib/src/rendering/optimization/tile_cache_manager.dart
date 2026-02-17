@@ -388,7 +388,7 @@ class TileCacheManager {
     _logMemoryStats('invalidateTile');
   }
 
-  /// Invalidate tutti i tile che contengono un certo stroke
+  /// Invalidate all tiles that contain a certain stroke
   void invalidateTilesForStroke(ProStroke stroke) {
     final bounds = stroke.bounds;
     if (bounds == Rect.zero) return;
@@ -398,7 +398,7 @@ class TileCacheManager {
     }
   }
 
-  /// Invalidate tutti i tile che intersecano un bounds
+  /// Invalidate all tiles that intersect a bounds
   void invalidateTilesInBounds(Rect bounds) {
     for (final (tileX, tileY) in getTilesForBounds(bounds)) {
       invalidateTile(tileX, tileY);
@@ -511,7 +511,7 @@ class TileCacheManager {
   // 🧹 CLEANUP
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Invalidate tutti i tile (ricostruzione completa)
+  /// Invalidate all tiles (complete reconstruction)
   void invalidateAll() {
     _dirtyTiles.addAll(_tileCache.keys);
   }

@@ -10,7 +10,7 @@ import '../core/engine_scope.dart';
 /// - After inactivity (500ms): short debounce to save quickly
 /// - Supports different callbacks for delta-only vs full checkpoint
 ///
-/// 🎯 Obiettivo: zero lag during drawing, salvataggio veloce dopo
+/// 🎯 Goal: zero lag during drawing, fast save afterwards
 class AdaptiveDebouncerService {
   // Singleton
   /// Legacy singleton accessor — delegates to [EngineScope.current].
@@ -23,16 +23,16 @@ class AdaptiveDebouncerService {
   // CONFIGURATION
   // ============================================================================
 
-  /// Debounce base durante disegno attivo (aumentato da 3s a 5s)
+  /// Base debounce during active drawing (increased from 3s to 5s)
   static const Duration baseActiveDebounce = Duration(seconds: 5);
 
-  /// Debounce minimo durante disegno intenso (molti strokes/sec)
+  /// Minimum debounce during intense drawing (many strokes/sec)
   static const Duration minActiveDebounce = Duration(seconds: 3);
 
-  /// Debounce massimo durante disegno lento (pochi strokes/sec)
+  /// Maximum debounce during slow drawing (few strokes/sec)
   static const Duration maxActiveDebounce = Duration(seconds: 8);
 
-  /// Debounce dopo inactivity (corto per salvare velocemente)
+  /// Debounce after inactivity (short to save quickly)
   static const Duration idleDebounce = Duration(milliseconds: 300);
 
   /// Tempo di inactivity per considerare il disegno "terminato"
@@ -69,7 +69,7 @@ class AdaptiveDebouncerService {
   /// Flag: c'was input recente
   bool _hasRecentInput = false;
 
-  /// Notifier esterno per stato disegno (opzionale, per binding)
+  /// External notifier for drawing state (optional, for binding)
   ValueNotifier<bool>? _externalDrawingNotifier;
 
   /// 📊 ADAPTIVE: Contatore strokes per calcolo intensity
@@ -85,10 +85,10 @@ class AdaptiveDebouncerService {
   // SETUP
   // ============================================================================
 
-  /// Connette un ValueNotifier esterno per monitorare lo stato disegno
+  /// Connects an external ValueNotifier to monitor drawing state
   ///
   /// Use il notifier esistente in professional_canvas_screen
-  /// per rilevare automaticamente quando l'utente sta disegnando.
+  /// to automatically detect when the user is drawing.
   void bindDrawingNotifier(ValueNotifier<bool> notifier) {
     _externalDrawingNotifier?.removeListener(_onDrawingStateChanged);
     _externalDrawingNotifier = notifier;
@@ -263,7 +263,7 @@ class AdaptiveDebouncerService {
     final callback = _pendingCallback;
     if (callback == null) return;
 
-    // Clear stato
+    // Clear state
     _pendingCallback = null;
     _debounceTimer?.cancel();
 

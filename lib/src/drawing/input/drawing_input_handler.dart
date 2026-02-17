@@ -136,10 +136,10 @@ class DrawingInputHandler {
   /// [screenPosition] Position in SCREEN coordinates (pixels)
   /// [scaleFactor] Page scale factor (to convert to doc-space)
   /// [eventTimestamp] Timestamp from PointerEvent (milliseconds)
-  /// [pressure] Pressione dello stylus (0.0-1.0), default 1.0 per touch
+  /// [pressure] Stylus pressure (0.0-1.0), default 1.0 for touch
   /// [tiltX] Stylus X tilt (-1.0 to 1.0)
   /// [tiltY] Stylus Y tilt (-1.0 to 1.0)
-  /// [orientation] Orientamento dello stylus (radianti)
+  /// [orientation] Stylus orientation (radians)
   ///
   /// Overload: accepts doc-space directly when scaleFactor is omitted (legacy).
   void startStroke({
@@ -196,7 +196,7 @@ class DrawingInputHandler {
   /// [screenPosition] Position in SCREEN coordinates (pixels)
   /// [scaleFactor] Fattore di scala pagina
   /// [eventTimestamp] Timestamp from PointerEvent (milliseconds)
-  /// [pressure] Pressione dello stylus (0.0-1.0), default 1.0 per touch
+  /// [pressure] Stylus pressure (0.0-1.0), default 1.0 for touch
   /// [silent] If true, skips onPointsUpdated callback (for batch interpolation)
   void updateStroke({
     required Offset position,

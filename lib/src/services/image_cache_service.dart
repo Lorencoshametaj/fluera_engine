@@ -233,7 +233,7 @@ class ImageCacheService {
     );
     final maxBytes = _maxDiskCacheSizeMB * 1024 * 1024;
 
-    // If sotto limite e sotto max count, non serve eviction
+    // If under limit and under max count, no eviction needed
     if (totalSize < maxBytes && _diskLruMetadata.length < _maxDiskCacheCount) {
       return;
     }
@@ -243,7 +243,7 @@ class ImageCacheService {
         _diskLruMetadata.entries.toList()
           ..sort((a, b) => a.value.lastAccess.compareTo(b.value.lastAccess));
 
-    // Remove fino a essere sotto il 70% del limite
+    // Remove until under 70% of the limit
     final targetSize = (maxBytes * 0.7).toInt();
     final targetCount = (_maxDiskCacheCount * 0.7).toInt();
 

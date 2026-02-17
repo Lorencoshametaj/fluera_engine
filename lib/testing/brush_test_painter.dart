@@ -16,7 +16,7 @@ class BrushTestPainter extends CustomPainter {
   final BrushStroke? currentStroke;
   final double devicePixelRatio;
   final bool isDark;
-  final int repaintKey; // Forza repaint quando cambia
+  final int repaintKey; // Force repaint when it changes
 
   // LAYER 1: Image rasterizzata per strokes completati
   static ui.Image? _completedStrokesImage;

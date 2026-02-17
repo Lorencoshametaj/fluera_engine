@@ -39,7 +39,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
   bool _isDrawing = false;
   Offset? _lastPosition; // 🎯 Per calcolo velocità
 
-  /// 🎯 REALISM: Simula pressione realistica per dito dalla velocità
+  /// 🎯 REALISM: Simulates realistic finger pressure from velocity
   double _normalizePressure(PointerEvent event) {
     final rawPressure = event.pressure;
 
@@ -48,7 +48,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
       return rawPressure.clamp(0.1, 1.0);
     }
 
-    // Finger: simula pressione dalla velocità
+    // Finger: simulates pressure from velocity
     if (_lastPosition != null) {
       final distance = (event.localPosition - _lastPosition!).distance;
 
@@ -123,7 +123,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
           widget.onPanEnd();
         },
         // 🚀 RepaintBoundary isolates canvas from rest of widget tree
-        // Previene repaint inutili quando altri widget cambiano
+        // Prevents unnecessary repaints when other widgets change
         child: RepaintBoundary(
           child: CustomPaint(
             painter: BrushTestPainter(

@@ -467,7 +467,7 @@ class DiskStrokeManager {
     _chunkAccessOrder.clear();
   }
 
-  /// Elimina tutti i dati (disco + RAM)
+  /// Delete all data (disk + RAM)
   Future<void> deleteAll() async {
     if (_dataDir != null && await _dataDir!.exists()) {
       await _dataDir!.delete(recursive: true);

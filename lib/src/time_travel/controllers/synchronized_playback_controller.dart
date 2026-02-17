@@ -490,7 +490,7 @@ class SynchronizedPlaybackController extends ChangeNotifier {
     _durationSubscription?.cancel();
 
     _positionSubscription = _audioPlayer.positionStream.listen((pos) {
-      // Nota: usiamo stopwatch interno, questo stream is not affidabile
+      // Note: we use internal stopwatch, this stream is not reliable
     });
 
     _stateSubscription = _audioPlayer.stateStream.listen((stateInfo) {

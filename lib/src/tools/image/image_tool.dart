@@ -46,16 +46,16 @@ class ImageTool {
 
   /// Hit test su un'immagine (controlla if the punto tocca l'immagine)
   bool hitTest(ImageElement image, Offset point, Size imageSize) {
-    // L'immagine viene disegnata con:
+    // The image is drawn with:
     // 1. translate(position)
     // 2. scale(scale)
     // 3. drawImage da topLeft di un rect centrato su zero
-    // Quindi dobbiamo calcolare il rect finale dopo tutte le trasformazioni
+    // So we must calculate the final rect after all transformations
 
     final scaledWidth = imageSize.width * image.scale;
     final scaledHeight = imageSize.height * image.scale;
 
-    // The rect originale is centrato su zero, quindi topLeft = (-width/2, -height/2)
+    // The original rect is centered on zero, so topLeft = (-width/2, -height/2)
     // Dopo la scala: scaledTopLeft = (-scaledWidth/2, -scaledHeight/2)
     // Dopo la traslazione: finalTopLeft = position + scaledTopLeft
     final scaledTopLeft = Offset(-scaledWidth / 2, -scaledHeight / 2);
@@ -145,7 +145,7 @@ class ImageTool {
     _dragStartPosition = null;
   }
 
-  /// Compensate the scroll of the canvas durante drag/resize
+  /// Compensate the canvas scroll during drag/resize
   /// (used by auto-scroll to keep the image under the finger)
   void compensateScroll(Offset compensation) {
     if (_selectedImage == null) return;
@@ -156,7 +156,7 @@ class ImageTool {
     );
 
     // ⚡ IMPORTANTE: aggiorna anche dragStartPosition per mantenere
-    // il riferimento corretto quando l'utente continua a muovere il dito
+    // the correct reference when the user continues to move the finger
     if (_dragStartPosition != null) {
       _dragStartPosition = _dragStartPosition! + compensation;
     }

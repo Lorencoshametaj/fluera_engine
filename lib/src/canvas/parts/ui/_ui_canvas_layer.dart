@@ -276,7 +276,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
     );
   }
 
-  /// 🎵 Synchronized Playback Overlay (Recorded — dentro il canvas Stack)
+  /// 🎵 Synchronized Playback Overlay (Recorded — inside the canvas Stack)
   Widget _buildRecordedPlaybackOverlay(BuildContext context) {
     return Positioned.fill(
       child: AnimatedBuilder(

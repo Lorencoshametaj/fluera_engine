@@ -129,7 +129,7 @@ extension on _NebulaCanvasScreenState {
     }
   }
 
-  /// 🔄 Sincronizza Firebase in background dopo caricamento locale
+  /// 🔄 Synchronize Firebase in background after local loading
   ///
   /// 🔄 Sincronizzazione Firebase in background
   /// Loads dati da Firebase e li applica SOLO se more recenti del locale.
@@ -327,7 +327,7 @@ extension on _NebulaCanvasScreenState {
   /// - Right/Bottom: doubles size when content > 80%
   /// - Left/Top: shifts ALL coordinates and compensates controller offset
   ///
-  /// Guarded: NON espande durante caricamento iniziale.
+  /// Guarded: does NOT expand during initial loading.
   void _expandCanvasIfNeeded() {
     if (_isLoading || _isImageEditFromInfiniteCanvas) return;
 
@@ -358,7 +358,7 @@ extension on _NebulaCanvasScreenState {
       }
     }
 
-    // SizedBox deve coprire il contenuto in tutte le direzioni
+    // SizedBox must cover the content in all directions
     // We use double the max extent (to cover ±maxX, ±maxY)
     final neededW = maxX * 2 + 1000; // margine
     final neededH = maxY * 2 + 1000;

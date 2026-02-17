@@ -17,7 +17,7 @@ class DigitalTextTool {
   /// Handle di resize in dragging (null = nessuno, altrimenti indice 0-3)
   int? _resizeHandleIndex;
 
-  /// Position precedente durante resize (per calcolo delta incrementale)
+  /// Previous position during resize (for incremental delta calculation)
   Offset? _previousResizePosition;
 
   /// Getter per l'selected element
@@ -135,17 +135,17 @@ class DigitalTextTool {
     _dragStartCanvasPosition = null;
   }
 
-  /// Compensate the scroll of the canvas durante il drag (per auto-scroll fluido)
+  /// Compensate the canvas scroll during drag (for smooth auto-scroll)
   void compensateScroll(Offset scrollDelta) {
     if (_selectedElement == null) return;
 
-    // Compensate la position come il lazo
+    // Compensate the position like the lasso
     _selectedElement = _selectedElement!.copyWith(
       position: _selectedElement!.position + scrollDelta,
       modifiedAt: DateTime.now(),
     );
 
-    // Compensate i punti di riferimento per mantenere il delta corretto
+    // Compensate the reference points to maintain the correct delta
     if (isDragging && _dragStartCanvasPosition != null) {
       _dragStartCanvasPosition = _dragStartCanvasPosition! + scrollDelta;
     }
@@ -249,22 +249,22 @@ class DigitalTextTool {
     double dx = 0.0;
     double dy = 0.0;
 
-    // Bordo sinistro
+    // Left edge
     if (screenPosition.dx < edgeThreshold) {
       dx = -scrollSpeed * (1 - screenPosition.dx / edgeThreshold);
     }
-    // Bordo destro
+    // Right edge
     else if (screenPosition.dx > screenSize.width - edgeThreshold) {
       dx =
           scrollSpeed *
           (1 - (screenSize.width - screenPosition.dx) / edgeThreshold);
     }
 
-    // Bordo superiore
+    // Top edge
     if (screenPosition.dy < edgeThreshold) {
       dy = -scrollSpeed * (1 - screenPosition.dy / edgeThreshold);
     }
-    // Bordo inferiore
+    // Bottom edge
     else if (screenPosition.dy > screenSize.height - edgeThreshold) {
       dy =
           scrollSpeed *

@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 /// Visible only at zoom ≥ 0.3x to not disturb at extreme zoom levels.
 /// Si adatta inversamente allo zoom: size costante sullo schermo.
 ///
-/// 🚀 NO repaint: durante pan/zoom — aggiornato solo su widget rebuild
+/// 🚀 NO repaint: during pan/zoom — updated only on widget rebuild
 /// (stroke change). Wrappato in RepaintBoundary per isolamento.
 class OriginIndicatorPainter extends CustomPainter {
   final double scale;
@@ -19,7 +19,7 @@ class OriginIndicatorPainter extends CustomPainter {
     if (scale < 0.3) return;
 
     // Size crosshair costante sullo schermo (30px)
-    // Dividiamo per scale so appare sempre della stessa size
+    // We divide by scale so it always appears the same size
     final armLength = 30.0 / scale;
     final strokeWidth = 0.8 / scale;
 

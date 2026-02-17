@@ -41,7 +41,7 @@ class AdvancedTileOptimizer {
   /// Queue di tile da rasterizzare (prioritizzati)
   final List<TileRasterTask> _rasterQueue = [];
 
-  /// Timer per pre-caching durante idle
+  /// Timer for pre-caching during idle
   Timer? _preCacheTimer;
 
   /// Callback to notify when a tile is ready
@@ -60,9 +60,9 @@ class AdvancedTileOptimizer {
   // 🚀 INCREMENTAL TILE UPDATE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Gets gli strokes NON ancora rasterizzati in un tile
+  /// Gets strokes NOT yet rasterized in a tile
   ///
-  /// Invece di ri-rasterizzare tutti gli strokes, ritorna solo quelli nuovi.
+  /// Instead of re-rasterizing all strokes, returns only the new ones.
   /// This permette di comporre l'immagine esistente + nuovi strokes.
   List<ProStroke> getNewStrokesForTile(
     String tileKey,
@@ -255,7 +255,7 @@ class AdvancedTileOptimizer {
   // 🔄 PRE-CACHING
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Avvia pre-caching di tile adiacenti durante idle
+  /// Start pre-caching adjacent tiles during idle
   void startPreCaching(
     List<(int, int)> visibleTiles,
     double tileSize,

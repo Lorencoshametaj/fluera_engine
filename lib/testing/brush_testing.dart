@@ -1,6 +1,6 @@
 /// 🎨 Barrel file per il modulo Brush Testing
 ///
-/// Esporta tutti i componenti necessari per usare la schermata di test pennelli
+/// Exports all components needed to use the brush test screen
 ///
 /// Uso:
 /// ```dart

@@ -140,10 +140,10 @@ class ShapePainter {
     final dy = shape.endPoint.dy - shape.startPoint.dy;
     final angle = math.atan2(dy, dx);
 
-    // Corpo della an arrow
+    // Body of an arrow
     canvas.drawLine(shape.startPoint, shape.endPoint, paint);
 
-    // Size della punta
+    // Size of the tip
     final arrowHeadLength = shape.strokeWidth * 8;
     final arrowHeadAngle = 25 * math.pi / 180; // 25 gradi
 
@@ -153,7 +153,7 @@ class ShapePainter {
     final leftArrowY =
         shape.endPoint.dy - arrowHeadLength * math.sin(angle - arrowHeadAngle);
 
-    // Punta destra
+    // Right point
     final rightArrowX =
         shape.endPoint.dx - arrowHeadLength * math.cos(angle + arrowHeadAngle);
     final rightArrowY =
@@ -245,7 +245,7 @@ class ShapePainter {
       topY + height,
     );
 
-    // Parte superiore destra
+    // Upper right part
     path.cubicTo(
       centerX + width * 0.3,
       topY + height * 0.7,

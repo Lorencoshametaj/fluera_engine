@@ -31,7 +31,7 @@ extension on _NebulaCanvasScreenState {
     if (_imageInEditMode != null) {
       final image = _loadedImages[_imageInEditMode!.imagePath];
       if (image != null) {
-        // Check if the punto is dentro l'immagine
+        // Check if the point is inside the image
         if (_isPointInsideImage(canvasPosition, _imageInEditMode!, image)) {
           // If gomma attiva, cancella invece di disegnare
           if (_effectiveIsEraser) {
@@ -42,7 +42,7 @@ extension on _NebulaCanvasScreenState {
           // ⚠️ Azzera lo stroke of the canvas normale to avoid duplicazioni
           _currentStrokeNotifier.clear();
 
-          // Start disegno sopra l'immagine
+          // Start drawing on top of the image
           _drawingHandler.startStroke(
             position: canvasPosition,
             pressure: pressure, // 🚀 Usa real pressure
@@ -67,7 +67,7 @@ extension on _NebulaCanvasScreenState {
           );
           return;
         } else {
-          // Tocco fuori dall'immagine -> esci da mode editing
+          // Touch outside the image -> exit editing mode
           _exitImageEditMode();
           return;
         }
@@ -104,7 +104,7 @@ extension on _NebulaCanvasScreenState {
         final imageSize = Size(image.width.toDouble(), image.height.toDouble());
 
         if (_imageTool.hitTest(imageElement, canvasPosition, imageSize)) {
-          // Seleziona l'immagine ma NON iniziare il drag ancora
+          // Select the image but do NOT start dragging yet
           _imageTool.selectImage(imageElement);
 
           // 📍 Save initial position to detect movement
@@ -168,7 +168,7 @@ extension on _NebulaCanvasScreenState {
 
     // If il lasso is active, controlla se inizio drag o nuovo lasso
     if (_effectiveIsLasso) {
-      // If c'è una selezione e il punto is dentro la selezione, inizia drag
+      // If there is a selection and the point is inside the selection, start drag
       if (_lassoTool.hasSelection &&
           _lassoTool.isPointInSelection(canvasPosition)) {
         _lassoTool.startDrag(canvasPosition);

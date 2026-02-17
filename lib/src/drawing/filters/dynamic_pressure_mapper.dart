@@ -1,6 +1,6 @@
 /// ✍️ DYNAMIC PRESSURE MAPPING
 ///
-/// Simula pressione variabile anche without stylus:
+/// Simulates variable pressure even without stylus:
 /// - Slow strokes → "heavier" pen → thicker stroke
 /// - Fast strokes → "lighter" pen → thinner stroke
 /// - Effetto calligrafico naturale

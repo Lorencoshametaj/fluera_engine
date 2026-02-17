@@ -137,7 +137,7 @@ class LODManager {
     _lodCache[strokeId]![lodLevel] = points;
   }
 
-  /// Invalidate cache for ao stroke (chiamare dopo modifica)
+  /// Invalidate cache for a stroke (call after modification)
   static void invalidateStroke(String strokeId) {
     _lodCache.remove(strokeId);
   }
@@ -181,7 +181,7 @@ class LODManager {
       }
     }
 
-    // If la distanza massima is maggiore della tolleranza, ricorsivamente semplifica
+    // If the maximum distance is greater than the tolerance, recursively simplify
     if (maxDistance > tolerance) {
       // Ricorsivamente semplifica le due mage
       final left = simplifyPoints(points.sublist(0, maxIndex + 1), tolerance);
