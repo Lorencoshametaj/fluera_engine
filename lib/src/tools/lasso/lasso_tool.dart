@@ -3,181 +3,189 @@ import 'package:flutter/material.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/models/canvas_layer.dart';
+import '../../core/models/digital_text_element.dart';
+import '../../core/models/image_element.dart';
 import '../../layers/nebula_layer_controller.dart';
-import '../../canvas/infinite_canvas_controller.dart';
 
-/// 🎨 LASSO TOOL - Strumento di selezione professionale
+part '_lasso_transforms.dart';
+part '_lasso_clipboard.dart';
+part '_lasso_advanced.dart';
+part '_lasso_alignment.dart';
+part '_lasso_properties.dart';
+part '_lasso_visual.dart';
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+/// Default estimated size for image elements when no actual size is known.
+const double _kDefaultImageSize = 200.0;
+
+/// Default estimated size for text elements when no context is available.
+const double _kDefaultTextWidth = 150.0;
+const double _kDefaultTextHeight = 40.0;
+
+/// Padding added to selection bounds for comfortable drag hit-testing.
+const double _kSelectionBoundsPadding = 20.0;
+
+/// 🎨 LASSO TOOL — Professional selection tool
 ///
-/// Caratteristiche:
-/// - Selezione a mano libera (lasso)
-/// - Detection of elements inside closed path
-/// - Supporto multi-selezione
-/// - Operazioni su selected elements (move, delete, copy, rotate, flip)
-/// - Drag to move elements
-/// - Auto-scroll at screen edge
+/// Features:
+/// - Freehand lasso selection
+/// - All element types: strokes, shapes, text, images
+/// - Bounding-box pre-filter for fast hit-testing
+/// - Move, delete, copy, duplicate, rotate, scale, flip
+/// - Alignment, distribution, z-ordering, grouping
+/// - Lock, opacity, color, snap-to-grid, undo
+/// - Multi-layer + export selection
 class LassoTool {
   final NebulaLayerController layerController;
 
-  // Path del lasso corrente
+  // Lasso path being drawn
   List<Offset> lassoPath = [];
 
-  // Elementi selezionati
+  // Selected element IDs by type
   final Set<String> selectedStrokeIds = {};
   final Set<String> selectedShapeIds = {};
+  final Set<String> selectedTextIds = {};
+  final Set<String> selectedImageIds = {};
 
-  // Stato del drag
+  // Drag state
   bool _isDragging = false;
   Offset? _dragStartPosition;
   Rect? _selectionBounds;
 
+  // Clipboard for copy/paste
+  List<ProStroke> _clipboardStrokes = [];
+  List<GeometricShape> _clipboardShapes = [];
+  List<DigitalTextElement> _clipboardTexts = [];
+  List<ImageElement> _clipboardImages = [];
+
+  // Group tracking (in-session, lightweight)
+  final Map<String, Set<String>> _groups = {};
+
+  // Snap-to-grid configuration
+  bool snapEnabled = false;
+  double gridSpacing = _kDefaultGridSpacing;
+
+  // Undo snapshot (last layer state before a transform batch)
+  CanvasLayer? _undoSnapshot;
+
+  // Locked element IDs (cannot be moved/transformed while locked)
+  final Set<String> _lockedIds = {};
+
+  // Multi-layer selection mode
+  bool multiLayerMode = false;
+
+  // Marquee (rubber band) selection state
+  Offset? _marqueeStart;
+  Offset? _marqueeEnd;
+
+  // Selection mode: lasso or marquee
+  SelectionMode _selectionMode = SelectionMode.lasso;
+
+  // Additive selection mode (Shift + lasso adds to existing selection)
+  bool _additiveMode = false;
+
   LassoTool({required this.layerController});
 
-  /// Checks if the point is inside the selection area (to start drag)
+  // ===========================================================================
+  // Selection Query
+  // ===========================================================================
+
+  bool get hasSelection =>
+      selectedStrokeIds.isNotEmpty ||
+      selectedShapeIds.isNotEmpty ||
+      selectedTextIds.isNotEmpty ||
+      selectedImageIds.isNotEmpty;
+
+  int get selectionCount =>
+      selectedStrokeIds.length +
+      selectedShapeIds.length +
+      selectedTextIds.length +
+      selectedImageIds.length;
+
+  bool get hasClipboard =>
+      _clipboardStrokes.isNotEmpty ||
+      _clipboardShapes.isNotEmpty ||
+      _clipboardTexts.isNotEmpty ||
+      _clipboardImages.isNotEmpty;
+
+  bool get isDragging => _isDragging;
+
+  // ===========================================================================
+  // Drag Operations
+  // ===========================================================================
+
   bool isPointInSelection(Offset point) {
     if (!hasSelection) return false;
-    if (_selectionBounds == null) {
-      _calculateSelectionBounds();
-    }
+    if (_selectionBounds == null) _calculateSelectionBounds();
     return _selectionBounds?.contains(point) ?? false;
   }
 
-  /// Calculates the bounds of selected elements
-  void _calculateSelectionBounds() {
-    if (!hasSelection) {
-      _selectionBounds = null;
-      return;
-    }
-
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
-
-    double? minX, minY, maxX, maxY;
-
-    // Calculate bounds of strokes selezionati
-    for (final stroke in activeLayer.strokes) {
-      if (selectedStrokeIds.contains(stroke.id)) {
-        for (final point in stroke.points) {
-          minX =
-              minX == null
-                  ? point.position.dx
-                  : (point.position.dx < minX ? point.position.dx : minX);
-          minY =
-              minY == null
-                  ? point.position.dy
-                  : (point.position.dy < minY ? point.position.dy : minY);
-          maxX =
-              maxX == null
-                  ? point.position.dx
-                  : (point.position.dx > maxX ? point.position.dx : maxX);
-          maxY =
-              maxY == null
-                  ? point.position.dy
-                  : (point.position.dy > maxY ? point.position.dy : maxY);
-        }
-      }
-    }
-
-    // Calculate bounds of selected shapes
-    for (final shape in activeLayer.shapes) {
-      if (selectedShapeIds.contains(shape.id)) {
-        final rect = Rect.fromPoints(shape.startPoint, shape.endPoint);
-        minX = minX == null ? rect.left : (rect.left < minX ? rect.left : minX);
-        minY = minY == null ? rect.top : (rect.top < minY ? rect.top : minY);
-        maxX =
-            maxX == null ? rect.right : (rect.right > maxX ? rect.right : maxX);
-        maxY =
-            maxY == null
-                ? rect.bottom
-                : (rect.bottom > maxY ? rect.bottom : maxY);
-      }
-    }
-
-    if (minX != null && minY != null && maxX != null && maxY != null) {
-      _selectionBounds = Rect.fromLTRB(
-        minX - 20,
-        minY - 20,
-        maxX + 20,
-        maxY + 20,
-      );
-    }
-  }
-
-  /// Start dragging the selected elements
   void startDrag(Offset position) {
     _isDragging = true;
     _dragStartPosition = position;
+    // Save undo snapshot before any drag transformation
+    saveUndoSnapshot();
   }
 
-  /// Updates the drag (moves elements)
   void updateDrag(Offset currentPosition) {
     if (!_isDragging || _dragStartPosition == null) return;
-
-    final delta = currentPosition - _dragStartPosition!;
+    var delta = currentPosition - _dragStartPosition!;
+    // Apply snap-to-grid if enabled
+    if (snapEnabled) delta = snapDelta(delta);
     moveSelected(delta);
     _dragStartPosition = currentPosition;
-
-    // Also move the selection bounds (more efficient than recalculating)
     if (_selectionBounds != null) {
       _selectionBounds = _selectionBounds!.shift(delta);
     }
   }
 
-  /// Compensate the canvas scroll during drag (more efficient, without heavy rebuilds)
   void compensateScroll(Offset scrollDelta) {
     if (!_isDragging || _dragStartPosition == null) return;
-
-    // Move elements directly by the scroll delta
-    // This is more efficient than updateDrag because it doesn't recalculate everything
     moveSelected(scrollDelta);
-
-    // IMPORTANTE: Update anche _dragStartPosition per compensare lo scroll
-    // Altrimenti il prossimo movimento del dito will have un delta sbagliato
     _dragStartPosition = _dragStartPosition! + scrollDelta;
-
-    // Also update the selection bounds
     if (_selectionBounds != null) {
       _selectionBounds = _selectionBounds!.shift(scrollDelta);
     }
-
-    // NON ricalcolare bounds for performance
   }
 
-  /// Termina il drag
   void endDrag() {
     _isDragging = false;
     _dragStartPosition = null;
   }
 
-  /// Checks if it is in corso un drag
-  bool get isDragging => _isDragging;
+  // ===========================================================================
+  // Lasso Path Lifecycle
+  // ===========================================================================
 
-  /// Start il lasso path
   void startLasso(Offset position) {
     lassoPath.clear();
     lassoPath.add(position);
     clearSelection();
   }
 
-  /// Updates il lasso path
   void updateLasso(Offset position) {
     lassoPath.add(position);
   }
 
-  /// Complete the lasso and select elements
   void completeLasso() {
+    // In additive mode, delegate to the additive completion
+    if (_additiveMode) {
+      _completeLassoAdditive();
+      return;
+    }
+
     if (lassoPath.length < 3) {
       lassoPath.clear();
       return;
     }
 
-    // Cloif the percorso
     if (lassoPath.first != lassoPath.last) {
       lassoPath.add(lassoPath.first);
     }
 
-    // Create un Path for the test di intersezione
     final path = Path();
     path.moveTo(lassoPath.first.dx, lassoPath.first.dy);
     for (var i = 1; i < lassoPath.length; i++) {
@@ -185,130 +193,157 @@ class LassoTool {
     }
     path.close();
 
-    // Select elements inside the lasso
-    _selectElementsInPath(path);
+    // Select from active layer or all layers based on mode
+    if (multiLayerMode) {
+      selectFromAllLayers(path);
+    } else {
+      _selectElementsInPath(path);
+    }
 
-    // If is not stato selezionato nulla, pulisci tutto
     if (!hasSelection) {
       lassoPath.clear();
       return;
     }
 
-    // Calculate i bounds for the drag
+    // If any selected element belongs to a group, select the whole group
+    expandSelectionToGroups();
     _calculateSelectionBounds();
-
-    // Clear the lasso path now that elements are selected
-    // Only the selection border remains
     lassoPath.clear();
   }
 
-  /// Seleziona elementi che intersecano il path del lasso
-  void _selectElementsInPath(Path lassoPath) {
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
+  // ===========================================================================
+  // Hit-Testing — With Bounding-Box Pre-Filter
+  // ===========================================================================
 
-    // Check strokes
+  void _selectElementsInPath(Path lassoPath) {
+    final activeLayer = _getActiveLayer();
+    final lassoBounds = lassoPath.getBounds();
+
+    // Strokes — bounding-box pre-filter + point-in-path test
     for (final stroke in activeLayer.strokes) {
+      if (!stroke.bounds.overlaps(lassoBounds)) continue;
       if (_strokeIntersectsPath(stroke, lassoPath)) {
         selectedStrokeIds.add(stroke.id);
       }
     }
 
-    // Check shapes
+    // Shapes — bounding-box pre-filter + multi-point test
     for (final shape in activeLayer.shapes) {
+      final shapeBounds = Rect.fromPoints(shape.startPoint, shape.endPoint);
+      if (!shapeBounds.overlaps(lassoBounds)) continue;
       if (_shapeIntersectsPath(shape, lassoPath)) {
         selectedShapeIds.add(shape.id);
       }
     }
+
+    // Text elements
+    for (final text in activeLayer.texts) {
+      final textBounds = _estimateTextBounds(text);
+      if (!textBounds.overlaps(lassoBounds)) continue;
+      if (_textIntersectsPath(text, lassoPath)) {
+        selectedTextIds.add(text.id);
+      }
+    }
+
+    // Image elements
+    for (final image in activeLayer.images) {
+      final imageBounds = _estimateImageBounds(image);
+      if (!imageBounds.overlaps(lassoBounds)) continue;
+      if (_imageIntersectsPath(image, lassoPath)) {
+        selectedImageIds.add(image.id);
+      }
+    }
   }
 
-  /// Checks se uno stroke interseca il path
   bool _strokeIntersectsPath(ProStroke stroke, Path lassoPath) {
-    // Check if at least one point of the stroke is inside the path
     for (final point in stroke.points) {
-      if (lassoPath.contains(point.position)) {
-        return true;
-      }
+      if (lassoPath.contains(point.position)) return true;
     }
     return false;
   }
 
-  /// Checks if a shape interseca il path
+  /// Tests all 4 corners, edge midpoints, and center (9-point check).
   bool _shapeIntersectsPath(GeometricShape shape, Path lassoPath) {
-    // Check if the key points of the shape are inside the path
-    if (lassoPath.contains(shape.startPoint) ||
-        lassoPath.contains(shape.endPoint)) {
-      return true;
-    }
-
-    // Check the center of the shape
-    final center = Offset(
-      (shape.startPoint.dx + shape.endPoint.dx) / 2,
-      (shape.startPoint.dy + shape.endPoint.dy) / 2,
-    );
-    return lassoPath.contains(center);
+    final rect = Rect.fromPoints(shape.startPoint, shape.endPoint);
+    if (lassoPath.contains(rect.topLeft)) return true;
+    if (lassoPath.contains(rect.topRight)) return true;
+    if (lassoPath.contains(rect.bottomLeft)) return true;
+    if (lassoPath.contains(rect.bottomRight)) return true;
+    if (lassoPath.contains(rect.topCenter)) return true;
+    if (lassoPath.contains(rect.bottomCenter)) return true;
+    if (lassoPath.contains(rect.centerLeft)) return true;
+    if (lassoPath.contains(rect.centerRight)) return true;
+    if (lassoPath.contains(rect.center)) return true;
+    return false;
   }
 
-  /// Erases gli selected elements
+  bool _textIntersectsPath(DigitalTextElement text, Path lassoPath) {
+    final bounds = _estimateTextBounds(text);
+    if (lassoPath.contains(bounds.topLeft)) return true;
+    if (lassoPath.contains(bounds.topRight)) return true;
+    if (lassoPath.contains(bounds.bottomLeft)) return true;
+    if (lassoPath.contains(bounds.bottomRight)) return true;
+    if (lassoPath.contains(bounds.center)) return true;
+    return false;
+  }
+
+  bool _imageIntersectsPath(ImageElement image, Path lassoPath) {
+    final bounds = _estimateImageBounds(image);
+    if (lassoPath.contains(bounds.topLeft)) return true;
+    if (lassoPath.contains(bounds.topRight)) return true;
+    if (lassoPath.contains(bounds.bottomLeft)) return true;
+    if (lassoPath.contains(bounds.bottomRight)) return true;
+    if (lassoPath.contains(bounds.center)) return true;
+    return false;
+  }
+
+  // ===========================================================================
+  // Element Operations — Delete & Move
+  // ===========================================================================
+
   void deleteSelected() {
-    if (selectedStrokeIds.isEmpty && selectedShapeIds.isEmpty) return;
-
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
-
-    // Remove strokes selezionati
-    final filteredStrokes =
-        activeLayer.strokes
-            .where((stroke) => !selectedStrokeIds.contains(stroke.id))
-            .toList();
-
-    // Remove shapes selezionati
-    final filteredShapes =
-        activeLayer.shapes
-            .where((shape) => !selectedShapeIds.contains(shape.id))
-            .toList();
-
-    // Update il layer
+    if (!hasSelection) return;
+    final activeLayer = _getActiveLayer();
     final updatedLayer = activeLayer.copyWith(
-      strokes: filteredStrokes,
-      shapes: filteredShapes,
+      strokes:
+          activeLayer.strokes
+              .where((s) => !selectedStrokeIds.contains(s.id))
+              .toList(),
+      shapes:
+          activeLayer.shapes
+              .where((s) => !selectedShapeIds.contains(s.id))
+              .toList(),
+      texts:
+          activeLayer.texts
+              .where((t) => !selectedTextIds.contains(t.id))
+              .toList(),
+      images:
+          activeLayer.images
+              .where((i) => !selectedImageIds.contains(i.id))
+              .toList(),
     );
-
     _updateLayer(updatedLayer);
     clearSelection();
   }
 
-  /// Sposta gli selected elements
   void moveSelected(Offset delta) {
-    if (selectedStrokeIds.isEmpty && selectedShapeIds.isEmpty) return;
+    if (!hasSelection) return;
+    if (isSelectionLocked) return; // Lock guard
+    final activeLayer = _getActiveLayer();
 
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
-
-
-    // Sposta strokes
     final movedStrokes =
         activeLayer.strokes.map((stroke) {
           if (selectedStrokeIds.contains(stroke.id)) {
-            final movedPoints =
-                stroke.points
-                    .map(
-                      (point) =>
-                          point.copyWith(position: point.position + delta),
-                    )
-                    .toList();
-            return stroke.copyWith(points: movedPoints);
+            return stroke.copyWith(
+              points:
+                  stroke.points
+                      .map((p) => p.copyWith(position: p.position + delta))
+                      .toList(),
+            );
           }
           return stroke;
         }).toList();
 
-    // Sposta shapes
     final movedShapes =
         activeLayer.shapes.map((shape) {
           if (selectedShapeIds.contains(shape.id)) {
@@ -320,365 +355,267 @@ class LassoTool {
           return shape;
         }).toList();
 
-    // Update il layer
-    final updatedLayer = activeLayer.copyWith(
-      strokes: movedStrokes,
-      shapes: movedShapes,
-    );
+    final movedTexts =
+        activeLayer.texts.map((text) {
+          if (selectedTextIds.contains(text.id)) {
+            return text.copyWith(position: text.position + delta);
+          }
+          return text;
+        }).toList();
 
-    _updateLayer(updatedLayer);
+    final movedImages =
+        activeLayer.images.map((image) {
+          if (selectedImageIds.contains(image.id)) {
+            return image.copyWith(position: image.position + delta);
+          }
+          return image;
+        }).toList();
+
+    _updateLayer(
+      activeLayer.copyWith(
+        strokes: movedStrokes,
+        shapes: movedShapes,
+        texts: movedTexts,
+        images: movedImages,
+      ),
+    );
   }
 
-  /// Updates un layer nel controller
-  void _updateLayer(CanvasLayer updatedLayer) {
-    layerController.updateLayer(updatedLayer);
+  // ===========================================================================
+  // Public API — Delegates to Part Files
+  // ===========================================================================
+
+  // Transforms
+  void rotateSelected() => _rotateSelected90();
+  void rotateSelectedByAngle(double radians, {Offset? center}) =>
+      _rotateSelectedByAngle(radians, center: center);
+  void scaleSelected(double factor, {Offset? center}) =>
+      _scaleSelected(factor, center: center);
+  void flipHorizontal() => _flipHorizontal();
+  void flipVertical() => _flipVertical();
+
+  // Clipboard
+  void copySelected() => _copySelected();
+  int pasteFromClipboard({Offset offset = const Offset(20, 20)}) =>
+      _pasteFromClipboard(offset: offset);
+  int duplicateSelected({Offset offset = const Offset(20, 20)}) =>
+      _duplicateSelected(offset: offset);
+
+  // Select All
+  void selectAll() => _selectAll();
+
+  // Z-ordering
+  void bringToFront() => _bringToFront();
+  void sendToBack() => _sendToBack();
+
+  // Grouping
+  String? groupSelected() => _groupSelected();
+  int ungroupSelected() => _ungroupSelected();
+  void expandSelectionToGroups() => _expandSelectionToGroups();
+  bool get hasGroups => _groups.isNotEmpty;
+  int get groupCount => _groups.length;
+
+  // Snap-to-grid
+  Offset snapDelta(Offset delta) =>
+      snapEnabled ? _snapDeltaToGrid(delta, gridSpacing: gridSpacing) : delta;
+  void toggleSnap() => snapEnabled = !snapEnabled;
+
+  // Undo snapshots
+  void saveUndoSnapshot() => _undoSnapshot = _takeSnapshot();
+  void restoreUndo() {
+    if (_undoSnapshot != null) {
+      _restoreSnapshot(_undoSnapshot!);
+      _undoSnapshot = null;
+    }
   }
 
-  /// Ruota gli selected elements di 90° (senso orario)
-  void rotateSelected() {
-    if (!hasSelection) return;
+  bool get hasUndoSnapshot => _undoSnapshot != null;
 
-    _calculateSelectionBounds();
-    if (_selectionBounds == null) return;
+  // Alignment
+  void alignLeft() => _alignLeft();
+  void alignRight() => _alignRight();
+  void alignCenterH() => _alignCenterH();
+  void alignTop() => _alignTop();
+  void alignBottom() => _alignBottom();
+  void alignCenterV() => _alignCenterV();
+  void distributeHorizontal() => _distributeHorizontal();
+  void distributeVertical() => _distributeVertical();
 
-    final center = _selectionBounds!.center;
+  // Lock / Unlock
+  void lockSelected() => _lockSelected();
+  void unlockSelected() => _unlockSelected();
+  bool get isSelectionLocked => _isSelectionLocked();
+  bool isElementLocked(String id) => _isLocked(id);
 
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
+  // Opacity
+  void setSelectedOpacity(double opacity) => _setSelectedOpacity(opacity);
 
-    // Ruota strokes
-    final rotatedStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            final rotatedPoints =
-                stroke.points.map((point) {
-                  // Translate al centro, ruota, trasla indietro
-                  final translated = point.position - center;
-                  final rotated = Offset(
-                    -translated.dy,
-                    translated.dx,
-                  ); // Rotazione 90° oraria
-                  return point.copyWith(position: rotated + center);
-                }).toList();
-            return stroke.copyWith(points: rotatedPoints);
-          }
-          return stroke;
-        }).toList();
+  // Color
+  void setSelectedColor(Color color) => _setSelectedColor(color);
 
-    // Ruota shapes
-    final rotatedShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            // For shapes, ruota i punti di start e end
-            final startTranslated = shape.startPoint - center;
-            final endTranslated = shape.endPoint - center;
-            final startRotated = Offset(
-              -startTranslated.dy,
-              startTranslated.dx,
-            );
-            final endRotated = Offset(-endTranslated.dy, endTranslated.dx);
-            return shape.copyWith(
-              startPoint: startRotated + center,
-              endPoint: endRotated + center,
-            );
-          }
-          return shape;
-        }).toList();
+  // Proportional Scaling
+  void scaleProportional(double factor, {Offset? center}) =>
+      _scaleProportional(factor, center: center);
 
-    // Update il layer
-    final updatedLayer = activeLayer.copyWith(
-      strokes: rotatedStrokes,
-      shapes: rotatedShapes,
-    );
+  // Selection Statistics
+  SelectionStats get selectionStats => _getSelectionStats();
 
-    _updateLayer(updatedLayer);
-    _calculateSelectionBounds(); // Recalculate bounds after rotation
-  }
+  // Multi-Layer Selection
+  void selectFromAllLayers(Path path) => _selectFromAllLayers(path);
+  void toggleMultiLayerMode() => multiLayerMode = !multiLayerMode;
 
-  /// 🔄 Ruota gli selected elements di un angolo arbitrario (in radianti)
-  ///
-  /// Generalizzazione di rotateSelected() per rotazione libera.
-  /// [radians] Rotation angle (positive = clockwise)
-  /// [center] Rotation center (default: selection center)
-  void rotateSelectedByAngle(double radians, {Offset? center}) {
-    if (!hasSelection) return;
+  // Export Selection
+  Rect? get exportBounds => _getExportBounds();
 
-    _calculateSelectionBounds();
-    if (_selectionBounds == null) return;
+  // Rubber Band / Marquee Selection
+  SelectionMode get selectionMode => _selectionMode;
+  set selectionMode(SelectionMode mode) => _selectionMode = mode;
+  void startMarquee(Offset position) => _startMarquee(position);
+  void updateMarquee(Offset position) => _updateMarquee(position);
+  void completeMarquee() => _completeMarquee();
+  Rect? get marqueeRect => _getMarqueeRect();
 
-    final rotCenter = center ?? _selectionBounds!.center;
-    final cosA = cos(radians);
-    final sinA = sin(radians);
+  // Additive Selection (Shift + Lasso)
+  bool get additiveMode => _additiveMode;
+  set additiveMode(bool value) => _additiveMode = value;
+  void completeLassoAdditive() => _completeLassoAdditive();
 
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
+  // Smart Guides
+  List<Rect> get nonSelectedElementBounds => _getNonSelectedElementBounds();
 
-    // Ruota strokes
-    final rotatedStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            final rotatedPoints =
-                stroke.points.map((point) {
-                  final translated = point.position - rotCenter;
-                  final rotated = Offset(
-                    translated.dx * cosA - translated.dy * sinA,
-                    translated.dx * sinA + translated.dy * cosA,
-                  );
-                  return point.copyWith(position: rotated + rotCenter);
-                }).toList();
-            return stroke.copyWith(points: rotatedPoints);
-          }
-          return stroke;
-        }).toList();
+  // Selection Persistence
+  Map<String, dynamic> serializeSelection() => _serializeSelection();
+  void deserializeSelection(Map<String, dynamic> data) =>
+      _deserializeSelection(data);
 
-    // Ruota shapes
-    final rotatedShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            final startT = shape.startPoint - rotCenter;
-            final endT = shape.endPoint - rotCenter;
-            return shape.copyWith(
-              startPoint: Offset(
-                startT.dx * cosA - startT.dy * sinA + rotCenter.dx,
-                startT.dx * sinA + startT.dy * cosA + rotCenter.dy,
-              ),
-              endPoint: Offset(
-                endT.dx * cosA - endT.dy * sinA + rotCenter.dx,
-                endT.dx * sinA + endT.dy * cosA + rotCenter.dy,
-              ),
-            );
-          }
-          return shape;
-        }).toList();
+  // ===========================================================================
+  // Selection Management
+  // ===========================================================================
 
-    final updatedLayer = activeLayer.copyWith(
-      strokes: rotatedStrokes,
-      shapes: rotatedShapes,
-    );
-
-    _updateLayer(updatedLayer);
-    _calculateSelectionBounds();
-  }
-
-  /// 📐 Scala gli selected elements rispetto a un centro
-  ///
-  /// [factor] Fattore di scala (>1 = ingrandisci, <1 = rimpicciolisci)
-  /// [center] Centro di scala (default: centro selezione)
-  void scaleSelected(double factor, {Offset? center}) {
-    if (!hasSelection || factor <= 0) return;
-
-    _calculateSelectionBounds();
-    if (_selectionBounds == null) return;
-
-    final scaleCenter = center ?? _selectionBounds!.center;
-
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
-
-    // Scala strokes
-    final scaledStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            final scaledPoints =
-                stroke.points.map((point) {
-                  final translated = point.position - scaleCenter;
-                  final scaled = Offset(
-                    translated.dx * factor,
-                    translated.dy * factor,
-                  );
-                  return point.copyWith(position: scaled + scaleCenter);
-                }).toList();
-            // Scala anthat the larghezza of the stroke
-            return stroke.copyWith(
-              points: scaledPoints,
-              baseWidth: stroke.baseWidth * factor,
-            );
-          }
-          return stroke;
-        }).toList();
-
-    // Scala shapes
-    final scaledShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            final startT = shape.startPoint - scaleCenter;
-            final endT = shape.endPoint - scaleCenter;
-            return shape.copyWith(
-              startPoint: Offset(
-                startT.dx * factor + scaleCenter.dx,
-                startT.dy * factor + scaleCenter.dy,
-              ),
-              endPoint: Offset(
-                endT.dx * factor + scaleCenter.dx,
-                endT.dy * factor + scaleCenter.dy,
-              ),
-              strokeWidth: shape.strokeWidth * factor,
-            );
-          }
-          return shape;
-        }).toList();
-
-    final updatedLayer = activeLayer.copyWith(
-      strokes: scaledStrokes,
-      shapes: scaledShapes,
-    );
-
-    _updateLayer(updatedLayer);
-    _calculateSelectionBounds();
-  }
-
-  /// Rifletti gli selected elements (flip orizzontale)
-  void flipHorizontal() {
-    if (!hasSelection) return;
-
-    _calculateSelectionBounds();
-    if (_selectionBounds == null) return;
-
-    final centerX = _selectionBounds!.center.dx;
-
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
-
-    // Rifletti strokes
-    final flippedStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            final flippedPoints =
-                stroke.points.map((point) {
-                  final distance = point.position.dx - centerX;
-                  return point.copyWith(
-                    position: Offset(centerX - distance, point.position.dy),
-                  );
-                }).toList();
-            return stroke.copyWith(points: flippedPoints);
-          }
-          return stroke;
-        }).toList();
-
-    // Rifletti shapes
-    final flippedShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            final startDistance = shape.startPoint.dx - centerX;
-            final endDistance = shape.endPoint.dx - centerX;
-            return shape.copyWith(
-              startPoint: Offset(centerX - startDistance, shape.startPoint.dy),
-              endPoint: Offset(centerX - endDistance, shape.endPoint.dy),
-            );
-          }
-          return shape;
-        }).toList();
-
-    final updatedLayer = activeLayer.copyWith(
-      strokes: flippedStrokes,
-      shapes: flippedShapes,
-    );
-
-    _updateLayer(updatedLayer);
-  }
-
-  /// Rifletti gli selected elements (flip verticale)
-  void flipVertical() {
-    if (!hasSelection) return;
-
-    _calculateSelectionBounds();
-    if (_selectionBounds == null) return;
-
-    final centerY = _selectionBounds!.center.dy;
-
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
-
-    // Rifletti strokes
-    final flippedStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            final flippedPoints =
-                stroke.points.map((point) {
-                  final distance = point.position.dy - centerY;
-                  return point.copyWith(
-                    position: Offset(point.position.dx, centerY - distance),
-                  );
-                }).toList();
-            return stroke.copyWith(points: flippedPoints);
-          }
-          return stroke;
-        }).toList();
-
-    // Rifletti shapes
-    final flippedShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            final startDistance = shape.startPoint.dy - centerY;
-            final endDistance = shape.endPoint.dy - centerY;
-            return shape.copyWith(
-              startPoint: Offset(shape.startPoint.dx, centerY - startDistance),
-              endPoint: Offset(shape.endPoint.dx, centerY - endDistance),
-            );
-          }
-          return shape;
-        }).toList();
-
-    final updatedLayer = activeLayer.copyWith(
-      strokes: flippedStrokes,
-      shapes: flippedShapes,
-    );
-
-    _updateLayer(updatedLayer);
-  }
-
-  /// Erases la selezione
   void clearSelection() {
     selectedStrokeIds.clear();
     selectedShapeIds.clear();
+    selectedTextIds.clear();
+    selectedImageIds.clear();
     _selectionBounds = null;
-    lassoPath.clear(); // Clear anthat the lasso path
-    _isDragging = false; // Termina eventuale drag
+    lassoPath.clear();
+    _isDragging = false;
     _dragStartPosition = null;
   }
 
-  /// Checks if there are selected elements
-  bool get hasSelection =>
-      selectedStrokeIds.isNotEmpty || selectedShapeIds.isNotEmpty;
-
-  /// Get il number of selected elements
-  int get selectionCount => selectedStrokeIds.length + selectedShapeIds.length;
-
-  /// Erases il path del lasso
   void clearLassoPath() {
     lassoPath.clear();
   }
 
-  /// Gets i tratti selezionati dal layer attivo
+  Rect? getSelectionBounds() {
+    if (_selectionBounds == null) _calculateSelectionBounds();
+    return _selectionBounds;
+  }
+
   List<ProStroke> getSelectedStrokes() {
     if (selectedStrokeIds.isEmpty) return [];
-
-    final activeLayer = layerController.layers.firstWhere(
-      (layer) => layer.id == layerController.activeLayerId,
-      orElse: () => layerController.layers.first,
-    );
-
-    return activeLayer.strokes
-        .where((stroke) => selectedStrokeIds.contains(stroke.id))
+    return _getActiveLayer().strokes
+        .where((s) => selectedStrokeIds.contains(s.id))
         .toList();
   }
 
-  /// Gets the bounds of the current selection
-  Rect? getSelectionBounds() {
-    if (_selectionBounds == null) {
-      _calculateSelectionBounds();
+  List<GeometricShape> getSelectedShapes() {
+    if (selectedShapeIds.isEmpty) return [];
+    return _getActiveLayer().shapes
+        .where((s) => selectedShapeIds.contains(s.id))
+        .toList();
+  }
+
+  List<DigitalTextElement> getSelectedTexts() {
+    if (selectedTextIds.isEmpty) return [];
+    return _getActiveLayer().texts
+        .where((t) => selectedTextIds.contains(t.id))
+        .toList();
+  }
+
+  List<ImageElement> getSelectedImages() {
+    if (selectedImageIds.isEmpty) return [];
+    return _getActiveLayer().images
+        .where((i) => selectedImageIds.contains(i.id))
+        .toList();
+  }
+
+  // ===========================================================================
+  // Private Helpers
+  // ===========================================================================
+
+  CanvasLayer _getActiveLayer() {
+    return layerController.layers.firstWhere(
+      (layer) => layer.id == layerController.activeLayerId,
+      orElse: () => layerController.layers.first,
+    );
+  }
+
+  void _updateLayer(CanvasLayer updatedLayer) {
+    layerController.updateLayer(updatedLayer);
+  }
+
+  void _calculateSelectionBounds() {
+    if (!hasSelection) {
+      _selectionBounds = null;
+      return;
     }
-    return _selectionBounds;
+
+    final activeLayer = _getActiveLayer();
+    Rect? bounds;
+
+    for (final stroke in activeLayer.strokes) {
+      if (selectedStrokeIds.contains(stroke.id)) {
+        bounds = bounds?.expandToInclude(stroke.bounds) ?? stroke.bounds;
+      }
+    }
+    for (final shape in activeLayer.shapes) {
+      if (selectedShapeIds.contains(shape.id)) {
+        final r = Rect.fromPoints(shape.startPoint, shape.endPoint);
+        bounds = bounds?.expandToInclude(r) ?? r;
+      }
+    }
+    for (final text in activeLayer.texts) {
+      if (selectedTextIds.contains(text.id)) {
+        final r = _estimateTextBounds(text);
+        bounds = bounds?.expandToInclude(r) ?? r;
+      }
+    }
+    for (final image in activeLayer.images) {
+      if (selectedImageIds.contains(image.id)) {
+        final r = _estimateImageBounds(image);
+        bounds = bounds?.expandToInclude(r) ?? r;
+      }
+    }
+
+    if (bounds != null) {
+      _selectionBounds = bounds.inflate(_kSelectionBoundsPadding);
+    }
+  }
+
+  Rect _estimateTextBounds(DigitalTextElement text) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text.text,
+        style: TextStyle(
+          fontSize: text.fontSize * text.scale,
+          fontWeight: text.fontWeight,
+          fontFamily: text.fontFamily,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    return Rect.fromLTWH(
+      text.position.dx,
+      text.position.dy,
+      max(tp.width, _kDefaultTextWidth),
+      max(tp.height, _kDefaultTextHeight),
+    );
+  }
+
+  Rect _estimateImageBounds(ImageElement image) {
+    final size = _kDefaultImageSize * image.scale;
+    return Rect.fromLTWH(image.position.dx, image.position.dy, size, size);
   }
 }
-

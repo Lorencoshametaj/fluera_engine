@@ -1,7 +1,48 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 
-/// Widget showing the lasso path during drawing
+// =============================================================================
+// Visual Constants
+// =============================================================================
+
+/// Outer glow stroke width.
+const double _kGlowWidth = 8.0;
+
+/// Glow blur sigma.
+const double _kGlowBlurSigma = 4.0;
+
+/// Main border stroke width.
+const double _kMainBorderWidth = 2.5;
+
+/// Inner highlight stroke width.
+const double _kInnerBorderWidth = 1.0;
+
+/// Dash pattern: dash length in logical pixels.
+const double _kDashLength = 8.0;
+
+/// Dash pattern: gap length in logical pixels.
+const double _kGapLength = 4.0;
+
+/// Interval between key points drawn along the path.
+const int _kKeyPointInterval = 30;
+
+/// Distance threshold (in screen pixels) to show the "closing" indicator.
+const double _kCloseThreshold = 50.0;
+
+/// Special point outer radius.
+const double _kSpecialPointOuterRadius = 8.0;
+
+/// Special point white border radius.
+const double _kSpecialPointBorderRadius = 5.5;
+
+/// Special point inner radius.
+const double _kSpecialPointInnerRadius = 4.0;
+
+/// Closing indicator ring radius.
+const double _kCloseIndicatorRadius = 7.0;
+
+/// Widget showing the lasso path during drawing.
 class LassoPathPainter extends CustomPainter {
   final List<Offset> path;
   final Color color;
@@ -17,78 +58,81 @@ class LassoPathPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (path.length < 2) return;
 
-    // Convert i punti canvas in screen coordinates
+    // Convert canvas coordinates to screen coordinates
     final screenPath =
         path.map((p) => canvasController.canvasToScreen(p)).toList();
 
-    // Create il path con screen coordinates
+    // Build the path from screen coordinates
     final pathToDraw = Path();
     pathToDraw.moveTo(screenPath.first.dx, screenPath.first.dy);
     for (var i = 1; i < screenPath.length; i++) {
       pathToDraw.lineTo(screenPath[i].dx, screenPath[i].dy);
-    } // 1. Glow esterno (alone luminoso)
+    }
+
+    // 1. Outer glow
     final glowPaint =
         Paint()
           ..color = color.withValues(alpha: 0.15)
-          ..strokeWidth = 8.0
+          ..strokeWidth = _kGlowWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
+          ..maskFilter = const MaskFilter.blur(
+            BlurStyle.normal,
+            _kGlowBlurSigma,
+          );
     canvas.drawPath(pathToDraw, glowPaint);
 
-    // 2. Area fill (semi-transparent with gradient)
+    // 2. Semi-transparent fill
     final fillPaint =
         Paint()
           ..color = color.withValues(alpha: 0.08)
           ..style = PaintingStyle.fill;
     canvas.drawPath(pathToDraw, fillPaint);
 
-    // 3. Main border (animated dash pattern)
+    // 3. Main dashed border
     final mainPaint =
         Paint()
           ..color = color.withValues(alpha: 0.8)
-          ..strokeWidth = 2.5
+          ..strokeWidth = _kMainBorderWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round;
-
-    // Create dash pattern (linee tratteggiate)
-    final dashPath = _createDashedPath(pathToDraw, dashLength: 8, gapLength: 4);
+    final dashPath = _createDashedPath(
+      pathToDraw,
+      dashLength: _kDashLength,
+      gapLength: _kGapLength,
+    );
     canvas.drawPath(dashPath, mainPaint);
 
-    // 4. Inner border more chiaro (depth effect)
+    // 4. Inner white highlight for depth
     final innerPaint =
         Paint()
           ..color = Colors.white.withValues(alpha: 0.4)
-          ..strokeWidth = 1.0
+          ..strokeWidth = _kInnerBorderWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(pathToDraw, innerPaint);
 
-    // 5. Key points along the path (every 30 points for performance)
+    // 5. Key points along the path (sampled for performance)
     final pointPaint =
         Paint()
           ..color = color
           ..style = PaintingStyle.fill;
 
-    for (var i = 0; i < screenPath.length; i += 30) {
-      // Punto esterno (bianco)
+    for (var i = 0; i < screenPath.length; i += _kKeyPointInterval) {
       canvas.drawCircle(
         screenPath[i],
         3.5,
         Paint()..color = Colors.white.withValues(alpha: 0.9),
       );
-      // Punto interno (colore)
       canvas.drawCircle(screenPath[i], 2.0, pointPaint);
     }
 
-    // 6. Punto iniziale e finale speciali
+    // 6. Special start and end points
     if (screenPath.isNotEmpty) {
-      // Punto iniziale (more grande)
       _drawSpecialPoint(canvas, screenPath.first, color, isStart: true);
-      // Punto finale (forma diversa se vicino all'inizio per chiudere)
       if (screenPath.length > 3) {
         final distance = (screenPath.last - screenPath.first).distance;
         _drawSpecialPoint(
@@ -96,13 +140,13 @@ class LassoPathPainter extends CustomPainter {
           screenPath.last,
           color,
           isStart: false,
-          isClosing: distance < 50,
+          isClosing: distance < _kCloseThreshold,
         );
       }
     }
   }
 
-  /// Draws punti speciali (inizio/fine)
+  /// Draw start/end key points with visual indicators.
   void _drawSpecialPoint(
     Canvas canvas,
     Offset point,
@@ -110,10 +154,10 @@ class LassoPathPainter extends CustomPainter {
     required bool isStart,
     bool isClosing = false,
   }) {
-    // Alone esterno
+    // Outer glow
     canvas.drawCircle(
       point,
-      8.0,
+      _kSpecialPointOuterRadius,
       Paint()
         ..color = color.withValues(alpha: 0.2)
         ..style = PaintingStyle.fill,
@@ -122,27 +166,26 @@ class LassoPathPainter extends CustomPainter {
     // White border
     canvas.drawCircle(
       point,
-      5.5,
+      _kSpecialPointBorderRadius,
       Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill,
     );
 
-    // Centro colorato
+    // Color center
     canvas.drawCircle(
       point,
-      4.0,
+      _kSpecialPointInnerRadius,
       Paint()
         ..color = color
         ..style = PaintingStyle.fill,
     );
 
-    // Indicatore per punto di chiusura
+    // Green ring to indicate close-ready
     if (!isStart && isClosing) {
-      // Anello verde per indicare che can chiudere
       canvas.drawCircle(
         point,
-        7.0,
+        _kCloseIndicatorRadius,
         Paint()
           ..color = Colors.green.withValues(alpha: 0.6)
           ..strokeWidth = 2.0
@@ -151,7 +194,7 @@ class LassoPathPainter extends CustomPainter {
     }
   }
 
-  /// Creates path con linee tratteggiate
+  /// Create a dashed path from a source path.
   Path _createDashedPath(
     Path source, {
     required double dashLength,
@@ -186,6 +229,6 @@ class LassoPathPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(LassoPathPainter oldDelegate) {
-    return path != oldDelegate.path;
+    return !listEquals(path, oldDelegate.path) || color != oldDelegate.color;
   }
 }

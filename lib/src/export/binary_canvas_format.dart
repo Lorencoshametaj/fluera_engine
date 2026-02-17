@@ -167,8 +167,9 @@ class BinaryCanvasFormat {
       return pages.values.first;
     }
 
-    // 🔧 v3: If not specified, assume v2 (format before ID addition)
-    final isV3 = (fileVersion ?? 2) >= 3;
+    // 🔧 v3: Default to v3 since encode() always writes v3 format.
+    // Only pass fileVersion=2 explicitly for legacy data.
+    final isV3 = (fileVersion ?? 3) >= 3;
 
     final reader = _BinaryReader(data);
     final layers = <CanvasLayer>[];

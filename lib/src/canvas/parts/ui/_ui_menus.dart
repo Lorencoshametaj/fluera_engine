@@ -14,41 +14,98 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
           right: 20,
           child: SelectionActionsMenu(
             selectionCount: _lassoTool.selectionCount,
+            hasClipboard: _lassoTool.hasClipboard,
+            snapEnabled: _lassoTool.snapEnabled,
+            onCopy: () {
+              _lassoTool.copySelected();
+              HapticFeedback.lightImpact();
+            },
+            onDuplicate: () {
+              setState(() {
+                _lassoTool.duplicateSelected();
+              });
+              HapticFeedback.mediumImpact();
+            },
+            onPaste: () {
+              setState(() {
+                _lassoTool.pasteFromClipboard();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onSelectAll: () {
+              setState(() {
+                _lassoTool.selectAll();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onBringToFront: () {
+              setState(() {
+                _lassoTool.bringToFront();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onSendToBack: () {
+              setState(() {
+                _lassoTool.sendToBack();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onGroup: () {
+              setState(() {
+                _lassoTool.groupSelected();
+              });
+              HapticFeedback.mediumImpact();
+            },
+            onUngroup: () {
+              setState(() {
+                _lassoTool.ungroupSelected();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onToggleSnap: () {
+              setState(() {
+                _lassoTool.toggleSnap();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onUndo: () {
+              setState(() {
+                _lassoTool.restoreUndo();
+              });
+              HapticFeedback.mediumImpact();
+            },
             onDelete: () {
               setState(() {
                 _lassoTool.deleteSelected();
-                // Clear the selection after deletion
                 _lassoTool.clearSelection();
-                // Disattiva il lasso
-                _toolController.toggleLassoMode(); // deactivate lasso
+                _toolController.toggleLassoMode();
               });
               HapticFeedback.mediumImpact();
             },
             onClearSelection: () {
               setState(() {
                 _lassoTool.clearSelection();
-                // Disattiva il lasso
-                _toolController.toggleLassoMode(); // deactivate lasso
+                _toolController.toggleLassoMode();
               });
               HapticFeedback.lightImpact();
             },
             onRotate: () {
               setState(() {
                 _lassoTool.rotateSelected();
-                HapticFeedback.lightImpact();
               });
+              HapticFeedback.lightImpact();
             },
             onFlipHorizontal: () {
               setState(() {
                 _lassoTool.flipHorizontal();
-                HapticFeedback.lightImpact();
               });
+              HapticFeedback.lightImpact();
             },
             onFlipVertical: () {
               setState(() {
                 _lassoTool.flipVertical();
-                HapticFeedback.lightImpact();
               });
+              HapticFeedback.lightImpact();
             },
             onConvertToText: () {
               // Phase 2: OCR conversion (requires OCRService)
@@ -56,6 +113,76 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
               debugPrint(
                 '[Phase2] OCR text conversion not yet available in SDK',
               );
+            },
+            // Round 3 — Enterprise
+            isSelectionLocked: _lassoTool.isSelectionLocked,
+            multiLayerMode: _lassoTool.multiLayerMode,
+            statsSummary: _lassoTool.selectionStats.summary,
+            onLock: () {
+              setState(() {
+                _lassoTool.lockSelected();
+              });
+              HapticFeedback.mediumImpact();
+            },
+            onUnlock: () {
+              setState(() {
+                _lassoTool.unlockSelected();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onAlignLeft: () {
+              setState(() {
+                _lassoTool.alignLeft();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onAlignCenterH: () {
+              setState(() {
+                _lassoTool.alignCenterH();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onAlignRight: () {
+              setState(() {
+                _lassoTool.alignRight();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onAlignTop: () {
+              setState(() {
+                _lassoTool.alignTop();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onAlignCenterV: () {
+              setState(() {
+                _lassoTool.alignCenterV();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onAlignBottom: () {
+              setState(() {
+                _lassoTool.alignBottom();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onDistributeH: () {
+              setState(() {
+                _lassoTool.distributeHorizontal();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onDistributeV: () {
+              setState(() {
+                _lassoTool.distributeVertical();
+              });
+              HapticFeedback.lightImpact();
+            },
+            onToggleMultiLayer: () {
+              setState(() {
+                _lassoTool.toggleMultiLayerMode();
+              });
+              HapticFeedback.lightImpact();
             },
           ),
         ),

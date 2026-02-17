@@ -1,8 +1,9 @@
 // ============================================================================
-// 🖼️ NEBULA CANVAS GALLERY — Canvas management screen
+// 🖼️ NEBULA CANVAS GALLERY — Material Design 3 Canvas Management Screen
 //
 // Pre-built widget for browsing, creating, and deleting canvases.
-// Uses Material Design 3 with premium aesthetics and full customization.
+// Follows Material Design 3 guidelines with proper ColorScheme tokens,
+// typography hierarchy, and motion patterns.
 //
 // USAGE (zero config):
 //   NebulaCanvasGallery(
@@ -104,27 +105,40 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
   List<CanvasMetadata> _filteredCanvases = [];
   bool _isLoading = true;
   String _searchQuery = '';
-  late final AnimationController _fabAnimController;
-  late final AnimationController _gridAnimController;
+  bool _isSearchOpen = false;
+  bool _pendingRefresh = false;
+
+  late final AnimationController _fabController;
+  late final AnimationController _gridController;
+  late final AnimationController _headerController;
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    _fabAnimController = AnimationController(
+    _fabController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _gridController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _headerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
-    );
-    _gridAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
     );
     _loadCanvases();
   }
 
   @override
   void dispose() {
-    _fabAnimController.dispose();
-    _gridAnimController.dispose();
+    _fabController.dispose();
+    _gridController.dispose();
+    _headerController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -139,8 +153,9 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
           _applyFilter();
           _isLoading = false;
         });
-        _gridAnimController.forward(from: 0);
-        _fabAnimController.forward(from: 0);
+        _headerController.forward(from: 0);
+        _gridController.forward(from: 0);
+        _fabController.forward(from: 0);
       }
     } catch (e) {
       debugPrint('[NebulaGallery] Error loading canvases: $e');
@@ -174,76 +189,52 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
       await widget.storageAdapter.deleteCanvas(canvas.canvasId);
       HapticFeedback.mediumImpact();
       await _loadCanvases();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Deleted "${canvas.title ?? "Untitled"}"'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('[NebulaGallery] Error deleting canvas: $e');
     }
   }
 
   Future<bool?> _showDeleteConfirmation(CanvasMetadata canvas) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return showDialog<bool>(
       context: context,
       builder:
           (ctx) => AlertDialog(
-            backgroundColor:
-                isDark ? const Color(0xFF1C1B1F) : colorScheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
+            icon: Icon(
+              Icons.delete_outline_rounded,
+              color: colorScheme.error,
+              size: 28,
             ),
-            icon: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: colorScheme.errorContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.delete_outline_rounded,
-                color: colorScheme.onErrorContainer,
-                size: 28,
-              ),
-            ),
-            title: const Text(
-              'Delete Canvas',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
+            title: const Text('Delete Canvas?'),
             content: Text(
-              'Delete "${canvas.title ?? "Untitled"}"?\nThis action cannot be undone.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isDark ? Colors.white60 : colorScheme.onSurfaceVariant,
-              ),
+              '"${canvas.title ?? "Untitled"}" will be permanently deleted.\n'
+              'This action cannot be undone.',
             ),
-            actionsAlignment: MainAxisAlignment.center,
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
                 child: const Text('Cancel'),
               ),
-              const SizedBox(width: 8),
               FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
                 style: FilledButton.styleFrom(
                   backgroundColor: colorScheme.error,
                   foregroundColor: colorScheme.onError,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
                 ),
                 child: const Text('Delete'),
               ),
@@ -256,13 +247,27 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
     if (widget.onCreateCanvas != null) {
       final canvasId = await widget.onCreateCanvas!();
       if (canvasId != null) {
+        _pendingRefresh = true;
         widget.onCanvasSelected(canvasId);
       }
     } else {
-      // Generate a simple unique ID
       final canvasId = 'canvas_${DateTime.now().millisecondsSinceEpoch}';
+      _pendingRefresh = true;
       widget.onCanvasSelected(canvasId);
     }
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _isSearchOpen = !_isSearchOpen;
+      if (!_isSearchOpen) {
+        _searchController.clear();
+        _searchQuery = '';
+        _applyFilter();
+      } else {
+        _searchFocusNode.requestFocus();
+      }
+    });
   }
 
   // ===========================================================================
@@ -273,31 +278,114 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
+
+    // Auto-refresh after returning from canvas screen
+    if (_pendingRefresh && !_isLoading) {
+      _pendingRefresh = false;
+      // Schedule refresh for after current build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadCanvases();
+      });
+    }
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF111113) : colorScheme.surface,
-      appBar: widget.appBar ?? _buildDefaultAppBar(colorScheme, isDark),
-      body: _buildBody(colorScheme, isDark),
+      backgroundColor: colorScheme.surface,
+      body: NestedScrollView(
+        headerSliverBuilder:
+            (context, innerBoxIsScrolled) => [
+              widget.appBar != null
+                  ? SliverToBoxAdapter(child: widget.appBar!)
+                  : _buildSliverAppBar(colorScheme, theme),
+            ],
+        body: _buildBody(colorScheme, theme),
+      ),
       floatingActionButton:
-          widget.showCreateButton
-              ? ScaleTransition(
-                scale: CurvedAnimation(
-                  parent: _fabAnimController,
-                  curve: Curves.elasticOut,
-                ),
-                child: FloatingActionButton.extended(
-                  onPressed: _createCanvas,
-                  backgroundColor: colorScheme.primaryContainer,
-                  foregroundColor: colorScheme.onPrimaryContainer,
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text(
-                    'New Canvas',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+          widget.showCreateButton ? _buildFAB(colorScheme) : null,
+    );
+  }
+
+  // ── Sliver App Bar ─────────────────────────────────────────────────────────
+
+  Widget _buildSliverAppBar(ColorScheme colorScheme, ThemeData theme) {
+    return SliverAppBar.large(
+      expandedHeight: _isSearchOpen ? 140 : 120,
+      pinned: true,
+      backgroundColor: colorScheme.surface,
+      surfaceTintColor: colorScheme.surfaceTint,
+      flexibleSpace: FlexibleSpaceBar(
+        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
+        title: AnimatedBuilder(
+          animation: _headerController,
+          builder: (context, child) {
+            final opacity = Curves.easeOut.transform(
+              _headerController.value.clamp(0.0, 1.0),
+            );
+            return Opacity(opacity: opacity, child: child);
+          },
+          child: Text(
+            widget.title ?? 'My Canvases',
+            style: TextStyle(
+              color: colorScheme.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        if (!_isLoading && _canvases.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: _CanvasCountChip(
+              count: _canvases.length,
+              colorScheme: colorScheme,
+            ),
+          ),
+        if (widget.showSearchBar)
+          IconButton(
+            icon: Icon(
+              _isSearchOpen ? Icons.close_rounded : Icons.search_rounded,
+            ),
+            onPressed: _toggleSearch,
+            tooltip: _isSearchOpen ? 'Close search' : 'Search',
+          ),
+        const SizedBox(width: 8),
+      ],
+      bottom:
+          _isSearchOpen
+              ? PreferredSize(
+                preferredSize: const Size.fromHeight(56),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: SearchBar(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    hintText: 'Search canvases…',
+                    leading: const Padding(
+                      padding: EdgeInsets.only(left: 8),
+                      child: Icon(Icons.search_rounded, size: 20),
+                    ),
+                    trailing:
+                        _searchQuery.isNotEmpty
+                            ? [
+                              IconButton(
+                                icon: const Icon(Icons.clear_rounded, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() {
+                                    _searchQuery = '';
+                                    _applyFilter();
+                                  });
+                                },
+                              ),
+                            ]
+                            : null,
+                    elevation: const WidgetStatePropertyAll(0),
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                        _applyFilter();
+                      });
+                    },
                   ),
                 ),
               )
@@ -305,93 +393,37 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
     );
   }
 
-  PreferredSizeWidget _buildDefaultAppBar(
-    ColorScheme colorScheme,
-    bool isDark,
-  ) {
-    return AppBar(
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      centerTitle: false,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.title ?? 'My Canvases',
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
-              color: isDark ? Colors.white : colorScheme.onSurface,
-            ),
-          ),
-          if (!_isLoading)
-            Text(
-              '${_canvases.length} canvas${_canvases.length == 1 ? "" : "es"}',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: isDark ? Colors.white38 : colorScheme.onSurfaceVariant,
-              ),
-            ),
-        ],
+  // ── FAB ────────────────────────────────────────────────────────────────────
+
+  Widget _buildFAB(ColorScheme colorScheme) {
+    return ScaleTransition(
+      scale: CurvedAnimation(parent: _fabController, curve: Curves.elasticOut),
+      child: FloatingActionButton.extended(
+        onPressed: _createCanvas,
+        elevation: 2,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text(
+          'New Canvas',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
       ),
-      toolbarHeight: 72,
-      actions: [
-        if (widget.showSearchBar)
-          IconButton(
-            icon: Icon(
-              Icons.search_rounded,
-              color: isDark ? Colors.white70 : colorScheme.onSurfaceVariant,
-            ),
-            onPressed: () {
-              // Toggle search — simple implementation
-              showSearch(
-                context: context,
-                delegate: _CanvasSearchDelegate(
-                  canvases: _canvases,
-                  onSelect: widget.onCanvasSelected,
-                  onDelete: widget.showDeleteButton ? _deleteCanvas : null,
-                  cardBuilder: widget.canvasCardBuilder,
-                ),
-              );
-            },
-          ),
-        const SizedBox(width: 8),
-      ],
     );
   }
 
-  Widget _buildBody(ColorScheme colorScheme, bool isDark) {
+  // ── Body ───────────────────────────────────────────────────────────────────
+
+  Widget _buildBody(ColorScheme colorScheme, ThemeData theme) {
     if (_isLoading) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                color: colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Loading canvases…',
-              style: TextStyle(
-                color: isDark ? Colors.white38 : colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      );
+      return _buildLoadingState(colorScheme);
     }
 
     if (_canvases.isEmpty) {
       return widget.emptyStateBuilder?.call() ??
-          _buildDefaultEmptyState(colorScheme, isDark);
+          _buildEmptyState(colorScheme, theme);
+    }
+
+    if (_filteredCanvases.isEmpty && _searchQuery.isNotEmpty) {
+      return _buildNoResultsState(colorScheme);
     }
 
     return RefreshIndicator(
@@ -400,41 +432,43 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         child: GridView.builder(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: widget.gridColumns,
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 200,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 0.78,
+            childAspectRatio: 0.82,
           ),
           itemCount: _filteredCanvases.length,
           itemBuilder: (context, index) {
             final canvas = _filteredCanvases[index];
-            final delay = (index * 0.08).clamp(0.0, 0.5);
+            final delay = (index * 0.06).clamp(0.0, 0.4);
 
             return AnimatedBuilder(
-              animation: _gridAnimController,
+              animation: _gridController,
               builder: (context, child) {
-                final progress = Curves.easeOutCubic.transform(
-                  ((_gridAnimController.value - delay) / (1 - delay)).clamp(
+                final t = Curves.easeOutCubic.transform(
+                  ((_gridController.value - delay) / (1 - delay)).clamp(
                     0.0,
                     1.0,
                   ),
                 );
                 return Transform.translate(
-                  offset: Offset(0, 30 * (1 - progress)),
-                  child: Opacity(opacity: progress, child: child),
+                  offset: Offset(0, 24 * (1 - t)),
+                  child: Opacity(opacity: t, child: child),
                 );
               },
               child:
                   widget.canvasCardBuilder != null
-                      ? widget.canvasCardBuilder!(
-                        canvas,
-                        () => widget.onCanvasSelected(canvas.canvasId),
-                        () => _deleteCanvas(canvas),
-                      )
+                      ? widget.canvasCardBuilder!(canvas, () {
+                        _pendingRefresh = true;
+                        widget.onCanvasSelected(canvas.canvasId);
+                      }, () => _deleteCanvas(canvas))
                       : _NebulaCanvasCard(
                         metadata: canvas,
-                        onTap: () => widget.onCanvasSelected(canvas.canvasId),
+                        onTap: () {
+                          _pendingRefresh = true;
+                          widget.onCanvasSelected(canvas.canvasId);
+                        },
                         onDelete:
                             widget.showDeleteButton
                                 ? () => _deleteCanvas(canvas)
@@ -447,76 +481,131 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
     );
   }
 
-  Widget _buildDefaultEmptyState(ColorScheme colorScheme, bool isDark) {
+  // ── Loading State ──────────────────────────────────────────────────────────
+
+  Widget _buildLoadingState(ColorScheme colorScheme) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              strokeCap: StrokeCap.round,
+              color: colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Loading canvases…',
+            style: TextStyle(fontSize: 14, color: colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Empty State ────────────────────────────────────────────────────────────
+
+  Widget _buildEmptyState(ColorScheme colorScheme, ThemeData theme) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(48),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Icon with gradient background
+            // Large tonal icon
             Container(
-              width: 96,
-              height: 96,
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    colorScheme.primaryContainer,
-                    colorScheme.tertiaryContainer,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(28),
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(24),
               ),
               child: Icon(
                 Icons.brush_rounded,
-                size: 44,
+                size: 36,
                 color: colorScheme.onPrimaryContainer,
               ),
             ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 24),
             Text(
               'No Canvases Yet',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-                color: isDark ? Colors.white : colorScheme.onSurface,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Tap the button below to create your first canvas\nand start drawing.',
+              'Create your first canvas to start drawing.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
                 height: 1.5,
-                color: isDark ? Colors.white38 : colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 32),
-            FilledButton.icon(
+            const SizedBox(height: 28),
+            FilledButton.tonalIcon(
               onPressed: _createCanvas,
               icon: const Icon(Icons.add_rounded),
               label: const Text('Create Canvas'),
-              style: FilledButton.styleFrom(
-                backgroundColor: colorScheme.primaryContainer,
-                foregroundColor: colorScheme.onPrimaryContainer,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 14,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                ),
-              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ── No Results State ───────────────────────────────────────────────────────
+
+  Widget _buildNoResultsState(ColorScheme colorScheme) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.search_off_rounded,
+            size: 48,
+            color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No canvases match "$_searchQuery"',
+            style: TextStyle(color: colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 🎨 CANVAS COUNT CHIP (app bar trailing)
+// =============================================================================
+
+class _CanvasCountChip extends StatelessWidget {
+  final int count;
+  final ColorScheme colorScheme;
+
+  const _CanvasCountChip({required this.count, required this.colorScheme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        '$count',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: colorScheme.onSecondaryContainer,
         ),
       ),
     );
@@ -524,7 +613,7 @@ class _NebulaCanvasGalleryState extends State<NebulaCanvasGallery>
 }
 
 // =============================================================================
-// 🎨 DEFAULT CANVAS CARD
+// 🎨 DEFAULT CANVAS CARD — Material Design 3 Filled Card
 // =============================================================================
 
 class _NebulaCanvasCard extends StatelessWidget {
@@ -542,13 +631,21 @@ class _NebulaCanvasCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
 
-    return Material(
-      color: Colors.transparent,
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+          width: 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () {
-          HapticFeedback.lightImpact();
+          HapticFeedback.selectionClick();
           onTap();
         },
         onLongPress:
@@ -558,225 +655,132 @@ class _NebulaCanvasCard extends StatelessWidget {
                   onDelete!();
                 }
                 : null,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          decoration: BoxDecoration(
-            color:
-                isDark
-                    ? const Color(0xFF1C1B1F)
-                    : colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color:
-                  isDark
-                      ? Colors.white.withValues(alpha: 0.06)
-                      : colorScheme.outlineVariant.withValues(alpha: 0.3),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Canvas preview area
-              Expanded(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    gradient: _getPreviewGradient(colorScheme, isDark),
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(19),
-                    ),
-                  ),
-                  child: Stack(
-                    children: [
-                      // Paper type icon
-                      Center(
-                        child: Icon(
-                          _getPaperIcon(metadata.paperType),
-                          size: 48,
-                          color: (isDark ? Colors.white : colorScheme.primary)
-                              .withValues(alpha: 0.15),
-                        ),
-                      ),
-                      // Stroke count badge
-                      Positioned(
-                        top: 10,
-                        right: 10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: (isDark ? Colors.black : Colors.white)
-                                .withValues(alpha: 0.7),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.gesture_rounded,
-                                size: 12,
-                                color:
-                                    isDark
-                                        ? Colors.white60
-                                        : colorScheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${metadata.strokeCount}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color:
-                                      isDark
-                                          ? Colors.white60
-                                          : colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      // Delete button
-                      if (onDelete != null)
-                        Positioned(
-                          top: 10,
-                          left: 10,
-                          child: GestureDetector(
-                            onTap: () {
-                              HapticFeedback.mediumImpact();
-                              onDelete!();
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: (isDark ? Colors.black : Colors.white)
-                                    .withValues(alpha: 0.7),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.delete_outline_rounded,
-                                size: 16,
-                                color: colorScheme.error,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Preview Area ─────────────────────────────────────
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  gradient: _buildPreviewGradient(colorScheme),
                 ),
-              ),
-              // Info section
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Stack(
                   children: [
-                    Text(
-                      metadata.title ?? 'Untitled',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.2,
-                        color: isDark ? Colors.white : colorScheme.onSurface,
+                    // Paper icon watermark
+                    Center(
+                      child: Icon(
+                        _paperIcon,
+                        size: 44,
+                        color: colorScheme.onSurface.withValues(alpha: 0.06),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.layers_rounded,
-                          size: 13,
-                          color:
-                              isDark
-                                  ? Colors.white30
-                                  : colorScheme.onSurfaceVariant.withValues(
-                                    alpha: 0.6,
-                                  ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${metadata.layerCount} layer${metadata.layerCount == 1 ? "" : "s"}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color:
-                                isDark
-                                    ? Colors.white30
-                                    : colorScheme.onSurfaceVariant.withValues(
-                                      alpha: 0.6,
-                                    ),
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          _formatDate(metadata.updatedAt),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color:
-                                isDark
-                                    ? Colors.white24
-                                    : colorScheme.onSurfaceVariant.withValues(
-                                      alpha: 0.4,
-                                    ),
-                          ),
-                        ),
-                      ],
+                    // Stroke count badge (top-right)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: _MetadataBadge(
+                        icon: Icons.gesture_rounded,
+                        label: '${metadata.strokeCount}',
+                        colorScheme: colorScheme,
+                      ),
                     ),
+                    // Delete button (top-left)
+                    if (onDelete != null)
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: _CardActionButton(
+                          icon: Icons.delete_outline_rounded,
+                          color: colorScheme.error,
+                          onTap: () {
+                            HapticFeedback.mediumImpact();
+                            onDelete!();
+                          },
+                        ),
+                      ),
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+            // ── Info Section ─────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    metadata.title ?? 'Untitled',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.layers_outlined,
+                        size: 13,
+                        color: colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${metadata.layerCount} layer${metadata.layerCount == 1 ? "" : "s"}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.7,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _formatDate(metadata.updatedAt),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  LinearGradient _getPreviewGradient(ColorScheme colorScheme, bool isDark) {
-    // Generate a unique-ish gradient per canvas based on ID hash
-    final hash = metadata.canvasId.hashCode;
-    final hue = (hash % 360).abs().toDouble();
+  LinearGradient _buildPreviewGradient(ColorScheme colorScheme) {
+    // Deterministic gradient based on canvas ID hash
+    final hash = metadata.canvasId.hashCode.abs();
+    final hue = (hash % 360).toDouble();
 
-    if (isDark) {
-      return LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          HSLColor.fromAHSL(1, hue, 0.3, 0.15).toColor(),
-          HSLColor.fromAHSL(1, (hue + 40) % 360, 0.25, 0.10).toColor(),
-        ],
-      );
-    }
     return LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        HSLColor.fromAHSL(1, hue, 0.25, 0.94).toColor(),
-        HSLColor.fromAHSL(1, (hue + 40) % 360, 0.20, 0.90).toColor(),
+        HSLColor.fromAHSL(1, hue, 0.12, 0.94).toColor(),
+        HSLColor.fromAHSL(1, (hue + 30) % 360, 0.10, 0.90).toColor(),
       ],
     );
   }
 
-  IconData _getPaperIcon(String paperType) {
-    switch (paperType) {
+  IconData get _paperIcon {
+    switch (metadata.paperType) {
       case 'lines':
       case 'lines_narrow':
         return Icons.horizontal_rule_rounded;
       case 'grid_5mm':
       case 'grid_1cm':
       case 'grid_2cm':
-        return Icons.grid_on_rounded;
+        return Icons.grid_4x4_rounded;
       case 'dots':
       case 'dots_dense':
         return Icons.grain_rounded;
@@ -795,10 +799,83 @@ class _NebulaCanvasCard extends StatelessWidget {
     if (diff.inHours < 1) return '${diff.inMinutes}m ago';
     if (diff.inDays < 1) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
-    if (diff.inDays < 365) {
-      return '${date.day}/${date.month}';
-    }
+    if (diff.inDays < 365) return '${date.day}/${date.month}';
     return '${date.day}/${date.month}/${date.year}';
+  }
+}
+
+// =============================================================================
+// 🏷️ METADATA BADGE (stroke count, layer count)
+// =============================================================================
+
+class _MetadataBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final ColorScheme colorScheme;
+
+  const _MetadataBadge({
+    required this.icon,
+    required this.label,
+    required this.colorScheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 🔘 CARD ACTION BUTTON (delete/more)
+// =============================================================================
+
+class _CardActionButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _CardActionButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: colorScheme.surfaceContainerHighest,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 16, color: color),
+        ),
+      ),
+    );
   }
 }
 
@@ -849,6 +926,8 @@ class _CanvasSearchDelegate extends SearchDelegate<String?> {
   Widget buildSuggestions(BuildContext context) => _buildSearchResults(context);
 
   Widget _buildSearchResults(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final q = query.toLowerCase();
     final results =
         canvases
@@ -867,12 +946,12 @@ class _CanvasSearchDelegate extends SearchDelegate<String?> {
             Icon(
               Icons.search_off_rounded,
               size: 48,
-              color: Colors.grey.shade400,
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
             ),
             const SizedBox(height: 16),
             Text(
               'No canvases found',
-              style: TextStyle(color: Colors.grey.shade500),
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -885,30 +964,40 @@ class _CanvasSearchDelegate extends SearchDelegate<String?> {
       itemBuilder: (context, index) {
         final canvas = results[index];
         return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.only(bottom: 4),
           child: ListTile(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
             ),
             leading: Container(
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primaryContainer.withValues(alpha: 0.5),
+                color: colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 Icons.brush_rounded,
-                color: Theme.of(context).colorScheme.primary,
-                size: 22,
+                color: colorScheme.onPrimaryContainer,
+                size: 20,
               ),
             ),
-            title: Text(canvas.title ?? 'Untitled'),
+            title: Text(
+              canvas.title ?? 'Untitled',
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
             subtitle: Text(
               '${canvas.layerCount} layers · ${canvas.strokeCount} strokes',
-              style: const TextStyle(fontSize: 12),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            trailing: Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 14,
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
             ),
             onTap: () {
               close(context, canvas.canvasId);

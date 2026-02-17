@@ -1,14 +1,21 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/models/canvas_layer.dart';
+import '../../core/models/digital_text_element.dart';
+import '../../core/models/image_element.dart';
 import '../../layers/nebula_layer_controller.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 
-/// Widget overlay showing elements selected by lasso (with animation)
+/// Widget overlay showing elements selected by lasso (with animation).
+///
+/// Supports highlighting strokes, shapes, text, and image elements.
 class LassoSelectionOverlay extends StatefulWidget {
   final Set<String> selectedStrokeIds;
   final Set<String> selectedShapeIds;
+  final Set<String> selectedTextIds;
+  final Set<String> selectedImageIds;
   final NebulaLayerController layerController;
   final InfiniteCanvasController canvasController;
 
@@ -16,6 +23,8 @@ class LassoSelectionOverlay extends StatefulWidget {
     super.key,
     required this.selectedStrokeIds,
     required this.selectedShapeIds,
+    this.selectedTextIds = const {},
+    this.selectedImageIds = const {},
     required this.layerController,
     required this.canvasController,
   });
@@ -32,7 +41,6 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
   @override
   void initState() {
     super.initState();
-    // Animazione pulsante per l'highlight
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -51,7 +59,13 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
 
   @override
   Widget build(BuildContext context) {
-    if (widget.selectedStrokeIds.isEmpty && widget.selectedShapeIds.isEmpty) {
+    final hasNoSelection =
+        widget.selectedStrokeIds.isEmpty &&
+        widget.selectedShapeIds.isEmpty &&
+        widget.selectedTextIds.isEmpty &&
+        widget.selectedImageIds.isEmpty;
+
+    if (hasNoSelection) {
       return const SizedBox.shrink();
     }
 
@@ -62,6 +76,8 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
           painter: _SelectionHighlightPainter(
             selectedStrokeIds: widget.selectedStrokeIds,
             selectedShapeIds: widget.selectedShapeIds,
+            selectedTextIds: widget.selectedTextIds,
+            selectedImageIds: widget.selectedImageIds,
             layerController: widget.layerController,
             animationValue: _pulseAnimation.value,
             canvasController: widget.canvasController,
@@ -73,10 +89,12 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
   }
 }
 
-/// Painter per evidenziare gli selected elements (con effetti professionali)
+/// Painter that highlights all selected elements with professional effects.
 class _SelectionHighlightPainter extends CustomPainter {
   final Set<String> selectedStrokeIds;
   final Set<String> selectedShapeIds;
+  final Set<String> selectedTextIds;
+  final Set<String> selectedImageIds;
   final NebulaLayerController layerController;
   final double animationValue;
   final InfiniteCanvasController canvasController;
@@ -84,6 +102,8 @@ class _SelectionHighlightPainter extends CustomPainter {
   _SelectionHighlightPainter({
     required this.selectedStrokeIds,
     required this.selectedShapeIds,
+    required this.selectedTextIds,
+    required this.selectedImageIds,
     required this.layerController,
     required this.animationValue,
     required this.canvasController,
@@ -96,17 +116,31 @@ class _SelectionHighlightPainter extends CustomPainter {
       orElse: () => layerController.layers.first,
     );
 
-    // Evidenzia strokes selezionati
+    // Highlight selected strokes
     for (final stroke in activeLayer.strokes) {
       if (selectedStrokeIds.contains(stroke.id)) {
         _drawStrokeHighlight(canvas, stroke);
       }
     }
 
-    // Evidenzia shapes selezionati
+    // Highlight selected shapes
     for (final shape in activeLayer.shapes) {
       if (selectedShapeIds.contains(shape.id)) {
         _drawShapeHighlight(canvas, shape);
+      }
+    }
+
+    // Highlight selected text elements
+    for (final text in activeLayer.texts) {
+      if (selectedTextIds.contains(text.id)) {
+        _drawTextHighlight(canvas, text);
+      }
+    }
+
+    // Highlight selected image elements
+    for (final image in activeLayer.images) {
+      if (selectedImageIds.contains(image.id)) {
+        _drawImageHighlight(canvas, image);
       }
     }
   }
@@ -114,7 +148,6 @@ class _SelectionHighlightPainter extends CustomPainter {
   void _drawStrokeHighlight(Canvas canvas, ProStroke stroke) {
     if (stroke.points.isEmpty) return;
 
-    // Convert punti canvas in screen coordinates
     final path = Path();
     final firstScreen = canvasController.canvasToScreen(
       stroke.points.first.position,
@@ -128,7 +161,7 @@ class _SelectionHighlightPainter extends CustomPainter {
       path.lineTo(screenPoint.dx, screenPoint.dy);
     }
 
-    // 1. Main border (blue, flat) - Stile PDF Viewer
+    // Blue highlight border
     final mainPaint =
         Paint()
           ..color = Colors.blue.withValues(alpha: 0.7)
@@ -138,7 +171,7 @@ class _SelectionHighlightPainter extends CustomPainter {
           ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(path, mainPaint);
 
-    // 2. Inner border bianco sottile
+    // White inner border
     final innerPaint =
         Paint()
           ..color = Colors.white.withValues(alpha: 0.5)
@@ -150,14 +183,13 @@ class _SelectionHighlightPainter extends CustomPainter {
   }
 
   void _drawShapeHighlight(Canvas canvas, GeometricShape shape) {
-    // Convert punti canvas in screen coordinates
     final startScreen = canvasController.canvasToScreen(shape.startPoint);
     final endScreen = canvasController.canvasToScreen(shape.endPoint);
 
     final rect = Rect.fromPoints(startScreen, endScreen);
     final expandedRect = rect.inflate(8);
 
-    // 1. Main border (blue, flat)
+    // Blue border
     final mainPaint =
         Paint()
           ..color = Colors.blue.withValues(alpha: 0.7)
@@ -165,7 +197,7 @@ class _SelectionHighlightPainter extends CustomPainter {
           ..style = PaintingStyle.stroke;
     canvas.drawRect(expandedRect, mainPaint);
 
-    // 2. Inner border
+    // White inner border
     final innerPaint =
         Paint()
           ..color = Colors.white.withValues(alpha: 0.5)
@@ -173,24 +205,144 @@ class _SelectionHighlightPainter extends CustomPainter {
           ..style = PaintingStyle.stroke;
     canvas.drawRect(expandedRect.deflate(1), innerPaint);
 
-    // 3. Corner handles (maniglie angolari)
+    // Corner handles
+    _drawCornerHandles(canvas, expandedRect);
+  }
+
+  void _drawTextHighlight(Canvas canvas, DigitalTextElement text) {
+    final screenPos = canvasController.canvasToScreen(text.position);
+
+    // Estimate text size using TextPainter
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text.text,
+        style: TextStyle(
+          fontSize: text.fontSize * text.scale,
+          fontWeight: text.fontWeight,
+          fontFamily: text.fontFamily,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final scale = canvasController.scale;
+    final rect = Rect.fromLTWH(
+      screenPos.dx,
+      screenPos.dy,
+      max(textPainter.width * scale, 60),
+      max(textPainter.height * scale, 24),
+    );
+    final expandedRect = rect.inflate(6);
+
+    // Deep purple border for text
+    final mainPaint =
+        Paint()
+          ..color = Colors.deepPurple.withValues(alpha: 0.7)
+          ..strokeWidth = 2.0
+          ..style = PaintingStyle.stroke;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(expandedRect, const Radius.circular(4)),
+      mainPaint,
+    );
+
+    // Semi-transparent fill
+    final fillPaint =
+        Paint()
+          ..color = Colors.deepPurple.withValues(alpha: 0.08)
+          ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(expandedRect, const Radius.circular(4)),
+      fillPaint,
+    );
+
+    // Text icon indicator
+    final iconPaint =
+        Paint()
+          ..color = Colors.deepPurple.withValues(alpha: 0.6)
+          ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      expandedRect.topRight + const Offset(4, -4),
+      8,
+      iconPaint,
+    );
+    canvas.drawCircle(
+      expandedRect.topRight + const Offset(4, -4),
+      6,
+      Paint()..color = Colors.white,
+    );
+
+    // "T" letter in indicator
+    final tp = TextPainter(
+      text: TextSpan(
+        text: 'T',
+        style: TextStyle(
+          color: Colors.deepPurple,
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(
+      canvas,
+      expandedRect.topRight + Offset(4 - tp.width / 2, -4 - tp.height / 2),
+    );
+  }
+
+  void _drawImageHighlight(Canvas canvas, ImageElement image) {
+    final screenPos = canvasController.canvasToScreen(image.position);
+
+    final scale = canvasController.scale;
+    final size = 200.0 * image.scale * scale;
+    final rect = Rect.fromLTWH(screenPos.dx, screenPos.dy, size, size);
+    final expandedRect = rect.inflate(6);
+
+    // Teal border for images
+    final mainPaint =
+        Paint()
+          ..color = Colors.teal.withValues(alpha: 0.7)
+          ..strokeWidth = 2.0
+          ..style = PaintingStyle.stroke;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(expandedRect, const Radius.circular(4)),
+      mainPaint,
+    );
+
+    // Semi-transparent fill
+    final fillPaint =
+        Paint()
+          ..color = Colors.teal.withValues(alpha: 0.08)
+          ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(expandedRect, const Radius.circular(4)),
+      fillPaint,
+    );
+
+    // Corner handles
+    _drawCornerHandles(canvas, expandedRect, color: Colors.teal);
+  }
+
+  /// Draw corner handles on a rect.
+  void _drawCornerHandles(
+    Canvas canvas,
+    Rect rect, {
+    Color color = Colors.blue,
+  }) {
     final handlePaint =
         Paint()
-          ..color = Colors.blue
+          ..color = color
           ..style = PaintingStyle.fill;
 
-    final handleSize = 6.0;
+    const handleSize = 6.0;
     final corners = [
-      expandedRect.topLeft,
-      expandedRect.topRight,
-      expandedRect.bottomLeft,
-      expandedRect.bottomRight,
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomLeft,
+      rect.bottomRight,
     ];
 
     for (final corner in corners) {
-      // Alone bianco
       canvas.drawCircle(corner, handleSize + 2, Paint()..color = Colors.white);
-      // Centro blu
       canvas.drawCircle(corner, handleSize, handlePaint);
     }
   }
@@ -199,6 +351,8 @@ class _SelectionHighlightPainter extends CustomPainter {
   bool shouldRepaint(_SelectionHighlightPainter oldDelegate) {
     return selectedStrokeIds != oldDelegate.selectedStrokeIds ||
         selectedShapeIds != oldDelegate.selectedShapeIds ||
+        selectedTextIds != oldDelegate.selectedTextIds ||
+        selectedImageIds != oldDelegate.selectedImageIds ||
         animationValue != oldDelegate.animationValue;
   }
 }

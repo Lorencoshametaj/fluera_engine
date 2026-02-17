@@ -193,40 +193,44 @@ extension on _NebulaCanvasScreenState {
         );
       }
 
-      // Load settings
+      // Load settings — supports both:
+      //   1. Flat keys from SqliteStorageAdapter (backgroundColor, paperType, etc.)
+      //   2. Legacy nested 'settings' object from cloud/Firestore format
       final settingsData = data['settings'] as Map<dynamic, dynamic>?;
       final settings =
           settingsData != null ? Map<String, dynamic>.from(settingsData) : null;
-      if (settings != null) {
-        final bgColor = settings['backgroundColor'];
-        if (bgColor != null) {
-          // Supporta sia formato string (hex o decimal) che int
-          if (bgColor is String) {
-            try {
-              // Prova prima come hex (con o without 0x prefix)
-              if (bgColor.startsWith('0x') || bgColor.startsWith('0X')) {
-                _canvasBackgroundColor = Color(int.parse(bgColor));
-              } else if (bgColor.length == 8 && !bgColor.contains('-')) {
-                // Formato esadecimale without prefisso (es: "ffffffff")
-                _canvasBackgroundColor = Color(int.parse(bgColor, radix: 16));
-              } else {
-                // Formato decimale (es: "4294967295")
-                _canvasBackgroundColor = Color(int.parse(bgColor));
-              }
-            } catch (e) {
-              _canvasBackgroundColor = Colors.white;
-            }
-          } else if (bgColor is int) {
-            _canvasBackgroundColor = Color(bgColor);
-          }
-        }
-        _paperType = settings['paperType'] ?? 'blank';
 
-        // 📐 Load saved guides
-        final guidesJson = settings['guides'] as Map<String, dynamic>?;
-        if (guidesJson != null) {
-          _rulerGuideSystem.loadFromJson(guidesJson);
+      // Read each setting from flat key first, then fall back to nested settings
+      final bgColor = data['backgroundColor'] ?? settings?['backgroundColor'];
+      if (bgColor != null) {
+        if (bgColor is String) {
+          try {
+            if (bgColor.startsWith('0x') || bgColor.startsWith('0X')) {
+              _canvasBackgroundColor = Color(int.parse(bgColor));
+            } else if (bgColor.length == 8 && !bgColor.contains('-')) {
+              _canvasBackgroundColor = Color(int.parse(bgColor, radix: 16));
+            } else {
+              _canvasBackgroundColor = Color(int.parse(bgColor));
+            }
+          } catch (e) {
+            _canvasBackgroundColor = Colors.white;
+          }
+        } else if (bgColor is int) {
+          _canvasBackgroundColor = Color(bgColor);
         }
+      }
+
+      _paperType =
+          data['paperType'] as String? ??
+          settings?['paperType'] as String? ??
+          'blank';
+
+      // 📐 Load saved guides
+      final guidesJson =
+          data['guides'] as Map<String, dynamic>? ??
+          settings?['guides'] as Map<String, dynamic>?;
+      if (guidesJson != null) {
+        _rulerGuideSystem.loadFromJson(guidesJson);
       }
     });
 
@@ -242,15 +246,17 @@ extension on _NebulaCanvasScreenState {
       );
     }
 
-    // 🎯 Set layer attivo DOPO il caricamento dei layers
+    // 🎯 Set active layer AFTER loading layers
+    final activeLayerIdFromData = data['activeLayerId'] as String?;
     final settingsData2 = data['settings'] as Map<dynamic, dynamic>?;
-    final settings2 =
-        settingsData2 != null ? Map<String, dynamic>.from(settingsData2) : null;
-    if (settings2 != null) {
-      final activeLayerId = settings2['activeLayerId'] as String?;
-      if (activeLayerId != null) {
-        _layerController.selectLayer(activeLayerId);
-      }
+    final activeLayerIdFromSettings =
+        settingsData2 != null
+            ? Map<String, dynamic>.from(settingsData2)['activeLayerId']
+                as String?
+            : null;
+    final activeLayerId = activeLayerIdFromData ?? activeLayerIdFromSettings;
+    if (activeLayerId != null) {
+      _layerController.selectLayer(activeLayerId);
     }
 
     // Pre-carica immagini in background (non bloccante)
