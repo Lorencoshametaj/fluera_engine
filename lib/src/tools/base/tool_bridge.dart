@@ -82,13 +82,7 @@ class ToolSystemBridge {
 
   /// Register the default tools
   void registerDefaultTools() {
-    _registry.registerAll([
-      UnifiedEraserTool(),
-      UnifiedLassoTool(),
-      UnifiedDigitalTextTool(),
-      UnifiedImageTool(),
-      UnifiedShapeTool(),
-    ]);
+    _registry.registerAll([UnifiedShapeTool()]);
   }
 
   /// Register a custom tool
@@ -256,49 +250,6 @@ class ToolSystemBridge {
   // ============================================================================
   // TOOL-SPECIFIC OPERATIONS
   // ============================================================================
-
-  /// Get eraser tool for configuration
-  UnifiedEraserTool? get eraserTool =>
-      _registry.getToolAs<UnifiedEraserTool>('eraser');
-
-  /// Get lasso tool for operations
-  UnifiedLassoTool? get lassoTool =>
-      _registry.getToolAs<UnifiedLassoTool>('lasso');
-
-  /// Configure eraser radius
-  void setEraserRadius(double radius) {
-    eraserTool?.radius = radius;
-    toolController.setEraserRadius(radius);
-  }
-
-  /// Configure eraser mode
-  void setEraseWholeStroke(bool value) {
-    eraserTool?.eraseWholeStroke = value;
-    toolController.setEraseWholeStroke(value);
-  }
-
-  /// Erase at specified point using the unified eraser
-  void eraseAt(Offset canvasPosition) {
-    if (_currentContext != null && eraserTool != null) {
-      selectTool('eraser');
-      eraserTool!.eraseAtPosition(_currentContext!, canvasPosition);
-    }
-  }
-
-  /// Delete elements selected by lasso
-  void deleteSelectedElements() {
-    if (_currentContext != null && lassoTool != null) {
-      lassoTool!.deleteSelected(_currentContext!);
-    }
-  }
-
-  /// Clear lasso selection
-  void clearLassoSelection() {
-    lassoTool?.clearSelection();
-  }
-
-  /// Check if there are selected elements
-  bool get hasSelection => lassoTool?.hasSelection ?? false;
 
   // ============================================================================
   // PRIVATE

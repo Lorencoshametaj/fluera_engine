@@ -14,5 +14,6 @@ public class NebulaEnginePlugin: NSObject, FlutterPlugin {
         PredictedTouchPlugin.register(with: registrar)
         DisplayLinkPlugin.register(with: registrar)
         VibrationPlugin.register(with: registrar)
+        PerformanceMonitorPlugin.register(with: registrar)
     }
 }

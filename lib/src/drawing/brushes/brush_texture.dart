@@ -1,14 +1,15 @@
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// 🎨 Type of texture applicabile ai pennelli
+/// 🎨 Type of texture applicable to brushes
 enum TextureType {
-  none, // None texture
-  pencilGrain, // Grana matita su carta ruvida
-  charcoal, // Carboncino grosso
-  watercolor, // Macchie acquerello
-  canvas, // Trama tela pittura
-  kraft, // Carta kraft con fibre
+  none, // No texture
+  pencilGrain, // Pencil grain on rough paper
+  charcoal, // Heavy charcoal
+  watercolor, // Watercolor stains
+  canvas, // Canvas weave pattern
+  kraft, // Kraft paper with fibers
 }
 
 /// 🔄 Texture rotation behavior along the stroke
@@ -23,12 +24,12 @@ enum TextureRotationMode {
   random,
 }
 
-/// 🎨 Sistema Texture per Pennelli Professionali
+/// 🎨 Professional Brush Texture System
 ///
-/// Loads e cache texture grayscale tileable come `ui.Image`.
-/// Le texture vengono applicate ai tratti via `ImageShader` con `BlendMode.modulate`.
+/// Loads and caches tileable grayscale textures as `ui.Image`.
+/// Textures are applied to strokes via `ImageShader` with `BlendMode.modulate`.
 ///
-/// Cache singleton: ogni texture viene caricata una sola volta in memoria.
+/// Singleton cache: each texture is loaded once into memory.
 class BrushTexture {
   BrushTexture._();
 
@@ -45,8 +46,11 @@ class BrushTexture {
     TextureType.kraft: 'assets/textures/kraft_paper.png',
   };
 
-  /// Loads una texture (async, con cache)
-  /// Returns `null` if the tipo is `none` o if the caricamento fallisce.
+  /// Package name used for asset resolution when consumed as a dependency.
+  static const String _packageName = 'nebula_engine';
+
+  /// Loads a texture asynchronously with caching.
+  /// Returns `null` if the type is `none` or if loading fails.
   static Future<ui.Image?> load(TextureType type) async {
     if (type == TextureType.none) return null;
 
@@ -61,12 +65,21 @@ class BrushTexture {
       final path = _assetPaths[type];
       if (path == null) return null;
 
-      final data = await rootBundle.load(path);
+      // Try package-prefixed path first (required when consumed as a
+      // dependency), then fall back to bare path (when running directly
+      // from within the package).
+      late final ByteData data;
+      try {
+        data = await rootBundle.load('packages/$_packageName/$path');
+      } catch (_) {
+        data = await rootBundle.load(path);
+      }
       final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
       final frame = await codec.getNextFrame();
       _cache[type] = frame.image;
       return frame.image;
     } catch (e) {
+      debugPrint('⚠️ BrushTexture: failed to load $type — $e');
       _cache[type] = null;
       return null;
     } finally {

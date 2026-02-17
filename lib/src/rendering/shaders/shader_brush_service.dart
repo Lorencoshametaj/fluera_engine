@@ -6,7 +6,7 @@ import 'package:meta/meta.dart';
 import '../optimization/optimization.dart';
 import '../../core/engine_scope.dart';
 
-/// 🎨 SHADER BRUSH SERVICE — GPU-accelerated brush rendering (Pro only)
+/// 🎨 SHADER BRUSH SERVICE — GPU-accelerated brush rendering
 ///
 /// ARCHITECTURE:
 /// - Loads GLSL fragment shaders at startup
@@ -14,7 +14,7 @@ import '../../core/engine_scope.dart';
 /// - Falls back to CPU rendering if GPU unavailable
 /// - Singleton — shared across all painters
 ///
-/// PRO FEATURES:
+/// FEATURES:
 /// - Pencil: graphite noise texture, pressure gradient
 /// - Fountain pen: ink bleed, fiber texture, velocity accumulation
 ///
@@ -26,6 +26,10 @@ import '../../core/engine_scope.dart';
 /// - [ShaderWatercolorRenderer] in `shader_watercolor_renderer.dart`
 /// - [ShaderMarkerRenderer] in `shader_marker_renderer.dart`
 /// - [ShaderCharcoalRenderer] in `shader_charcoal_renderer.dart`
+/// - [ShaderOilPaintRenderer] in `shader_oil_paint_renderer.dart`
+/// - [ShaderSprayPaintRenderer] in `shader_spray_paint_renderer.dart`
+/// - [ShaderNeonGlowRenderer] in `shader_neon_glow_renderer.dart`
+/// - [ShaderInkWashRenderer] in `shader_ink_wash_renderer.dart`
 class ShaderBrushService {
   // ═══════════════════════════════════════════════════════════════════════════
   // SINGLETON
@@ -48,6 +52,10 @@ class ShaderBrushService {
   ui.FragmentProgram? _watercolorProgram;
   ui.FragmentProgram? _markerProgram;
   ui.FragmentProgram? _charcoalProgram;
+  ui.FragmentProgram? _oilPaintProgram;
+  ui.FragmentProgram? _sprayPaintProgram;
+  ui.FragmentProgram? _neonGlowProgram;
+  ui.FragmentProgram? _inkWashProgram;
 
   bool _initialized = false;
   bool _initAttempted = false;
@@ -78,6 +86,10 @@ class ShaderBrushService {
   ui.FragmentShader? _watercolorShader;
   ui.FragmentShader? _markerShader;
   ui.FragmentShader? _charcoalShader;
+  ui.FragmentShader? _oilPaintShader;
+  ui.FragmentShader? _sprayPaintShader;
+  ui.FragmentShader? _neonGlowShader;
+  ui.FragmentShader? _inkWashShader;
 
   /// Shader accessors for renderer extensions.
   @internal
@@ -94,6 +106,14 @@ class ShaderBrushService {
   ui.FragmentShader? get markerShader => _markerShader;
   @internal
   ui.FragmentShader? get charcoalShader => _charcoalShader;
+  @internal
+  ui.FragmentShader? get oilPaintShader => _oilPaintShader;
+  @internal
+  ui.FragmentShader? get sprayPaintShader => _sprayPaintShader;
+  @internal
+  ui.FragmentShader? get neonGlowShader => _neonGlowShader;
+  @internal
+  ui.FragmentShader? get inkWashShader => _inkWashShader;
 
   /// Whether the stamp brush GPU shader is ready
   bool get isStampAvailable => _initialized && _brushStampShader != null;
@@ -139,6 +159,10 @@ class ShaderBrushService {
         ui.FragmentProgram.fromAsset('shaders/watercolor.frag'),
         ui.FragmentProgram.fromAsset('shaders/marker.frag'),
         ui.FragmentProgram.fromAsset('shaders/charcoal.frag'),
+        ui.FragmentProgram.fromAsset('shaders/oil_paint.frag'),
+        ui.FragmentProgram.fromAsset('shaders/spray_paint.frag'),
+        ui.FragmentProgram.fromAsset('shaders/neon_glow.frag'),
+        ui.FragmentProgram.fromAsset('shaders/ink_wash.frag'),
       ]);
 
       _pencilProgram = results[0];
@@ -148,6 +172,10 @@ class ShaderBrushService {
       _watercolorProgram = results[4];
       _markerProgram = results[5];
       _charcoalProgram = results[6];
+      _oilPaintProgram = results[7];
+      _sprayPaintProgram = results[8];
+      _neonGlowProgram = results[9];
+      _inkWashProgram = results[10];
 
       _pencilShader = _pencilProgram!.fragmentShader();
       _fountainPenShader = _fountainPenProgram!.fragmentShader();
@@ -156,6 +184,10 @@ class ShaderBrushService {
       _watercolorShader = _watercolorProgram!.fragmentShader();
       _markerShader = _markerProgram!.fragmentShader();
       _charcoalShader = _charcoalProgram!.fragmentShader();
+      _oilPaintShader = _oilPaintProgram!.fragmentShader();
+      _sprayPaintShader = _sprayPaintProgram!.fragmentShader();
+      _neonGlowShader = _neonGlowProgram!.fragmentShader();
+      _inkWashShader = _inkWashProgram!.fragmentShader();
 
       _initialized = true;
     } catch (e) {
@@ -179,6 +211,10 @@ class ShaderBrushService {
       _watercolorShader,
       _markerShader,
       _charcoalShader,
+      _oilPaintShader,
+      _sprayPaintShader,
+      _neonGlowShader,
+      _inkWashShader,
     ]) {
       if (shader != null) {
         // Set minimum required uniforms to avoid out-of-bounds
@@ -212,6 +248,10 @@ class ShaderBrushService {
       _watercolorShader,
       _markerShader,
       _charcoalShader,
+      _oilPaintShader,
+      _sprayPaintShader,
+      _neonGlowShader,
+      _inkWashShader,
     ];
     for (final shader in shaders) {
       if (shader == null) continue;
@@ -321,6 +361,10 @@ class ShaderBrushService {
     _watercolorShader?.dispose();
     _markerShader?.dispose();
     _charcoalShader?.dispose();
+    _oilPaintShader?.dispose();
+    _sprayPaintShader?.dispose();
+    _neonGlowShader?.dispose();
+    _inkWashShader?.dispose();
     _pencilShader = null;
     _fountainPenShader = null;
     _textureOverlayShader = null;
@@ -328,6 +372,10 @@ class ShaderBrushService {
     _watercolorShader = null;
     _markerShader = null;
     _charcoalShader = null;
+    _oilPaintShader = null;
+    _sprayPaintShader = null;
+    _neonGlowShader = null;
+    _inkWashShader = null;
     _pencilProgram = null;
     _fountainPenProgram = null;
     _textureOverlayProgram = null;
@@ -335,6 +383,10 @@ class ShaderBrushService {
     _watercolorProgram = null;
     _markerProgram = null;
     _charcoalProgram = null;
+    _oilPaintProgram = null;
+    _sprayPaintProgram = null;
+    _neonGlowProgram = null;
+    _inkWashProgram = null;
     _initialized = false;
   }
 }

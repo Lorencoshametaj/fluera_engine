@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../drawing/brushes/brush_texture.dart';
 
 import 'package:flutter/services.dart';
-// import 'package:path_provider/path_provider.dart'; // Phase 2
 import 'package:uuid/uuid.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../drawing/models/pro_brush_settings.dart';
@@ -37,10 +36,6 @@ import './infinite_canvas_controller.dart';
 import './infinite_canvas_gesture_detector.dart';
 import '../layers/layer_controller.dart';
 import '../layers/widgets/layer_panel.dart';
-// import '../../widgets/export_area_selector.dart'; // Phase 2: Export
-// import '../../widgets/export_mode_toolbar.dart'; // Phase 2: Export mode
-// import '../../widgets/multi_page_preview_overlay.dart'; // Phase 2: Export
-// import '../../widgets/interactive_page_grid_overlay.dart'; // Phase 2
 import '../tools/eraser/eraser_tool.dart';
 import '../tools/eraser/eraser_hit_tester.dart';
 import '../tools/lasso/lasso_tool.dart';
@@ -58,10 +53,7 @@ import '../tools/ruler/ruler_interactive_overlay.dart';
 import './overlays/selection_transform_overlay.dart';
 import '../dialogs/digital_text_input_dialog.dart';
 import '../dialogs/image_editor_dialog.dart';
-// import '../../widgets/audio_player_banner.dart'; // Phase 2: Audio
-// import '../../services/ocr_service.dart'; // Phase 2: OCR
 import '../services/image_service.dart';
-// import '../../services/recording_service.dart'; // Phase 2: Recording
 import '../services/adaptive_debouncer_service.dart';
 import '../drawing/input/raw_input_processor_120hz.dart';
 import '../history/canvas_delta_tracker.dart';
@@ -77,9 +69,6 @@ import './overlays/canvas_viewport_overlay.dart';
 import '../time_travel/services/time_travel_recorder.dart';
 import '../services/phase2_service_stubs.dart'; // Stub implementations for Phase 2 services
 import '../time_travel/services/time_travel_playback_engine.dart';
-// import '../../widgets/time_travel_timeline_widget.dart'; // Phase 2
-// import '../../widgets/time_travel_lasso_overlay.dart'; // Phase 2
-// import '../../widgets/recovery_placement_overlay.dart'; // Phase 2
 import '../history/branching_manager.dart';
 import '../history/widgets/branch_explorer_sheet.dart';
 
@@ -87,7 +76,6 @@ import '../tools/base/tool_bridge.dart';
 import '../tools/unified_tool_controller.dart';
 import './toolbar/menus/selection_actions_menu.dart';
 import './toolbar/menus/image_action_button.dart';
-// import '../../widgets/dialogs/recordings_list_dialog.dart'; // Phase 2: Recordings UI
 import '../rendering/canvas/canvas_painters.dart';
 import '../dialogs/canvas_settings_dialog.dart';
 

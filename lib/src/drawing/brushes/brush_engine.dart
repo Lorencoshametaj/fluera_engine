@@ -9,6 +9,10 @@ import '../../rendering/shaders/shader_texture_renderer.dart';
 import '../../rendering/shaders/shader_watercolor_renderer.dart';
 import '../../rendering/shaders/shader_marker_renderer.dart';
 import '../../rendering/shaders/shader_charcoal_renderer.dart';
+import '../../rendering/shaders/shader_oil_paint_renderer.dart';
+import '../../rendering/shaders/shader_spray_paint_renderer.dart';
+import '../../rendering/shaders/shader_neon_glow_renderer.dart';
+import '../../rendering/shaders/shader_ink_wash_renderer.dart';
 import './brushes.dart';
 
 /// 🎨 Unified Brush Engine — Single point of dispatch
@@ -89,10 +93,8 @@ class BrushEngine {
     if (points.isEmpty) return;
 
     // 🛡️ Migration routing — when an algorithm changes in the future,
-    // here it routes to the renderer of the correct version.
-    // For ora v1 e v2 usano lo stesso renderer (nessun breaking change).
-    // final ev = engineVersion ?? currentEngineVersion;
-    // if (ev < 3) { _renderStrokeV2(...); return; }
+    // route to the renderer of the correct version here.
+    // Currently v1 and v2 use the same renderer (no breaking changes).
 
     // 🎛️ Phase 4A: Remap pressures through the pressure curve
     List<dynamic> effectivePoints = points;
@@ -310,6 +312,62 @@ class BrushEngine {
             );
           } else {
             CharcoalBrush.drawStroke(canvas, effectivePoints, color, baseWidth);
+          }
+        case ProPenType.oilPaint:
+          final oSvc = ShaderBrushService.instance;
+          if (oSvc.isAvailable && oSvc.oilPaintShader != null) {
+            oSvc.renderOilPaintPro(canvas, effectivePoints, color, baseWidth);
+          } else {
+            BallpointBrush.drawStrokeWithSettings(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+              minPressure: settings.ballpointMinPressure,
+              maxPressure: settings.ballpointMaxPressure,
+            );
+          }
+        case ProPenType.sprayPaint:
+          final sSvc = ShaderBrushService.instance;
+          if (sSvc.isAvailable && sSvc.sprayPaintShader != null) {
+            sSvc.renderSprayPaintPro(canvas, effectivePoints, color, baseWidth);
+          } else {
+            BallpointBrush.drawStrokeWithSettings(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+              minPressure: settings.ballpointMinPressure,
+              maxPressure: settings.ballpointMaxPressure,
+            );
+          }
+        case ProPenType.neonGlow:
+          final nSvc = ShaderBrushService.instance;
+          if (nSvc.isAvailable && nSvc.neonGlowShader != null) {
+            nSvc.renderNeonGlowPro(canvas, effectivePoints, color, baseWidth);
+          } else {
+            BallpointBrush.drawStrokeWithSettings(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+              minPressure: settings.ballpointMinPressure,
+              maxPressure: settings.ballpointMaxPressure,
+            );
+          }
+        case ProPenType.inkWash:
+          final iSvc = ShaderBrushService.instance;
+          if (iSvc.isAvailable && iSvc.inkWashShader != null) {
+            iSvc.renderInkWashPro(canvas, effectivePoints, color, baseWidth);
+          } else {
+            BallpointBrush.drawStrokeWithSettings(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+              minPressure: settings.ballpointMinPressure,
+              maxPressure: settings.ballpointMaxPressure,
+            );
           }
       }
     }

@@ -26,7 +26,7 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
 
   /// 💾 AUTO-SAVE canvas (called on every modification).
   ///
-  /// 1. Always saves locally via `_config.onSaveCanvas`.
+  /// 1. Always saves locally via storage adapter or legacy callback.
   /// 2. If cloud sync is enabled, pushes deltas and debounced full save
   ///    via `_config.onCloudSync`.
   Future<void> _autoSaveCanvas() async {
@@ -40,8 +40,14 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
         _snapshotAndPushCloudDeltas();
       }
 
-      // 1️⃣ Local save (always, immediate)
-      await _config.onSaveCanvas?.call(saveData);
+      // 1️⃣ Local save — prefer storageAdapter over legacy callback
+      if (_config.storageAdapter != null) {
+        final dataMap = saveData.toJson();
+        dataMap['layers'] = saveData.layers.map((l) => l.toJson()).toList();
+        await _config.storageAdapter!.saveCanvas(saveData.canvasId, dataMap);
+      } else {
+        await _config.onSaveCanvas?.call(saveData);
+      }
 
       // 2️⃣ Cloud save (debounced, only if enabled + tier allows)
       if (_config.cloudSyncEnabled && _hasCloudSync) {
@@ -77,8 +83,14 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
     try {
       final saveData = _buildSaveData();
 
-      // Local save
-      await _config.onSaveCanvas?.call(saveData);
+      // Local save — prefer storageAdapter over legacy callback
+      if (_config.storageAdapter != null) {
+        final dataMap = saveData.toJson();
+        dataMap['layers'] = saveData.layers.map((l) => l.toJson()).toList();
+        await _config.storageAdapter!.saveCanvas(saveData.canvasId, dataMap);
+      } else {
+        await _config.onSaveCanvas?.call(saveData);
+      }
 
       // Cloud save (immediate, no debounce)
       if (_config.cloudSyncEnabled) {

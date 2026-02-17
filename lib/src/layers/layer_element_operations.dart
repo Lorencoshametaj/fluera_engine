@@ -21,17 +21,19 @@ extension _LayerElementOps on LayerController {
     final layer = activeLayer;
     if (layer == null || layer.isLocked) return;
 
-    final index = activeLayerIndex;
-    if (index == -1) return;
-
-    final updatedStrokes = List<ProStroke>.from(layer.strokes)..add(stroke);
-    _layers[index] = layer.copyWith(strokes: updatedStrokes);
+    // O(1): directly add to the existing LayerNode (already in scene graph)
+    layer.node.addStroke(stroke);
 
     if (_spatialIndex.isBuilt) {
       _spatialIndex.addStroke(stroke);
     } else {
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+    }
+
+    // Bump scene graph version for shouldRepaint detection — O(1)
+    // No full rebuild needed since the node is already in the tree.
+    if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
     }
 
     if (enableDeltaTracking) {
@@ -147,17 +149,18 @@ extension _LayerElementOps on LayerController {
     final layer = activeLayer;
     if (layer == null || layer.isLocked) return;
 
-    final index = activeLayerIndex;
-    if (index == -1) return;
-
-    final updatedShapes = List<GeometricShape>.from(layer.shapes)..add(shape);
-    _layers[index] = layer.copyWith(shapes: updatedShapes);
+    // O(1): directly add to the existing LayerNode
+    layer.node.addShape(shape);
 
     if (_spatialIndex.isBuilt) {
       _spatialIndex.addShape(shape);
     } else {
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+    }
+
+    // Bump scene graph version — O(1), no full rebuild
+    if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
     }
 
     if (enableDeltaTracking) {

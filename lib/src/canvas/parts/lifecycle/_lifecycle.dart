@@ -88,11 +88,19 @@ extension on _NebulaCanvasScreenState {
         '🎨 [ProCanvasScreen] _loadCanvasData: canvasId=$_canvasId, infiniteCanvasId=${widget.infiniteCanvasId}, nodeId=${widget.nodeId}',
       );
 
-      // 🚀 1. LOCAL FIRST: load via config callback
-      data = await _config.onLoadCanvas?.call(_canvasId);
-      print(
-        '🎨 [ProCanvasScreen] Local load result: ${data != null ? "FOUND (${data.keys.length} keys)" : "NULL"}',
-      );
+      // 🚀 1. LOCAL FIRST: prefer storageAdapter over legacy callback
+      if (_config.storageAdapter != null) {
+        await _config.storageAdapter!.initialize();
+        data = await _config.storageAdapter!.loadCanvas(_canvasId);
+        print(
+          '🎨 [ProCanvasScreen] StorageAdapter load result: ${data != null ? "FOUND (${data.keys.length} keys)" : "NULL"}',
+        );
+      } else {
+        data = await _config.onLoadCanvas?.call(_canvasId);
+        print(
+          '🎨 [ProCanvasScreen] Legacy callback load result: ${data != null ? "FOUND (${data.keys.length} keys)" : "NULL"}',
+        );
+      }
 
       // 2. Phase 2: cloud sync fallback (not yet implemented in SDK)
       if (data == null) {

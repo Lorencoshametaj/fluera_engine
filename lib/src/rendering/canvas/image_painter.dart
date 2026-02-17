@@ -346,6 +346,10 @@ class ImagePainter extends CustomPainter {
       case ProPenType.watercolor:
       case ProPenType.marker:
       case ProPenType.charcoal:
+      case ProPenType.oilPaint:
+      case ProPenType.sprayPaint:
+      case ProPenType.neonGlow:
+      case ProPenType.inkWash:
         BallpointBrush.drawStroke(
           canvas,
           stroke.points,

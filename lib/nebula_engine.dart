@@ -125,20 +125,17 @@ export 'src/tools/eraser/eraser_hit_tester.dart';
 export 'src/tools/eraser/eraser_spatial_index.dart';
 export 'src/tools/eraser/eraser_analytics.dart';
 export 'src/tools/eraser/eraser_preset_manager.dart';
-export 'src/tools/eraser/unified_eraser_tool.dart';
+
 export 'src/tools/lasso/lasso_tool.dart';
 export 'src/tools/lasso/lasso_path_painter.dart';
 export 'src/tools/lasso/lasso_selection_overlay.dart';
-export 'src/tools/lasso/unified_lasso_tool.dart';
+
 export 'src/tools/shape/unified_shape_tool.dart';
 export 'src/tools/text/digital_text_tool.dart';
-export 'src/tools/text/unified_digital_text_tool.dart';
+
 export 'src/tools/image/image_tool.dart';
-export 'src/tools/image/image_interaction_tool.dart';
-export 'src/tools/image/unified_image_tool.dart';
+
 export 'src/tools/ruler/ruler_guide_system.dart';
-export 'src/tools/ruler/ruler_guide_models.dart';
-export 'src/tools/ruler/ruler_guide_presets.dart';
 export 'src/tools/flood_fill/flood_fill_tool.dart';
 export 'src/tools/pen/pen_tool.dart';
 export 'src/tools/pen/pen_tool_painter.dart';
@@ -172,6 +169,13 @@ export 'src/rendering/shaders/shader_pencil_renderer.dart';
 export 'src/rendering/shaders/shader_fountain_pen_renderer.dart';
 export 'src/rendering/shaders/shader_stamp_renderer.dart';
 export 'src/rendering/shaders/shader_texture_renderer.dart';
+export 'src/rendering/shaders/shader_watercolor_renderer.dart';
+export 'src/rendering/shaders/shader_marker_renderer.dart';
+export 'src/rendering/shaders/shader_charcoal_renderer.dart';
+export 'src/rendering/shaders/shader_oil_paint_renderer.dart';
+export 'src/rendering/shaders/shader_spray_paint_renderer.dart';
+export 'src/rendering/shaders/shader_neon_glow_renderer.dart';
+export 'src/rendering/shaders/shader_ink_wash_renderer.dart';
 export 'src/rendering/shaders/render_isolate_pool.dart';
 
 // Optimization
@@ -268,6 +272,11 @@ export 'src/config/color_manager.dart';
 export 'src/config/split_panel_content.dart';
 export 'src/config/advanced_split_layout.dart';
 
+// ────────────────────────── STORAGE ──────────────────────────
+export 'src/storage/nebula_storage_adapter.dart';
+export 'src/storage/sqlite_storage_adapter.dart';
+export 'src/storage/nebula_canvas_gallery.dart';
+
 // ────────────────────────── SERVICES ──────────────────────────
 export 'src/services/adaptive_debouncer_service.dart';
 export 'src/services/canvas_performance_monitor.dart';
@@ -280,6 +289,8 @@ export 'src/platform/native_display_plugin.dart';
 export 'src/platform/display_capabilities_detector.dart';
 export 'src/platform/display_link_service.dart';
 export 'src/platform/native_vibration.dart';
+export 'src/platform/native_stylus_input.dart';
+export 'src/platform/native_performance_monitor.dart' hide PerformanceMetrics;
 
 // ────────────────────────── L10N ──────────────────────────
 export 'src/l10n/nebula_localizations.dart';

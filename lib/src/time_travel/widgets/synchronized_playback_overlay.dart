@@ -15,8 +15,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
   final double canvasScale;
   final VoidCallback? onClose;
   final Color backgroundColor;
-  final VoidCallback?
-  onNavigateToDrawing; // 🧭 Callback to navigate to drawing
+  final VoidCallback? onNavigateToDrawing; // 🧭 Callback to navigate to drawing
   final void Function(int pageIndex)?
   onNavigateToPage; // 📄 Callback per navigare a una specific page
   final bool showControls; // 🎛️ Mostra controlli interattivi
@@ -496,6 +495,10 @@ class _SyncedStrokesPainter extends CustomPainter {
       case ProPenType.watercolor:
       case ProPenType.marker:
       case ProPenType.charcoal:
+      case ProPenType.oilPaint:
+      case ProPenType.sprayPaint:
+      case ProPenType.neonGlow:
+      case ProPenType.inkWash:
         // Use ballpoint fallback for playback overlay
         BallpointBrush.drawStroke(
           canvas,

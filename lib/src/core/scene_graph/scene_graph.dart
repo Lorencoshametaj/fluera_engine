@@ -55,6 +55,12 @@ class SceneGraph with SceneGraphObservable {
   /// Current version of the scene graph (for change detection).
   int get version => _version;
 
+  /// Increment the version stamp without structural changes.
+  ///
+  /// Use when a node is mutated in-place (e.g. stroke added directly to
+  /// an existing [LayerNode]) and a full rebuild is not needed.
+  void bumpVersion() => _version++;
+
   SceneGraph() : rootNode = GroupNode(id: '_root', name: 'Root');
 
   // ---------------------------------------------------------------------------
@@ -185,8 +191,7 @@ class SceneGraph with SceneGraphObservable {
 
   factory SceneGraph.fromJson(Map<String, dynamic> json) {
     final graph = SceneGraph();
-    // Version can be used for future migration logic.
-    // final version = json['version'] as int? ?? 1;
+    // Version field reserved for future migration logic.
     final sgData = json['sceneGraph'] as Map<String, dynamic>?;
     if (sgData == null) return graph;
 

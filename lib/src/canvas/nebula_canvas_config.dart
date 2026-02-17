@@ -6,6 +6,7 @@ import '../core/models/digital_text_element.dart';
 import '../export/export_preset.dart';
 import '../core/models/image_element.dart';
 import '../config/multi_page_config.dart';
+import '../storage/nebula_storage_adapter.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../layers/nebula_layer_controller.dart';
 
@@ -52,19 +53,32 @@ class NebulaCanvasConfig {
   final NebulaSubscriptionTier subscriptionTier;
 
   // ===========================================================================
-  // LOCAL STORAGE
+  // STORAGE ADAPTER (RECOMMENDED)
   // ===========================================================================
 
-  /// Save canvas data locally
+  /// Storage adapter for canvas persistence.
+  ///
+  /// When provided, the SDK uses this adapter for all save/load operations.
+  /// Use [SqliteStorageAdapter] for zero-config local persistence, or
+  /// implement [NebulaStorageAdapter] for custom backends.
+  ///
+  /// Takes priority over the legacy [onSaveCanvas]/[onLoadCanvas] callbacks.
+  final NebulaStorageAdapter? storageAdapter;
+
+  // ===========================================================================
+  // LOCAL STORAGE (LEGACY CALLBACKS)
+  // ===========================================================================
+
+  /// Save canvas data locally (legacy — prefer [storageAdapter]).
   final Future<void> Function(NebulaCanvasSaveData data)? onSaveCanvas;
 
-  /// Load canvas data from local storage
+  /// Load canvas data from local storage (legacy — prefer [storageAdapter]).
   final Future<Map<String, dynamic>?> Function(String canvasId)? onLoadCanvas;
 
-  /// Delete canvas from local storage
+  /// Delete canvas from local storage (legacy — prefer [storageAdapter]).
   final Future<void> Function(String canvasId)? onDeleteCanvas;
 
-  /// Flush any pending saves immediately
+  /// Flush any pending saves immediately.
   final Future<void> Function()? onFlushPendingSave;
 
   // ===========================================================================
@@ -181,6 +195,7 @@ class NebulaCanvasConfig {
     required this.layerController,
     this.getUserId = _defaultGetUserId,
     this.subscriptionTier = NebulaSubscriptionTier.free,
+    this.storageAdapter,
     this.onSaveCanvas,
     this.onLoadCanvas,
     this.onDeleteCanvas,

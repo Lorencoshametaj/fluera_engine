@@ -15,7 +15,13 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
     ProPenType.ballpoint => _ballpointControls(cs, tt, accent),
     ProPenType.highlighter => _highlighterControls(cs, tt, accent),
     // New brushes — no custom controls yet (stabilizer + texture still available)
-    ProPenType.watercolor || ProPenType.marker || ProPenType.charcoal => [],
+    ProPenType.watercolor ||
+    ProPenType.marker ||
+    ProPenType.charcoal ||
+    ProPenType.oilPaint ||
+    ProPenType.sprayPaint ||
+    ProPenType.neonGlow ||
+    ProPenType.inkWash => [],
   };
 
   // ── Fountain ──

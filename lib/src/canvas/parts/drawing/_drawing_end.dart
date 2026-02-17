@@ -271,16 +271,9 @@ extension on _NebulaCanvasScreenState {
       finalPoints = _drawingHandler.endStroke();
     }
 
-    // 🎯 FIX: Trim to only the points that were actually rendered on-screen.
+    // 🎯 NOTE: Point trimming to rendered count disabled.
     // When PointerMoveEvent and PointerUpEvent arrive in the same event batch,
-    // updateStroke() adds a point and schedules forceRepaint(), but _onDrawEnd's
-    // clear() cancels that repaint. The last point(s) are never visible to the
-    // user but would appear in the finalized stroke → visible "extension".
-    // Phase 2: re-enable when using canvas_renderers CurrentStrokePainter
-    // final renderedCount = CurrentStrokePainter.lastRenderedCount;
-    // if (renderedCount > 0 && renderedCount < finalPoints.length) {
-    //   finalPoints = List.unmodifiable(finalPoints.sublist(0, renderedCount));
-    // }
+    // the last point(s) may not be visible. Re-enable if needed in the future.
 
     // 🎤 NOTIFICA ESTERNA (per Sync Recording) - PRE-CREATION
     // Salviamo i tempi prima che vengano persi/resetati
@@ -309,6 +302,11 @@ extension on _NebulaCanvasScreenState {
     // and completed strokes rendered simultaneously → visual "pop" on release.
     _currentStrokeNotifier.clear();
     _layerController.addStroke(stroke);
+
+    // 🚀 Incremental tile cache update: only re-rasterize affected tiles
+    // instead of invalidating the entire tile cache.
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    DrawingPainter.incrementalUpdateForStroke(stroke, dpr);
 
     // 🪞 Phase 5: Symmetry mode — mirror/kaleidoscope stroke
     if (_showRulers && _rulerGuideSystem.symmetryEnabled) {
@@ -400,5 +398,60 @@ extension on _NebulaCanvasScreenState {
 
     // 💾 Auto-save
     _autoSaveCanvas();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chaikin subdivision — one-pass corner-cutting for smoother curves
+  // ---------------------------------------------------------------------------
+
+  /// Apply one pass of Chaikin's corner-cutting algorithm to smooth a stroke.
+  ///
+  /// For each pair of adjacent points, generates two new points at 25% and 75%
+  /// of the segment. Pressure, tilt, and orientation are linearly interpolated.
+  /// First and last points are preserved to maintain stroke endpoints.
+  List<ProDrawingPoint> _chaikinSmooth(List<ProDrawingPoint> points) {
+    if (points.length < 3) return points;
+
+    final result = <ProDrawingPoint>[points.first];
+
+    for (int i = 0; i < points.length - 1; i++) {
+      final p0 = points[i];
+      final p1 = points[i + 1];
+
+      // Q = 0.75 * P0 + 0.25 * P1
+      result.add(
+        ProDrawingPoint(
+          position: Offset(
+            p0.position.dx * 0.75 + p1.position.dx * 0.25,
+            p0.position.dy * 0.75 + p1.position.dy * 0.25,
+          ),
+          pressure: p0.pressure * 0.75 + p1.pressure * 0.25,
+          tiltX: p0.tiltX * 0.75 + p1.tiltX * 0.25,
+          tiltY: p0.tiltY * 0.75 + p1.tiltY * 0.25,
+          orientation: p0.orientation * 0.75 + p1.orientation * 0.25,
+          timestamp:
+              p0.timestamp + ((p1.timestamp - p0.timestamp) * 0.25).round(),
+        ),
+      );
+
+      // R = 0.25 * P0 + 0.75 * P1
+      result.add(
+        ProDrawingPoint(
+          position: Offset(
+            p0.position.dx * 0.25 + p1.position.dx * 0.75,
+            p0.position.dy * 0.25 + p1.position.dy * 0.75,
+          ),
+          pressure: p0.pressure * 0.25 + p1.pressure * 0.75,
+          tiltX: p0.tiltX * 0.25 + p1.tiltX * 0.75,
+          tiltY: p0.tiltY * 0.25 + p1.tiltY * 0.75,
+          orientation: p0.orientation * 0.25 + p1.orientation * 0.75,
+          timestamp:
+              p0.timestamp + ((p1.timestamp - p0.timestamp) * 0.75).round(),
+        ),
+      );
+    }
+
+    result.add(points.last);
+    return List.unmodifiable(result);
   }
 }

@@ -190,6 +190,18 @@ class StrokeCacheManager {
     _undoSnapshots.clear();
   }
 
+  /// 🚀 Adopt an externally-recorded Picture as the cache.
+  ///
+  /// Used by record-once rendering: the caller records strokes into a
+  /// PictureRecorder, replays the Picture onto the live canvas, and then
+  /// passes the same Picture here to avoid a second render pass.
+  void adoptPicture(ui.Picture picture, int strokeCount) {
+    _cachedPicture?.dispose();
+    _cachedPicture = picture;
+    _cachedStrokeCount = strokeCount;
+    _saveUndoSnapshot();
+  }
+
   /// 🚀 Draw cached picture onto the given canvas
   /// Returns true if cache was drawn, false if no cache available
   bool drawCached(Canvas canvas) {

@@ -149,33 +149,15 @@ class TimelapseExportDialog {
   }
 }
 
-// ─── CanvasImageStorageService ──────────────────────────────────────────
-
-/// Stub for cloud image storage for shared canvases.
-/// Phase 2: will upload/download canvas images via Firebase Storage.
-class CanvasImageStorageService {
-  Future<String?> uploadImage({
-    required String canvasId,
-    required String imageId,
-    required List<int> imageData,
-    required String extension,
-  }) async => null;
-
-  Future<String?> uploadThumbnail({
-    required String canvasId,
-    required String imageId,
-    required List<int> imageData,
-  }) async => null;
-}
-
 // ─── AudioRecordingController ───────────────────────────────────────────
 
 /// Stub for audio recording (Phase 2).
 /// Phase 2: the host app will provide a real implementation backed by
 /// platform-specific audio APIs.
 class AudioRecordingController {
-  final _service = StubRecordingService();
-  StubRecordingService get service => _service;
+  bool get isRecording => false;
+  bool get hasPermission => false;
+  Future<bool> requestPermission() async => false;
   String? currentRecordingPath;
   Duration duration = Duration.zero;
 
@@ -198,13 +180,6 @@ class AudioRecordingController {
   Future<String?> stopRecording() async => null;
   Future<void> deleteTemporaryFile(String path) async {}
   void dispose() {}
-}
-
-/// Stub recording service used by [AudioRecordingController].
-class StubRecordingService {
-  bool get isRecording => false;
-  bool get hasPermission => false;
-  Future<bool> requestPermission() async => false;
 }
 
 // ─── ExportProgressController ───────────────────────────────────────────

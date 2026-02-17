@@ -18,6 +18,8 @@ dependencies:
   # Storage & IO
   shared_preferences: ^2.2.3
   path_provider: ^2.1.1
+  sqflite_common_ffi: ^2.3.4+4
+  sqlite3_flutter_libs: ^0.5.28
   path: ^1.8.3
   image_picker: ^1.1.2
   # Utilities
@@ -37,6 +39,18 @@ flutter:
         pluginClass: NebulaEnginePlugin
       ios:
         pluginClass: NebulaEnginePlugin
+  shaders:
+    - shaders/pencil_pro.frag
+    - shaders/fountain_pen_pro.frag
+    - shaders/texture_overlay.frag
+    - shaders/brush_stamp.frag
+    - shaders/watercolor.frag
+    - shaders/marker.frag
+    - shaders/charcoal.frag
+    - shaders/oil_paint.frag
+    - shaders/spray_paint.frag
+    - shaders/neon_glow.frag
+    - shaders/ink_wash.frag
   assets:
     - assets/textures/
     - assets/textures/images/

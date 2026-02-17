@@ -245,4 +245,8 @@ enum ProPenType {
   watercolor, // Watercolor brush (wet-on-wet diffusion)
   marker, // Flat marker (saturated alpha accumulation)
   charcoal, // Charcoal stick (grain erosion + noise)
+  oilPaint, // Oil paint (GPU impasto texture + directional smear)
+  sprayPaint, // Spray paint (GPU stochastic dots + gaussian falloff)
+  neonGlow, // Neon glow (GPU multi-layer bloom + bright core)
+  inkWash, // Ink wash (GPU wet-ink diffusion + bleed edges)
 }

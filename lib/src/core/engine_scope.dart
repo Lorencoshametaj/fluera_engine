@@ -14,6 +14,8 @@ import '../drawing/input/path_pool.dart';
 import '../drawing/input/stroke_point_pool.dart';
 import '../platform/display_link_service.dart';
 import '../drawing/input/predicted_touch_service.dart';
+import '../platform/native_stylus_input.dart';
+import '../platform/native_performance_monitor.dart';
 import '../audio/platform_channels/audio_player_channel.dart';
 import '../services/image_cache_service.dart';
 
@@ -132,6 +134,13 @@ class EngineScope {
   /// Native predicted touches for low-latency drawing.
   late final PredictedTouchService predictedTouchService =
       PredictedTouchService.create();
+
+  /// Native stylus input (hover, tilt, palm rejection).
+  late final NativeStylusInput nativeStylusInput = NativeStylusInput.create();
+
+  /// Native performance monitor (memory, thermal, battery).
+  late final NativePerformanceMonitor performanceMonitor =
+      NativePerformanceMonitor.create();
 
   /// Native audio player platform channel.
   late final NativeAudioPlayerChannel audioPlayerChannel =

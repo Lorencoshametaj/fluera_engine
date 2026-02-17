@@ -25,7 +25,11 @@ class _StrokePreviewPainter extends CustomPainter {
       // New brushes use ballpoint-like preview curve
       ProPenType.watercolor ||
       ProPenType.marker ||
-      ProPenType.charcoal => _ballpointPoints(size),
+      ProPenType.charcoal ||
+      ProPenType.oilPaint ||
+      ProPenType.sprayPaint ||
+      ProPenType.neonGlow ||
+      ProPenType.inkWash => _ballpointPoints(size),
     };
 
     BrushEngine.renderStroke(

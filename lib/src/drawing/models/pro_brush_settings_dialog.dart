@@ -109,6 +109,14 @@ class _ProBrushSettingsDialogState extends State<ProBrushSettingsDialog>
         isDark ? const Color(0xFFCE93D8) : const Color(0xFF7B1FA2),
       ProPenType.charcoal =>
         isDark ? const Color(0xFFBCAAA4) : const Color(0xFF5D4037),
+      ProPenType.oilPaint =>
+        isDark ? const Color(0xFF90CAF9) : const Color(0xFF1565C0),
+      ProPenType.sprayPaint =>
+        isDark ? const Color(0xFFEF9A9A) : const Color(0xFFE53935),
+      ProPenType.neonGlow =>
+        isDark ? const Color(0xFF84FFFF) : const Color(0xFF00B8D4),
+      ProPenType.inkWash =>
+        isDark ? const Color(0xFF9E9E9E) : const Color(0xFF424242),
     };
   }
 
@@ -120,6 +128,10 @@ class _ProBrushSettingsDialogState extends State<ProBrushSettingsDialog>
     ProPenType.watercolor => Icons.water_drop_rounded,
     ProPenType.marker => Icons.format_paint_rounded,
     ProPenType.charcoal => Icons.texture_rounded,
+    ProPenType.oilPaint => Icons.brush_rounded,
+    ProPenType.sprayPaint => Icons.blur_on_rounded,
+    ProPenType.neonGlow => Icons.flash_on_rounded,
+    ProPenType.inkWash => Icons.water_rounded,
   };
 
   String _brushTitle() => switch (widget.currentBrush) {
@@ -130,6 +142,10 @@ class _ProBrushSettingsDialogState extends State<ProBrushSettingsDialog>
     ProPenType.watercolor => 'Watercolor',
     ProPenType.marker => 'Marker',
     ProPenType.charcoal => 'Charcoal',
+    ProPenType.oilPaint => 'Oil Paint',
+    ProPenType.sprayPaint => 'Spray Paint',
+    ProPenType.neonGlow => 'Neon Glow',
+    ProPenType.inkWash => 'Ink Wash',
   };
 
   @override
