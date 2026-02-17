@@ -6,9 +6,9 @@ import '../core/engine_scope.dart';
 /// ⏱️ AdaptiveDebouncerService - Debounce dinamico for saving canvas
 ///
 /// Adapt debounce time based on diagram state:
-/// - Durante disegno attivo: debounce lungo (3s) per non interrompere il flusso
-/// - Dopo inactivity (500ms): debounce corto per salvare rapidamente
-/// - Supporta callback diversi per delta-only vs full checkpoint
+/// - During active drawing: long debounce (3s) to not interrupt flow
+/// - After inactivity (500ms): short debounce to save quickly
+/// - Supports different callbacks for delta-only vs full checkpoint
 ///
 /// 🎯 Obiettivo: zero lag during drawing, salvataggio veloce dopo
 class AdaptiveDebouncerService {
@@ -150,7 +150,7 @@ class AdaptiveDebouncerService {
     _strokeCount++;
   }
 
-  /// Calculatates l'intensity di disegno (strokes/secondo)
+  /// Calculates l'intensity di disegno (strokes/secondo)
   double get drawingIntensity {
     if (_measurementWindowStart == null || _strokeCount == 0) {
       return 0.0;
@@ -222,12 +222,12 @@ class AdaptiveDebouncerService {
   // PRIVATE METHODS
   // ============================================================================
 
-  /// Calculatates il tempo di debounce basato sullo current state
+  /// Calculates il tempo di debounce basato sullo current state
   ///
   /// 🎯 LOGICA ADATTIVA basata su strokes/secondo:
-  /// - Intensità alta (>2 strokes/s): debounce corto (3s) per non perdere dati
+  /// - High intensity (>2 strokes/s): short debounce (3s) to not lose data
   /// - Intensità media: debounce base (5s)
-  /// - Intensità bassa (<0.3 strokes/s): debounce lungo (8s) per ridurre I/O
+  /// - Low intensity (<0.3 strokes/s): long debounce (8s) to reduce I/O
   Duration _calculateDebounceTime() {
     // Rate limiting: non salvare troppo spesso
     if (_lastSaveTime != null) {

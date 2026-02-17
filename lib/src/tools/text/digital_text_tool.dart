@@ -3,9 +3,9 @@ import '../../core/models/digital_text_element.dart';
 
 /// 🔧 DIGITAL TEXT TOOL
 /// Handles l'interazione con text elements digitale:
-/// - Selezione al tap
-/// - Trascinamento (con auto-scroll ai bordi)
-/// - Ridimensionamento tramite handles
+/// - Selection on tap
+/// - Dragging (with auto-scroll at edges)
+/// - Resizing via handles
 /// - Deselection su tap area vuota
 class DigitalTextTool {
   /// Elemento correntemente selezionato
@@ -135,7 +135,7 @@ class DigitalTextTool {
     _dragStartCanvasPosition = null;
   }
 
-  /// Compensatete the scroll of the canvas durante il drag (per auto-scroll fluido)
+  /// Compensate the scroll of the canvas durante il drag (per auto-scroll fluido)
   void compensateScroll(Offset scrollDelta) {
     if (_selectedElement == null) return;
 
@@ -239,7 +239,7 @@ class DigitalTextTool {
     return;
   }
 
-  /// Calculatates if the drag is vicino ai bordi (per auto-scroll)
+  /// Calculates if the drag is vicino ai bordi (per auto-scroll)
   Offset? calculateAutoScrollDelta(
     Offset screenPosition,
     Size screenSize, {

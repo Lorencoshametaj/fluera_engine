@@ -27,7 +27,7 @@ class ProDrawingPoint {
   ///
   /// 🚀 OTTIMIZZAZIONE v2: 4 decimali per coordinate (era 2)
   /// - Coordinate: 0.0001px → preserva curve Catmull-Rom smooth
-  /// - Pressione: 0.01 (2 decimali sufficienti per 100 livelli)
+  /// - Pressure: 0.01 (2 decimals sufficient for 100 levels)
   /// - Tilt/Orientation: 2 decimals (adequate angular precision)
   ///
   /// 🎯 FIX: 2 decimali causavano curve grezze dopo load because
@@ -44,11 +44,11 @@ class ProDrawingPoint {
     'timestamp': timestamp,
   };
 
-  /// Arrotonda a 4 decimali (per coordinate — preserva smoothness)
+  /// Round to 4 decimals (for coordinates — preserves smoothness)
   static double _round4(double value) =>
       (value * 10000).roundToDouble() / 10000;
 
-  /// Arrotonda a 2 decimali (per pressione, tilt, orientation)
+  /// Round to 2 decimals (for pressure, tilt, orientation)
   static double _round2(double value) => (value * 100).roundToDouble() / 100;
 
   factory ProDrawingPoint.fromJson(Map<String, dynamic> json) =>
@@ -144,7 +144,7 @@ class ProStroke {
     return _cachedBounds!;
   }
 
-  /// Calculatates bounds of the stroke (chiamato una sola volta)
+  /// Calculates bounds of the stroke (chiamato una sola volta)
   Rect _calculateBounds() {
     if (points.isEmpty) {
       return Rect.zero;

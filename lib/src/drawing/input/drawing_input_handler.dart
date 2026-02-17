@@ -14,10 +14,10 @@ import './predicted_touch_service.dart';
 ///
 /// RESPONSIBILITIES:
 /// - ✅ Gestione eventi touch/stylus (start, update, end)
-/// - ✅ OneEuroFilter per smoothing adattivo
+/// - ✅ OneEuroFilter for adaptive smoothing
 /// - ✅ Creazione punti ProDrawingPoint
-/// - ✅ NESSUN adaptive sampling (tutti i punti vengono registrati)
-/// - ✅ NESSUNA post-stroke optimization (tratto fedele)
+/// - ✅ NO adaptive sampling (all points are recorded)
+/// - ✅ NO post-stroke optimization (faithful stroke)
 /// - 🚀 Native iOS predicted touches for ultra-low latency
 ///
 /// PHILOSOPHY:
@@ -25,7 +25,7 @@ import './predicted_touch_service.dart';
 /// - All points are preserved (circles close properly)
 /// - Optional smoothing only during drawing (OneEuroFilter)
 class DrawingInputHandler {
-  /// Filtero OneEuroFilter per smoothing adattivo
+  /// Filtero OneEuroFilter for adaptive smoothing
   final OneEuroFilter _oneEuroFilter;
 
   /// 🎯 SAI-style stroke stabilizer — smooths hand tremor in real-time
@@ -183,7 +183,7 @@ class DrawingInputHandler {
     _currentStroke.add(point);
 
     // Notify callback - passa lista originale (il painter non deve modificarla!)
-    // 🚀 PERFORMANCE: Nessuna copia creata
+    // 🚀 PERFORMANCE: No copies created
     onPointsUpdated?.call(_currentStroke);
   }
 
@@ -221,7 +221,7 @@ class DrawingInputHandler {
     final ts = eventTimestamp ?? DateTime.now().millisecondsSinceEpoch;
 
     // 🎨 FILTRI PROFESSIONALI:
-    // 1. OneEuroFilter per smoothing adattivo (opzionale)
+    // 1. OneEuroFilter for adaptive smoothing (opzionale)
     Offset filteredPosition =
         enableOneEuroFilter
             ? _oneEuroFilter.filter(docPosition, ts)
@@ -252,7 +252,7 @@ class DrawingInputHandler {
     // with ALL points instead of N repaints per event.
     if (!silent) {
       // Notify callback - passa lista originale (il painter non deve modificarla!)
-      // 🚀 PERFORMANCE: Nessuna copia creata
+      // 🚀 PERFORMANCE: No copies created
       onPointsUpdated?.call(_currentStroke);
     }
   }

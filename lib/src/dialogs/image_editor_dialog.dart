@@ -1004,7 +1004,7 @@ class _PreviewPainter extends CustomPainter {
       canvas.scale(flipHorizontal ? -1.0 : 1.0, flipVertical ? -1.0 : 1.0);
     }
 
-    // Determina area sorgente (con crop se presente)
+    // Determina area sorgente (con crop if present)
     Rect srcRect;
     double displayWidth, displayHeight;
 

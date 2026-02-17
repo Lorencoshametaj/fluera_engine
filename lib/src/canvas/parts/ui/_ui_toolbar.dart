@@ -42,10 +42,10 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           isLassoActive: _effectiveIsLasso,
           isDigitalTextActive: _effectiveIsDigitalText,
           isImagePickerActive:
-              false, // 🖼️ Sempre false (is not una mode toggle)
+              false, // 🖼️ Always false (is not a mode toggle)
           isRecordingActive: _isRecordingAudio,
           isPanModeActive:
-              _effectiveIsPanMode, // 🖐️ Pan Mode - permette pan with a dito
+              _effectiveIsPanMode, // 🖐️ Pan Mode - allows pan with a finger
           isStylusModeActive: _effectiveIsStylusMode, // 🖊️ Stylus mode
           isRulerActive: _showRulers, // 📏 Ruler overlay
           isPenToolActive: _toolController.isPenToolMode, // ✒️ Vector Pen Tool
@@ -191,7 +191,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             setState(() {}); // Trigger rebuild
           },
           onImagePickerPressed: () {
-            // 🖼️ Apri galleria e aggiungi immagine
+            // 🖼️ Open gallery and add image
             pickAndAddImage();
           },
           onImageEditorPressed:
@@ -234,11 +234,11 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           activeBranchName: _activeBranchName,
           onMultiViewPressed: null, // ❌ Rimosso completamente
           onAdvancedSplitPressed: () {
-            // 🚀 Lancia il nuovo sistema di split avanzato
+            // 🚀 Launch new advanced split system
             _launchAdvancedSplitView();
           },
           onMultiViewModeSelected: (mode) {
-            // 🔄 Lancia multiview con mode specifica
+            // 🔄 Launch multiview with specific mode
             switch (mode) {
               case 1:
                 debugPrint("Multiview not available in SDK");

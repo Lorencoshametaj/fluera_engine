@@ -73,7 +73,7 @@ class ProStrokePainter extends CustomPainter {
       );
     }
 
-    // 4. Draw the current stroke (se presente)
+    // 4. Draw the current stroke (if present)
     if (currentStroke != null && currentStroke!.isNotEmpty) {
       _drawStroke(
         canvas,
@@ -115,7 +115,7 @@ class ProStrokePainter extends CustomPainter {
         _cachedScale != canvasScale;
 
     if (needsRegeneration) {
-      // 🗑️ Save il vecchio Picture per dispose DOPO il rendering
+      // 🗑️ Save the old Picture for dispose AFTER rendering
       final oldPicture = _cachedBackground;
 
       // Genera nuovo background cachato
@@ -137,7 +137,7 @@ class ProStrokePainter extends CustomPainter {
       _cachedSize = extendedSize;
       _cachedScale = canvasScale;
 
-      // 🗑️ Ora disponi il vecchio Picture in modo sicuro
+      // 🗑️ Now dispose the old Picture safely
       // Use scheduleMicrotask per disporre after the current frame
       if (oldPicture != null) {
         Future.microtask(() => oldPicture.dispose());

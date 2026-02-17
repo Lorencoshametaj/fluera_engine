@@ -121,7 +121,7 @@ class ImageTool {
     // Calculate delta dal frame precedente (non from the beginning)
     final delta = currentPosition - _dragStartPosition!;
 
-    // 🔧 Limita delta to avoid salti giganti (protezione da glitch)
+    // 🔧 Limit delta to avoid giant jumps (glitch protection)
     // Max 200px per frame (molto permissivo, solo anti-glitch)
     final clampedDelta = Offset(
       delta.dx.clamp(-200.0, 200.0),
@@ -145,8 +145,8 @@ class ImageTool {
     _dragStartPosition = null;
   }
 
-  /// Compensatete the scroll of the canvas durante drag/resize
-  /// (usato dall'auto-scroll per mantenere l'immagine under the finger)
+  /// Compensate the scroll of the canvas durante drag/resize
+  /// (used by auto-scroll to keep the image under the finger)
   void compensateScroll(Offset compensation) {
     if (_selectedImage == null) return;
 

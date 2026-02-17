@@ -42,7 +42,7 @@ extension on _NebulaCanvasScreenState {
           );
         } catch (_) {}
 
-        // 🔄 Converti le coordinate da assolute a relative all'immagine
+        // 🔄 Convert coordinates from absolute to image-relative
         final relativePoints = _convertPointsToImageSpace(
           finalPoints,
           activeImage,
@@ -76,7 +76,7 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🖼️ SEMPRE gestisci fine resize/drag di immagini (priority massima)
+    // 🖼️ ALWAYS handle end of resize/drag of images (max priority)
     if (_imageTool.isResizing) {
       _imageTool.endResize();
       _stopAutoScroll();
@@ -107,7 +107,7 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🖼️ Se abbiamo una position iniziale ma non abbiamo mai iniziato il drag,
+    // 🖼️ If we have an initial position but never started drag,
     // significa che was un tap → enamong then editing mode
     if (_initialTapPosition != null &&
         !_imageTool.isDragging &&
@@ -131,7 +131,7 @@ extension on _NebulaCanvasScreenState {
       _digitalTextTool.endResize();
       HapticFeedback.lightImpact();
 
-      // 🔄 Sync: notifica delta tracker dopo resize
+      // 🔄 Sync: notify delta tracker after resize
       if (_digitalTextTool.selectedElement != null) {
         _layerController.updateText(_digitalTextTool.selectedElement!);
       }
@@ -144,7 +144,7 @@ extension on _NebulaCanvasScreenState {
       _digitalTextTool.endDrag();
       _stopAutoScroll();
 
-      // 🔄 Sync: notifica delta tracker dopo drag
+      // 🔄 Sync: notify delta tracker after drag
       if (_digitalTextTool.selectedElement != null) {
         _layerController.updateText(_digitalTextTool.selectedElement!);
       }
@@ -227,7 +227,7 @@ extension on _NebulaCanvasScreenState {
       _eraserPreviewIds = {};
       _eraserGestureEraseCount = 0;
       _eraserTool.endGesture();
-      // 🎯 V5: Invalidatete spatial index after mutations
+      // 🎯 V5: Invalidate spatial index after mutations
       _eraserTool.invalidateSpatialIndex();
       // 🎯 Persist radius preference on gesture end
       _eraserTool.persistRadius();
@@ -259,7 +259,7 @@ extension on _NebulaCanvasScreenState {
     List<ProDrawingPoint> finalPoints;
 
     if (_is120HzMode && _rawInputProcessor120Hz != null) {
-      // 🚀 120Hz MODE: Usa punti direttamente dal notifier (already costruiti)
+      // 🚀 120Hz MODE: Use points directly from notifier (already built)
       if (_currentStrokeNotifier.value.isEmpty) return;
 
       finalPoints = List.unmodifiable(_currentStrokeNotifier.value);
@@ -379,7 +379,7 @@ extension on _NebulaCanvasScreenState {
       });
     });
 
-    // 📊 Notifica stroke completato per debounce adattivo
+    // 📊 Notify stroke completed for adaptive debounce
     AdaptiveDebouncerService.instance.notifyStrokeCompleted();
 
     // 🎤 Se stiamo registrando con tratti (interno), aggiungi stroke al builder

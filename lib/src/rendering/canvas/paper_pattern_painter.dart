@@ -15,7 +15,7 @@ class PaperPatternPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 🛡️ Proteggi da dimensioni troppo grandi (max 200k x 200k)
+    // 🛡️ Protect from too large dimensions (max 200k x 200k)
     final safeSize = Size(
       size.width.clamp(0, 200000),
       size.height.clamp(0, 200000),
@@ -140,7 +140,7 @@ class PaperPatternPainter extends CustomPainter {
 
   /// Draws dots
   void _drawDots(Canvas canvas, Size size, double dotSpacing) {
-    // 🛡️ Limita numero massimo di dots to avoid crash
+    // 🛡️ Limit max dots to avoid crash
     final maxDotsX = 1000;
     final maxDotsY = 1000;
     final dotsX = (size.width / dotSpacing).ceil().clamp(0, maxDotsX);
@@ -211,7 +211,7 @@ class PaperPatternPainter extends CustomPainter {
 
   /// Draws a hexagonal grid
   void _drawHexGrid(Canvas canvas, Size size, double hexSize) {
-    // 🛡️ Limita numero massimo di esagoni to avoid crash
+    // 🛡️ Limit max hexagons to avoid crash
     final maxHexagons = 5000; // Totale esagoni massimi
 
     final paint =
@@ -262,7 +262,7 @@ class PaperPatternPainter extends CustomPainter {
 
   /// Draws an isometric grid
   void _drawIsometricGrid(Canvas canvas, Size size, double gridSize) {
-    // 🛡️ Limita numero massimo di linee to avoid crash
+    // 🛡️ Limit max lines to avoid crash
     final maxLines = 2000;
 
     final paint =

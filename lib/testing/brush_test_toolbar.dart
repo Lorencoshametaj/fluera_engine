@@ -6,10 +6,10 @@ import './brush_settings_dialog.dart';
 ///
 /// Controls:
 /// - Selezione brush
-/// - Colore
-/// - Larghezza pennello
+/// - Color
+/// - Brush width
 /// - Opacity
-/// - Settings popup per parametri avanzati
+/// - Settings popup for advanced parameters
 class BrushTestToolbar extends StatelessWidget {
   final BrushType selectedBrush;
   final Color brushColor;

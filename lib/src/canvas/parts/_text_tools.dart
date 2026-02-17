@@ -95,7 +95,7 @@ extension on _NebulaCanvasScreenState {
         _digitalTextTool.selectElement(newElement);
       });
 
-      // 🔄 Sync: notifica delta tracker per sincronizzazione
+      // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addText(newElement);
 
 

@@ -151,7 +151,7 @@ class BinaryCanvasFormat {
       final size = buffer.getUint32(entryOffset + 12, Endian.little);
 
       final pageData = data.sublist(offset, offset + size);
-      // 🔧 v3: Passa fileVersion al decoder per backward compat
+      // 🔧 v3: Pass fileVersion to decoder for backward compat
       pages[pageIndex] = decode(pageData, fileVersion: fileVersion);
     }
 
@@ -335,7 +335,7 @@ class BinaryCanvasFormat {
     final penType = ProPenType.values[reader.readByte()];
     final color = Color(reader.readUint32());
     final width = reader.readFloat32();
-    // 🔧 v3→Fix #9: Uint32 per supportare stroke con > 65535 punti
+    // 🔧 v3→Fix #9: Uint32 to support stroke with > 65535 points
     final pointCount = isV3 ? reader.readUint32() : reader.readUint16();
 
     final points = <ProDrawingPoint>[];

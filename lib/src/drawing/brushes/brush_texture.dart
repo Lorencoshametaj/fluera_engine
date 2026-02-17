@@ -112,7 +112,7 @@ class BrushTexture {
       ..color = ui.Color.fromARGB((intensity * 255).round(), 255, 255, 255);
   }
 
-  /// Applica texture a un canvas sopra un path already disegnato.
+  /// Apply texture to a canvas over a path already drawn.
   ///
   /// Use `saveLayer` + `BlendMode.modulate` to mask the stroke
   /// with the texture grayscale.

@@ -1,4 +1,4 @@
-/// 1️⃣ FILTRAGGIO ADATTIVO DEL TRATTO (SMOOTHING)
+/// 1️⃣ ADAPTIVE STROKE FILTERING (SMOOTHING)
 ///
 /// One Euro Filter - Bilancia stability e reactivity based onlla speed
 /// Riduce tremolii e micro-oscillazioni mantenendo responsività
@@ -61,7 +61,7 @@ class OneEuroFilter {
       filteredDx.dx * filteredDx.dx + filteredDx.dy * filteredDx.dy,
     );
 
-    // 🔥 ADAPTIVE SMOOTHING basato su speed E distanza
+    // 🔥 ADAPTIVE SMOOTHING based on speed AND distance
     // For movimenti piccoli e veloci (scrittura piccola): MINIMO smoothing
     final isSmallMovement = distance < 3.0; // pixel
     final isFastMovement = speed > 300.0; // px/s
@@ -85,7 +85,7 @@ class OneEuroFilter {
     // Filter il punto
     final filtered = _filterPoint(point, cutoff, dt);
 
-    // 🔥 LATENCY COMPENSATION per movimenti piccoli e veloci
+    // 🔥 LATENCY COMPENSATION for small and fast movements
     // Avvicina il punto filtrato a quello reale per ridurre lag percepito
     Offset finalPoint = filtered;
     if (isSmallMovement && isFastMovement) {
@@ -128,7 +128,7 @@ class OneEuroFilter {
     );
   }
 
-  /// Calculatates il coefficiente alpha for the low-pass filter
+  /// Calculates il coefficiente alpha for the low-pass filter
   double _calculateAlpha(double cutoff, double dt) {
     final tau = 1.0 / (2 * math.pi * cutoff);
     return 1.0 / (1.0 + tau / dt);

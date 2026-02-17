@@ -37,7 +37,7 @@ class StylusDetector {
   /// Logica di rilevamento:
   /// 1. PointerDeviceKind.stylus → stylus dedicata
   /// 2. pressure > threshold → probabilmente stylus (even if registrata come touch)
-  /// 3. PointerDeviceKind.touch con pressure bassa → dito
+  /// 3. PointerDeviceKind.touch con low pressure → finger
   static bool isStylus(PointerEvent event) {
     // 1. Check diretto per device kind
     if (event.kind == PointerDeviceKind.stylus) {
@@ -48,7 +48,7 @@ class StylusDetector {
     // anche quando sono registrati come PointerDeviceKind.touch
     if (event.pressure > _stylusPressureThreshold) {
       // Pressure significativa suggerisce stylus
-      // (il dito di solito ha pressure = 1.0 o molto alta)
+      // (the finger usually has pressure = 1.0 or very high)
       // The stylus has gradual values based on applied pressure
       return event.pressure < 0.9;
     }
@@ -62,7 +62,7 @@ class StylusDetector {
   }
 
   /// Returne il number of dita attualmente attive
-  /// (esclude la stylus dal conteggio)
+  /// (excludes stylus from count)
   static int getActiveFingerCount(
     Set<int> activePointers,
     Map<int, PointerEvent> pointerCache,
@@ -132,7 +132,7 @@ enum StylusInputType {
 ///
 /// MODALITÀ STYLUS ATTIVA:
 /// - Stylus → Disegno
-/// - 1 dito → Pan/movimento
+/// - 1 finger → Pan/movement
 /// - 2 dita → Zoom (pinch)
 ///
 /// MODALITÀ STYLUS DISATTIVA:
@@ -174,7 +174,7 @@ class StylusInputManager {
   }
 
   /// Checks if the last active pointer can draw
-  /// (da usare in onPanStart dove non abbiamo accesso diretto al PointerEvent)
+  /// (to use in onPanStart where we don't have direct access to PointerEvent)
   bool canDrawWithCurrentPointer() {
     if (_activePointers.isEmpty) return false;
 

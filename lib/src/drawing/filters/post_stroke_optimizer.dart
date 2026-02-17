@@ -161,7 +161,7 @@ class PostStrokeOptimizer {
     return smoothed;
   }
 
-  /// Calculatates lunghezza totale del path
+  /// Calculates lunghezza totale del path
   double calculatePathLength(List<Offset> points) {
     if (points.length < 2) return 0.0;
 
@@ -172,7 +172,7 @@ class PostStrokeOptimizer {
     return totalLength;
   }
 
-  /// Calculatates smoothness (more basso = more smooth)
+  /// Calculates smoothness (more basso = more smooth)
   double calculateSmoothness(List<Offset> points) {
     if (points.length < 3) return 0.0;
 

@@ -23,7 +23,7 @@ class OriginIndicatorPainter extends CustomPainter {
     final armLength = 30.0 / scale;
     final strokeWidth = 0.8 / scale;
 
-    // Colore: very faint gray
+    // Color: very faint gray
     final paint =
         Paint()
           ..color = const Color(0x30000000) // black at 19%

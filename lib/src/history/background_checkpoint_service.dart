@@ -12,8 +12,8 @@ import '../core/models/canvas_layer.dart'; // For binary encoding
 /// 🚀 BACKGROUND SAVE SERVICE v2.2 - Production Fixed!
 ///
 /// PROBLEMA RISOLTO:
-/// - Prima: checkpoint di 12MB compresso bloccava UI per 2-3 secondi
-/// - Prima: delta append di 5KB bloccava UI per 20-50ms
+/// - Before: 12MB compressed checkpoint blocked UI for 2-3 seconds
+/// - Before: 5KB delta append blocked UI for 20-50ms
 /// - Now: EVERYTHING in background isolate → UI always @ 60 FPS
 ///
 /// ✅ DUAL MODE OPERATIONS:
@@ -23,13 +23,13 @@ import '../core/models/canvas_layer.dart'; // For binary encoding
 /// ✅ BUG FIXES v2.2:
 /// 1. **Queue Backpressure**: Usa Queue invece di singolo slot (no data loss!)
 /// 2. **WAL O(1) Performance**: .jsonl puro without GZIP (append atomico)
-/// 3. **Checkpoint GZIP**: Solo checkpoint compresso (una tantum)
+/// 3. **GZIP Checkpoint**: Only compressed checkpoint (one-off)
 ///
 /// ✅ PRODUCTION SAFETY:
 /// 1. **Lifecycle Management**: Automatic flush when app goes to pause/close
-/// 2. **Zero-Copy Transfer**: TransferableTypedData per 12MB without duplicare RAM
+/// 2. **Zero-Copy Transfer**: TransferableTypedData for 12MB without duplicating RAM
 /// 3. **Queue Backpressure**: No lost deltas, even with fast writing
-/// 4. **Atomic Writes**: .tmp + rename per prevent corruption
+/// 4. **Atomic Writes**: .tmp + rename to prevent corruption
 ///
 /// ARCHITETTURA:
 /// ```

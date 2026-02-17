@@ -8,8 +8,8 @@ import 'package:flutter/material.dart';
 /// - ✅ Migliora performance di rendering
 ///
 /// PERFORMANCE:
-/// - Da creare N Paint objects → riutilizzare 2-3 Paint objects
-/// - Riduce allocazioni memoria del 90%+
+/// - From creating N Paint objects → reusing 2-3 Paint objects
+/// - Reduces memory allocations by 90%+
 class PaintPool {
   // Pool di Paint riutilizzabili per stroke
   static final Paint _strokePaint =

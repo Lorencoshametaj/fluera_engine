@@ -371,7 +371,7 @@ class SynchronizedPlaybackController extends ChangeNotifier {
     try {
       await _audioPlayer.pause();
 
-      // 🕐 Ferma stopwatch e salva position
+      // 🕐 Stop stopwatch and save position
       _stopwatch.stop();
       _pausedPosition = Duration(milliseconds: positionMs);
 
@@ -518,7 +518,7 @@ class SynchronizedPlaybackController extends ChangeNotifier {
     _stopUpdateTimer();
     // Update UI every 16ms (~60fps) for smooth stroke animation
     _updateTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      // 🕐 Controlla se abbiamo superato la durata totale
+      // 🕐 Check if we exceeded total duration
       if (positionMs >= _duration.inMilliseconds &&
           _duration.inMilliseconds > 0) {
         _stopwatch.stop();

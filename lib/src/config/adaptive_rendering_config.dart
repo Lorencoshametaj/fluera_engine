@@ -49,8 +49,8 @@ class AdaptiveRenderingConfig {
   final bool enablePredictiveRendering;
 
   /// Massimo number of punti per stroke (hard limit)
-  /// 120Hz: 128 (limite aggressivo per rispettare frame budget)
-  /// 60Hz: 256 (more punti per maggiore quality)
+  /// 120Hz: 128 (aggressive limit to respect frame budget)
+  /// 60Hz: 256 (more points for higher quality)
   final int maxPointsPerStroke;
 
   // ============================================================================
@@ -59,7 +59,7 @@ class AdaptiveRenderingConfig {
 
   /// Padding viewport per culling (in pixels)
   /// 120Hz: 0px (render ONLY visible elements, zero margin)
-  /// 60Hz: 50px (margine per smooth transitions)
+  /// 60Hz: 50px (margin for smooth transitions)
   final double viewportPadding;
 
   /// Enable tile caching for many strokes.

@@ -98,7 +98,7 @@ extension on _NebulaCanvasScreenState {
       }
     }
 
-    // 🖼️ Se c'è una position iniziale salvata (tap su immagine), controlla movimento
+    // 🖼️ If there is a saved initial position (tap on image), check movement
     if (_initialTapPosition != null && _imageTool.selectedImage != null) {
       final distance = (canvasPosition - _initialTapPosition!).distance;
 
@@ -118,7 +118,7 @@ extension on _NebulaCanvasScreenState {
         // Movimento troppo piccolo, ignora (aspetta timer)
         return;
       }
-    } // 🖼️ SEMPRE gestisci resize/drag di immagini (priority massima)
+    } // 🖼️ ALWAYS handle resize/drag of images (max priority)
     if (_imageTool.isResizing) {
       final updated = _imageTool.updateResize(canvasPosition);
       if (updated != null) {
@@ -407,7 +407,7 @@ extension on _NebulaCanvasScreenState {
             _eraserTool.eraseStrokeById(strokeId);
             _eraserGestureEraseCount = _eraserTool.currentGestureEraseCount;
             _spawnEraserParticles(erasePosition, now);
-            // V5: Invalidatete spatial index after erase
+            // V5: Invalidate spatial index after erase
             _eraserTool.invalidateSpatialIndex();
             DrawingPainter.invalidateAllTiles();
           }
@@ -498,7 +498,7 @@ extension on _NebulaCanvasScreenState {
         orientation: 0.0,
       );
 
-      // 🚀 FIX #1: Mutazione in-place (zero copie!) + forza repaint
+      // 🚀 FIX #1: In-place mutation (zero copies!) + force repaint
       _currentStrokeNotifier.value.add(point);
       _currentStrokeNotifier.forceRepaint();
     } else {

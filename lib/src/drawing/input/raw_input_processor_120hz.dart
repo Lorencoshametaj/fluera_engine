@@ -13,7 +13,7 @@ import '../models/pro_drawing_point.dart';
 /// The smoothing diventa ridondante - la high frequency genera
 /// naturalezza intrinseca.
 ///
-/// STRATEGIA:
+/// STRATEGY:
 /// - Zero processing: raw PointerEvent → ProDrawingPoint
 /// - Pre-allocated buffer (no dynamic allocation)
 /// - Indexed assignment (no List.add() overhead)
@@ -102,7 +102,7 @@ class RawInputProcessor120Hz {
     _pointCount = 0;
   }
 
-  /// Adds punto al buffer (zero allocation)
+  /// Adds point to buffer (zero allocation)
   void _addPoint(
     Offset position,
     double pressure,

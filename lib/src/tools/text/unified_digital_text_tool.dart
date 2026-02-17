@@ -7,7 +7,7 @@ import '../../core/models/digital_text_element.dart';
 ///
 /// Strumento per testo digitale che funziona su:
 /// - Canvas infinito
-/// - Pagine PDF
+/// - PDF Pages
 /// - Multiview
 class UnifiedDigitalTextTool extends BaseTool {
   // ============================================================================

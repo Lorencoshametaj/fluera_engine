@@ -3,7 +3,7 @@ import './split_panel_content.dart';
 
 /// 🔧 ADVANCED SPLIT LAYOUT
 /// Model for advanced split layouts supporting 2-4 panels
-/// con orientamenti personalizzabili e contenuti configurabili
+/// with customizable orientations and configurable content
 class AdvancedSplitLayout {
   final SplitLayoutType type;
   final SplitOrientation primaryOrientation;
@@ -31,7 +31,7 @@ class AdvancedSplitLayout {
   /// Whether the layout supports proportion adjustment
   bool get supportsSplit => type.supportsSplit;
 
-  /// Creates una copia con parametri modificati
+  /// Creates a copy with modified parameters
   AdvancedSplitLayout copyWith({
     SplitLayoutType? type,
     SplitOrientation? primaryOrientation,

@@ -3,8 +3,8 @@
 /// OTTIMIZZAZIONI IMPLEMENTATE:
 ///
 /// 1. **Cache Vettoriale** (stroke_cache_manager.dart)
-///    - ui.Picture cache per completed strokes
-///    - Riduce ridisegno da N tratti a cache + nuovi
+///    - ui.Picture cache for completed strokes
+///    - Reduces redraw from N strokes to cache + new ones
 ///    - Synchronous update without lag
 ///    - Constant 120 FPS even with hundreds of strokes
 ///
@@ -25,7 +25,7 @@
 ///
 /// RISULTATI:
 /// - ✅ Da FPS variabili a 120 FPS COSTANTI
-/// - ✅ Da 200+ draw calls a 2 per tratto
+/// - ✅ From 200+ draw calls to 2 per stroke
 /// - ✅ Quality vettoriale mantenuta
 /// - ✅ Memoria ottimizzata
 ///
@@ -33,7 +33,7 @@
 /// ```dart
 /// import 'optimization.dart';
 ///
-/// // Nei brush, usa:
+/// // In brushes, use:
 /// final path = OptimizedPathBuilder.buildSmoothPath(points);
 /// final paint = PaintPool.getStrokePaint(color: color, strokeWidth: width);
 /// canvas.drawPath(path, paint);

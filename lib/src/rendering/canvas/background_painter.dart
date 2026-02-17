@@ -6,20 +6,20 @@ import '../../canvas/infinite_canvas_controller.dart';
 /// 🎨 BACKGROUND PAINTER - Viewport-level rendering per canvas infinito
 ///
 /// ARCHITETTURA:
-/// - ✅ Render a livello viewport (fuori da Transform)
-/// - ✅ Copre TUTTE le direzioni (incluse coordinate negative)
-/// - ✅ Solo visible tiles stampati (~4-9 per frame)
+/// - ✅ Render at viewport level (outside Transform)
+/// - ✅ Covers ALL directions (including negative coordinates)
+/// - ✅ Only visible tiles printed (~4-9 per frame)
 ///
 /// PERFORMANCE:
-/// - 🚀 repaint: controller → paint() chiamato su ogni pan/zoom frame
-/// - 🚀 Costo per-frame: ~10 draw calls (trascurabile)
+/// - 🚀 repaint: controller → paint() called on every pan/zoom frame
+/// - 🚀 Per-frame cost: ~10 draw calls (negligible)
 /// - 🚀 Wrapped in RepaintBoundary → no cascade to siblings
 class BackgroundPainter extends CustomPainter {
   final String paperType;
   final Color backgroundColor;
   final InfiniteCanvasController controller;
 
-  // 🚀 TILE CACHE: un singolo tile piccolo da stampare ripetutamente
+  // 🚀 TILE CACHE: a single small tile to print repeatedly
   static ui.Picture? _cachedTile;
   static String? _cachedPaperType;
   static Color? _cachedBackgroundColor;
@@ -89,7 +89,7 @@ class BackgroundPainter extends CustomPainter {
 
     final oldTile = _cachedTile;
 
-    // 🔧 Calculate tile size allineato alla griglia to avoid
+    // 🔧 Calculate tile size aligned to grid to avoid
     // linee spurie ai bordi tra tile adiacenti.
     final alignedTileSize = _computeAlignedTileSize(paperType, _patternScale);
 
@@ -114,7 +114,7 @@ class BackgroundPainter extends CustomPainter {
     }
   }
 
-  /// Calculatates la size of the tile allineata allo spacing del pattern.
+  /// Calculates la size of the tile allineata allo spacing del pattern.
   static double _computeAlignedTileSize(String paperType, double scale) {
     double? baseSpacing;
     switch (paperType) {

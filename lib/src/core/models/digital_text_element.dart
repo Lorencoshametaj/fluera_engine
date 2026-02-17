@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 /// - Ridimensionamento (scale)
 /// - Selezione e trascinamento
 /// - Persistenza e serializzazione
-/// - Modalità OCR (testo riconosciuto da handwriting)
+/// - OCR Mode (text recognized from handwriting)
 class DigitalTextElement {
   final String id;
   final String text;
@@ -19,7 +19,7 @@ class DigitalTextElement {
   final double scale; // Fattore di scala per resize (1.0 = normale)
   final bool isOCR; // True if the testo proviene da riconoscimento OCR
   final int?
-  pageIndex; // 📄 Indice della pagina PDF a cui appartiene (null per canvas normale)
+  pageIndex; // 📄 Index of the PDF page it belongs to (null for normal canvas)
   final DateTime createdAt;
   final DateTime? modifiedAt;
 
@@ -68,7 +68,7 @@ class DigitalTextElement {
     );
   }
 
-  /// Calculatates bounds del testo (per hit testing)
+  /// Calculates bounds del testo (per hit testing)
   Rect getBounds(BuildContext context) {
     final textPainter = TextPainter(
       text: TextSpan(

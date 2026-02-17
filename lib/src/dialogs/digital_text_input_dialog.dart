@@ -7,9 +7,9 @@ import '../l10n/nebula_localizations.dart';
 /// Features:
 /// - Input multi-line
 /// - Live text preview
-/// - Selezione colore
+/// - Color selection
 /// - Selezione size font
-/// - Validazione (non vuoto)
+/// - Validation (not empty)
 /// - Checklist correzioni OCR
 class DigitalTextInputDialog extends StatefulWidget {
   final Color initialColor;
@@ -52,7 +52,7 @@ class DigitalTextInputDialog extends StatefulWidget {
 class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
   late final TextEditingController _textController;
   late Color _selectedColor;
-  bool _keepHandwritingStrokes = false; // 🖊️ Mantieni i original strokes?
+  bool _keepHandwritingStrokes = false; // 🖊️ Keep original strokes?
 
   // Size font fissa
   static const double _fontSize = 24.0;
@@ -82,7 +82,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
     super.dispose();
   }
 
-  /// Applica correzioni automatiche al testo OCR
+  /// Apply automatic corrections to OCR text
   void _applyOCRCorrections() {
     String text = _textController.text;
 
@@ -202,7 +202,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
         color: _selectedColor,
         fontSize: _fontSize,
         keepStrokes:
-            widget.isOCR ? _keepHandwritingStrokes : false, // 🖊️ Solo se OCR
+            widget.isOCR ? _keepHandwritingStrokes : false, // 🖊️ Only if OCR
       ),
     );
   }
@@ -471,7 +471,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                       const SizedBox(height: 16),
                     ],
 
-                    // Selezione colore
+                    // Color selection
                     Text(
                       NebulaLocalizations.of(context).proCanvas_colorLabel,
                       style: TextStyle(
@@ -598,7 +598,7 @@ class DigitalTextResult {
   final String text;
   final Color color;
   final double fontSize;
-  final bool keepStrokes; // 🖊️ Mantieni i original strokes
+  final bool keepStrokes; // 🖊️ Keep original strokes
 
   const DigitalTextResult({
     required this.text,

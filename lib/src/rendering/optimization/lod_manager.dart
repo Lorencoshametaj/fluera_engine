@@ -5,26 +5,26 @@ import '../../drawing/models/pro_drawing_point.dart';
 /// 🚀 LOD MANAGER - Level of Detail per stroke simplification
 ///
 /// PROBLEMA:
-/// A zoom basso (es. 10%), non serve disegnare tutti i 1000 punti di uno stroke.
+/// At low zoom (e.g. 10%), no need to draw all 1000 points of a stroke.
 /// L'occhio non can distinguere dettagli so piccoli.
 ///
 /// SOLUZIONE:
-/// - Usa Douglas-Peucker algorithm per semplificare i punti
-/// - A zoom basso: meno punti = rendering more veloce
-/// - A zoom alto: tutti i punti per massimo dettaglio
+/// - Use Douglas-Peucker algorithm to simplify points
+/// - At low zoom: fewer points = faster rendering
+/// - At high zoom: all points for maximum detail
 ///
 /// LOD LEVELS:
-/// - LOD 0 (zoom > 50%): Tutti i punti
+/// - LOD 0 (zoom > 50%): All points
 /// - LOD 1 (zoom 20-50%): ~50% of points
 /// - LOD 2 (zoom 5-20%): ~20% of points
 /// - LOD 3 (zoom < 5%): ~5% of points
 ///
 /// PERFORMANCE:
 /// - 1000 points → ~50 points at LOD 3 = 20x less work
-/// - Mantiene la forma generale of the stroke
+/// - Maintains the general shape of the stroke
 class LODManager {
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 CONFIGURAZIONE LOD
+  // 📐 CONFIGURATION LOD
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Soglie di zoom per ogni LOD level
@@ -54,7 +54,7 @@ class LODManager {
   // 📊 LOD LEVEL CALCULATION
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Calculatates il LOD level appropriato for ao zoom
+  /// Calculates il LOD level appropriato for ao zoom
   static int getLODLevel(double zoom) {
     if (zoom > lod0Threshold) return 0; // Full detail
     if (zoom > lod1Threshold) return 1; // Medium
@@ -142,7 +142,7 @@ class LODManager {
     _lodCache.remove(strokeId);
   }
 
-  /// Clears tutta la cache LOD
+  /// Clears the entire cache LOD
   static void clearCache() {
     _lodCache.clear();
   }
@@ -195,7 +195,7 @@ class LODManager {
     }
   }
 
-  /// Calculatates la distanza perpendicolare di un punto da una linea
+  /// Calculates la distanza perpendicolare di un punto da una linea
   static double _perpendicularDistance(
     Offset point,
     Offset lineStart,
@@ -231,7 +231,7 @@ class LODManager {
   // 📊 STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Calculatates il fattore di riduzione for a LOD level
+  /// Calculates il fattore di riduzione for a LOD level
   static double getReductionFactor(
     List<ProDrawingPoint> original,
     int lodLevel,

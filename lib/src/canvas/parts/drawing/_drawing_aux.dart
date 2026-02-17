@@ -56,7 +56,7 @@ extension on _NebulaCanvasScreenState {
         );
         _canvasController.setOffset(newOffset);
 
-        // Compensatete the scroll muovendo gli elementi in the direction OPPOSTA
+        // Compensate the scroll muovendo gli elementi in the direction OPPOSTA
         // Quando il canvas scorre a destra (+scrollX), gli elementi devono andare a sinistra (-scrollX)
         // to remain visivamente nella stessa position sullo schermo
         final compensation = Offset(-scrollX, -scrollY);
@@ -65,7 +65,7 @@ extension on _NebulaCanvasScreenState {
           _lassoTool.compensateScroll(compensation);
         }
 
-        // Digital text: compensa nel tool E aggiorna la lista
+        // Digital text: compensates in tool AND updates list
         if (_digitalTextTool.isDragging || _digitalTextTool.isResizing) {
           _digitalTextTool.compensateScroll(compensation);
 
@@ -80,7 +80,7 @@ extension on _NebulaCanvasScreenState {
           }
         }
 
-        // 🖼️ Image: compensa nel tool E aggiorna la lista
+        // 🖼️ Image: compensates in tool AND updates list
         if (_imageTool.isDragging || _imageTool.isResizing) {
           _imageTool.compensateScroll(compensation);
 

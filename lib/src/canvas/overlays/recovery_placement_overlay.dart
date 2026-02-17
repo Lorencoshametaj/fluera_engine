@@ -170,7 +170,7 @@ class _RecoveryPlacementOverlayState extends State<RecoveryPlacementOverlay>
         final ctrl = widget.canvasController;
         ctrl.setOffset(ctrl.offset - panDelta);
 
-        // Compensatete the elements to keep them under the finger
+        // Compensate the elements to keep them under the finger
         setState(() {
           _currentOffset += panDelta / ctrl.scale;
         });

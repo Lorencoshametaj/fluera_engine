@@ -9,7 +9,7 @@ import '../../core/models/shape_type.dart';
 ///
 /// Strumento di selezione che funziona su:
 /// - Canvas infinito
-/// - Pagine PDF
+/// - PDF Pages
 /// - Multiview
 ///
 /// FEATURES:
@@ -17,7 +17,7 @@ import '../../core/models/shape_type.dart';
 /// - Multi-selezione strokes e shapes
 /// - Operazioni: sposta, elimina, copia, ruota, rifletti
 /// - Drag selected elements
-/// - Visual feedback durante selezione
+/// - Visual feedback during selection
 class UnifiedLassoTool extends SelectionTool {
   // ============================================================================
   // IDENTITY
@@ -196,7 +196,7 @@ class UnifiedLassoTool extends SelectionTool {
     lassoPath.clear();
   }
 
-  /// Calculatates bounds del percorso lasso
+  /// Calculates bounds del percorso lasso
   Rect _calculatePathBounds() {
     if (lassoPath.isEmpty) return Rect.zero;
 
@@ -215,7 +215,7 @@ class UnifiedLassoTool extends SelectionTool {
     return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
-  /// Calculatates bounds degli selected elements
+  /// Calculates bounds degli selected elements
   Rect _calculateSelectionBounds() {
     double minX = double.infinity;
     double maxX = double.negativeInfinity;

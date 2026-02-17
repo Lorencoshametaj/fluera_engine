@@ -87,7 +87,7 @@ abstract class BaseTool implements DrawingTool {
     currentCanvasPosition = context.screenToCanvas(screenPosition);
   }
 
-  /// Calculatates delta from last position (in SCREEN coordinates)
+  /// Calculates delta from last position (in SCREEN coordinates)
   Offset? getDelta(Offset currentScreenPosition) {
     if (lastScreenPosition == null) return null;
     return currentScreenPosition - lastScreenPosition!;

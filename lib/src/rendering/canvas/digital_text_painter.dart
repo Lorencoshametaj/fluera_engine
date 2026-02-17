@@ -21,7 +21,7 @@ class DigitalTextPainter extends CustomPainter {
     if (texts.isEmpty) return;
 
     canvas.save();
-    // 🔗 Applica stessa trasformazione of strokes (Stroke)
+    // 🔗 Apply same transformation of strokes (Stroke)
     canvas.translate(canvasOffset.dx, canvasOffset.dy);
     canvas.scale(canvasScale);
 
@@ -43,10 +43,10 @@ class DigitalTextPainter extends CustomPainter {
         textAlign: TextAlign.left,
       );
 
-      // 📏 Layout del testo
+      // 📏 Text layout
       textPainter.layout();
 
-      // 🖌️ Draw testo alla position corretta
+      // 🖌️ Draw text at correct position
       // The position is already in coordinate Canvas, e il canvas is trasformato
       textPainter.paint(canvas, element.position);
     }
@@ -56,7 +56,7 @@ class DigitalTextPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DigitalTextPainter oldDelegate) {
-    // 🚀 Optimization: Ridisegna only if cambia qualcosa di visivo
+    // 🚀 Optimization: Redraw only if something visual changes
     return oldDelegate.canvasOffset != canvasOffset ||
         oldDelegate.canvasScale != canvasScale ||
         oldDelegate.texts != texts ||

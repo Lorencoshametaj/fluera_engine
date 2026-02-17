@@ -2,13 +2,13 @@
 ///
 /// Simula l'anticipo of the stroke come Apple Pencil:
 /// - Prevede i prossimi 2-3 punti based on direzione e speed
-/// - Draw un "ghost trail" leggero che poi si sostituisce col tratto vero
-/// - Elimina la sensazione di lag anche su dispositivi medi
+/// - Draw a light "ghost trail" which is then replaced by the real stroke
+/// - Eliminates lag sensation even on medium devices
 ///
 /// Features:
 /// - Velocity-based prediction
 /// - Direction smoothing
-/// - Opacity fade per ghost trail
+/// - Opacity fade for ghost trail
 library;
 
 import 'dart:ui';
@@ -34,7 +34,7 @@ class PredictiveRenderer {
     this.velocityDecay = 0.85,
   });
 
-  // 🚀 CACHED objects per rendering (evita allocazione every frame)
+  // 🚀 CACHED objects for rendering (avoids allocation every frame)
   final Paint _ghostPaint =
       Paint()
         ..style = PaintingStyle.stroke
@@ -42,7 +42,7 @@ class PredictiveRenderer {
         ..strokeJoin = StrokeJoin.round;
   final Path _ghostPath = Path();
 
-  /// Adds un punto alla storia
+  /// Adds a point to history
   void addPoint(Offset point, DateTime timestamp) {
     _recentPoints.add(_PointWithTime(point, timestamp));
     if (_recentPoints.length > _maxRecentPoints) {
@@ -90,7 +90,7 @@ class PredictiveRenderer {
 
     final lastActualPoint = _recentPoints.last.point;
 
-    // 🚀 USA CACHED PAINT e PATH (reset e riuso)
+    // 🚀 USE CACHED PAINT and PATH (reset and reuse)
     _ghostPaint
       ..color = basePaint.color.withValues(alpha: ghostOpacity)
       ..strokeWidth = basePaint.strokeWidth;
@@ -114,7 +114,7 @@ class PredictiveRenderer {
     canvas.drawPath(_ghostPath, _ghostPaint);
   }
 
-  /// Calculatates speed media dai punti recenti
+  /// Calculates speed media dai punti recenti
   Offset _calculateVelocity() {
     if (_recentPoints.length < 2) return Offset.zero;
 
@@ -151,7 +151,7 @@ class PredictiveRenderer {
     return Offset(avgVelX, avgVelY);
   }
 
-  /// Calculatates la speed attuale in px/s
+  /// Calculates la speed attuale in px/s
   double getCurrentSpeed() {
     final velocity = _calculateVelocity();
     // Convert da px/frame a px/s

@@ -7,10 +7,10 @@ import './brush_test_painter.dart';
 /// 🎨 Optimized Canvas for Brush Testing
 ///
 /// Features:
-/// - Stylus detection con pressure, tilt e orientation REALI
-/// - Rendering ottimizzato con caching
+/// - Stylus detection with REAL pressure, tilt and orientation
+/// - Optimized rendering with caching
 /// - Performance monitoring real-time
-/// - 🚀 RepaintBoundary per isolamento rendering
+/// - 🚀 RepaintBoundary for rendering isolation
 class BrushTestCanvas extends StatefulWidget {
   final List<BrushStroke> strokes;
   final BrushStroke? currentStroke;
@@ -43,7 +43,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
   double _normalizePressure(PointerEvent event) {
     final rawPressure = event.pressure;
 
-    // Stylus: usa pressure reale
+    // Stylus: uses real pressure
     if (event.kind == PointerDeviceKind.stylus) {
       return rawPressure.clamp(0.1, 1.0);
     }
@@ -76,7 +76,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
           _isDrawing = true;
           _lastPosition = event.localPosition; // Track position
           final pressure = _normalizePressure(event);
-          // 🖊️ FIX: Calculate tiltX e tiltY da tilt (angolo) e orientation (direzione)
+          // 🖊️ FIX: Calculate tiltX and tiltY from tilt (angle) and orientation (direction)
           // tilt: 0 = perpendicolare, π/2 = piatta sul display (radians)
           // orientation: direzione dell'inclinazione in radians
           final tiltMagnitude = event.tilt; // 0 to π/2
@@ -98,7 +98,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
             final pressure = _normalizePressure(event);
             _lastPosition =
                 event.localPosition; // Update position for next calculation
-            // 🖊️ FIX: Calculate tiltX e tiltY reali
+            // 🖊️ FIX: Calculate real tiltX and tiltY
             final tiltMagnitude = event.tilt;
             final orientation = event.orientation;
             final tiltX = (tiltMagnitude * math.cos(orientation)).clamp(
@@ -122,7 +122,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
           _lastPosition = null;
           widget.onPanEnd();
         },
-        // 🚀 RepaintBoundary isola il canvas dal resto del widget tree
+        // 🚀 RepaintBoundary isolates canvas from rest of widget tree
         // Previene repaint inutili quando altri widget cambiano
         child: RepaintBoundary(
           child: CustomPaint(
@@ -134,7 +134,7 @@ class _BrushTestCanvasState extends State<BrushTestCanvas> {
               repaintKey: widget.repaintKey,
             ),
             size: Size.infinite,
-            // 🚀 isComplex=true suggerisce a Flutter di cachare il layer
+            // 🚀 isComplex=true suggests Flutter to cache the layer
             isComplex: true,
             // 🚀 willChange=true if we're actively drawing
             willChange: widget.currentStroke != null,

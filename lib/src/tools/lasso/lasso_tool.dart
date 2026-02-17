@@ -10,11 +10,11 @@ import '../../canvas/infinite_canvas_controller.dart';
 ///
 /// Caratteristiche:
 /// - Selezione a mano libera (lasso)
-/// - Rilevamento elementi dentro il percorso chiuso
+/// - Detection of elements inside closed path
 /// - Supporto multi-selezione
 /// - Operazioni su selected elements (move, delete, copy, rotate, flip)
-/// - Drag per spostare elementi
-/// - Auto-scroll al bordo dello schermo
+/// - Drag to move elements
+/// - Auto-scroll at screen edge
 class LassoTool {
   final NebulaLayerController layerController;
 
@@ -41,7 +41,7 @@ class LassoTool {
     return _selectionBounds?.contains(point) ?? false;
   }
 
-  /// Calculatates i bounds degli selected elements
+  /// Calculates i bounds degli selected elements
   void _calculateSelectionBounds() {
     if (!hasSelection) {
       _selectionBounds = null;
@@ -124,7 +124,7 @@ class LassoTool {
     }
   }
 
-  /// Compensatete the scroll of the canvas durante il drag (more efficiente, without rebuild pesanti)
+  /// Compensate the scroll of the canvas durante il drag (more efficiente, without rebuild pesanti)
   void compensateScroll(Offset scrollDelta) {
     if (!_isDragging || _dragStartPosition == null) return;
 

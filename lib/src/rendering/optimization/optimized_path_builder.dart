@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 ///
 /// RESPONSIBILITIES:
 /// - ✅ Builds a SINGLE Path instead of N separate segments
-/// - ✅ Catmull-Rom spline per smoothness professionale
+/// - ✅ Catmull-Rom spline for professional smoothness
 /// - ✅ Riduce draw calls da 100+ a 1
 ///
 /// PERFORMANCE:
 /// - Path unificato = 1 drawPath() invece di N drawPath()
-/// - Nessuna allocazione ripetuta di Path temporanei
+/// - No repeated allocation of temporary Paths
 /// - GPU rendering ottimizzato
 class OptimizedPathBuilder {
   /// 🚀 Builds un Path ottimizzato con Catmull-Rom spline
@@ -37,7 +37,7 @@ class OptimizedPathBuilder {
       final p2 = _getOffset(points[2]);
       path.quadraticBezierTo(p1.dx, p1.dy, p2.dx, p2.dy);
     } else {
-      // 🚀 Catmull-Rom spline per curve ultra-smooth
+      // 🚀 Catmull-Rom spline for ultra-smooth curves
       // ALL segments in a SINGLE path!
       for (int i = 0; i < points.length - 1; i++) {
         final p0 = i > 0 ? _getOffset(points[i - 1]) : _getOffset(points[i]);
@@ -105,7 +105,7 @@ class OptimizedPathBuilder {
     return point.offset;
   }
 
-  /// Calculatates la lunghezza approssimativa del path
+  /// Calculates la lunghezza approssimativa del path
   static double estimatePathLength(List<dynamic> points) {
     if (points.length < 2) return 0;
 

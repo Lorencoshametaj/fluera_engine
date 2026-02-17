@@ -4,7 +4,7 @@ import '../export/export_preset.dart';
 
 /// Modalità di editing multi-pagina
 enum MultiPageMode {
-  /// Tutte le pagine hanno la stessa size
+  /// All pages have the same size
   uniform,
 
   /// Each pagina can avere size diversa
@@ -16,10 +16,10 @@ class MultiPageConfig {
   /// Modalità di editing (uniform o individual)
   final MultiPageMode mode;
 
-  /// Formato pagina per mode uniform (A4, A3, Letter, custom)
+  /// Page format for uniform mode (A4, A3, Letter, custom)
   final ExportPageFormat pageFormat;
 
-  /// Size custom per mode uniform (usata se pageFormat == custom)
+  /// Custom size for uniform mode (used if pageFormat == custom)
   final Size? customPageSize;
 
   /// Size uniforme of pages in canvas coordinates (per mode uniform)
@@ -48,7 +48,7 @@ class MultiPageConfig {
     this.quality = ExportQuality.high,
   });
 
-  /// Creates una copia con i valori modificati
+  /// Creates a copy with modified values
   MultiPageConfig copyWith({
     MultiPageMode? mode,
     ExportPageFormat? pageFormat,
@@ -71,7 +71,7 @@ class MultiPageConfig {
     );
   }
 
-  /// Gets la size of thela pagina in punti (72 DPI base)
+  /// Gets the size of the page in points (72 DPI base)
   Size getPageSizeInPoints() {
     if (pageFormat == ExportPageFormat.custom && customPageSize != null) {
       return customPageSize!;
@@ -79,7 +79,7 @@ class MultiPageConfig {
     return pageFormat.sizeInPoints;
   }
 
-  /// Gets la size of thela pagina in pixel for the quality specificata
+  /// Gets the size of the page in pixels for the specified quality
   Size getPageSizeInPixels() {
     final sizeInPoints = getPageSizeInPoints();
     final dpi = quality.dpi;
@@ -237,7 +237,7 @@ class MultiPageConfig {
       );
       newBounds.add(newRect);
     } else {
-      // Modalità individual: aggiungi pagina con size default
+      // Individual mode: add page with default size
       final lastRect =
           newBounds.isNotEmpty
               ? newBounds.last
@@ -248,7 +248,7 @@ class MultiPageConfig {
                 280,
               );
 
-      // Offset la nuova pagina rispetto all'ultima
+      // Offset the new page relative to the last one
       final newRect = lastRect.translate(50, 50);
       newBounds.add(newRect);
     }
@@ -263,7 +263,7 @@ class MultiPageConfig {
   MultiPageConfig addPageAtCenter(Offset center) {
     if (!canAddPage) return this;
 
-    // Determina la size of thela nuova pagina
+    // Determines the size of the new page
     final Size pageSize;
     if (mode == MultiPageMode.uniform && uniformPageSize != null) {
       pageSize = uniformPageSize!;
@@ -276,7 +276,7 @@ class MultiPageConfig {
       pageSize = const Size(210, 297);
     }
 
-    // Create il rect centrato
+    // Create centered rect
     final newRect = Rect.fromCenter(
       center: center,
       width: pageSize.width,
@@ -291,7 +291,7 @@ class MultiPageConfig {
     );
   }
 
-  /// Removes la pagina selezionata
+  /// Removes the selected page
   MultiPageConfig removeSelectedPage() {
     if (!canRemovePage) return this;
 
@@ -316,7 +316,7 @@ class MultiPageConfig {
     final updatedBounds = List<Rect>.from(individualPageBounds);
     updatedBounds[index] = newBounds;
 
-    // In mode uniform, aggiorna la size uniforme
+    // In uniform mode, updates the uniform size
     Size? newUniformSize = uniformPageSize;
     if (mode == MultiPageMode.uniform) {
       newUniformSize = Size(newBounds.width, newBounds.height);

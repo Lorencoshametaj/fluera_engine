@@ -26,7 +26,7 @@ import 'package:flutter/services.dart';
 ///   intensities: [255, 180]
 /// );
 ///
-/// // Ferma la vibrazione
+/// // Stops vibration
 /// await NativeVibration.cancel();
 /// ```
 class NativeVibration {

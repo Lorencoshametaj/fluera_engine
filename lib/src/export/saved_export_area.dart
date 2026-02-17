@@ -20,7 +20,7 @@ class SavedExportArea {
   /// True if this area is for multi-page editing
   bool get isMultiPage => multiPageConfig != null;
 
-  /// Aspect ratio per reference (non usato for positioning)
+  /// Aspect ratio for reference (not used for positioning)
   double get aspectRatio => bounds.width / bounds.height;
 
   const SavedExportArea({

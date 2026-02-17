@@ -11,15 +11,15 @@ import './time_travel_compressor.dart';
 /// 🎬 Time Travel Recorder — passive listener che accumula eventi
 ///
 /// Si aggancia al `LayerController` tramite callback `onTimeTravelEvent`.
-/// A differenza del `CanvasDeltaTracker` (WAL transiente consumato dal
+/// Unlike the `CanvasDeltaTracker` (transient WAL consumed by
 /// salvataggio locale e from the RTDB sync), il recorder **non perde mai
 /// gli eventi** — li accumula per tutta la durata della sessione e li
 /// scrive to disk al termine (canvas close).
 ///
 /// **Performance impact during drawing: ~0ms**
-/// - `recordEvent()` fa un singolo `List.add()` → O(1) amortized
-/// - Nessuna serializzazione, nessun I/O, nessuna compressione
-/// - Costo memoria: ~200 byte/evento × 500 stroke = ~100 KB per sessione
+/// - `recordEvent()` does a single `List.add()` → O(1) amortized
+/// - No serialization, no I/O, no compression
+/// - Memory cost: ~200 byte/evento × 500 stroke = ~100 KB per session
 class TimeTravelRecorder {
   /// Buffer di eventi della sessione corrente (mai consumato)
   final List<TimeTravelEvent> _sessionEvents = [];
@@ -146,7 +146,7 @@ class TimeTravelRecorder {
   /// 💾 Scrive gli eventi della sessione to disk in formato JSONL compresso
   ///
   /// Called at the closing of the canvas. The heavy operation (serialization
-  /// + GZIP) avviene in un isolate per non bloccare la UI.
+  /// + GZIP) happens in an isolate to not block UI.
   ///
   /// Returns la [TimeTravelSession] creata, o null if not ci sono eventi.
   Future<TimeTravelSession?> flushToDisk(

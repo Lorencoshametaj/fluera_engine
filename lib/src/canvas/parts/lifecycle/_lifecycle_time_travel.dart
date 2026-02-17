@@ -121,7 +121,7 @@ extension on _NebulaCanvasScreenState {
       '🎬🔍 [TimeTravel] recorder.eventCount: ${_timeTravelRecorder?.eventCount}',
     );
 
-    // 🖐️ Save lo current state e forza pan mode (no disegno durante time travel)
+    // 🖐️ Save current state and force pan mode (no drawing during time travel)
     _wasPanModeBeforeTimeTravel = _toolController.isPanMode;
     if (!_wasPanModeBeforeTimeTravel) {
       _toolController.togglePanMode();
@@ -234,7 +234,7 @@ extension on _NebulaCanvasScreenState {
     _timeTravelEngine?.dispose();
     _timeTravelEngine = null;
 
-    // 🔄 Riavvia recording with a nuovo recorder for the sessione successiva
+    // 🔄 Restart recording with a new recorder for the next session
     if (_timeTravelRecorder != null) {
       _timeTravelRecorder = TimeTravelRecorder();
       _timeTravelRecorder!.startRecording();
@@ -262,7 +262,7 @@ extension on _NebulaCanvasScreenState {
     _savedLiveLayersBeforeTimeTravel = const [];
     _refreshCachedLists();
 
-    // 🖐️ Ripristina lo stato pan precedente
+    // 🖐️ Restore previous pan state
     if (!_wasPanModeBeforeTimeTravel && _toolController.isPanMode) {
       _toolController.togglePanMode();
     }
@@ -278,7 +278,7 @@ extension on _NebulaCanvasScreenState {
   void _exportTimelapse() {
     if (_timeTravelEngine == null) return;
 
-    // Pausa playback durante l'export
+    // Pause playback durante l'export
     _timeTravelEngine!.pause();
 
     TimelapseExportDialog.show(

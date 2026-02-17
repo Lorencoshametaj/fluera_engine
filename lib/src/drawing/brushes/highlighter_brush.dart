@@ -4,17 +4,17 @@ import '../../rendering/optimization/optimization.dart';
 /// �️ Characteristics and rendering of the ULTRA-REALISTIC Highlighter brush
 ///
 /// CARATTERISTICHE REALI:
-/// - 🖍️ Larghezza variabile con angolo di inclinazione (piatto=largo, verticale=stretto)
-/// - 🖍️ Bordi more intensi (ink pooling ai margini)
+/// - 🖍️ Variable width with tilt angle (flat=wide, vertical=narrow)
+/// - 🖍️ More intense borders (ink pooling at edges)
 /// - 🖍️ More transparent center (ink translucent)
-/// - 🖍️ Texture stratificata per effetto fluorescente
-/// - 🖍️ Variazione opacity con speed (veloce=more chiaro)
-/// - 🖍️ Punta piatta con effetto chisel tip
+/// - 🖍️ Layered texture for fluorescent effect
+/// - 🖍️ Opacity variation with speed (fast=lighter)
+/// - 🖍️ Flat tip with chisel tip effect
 class HighlighterBrush {
-  /// Nome visualizzato dell'utensile
+  /// Displayed tool name
   static const String name = 'Evidenziatore';
 
-  /// Icona rappresentativa
+  /// Representative icon
   static const IconData icon = Icons.highlight;
 
   /// Moltiplicatore larghezza base (molto largo)
@@ -23,10 +23,10 @@ class HighlighterBrush {
   /// Opacity base trasparente (0.0-1.0)
   static const double baseOpacity = 0.35;
 
-  /// StrokeCap da utilizzare (punta piatta)
+  /// StrokeCap to use (punta piatta)
   static const StrokeCap strokeCap = StrokeCap.square;
 
-  /// StrokeJoin da utilizzare (angoli netti)
+  /// StrokeJoin to use (angoli netti)
   static const StrokeJoin strokeJoin = StrokeJoin.miter;
 
   /// Use pressure to vary the width?
@@ -35,7 +35,7 @@ class HighlighterBrush {
   /// Use pressure to vary opacity?
   static const bool usePressureForOpacity = false;
 
-  /// Ha effetto blur? (leggero per fluorescenza)
+  /// Does it have blur effect? (leggero per fluorescenza)
   static const bool hasBlur = true;
 
   /// Raggio blur per effetto fluorescente
@@ -58,7 +58,7 @@ class HighlighterBrush {
     );
   }
 
-  /// 🎛️ Draw con parametri personalizzati dal dialog
+  /// 🎛️ Draw with custom parameters from the dialog
   static void drawStrokeWithSettings(
     Canvas canvas,
     List<dynamic> points,
@@ -97,7 +97,7 @@ class HighlighterBrush {
       return;
     }
 
-    // 🖍️ CALCOLA VELOCITÀ MEDIA per variazione opacity (inline, no allocazione lista)
+    // 🖍️ CALCULATE AVERAGE SPEED for opacity variation (inline, no list allocation)
     double totalVelocity = 0.0;
     for (int i = 1; i < points.length; i++) {
       final prev = StrokeOptimizer.getOffset(points[i - 1]);
@@ -140,12 +140,12 @@ class HighlighterBrush {
     canvas.restore();
   }
 
-  /// Calculatates la larghezza (costante e larga)
+  /// Calculates la larghezza (costante e larga)
   static double calculateWidth(double baseWidth, double pressure) {
     return baseWidth * baseWidthMultiplier;
   }
 
-  /// Calculatates l'opacity (costante)
+  /// Calculates l'opacity (costante)
   static double calculateOpacity(double pressure) {
     return baseOpacity;
   }

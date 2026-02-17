@@ -218,7 +218,7 @@ extension RulerGuidePresets on RulerGuideSystem {
     addHorizontalGuide(viewport.bottom - margin);
   }
 
-  /// Adds guide per aspect ratio centrate nel viewport
+  /// Adds guide for aspect ratio centered in viewport
   void addAspectRatioPreset(Rect viewport, double ratio) {
     saveSnapshot();
     final cx = viewport.center.dx;

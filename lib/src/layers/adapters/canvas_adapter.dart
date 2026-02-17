@@ -9,13 +9,13 @@ import '../nebula_layer_controller.dart';
 ///
 /// Astrae le operazioni comuni tra:
 /// - Canvas infinito (InfiniteCanvasAdapter)
-/// - Pagina PDF (PDFPageAdapter)
+/// - PDF Page (PDFPageAdapter)
 /// - Multiview sincronizzato (futuro)
 ///
 /// DESIGN PRINCIPLES:
-/// - Ogni adapter sa come gestire le coordinate del suo contesto
-/// - Ogni adapter sa come persistere i dati nel suo contesto
-/// - I tools usano SOLO l'interfaccia, mai le implementazioni concrete
+/// - Each adapter knows how to handle coordinates of its context
+/// - Each adapter knows how to persist data in its context
+/// - Tools use ONLY the interface, never concrete implementations
 abstract class CanvasAdapter {
   // ============================================================================
   // IDENTITY
@@ -58,7 +58,7 @@ abstract class CanvasAdapter {
   // STROKE OPERATIONS
   // ============================================================================
 
-  /// Adds uno stroke al contesto
+  /// Adds a stroke to context
   void addStroke(NebulaLayerController controller, ProStroke stroke);
 
   /// Removes uno stroke per ID
@@ -76,7 +76,7 @@ abstract class CanvasAdapter {
   // SHAPE OPERATIONS
   // ============================================================================
 
-  /// Adds a geometric shape al contesto
+  /// Adds a geometric shape to context
   void addShape(NebulaLayerController controller, GeometricShape shape);
 
   /// Removes una shape per ID

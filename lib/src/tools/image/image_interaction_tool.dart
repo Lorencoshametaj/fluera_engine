@@ -4,9 +4,9 @@ import '../../core/models/image_element.dart';
 
 /// 🖼️ IMAGE INTERACTION TOOL
 /// Handles l'interazione con image elements:
-/// - Selezione al tap
+/// - Selection on tap
 /// - Trascinamento
-/// - Ridimensionamento tramite handles
+/// - Resizing via handles
 /// - Rotazione
 class ImageInteractionTool {
   /// Elemento correntemente selezionato
@@ -82,7 +82,7 @@ class ImageInteractionTool {
     return null;
   }
 
-  /// Calculatates bounds of the image (AABB per uso esterno)
+  /// Calculates bounds of the image (AABB per uso esterno)
   Rect getElementBounds(ImageElement element, [BuildContext? context]) {
     final displaySize = _getDisplaySize(element);
 

@@ -10,7 +10,7 @@ import '../../core/engine_scope.dart';
 ///
 /// PROBLEMA (10M strokes):
 /// - 10M × 100 punti × 40 bytes = 40 GB di punti!
-/// - Anche i metadata (bounds) occupano ~640 MB
+/// - Metadata (bounds) also occupy ~640 MB
 /// - Impossibile tenere tutto in RAM
 ///
 /// SOLUZIONE:
@@ -37,7 +37,7 @@ import '../../core/engine_scope.dart';
 /// - TOTALE: ~800 MB (invece di 40 GB!)
 class DiskStrokeManager {
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 CONFIGURAZIONE
+  // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Strokes per chunk (~1000 = buon compromesso I/O vs granularità)
@@ -361,7 +361,7 @@ class DiskStrokeManager {
     _chunkAccessOrder.add(chunkId);
   }
 
-  /// Assicura che un chunk sia in cache
+  /// Ensures a chunk is in cache
   void _ensureChunkInCache(int chunkId) {
     if (!_chunkCache.containsKey(chunkId)) {
       _chunkCache[chunkId] = {};
@@ -406,7 +406,7 @@ class DiskStrokeManager {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📊 STATISTICHE
+  // 📊 STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Numero totale strokes salvati

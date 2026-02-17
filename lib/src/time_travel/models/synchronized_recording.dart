@@ -28,7 +28,7 @@ class SyncedStroke {
   /// Durata of the stroke in millisecondi
   int get durationMs => relativeEndMs - relativeStartMs;
 
-  /// Calculatates quanti punti of the stroke sono visibili a un dato tempo di playback
+  /// Calculates quanti punti of the stroke sono visibili a un dato tempo di playback
   /// [playbackTimeMs] - tempo corrente di riproduzione in ms
   /// Returns: number of punti da mostrare (0 if the tratto is not ancora iniziato)
   int visiblePointsAtTime(int playbackTimeMs) {
@@ -325,8 +325,8 @@ class SynchronizedRecordingBuilder {
     );
   }
 
-  /// Adds uno stroke usando i timestamps of points
-  /// Calculatates automaticamente start/end dai timestamps of points of the stroke
+  /// Adds a stroke using timestamps of points
+  /// Calculates automaticamente start/end dai timestamps of points of the stroke
   void addStrokeWithPointTimestamps(ProStroke stroke) {
     if (stroke.points.isEmpty) return;
 
@@ -372,7 +372,7 @@ class SynchronizedRecordingBuilder {
 
   /// Sets esplicitamente il type of registrazione per distinguere PDF da Note
   void setRecordingType(String type) {
-    // 🧠 Sii more tollerante: if the tipo is already settato ma NON abbiamo ancora strokes,
+    // 🧠 Be more tolerant: if type is already set but we DO NOT have strokes yet,
     // permetti di cambiare idea (utile se viene inizializzato come 'pdf' ma poi si disegna su 'note')
     if (_strokes.isEmpty) {
       _recordingType = type;

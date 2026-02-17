@@ -8,13 +8,13 @@ export './ruler_guide_presets.dart';
 /// 📏 Sistema righelli e guide for the canvas professionale
 ///
 /// Fornisce:
-/// - Guide draggabili con snapping, lock, colori personalizzati
+/// - Draggable guides with snapping, lock, custom colors
 /// - Grid overlay adattivo + grid snapping + stili (lines/dots/crosses)
 /// - Griglia isometrica (30°/60°)
 /// - Griglia prospettica (1/2/3 punti di fuga)
 /// - Griglia radiale (cerchi concentrici + raggi)
-/// - Smart guides (allineamento automatico con stroke esistenti)
-/// - Symmetry mode (specchia tratti rispetto ad un asse guida)
+/// - Smart guides (automatic alignment with existing strokes)
+/// - Symmetry mode (mirrors strokes relative to a guide axis)
 /// - Guide presets (centro, terzi, sezione aurea, aspect ratio, margini)
 /// - Snap feedback (glow temporaneo)
 /// - Measurement tool (distanza/angolo) with aità configurabili

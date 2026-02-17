@@ -5,9 +5,9 @@
 ///
 /// Features:
 /// - Adaptive cutoff basato su speed
-/// - Separate filtering per X e Y
+/// - Separate filtering for X and Y
 /// - Timestamp-based smoothing
-/// - Derivata filtrata per calcolo speed accurato
+/// - Filtered derivative for accurate speed calculation
 library;
 
 import 'dart:ui';
@@ -111,7 +111,7 @@ class AdvancedOneEuroFilter {
     return prev + alpha * (x - prev);
   }
 
-  /// Calculatates alpha (coefficiente di smoothing) dal cutoff
+  /// Calculates alpha (coefficiente di smoothing) dal cutoff
   double _alpha(double cutoff, double actualFreq) {
     final tau = 1.0 / (2.0 * math.pi * cutoff);
     final te = 1.0 / actualFreq;

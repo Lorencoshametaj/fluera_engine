@@ -8,7 +8,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
     return Expanded(
       key: _canvasAreaKey, // Key to track la size of the area
       child: ClipRect(
-        // 🔒 ClipRect impedisce al canvas di invadere la toolbar
+        // 🔒 ClipRect prevents canvas from invading the toolbar
         child: Stack(
           children: [
             _buildBackgroundLayer(),
@@ -101,15 +101,15 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
   Widget _buildGestureDetectorLayer(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 📐 Dimensioni viewport per culling ottimizzato
+        // 📐 Viewport dimensions for optimized culling
         final viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
 
         return IgnorePointer(
-          // 🔮 Blocca gesture canvas durante placement mode
+          // 🔮 Block canvas gestures during placement mode
           ignoring: _isRecoveryPlacementMode,
           child: InfiniteCanvasGestureDetector(
             controller: _canvasController,
-            // 📐 In multi-page edit mode: blocca disegno
+            // 📐 In multi-page edit mode: blocks drawing
             onDrawStart: _isMultiPageEditMode ? null : _onDrawStart,
             onDrawUpdate: _isMultiPageEditMode ? null : _onDrawUpdate,
             onDrawEnd: _isMultiPageEditMode ? null : _onDrawEnd,
@@ -117,7 +117,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
             onLongPress: _isMultiPageEditMode ? null : _onLongPress,
             enableSingleFingerPan:
                 _effectiveIsPanMode ||
-                _isMultiPageEditMode, // 🖐️ Pan with a dito quando attivo O in multi-page edit
+                _isMultiPageEditMode, // 🖐️ Pan with a finger when active OR in multi-page edit
             isStylusModeEnabled:
                 _isMultiPageEditMode
                     ? false
@@ -127,7 +127,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                 _digitalTextTool.isDragging ||
                 _imageTool.isResizing ||
                 _imageTool
-                    .isDragging, // 🔒 Blocca pan solo when interagisce con testo/immagini
+                    .isDragging, // 🔒 Block pan only when interacting with text/images
             // 🚀 PERF FIX: Content builders OUTSIDE AnimatedBuilder.
             child: ValueListenableBuilder<GeometricShape?>(
               valueListenable: _currentShapeNotifier,
@@ -139,7 +139,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                     return AnimatedBuilder(
                       animation: _canvasController,
                       builder: (context, child) {
-                        // 🚀 OverflowBox permette al contenuto di superare i limiti del parent
+                        // 🚀 OverflowBox allows content to exceed parent limits
                         return OverflowBox(
                           minWidth: 0,
                           maxWidth: double.infinity,
@@ -182,7 +182,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                                 ),
                               ),
 
-                            // 🖼️ LAYER 1.5: IMMAGINE DI SFONDO (se presente)
+                            // 🖼️ LAYER 1.5: BACKGROUND IMAGE (if present)
                             if (_backgroundImage != null)
                               Positioned.fill(
                                 child: CustomPaint(

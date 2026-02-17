@@ -115,7 +115,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             isDark: isDark,
           ),
           const SizedBox(width: 12),
-          // 🖐️ Pan Mode Button (a sinistra della gomma)
+          // 🖐️ Pan Mode Button (to the left of the eraser)
           ToolbarPanModeButton(
             isActive: widget.isPanModeActive,
             onTap: () {
@@ -125,7 +125,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             isDark: isDark,
           ),
           const SizedBox(width: 12),
-          // 🖊️ Stylus Mode Button (a destra del gesture)
+          // 🖊️ Stylus Mode Button (to the right of gesture)
           ToolbarStylusModeButton(
             isActive: widget.isStylusModeActive,
             onTap: () {
@@ -313,7 +313,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             HapticFeedback.mediumImpact();
             setState(() {
               _isShapesExpanded = !_isShapesExpanded;
-              // 🔄 Quando si chiude la sezione forme, torna automaticamente al pennello
+              // 🔄 When closing the shapes section, automatically return to brush
               if (!_isShapesExpanded) {
                 widget.onShapeTypeChanged(ShapeType.freehand);
               }

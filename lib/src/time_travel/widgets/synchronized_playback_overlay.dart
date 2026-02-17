@@ -16,7 +16,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
   final VoidCallback? onClose;
   final Color backgroundColor;
   final VoidCallback?
-  onNavigateToDrawing; // 🧭 Callback per navigare al disegno
+  onNavigateToDrawing; // 🧭 Callback to navigate to drawing
   final void Function(int pageIndex)?
   onNavigateToPage; // 📄 Callback per navigare a una specific page
   final bool showControls; // 🎛️ Mostra controlli interattivi
@@ -92,7 +92,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
         return ListenableBuilder(
           listenable: controller,
           builder: (context, _) {
-            // 📄 Recupera strokes specifici for the pagina (se forzata) o correnti
+            // 📄 Retrieve specific strokes for the page (if forced) or current
             final activeStrokes =
                 forcePageIndex != null
                     ? controller.getActiveStrokesForPage(forcePageIndex!)
@@ -102,7 +102,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
                     ? controller.getGhostStrokesForPage(forcePageIndex!)
                     : controller.ghostStrokes;
 
-            // 🧭 Calculate position of the drawing usando gli stessi activeStrokes del rendering
+            // 🧭 Calculate drawing position using same activeStrokes as rendering
             // This fix ensures that l'indicator works even con forcePageIndex (split view)
             Offset? drawingPos;
             if (activeStrokes.isNotEmpty) {
@@ -139,7 +139,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
                   ),
                 ),
 
-                // 🧭 BUSSOLA DEI TRATTI - mostra direzione of the drawing se fuori schermo
+                // 🧭 STROKE COMPASS - show drawing direction if off-screen
                 if (!isVisible && drawingPos != null)
                   Positioned.fill(
                     child: _StrokeCompass(
@@ -193,7 +193,7 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
   }
 }
 
-/// 🧭 BUSSOLA DEI TRATTI
+/// 🧭 STROKE COMPASS
 /// Widget showing an arrow indicating the drawing direction
 class _StrokeCompass extends StatelessWidget {
   final double angle; // Angolo in radianti

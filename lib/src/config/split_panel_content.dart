@@ -14,7 +14,7 @@ class SplitPanelContent {
     this.metadata = const {},
   });
 
-  /// Factory per creare contenuti specifici
+  /// Factory to create specific content
   factory SplitPanelContent.pdf([String? pdfId, String? displayName]) =>
       SplitPanelContent(
         type: SplitPanelContentType.pdf,
@@ -60,7 +60,7 @@ class SplitPanelContent {
   factory SplitPanelContent.empty() =>
       const SplitPanelContent(type: SplitPanelContentType.empty);
 
-  /// Creates una copia con parametri modificati
+  /// Creates a copy with modified parameters
   SplitPanelContent copyWith({
     SplitPanelContentType? type,
     String? selectedId,
@@ -73,7 +73,7 @@ class SplitPanelContent {
     );
   }
 
-  /// If il contenuto is valid e configurato correttamente
+  /// If the content is valid and correctly configured
   bool get isValid {
     if (type.requiresSelection) {
       return selectedId != null && selectedId!.isNotEmpty;
@@ -175,7 +175,7 @@ enum SplitPanelContentType {
   }
 }
 
-/// Preset comuni per configurazioni rapide
+/// Common presets for quick configurations
 class SplitContentPresets {
   static const Map<String, List<SplitPanelContentType>> presets = {
     'Annotazione PDF': [
@@ -206,7 +206,7 @@ class SplitContentPresets {
     ],
   };
 
-  /// Get un preset per nome
+  /// Get a preset by name
   static List<SplitPanelContentType>? getPreset(String name) {
     return presets[name];
   }

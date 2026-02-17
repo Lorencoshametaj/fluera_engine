@@ -91,7 +91,7 @@ class SnapResult {
 // SmartSnapEngine
 // ---------------------------------------------------------------------------
 
-/// Calculatates alignment and distribution snaps during interactive editing.
+/// Calculates alignment and distribution snaps during interactive editing.
 ///
 /// Usage:
 /// ```dart

@@ -2,33 +2,33 @@ import 'dart:math' as math;
 
 /// 📦 Compressore per dati Time Travel basato su teoria dell'informazione
 ///
-/// Applica tre tecniche complementari per ridurre l'entropia pre-GZIP:
+/// Apply three complementary techniques to reduce pre-GZIP entropy:
 ///
 /// 1. **Delta Encoding** — Coordinates (x,y) and timestamps change from values
 ///    assoluti a differenze rispetto at the point precedente. Siccome punti
-///    adiacenti di uno stroke differiscono di pochi pixel, i delta hanno
-///    entropia molto more bassa (tipicamente 1-2 cifre vs 3-4).
+///    adjacent points of a stroke differ by few pixels, deltas have
+///    much lower entropy (typically 1-2 cifre vs 3-4).
 ///    Shannon entropy ridotta: H(delta) << H(absolute).
 ///
-/// 2. **Quantizzazione controllata** — Per il Time Travel replay, 1 decimale
-///    (0.1px) is sufficiente. Il main storage usa 4 decimali per preservare
+/// 2. **Controlled quantization** — For Time Travel replay, 1 decimal
+///    (0.1px) is sufficient. Main storage uses 4 decimals to preserve
 ///    Catmull-Rom splines, but replay doesn't require the same precision.
-///    Riduzione: ~50% sui byte delle coordinate.
+///    Reduction: ~50% on coordinate bytes.
 ///
 /// 3. **Run-Length Encoding (RLE)** — Pressure, tilt, and orientation are
-///    spesso costanti per tratti lunghi. Invece di ripetere lo stesso valore
+///    often constant for long strokes. Instead of repeating the same value
 ///    N volte, codifichiamo [valore, count]. Efficienza massima su stylus
 ///    passive (without pressione) dove pressure = 0.5 for all punti.
 ///
 /// Le tre tecniche sono **composte in pipeline**: prima si quantizza,
 /// poi si delta-encoda, poi GZIP (esterno) cattura le ripetizioni residue.
 ///
-/// **Lossless for the replay**: la decompressione ricostruisce esattamente
+/// **Lossless for the replay**: decompression reconstructs exactly
 /// i dati compressi. La quantizzazione is l'unico step lossy, ma 0.1px
 /// is impercettibile nel replay.
 class TimeTravelCompressor {
   /// Moltiplicatore per fixed-point encoding: 10 = 1 decimale di precisione
-  /// (0.1px — sufficiente per replay, vs 0.0001px del main storage)
+  /// (0.1px — sufficient for replay, vs 0.0001px of main storage)
   static const int _coordScale = 10;
 
   /// Soglia RLE: if the stesso valore si ripete >= N volte, usa RLE
@@ -41,8 +41,8 @@ class TimeTravelCompressor {
   /// Compress elementData for strokeAdded events
   ///
   /// Transform the stroke JSON by applying:
-  /// - Delta encoding su points.x, points.y, points.timestamp
-  /// - Quantizzazione a 1 decimale sulle coordinate
+  /// - Delta encoding on points.x, points.y, points.timestamp
+  /// - Quantization to 1 decimal on coordinates
   /// - RLE su pressure, tiltX, tiltY, orientation
   static Map<String, dynamic> compressStrokeData(
     Map<String, dynamic> strokeData,
@@ -255,10 +255,10 @@ class TimeTravelCompressor {
   // ============================================================================
 
   /// Quantizza coordinata a fixed-point integer
-  /// 412.3456 → 4123 (con scale=10, ovvero 1 decimale)
+  /// 412.3456 → 4123 (with scale=10, i.e. 1 decimal)
   static int _quantizeCoord(double value) => (value * _coordScale).round();
 
-  /// Arrotonda a 2 decimali (per pressure/tilt/orientation)
+  /// Round to 2 decimals (for pressure/tilt/orientation)
   static double _round2(double value) => (value * 100).roundToDouble() / 100;
 
   /// RLE encode: [0.5, 0.5, 0.5, 0.7, 0.7] → [0.5, 3, 0.7, 2]

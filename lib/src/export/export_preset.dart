@@ -50,7 +50,7 @@ class ExportPreset {
     this.isCustom = false,
   });
 
-  /// Calculatates le dimensioni in pixel for a dato DPI
+  /// Calculates le dimensioni in pixel for a dato DPI
   Size getSizeAtDpi(double dpi, {Size? referenceSize}) {
     final scale = dpi / 72.0; // Base 72 DPI
 
@@ -92,7 +92,7 @@ class ExportPreset {
         areaPixels.height > pageSize.height;
   }
 
-  /// Calculatates il number of pagine necessarie for aa data area
+  /// Calculates il number of pagine necessarie for aa data area
   (int columns, int rows) calculatePageGrid(Rect area, double dpi) {
     final pageSize = getSizeAtDpi(dpi);
     if (pageSize == Size.zero) return (1, 1);
@@ -384,7 +384,7 @@ class ExportConfig {
     );
   }
 
-  /// Calculatates le dimensioni finali in pixel
+  /// Calculates le dimensioni finali in pixel
   Size get finalSizePixels {
     final scale = quality.dpi / 72.0;
     return Size(exportArea.width * scale, exportArea.height * scale);

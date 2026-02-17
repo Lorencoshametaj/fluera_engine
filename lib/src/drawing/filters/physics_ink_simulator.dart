@@ -1,12 +1,12 @@
 /// 🌊 PHYSICS INK SIMULATION
 ///
 /// Simula l'inerzia e l'elasticità dell'inchiostro:
-/// - Il tratto non finisce bruscamente ma "segue" per pochi millisecondi
+/// - The stroke doesn't end abruptly but "follows" for a few milliseconds
 /// - Effetto elastico come if the punta avesse massa
 /// - Sensazione organica e naturale
 ///
 /// Features:
-/// - Spring physics per smooth ending
+/// - Spring physics for smooth ending
 /// - Inertial trailing
 /// - Configureble damping
 library;
@@ -104,7 +104,7 @@ class PhysicsInkSimulator {
     return points;
   }
 
-  /// Applica easing alla transizione (per effetto "seguente")
+  /// Apply easing to transition (for "following" effect)
   Offset applyEasing(Offset current, Offset target, {double factor = 0.1}) {
     return Offset.lerp(current, target, factor)!;
   }
@@ -134,7 +134,7 @@ class PhysicsInkSimulator {
     return endingPoints;
   }
 
-  /// Calculatates l'energia cinetica del sistema
+  /// Calculates l'energia cinetica del sistema
   double getKineticEnergy() {
     // KE = 1/2 * m * v^2
     final speed = _velocity.distance;
@@ -157,7 +157,7 @@ class PhysicsInkSimulator {
     _lastUpdate = null;
   }
 
-  /// Applica un impulso (per effetti speciali)
+  /// Apply an impulse (for special effects)
   void applyImpulse(Offset impulse) {
     _velocity = _velocity + (impulse / mass);
   }

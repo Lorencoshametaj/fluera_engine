@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 /// per rilevare e forzare il refresh rate of the display.
 ///
 /// **Android**: Usa WindowManager + FlutterView API
-/// **iOS**: Non supportato (fallback a frame-based detection)
+/// **iOS**: Not supported (fallback a frame-based detection)
 class NativeDisplayPlugin {
   static const MethodChannel _channel = MethodChannel('nebulaengine/display');
 
@@ -31,7 +31,7 @@ class NativeDisplayPlugin {
   /// Forza Flutter a renderizzare al refresh rate specificato
   ///
   /// **Android**: Chiama FlutterView.setFrameRate() e Window.setPreferredRefreshRate()
-  /// **iOS/Other**: Non implementato
+  /// **iOS/Other**: Not implemented
   ///
   /// **Note**: Richiede Android API 30+ per setFrameRate, altrimenti usa solo Window API
   static Future<bool> setPreferredRefreshRate(int hz) async {

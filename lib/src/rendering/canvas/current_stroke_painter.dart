@@ -10,13 +10,13 @@ import '../../canvas/infinite_canvas_controller.dart';
 /// 🚀 CURRENT STROKE PAINTER - Layer ottimizzato per current stroke
 ///
 /// 🎯 Render il current stroke con DIRTY REGION CACHING:
-/// - Per stroke corti (<20 punti): full render every frame
+/// - For short strokes (<20 points): full render every frame
 /// - Per stroke lunghi: cache ui.Picture of points precedenti,
-///   ridisegna solo gli ultimi N punti nuovi
+///   redraws only the last N new points
 ///
 /// ARCHITETTURA:
-/// - Layer separato dai completed strokes
-/// - Usa Stack con 2 CustomPaint:
+/// - Layer separated from completed strokes
+/// - Use Stack with 2 CustomPaint:
 ///   1. CompletedStrokesPainter (ridisegna raramente)
 ///   2. CurrentStrokePainter (ridisegna at each point)
 class CurrentStrokePainter extends CustomPainter {
@@ -30,7 +30,7 @@ class CurrentStrokePainter extends CustomPainter {
   final bool enableClipping;
   final Size canvasSize;
 
-  // 🚀 Enable/disable predictive rendering (120Hz: disabled per frame budget)
+  // 🚀 Enable/disable predictive rendering (120Hz: disabled for frame budget)
   final bool enablePredictive;
 
   // 🪞 Live symmetry preview
@@ -39,7 +39,7 @@ class CurrentStrokePainter extends CustomPainter {
   // 🚀 Viewport-level mode: apply canvas transform inside paint()
   final InfiniteCanvasController? controller;
 
-  // 🚀 Predictive renderer per anti-lag (solo 60Hz mode)
+  // 🚀 Predictive renderer for anti-lag (only 60Hz mode)
   static final PredictiveRenderer _predictor = PredictiveRenderer(
     predictedPointsCount: 2,
     ghostOpacity: 0.08,
@@ -166,7 +166,7 @@ class CurrentStrokePainter extends CustomPainter {
     final currentStyle = _styleHash;
     final pointCount = stroke.length;
 
-    // Invalidatete cache if style changed
+    // Invalidate cache if style changed
     if (currentStyle != _cachedStyleHash) {
       _invalidateCache();
     }
@@ -211,7 +211,7 @@ class CurrentStrokePainter extends CustomPainter {
     }
   }
 
-  /// Invalidatete the dirty region cache.
+  /// Invalidate the dirty region cache.
   static void _invalidateCache() {
     _cachedPicture?.dispose();
     _cachedPicture = null;

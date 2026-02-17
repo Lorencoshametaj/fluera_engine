@@ -7,10 +7,10 @@ import '../drawing/input/stylus_detector.dart';
 ///
 /// Supporta:
 /// - Pinch zoom (due dita)
-/// - Pan (due dita per spostare)
-/// - Drawing (un dito)
+/// - Pan (two fingers to move)
+/// - Drawing (one finger)
 /// - Pan with a dito (se enableSingleFingerPan = true)
-/// - 🖊️ Stylus Mode: stylus disegna, dito fa pan
+/// - 🖊️ Stylus Mode: stylus draws, finger pans
 class InfiniteCanvasGestureDetector extends StatefulWidget {
   final InfiniteCanvasController controller;
   final Widget child;
@@ -22,11 +22,11 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final VoidCallback?
   onDrawCancel; // 🚫 Clear stroke without salvare (es. 2° dito interrompe)
   final Function(Offset)? onLongPress;
-  final bool blockPanZoom; // 🔒 Blocca pan/zoom quando true
+  final bool blockPanZoom; // 🔒 Block pan/zoom when true
   final bool
-  enableSingleFingerPan; // 🖐️ Enable pan with a dito invece di disegnare
+  enableSingleFingerPan; // 🖐️ Enable pan with a finger instead of drawing
   final bool
-  isStylusModeEnabled; // 🖊️ Modalità stylus: stylus disegna, dito fa pan
+  isStylusModeEnabled; // 🖊️ Stylus mode: stylus draws, finger pans
 
   const InfiniteCanvasGestureDetector({
     super.key,
@@ -65,32 +65,32 @@ class _InfiniteCanvasGestureDetectorState
   bool _isSingleFingerPanning = false;
   Offset _lastPanPosition = Offset.zero;
 
-  // 🚀 State per interpolazione punti mancanti
+  // 🚀 State for interpolation of missing points
   Offset? _lastDrawPosition;
   Offset?
-  _lastCanvasPosition; // 🚀 FIX #5: cache canvas position per interpolazione
+  _lastCanvasPosition; // 🚀 FIX #5: cache canvas position for interpolation
   double _lastPressure = 1.0;
-  // 🔴 CRITICAL: Soglia ridotta per catturare more punti durante scrittura veloce
+  // 🔴 CRITICAL: Reduced threshold to capture more points during fast writing
   static const double _interpolationThreshold =
       4.0; // px minimum between points (reduced from 8 for more precision)
-  // 🔴 CRITICAL: Aumentato limite to avoid discontinuità in scrittura veloce
+  // 🔴 CRITICAL: Increased limit to avoid discontinuities in fast writing
   static const int _maxInterpolatedPoints =
       25; // max punti interpolati per evento (aumentato da 5)
 
-  // 🖊️ State per tilt calculation
+  // 🖊️ State for tilt calculation
   double _lastTiltX = 0.0;
   double _lastTiltY = 0.0;
 
-  // 🖊️ Stylus input manager per gestione stylus mode
+  // 🖊️ Stylus input manager for stylus mode handling
   final StylusInputManager _stylusManager = StylusInputManager();
 
-  // 🖊️ Flag per abilitare/disabilitare il drawing in stylus mode
+  // 🖊️ Flag to enable/disable drawing in stylus mode
   bool _shouldEnableDrawing = true;
 
   /// 🎯 REALISM FIX: Simula pressione realistica per dito from the speed
-  /// - Stylus: usa pressure reale (0.0-1.0 con variazione)
-  /// - Finger: simula pressione from the speed di movimento
-  ///   • Lento = more pressione (come premere forte con penna reale)
+  /// - Stylus: uses real pressure (0.0-1.0 con variazione)
+  /// - Finger: simulates pressure from movement speed
+  ///   • Slow = more pressure (like pressing hard with real pen)
   ///   • Fast = less pressure (light and fast stroke)
   double _normalizePressure(PointerEvent event) {
     final rawPressure = event.pressure;
@@ -103,8 +103,8 @@ class _InfiniteCanvasGestureDetectorState
 
     // For finger/touch: simula pressione from the speed
     // This creates a realistic effect dove:
-    // - Movimento lento → more inchiostro depositato → pressione alta
-    // - Movimento veloce → meno inchiostro → pressione bassa
+    // - Slow movement → more ink deposited → high pressure
+    // - Fast movement → less ink → low pressure
 
     if (_lastDrawPosition != null) {
       final distance = (event.localPosition - _lastDrawPosition!).distance;
@@ -131,7 +131,7 @@ class _InfiniteCanvasGestureDetectorState
   @override
   void didUpdateWidget(InfiniteCanvasGestureDetector oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 🖊️ Update stylus mode se cambiato
+    // 🖊️ Update stylus mode if changed
     if (oldWidget.isStylusModeEnabled != widget.isStylusModeEnabled) {
       _stylusManager.setStylusMode(widget.isStylusModeEnabled);
     }
@@ -175,10 +175,10 @@ class _InfiniteCanvasGestureDetectorState
     _pointerCount++;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
-    // 🖊️ Regisbetween the pointer per stylus manager
+    // 🖊️ Register the pointer for stylus manager
     _stylusManager.addPointer(event);
 
-    // 🖊️ Determina if the drawing deve essere abilitato basandosi su stylus mode
+    // 🖊️ Determines if drawing should be enabled based on stylus mode
     if (widget.isStylusModeEnabled) {
       // In stylus mode, abilita drawing SOLO con stylus
       _shouldEnableDrawing = StylusDetector.isStylus(event);
@@ -204,14 +204,14 @@ class _InfiniteCanvasGestureDetectorState
     // If c'è more di un dito, CANCELLA il drawing (non salvare il puntino)
     if (_pointerCount > 1 && _isDrawing) {
       _isDrawing = false;
-      // 🚫 Usa onDrawCancel per scartare lo in-progress stroke
+      // 🚫 Use onDrawCancel to discard in-progress stroke
       // invece di onDrawEnd che lo salverebbe come puntino
       if (widget.onDrawCancel != null) {
         widget.onDrawCancel!();
       }
     }
 
-    // 🚀 FIX: Inizia il drawing IMMEDIATAMENTE su pointer down
+    // 🚀 FIX: Start drawing IMMEDIATELY on pointer down
     // This cattura il primo punto without aspettare onPointerMove
     // Risolve il problema della perdita dei primi punti durante la scrittura
     if (_pointerCount == 1 &&
@@ -222,7 +222,7 @@ class _InfiniteCanvasGestureDetectorState
       final normalizedPressure = _normalizePressure(event); // 🎯 FIX 3
       _lastPressure = normalizedPressure;
 
-      // 🖊️ FIX: Calculate tiltX e tiltY da tilt e orientation
+      // 🖊️ FIX: Calculate tiltX and tiltY from tilt and orientation
       final tiltMagnitude = event.tilt; // 0 to π/2
       final orientation = event.orientation; // -π to π
       _lastTiltX = (tiltMagnitude * math.cos(orientation)).clamp(-1.0, 1.0);
@@ -244,7 +244,7 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onPointerMove(PointerMoveEvent event) {
-    // 🖊️ Update il pointer per stylus manager
+    // 🖊️ Update pointer for stylus manager
     _stylusManager.updatePointer(event);
 
     // Ignora se ci sono 2+ dita (zoom/pan)
@@ -258,7 +258,7 @@ class _InfiniteCanvasGestureDetectorState
       return; // Ignora il movimento
     }
 
-    // 🖐️ Se mode pan with a dito is attiva, fai pan invece di disegnare
+    // 🖐️ If finger pan mode is active, pan instead of drawing
     if (_pointerCount == 1 && widget.enableSingleFingerPan) {
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
@@ -278,7 +278,7 @@ class _InfiniteCanvasGestureDetectorState
       return;
     }
 
-    // 🖊️ STYLUS MODE: in stylus mode, il dito fa pan invece di disegnare
+    // 🖊️ STYLUS MODE: in stylus mode, finger pans instead of drawing
     if (widget.isStylusModeEnabled &&
         _pointerCount == 1 &&
         !_shouldEnableDrawing) {
@@ -302,7 +302,7 @@ class _InfiniteCanvasGestureDetectorState
     if (_pointerCount == 1 && _shouldEnableDrawing) {
       _hasMoved = true;
 
-      // 🖊️ In stylus mode, verifica che stiamo ancora disegnando with the stylus
+      // 🖊️ In stylus mode, verify we are still drawing with the stylus
       if (widget.isStylusModeEnabled &&
           !_stylusManager.canDrawWithCurrentPointer()) {
         // If is not more una stylus, termina il disegno
@@ -316,7 +316,7 @@ class _InfiniteCanvasGestureDetectorState
         return;
       }
 
-      // 🚀 FIX: Rimosso il blocco "if (!_isDrawing)" che chiamava onDrawStart
+      // 🚀 FIX: Removed block "if (!_isDrawing)" which called onDrawStart
       // onDrawStart ora is called in onPointerDown per catturare il primo punto
       // Qui gestiamo SOLO gli update of the drawing already iniziato
       if (_isDrawing && widget.onDrawUpdate != null) {
@@ -326,7 +326,7 @@ class _InfiniteCanvasGestureDetectorState
 
         final normalizedPressure = _normalizePressure(event); // 🎯 FIX 3
 
-        // 🖊️ FIX: Calculate tiltX e tiltY correnti
+        // 🖊️ FIX: Calculate current tiltX and tiltY
         final tiltMagnitude = event.tilt;
         final orientation = event.orientation;
         final currentTiltX = (tiltMagnitude * math.cos(orientation)).clamp(
@@ -338,7 +338,7 @@ class _InfiniteCanvasGestureDetectorState
           1.0,
         );
 
-        // 🚀 FIX #5: INTERPOLAZIONE IN CANVAS SPACE
+        // 🚀 FIX #5: INTERPOLATION IN CANVAS SPACE
         // Invece di convertire ogni punto interpolato con screenToCanvas(),
         // interpoliamo direttamente among the posizioni canvas already calcolate.
         if (_lastCanvasPosition != null) {
@@ -351,7 +351,7 @@ class _InfiniteCanvasGestureDetectorState
             ); // Limita punti
             for (int i = 1; i < steps; i++) {
               final t = i / steps;
-              // 🚀 Interpolazione diretta in canvas space (zero screenToCanvas!)
+              // 🚀 Direct interpolation in canvas space (zero screenToCanvas!)
               final interpolatedCanvas =
                   Offset.lerp(_lastCanvasPosition!, canvasPoint, t)!;
               final interpolatedPressure =
@@ -391,14 +391,14 @@ class _InfiniteCanvasGestureDetectorState
     _pointerCount--;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
-    // 🖊️ Remove il pointer dal stylus manager
+    // 🖊️ Remove the pointer from stylus manager
     _stylusManager.removePointer(event.pointer);
 
     // Only se siamo all'ultimo dito e stiamo disegnando
     if (_pointerCount == 0) {
       // Reset flag multi-touch quando tutti i diti sono sollevati
       _wasMultiTouch = false;
-      _isSingleFingerPanning = false; // 🖐️ Reset pan with a dito
+      _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
 
       if (_isDrawing) {
@@ -416,7 +416,7 @@ class _InfiniteCanvasGestureDetectorState
           _shouldEnableDrawing) {
         // Tap veloce (nessun movimento) → disegna un puntino
         // Ma SOLO if not siamo in mode pan (altrimenti il tap non fa nulla)
-        // 🖊️ E SOLO if the drawing era abilitato (stylus in stylus mode)
+        // 🖊️ AND ONLY if drawing was enabled (stylus in stylus mode)
         final canvasPoint = widget.controller.screenToCanvas(
           _firstPointerPosition!,
         );
@@ -443,7 +443,7 @@ class _InfiniteCanvasGestureDetectorState
     _pointerCount--;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
-    // 🖊️ Remove il pointer dal stylus manager
+    // 🖊️ Remove the pointer from stylus manager
     _stylusManager.removePointer(event.pointer);
 
     if (_isDrawing) {
@@ -459,7 +459,7 @@ class _InfiniteCanvasGestureDetectorState
     // Reset stato
     if (_pointerCount == 0) {
       _wasMultiTouch = false;
-      _isSingleFingerPanning = false; // 🖐️ Reset pan with a dito
+      _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
       _firstPointerPosition = null;
       _hasMoved = false;
@@ -474,7 +474,7 @@ class _InfiniteCanvasGestureDetectorState
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
     // Only con 2+ dita (zoom e pan)
-    // 🔒 Blocca pan/zoom if the digital text tool sta ridimensionando/draggando
+    // 🔒 Block pan/zoom if the digital text tool is resizing/dragging
     if (_pointerCount < 2 || widget.blockPanZoom) return;
 
     // Calculate nuovo scale con limiti (dezoom massimo 0.2x, zoom massimo 5x)

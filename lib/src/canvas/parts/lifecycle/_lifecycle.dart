@@ -78,7 +78,7 @@ extension on _NebulaCanvasScreenState {
 
   /// 🆕 Load dati canvas — LOCAL FIRST per display istantaneo
   Future<void> _loadCanvasData() async {
-    _isLoading = true; // 🔄 Disable auto-save durante caricamento
+    _isLoading = true; // 🔄 Disable auto-save during loading
     bool loadedFromLocal = false;
 
     try {
@@ -148,9 +148,9 @@ extension on _NebulaCanvasScreenState {
 
   /// 🛠️ Applica dati canvas alla UI (estratto per riuso)
   void _applyCanvasData(Map<String, dynamic> data) {
-    // 🛠️ APPLICAZIONE DEI DATI CON SETSTATE IMMEDIATO
+    // 🛠️ APPLICATION OF DATA WITH IMMEDIATE SETSTATE
     setState(() {
-      // 🆕 Load titolo (se presente nel salvataggio)
+      // 🆕 Load titolo (if present nel salvataggio)
       final savedTitle = data['title'] as String?;
       if (savedTitle != null && savedTitle.isNotEmpty) {
         _noteTitle = savedTitle;
@@ -270,7 +270,7 @@ extension on _NebulaCanvasScreenState {
       );
     }
 
-    // 🛠️ FORZA REBUILD FINALE per assicurarsi che tutto sia renderizzato
+    // 🛠️ FORCE FINAL REBUILD to ensure everything is rendered
     if (mounted) {
       setState(() {
         // Dati caricati completamente - forza rebuild finale
@@ -280,7 +280,7 @@ extension on _NebulaCanvasScreenState {
 
   ///  Callback called when the layer controller notifica modifiche
   void _onLayerChanged() {
-    // 🔧 FIX ZOOM LAG: Update cache delle liste
+    // 🔧 FIX ZOOM LAG: Update list cache
     _refreshCachedLists();
 
     // Auto-save only thef not stiamo caricando
@@ -319,13 +319,13 @@ extension on _NebulaCanvasScreenState {
           _layerController.layers.isNotEmpty,
     );
 
-    // 🚀 DYNAMIC CANVAS: Espandi se contenuto supera il 50% della size
+    // 🚀 DYNAMIC CANVAS: Expand if content exceeds 50% of size
     _expandCanvasIfNeeded();
   }
 
   /// 🚀 Espande il canvas in TUTTE e 4 le direzioni:
-  /// - Destra/Basso: raddoppia size quando contenuto > 80%
-  /// - Sinistra/Alto: shifta TUTTE le coordinate e compensa offset controller
+  /// - Right/Bottom: doubles size when content > 80%
+  /// - Left/Top: shifts ALL coordinates and compensates controller offset
   ///
   /// Guarded: NON espande durante caricamento iniziale.
   void _expandCanvasIfNeeded() {
@@ -400,7 +400,7 @@ extension on _NebulaCanvasScreenState {
         _displayCapabilities!.refreshRate,
       );
 
-      // 🚀 Se 120Hz+, inizializza raw input processor
+      // 🚀 If 120Hz+, initialize raw input processor
       if (_displayCapabilities!.refreshRate.value >= 120) {
         _rawInputProcessor120Hz = RawInputProcessor120Hz(
           onPointsUpdated: (points) {
@@ -621,8 +621,8 @@ extension on _NebulaCanvasScreenState {
               final syncRecording = SynchronizedRecording.fromJsonString(
                 jsonString,
               );
-              // 🔄 Update l'audio path nel syncRecording per scurezza
-              // (assicura che punti al file audio corretto gestito dal service)
+              // 🔄 Update audio path in syncRecording for safety
+              // (ensures it points to the correct audio file managed by the service)
               if (recAudioPath != null) {
                 loadedSyncRecordings.add(
                   syncRecording.copyWith(audioPath: recAudioPath),

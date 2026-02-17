@@ -72,7 +72,7 @@ extension on _NebulaCanvasScreenState {
           return;
         }
       }
-    } // 🖼️ SEMPRE controlla interazione con immagini (priority massima)
+    } // 🖼️ ALWAYS check interaction with images (max priority)
     if (_imageTool.selectedImage != null) {
       // Check resize handle
       final imageSize =
@@ -107,11 +107,11 @@ extension on _NebulaCanvasScreenState {
           // Seleziona l'immagine ma NON iniziare il drag ancora
           _imageTool.selectImage(imageElement);
 
-          // 📍 Save position iniziale per rilevare movimento
+          // 📍 Save initial position to detect movement
           _initialTapPosition = canvasPosition;
 
           setState(() {});
-          return; // 🛑 Blocca altri tool when tocca un'immagine
+          return; // 🛑 Block other tools when touching image
         }
       }
     } // If tocco area vuota con selected image, deseleziona
@@ -151,7 +151,7 @@ extension on _NebulaCanvasScreenState {
       // Start drag
       _digitalTextTool.startDrag(canvasPosition);
       setState(() {});
-      return; // 🛑 Blocca altri tool when tocca un testo
+      return; // 🛑 Block other tools when touching text
     }
 
     // If tocco area vuota, deseleziona (se c'era una selezione)
@@ -305,7 +305,7 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🖐️ Se is attiva la mode Pan, non disegnare
+    // 🖐️ If Pan mode is active, do not draw
     if (_effectiveIsPanMode) {
       return;
     }
@@ -352,7 +352,7 @@ extension on _NebulaCanvasScreenState {
         orientation: 0.0,
       );
 
-      // 🚀 FIX #1: Initialize con lista MUTABILE che will come riutilizzata
+      // 🚀 FIX #1: Initialize with MUTABLE list that will be reused
       _rawInputProcessor120Hz!.reset();
       _currentStrokeNotifier.setStroke([point]);
     } else {

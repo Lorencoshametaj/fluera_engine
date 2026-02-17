@@ -60,7 +60,7 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
           ),
         ),
 
-      // 🖼️ Menu azioni per selected image
+      // 🖼️ Action menu for selected image
       if (_imageTool.selectedImage != null && !_isDrawingNotifier.value)
         Positioned(
           bottom: 100,
@@ -114,7 +114,7 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
                         _imageTool.clearSelection();
                       });
 
-                      // 🔄 Sync: notifica delta tracker per sincronizzazione
+                      // 🔄 Sync: notify delta tracker for synchronization
                       _layerController.removeImage(imageElement.id);
                       if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
 

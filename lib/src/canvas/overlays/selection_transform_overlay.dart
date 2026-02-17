@@ -7,7 +7,7 @@ import '../infinite_canvas_controller.dart';
 ///
 /// Shows handle interattivi attorno alla selezione lasso:
 /// - 4 handle angolo → scala proporzionale
-/// - 4 handle lato → scala su un asse
+/// - 4 side handles → scale on one axis
 /// - 1 rotation handle (above the box) → free rotation
 /// - Drag interno → spostamento (delegato a LassoTool)
 ///

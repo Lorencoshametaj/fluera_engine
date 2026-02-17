@@ -5,7 +5,7 @@ import './brush_test_screen.dart';
 
 /// Painter ULTRA-OTTIMIZZATO con Image layer HiDPI + Real-time brush
 ///
-/// STRATEGIA: Layer-based rendering come Procreate
+/// STRATEGY: Layer-based rendering come Procreate
 /// - Layer 0: Background (Picture cache)
 /// - Layer 1: Strokes completati (Image rasterizzata a RISOLUZIONE NATIVA!)
 /// - Layer 2: Current stroke (brush reale in tempo reale)
@@ -81,7 +81,7 @@ class BrushTestPainter extends CustomPainter {
       imgCanvas.drawImage(_completedStrokesImage!, Offset.zero, _imagePaint);
     }
 
-    // Scala per HiDPI PRIMA di disegnare i nuovi strokes
+    // Scale for HiDPI PRIMA di disegnare i nuovi strokes
     imgCanvas.scale(devicePixelRatio);
 
     // Aggiungi solo i nuovi strokes
@@ -116,7 +116,7 @@ class BrushTestPainter extends CustomPainter {
     final recorder = ui.PictureRecorder();
     final imgCanvas = Canvas(recorder);
 
-    // Scala per HiDPI
+    // Scale for HiDPI
     imgCanvas.scale(devicePixelRatio);
 
     for (var stroke in strokes) {
@@ -206,7 +206,7 @@ class BrushTestPainter extends CustomPainter {
   }
 
   void _drawCachedBackground(Canvas canvas, Size size) {
-    // Invalidatete cache on size OR theme change
+    // Invalidate cache on size OR theme change
     if (_backgroundCache == null ||
         _backgroundSize != size ||
         _backgroundIsDark != isDark) {
@@ -252,7 +252,7 @@ class BrushTestPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(BrushTestPainter oldDelegate) {
-    // 🚀 repaintKey cambia su undo/clear per forzare repaint immediato
+    // 🚀 repaintKey changes on undo/clear to force immediate repaint
     if (oldDelegate.repaintKey != repaintKey) return true;
     if (oldDelegate.strokes.length != strokes.length) return true;
     if (currentStroke != null && currentStroke!.points.isNotEmpty) return true;

@@ -9,17 +9,17 @@ import '../../core/engine_scope.dart';
 /// causando jank e FPS drop.
 ///
 /// SOLUZIONE:
-/// - Budget per frame: max N ms di lavoro per frame
+/// - Budget per frame: max N ms of work per frame
 /// - Time-slicing: dividi lavoro pesante su more frame
-/// - Priority scheduling: lavoro visibile prima
+/// - Priority scheduling: visible work first
 /// - Adaptive throttling: rallenta in background
 ///
 /// PERFORMANCE:
-/// - Ogni frame: max 8ms di rasterizzazione (lascia 8ms per rendering)
+/// - Every frame: max 8ms of rasterization (leaves 8ms for rendering)
 /// - 60 FPS guaranteed even during heavy rasterization
 class FrameBudgetManager {
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 CONFIGURAZIONE
+  // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Budget massimo per frame in ms (16ms = 60 FPS, usiamo mage)
@@ -58,7 +58,7 @@ class FrameBudgetManager {
   // 🚀 SCHEDULING
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Adds un task alla coda
+  /// Adds a task to the queue
   ///
   /// [task]: Funzione da eseguire
   /// [priority]: 0 = bassa, 100 = alta (visibile immediatamente)
@@ -171,7 +171,7 @@ class FrameBudgetManager {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📊 STATISTICHE
+  // 📊 STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Numero task in coda

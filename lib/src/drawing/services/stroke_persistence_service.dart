@@ -8,10 +8,10 @@ import '../../core/engine_scope.dart';
 /// 🚀 STROKE PERSISTENCE SERVICE - Coordinatore intelligente RAM/Disk
 ///
 /// RESPONSIBILITIES:
-/// - Gestisce automaticamente il passaggio tra RAM e Disk storage
+/// - Automatically manages transition between RAM and Disk storage
 /// - TIER 1-3 (0-10k strokes): Solo RAM (StrokeDataManager)
 /// - TIER 4 (10k+ strokes): RAM + Disk (DiskStrokeManager attivato)
-/// - API unificata per salvare/caricare indipendentemente dal tier
+/// - Unified API to save/load regardless of tier
 ///
 /// ARCHITETTURA:
 /// ```
@@ -23,7 +23,7 @@ import '../../core/engine_scope.dart';
 /// ```
 class StrokePersistenceService {
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 CONFIGURAZIONE
+  // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Soglia per attivare disk storage (10k = sweet spot)
@@ -151,7 +151,7 @@ class StrokePersistenceService {
       }
     }
 
-    // 🚀 Save to disk in BATCH se attivo (evita 10k await individuali!)
+    // 🚀 Save to disk in BATCH if active (avoids 10k individual awaits!)
     if (_diskStorageActive && _diskManager != null) {
       // Prepara dati per batch save
       final strokeIds = <String>[];
@@ -218,7 +218,7 @@ class StrokePersistenceService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📊 STATISTICHE
+  // 📊 STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Numero totale strokes gestiti

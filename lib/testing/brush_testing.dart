@@ -6,7 +6,7 @@
 /// ```dart
 /// import 'brush_testing.dart';
 ///
-/// // Naviga alla schermata
+/// // Navigates to screen
 /// Navigator.push(
 ///   context,
 ///   MaterialPageRoute(

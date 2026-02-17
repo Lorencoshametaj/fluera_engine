@@ -169,14 +169,14 @@ class _StrokeNotifier extends ValueNotifier<List<ProDrawingPoint>> {
 /// 🎨 NEBULA CANVAS SCREEN — SDK-level Professional Canvas
 ///
 /// Caratteristiche:
-/// - Canvas infinito con zoom e pan
-/// - Zero latency con ValueNotifier
+/// - Infinite canvas with zoom and pan
+/// - Zero latency with ValueNotifier
 /// - Smoothing adattivo OneEuroFilter
-/// - Post-stroke optimization con Douglas-Peucker
+/// - Post-stroke optimization with Douglas-Peucker
 /// - Rendering vettoriale puro (no GPU cache)
-/// - Triplo smoothing per fountain pen
+/// - Triple smoothing for fountain pen
 /// - Physics-based ink simulation
-/// - 💾 AUTO-SAVE ad ogni tratto/modifica (via NebulaCanvasConfig)
+/// - 💾 AUTO-SAVE at each stroke/edit (via NebulaCanvasConfig)
 ///
 /// All external dependencies (Firebase, auth, subscription, sync) are
 /// injected via [NebulaCanvasConfig] — no direct app coupling.
@@ -612,7 +612,7 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     // 🛡️ ANR FIX: Tell sync coordinator we're in canvas mode
     _config.onPauseSyncCoordinator?.call(true);
 
-    // 🛑 LIFECYCLE: Registra observer per flush checkpoint
+    // 🛑 LIFECYCLE: Register observer for flush checkpoint
     WidgetsBinding.instance.addObserver(this);
 
     // 🆕 Genera o usa canvasId esistente

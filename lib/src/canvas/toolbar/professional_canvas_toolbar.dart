@@ -29,7 +29,7 @@ part '_toolbar_tools_area.dart';
 
 /// 🎨 Toolbar professionale per uso quotidiano
 /// Design minimalista e funzionale con:
-/// - Status bar compatta con info essenziali
+/// - Compact status bar with essential info
 /// - Tools organized logically (type → color → width)
 /// - Quick actions sempre accessibili
 /// - Scroll orizzontale smooth

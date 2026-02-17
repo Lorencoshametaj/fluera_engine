@@ -184,7 +184,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 },
               ),
 
-            // 📐 LAYOUT BUTTONS - I pulsanti richiesti dall'utente
+            // 📐 LAYOUT BUTTONS - The buttons requested by the user
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [

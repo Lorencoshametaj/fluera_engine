@@ -437,7 +437,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
                       ),
                     ),
 
-                  // 🔮 Recupera nel presente
+                  // 🔮 Recover in the present
                   if (widget.onRecoverRequested != null)
                     IconButton(
                       onPressed: widget.onRecoverRequested,
@@ -628,7 +628,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
   /// - Oggi: "14:30"
   /// - This week: "Mon 14:30"
   /// - Quest'anno: "12 Feb, 14:30"
-  /// - Altro: "12 Feb 2025"
+  /// - Other: "12 Feb 2025"
   String _formatAbsoluteTime(DateTime dt) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);

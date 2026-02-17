@@ -204,7 +204,7 @@ class AudioPlayerStateInfo {
   }
 }
 
-/// Amplitude del recording
+/// Recording amplitude
 class AudioAmplitude {
   final double current;
   final double max;

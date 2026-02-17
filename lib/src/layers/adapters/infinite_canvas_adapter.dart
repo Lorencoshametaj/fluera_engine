@@ -10,9 +10,9 @@ import '../nebula_layer_controller.dart';
 ///
 /// Implementa CanvasAdapter for the canvas infinito standard.
 /// Supporta:
-/// - Coordinate conversion con scala e offset
+/// - Coordinate conversion with scale and offset
 /// - Bounds infiniti (null)
-/// - Spatial indexing per query viewport
+/// - Spatial indexing for viewport query
 class InfiniteCanvasAdapter extends CanvasAdapter {
   /// Callback called when a'operazione is completata (trigger auto-save)
   final VoidCallback onOperationComplete;

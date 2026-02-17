@@ -4,24 +4,24 @@ import '../../drawing/models/pro_drawing_point.dart';
 /// 🚀 STROKE DATA MANAGER - Lazy loading of points per 1M+ strokes
 ///
 /// PROBLEMA:
-/// 1M strokes × 100 punti × ~10 bytes/punto = 1GB di RAM solo per i punti!
+/// 1M strokes × 100 punti × ~10 bytes/punto = 1GB di RAM just for points!
 ///
 /// SOLUZIONE:
 /// - Mantieni SOLO bounds + metadata in memoria (~64 bytes/stroke)
 /// - Load complete points ONLY when needed (tile visibile)
-/// - Evict punti non usati da tempo (LRU)
+/// - Evict points not used for a while (LRU)
 ///
 /// MEMORIA (1M strokes):
-/// - Prima: ~1GB (tutti i punti in memoria)
-/// - Dopo: ~64MB (solo bounds) + ~10MB (punti visibili)
+/// - Before: ~1GB (all points in memory)
+/// - After: ~64MB (bounds only) + ~10MB (visible points)
 ///
 /// ARCHITETTURA:
-/// - StrokeDataManager gestisce il loading/eviction
+/// - StrokeDataManager manages loading/eviction
 /// - ProStroke can essere "lazy" (solo bounds) o "loaded" (con punti)
 /// - TileCacheManager richiede punti only when rasterizza
 class StrokeDataManager {
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 CONFIGURAZIONE
+  // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Maximum number di stroke con punti caricati in memoria
@@ -162,7 +162,7 @@ class StrokeDataManager {
   // 🗑️ CACHE MANAGEMENT
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Adds punti alla cache
+  /// Adds points to cache
   static void _cachePoints(String strokeId, List<ProDrawingPoint> points) {
     // Evict se necessario
     _evictOldest();
@@ -224,7 +224,7 @@ class StrokeDataManager {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📊 STATISTICHE
+  // 📊 STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Number of strokes con punti in cache

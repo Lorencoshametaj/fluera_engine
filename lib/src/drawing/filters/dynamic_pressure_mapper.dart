@@ -39,7 +39,7 @@ class DynamicPressureMapper {
     this.pressureSmoothing = 0.3,
   });
 
-  /// Calculatates pressione based on speed
+  /// Calculates pressione based on speed
   double calculatePressure(Offset point, DateTime timestamp) {
     // Add punto alla storia
     _velocityHistory.add(_VelocityPoint(point, timestamp));
@@ -60,7 +60,7 @@ class DynamicPressureMapper {
     return smoothedPressure;
   }
 
-  /// Calculatates pressione da speed esistente
+  /// Calculates pressione da speed esistente
   double pressureFromSpeed(double speed) {
     final rawPressure = _velocityToPressure(speed);
     return _smoothPressure(rawPressure);
@@ -86,7 +86,7 @@ class DynamicPressureMapper {
     return _lastPressure;
   }
 
-  /// Calculatates speed media dai punti recenti
+  /// Calculates speed media dai punti recenti
   double _calculateAverageSpeed() {
     if (_velocityHistory.length < 2) return 0.0;
 
@@ -110,7 +110,7 @@ class DynamicPressureMapper {
     return count > 0 ? totalSpeed / count : 0.0;
   }
 
-  /// Calculatates width of the stroke based on pressione
+  /// Calculates width of the stroke based on pressione
   double calculateStrokeWidth({
     required double basePressure,
     required double baseWidth,

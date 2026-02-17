@@ -7,19 +7,19 @@ import '../../core/engine_scope.dart';
 
 /// 🚀 ADVANCED TILE OPTIMIZER - Advanced optimizations for 100k-500k strokes
 ///
-/// OTTIMIZZAZIONI:
+/// OPTIMIZATIONS:
 /// 1. Incremental Tile Updates - Add strokes to existing tile without re-rasterizing everything
 /// 2. Stroke Batching - Combine strokes simili in a single path
 /// 3. Adaptive Tile Priority - Rasterize center viewport tiles first
-/// 4. Pre-caching - Pre-rasterizza tile adiacenti durante idle
-/// 5. Fast Invalidatetion - Invalidatete only the modified area, not the entire tile
+/// 4. Pre-caching - Pre-rasterizes adjacent tiles during idle
+/// 5. Fast Invalidatetion - Invalidate only the modified area, not the entire tile
 ///
 /// PERFORMANCE (500k strokes):
-/// - Prima: ~200ms per tile (rasterizza tutti gli strokes)
-/// - Dopo: ~5ms per tile incrementale (solo nuovi strokes)
+/// - Before: ~200ms per tile (rasterizes all strokes)
+/// - After: ~5ms per incremental tile (only new strokes)
 class AdvancedTileOptimizer {
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 CONFIGURAZIONE
+  // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Max strokes da processare in un singolo frame
@@ -82,8 +82,8 @@ class AdvancedTileOptimizer {
   /// Checks if a tile supporta incremental update
   ///
   /// Returns true se:
-  /// - Il tile ha already of strokes rasterizzati
-  /// - I nuovi strokes sono pochi (< threshold)
+  /// - The tile already has rasterized strokes
+  /// - New strokes are few (< threshold)
   bool canDoIncrementalUpdate(
     String tileKey,
     List<ProStroke> allStrokesInTile,
@@ -203,7 +203,7 @@ class AdvancedTileOptimizer {
   // 🎯 TILE PRIORITY QUEUE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Adds un tile da rasterizzare with priority
+  /// Adds a tile to rasterize with priority
   ///
   /// Tile al centro of the viewport hanno priority more alta.
   void queueTileForRasterization(TileRasterTask task) {
@@ -229,7 +229,7 @@ class AdvancedTileOptimizer {
     return _rasterQueue.removeAt(0);
   }
 
-  /// Calculatates priority for a tile basato su distanza dal centro viewport
+  /// Calculates priority for a tile basato su distanza dal centro viewport
   double calculateTilePriority(
     int tileX,
     int tileY,
@@ -308,7 +308,7 @@ class AdvancedTileOptimizer {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 📊 STATISTICHE
+  // 📊 STATISTICS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Statistics for debugging

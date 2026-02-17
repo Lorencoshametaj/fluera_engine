@@ -4,19 +4,19 @@ import '../../drawing/models/pro_drawing_point.dart';
 /// 🚀 Optimizetore di Strokes per ridurre draw calls
 ///
 /// RESPONSIBILITIES:
-/// - ✅ Calculate widths/opacity medie invece di per-segmento
+/// - ✅ Calculate average widths/opacity instead of per-segment
 /// - ✅ Smoothing ottimizzato
 /// - ✅ Riduzione dati for performance
 ///
 /// PERFORMANCE:
-/// - Da N configurazioni Paint diverse → 1 configurazione Paint
-/// - Smoothing efficiente con weighted average
+/// - From N different Paint configurations → 1 Paint configuration
+/// - Efficient smoothing with weighted average
 class StrokeOptimizer {
   /// 🚀 Calculate larghezza MEDIA da una list of larghezze
   ///
   /// Invece di disegnare ogni segmento with therghezza diversa,
   /// uses an average width for the entire stroke.
-  /// This permette UN SOLO drawPath() invece di N.
+  /// This permette A SINGLE drawPath() instead of N.
   static double calculateAverageWidth(List<double> widths) {
     if (widths.isEmpty) return 0;
 
@@ -77,7 +77,7 @@ class StrokeOptimizer {
     return smoothed;
   }
 
-  /// Calculatates larghezze basate su pressione
+  /// Calculates larghezze basate su pressione
   ///
   /// [points] Punti with pressure
   /// [baseWidth] Larghezza base
@@ -100,7 +100,7 @@ class StrokeOptimizer {
     return widths;
   }
 
-  /// Calculatates opacity basate su pressione
+  /// Calculates opacity basate su pressione
   ///
   /// [points] Punti with pressure
   /// [baseOpacity] Opacity base

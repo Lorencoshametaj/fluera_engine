@@ -67,7 +67,7 @@ class ImagePainter extends CustomPainter {
         canvas.scale(imageElement.scale);
       }
 
-      // Calculate dimensioni (considerando crop se presente)
+      // Calculate dimensioni (considerando crop if present)
       final imageWidth = image.width.toDouble();
       final imageHeight = image.height.toDouble();
 
@@ -156,7 +156,7 @@ class ImagePainter extends CustomPainter {
     }
   }
 
-  /// Calculatates matrice colori per brightness, contrast, saturation
+  /// Calculates matrice colori per brightness, contrast, saturation
   List<double> _getColorMatrix(ImageElement element) {
     // Brightness
     final b = element.brightness * 255;

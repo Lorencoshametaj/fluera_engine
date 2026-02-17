@@ -3,28 +3,28 @@ import '../../rendering/optimization/optimization.dart';
 
 /// 🚀 Characteristics and rendering of the OPTIMIZED Ballpoint brush
 ///
-/// CARATTERISTICHE:
-/// - Larghezza costante (non varia with the pressione)
-/// - Colore uniforme e opaco
-/// - Ideale per scrittura precisa
-/// - Effetto inchiostro a sfera
+/// FEATURES:
+/// - Constant width (non varia with the pressione)
+/// - Uniform and opaque color
+/// - Ideal for precise writing
+/// - Ballpoint ink effect
 class BallpointBrush {
-  /// Nome visualizzato dell'utensile
+  /// Displayed tool name
   static const String name = 'Biro';
 
-  /// Icona rappresentativa
+  /// Representative icon
   static const IconData icon = Icons.edit;
 
-  /// Moltiplicatore larghezza di default
+  /// Default width multiplier
   static const double defaultWidthMultiplier = 1.0;
 
   /// Opacity of the stroke (0.0-1.0)
   static const double opacity = 1.0;
 
-  /// StrokeCap da utilizzare
+  /// StrokeCap to use
   static const StrokeCap strokeCap = StrokeCap.round;
 
-  /// StrokeJoin da utilizzare
+  /// StrokeJoin to use
   static const StrokeJoin strokeJoin = StrokeJoin.round;
 
   /// Use pressure to vary the width?
@@ -33,24 +33,24 @@ class BallpointBrush {
   /// Use pressure to vary opacity?
   static const bool usePressureForOpacity = false;
 
-  /// Ha effetto blur?
+  /// Does it have blur effect?
   static const bool hasBlur = false;
 
-  /// 🚀 Draw un tratto con pennello biro OTTIMIZZATO
+  /// 🚀 Draw a stroke with OPTIMIZED ballpoint brush
   ///
-  /// OTTIMIZZAZIONI:
-  /// - ✅ Usa OptimizedPathBuilder per path unificato
+  /// OPTIMIZATIONS:
+  /// - ✅ Use OptimizedPathBuilder for unified path
   /// - ✅ Use PaintPool for Paint reuse
-  /// - ✅ UN SOLO drawPath() invece di N
+  /// - ✅ A SINGLE drawPath() instead of N
   ///
-  /// [canvas] Canvas su cui disegnare
-  /// [points] Lista di punti of the stroke (con offset e pressure)
-  /// [color] Colore of the stroke
-  /// [baseWidth] Larghezza base of the stroke
+  /// [canvas] Canvas to draw on
+  /// [points] List of points of the stroke (with offset and pressure)
+  /// [color] Color of the stroke
+  /// [baseWidth] Base width of the stroke
   static void drawStroke(
     Canvas canvas,
     List<dynamic>
-    points, // Può essere List<Offset> o List con .offset e .pressure
+    points, // Can be List<Offset> or List with .offset and .pressure
     Color color,
     double baseWidth,
   ) {
@@ -64,7 +64,7 @@ class BallpointBrush {
     );
   }
 
-  /// 🎛️ Draw con parametri personalizzati dal dialog
+  /// 🎛️ Draw with custom parameters from the dialog
   static void drawStrokeWithSettings(
     Canvas canvas,
     List<dynamic> points,
@@ -76,7 +76,7 @@ class BallpointBrush {
     if (points.isEmpty) return;
 
     if (points.length == 1) {
-      // Punto singolo: disegna cerchio
+      // Single point: draw circle
       final offset = StrokeOptimizer.getOffset(points.first);
       final paint = PaintPool.getFillPaint(color: color);
       canvas.drawCircle(offset, baseWidth * 0.5, paint);
@@ -88,7 +88,7 @@ class BallpointBrush {
     final adjustedWidth =
         baseWidth * (minPressure + 0.5 * (maxPressure - minPressure));
 
-    // 🚀 USA PAINT POOL invece di creare nuovo Paint
+    // 🚀 USE PAINT POOL instead of creating new Paint
     final paint = PaintPool.getStrokePaint(
       color: color,
       strokeWidth: adjustedWidth,
@@ -96,20 +96,20 @@ class BallpointBrush {
       strokeJoin: strokeJoin,
     );
 
-    // 🚀 USA OPTIMIZED PATH BUILDER per path unificato
+    // 🚀 USE OPTIMIZED PATH BUILDER for unified path
     final path = OptimizedPathBuilder.buildSmoothPath(points);
 
-    // 🚀 UN SOLO drawPath()!
+    // 🚀 A SINGLE drawPath()!
     canvas.drawPath(path, paint);
   }
 
-  /// Calculatates la larghezza for a punto specifico (biro = costante)
+  /// Calculates the width for a specific point (ballpoint = constant)
   static double calculateWidth(double baseWidth, double pressure) {
-    return baseWidth; // Larghezza costante
+    return baseWidth; // Constant width
   }
 
-  /// Calculatates l'opacity for a punto specifico (biro = opaca)
+  /// Calculates the opacity for a specific point (ballpoint = opaque)
   static double calculateOpacity(double pressure) {
-    return opacity; // Opacity costante
+    return opacity; // Constant opacity
   }
 }

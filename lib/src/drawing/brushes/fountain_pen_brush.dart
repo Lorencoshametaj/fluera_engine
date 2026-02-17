@@ -14,7 +14,7 @@ import 'fountain_pen_path_builder.dart';
 /// Modello di pressione da perfect-freehand (Steve Ruiz, tldraw):
 ///   sp = min(1, distance/size)           — speed factor
 ///   rp = 1 - sp                          — target pressure (slow=high, fast=low)
-///   pressure += (rp - pressure) * sp * K — accumulator con K = 0.275
+///   pressure += (rp - pressure) * sp * K — accumulator with K = 0.275
 ///
 /// Angolo pennino: 30° (calligrafia foundational/italic).
 ///   - 30° → downstroke spessi, crossstroke sottili (ratio ~3:1)
@@ -22,7 +22,7 @@ import 'fountain_pen_path_builder.dart';
 ///
 /// Thinning (perfect-freehand):
 ///   radius = size * easing(0.5 - thinning * (0.5 - pressure))
-///   Con thinning=0.65: pressione 0→17.5% size, pressione 1→57.5% size (ratio 3.3:1)
+///   With thinning=0.65: pressure 0→17.5% size, pressione 1→57.5% size (ratio 3.3:1)
 class FountainPenBrush {
   static const String name = 'Stilo';
   static const IconData icon = Icons.brush;
@@ -64,14 +64,14 @@ class FountainPenBrush {
   ///   thinning=0.9:  p=0 → 5%, p=1 → 95% (ratio 19:1) ← too extreme
   static const double _thinning = 0.5;
 
-  /// Angolo del pennino: 30° = π/6 (calligrafia foundational).
+  /// Nib angle: 30° = π/6 (calligrafia foundational).
   /// 30° → downstroke ≈ 3x crossstroke (standard broad-edge calligrafia).
   /// 45° → lowercase italic (downstroke = crossstroke, less expressive).
   static const double _nibAngle = math.pi / 6; // 30°
 
   /// Forza dell'effetto calligrafico del pennino.
   /// Defaults when user hasn't set a custom value.
-  /// 0.35 per finger → nib angle chiaramente percepibile.
+  /// 0.35 per finger → nib angle clearly perceptible.
   /// 0.25 for stylus → complements real pressure.
   static const double _nibStrengthFinger = 0.35;
   static const double _nibStrengthStylus = 0.25;
@@ -248,7 +248,7 @@ class FountainPenBrush {
   // Width Calculation (accumulator model from perfect-freehand)
   // ──────────────────────────────────────────────────────────
 
-  /// Calculatates larghezze con pressure accumulator + calligraphic nib angle.
+  /// Calculates larghezze con pressure accumulator + calligraphic nib angle.
   ///
   /// FINGER MODE: simulatePressure basato su distanza/size (perfect-freehand)
   ///   sp = min(1, distance / size)

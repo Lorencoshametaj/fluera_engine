@@ -25,15 +25,15 @@ import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
 ///
 /// RESPONSIBILITIES:
 /// - ✅ Rendering of all the completed strokes (strokes)
-/// - ✅ Rendering di tutte le forme geometriche (shapes)
-/// - ✅ Rendering della current shape in preview
+/// - ✅ Rendering of all geometric shapes
+/// - ✅ Rendering of current shape in preview
 /// - 🚀 Viewport culling: draw ONLY visible elements
-/// - 🚀 QuadTree per 10k+ strokes: query O(log n)
+/// - 🚀 QuadTree for 10k+ strokes: query O(log n)
 ///
 /// ARCHITETTURA (Viewport-Level Mode):
-/// - 🚀 Positionto a livello viewport (fuori da Transform)
-/// - 🚀 repaint: controller → paint() su ogni pan/zoom frame
-/// - 🚀 Costo per-frame: O(1) via cache hit (drawPicture)
+/// - 🚀 Positioned at viewport level (fuori da Transform)
+/// - 🚀 repaint: controller → paint() on every pan/zoom frame
+/// - 🚀 Per-frame cost: O(1) via cache hit (drawPicture)
 /// - 🚀 RepaintBoundary texture = viewport size (~20MB vs ~380MB)
 ///
 /// NOTA: Il current stroke is gestito da CurrentStrokePainter separato
@@ -42,7 +42,7 @@ class DrawingPainter extends CustomPainter {
   final List<GeometricShape> completedShapes;
   final GeometricShape? currentShape;
 
-  // 🚀 Parametri viewport per culling
+  // 🚀 Viewport parameters for culling
   final Offset canvasOffset;
   final double canvasScale;
   final Size viewportSize;
@@ -51,10 +51,10 @@ class DrawingPainter extends CustomPainter {
   final bool enableClipping;
   final Size canvasSize;
 
-  // 🚀 Spatial Index per query O(log n)
+  // 🚀 Spatial Index for query O(log n)
   final SpatialIndexManager? spatialIndex;
 
-  // 🚀 Device pixel ratio per HiDPI
+  // 🚀 Device pixel ratio for HiDPI
   final double devicePixelRatio;
 
   // 🎨 Phase 3: Dirty Region Tracker for incremental rendering
@@ -63,7 +63,7 @@ class DrawingPainter extends CustomPainter {
   // 🚀 TILE CACHING: Activates when stroke count exceeds config threshold
   // Below the threshold, direct rendering (StrokeCacheManager) is faster
 
-  // 🚀 Tile cache manager (singleton per persistenza tra paint)
+  // 🚀 Tile cache manager (singleton for persistence between paints)
   static TileCacheManager? _tileCacheManager;
 
   // 🚀 Vectorial cache: replay cached strokes as Picture (O(1))
@@ -143,7 +143,7 @@ class DrawingPainter extends CustomPainter {
       canvas.clipRect(Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height));
     }
 
-    // 🚀 VIEWPORT-LEVEL MODE: applica transform e usa size come viewport
+    // 🚀 VIEWPORT-LEVEL MODE: apply transform and use size as viewport
     final isViewportLevel = controller != null;
     final effectiveOffset = isViewportLevel ? controller!.offset : canvasOffset;
     final effectiveScale = isViewportLevel ? controller!.scale : canvasScale;
@@ -190,9 +190,9 @@ class DrawingPainter extends CustomPainter {
   ///
   /// ARCHITETTURA:
   /// - paint() chiamato SOLO su cambio strokes (cached child di AnimatedBuilder)
-  /// - Calculate content bounds → rasterizza tutti i tile con strokes
-  /// - Dipinge TUTTI i tile cached (GPU composita durante pan/zoom)
-  /// - Se troppi tile (>maxCachedTiles) → fallback a StrokeCacheManager
+  /// - Calculate content bounds → rasterize all tiles with strokes
+  /// - Paints ALL cached tiles (GPU composite during pan/zoom)
+  /// - If too many tiles (>maxCachedTiles) → fallback to StrokeCacheManager
   void _paintWithTileCaching(Canvas canvas, Rect viewport) {
     _tileCacheManager ??= TileCacheManager.instance;
 
@@ -200,16 +200,16 @@ class DrawingPainter extends CustomPainter {
     final contentBounds = _calculateContentBounds();
     if (contentBounds == null) return;
 
-    // 🗺️ Ottieni TUTTI i tile che contengono strokes
+    // 🗺️ Get ALL tiles that contain strokes
     final allContentTiles = _tileCacheManager!.getTilesForBounds(contentBounds);
 
-    // 🛡️ FALLBACK: se troppi tile, usa cache vettoriale (sempre funzionante)
+    // 🛡️ FALLBACK: if too many tiles, use vector cache (always working)
     if (allContentTiles.length > TileCacheManager.maxCachedTiles) {
       _paintDirect(canvas, viewport);
       return;
     }
 
-    // 🚀 Rasterize SOLO tile dirty o nuovi
+    // 🚀 Rasterize ONLY dirty or new tiles
     for (final (tileX, tileY) in allContentTiles) {
       if (_tileCacheManager!.isTileDirty(tileX, tileY) ||
           !_tileCacheManager!.hasTileCached(tileX, tileY)) {
@@ -224,11 +224,11 @@ class DrawingPainter extends CustomPainter {
       }
     }
 
-    // 🎨 Dipinge TUTTI i tile cached
+    // 🎨 Paints ALL cached tiles
     _tileCacheManager!.paintAllCachedTiles(canvas);
   }
 
-  /// Calculatates il bounding box di tutti gli strokes completati
+  /// Calculates il bounding box di tutti gli strokes completati
   Rect? _calculateContentBounds() {
     if (_effectiveStrokes.isEmpty) return null;
 
@@ -497,7 +497,7 @@ class DrawingPainter extends CustomPainter {
       ShapePainter.drawShape(canvas, shape);
     }
 
-    // Draw la current shape in preview (sempre visibile se presente)
+    // Draw la current shape in preview (sempre visibile if present)
     if (currentShape != null) {
       ShapePainter.drawShape(canvas, currentShape!, isPreview: true);
     }
@@ -553,7 +553,7 @@ class DrawingPainter extends CustomPainter {
       }
     }
 
-    // 🚀 Repaint SOLO se strokes/shapes cambiano (add/remove)
+    // 🚀 Repaint ONLY if strokes/shapes change (add/remove)
     // The parent Transform widget gestisce zoom/pan visivamente →
     // NESSUN repaint per offset/scale/viewportSize, a qualunque
     // number of strokes. I tile cached sono bitmap GPU-scaled.

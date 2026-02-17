@@ -20,7 +20,7 @@ import 'dart:ui' as ui;
 ///   canvas.drawImage(cached, offset, paint);
 /// }
 ///
-/// // Invalidatete on modification
+/// // Invalidate on modification
 /// cacheManager.invalidate(dirtyRect);
 /// ```
 class SnapshotCacheManager {
@@ -102,7 +102,7 @@ class SnapshotCacheManager {
     return null;
   }
 
-  /// Invalidatete all cached snapshots that overlap with dirty rect
+  /// Invalidate all cached snapshots that overlap with dirty rect
   void invalidate(ui.Rect dirtyRect) {
     final keysToRemove = <String>[];
 
@@ -122,7 +122,7 @@ class SnapshotCacheManager {
     }
   }
 
-  /// Invalidatete all cached snapshots
+  /// Invalidate all cached snapshots
   void invalidateAll() {
     for (final entry in _cache.values) {
       entry.image.dispose();

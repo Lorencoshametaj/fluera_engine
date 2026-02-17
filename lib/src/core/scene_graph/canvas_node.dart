@@ -124,7 +124,7 @@ abstract class CanvasNode {
     return _cachedWorldTransform;
   }
 
-  /// Invalidatete the cached world transform for this node and all descendants.
+  /// Invalidate the cached world transform for this node and all descendants.
   void invalidateTransformCache() {
     _worldTransformDirty = true;
   }

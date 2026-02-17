@@ -21,7 +21,7 @@ class ImageCacheService {
   /// Creates a new instance (used by [EngineScope]).
   ImageCacheService.create();
 
-  // ====== CONFIGURAZIONE ======
+  // ====== CONFIGURATION ======
   static const int _maxMemoryCacheCount = 30; // Max immagini in RAM
   static const int _maxDiskCacheCount = 100; // Max immagini to disk
   static const int _maxDiskCacheSizeMB = 50; // Max size cache disco
@@ -192,7 +192,7 @@ class ImageCacheService {
     }
   }
 
-  /// Adds immagine alla cache memoria con LRU eviction
+  /// Adds image to memory cache with LRU eviction
   Future<void> _addToMemoryCache(String imagePath, ui.Image image) async {
     // Eviction se cache piena
     if (_imageCache.length >= _maxMemoryCacheCount) {
@@ -339,7 +339,7 @@ class ImageCacheService {
     } catch (e) {}
   }
 
-  /// Clears tutta la cache (memoria + disco)
+  /// Clears the entire cache (memoria + disco)
   Future<void> clearCache() async {
     clearMemoryCache();
     await clearDiskCache();

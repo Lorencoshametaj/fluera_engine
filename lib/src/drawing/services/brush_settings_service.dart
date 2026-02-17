@@ -7,10 +7,10 @@ import '../../core/engine_scope.dart';
 
 /// 🎛️ Servizio centralizzato per la gestione dei parametri pennello
 ///
-/// CARATTERISTICHE:
-/// - Singleton: condiviso tra tutte le schermate
-/// - Persistenza: salva su SharedPreferences (sopravvive a chiusura app)
-/// - Notifiche: usa ChangeNotifier per aggiornare tutte le UI
+/// FEATURES:
+/// - Singleton: shared between all screens
+/// - Persistence: save to SharedPreferences (survives app close)
+/// - Notifications: use ChangeNotifier to update all UIs
 /// - Conversione: converte tra ProBrushSettings e BrushSettings
 class BrushSettingsService extends ChangeNotifier {
   static const String _prefsKey = 'brush_settings_v1';
@@ -71,7 +71,7 @@ class BrushSettingsService extends ChangeNotifier {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 🔄 CONVERSIONE tra ProBrushSettings e BrushSettings (brush testing lab)
+  // 🔄 CONVERSION between ProBrushSettings and BrushSettings (brush testing lab)
   // ══════════════════════════════════════════════════════════════════════════
 
   /// Converts ProBrushSettings in BrushSettings (per brush testing lab)

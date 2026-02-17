@@ -7,7 +7,7 @@ import '../../core/models/image_element.dart';
 ///
 /// Strumento per immagini che funziona su:
 /// - Canvas infinito
-/// - Pagine PDF
+/// - PDF Pages
 /// - Multiview
 class UnifiedImageTool extends BaseTool {
   // ============================================================================

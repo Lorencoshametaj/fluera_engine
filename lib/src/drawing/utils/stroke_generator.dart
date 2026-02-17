@@ -47,7 +47,7 @@ class StrokeGenerator {
         enableDeltaTracking: enableDeltaTracking,
       );
 
-      // Colore casuale
+      // Color casuale
       final color = Color.fromARGB(
         255,
         _random.nextInt(256),

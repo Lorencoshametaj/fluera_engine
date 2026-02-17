@@ -36,7 +36,7 @@ extension on _NebulaCanvasScreenState {
       );
       final viewportCenter = _canvasController.screenToCanvas(screenCenter);
 
-      // 📏 Calculate scale iniziale per avere size ragionevole
+      // 📏 Calculate initial scale to have reasonable size
       // Target: larghezza max 800px sullo schermo (size more grande per canvas 100k)
       const double targetScreenWidth = 800.0;
       final imageWidth = image.width.toDouble();
@@ -77,7 +77,7 @@ extension on _NebulaCanvasScreenState {
         _imageTool.selectImage(newImage); // Seleziona automaticamente
       });
 
-      // 🔄 Sync: notifica delta tracker per sincronizzazione
+      // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addImage(newImage);
 
       // 💾 Auto-save dopo aggiunta immagine
@@ -107,8 +107,8 @@ extension on _NebulaCanvasScreenState {
       _imageTool.endDrag();
     }
 
-    // 🔥 IMPORTANTE: Clear qualsiasi stroke in progress
-    // (il long press potrebbe aver iniziato un tratto on the canvas normale)
+    // 🔥 IMPORTANT: Clear any stroke in progress
+    // (the long press might have started a stroke on the normal canvas)
     if (_drawingHandler.hasStroke) {
       _drawingHandler.cancelStroke();
     }
@@ -148,7 +148,7 @@ extension on _NebulaCanvasScreenState {
       );
       _imageElements[index] = updatedImage;
 
-      // 🔄 Sync: notifica delta tracker per sincronizzazione
+      // 🔄 Sync: notify delta tracker for synchronization
       _layerController.updateImage(updatedImage);
     }
 
@@ -421,7 +421,7 @@ extension on _NebulaCanvasScreenState {
                   _imageTool.selectImage(updated);
                 });
 
-                // 🔄 Sync: notifica delta tracker per sincronizzazione
+                // 🔄 Sync: notify delta tracker for synchronization
                 _layerController.updateImage(updated);
 
                 // 💾 Auto-save dopo modifica immagine
@@ -436,7 +436,7 @@ extension on _NebulaCanvasScreenState {
                 _imageTool.clearSelection();
               });
 
-              // 🔄 Sync: notifica delta tracker per sincronizzazione
+              // 🔄 Sync: notify delta tracker for synchronization
               _layerController.removeImage(imageElement.id);
               if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
 

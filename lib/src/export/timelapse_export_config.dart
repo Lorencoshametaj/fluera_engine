@@ -12,7 +12,7 @@ enum TimelapseResolution {
 
   const TimelapseResolution(this.width, this.label, this.description);
 
-  /// Calculatates altezza dal aspect ratio of the canvas
+  /// Calculates altezza dal aspect ratio of the canvas
   int heightForAspectRatio(double aspectRatio) =>
       (width / aspectRatio).round().clamp(2, 4096);
 
@@ -107,7 +107,7 @@ class TimelapseExportConfig {
     this.frameSkip = 1,
   });
 
-  /// Calculatates il numero totale di frame nel video output
+  /// Calculates il numero totale di frame nel video output
   int totalFrames(int eventCount) {
     final effectiveEvents = (eventCount / frameSkip).ceil();
     return (effectiveEvents / speed.multiplier).ceil().clamp(1, 99999);

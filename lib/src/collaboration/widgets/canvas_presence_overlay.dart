@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 
-/// 🔵 Overlay per mostrare cursori remoti con tool info, typing e follow mode
+/// 🔵 Overlay to show remote cursors with tool info, typing and follow mode
 ///
 /// Receives a ValueNotifier of Map (userId → cursorData) from RTDB.
 /// Each cursorData contains: x, y, isDrawing, displayName, cursorColor,

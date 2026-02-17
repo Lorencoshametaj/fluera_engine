@@ -39,7 +39,7 @@ class DisplayCapabilitiesDetector {
     } catch (e) {
     }
 
-    // 🔄 STEP 2: Fallback a frame-based detection (iOS/Desktop)
+    // 🔄 STEP 2: Fallback to frame-based detection (iOS/Desktop)
     return _detectViaFrameSampling();
   }
 
@@ -78,7 +78,7 @@ class DisplayCapabilitiesDetector {
             totalDuration.inMicroseconds / targetSamples / 1000.0;
         final detectedRefreshRate = 1000.0 / avgFrameTimeMs; // Hz
 
-        // 🔍 DEBUG: Log dettagliato per troubleshooting
+        // 🔍 DEBUG: Detailed log for troubleshooting
 
         // Normalize a valori standard
         final refreshRate = _normalizeRefreshRate(detectedRefreshRate);

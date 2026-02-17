@@ -236,7 +236,7 @@ class GroupNode extends CanvasNode {
   // Transform cache
   // ---------------------------------------------------------------------------
 
-  /// Invalidatete cached world transform for this node and all descendants.
+  /// Invalidate cached world transform for this node and all descendants.
   ///
   /// When a parent moves, every child's world transform is stale.
   @override

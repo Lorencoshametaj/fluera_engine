@@ -12,30 +12,30 @@ import '../../collaboration/nebula_sync_interfaces.dart';
 import './time_travel_compressor.dart';
 import '../../history/branching_manager.dart';
 
-/// ⏱️ Stato di riproduzione Time Travel
+/// ⏱️ Time Travel playback state
 enum TimeTravelPlaybackState {
-  idle, // Do not in mode time travel
-  loading, // Loadmento storia in corso
-  paused, // Timeline pronta, utente can scrubbare
-  playing, // Riproduzione automatica in corso
+  idle, // Not in time travel mode
+  loading, // History loading in progress
+  paused, // Timeline ready, user can scrub
+  playing, // Automatic playback in progress
 }
 
 /// 🎬 Time Travel Playback Engine
 ///
-/// Motore di replay che ricostruisce lo stato of the canvas a qualsiasi punto
-/// nel tempo. Usa una strategia di navigazione **ibrida** per garantire
-/// integrità dei dati:
+/// Replay engine that reconstructs the canvas state at any point
+/// in time. Uses a **hybrid** navigation strategy to ensure
+/// data integrity:
 ///
-/// - **Avanti**: applica eventi uno a uno (safe, incrementale)
-/// - **Indietro ≤ [_inverseThreshold] eventi**: applica delta inversi
-/// - **Indietro > [_inverseThreshold] eventi**: snapshot reload + forward replay
+/// - **Forward**: applies events one by one (safe, incremental)
+/// - **Backward ≤ [_inverseThreshold] eventi**: apply inverse deltas
+/// - **Backward > [_inverseThreshold] eventi**: snapshot reload + forward replay
 ///
-/// The threshold is conservative: the delta inversi funzionano bene per pochi step
-/// (come l'undo utente), ma accumulano rischio su sequenze lunghe because
-/// `layerModified`, `textUpdated` e `imageUpdated` non salvano lo stato
-/// precedente nel delta.
+/// The threshold is conservative: inverse deltas work well for few steps
+/// (like user undo), ma accumulate risk on long sequences because
+/// `layerModified`, `textUpdated` e `imageUpdated` do not save the state
+/// previous state in the delta.
 class TimeTravelPlaybackEngine {
-  /// Soglia massima di step indietro con inverse delta
+  /// Maximum backward step threshold with inverse delta
   static const int _inverseThreshold = 5;
 
   /// Storage service for loading sessions and snapshots
@@ -45,27 +45,27 @@ class TimeTravelPlaybackEngine {
   // STATE
   // ============================================================================
 
-  /// Stato attuale della riproduzione
+  /// Current playback state
   TimeTravelPlaybackState _state = TimeTravelPlaybackState.idle;
   TimeTravelPlaybackState get state => _state;
 
   /// Current canvas ID
   String? _canvasId;
 
-  /// Sessioni caricate (ordinate cronologicamente)
+  /// Loaded sessions (chronologically ordered)
   List<TimeTravelSession> _sessions = [];
   List<TimeTravelSession> get sessions => List.unmodifiable(_sessions);
 
-  /// All gli eventi appiattiti in ordine cronologico
-  /// Loadti lazy per sessione: inizialmente vuoto, popolato on-demand
+  /// All events flattened in chronological order
+  /// Loadti lazy per session: inizialmente vuoto, popolato on-demand
   final List<TimeTravelEvent> _allEvents = [];
   int get totalEventCount => _allEvents.length;
 
-  /// Mappa evento → sessione: per ogni sessione, (startEventIndex, sessionRef)
-  /// Usato per risalire al timestamp assoluto di qualsiasi evento
+  /// Event → session map: for each session, (startEventIndex, sessionRef)
+  /// Used to trace back the absolute timestamp of any event
   final List<_SessionEventRange> _sessionEventRanges = [];
 
-  /// Indice of the current event (0 = canvas vuoto, length = final state)
+  /// Index of the current event (0 = empty canvas, length = final state)
   int _currentEventIndex = 0;
   int get currentEventIndex => _currentEventIndex;
 
@@ -86,11 +86,11 @@ class TimeTravelPlaybackEngine {
   CanvasBranch? _activeBranch;
   CanvasBranch? get activeBranch => _activeBranch;
 
-  /// Stato canvas ricostruito alla current position
+  /// Canvas state reconstructed at current position
   List<CanvasLayer> _currentLayers = [];
   List<CanvasLayer> get currentLayers => List.unmodifiable(_currentLayers);
 
-  /// Speed di playback (multiplo: 0.5x, 1x, 2x, 4x, 8x)
+  /// Playback speed (multiple: 0.5x, 1x, 2x, 4x, 8x)
   double _playbackSpeed = 1.0;
   double get playbackSpeed => _playbackSpeed;
   set playbackSpeed(double value) {
@@ -101,27 +101,27 @@ class TimeTravelPlaybackEngine {
   // PLAYBACK MODES
   // ============================================================================
 
-  /// 🎯 Modalità stroke-by-stroke: un evento at a time a intervalli fissi
-  /// If false, usa la timeline compressa (gap max clampati)
+  /// 🎯 Stroke-by-stroke mode: one event at a time at fixed intervals
+  /// If false, uses compressed timeline (max gaps clamped)
   bool _strokeByStroke = false;
   bool get strokeByStroke => _strokeByStroke;
   set strokeByStroke(bool value) {
     _strokeByStroke = value;
   }
 
-  /// Intervallo fisso tra eventi in mode stroke-by-stroke (ms)
+  /// Fixed interval between events in stroke-by-stroke mode (ms)
   static const int _strokeInterval = 150;
 
-  /// Timeline compressa: timestamps normalizzati con gap clampati
+  /// Compressed timeline: normalized timestamps with clamped gaps
   final List<int> _compressedTimestamps = [];
 
-  /// Durata totale della storia (ms) — usa timeline compressa
+  /// Total history duration (ms) — uses compressed timeline
   int get totalDurationMs {
     if (_compressedTimestamps.isEmpty) return 0;
     return _compressedTimestamps.last;
   }
 
-  /// Tempo corrente nella timeline (ms)
+  /// Current time in timeline (ms)
   int get currentTimeMs {
     if (_currentEventIndex <= 0 || _compressedTimestamps.isEmpty) return 0;
     if (_currentEventIndex >= _compressedTimestamps.length) {
@@ -130,15 +130,15 @@ class TimeTravelPlaybackEngine {
     return _compressedTimestamps[_currentEventIndex - 1];
   }
 
-  /// 📅 Timestamp assoluto of the current event
+  /// 📅 Absolute timestamp of the current event
   ///
-  /// Ricostruisce la data reale (giorno, mese, ora) combinando
-  /// il startTime della sessione + offset relativo dell'evento.
+  /// Reconstructs real date (day, month, hour) combining
+  /// session startTime + event relative offset.
   DateTime? get currentAbsoluteTime {
     return getAbsoluteTimeForIndex(_currentEventIndex);
   }
 
-  /// 📅 Timestamp assoluto for a indice qualsiasi
+  /// 📅 Absolute timestamp for any index
   DateTime? getAbsoluteTimeForIndex(int eventIndex) {
     if (_allEvents.isEmpty || _sessionEventRanges.isEmpty) return null;
     if (eventIndex <= 0) {
@@ -157,7 +157,7 @@ class TimeTravelPlaybackEngine {
     }
     if (ownerRange == null) return null;
 
-    // cumulative timestampMs - offset cumulativo della sessione = ms relativo nella sessione
+    // cumulative timestampMs - session cumulative offset = relative ms in session
     final relativeMs = event.timestampMs - ownerRange.cumulativeOffsetMs;
     return ownerRange.session.startTime.add(
       Duration(
@@ -169,7 +169,7 @@ class TimeTravelPlaybackEngine {
     );
   }
 
-  /// Progresso come frazione 0.0 - 1.0
+  /// Progress as fraction 0.0 - 1.0
   double get progress {
     if (_allEvents.isEmpty) return 0.0;
     return _currentEventIndex / _allEvents.length;
@@ -204,10 +204,10 @@ class TimeTravelPlaybackEngine {
   // LIFECYCLE
   // ============================================================================
 
-  /// 🎬 Initialize il motore for a canvas specifico
+  /// 🎬 Initialize engine for a specific canvas
   ///
-  /// Loads l'indice delle sessioni e tutti gli eventi. Questo potrebbe
-  /// richiedere qualche centinaio di ms per canvas con molta storia.
+  /// Loads session index and all events. This might
+  /// take a few hundred ms for canvas with lots of history.
   Future<bool> initialize(
     String canvasId,
     TickerProvider vsync, {
@@ -217,7 +217,7 @@ class TimeTravelPlaybackEngine {
     _setState(TimeTravelPlaybackState.loading);
 
     try {
-      // 1. Load indice sessioni
+      // 1. Load session index
       _sessions = await _storage.loadSessionIndex(canvasId, branchId: branchId);
 
       debugPrint(
@@ -246,7 +246,7 @@ class TimeTravelPlaybackEngine {
           '${events.length} events loaded (file: ${session.deltaFilePath})',
         );
 
-        // Registra range sessione → eventi
+        // Register session → event range
         _sessionEventRanges.add(
           _SessionEventRange(
             session: session,
@@ -255,7 +255,7 @@ class TimeTravelPlaybackEngine {
           ),
         );
 
-        // Offset i timestamp relativi alla sessione per renderli globali
+        // Offset session-relative timestamps to make them global
         for (final event in events) {
           _allEvents.add(
             TimeTravelEvent(
@@ -272,8 +272,8 @@ class TimeTravelPlaybackEngine {
         cumulativeOffsetMs += session.duration.inMilliseconds;
       }
 
-      // ⚠️ Se le sessioni esistono ma nessun evento was caricato,
-      // probabilmente i file sono corrotti o nel path sbagliato
+      // ⚠️ If sessions exist but no event was loaded,
+      // probably files are corrupt or in wrong path
       if (_allEvents.isEmpty) {
         debugPrint(
           '🎬 [PlaybackEngine] ⚠️ ${_sessions.length} sessions in index '
@@ -293,7 +293,7 @@ class TimeTravelPlaybackEngine {
       // 4. Rebuild final state
       await _reconstructStateAtIndex(_allEvents.length);
 
-      // 5. Crea ticker per playback
+      // 5. Create playback ticker
       _ticker?.dispose();
       _ticker = vsync.createTicker(_onTick);
 
@@ -451,7 +451,7 @@ class TimeTravelPlaybackEngine {
     }
   }
 
-  /// 🗑️ Rilascia risorse
+  /// 🗑️ Release resources
   void dispose() {
     _ticker?.stop();
     _ticker?.dispose();
@@ -466,11 +466,11 @@ class TimeTravelPlaybackEngine {
   // PLAYBACK CONTROLS
   // ============================================================================
 
-  /// ▶️ Avvia playback automatico from the current position
+  /// ▶️ Start automatic playback from the current position
   void play() {
     if (_state != TimeTravelPlaybackState.paused) return;
     if (_currentEventIndex >= _allEvents.length) {
-      // If at the end, riparti from the beginning
+      // If at the end, restart from the beginning
       seekToIndex(0);
     }
 
@@ -480,14 +480,14 @@ class TimeTravelPlaybackEngine {
     _setState(TimeTravelPlaybackState.playing);
   }
 
-  /// ⏸️ Pausa playback
+  /// ⏸️ Pause playback
   void pause() {
     if (_state != TimeTravelPlaybackState.playing) return;
     _ticker?.stop();
     _setState(TimeTravelPlaybackState.paused);
   }
 
-  /// ⏭️ Salta alla next session
+  /// ⏭️ Skip to next session
   void skipToNextSession() {
     if (_sessions.isEmpty || _allEvents.isEmpty) return;
 
@@ -502,7 +502,7 @@ class TimeTravelPlaybackEngine {
     }
   }
 
-  /// ⏮️ Salta alla sessione precedente
+  /// ⏮️ Skip to previous session
   void skipToPreviousSession() {
     if (_sessions.isEmpty || _allEvents.isEmpty) return;
 
@@ -517,7 +517,7 @@ class TimeTravelPlaybackEngine {
       cumulativeEvents += session.deltaCount;
     }
 
-    // If at the end, vai all'inizio dell'ultima sessione
+    // If at the end, go to start of last session
     seekToIndex(previousSessionStart);
   }
 
@@ -525,12 +525,12 @@ class TimeTravelPlaybackEngine {
   // SCRUBBING (NAVIGAZIONE TIMELINE)
   // ============================================================================
 
-  /// 🎯 Naviga a un indice specifico nella timeline
+  /// 🎯 Navigate to a specific index in the timeline
   ///
-  /// Implementa la strategia ibrida:
-  /// - Avanti: applica eventi incrementalmente
-  /// - Indietro ≤ 5 step: inverse delta
-  /// - Indietro > 5 step: snapshot reload + forward replay
+  /// Implements hybrid strategy:
+  /// - Forward: apply events incrementally
+  /// - Backward ≤ 5 step: inverse delta
+  /// - Backward > 5 step: snapshot reload + forward replay
   Future<void> seekToIndex(int targetIndex) async {
     final clampedTarget = targetIndex.clamp(0, _allEvents.length);
     if (clampedTarget == _currentEventIndex) return;
@@ -538,13 +538,13 @@ class TimeTravelPlaybackEngine {
     final delta = clampedTarget - _currentEventIndex;
 
     if (delta > 0) {
-      // ➡️ AVANTI: applica eventi uno a uno (sempre sicuro)
+      // ➡️ FORWARD: apply events one by one (always safe)
       _applyEventsForward(_currentEventIndex, clampedTarget);
     } else if (delta.abs() <= _inverseThreshold) {
-      // ⬅️ INDIETRO PICCOLO: inverse delta (sicuro per pochi step)
+      // ⬅️ SMALL BACKWARD: inverse delta (safe for few steps)
       _applyEventsBackward(_currentEventIndex, clampedTarget);
     } else {
-      // ⬅️⬅️ INDIETRO GRANDE: snapshot reload + forward replay
+      // ⬅️⬅️ LARGE BACKWARD: snapshot reload + forward replay
       await _reconstructStateAtIndex(clampedTarget);
     }
 
@@ -552,7 +552,7 @@ class TimeTravelPlaybackEngine {
     onStateChanged?.call();
   }
 
-  /// 🎯 Naviga a una position percentuale (0.0 - 1.0)
+  /// 🎯 Navigate to a percentage position (0.0 - 1.0)
   Future<void> seekToProgress(double progress) async {
     final targetIndex = (progress * _allEvents.length).round();
     await seekToIndex(targetIndex);
@@ -562,16 +562,16 @@ class TimeTravelPlaybackEngine {
   // FORWARD REPLAY
   // ============================================================================
 
-  /// ➡️ Applica eventi in avanti (incrementale, sicuro)
+  /// ➡️ Apply events forward (incremental, safe)
   void _applyEventsForward(int fromIndex, int toIndex) {
     for (int i = fromIndex; i < toIndex; i++) {
       _applyEventForward(_allEvents[i]);
     }
   }
 
-  /// Applica un singolo evento in avanti
+  /// Apply a single event forwards
   void _applyEventForward(TimeTravelEvent event) {
-    // Convert TimeTravelEvent → CanvasDelta per riusare applyDeltas
+    // Convert TimeTravelEvent → CanvasDelta to reuse applyDeltas
     final delta = _eventToDelta(event);
     _currentLayers = CanvasDeltaTracker.applyDeltas(_currentLayers, [delta]);
   }
@@ -580,15 +580,15 @@ class TimeTravelPlaybackEngine {
   // BACKWARD REPLAY (solo per piccoli step)
   // ============================================================================
 
-  /// ⬅️ Applica inverse delta per tornare indietro
+  /// ⬅️ Apply inverse delta to go back
   void _applyEventsBackward(int fromIndex, int toIndex) {
-    // Applica inverse delta dal more recente al meno recente
+    // Apply inverse delta from most recent to least recent
     for (int i = fromIndex - 1; i >= toIndex; i--) {
       _applyEventBackward(_allEvents[i]);
     }
   }
 
-  /// Applica inverse di un singolo evento
+  /// Apply inverse of a single event
   void _applyEventBackward(TimeTravelEvent event) {
     final delta = _eventToDelta(event);
     _currentLayers = UndoRedoManager.applyInverseDelta(_currentLayers, delta);
@@ -598,16 +598,16 @@ class TimeTravelPlaybackEngine {
   // STATE RECONSTRUCTION (per salti grandi)
   // ============================================================================
 
-  /// 🔄 Rebuild lo stato da uno snapshot + forward replay
+  /// 🔄 Rebuild state from a snapshot + forward replay
   ///
-  /// Strategia:
-  /// 1. Find lo snapshot more vicino ≤ targetIndex
-  /// 2. Load lo snapshot (layers)
-  /// 3. Applica gli eventi da snapshot a targetIndex in avanti
+  /// Strategy:
+  /// 1. Find the nearest snapshot ≤ targetIndex
+  /// 2. Load the snapshot (layers)
+  /// 3. Apply events from snapshot to targetIndex forwards
   Future<void> _reconstructStateAtIndex(int targetIndex) async {
     if (_canvasId == null) return;
 
-    // Find a quale sessione appartiene il targetIndex
+    // Find which session targetIndex belongs to
     int sessionIndex = 0;
     int eventsSoFar = 0;
     for (int i = 0; i < _sessions.length; i++) {
@@ -618,7 +618,7 @@ class TimeTravelPlaybackEngine {
       }
     }
 
-    // Search lo snapshot more vicino
+    // Search nearest snapshot
     List<CanvasLayer> baseLayers = [];
     int startIndex = 0;
 
@@ -629,7 +629,7 @@ class TimeTravelPlaybackEngine {
 
     if (snapshot != null) {
       baseLayers = snapshot.$1;
-      // Calculate l'indice del primo evento dopo lo snapshot
+      // Calculate index of first event after snapshot
       int eventsBeforeSnapshot = 0;
       for (int i = 0; i < snapshot.$2 && i < _sessions.length; i++) {
         eventsBeforeSnapshot += _sessions[i].deltaCount;
@@ -637,7 +637,7 @@ class TimeTravelPlaybackEngine {
       startIndex = eventsBeforeSnapshot;
     }
 
-    // Forward replay da snapshot a target
+    // Forward replay from snapshot to target
     _currentLayers = baseLayers;
     final endIndex = targetIndex.clamp(0, _allEvents.length);
     _applyEventsForward(startIndex, endIndex);
@@ -652,7 +652,7 @@ class TimeTravelPlaybackEngine {
   // TICKER (playback automatico)
   // ============================================================================
 
-  /// Callback del Ticker — avanza nel tempo basandosi sulla speed
+  /// Ticker callback — advances in time based on speed
   void _onTick(Duration elapsed) {
     if (_state != TimeTravelPlaybackState.playing) return;
     if (_currentEventIndex >= _allEvents.length) {
@@ -673,7 +673,7 @@ class TimeTravelPlaybackEngine {
     bool changed = false;
 
     if (_strokeByStroke) {
-      // 🎯 Modalità stroke-by-stroke: un evento at a time a intervalli fissi
+      // 🎯 Stroke-by-stroke mode: one event at a time at fixed intervals
       if (_accumulatedMs >= _strokeInterval) {
         if (_currentEventIndex < _allEvents.length) {
           _applyEventForward(_allEvents[_currentEventIndex]);
@@ -705,7 +705,7 @@ class TimeTravelPlaybackEngine {
       onStateChanged?.call();
     }
 
-    // If abbiamo raggiunto la fine, pausa
+    // If we reached the end, pause
     if (_currentEventIndex >= _allEvents.length) {
       pause();
     }
@@ -715,13 +715,13 @@ class TimeTravelPlaybackEngine {
   // COMPRESSED TIMELINE
   // ============================================================================
 
-  /// 🕐 Builds la timeline compressa: raggruppa eventi temporalmente vicini
+  /// 🕐 Builds compressed timeline: groups temporally close events
   ///
-  /// Modalità "blocchi": eventi con gap < [_blockGapThreshold] ms
-  /// ricevono lo STESSO timestamp compresso → appaiono insieme.
-  /// Tra blocchi distinti, intervallo fisso di [_blockInterval] ms.
+  /// "Block" mode: events with gap < [_blockGapThreshold] ms
+  /// receive the SAME compressed timestamp → appear together.
+  /// Between distinct blocks, fixed interval of [_blockInterval] ms.
   ///
-  /// Modalità stroke-by-stroke bypass questa timeline completamente.
+  /// Stroke-by-stroke mode bypasses this timeline completely.
   static const int _blockGapThreshold = 1000; // ms — gap max dentro un blocco
   static const int _blockInterval = 200; // ms — pausa tra blocchi
 
@@ -733,7 +733,7 @@ class TimeTravelPlaybackEngine {
     int prevRawTs = _allEvents[0].timestampMs;
     int blockCount = 1;
 
-    // Primo evento: timestamp 0
+    // First event: timestamp 0
     _compressedTimestamps.add(0);
 
     for (int i = 1; i < _allEvents.length; i++) {
@@ -741,11 +741,11 @@ class TimeTravelPlaybackEngine {
       final gap = rawTs - prevRawTs;
 
       if (gap > _blockGapThreshold) {
-        // Nuovo blocco → inserisci intervallo fisso
+        // New block → insert fixed interval
         compressedTime += _blockInterval;
         blockCount++;
       }
-      // Stesso blocco → stesso timestamp (appariranno tutti insieme)
+      // Same block → same timestamp (will appear all together)
 
       _compressedTimestamps.add(compressedTime);
       prevRawTs = rawTs;
@@ -763,10 +763,10 @@ class TimeTravelPlaybackEngine {
   // HELPERS
   // ============================================================================
 
-  /// Convert TimeTravelEvent → CanvasDelta (per riusare applyDeltas/applyInverse)
+  /// Convert TimeTravelEvent → CanvasDelta (to reuse applyDeltas/applyInverse)
   ///
-  /// 📦 Decomprime automaticamente elementData se era stato compresso
-  /// dal TimeTravelRecorder.
+  /// 📦 Automatically decompresses elementData if it was compressed
+  /// by TimeTravelRecorder.
   CanvasDelta _eventToDelta(TimeTravelEvent event) {
     return CanvasDelta(
       id: 'tt_${event.timestampMs}',
@@ -789,9 +789,9 @@ class TimeTravelPlaybackEngine {
     onPlaybackStateChanged?.call(newState);
   }
 
-  /// 📊 Info for the heatmap della timeline (density eventi per segmento)
+  /// 📊 Info for timeline heatmap (event density per segment)
   ///
-  /// Divide la timeline in [segments] segmenti e conta gli eventi per ciascuno.
+  /// Divide timeline into [segments] segments and count events for each.
   List<int> getEventDensity({int segments = 100}) {
     if (_allEvents.isEmpty) return List.filled(segments, 0);
 
@@ -805,7 +805,7 @@ class TimeTravelPlaybackEngine {
     return density;
   }
 
-  /// 📊 Returns i marker delle sessioni come posizioni 0.0-1.0
+  /// 📊 Returns session markers as 0.0-1.0 positions
   List<double> getSessionMarkers() {
     if (_sessions.isEmpty || _allEvents.isEmpty) return [];
 
@@ -818,9 +818,9 @@ class TimeTravelPlaybackEngine {
     return markers;
   }
 
-  /// 📅 Marker con data for the heatmap — deduplicate per giorno
+  /// 📅 Marker with date for heatmap — deduplicate per day
   ///
-  /// Returns posizioni 0.0-1.0 with the data della prima sessione di quel giorno.
+  /// Returns 0.0-1.0 positions with date of first session of that day.
   List<({double position, DateTime date})> getSessionDateMarkers() {
     if (_sessions.isEmpty || _allEvents.isEmpty) return [];
 
@@ -833,7 +833,7 @@ class TimeTravelPlaybackEngine {
           '${session.startTime.year}-${session.startTime.month}-${session.startTime.day}';
 
       if (dayKey != lastDayKey) {
-        // Nuovo giorno — aggiungi marker
+        // New day — add marker
         markers.add((
           position: cumulativeEvents / _allEvents.length,
           date: session.startTime,
@@ -848,7 +848,7 @@ class TimeTravelPlaybackEngine {
   }
 }
 
-/// Range di eventi appartenenti a una sessione
+/// Range of events belonging to a session
 class _SessionEventRange {
   final TimeTravelSession session;
   final int startIndex;

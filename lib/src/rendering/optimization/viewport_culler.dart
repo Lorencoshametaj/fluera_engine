@@ -7,15 +7,15 @@ import './spatial_index.dart';
 ///
 /// PERFORMANCE:
 /// - ✅ Draw SOLO visible elements in the viewport
-/// - ✅ Spatial indexing per ricerca O(log n) invece di O(n)
-/// - ✅ Bounds pre-calcolati per ogni stroke/shape
-/// - ✅ Margine di sicurezza to avoid pop-in durante pan
-/// - 🚀 QuadTree per 10k+ strokes
+/// - ✅ Spatial indexing for O(log n) search instead of O(n)
+/// - ✅ Pre-calculated bounds for each stroke/shape
+/// - ✅ Safety margin to avoid pop-in during pan
+/// - 🚀 QuadTree for 10k+ strokes
 ///
 /// ESEMPIO:
 /// - Canvas 100k x 100k with 10,000 strokes
 /// - Viewport 1080 x 1920 pixel
-/// - Senza culling: 10.000 tratti renderizzati = LAG
+/// - Without culling: 10,000 rendered strokes = LAG
 /// - With culling: ~50-100 rendered strokes = SMOOTH ✨
 class ViewportCuller {
   /// Margine examong thentorno al viewport to avoid pop-in durante pan
@@ -27,7 +27,7 @@ class ViewportCuller {
   /// 🚀 Filtra strokes visibili - con supporto QuadTree per grandi quantity
   ///
   /// If spatialIndex is fornito e costruito, usa O(log n) query
-  /// Altrimenti usa fallback O(n) con bounds cachati
+  /// Otherwise use fallback O(n) with cached bounds
   static List<ProStroke> filterVisibleStrokesOptimized(
     List<ProStroke> strokes,
     Rect viewport, {
@@ -36,7 +36,7 @@ class ViewportCuller {
   }) {
     if (strokes.isEmpty) return [];
 
-    // 🚀 Se abbiamo un spatial index e ci sono molti strokes, usa QuadTree
+    // 🚀 If we have a spatial index and there are many strokes, use QuadTree
     if (spatialIndex != null &&
         spatialIndex.isBuilt &&
         strokes.length > quadTreeThreshold) {
@@ -56,7 +56,7 @@ class ViewportCuller {
   }) {
     if (shapes.isEmpty) return [];
 
-    // 🚀 Se abbiamo un spatial index, usa QuadTree
+    // 🚀 If we have a spatial index, use QuadTree
     if (spatialIndex != null &&
         spatialIndex.isBuilt &&
         shapes.length > quadTreeThreshold) {
@@ -125,7 +125,7 @@ class ViewportCuller {
         .toList();
   }
 
-  /// Calculatates bounds di uno stroke
+  /// Calculates bounds di uno stroke
   static Rect? getStrokeBounds(ProStroke stroke) {
     if (stroke.points.isEmpty) return null;
 
@@ -152,14 +152,14 @@ class ViewportCuller {
     );
   }
 
-  /// Calculatates bounds di una shape
+  /// Calculates bounds di una shape
   static Rect getShapeBounds(GeometricShape shape) {
     final padding = shape.strokeWidth * 2;
 
     return Rect.fromPoints(shape.startPoint, shape.endPoint).inflate(padding);
   }
 
-  /// Calculatates current viewport in canvas coordinates
+  /// Calculates current viewport in canvas coordinates
   static Rect calculateViewport(
     Size screenSize,
     Offset canvasOffset,

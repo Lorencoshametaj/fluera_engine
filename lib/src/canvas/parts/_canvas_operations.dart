@@ -87,7 +87,7 @@ extension on _NebulaCanvasScreenState {
     _toolController.setPaperType(newType);
     // Clear cached background so it redraws with new paper type
     BackgroundPainter.clearCache();
-    // Invalidatete drawing tiles (paper pattern is baked into export tiles)
+    // Invalidate drawing tiles (paper pattern is baked into export tiles)
     DrawingPainter.invalidateAllTiles();
     // Auto-save with new paper type
     _autoSaveCanvas();

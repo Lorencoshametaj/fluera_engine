@@ -19,7 +19,7 @@ import './brushes.dart';
 /// PRIMA: ogni file conteneva ~60 righe di switch/case identico.
 /// ORA:   ogni file chiama `BrushEngine.renderStroke()` in 1 riga.
 ///
-/// Addere un nuovo brush richiede:
+/// Adding a new brush requires:
 ///   1. Create the brush class (es. `MarkerBrush`)
 ///   2. Add the case in `ProPenType`
 ///   3. Add the case HERE — automatically available everywhere.
@@ -55,7 +55,7 @@ class BrushEngine {
   /// 🛡️ Current rendering engine version.
   ///
   /// Incrementare when modifica il COMPORTAMENTO di un brush
-  /// (non when aggiungono nuovi brush — quelli sono backward compatible).
+  /// (not when adding new brushes — those are backward compatible).
   ///
   /// Cronologia:
   /// - v1: strokes pre-versioning (no 'ev' tag in JSON)
@@ -63,8 +63,8 @@ class BrushEngine {
   ///
   /// Quando cambi un algoritmo di brush:
   /// 1. Incrementa [currentEngineVersion]
-  /// 2. Sposta il vecchio codice in un metodo `_renderStrokeVN()`
-  /// 3. Aggiungi il routing nel blocco `engineVersion` sotto
+  /// 2. Move old code into a method `_renderStrokeVN()`
+  /// 3. Add routing in block `engineVersion` sotto
   static const int currentEngineVersion = 2;
 
   /// Render uno stroke usando il brush corretto based onl [penType].
@@ -74,7 +74,7 @@ class BrushEngine {
   ///
   /// [engineVersion] Versione del motore che ha prodotto lo stroke.
   ///   Se omesso, usa [currentEngineVersion] (stroke live/nuovo).
-  ///   Per strokes caricati da disco, passare `stroke.engineVersion`.
+  ///   For strokes loaded from disk, passare `stroke.engineVersion`.
   static void renderStroke(
     Canvas canvas,
     List<dynamic> points,
@@ -88,7 +88,7 @@ class BrushEngine {
   }) {
     if (points.isEmpty) return;
 
-    // 🛡️ Migration routing — quando in futuro cambierà un algoritmo,
+    // 🛡️ Migration routing — when an algorithm changes in the future,
     // qui si instrada verso il renderer della versione corretta.
     // For ora v1 e v2 usano lo stesso renderer (nessun breaking change).
     // final ev = engineVersion ?? currentEngineVersion;
@@ -466,7 +466,7 @@ class BrushEngine {
     }
   }
 
-  /// Calculatates pressione media e speed for a sotto-segmento di punti.
+  /// Calculates pressione media e speed for a sotto-segmento di punti.
   static _SegmentMetrics _computeSegmentMetrics(
     List<dynamic> points,
     int start,
@@ -515,7 +515,7 @@ class BrushEngine {
     );
   }
 
-  /// Calculatates erosion alpha da intensity, pressione e speed.
+  /// Calculates erosion alpha da intensity, pressione e speed.
   static int _erosionAlpha(
     double intensity,
     double pressure,

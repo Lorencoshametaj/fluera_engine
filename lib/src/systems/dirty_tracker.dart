@@ -78,7 +78,7 @@ class DirtyTracker {
   /// then modify the node (the new bounds will be read automatically).
   void markDirty(CanvasNode node, {Rect? oldBounds}) {
     _dirtyIds.add(node.id);
-    _cachedRegion = null; // Invalidatete cached region.
+    _cachedRegion = null; // Invalidate cached region.
 
     // If old bounds provided, track them as a special dirty rect.
     if (oldBounds != null && !oldBounds.isEmpty) {

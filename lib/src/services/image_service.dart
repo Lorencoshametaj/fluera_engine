@@ -108,7 +108,7 @@ class ImageService {
     }
   }
 
-  /// Calculatates le dimensioni of the image da un path
+  /// Calculates le dimensioni of the image da un path
   static Future<Size?> getImageSize(String imagePath) async {
     final image = await loadImageFromPath(imagePath);
     if (image == null) return null;
