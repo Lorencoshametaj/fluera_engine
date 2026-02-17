@@ -10,6 +10,10 @@ import '../../core/nodes/path_node.dart';
 import '../../core/effects/gradient_fill.dart';
 import './pen_tool_painter.dart';
 
+part 'pen_tool_input.dart';
+part 'pen_tool_ui.dart';
+part 'pen_tool_geometry.dart';
+
 /// ✒️ INTERACTIVE PEN TOOL — Bézier Path Editor
 ///
 /// Creates vector paths by placing anchor points on the canvas.
@@ -28,6 +32,11 @@ import './pen_tool_painter.dart';
 ///   know about the scene graph)
 /// - Overlay rendering via [PenToolPainter]
 /// - All internal state in CANVAS coordinates; overlay converts to screen
+///
+/// STRUCTURE (part files):
+/// - [pen_tool_input.dart]    — pointer + keyboard handlers
+/// - [pen_tool_ui.dart]       — overlay + tool options widgets
+/// - [pen_tool_geometry.dart] — path math, hit-testing, snapping
 
 /// What part of an anchor is being edited.
 enum _EditTarget { position, handleIn, handleOut }
@@ -199,432 +208,42 @@ class PenTool extends BaseTool {
   }
 
   // ============================================================================
-  // POINTER EVENTS
+  // POINTER EVENTS — delegate to _PenToolInput extension
   // ============================================================================
 
   @override
-  void onPointerDown(ToolContext context, PointerDownEvent event) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final isDoubleTap = (now - _lastPointerDownMs) < _doubleTapMs;
-    _lastPointerDownMs = now;
-
-    // Double-tap → finalize as open path.
-    if (isDoubleTap && _anchors.length >= 2) {
-      _finalizePath(context, closed: false);
-      return;
-    }
-
-    beginOperation(context, event.localPosition);
-    _isDragging = false;
-    _dragHandleCanvas = null;
-    _editingAnchorIndex = -1;
-
-    final canvasPos = context.screenToCanvas(event.localPosition);
-    _cursorCanvasPosition = canvasPos;
-
-    // Check if tapping near the first anchor to close the path.
-    if (_anchors.length >= 3) {
-      final firstScreenPos = context.canvasToScreen(_anchors.first.position);
-      final tapScreenPos = event.localPosition;
-      // Threshold scales inversely with zoom for consistent feel
-      final threshold = _baseCloseThreshold / context.scale.clamp(0.1, 10.0);
-      if ((firstScreenPos - tapScreenPos).distance <
-          threshold * context.scale) {
-        _finalizePath(context, closed: true);
-        return;
-      }
-    }
-
-    // #1: Check if tapping near a handle FIRST (higher priority than anchor).
-    for (int i = 0; i < _anchors.length; i++) {
-      final anchor = _anchors[i];
-      // Check handleIn
-      final hIn = anchor.handleInAbsolute;
-      if (hIn != null) {
-        final screenHIn = context.canvasToScreen(hIn);
-        if ((screenHIn - event.localPosition).distance < _anchorHitRadius) {
-          _editingAnchorIndex = i;
-          _editTarget = _EditTarget.handleIn;
-          return;
-        }
-      }
-      // Check handleOut
-      final hOut = anchor.handleOutAbsolute;
-      if (hOut != null) {
-        final screenHOut = context.canvasToScreen(hOut);
-        if ((screenHOut - event.localPosition).distance < _anchorHitRadius) {
-          _editingAnchorIndex = i;
-          _editTarget = _EditTarget.handleOut;
-          return;
-        }
-      }
-    }
-
-    // Then check if tapping near an existing anchor (for editing/toggle).
-    for (int i = 0; i < _anchors.length; i++) {
-      final anchorScreenPos = context.canvasToScreen(_anchors[i].position);
-      if ((anchorScreenPos - event.localPosition).distance < _anchorHitRadius) {
-        // #2: Double-tap on anchor → delete it.
-        final now2 = DateTime.now().millisecondsSinceEpoch;
-        if (i == _lastTappedAnchorIndex &&
-            (now2 - _lastAnchorTapMs) < _doubleTapMs) {
-          _anchors.removeAt(i);
-          // Update multi-selection indices after removal.
-          _selectedAnchorIndices.remove(i);
-          final adjusted =
-              _selectedAnchorIndices
-                  .map((idx) => idx > i ? idx - 1 : idx)
-                  .toSet();
-          _selectedAnchorIndices
-            ..clear()
-            ..addAll(adjusted);
-          HapticFeedback.mediumImpact();
-          _lastTappedAnchorIndex = -1;
-          _lastAnchorTapMs = 0;
-          state = ToolOperationState.idle;
-          currentCanvasPosition = null;
-          startCanvasPosition = null;
-          lastScreenPosition = null;
-          return;
-        }
-        _lastTappedAnchorIndex = i;
-        _lastAnchorTapMs = now2;
-
-        // Start long-press timer for multi-select.
-        _pointerDownMs = now;
-        _longPressPending = true;
-
-        _editingAnchorIndex = i;
-        _editTarget = _EditTarget.position;
-        _isHandleBreakout = false;
-        return;
-      }
-    }
-
-    // A1: Check if tapping on a segment (insert anchor via De Casteljau).
-    if (_anchors.length >= 2) {
-      final result = _hitTestSegments(canvasPos, context);
-      if (result != null) {
-        final (segmentIndex, t) = result;
-        _insertAnchorOnSegment(segmentIndex, t);
-        HapticFeedback.mediumImpact();
-        state = ToolOperationState.idle;
-        currentCanvasPosition = null;
-        startCanvasPosition = null;
-        lastScreenPosition = null;
-        return;
-      }
-    }
-
-    // Tap on empty area clears multi-selection.
-    if (_selectedAnchorIndices.isNotEmpty) {
-      _selectedAnchorIndices.clear();
-    }
-  }
+  void onPointerDown(ToolContext context, PointerDownEvent event) =>
+      handlePointerDown(context, event);
 
   @override
-  void onPointerMove(ToolContext context, PointerMoveEvent event) {
-    if (state == ToolOperationState.idle) {
-      // Not in an operation — just track cursor for rubber-band.
-      _cursorCanvasPosition = context.screenToCanvas(event.localPosition);
-      return;
-    }
-
-    continueOperation(context, event.localPosition);
-
-    final canvasPos = context.screenToCanvas(event.localPosition);
-    _cursorCanvasPosition = canvasPos;
-
-    // Cancel long-press if user moves beyond dead zone.
-    if (_longPressPending) {
-      final dist =
-          (event.localPosition - _screenPosFromCanvasStart(context)).distance;
-      if (dist > _dragDeadZone) {
-        _longPressPending = false;
-      }
-    }
-
-    // #1: Editing anchor or handle — drag to reposition.
-    if (_editingAnchorIndex >= 0) {
-      final anchor = _anchors[_editingAnchorIndex];
-      var snapped = _applySnapping(canvasPos);
-
-      switch (_editTarget) {
-        case _EditTarget.position:
-          // Handle breakout: dragging from a corner anchor creates handles.
-          if (anchor.type == AnchorType.corner &&
-              anchor.handleIn == null &&
-              anchor.handleOut == null) {
-            final dist =
-                (event.localPosition - _screenPosFromCanvasStart(context))
-                    .distance;
-            if (dist > _dragDeadZone) {
-              _isHandleBreakout = true;
-              _editTarget = _EditTarget.handleOut;
-              // Apply constraint if needed.
-              if (constrainAngles) {
-                snapped = _constrainTo45(snapped, anchor.position);
-              }
-              final handleOffset = snapped - anchor.position;
-              anchor.handleOut = handleOffset;
-              anchor.handleIn = -handleOffset;
-              anchor.type = AnchorType.symmetric;
-              return;
-            }
-          }
-          // A2: Batch move selected anchors.
-          if (_selectedAnchorIndices.contains(_editingAnchorIndex) &&
-              _selectedAnchorIndices.length > 1) {
-            final delta = snapped - anchor.position;
-            for (final idx in _selectedAnchorIndices) {
-              _anchors[idx].position += delta;
-            }
-          } else {
-            anchor.position = snapped;
-          }
-          break;
-        case _EditTarget.handleOut:
-          // #3: Constrain handle angles.
-          if (constrainAngles) {
-            snapped = _constrainTo45(snapped, anchor.position);
-          }
-          anchor.handleOut = snapped - anchor.position;
-          // Symmetric: mirror handleIn
-          if (anchor.type == AnchorType.symmetric) {
-            anchor.handleIn = -(snapped - anchor.position);
-          } else if (anchor.type == AnchorType.smooth &&
-              anchor.handleIn != null) {
-            // Smooth: keep colinear, preserve length
-            final len = anchor.handleIn!.distance;
-            final dir = -(snapped - anchor.position);
-            anchor.handleIn = dir / dir.distance * len;
-          }
-          break;
-        case _EditTarget.handleIn:
-          // #3: Constrain handle angles.
-          if (constrainAngles) {
-            snapped = _constrainTo45(snapped, anchor.position);
-          }
-          anchor.handleIn = snapped - anchor.position;
-          // Symmetric: mirror handleOut
-          if (anchor.type == AnchorType.symmetric) {
-            anchor.handleOut = -(snapped - anchor.position);
-          } else if (anchor.type == AnchorType.smooth &&
-              anchor.handleOut != null) {
-            final len = anchor.handleOut!.distance;
-            final dir = -(snapped - anchor.position);
-            anchor.handleOut = dir / dir.distance * len;
-          }
-          break;
-      }
-      return;
-    }
-
-    // Detect drag (beyond dead zone → user wants a curve handle).
-    if (!_isDragging && startCanvasPosition != null) {
-      if ((event.localPosition - _screenPosFromCanvasStart(context)).distance >
-          _dragDeadZone) {
-        _isDragging = true;
-      }
-    }
-
-    if (_isDragging) {
-      // #3: Constrain drag handle angles.
-      if (constrainAngles && startCanvasPosition != null) {
-        _dragHandleCanvas = _constrainTo45(canvasPos, startCanvasPosition!);
-      } else {
-        _dragHandleCanvas = canvasPos;
-      }
-    }
-  }
+  void onPointerMove(ToolContext context, PointerMoveEvent event) =>
+      handlePointerMove(context, event);
 
   @override
-  void onPointerUp(ToolContext context, PointerUpEvent event) {
-    if (state == ToolOperationState.idle) return;
-
-    final canvasPos = context.screenToCanvas(event.localPosition);
-
-    // #1/#2: Editing an existing anchor or handle.
-    if (_editingAnchorIndex >= 0) {
-      final dist =
-          (event.localPosition - _screenPosFromCanvasStart(context)).distance;
-      if (_editTarget == _EditTarget.position && dist < _dragDeadZone) {
-        // A2: Long-press on anchor → toggle multi-selection.
-        final elapsed = DateTime.now().millisecondsSinceEpoch - _pointerDownMs;
-        if (_longPressPending && elapsed >= _longPressMs) {
-          if (_selectedAnchorIndices.contains(_editingAnchorIndex)) {
-            _selectedAnchorIndices.remove(_editingAnchorIndex);
-          } else {
-            _selectedAnchorIndices.add(_editingAnchorIndex);
-          }
-          HapticFeedback.mediumImpact();
-        } else {
-          // #2: Tap without drag on anchor → toggle smooth/corner.
-          final anchor = _anchors[_editingAnchorIndex];
-          if (anchor.type == AnchorType.corner) {
-            anchor.type = AnchorType.smooth;
-          } else {
-            anchor.type = AnchorType.corner;
-            anchor.handleIn = null;
-            anchor.handleOut = null;
-          }
-          HapticFeedback.selectionClick();
-        }
-      } else {
-        // Was dragged — position/handle already updated in onPointerMove.
-        HapticFeedback.lightImpact();
-      }
-      _longPressPending = false;
-      _editingAnchorIndex = -1;
-      _editTarget = _EditTarget.position;
-      _isHandleBreakout = false;
-      state = ToolOperationState.idle;
-      currentCanvasPosition = null;
-      startCanvasPosition = null;
-      lastScreenPosition = null;
-      return;
-    }
-
-    if (_isDragging && startCanvasPosition != null) {
-      // Tap + drag → smooth anchor with symmetric handles.
-      final rawAnchorPos = startCanvasPosition!;
-      final anchorPos = _applySnapping(rawAnchorPos);
-      final handleOut = canvasPos - anchorPos; // Relative offset.
-      final handleIn = Offset(-handleOut.dx, -handleOut.dy); // Mirror.
-
-      _anchors.add(
-        AnchorPoint(
-          position: anchorPos,
-          handleIn: _anchors.isEmpty ? null : handleIn,
-          handleOut: handleOut,
-          type: AnchorType.symmetric,
-        ),
-      );
-    } else {
-      // Simple tap → corner anchor (straight line).
-      final rawPos = startCanvasPosition ?? canvasPos;
-      var snappedPos = _applySnapping(rawPos);
-
-      // #3: Constrained angles — snap to 45° multiples.
-      if (constrainAngles && _anchors.isNotEmpty) {
-        snappedPos = _constrainTo45(snappedPos, _anchors.last.position);
-      }
-
-      _anchors.add(AnchorPoint(position: snappedPos, type: AnchorType.corner));
-    }
-
-    _isDragging = false;
-    _dragHandleCanvas = null;
-    _cursorCanvasPosition = canvasPos;
-
-    // 📳 Haptic feedback on anchor placement
-    HapticFeedback.lightImpact();
-
-    // Reset operation state but keep anchors.
-    state = ToolOperationState.idle;
-    currentCanvasPosition = null;
-    startCanvasPosition = null;
-    lastScreenPosition = null;
-  }
+  void onPointerUp(ToolContext context, PointerUpEvent event) =>
+      handlePointerUp(context, event);
 
   @override
-  void onPointerCancel(ToolContext context) {
-    _isDragging = false;
-    _dragHandleCanvas = null;
-    state = ToolOperationState.idle;
-  }
+  void onPointerCancel(ToolContext context) => handlePointerCancel(context);
 
   // ============================================================================
-  // KEYBOARD EVENTS
+  // KEYBOARD — delegate to _PenToolInput extension
   // ============================================================================
 
   /// Call this from the host widget's key handler.
   /// Returns true if the event was consumed.
-  bool handleKeyEvent(KeyEvent event, ToolContext context) {
-    if (event is! KeyDownEvent) return false;
-
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      _reset();
-      return true;
-    }
-
-    if (event.logicalKey == LogicalKeyboardKey.enter ||
-        event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-      if (_anchors.length >= 2) {
-        _finalizePath(context, closed: false);
-        return true;
-      }
-    }
-
-    // Backspace / Delete → remove last anchor.
-    if (event.logicalKey == LogicalKeyboardKey.backspace ||
-        event.logicalKey == LogicalKeyboardKey.delete) {
-      if (_anchors.isNotEmpty) {
-        _anchors.removeLast();
-        return true;
-      }
-    }
-
-    return false;
-  }
+  bool handleKeyEvent(KeyEvent event, ToolContext context) =>
+      handleKeyboardEvent(event, context);
 
   // ============================================================================
-  // OVERLAY
+  // OVERLAY — delegate to _PenToolUI extension
   // ============================================================================
 
   @override
-  Widget? buildOverlay(ToolContext context) {
-    if (_anchors.isEmpty && _cursorCanvasPosition == null) return null;
-
-    // Convert anchors to screen coordinates for the painter.
-    final screenAnchors =
-        _anchors.map((a) => _anchorToScreen(a, context)).toList();
-
-    final screenCursor =
-        _cursorCanvasPosition != null
-            ? context.canvasToScreen(_cursorCanvasPosition!)
-            : null;
-
-    final screenDragHandle =
-        _dragHandleCanvas != null
-            ? context.canvasToScreen(_dragHandleCanvas!)
-            : null;
-
-    // Check if cursor is near the first anchor (for close indicator).
-    bool showClose = false;
-    final closeThreshold = _baseCloseThreshold;
-    if (_anchors.length >= 3 &&
-        screenCursor != null &&
-        screenAnchors.isNotEmpty) {
-      showClose =
-          (screenCursor - screenAnchors.first.position).distance <
-          closeThreshold;
-    }
-
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: CustomPaint(
-          painter: PenToolPainter(
-            anchors: screenAnchors,
-            cursorPosition: screenCursor,
-            dragHandle: screenDragHandle,
-            showCloseIndicator: showClose,
-            pathColor: strokeColor,
-            pathStrokeWidth: strokeWidth.clamp(1.0, 4.0),
-            anchorCount: _anchors.length,
-            isDarkMode: isDarkMode,
-            fillColor: fillColor,
-            editingAnchorIndex: _editingAnchorIndex,
-            selectedAnchorIndices: _selectedAnchorIndices,
-            showCurvatureComb: showCurvatureComb,
-          ),
-        ),
-      ),
-    );
-  }
+  Widget? buildOverlay(ToolContext context) => buildPenOverlay(context);
 
   // ============================================================================
-  // TOOL OPTIONS
+  // TOOL OPTIONS — delegate to _PenToolUI extension
   // ============================================================================
 
   /// Whether to show the curvature comb visualization.
@@ -661,241 +280,8 @@ class PenTool extends BaseTool {
   }
 
   @override
-  Widget? buildToolOptions(BuildContext buildContext) {
-    return StatefulBuilder(
-      builder: (ctx, setLocalState) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: (isDarkMode ? Colors.grey.shade800 : Colors.grey.shade900)
-                .withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Stroke width slider.
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.line_weight,
-                    color: Colors.white70,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 120,
-                    child: Slider(
-                      value: strokeWidth,
-                      min: 0.5,
-                      max: 20.0,
-                      activeColor: Colors.blue,
-                      onChanged: (v) => setLocalState(() => strokeWidth = v),
-                    ),
-                  ),
-                  Text(
-                    '${strokeWidth.toStringAsFixed(1)}px',
-                    style: const TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
-                ],
-              ),
-
-              // Fill toggle.
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Fill:',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  Switch(
-                    value: fillColor != null,
-                    activeThumbColor: Colors.blue,
-                    onChanged:
-                        (v) => setLocalState(() {
-                          fillColor =
-                              v ? strokeColor.withValues(alpha: 0.2) : null;
-                        }),
-                  ),
-                ],
-              ),
-
-              // Constrain angles toggle.
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    '45°:',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  Switch(
-                    value: constrainAngles,
-                    activeThumbColor: Colors.orange,
-                    onChanged:
-                        (v) => setLocalState(() {
-                          constrainAngles = v;
-                        }),
-                  ),
-                ],
-              ),
-
-              // Grid snapping.
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.grid_on, color: Colors.white70, size: 16),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 100,
-                    child: Slider(
-                      value: gridSpacing ?? 0,
-                      min: 0,
-                      max: 50,
-                      divisions: 10,
-                      activeColor: Colors.teal,
-                      onChanged:
-                          (v) => setLocalState(() {
-                            gridSpacing = v > 0 ? v : null;
-                          }),
-                    ),
-                  ),
-                  Text(
-                    gridSpacing != null
-                        ? '${gridSpacing!.toStringAsFixed(0)}px'
-                        : 'Off',
-                    style: const TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
-                ],
-              ),
-
-              // Curvature comb toggle.
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Comb:',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  Switch(
-                    value: showCurvatureComb,
-                    activeThumbColor: Colors.purple,
-                    onChanged:
-                        (v) => setLocalState(() {
-                          showCurvatureComb = v;
-                        }),
-                  ),
-                ],
-              ),
-
-              // Touch-friendly action buttons (when building).
-              if (_anchors.isNotEmpty) ...[
-                const Divider(color: Colors.white24, height: 12),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Anchor count
-                    Text(
-                      '${_anchors.length} pt',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-
-                    // Undo last anchor
-                    _actionButton(
-                      icon: Icons.undo_rounded,
-                      tooltip: 'Undo',
-                      onTap: () {
-                        undoLastAnchor();
-                        onToolOptionsChanged?.call();
-                      },
-                    ),
-
-                    // Cancel path
-                    _actionButton(
-                      icon: Icons.close_rounded,
-                      tooltip: 'Cancel',
-                      color: Colors.red.shade300,
-                      onTap: () {
-                        cancelPath();
-                        onToolOptionsChanged?.call();
-                      },
-                    ),
-
-                    // Finish (open path) — needs ≥2 anchors
-                    if (_anchors.length >= 2)
-                      _actionButton(
-                        icon: Icons.check_rounded,
-                        tooltip: 'Finish',
-                        color: Colors.green.shade300,
-                        onTap: () {
-                          if (toolOptionsContext != null) {
-                            finalizeOpenPath(toolOptionsContext!);
-                          }
-                          onToolOptionsChanged?.call();
-                        },
-                      ),
-
-                    // Close path — needs ≥3 anchors
-                    if (_anchors.length >= 3)
-                      _actionButton(
-                        icon: Icons.radio_button_unchecked,
-                        tooltip: 'Close',
-                        color: Colors.amber.shade300,
-                        onTap: () {
-                          if (toolOptionsContext != null) {
-                            finalizeClosedPath(toolOptionsContext!);
-                          }
-                          onToolOptionsChanged?.call();
-                        },
-                      ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  /// Small touch-friendly action button for the tool options bar.
-  Widget _actionButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-    Color color = Colors.white70,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 3),
-      child: Tooltip(
-        message: tooltip,
-        preferBelow: false,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 18),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget? buildToolOptions(BuildContext buildContext) =>
+      buildPenToolOptions(buildContext);
 
   // ============================================================================
   // SERIALIZATION
@@ -928,224 +314,35 @@ class PenTool extends BaseTool {
   }
 
   // ============================================================================
-  // PRIVATE HELPERS
+  // PRIVATE DELEGATES — thin wrappers for extension methods
   // ============================================================================
 
-  /// Finalize the path: convert anchors → VectorPath → PathNode.
-  void _finalizePath(ToolContext context, {required bool closed}) {
-    if (_anchors.length < 2) {
-      _reset();
-      return;
-    }
+  void _finalizePath(ToolContext context, {required bool closed}) =>
+      finalizePath(context, closed: closed);
 
-    context.saveUndoState();
+  void _reset() => resetState();
 
-    final vectorPath = AnchorPoint.toVectorPath(_anchors, closed: closed);
+  AnchorPoint _anchorToScreen(AnchorPoint anchor, ToolContext context) =>
+      anchorToScreen(anchor, context);
 
-    final pathNode = PathNode(
-      id: const Uuid().v4(),
-      path: vectorPath,
-      name: 'Path',
-      fillColor: fillColor,
-      fillGradient: fillGradient,
-      strokeColor: strokeColor,
-      strokeWidth: strokeWidth,
-      strokeCap: strokeCap,
-      strokeJoin: strokeJoin,
-    );
+  Offset _screenPosFromCanvasStart(ToolContext context) =>
+      screenPosFromCanvasStart(context);
 
-    onPathNodeCreated?.call(pathNode);
-
-    // 📳 Haptic feedback on path finalization
-    HapticFeedback.mediumImpact();
-
-    context.notifyOperationComplete();
-    _reset();
-  }
-
-  /// Reset all in-progress state.
-  void _reset() {
-    _anchors.clear();
-    _cursorCanvasPosition = null;
-    _dragHandleCanvas = null;
-    _isDragging = false;
-    _editingAnchorIndex = -1;
-    _editTarget = _EditTarget.position;
-    _isHandleBreakout = false;
-    _lastTappedAnchorIndex = -1;
-    _lastAnchorTapMs = 0;
-    _selectedAnchorIndices.clear();
-    _longPressPending = false;
-    state = ToolOperationState.idle;
-  }
-
-  /// Convert an AnchorPoint from canvas coordinates to screen coordinates.
-  AnchorPoint _anchorToScreen(AnchorPoint anchor, ToolContext context) {
-    final screenPos = context.canvasToScreen(anchor.position);
-
-    Offset? screenHandleIn;
-    if (anchor.handleIn != null) {
-      final absIn = anchor.position + anchor.handleIn!;
-      final screenAbsIn = context.canvasToScreen(absIn);
-      screenHandleIn = screenAbsIn - screenPos;
-    }
-
-    Offset? screenHandleOut;
-    if (anchor.handleOut != null) {
-      final absOut = anchor.position + anchor.handleOut!;
-      final screenAbsOut = context.canvasToScreen(absOut);
-      screenHandleOut = screenAbsOut - screenPos;
-    }
-
-    return AnchorPoint(
-      position: screenPos,
-      handleIn: screenHandleIn,
-      handleOut: screenHandleOut,
-      type: anchor.type,
-    );
-  }
-
-  /// Get the screen position of startCanvasPosition.
-  Offset _screenPosFromCanvasStart(ToolContext context) {
-    return startCanvasPosition != null
-        ? context.canvasToScreen(startCanvasPosition!)
-        : Offset.zero;
-  }
-
-  /// #3: Constrain [pos] to the nearest 45° angle relative to [ref].
   static Offset _constrainTo45(Offset pos, Offset ref) {
     final delta = pos - ref;
     final distance = delta.distance;
     if (distance < 1.0) return pos;
-
-    // Snap angle to nearest 45° (0, 45, 90, 135, 180, 225, 270, 315).
-    final angle = delta.direction; // radians, -pi to pi
-    const step = 3.14159265358979 / 4; // 45°
+    final angle = delta.direction;
+    const step = 3.14159265358979 / 4;
     final snapped = (angle / step).round() * step;
-
     return ref + Offset.fromDirection(snapped, distance);
   }
 
-  // ============================================================================
-  // A1: SEGMENT HIT-TEST & INSERTION
-  // ============================================================================
+  (int, double)? _hitTestSegments(Offset canvasPos, ToolContext context) =>
+      hitTestSegments(canvasPos, context);
 
-  /// Hit-test all segments to find if [canvasPos] is near a curve.
-  /// Returns `(segmentIndex, t)` or null.
-  (int, double)? _hitTestSegments(Offset canvasPos, ToolContext context) {
-    const int samples = 20;
-    double bestDist = double.infinity;
-    int bestSeg = -1;
-    double bestT = 0;
+  void _insertAnchorOnSegment(int segIndex, double t) =>
+      insertAnchorOnSegment(segIndex, t);
 
-    for (int i = 0; i < _anchors.length - 1; i++) {
-      final a = _anchors[i];
-      final b = _anchors[i + 1];
-
-      final p0 = a.position;
-      final p1 = a.handleOutAbsolute ?? p0;
-      final p2 = b.handleInAbsolute ?? b.position;
-      final p3 = b.position;
-
-      for (int s = 0; s <= samples; s++) {
-        final t = s / samples;
-        final pt = _cubicAt(t, p0, p1, p2, p3);
-        final screenPt = context.canvasToScreen(pt);
-        final screenTap = context.canvasToScreen(canvasPos);
-        final dist = (screenPt - screenTap).distance;
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestSeg = i;
-          bestT = t;
-        }
-      }
-    }
-
-    if (bestDist < _anchorHitRadius && bestSeg >= 0) {
-      return (bestSeg, bestT);
-    }
-    return null;
-  }
-
-  /// Insert a new anchor on segment [segIndex] at parameter [t]
-  /// using De Casteljau subdivision.
-  void _insertAnchorOnSegment(int segIndex, double t) {
-    final a = _anchors[segIndex];
-    final b = _anchors[segIndex + 1];
-
-    final p0 = a.position;
-    final p1 = a.handleOutAbsolute ?? p0;
-    final p2 = b.handleInAbsolute ?? b.position;
-    final p3 = b.position;
-
-    // De Casteljau split at t.
-    final q0 = _lerpOffset(p0, p1, t);
-    final q1 = _lerpOffset(p1, p2, t);
-    final q2 = _lerpOffset(p2, p3, t);
-    final r0 = _lerpOffset(q0, q1, t);
-    final r1 = _lerpOffset(q1, q2, t);
-    final s0 = _lerpOffset(r0, r1, t); // point on curve
-
-    // Update anchor A: new handleOut = q0 - p0
-    a.handleOut = q0 - p0;
-
-    // Update anchor B: new handleIn = q2 - p3
-    b.handleIn = q2 - p3;
-
-    // Create new anchor at s0 with handles r0 and r1.
-    final newAnchor = AnchorPoint(
-      position: s0,
-      handleIn: r0 - s0,
-      handleOut: r1 - s0,
-      type: AnchorType.smooth,
-    );
-
-    _anchors.insert(segIndex + 1, newAnchor);
-
-    // Adjust multi-selection indices.
-    final adjusted =
-        _selectedAnchorIndices
-            .map((idx) => idx > segIndex ? idx + 1 : idx)
-            .toSet();
-    _selectedAnchorIndices
-      ..clear()
-      ..addAll(adjusted);
-  }
-
-  /// Cubic Bézier point at parameter [t].
-  static Offset _cubicAt(double t, Offset p0, Offset p1, Offset p2, Offset p3) {
-    final mt = 1.0 - t;
-    return p0 * (mt * mt * mt) +
-        p1 * (3 * mt * mt * t) +
-        p2 * (3 * mt * t * t) +
-        p3 * (t * t * t);
-  }
-
-  /// Linear interpolation between two offsets.
-  static Offset _lerpOffset(Offset a, Offset b, double t) {
-    return Offset(a.dx + (b.dx - a.dx) * t, a.dy + (b.dy - a.dy) * t);
-  }
-
-  // ============================================================================
-  // A4: GRID + GUIDE SNAPPING PIPELINE
-  // ============================================================================
-
-  /// Apply all snapping stages: grid first, then guide callback.
-  Offset _applySnapping(Offset pos) {
-    var snapped = pos;
-
-    // Grid snap.
-    if (gridSpacing != null && gridSpacing! > 0) {
-      final g = gridSpacing!;
-      snapped = Offset(
-        (snapped.dx / g).roundToDouble() * g,
-        (snapped.dy / g).roundToDouble() * g,
-      );
-    }
-
-    // Guide snap callback.
-    snapped = snapPosition?.call(snapped) ?? snapped;
-
-    return snapped;
-  }
+  Offset _applySnapping(Offset pos) => applySnapping(pos);
 }

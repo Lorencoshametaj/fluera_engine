@@ -110,7 +110,14 @@ part './parts/_voice_recording.dart';
 // part 'parts/_navigation_pdf.dart';  // Phase 2: PDF navigation
 part './parts/_cloud_sync.dart';
 part './parts/_build_ui.dart';
+part './parts/_ui_toolbar.dart';
+part './parts/_ui_canvas_layer.dart';
+part './parts/_ui_eraser.dart';
+part './parts/_ui_overlays.dart';
+part './parts/_ui_menus.dart';
 part './parts/_eraser_painters.dart';
+part './parts/_eraser_painters_v6.dart';
+part './parts/_eraser_painters_v7.dart';
 part './parts/_phase2_stubs.dart';
 
 /// 🚀 PERFORMANCE: Notifier ottimizzato for the current stroke

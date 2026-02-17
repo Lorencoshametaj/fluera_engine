@@ -5,6 +5,7 @@ import './ruler_guide_system.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 
 part 'ruler_overlay_menu.dart';
+part 'ruler_overlay_menu_helpers.dart';
 part 'ruler_overlay_actions.dart';
 part 'ruler_overlay_gestures.dart';
 part 'ruler_overlay_dialogs.dart';

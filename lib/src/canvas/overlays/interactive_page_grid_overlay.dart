@@ -4,12 +4,15 @@ import 'package:flutter/services.dart';
 import '../../config/multi_page_config.dart';
 import '../../export/export_preset.dart'; // For ExportPageFormatUtils extension
 
+part 'page_grid_drag_handlers.dart';
+part 'page_grid_snap.dart';
+
 /// 📐 INTERACTIVE PAGE GRID OVERLAY
 ///
-/// Widget overlay per editing interattivo of pages multi-page.
-/// Supporta due mode:
-/// - Uniform: tutte le pagine hanno la stessa size
-/// - Individual: ogni pagina can essere ridimensionata indipendentemente
+/// Widget overlay for interactive editing of multi-page pages.
+/// Supports two modes:
+/// - Uniform: all pages share the same size
+/// - Individual: each page can be independently resized
 class InteractivePageGridOverlay extends StatefulWidget {
   /// Multi-page configuration
   final MultiPageConfig config;
@@ -17,23 +20,23 @@ class InteractivePageGridOverlay extends StatefulWidget {
   /// Callback when the configuration changes
   final ValueChanged<MultiPageConfig> onConfigChanged;
 
-  /// Scala of the canvas
+  /// Canvas scale
   final double canvasScale;
 
-  /// Offset of the canvas
+  /// Canvas offset
   final Offset canvasOffset;
 
-  /// If true, mostra gli handle di resize solo for the pagina selezionata
+  /// If true, show resize handles only for the selected page
   final bool showHandlesOnlySelected;
 
-  /// Callback per richiedere lo scorrimento of the canvas (auto-pan)
-  /// The parametro is il delta di pan richiesto in screen coordinates
+  /// Callback to request canvas scrolling (auto-pan)
+  /// The parameter is the pan delta in screen coordinates
   final ValueChanged<Offset>? onPanCanvas;
 
-  /// Padding inferiore per escludere la toolbar dall'area interattiva
+  /// Bottom padding to exclude toolbar from the interactive area
   final double bottomPadding;
 
-  /// If true, mostra l'overlay scuro. Se false, mostra solo le pagine.
+  /// If true, shows the dark overlay. If false, shows only pages.
   final bool showDarkOverlay;
 
   const InteractivePageGridOverlay({
@@ -61,16 +64,13 @@ class _InteractivePageGridOverlayState
   static const double _minPageSize = 50.0;
 
   // Auto-pan constants
-  static const double _autoPanEdgeZone =
-      60.0; // Zona ai bordi che attiva l'auto-pan
-  static const double _autoPanSpeed =
-      5.0; // Speed base dell'auto-pan (ridotta)
+  static const double _autoPanEdgeZone = 60.0;
+  static const double _autoPanSpeed = 5.0;
   static const Duration _autoPanInterval = Duration(milliseconds: 16); // ~60fps
 
   // Snap/Magnetism constants
-  static const double _snapThreshold =
-      15.0; // Distanza in pixel per attivare lo snap
-  static const double _snapGap = 10.0; // Gap tra pagine when agganciano
+  static const double _snapThreshold = 15.0;
+  static const double _snapGap = 10.0;
 
   // Auto-pan state
   Timer? _autoPanTimer;
@@ -84,22 +84,22 @@ class _InteractivePageGridOverlayState
   Rect? _initialPageBounds;
   bool _isDraggingPage = false;
 
-  // Snap state - linee guida visibili durante il drag
+  // Snap state - visible guide lines during drag
   List<_SnapLine> _activeSnapLines = [];
 
-  // Multi-touch state (per permettere pinch zoom)
+  // Multi-touch state (to allow pinch zoom)
   int _pointerCount = 0;
 
   @override
   void dispose() {
-    _stopAutoPan();
+    stopAutoPan();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Listener(
-      // Traccia il number of pointer per permettere pinch zoom
+      // Track pointer count to allow pinch zoom
       onPointerDown: (_) {
         setState(() => _pointerCount++);
       },
@@ -111,14 +111,14 @@ class _InteractivePageGridOverlayState
       },
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Save la size of the viewport per l'auto-pan
+          // Save viewport size for auto-pan
           _viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
 
-          // If ci sono 2+ tocchi, ignora i gesti per permettere pinch zoom
+          // If there are 2+ touches, ignore gestures to allow pinch zoom
           final content = Stack(
             clipBehavior: Clip.hardEdge,
             children: [
-              // Dark overlay (opzionale) - tap per deselezionare
+              // Dark overlay (optional) - tap to deselect
               if (widget.showDarkOverlay)
                 Positioned.fill(
                   child: GestureDetector(
@@ -134,7 +134,7 @@ class _InteractivePageGridOverlayState
                   ),
                 ),
 
-              // Snap guide lines (mostrate durante il drag)
+              // Snap guide lines (shown during drag)
               if (_activeSnapLines.isNotEmpty)
                 Positioned.fill(
                   child: CustomPaint(
@@ -164,7 +164,7 @@ class _InteractivePageGridOverlayState
             ],
           );
 
-          // With 2+ tocchi, permetti al pinch zoom di passare attraverso
+          // With 2+ touches, let pinch zoom pass through
           if (_pointerCount >= 2) {
             return IgnorePointer(child: content);
           }
@@ -201,16 +201,16 @@ class _InteractivePageGridOverlayState
           height: screenBounds.height,
           child: GestureDetector(
             onTap: () => _selectPage(index),
-            onPanStart: (details) => _onPageDragStart(index, details),
-            onPanUpdate: _onPageDragUpdate,
-            onPanEnd: _onPageDragEnd,
+            onPanStart: (details) => onPageDragStart(index, details),
+            onPanUpdate: onPageDragUpdate,
+            onPanEnd: onPageDragEnd,
             child: Container(
               decoration: BoxDecoration(
                 border: Border.all(
                   color: isSelected ? Colors.blue : Colors.white70,
                   width: isSelected ? 3 : 2,
                 ),
-                color: Colors.white.withValues(alpha:  0.05),
+                color: Colors.white.withValues(alpha: 0.05),
               ),
               child: Stack(
                 children: [
@@ -272,7 +272,7 @@ class _InteractivePageGridOverlayState
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withValues(alpha:  0.8),
+                          color: Colors.blue.withValues(alpha: 0.8),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -337,9 +337,9 @@ class _InteractivePageGridOverlayState
             cursor: handleCursors[handleId]!,
             child: GestureDetector(
               onPanStart:
-                  (details) => _onHandleDragStart(pageIndex, handleId, details),
-              onPanUpdate: (details) => _onHandleDragUpdate(details, isUniform),
-              onPanEnd: _onHandleDragEnd,
+                  (details) => onHandleDragStart(pageIndex, handleId, details),
+              onPanUpdate: (details) => onHandleDragUpdate(details, isUniform),
+              onPanEnd: onHandleDragEnd,
               child: Container(
                 width: _handleHitArea,
                 height: _handleHitArea,
@@ -353,7 +353,7 @@ class _InteractivePageGridOverlayState
                     borderRadius: BorderRadius.circular(_handleSize / 2),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha:  0.3),
+                        color: Colors.black.withValues(alpha: 0.3),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -401,654 +401,12 @@ class _InteractivePageGridOverlayState
     }
   }
 
-  /// Deseleziona la current page (tap on the canvas vuoto)
+  /// Deselect the current page (tap on empty canvas)
   void _deselectPage() {
     if (widget.config.selectedPageIndex != -1) {
       widget.onConfigChanged(widget.config.copyWith(selectedPageIndex: -1));
       HapticFeedback.selectionClick();
     }
-  }
-
-  // ==================== AUTO-PAN LOGIC ====================
-
-  /// Calculatates il delta di pan basato sulla position del cursore vicino ai bordi
-  Offset _calculateAutoPanDelta(Offset position) {
-    double dx = 0;
-    double dy = 0;
-
-    // Bordo sinistro
-    if (position.dx < _autoPanEdgeZone) {
-      dx = -_autoPanSpeed * (1 - position.dx / _autoPanEdgeZone);
-    }
-    // Bordo destro
-    else if (position.dx > _viewportSize.width - _autoPanEdgeZone) {
-      dx =
-          _autoPanSpeed *
-          (1 - (_viewportSize.width - position.dx) / _autoPanEdgeZone);
-    }
-
-    // Bordo superiore
-    if (position.dy < _autoPanEdgeZone) {
-      dy = -_autoPanSpeed * (1 - position.dy / _autoPanEdgeZone);
-    }
-    // Bordo inferiore
-    else if (position.dy > _viewportSize.height - _autoPanEdgeZone) {
-      dy =
-          _autoPanSpeed *
-          (1 - (_viewportSize.height - position.dy) / _autoPanEdgeZone);
-    }
-
-    return Offset(dx, dy);
-  }
-
-  /// Avvia il timer per l'auto-pan continuo
-  void _startAutoPan() {
-    if (_autoPanTimer != null) return;
-
-    _autoPanTimer = Timer.periodic(_autoPanInterval, (_) {
-      if (!_isDraggingPage && _activeHandle == null) {
-        _stopAutoPan();
-        return;
-      }
-
-      final panDelta = _calculateAutoPanDelta(_lastDragPosition);
-
-      if (panDelta != Offset.zero && widget.onPanCanvas != null) {
-        final canvasDelta = panDelta / widget.canvasScale;
-
-        // Update _initialPageBounds per compensare il movimento of the canvas
-        if (_initialPageBounds != null) {
-          _initialPageBounds = _initialPageBounds!.translate(
-            canvasDelta.dx,
-            canvasDelta.dy,
-          );
-        }
-
-        // Update the actual page position in the config
-        // E muovi il canvas insieme nello stesso frame
-        if (_isDraggingPage && _draggingPageIndex != null) {
-          final currentBounds =
-              widget.config.individualPageBounds[_draggingPageIndex!];
-          final newBounds = currentBounds.translate(
-            canvasDelta.dx,
-            canvasDelta.dy,
-          );
-
-          final newConfig = widget.config.copyWith(
-            individualPageBounds: List.from(widget.config.individualPageBounds)
-              ..[_draggingPageIndex!] = newBounds,
-          );
-
-          // Prima muovi il canvas
-          widget.onPanCanvas!(panDelta);
-          // Poi aggiorna il config (nello stesso frame)
-          widget.onConfigChanged(newConfig);
-        } else {
-          // Only movimento canvas (per handle resize)
-          widget.onPanCanvas!(panDelta);
-        }
-      }
-    });
-  }
-
-  /// Ferma il timer dell'auto-pan
-  void _stopAutoPan() {
-    _autoPanTimer?.cancel();
-    _autoPanTimer = null;
-  }
-
-  // ==================== PAGE DRAG HANDLERS ====================
-
-  void _onPageDragStart(int index, DragStartDetails details) {
-    _draggingPageIndex = index;
-    _dragStartPosition = details.globalPosition;
-    _initialPageBounds = widget.config.individualPageBounds[index];
-    _isDraggingPage = true;
-
-    // Convert in local coordinates per l'auto-pan
-    final RenderBox? box = context.findRenderObject() as RenderBox?;
-    if (box != null) {
-      _lastDragPosition = box.globalToLocal(details.globalPosition);
-    }
-
-    // Select the page if not already selected
-    if (widget.config.selectedPageIndex != index) {
-      widget.onConfigChanged(widget.config.copyWith(selectedPageIndex: index));
-    }
-
-    // Avvia l'auto-pan
-    _startAutoPan();
-  }
-
-  void _onPageDragUpdate(DragUpdateDetails details) {
-    if (!_isDraggingPage ||
-        _draggingPageIndex == null ||
-        _initialPageBounds == null ||
-        _dragStartPosition == null) {
-      return;
-    }
-
-    // Update position per l'auto-pan
-    final RenderBox? box = context.findRenderObject() as RenderBox?;
-    if (box != null) {
-      _lastDragPosition = box.globalToLocal(details.globalPosition);
-    }
-
-    final delta = details.globalPosition - _dragStartPosition!;
-    final canvasDelta = delta / widget.canvasScale;
-
-    var newBounds = _initialPageBounds!.translate(
-      canvasDelta.dx,
-      canvasDelta.dy,
-    );
-
-    // Applica snap/magnetismo
-    final snapResult = _calculateSnap(newBounds, _draggingPageIndex!);
-    newBounds = newBounds.translate(snapResult.offset.dx, snapResult.offset.dy);
-
-    // Feedback aptico when aggancia
-    final wasSnapped = _activeSnapLines.isNotEmpty;
-    final isSnapped = snapResult.lines.isNotEmpty;
-    if (isSnapped && !wasSnapped) {
-      HapticFeedback.lightImpact();
-    }
-
-    setState(() {
-      _activeSnapLines = snapResult.lines;
-    });
-
-    final newConfig = widget.config.copyWith(
-      individualPageBounds: List.from(widget.config.individualPageBounds)
-        ..[_draggingPageIndex!] = newBounds,
-    );
-
-    widget.onConfigChanged(newConfig);
-  }
-
-  void _onPageDragEnd(DragEndDetails details) {
-    _stopAutoPan();
-    _isDraggingPage = false;
-    _draggingPageIndex = null;
-    _dragStartPosition = null;
-    _initialPageBounds = null;
-
-    // Nascondi le linee guida
-    setState(() {
-      _activeSnapLines = [];
-    });
-
-    HapticFeedback.selectionClick();
-  }
-
-  void _onHandleDragStart(
-    int pageIndex,
-    String handleId,
-    DragStartDetails details,
-  ) {
-    _draggingPageIndex = pageIndex;
-    _activeHandle = handleId;
-    _dragStartPosition = details.globalPosition;
-    _initialPageBounds = widget.config.individualPageBounds[pageIndex];
-
-    // Convert in local coordinates per l'auto-pan
-    final RenderBox? box = context.findRenderObject() as RenderBox?;
-    if (box != null) {
-      _lastDragPosition = box.globalToLocal(details.globalPosition);
-    }
-
-    // Select the page
-    if (widget.config.selectedPageIndex != pageIndex) {
-      widget.onConfigChanged(
-        widget.config.copyWith(selectedPageIndex: pageIndex),
-      );
-    }
-
-    // Avvia l'auto-pan
-    _startAutoPan();
-  }
-
-  void _onHandleDragUpdate(DragUpdateDetails details, bool isUniform) {
-    if (_activeHandle == null ||
-        _draggingPageIndex == null ||
-        _initialPageBounds == null ||
-        _dragStartPosition == null) {
-      return;
-    }
-
-    // Update position per l'auto-pan
-    final RenderBox? box = context.findRenderObject() as RenderBox?;
-    if (box != null) {
-      _lastDragPosition = box.globalToLocal(details.globalPosition);
-    }
-
-    final delta = details.globalPosition - _dragStartPosition!;
-    final canvasDelta = delta / widget.canvasScale;
-
-    final newBounds = _calculateNewBounds(
-      _initialPageBounds!,
-      _activeHandle!,
-      canvasDelta,
-      isUniform,
-    );
-
-    widget.onConfigChanged(
-      widget.config.updatePageBounds(_draggingPageIndex!, newBounds),
-    );
-  }
-
-  void _onHandleDragEnd(DragEndDetails details) {
-    _stopAutoPan();
-    _activeHandle = null;
-    _draggingPageIndex = null;
-    _dragStartPosition = null;
-    _initialPageBounds = null;
-    HapticFeedback.selectionClick();
-  }
-
-  Rect _calculateNewBounds(
-    Rect initial,
-    String handle,
-    Offset delta,
-    bool maintainAspectRatio,
-  ) {
-    double left = initial.left;
-    double top = initial.top;
-    double right = initial.right;
-    double bottom = initial.bottom;
-
-    switch (handle) {
-      case 'tl':
-        left += delta.dx;
-        top += delta.dy;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newWidth = right - left;
-          final newHeight = newWidth / aspectRatio;
-          top = bottom - newHeight;
-        }
-        break;
-      case 'tc':
-        top += delta.dy;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newHeight = bottom - top;
-          final newWidth = newHeight * aspectRatio;
-          final widthDelta = newWidth - initial.width;
-          left -= widthDelta / 2;
-          right += widthDelta / 2;
-        }
-        break;
-      case 'tr':
-        right += delta.dx;
-        top += delta.dy;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newWidth = right - left;
-          final newHeight = newWidth / aspectRatio;
-          top = bottom - newHeight;
-        }
-        break;
-      case 'ml':
-        left += delta.dx;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newWidth = right - left;
-          final newHeight = newWidth / aspectRatio;
-          final heightDelta = newHeight - initial.height;
-          top -= heightDelta / 2;
-          bottom += heightDelta / 2;
-        }
-        break;
-      case 'mr':
-        right += delta.dx;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newWidth = right - left;
-          final newHeight = newWidth / aspectRatio;
-          final heightDelta = newHeight - initial.height;
-          top -= heightDelta / 2;
-          bottom += heightDelta / 2;
-        }
-        break;
-      case 'bl':
-        left += delta.dx;
-        bottom += delta.dy;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newWidth = right - left;
-          final newHeight = newWidth / aspectRatio;
-          bottom = top + newHeight;
-        }
-        break;
-      case 'bc':
-        bottom += delta.dy;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newHeight = bottom - top;
-          final newWidth = newHeight * aspectRatio;
-          final widthDelta = newWidth - initial.width;
-          left -= widthDelta / 2;
-          right += widthDelta / 2;
-        }
-        break;
-      case 'br':
-        right += delta.dx;
-        bottom += delta.dy;
-        if (maintainAspectRatio) {
-          final aspectRatio = initial.width / initial.height;
-          final newWidth = right - left;
-          final newHeight = newWidth / aspectRatio;
-          bottom = top + newHeight;
-        }
-        break;
-    }
-
-    // Enforce minimum size
-    if (right - left < _minPageSize) {
-      if (handle.contains('l')) {
-        left = right - _minPageSize;
-      } else {
-        right = left + _minPageSize;
-      }
-    }
-    if (bottom - top < _minPageSize) {
-      if (handle.contains('t')) {
-        top = bottom - _minPageSize;
-      } else {
-        bottom = top + _minPageSize;
-      }
-    }
-
-    return Rect.fromLTRB(left, top, right, bottom);
-  }
-
-  // ==================== SNAP/MAGNETISM LOGIC ====================
-
-  /// Calculatates lo snap per allineare la pagina alle altre
-  _SnapResult _calculateSnap(Rect movingBounds, int movingIndex) {
-    final snapLines = <_SnapLine>[];
-    double snapDx = 0;
-    double snapDy = 0;
-
-    // Threshold in canvas coordinates
-    final threshold = _snapThreshold / widget.canvasScale;
-    final gap = _snapGap / widget.canvasScale;
-
-    // Bordi della pagina in movimento
-    final movingLeft = movingBounds.left;
-    final movingRight = movingBounds.right;
-    final movingTop = movingBounds.top;
-    final movingBottom = movingBounds.bottom;
-    final movingCenterX = movingBounds.center.dx;
-    final movingCenterY = movingBounds.center.dy;
-
-    bool snappedHorizontal = false;
-    bool snappedVertical = false;
-
-    // Check alignment with every other page
-    for (int i = 0; i < widget.config.individualPageBounds.length; i++) {
-      if (i == movingIndex) continue;
-
-      final other = widget.config.individualPageBounds[i];
-      final otherLeft = other.left;
-      final otherRight = other.right;
-      final otherTop = other.top;
-      final otherBottom = other.bottom;
-      final otherCenterX = other.center.dx;
-      final otherCenterY = other.center.dy;
-
-      // === SNAP ORIZZONTALE ===
-      if (!snappedHorizontal) {
-        // Left to Left
-        if ((movingLeft - otherLeft).abs() < threshold) {
-          snapDx = otherLeft - movingLeft;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(otherLeft, movingTop.clamp(otherTop, otherBottom)),
-              end: Offset(otherLeft, movingBottom.clamp(otherTop, otherBottom)),
-              isVertical: true,
-            ),
-          );
-          snappedHorizontal = true;
-        }
-        // Right to Right
-        else if ((movingRight - otherRight).abs() < threshold) {
-          snapDx = otherRight - movingRight;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(otherRight, movingTop.clamp(otherTop, otherBottom)),
-              end: Offset(
-                otherRight,
-                movingBottom.clamp(otherTop, otherBottom),
-              ),
-              isVertical: true,
-            ),
-          );
-          snappedHorizontal = true;
-        }
-        // Left to Right (con gap)
-        else if ((movingLeft - otherRight - gap).abs() < threshold) {
-          snapDx = otherRight + gap - movingLeft;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(otherRight + gap / 2, movingCenterY),
-              end: Offset(otherRight + gap / 2, otherCenterY),
-              isVertical: true,
-            ),
-          );
-          snappedHorizontal = true;
-        }
-        // Right to Left (con gap)
-        else if ((movingRight - otherLeft + gap).abs() < threshold) {
-          snapDx = otherLeft - gap - movingRight;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(otherLeft - gap / 2, movingCenterY),
-              end: Offset(otherLeft - gap / 2, otherCenterY),
-              isVertical: true,
-            ),
-          );
-          snappedHorizontal = true;
-        }
-        // Center to Center (orizzontale)
-        else if ((movingCenterX - otherCenterX).abs() < threshold) {
-          snapDx = otherCenterX - movingCenterX;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(otherCenterX, movingTop),
-              end: Offset(otherCenterX, otherBottom),
-              isVertical: true,
-            ),
-          );
-          snappedHorizontal = true;
-        }
-      }
-
-      // === SNAP VERTICALE ===
-      if (!snappedVertical) {
-        // Top to Top
-        if ((movingTop - otherTop).abs() < threshold) {
-          snapDy = otherTop - movingTop;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(movingLeft.clamp(otherLeft, otherRight), otherTop),
-              end: Offset(movingRight.clamp(otherLeft, otherRight), otherTop),
-              isVertical: false,
-            ),
-          );
-          snappedVertical = true;
-        }
-        // Bottom to Bottom
-        else if ((movingBottom - otherBottom).abs() < threshold) {
-          snapDy = otherBottom - movingBottom;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(
-                movingLeft.clamp(otherLeft, otherRight),
-                otherBottom,
-              ),
-              end: Offset(
-                movingRight.clamp(otherLeft, otherRight),
-                otherBottom,
-              ),
-              isVertical: false,
-            ),
-          );
-          snappedVertical = true;
-        }
-        // Top to Bottom (con gap)
-        else if ((movingTop - otherBottom - gap).abs() < threshold) {
-          snapDy = otherBottom + gap - movingTop;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(movingCenterX, otherBottom + gap / 2),
-              end: Offset(otherCenterX, otherBottom + gap / 2),
-              isVertical: false,
-            ),
-          );
-          snappedVertical = true;
-        }
-        // Bottom to Top (con gap)
-        else if ((movingBottom - otherTop + gap).abs() < threshold) {
-          snapDy = otherTop - gap - movingBottom;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(movingCenterX, otherTop - gap / 2),
-              end: Offset(otherCenterX, otherTop - gap / 2),
-              isVertical: false,
-            ),
-          );
-          snappedVertical = true;
-        }
-        // Center to Center (verticale)
-        else if ((movingCenterY - otherCenterY).abs() < threshold) {
-          snapDy = otherCenterY - movingCenterY;
-          snapLines.add(
-            _SnapLine(
-              start: Offset(movingLeft, otherCenterY),
-              end: Offset(otherRight, otherCenterY),
-              isVertical: false,
-            ),
-          );
-          snappedVertical = true;
-        }
-      }
-
-      // If abbiamo trovato snap in entrambe le direzioni, esci
-      if (snappedHorizontal && snappedVertical) break;
-    }
-
-    return _SnapResult(offset: Offset(snapDx, snapDy), lines: snapLines);
-  }
-}
-
-/// Risultato del calcolo snap
-class _SnapResult {
-  final Offset offset;
-  final List<_SnapLine> lines;
-
-  _SnapResult({required this.offset, required this.lines});
-}
-
-/// Linea guida for the snap
-class _SnapLine {
-  final Offset start;
-  final Offset end;
-  final bool isVertical;
-
-  _SnapLine({required this.start, required this.end, required this.isVertical});
-}
-
-/// Painter for the linee guida dello snap
-class _SnapLinesPainter extends CustomPainter {
-  final List<_SnapLine> snapLines;
-  final double canvasScale;
-  final Offset canvasOffset;
-
-  _SnapLinesPainter({
-    required this.snapLines,
-    required this.canvasScale,
-    required this.canvasOffset,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = Colors.cyan
-          ..strokeWidth = 2.0
-          ..style = PaintingStyle.stroke;
-
-    final dashPaint =
-        Paint()
-          ..color = Colors.cyan.withValues(alpha:  0.5)
-          ..strokeWidth = 1.0
-          ..style = PaintingStyle.stroke;
-
-    for (final line in snapLines) {
-      // Convert in screen coordinates
-      final screenStart = Offset(
-        line.start.dx * canvasScale + canvasOffset.dx,
-        line.start.dy * canvasScale + canvasOffset.dy,
-      );
-      final screenEnd = Offset(
-        line.end.dx * canvasScale + canvasOffset.dx,
-        line.end.dy * canvasScale + canvasOffset.dy,
-      );
-
-      // Estendi la linea verso i bordi dello schermo
-      Offset extendedStart;
-      Offset extendedEnd;
-
-      if (line.isVertical) {
-        extendedStart = Offset(screenStart.dx, 0);
-        extendedEnd = Offset(screenEnd.dx, size.height);
-      } else {
-        extendedStart = Offset(0, screenStart.dy);
-        extendedEnd = Offset(size.width, screenEnd.dy);
-      }
-
-      // Draw linea tratteggiata estesa
-      _drawDashedLine(canvas, extendedStart, extendedEnd, dashPaint);
-
-      // Draw linea solida nella zona di snap
-      canvas.drawLine(screenStart, screenEnd, paint);
-
-      // Draw cerchietti agli estremi
-      canvas.drawCircle(screenStart, 4, paint..style = PaintingStyle.fill);
-      canvas.drawCircle(screenEnd, 4, paint..style = PaintingStyle.fill);
-      paint.style = PaintingStyle.stroke;
-    }
-  }
-
-  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
-    const dashLength = 8.0;
-    const gapLength = 4.0;
-
-    final dx = end.dx - start.dx;
-    final dy = end.dy - start.dy;
-    final distance = (Offset(dx, dy)).distance;
-    final steps = (distance / (dashLength + gapLength)).floor();
-
-    for (int i = 0; i < steps; i++) {
-      final t1 = (i * (dashLength + gapLength)) / distance;
-      final t2 = (i * (dashLength + gapLength) + dashLength) / distance;
-
-      if (t1 < 1 && t2 <= 1) {
-        canvas.drawLine(
-          Offset(start.dx + dx * t1, start.dy + dy * t1),
-          Offset(start.dx + dx * t2, start.dy + dy * t2),
-          paint,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SnapLinesPainter oldDelegate) {
-    return snapLines != oldDelegate.snapLines ||
-        canvasScale != oldDelegate.canvasScale ||
-        canvasOffset != oldDelegate.canvasOffset;
   }
 }
 
@@ -1068,7 +426,7 @@ class _DarkOverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint =
         Paint()
-          ..color = Colors.black.withValues(alpha:  0.6)
+          ..color = Colors.black.withValues(alpha: 0.6)
           ..style = PaintingStyle.fill;
 
     // Create path for the entire overlay

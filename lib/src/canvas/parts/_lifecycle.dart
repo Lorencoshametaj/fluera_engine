@@ -18,7 +18,7 @@ extension on _NebulaCanvasScreenState {
   Future<void> _loadBackgroundImage() async {
     try {
       final NetworkImage provider = NetworkImage(widget.backgroundImageUrl!);
-      final ImageStream stream = provider.resolve(const ImageConfiguretion());
+      final ImageStream stream = provider.resolve(const ImageConfiguration());
       final Completer<ui.Image> completer = Completer();
 
       late ImageStreamListener listener;
@@ -51,8 +51,7 @@ extension on _NebulaCanvasScreenState {
           }
         });
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   /// 🎛️ Load brush settings persistenti dal servizio
@@ -401,7 +400,6 @@ extension on _NebulaCanvasScreenState {
         _displayCapabilities!.refreshRate,
       );
 
-
       // 🚀 Se 120Hz+, inizializza raw input processor
       if (_displayCapabilities!.refreshRate.value >= 120) {
         _rawInputProcessor120Hz = RawInputProcessor120Hz(
@@ -412,7 +410,6 @@ extension on _NebulaCanvasScreenState {
             // No debouncer notification in 120Hz mode (zero overhead)
           },
         );
-
       }
 
       // Riconfigura drawing handler esistente con nuove impostazioni
@@ -633,9 +630,7 @@ extension on _NebulaCanvasScreenState {
               } else {
                 loadedSyncRecordings.add(syncRecording);
               }
-
-            } catch (e) {
-            }
+            } catch (e) {}
           } else {
             // TODO: Handle download from strokesDataUrl if missing locally
           }
@@ -648,9 +643,7 @@ extension on _NebulaCanvasScreenState {
           _syncedRecordings = loadedSyncRecordings;
         });
       }
-
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   // ============================================================================
