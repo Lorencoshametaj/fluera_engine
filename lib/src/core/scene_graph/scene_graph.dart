@@ -49,6 +49,12 @@ class SceneGraph with SceneGraphObservable {
   /// Whether this scene graph has been disposed.
   bool _disposed = false;
 
+  /// Monotonically-incrementing version stamp. Bumped on every mutation.
+  int _version = 0;
+
+  /// Current version of the scene graph (for change detection).
+  int get version => _version;
+
   SceneGraph() : rootNode = GroupNode(id: '_root', name: 'Root');
 
   // ---------------------------------------------------------------------------
@@ -66,6 +72,7 @@ class SceneGraph with SceneGraphObservable {
     _assertNotDisposed();
     rootNode.add(layer);
     _registerSubtree(layer);
+    _version++;
     notifyNodeAdded(layer, rootNode.id);
   }
 
@@ -74,6 +81,7 @@ class SceneGraph with SceneGraphObservable {
     _assertNotDisposed();
     rootNode.insertAt(index, layer);
     _registerSubtree(layer);
+    _version++;
     notifyNodeAdded(layer, rootNode.id);
   }
 
@@ -83,6 +91,7 @@ class SceneGraph with SceneGraphObservable {
     final node = rootNode.removeById(layerId);
     if (node is LayerNode) {
       _unregisterSubtree(node);
+      _version++;
       notifyNodeRemoved(node, rootNode.id);
       return node;
     }
@@ -96,8 +105,10 @@ class SceneGraph with SceneGraphObservable {
   }
 
   /// Reorder layers.
-  void reorderLayers(int oldIndex, int newIndex) =>
-      rootNode.reorder(oldIndex, newIndex);
+  void reorderLayers(int oldIndex, int newIndex) {
+    rootNode.reorder(oldIndex, newIndex);
+    _version++;
+  }
 
   // ---------------------------------------------------------------------------
   // Global queries

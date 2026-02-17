@@ -72,7 +72,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
               child: IgnorePointer(
                 child: CustomPaint(
                   painter: DrawingPainter(
-                    completedStrokes: _cachedAllStrokes,
+                    sceneGraph: _layerController.sceneGraph,
                     completedShapes: _cachedAllShapes,
                     currentShape: currentShape,
                     canvasOffset: _canvasController.offset,

@@ -12,6 +12,11 @@ import '../optimization/tile_cache_manager.dart';
 import '../optimization/stroke_cache_manager.dart';
 import '../../core/models/canvas_layer.dart';
 import '../../canvas/infinite_canvas_controller.dart';
+import '../../core/scene_graph/scene_graph.dart';
+import '../../core/scene_graph/canvas_node.dart';
+import '../../core/nodes/stroke_node.dart';
+import '../../core/nodes/layer_node.dart';
+import '../../core/nodes/group_node.dart';
 
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
 import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
@@ -34,7 +39,6 @@ import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
 /// NOTA: Il current stroke is gestito da CurrentStrokePainter separato
 /// for performance ottimale (zero widget rebuild durante disegno)
 class DrawingPainter extends CustomPainter {
-  final List<ProStroke> completedStrokes;
   final List<GeometricShape> completedShapes;
   final GeometricShape? currentShape;
 
@@ -78,8 +82,14 @@ class DrawingPainter extends CustomPainter {
   // and repaints every pan/zoom frame (O(1) via cache hit)
   final InfiniteCanvasController? controller;
 
+  // 🌲 Scene graph: sole source of truth for strokes
+  final SceneGraph sceneGraph;
+
+  // 🌲 Cached materialized strokes (lazily computed once per paint frame)
+  List<ProStroke>? _materializedCache;
+  int _materializedVersion = -1;
+
   DrawingPainter({
-    required this.completedStrokes,
     required this.completedShapes,
     this.currentShape,
     required this.canvasOffset,
@@ -94,7 +104,37 @@ class DrawingPainter extends CustomPainter {
     this.layers, // 🎨 Per-layer blend mode
     this.eraserPreviewIds = const {}, // 🎯 Eraser preview
     this.controller, // 🚀 Viewport-level mode
+    required this.sceneGraph, // 🌲 Scene graph source (sole source of truth)
   }) : super(repaint: controller); // repaint on pan/zoom when controller set
+
+  /// 🌲 Effective strokes: materialized from the scene graph tree.
+  /// Cached per scene graph version — O(1) on cache hit.
+  List<ProStroke> get _effectiveStrokes {
+    if (_materializedCache != null &&
+        _materializedVersion == sceneGraph.version) {
+      return _materializedCache!;
+    }
+    // Walk scene graph and collect strokes from visible layers
+    final result = <ProStroke>[];
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      _collectStrokes(layer, result);
+    }
+    _materializedCache = result;
+    _materializedVersion = sceneGraph.version;
+    return result;
+  }
+
+  /// Recursively collect ProStroke instances from a node subtree.
+  static void _collectStrokes(CanvasNode node, List<ProStroke> result) {
+    if (node is StrokeNode) {
+      result.add(node.stroke);
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) _collectStrokes(child, result);
+      }
+    }
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -127,7 +167,7 @@ class DrawingPainter extends CustomPainter {
         adaptiveConfig?.tileCachingStrokeThreshold ?? 50;
     final useTileCaching =
         (adaptiveConfig?.enableTileCaching ?? false) &&
-        completedStrokes.length > tileCachingThreshold;
+        _effectiveStrokes.length > tileCachingThreshold;
 
     if (useTileCaching) {
       _paintWithTileCaching(canvas, viewport);
@@ -190,14 +230,14 @@ class DrawingPainter extends CustomPainter {
 
   /// Calculatates il bounding box di tutti gli strokes completati
   Rect? _calculateContentBounds() {
-    if (completedStrokes.isEmpty) return null;
+    if (_effectiveStrokes.isEmpty) return null;
 
     double minX = double.infinity;
     double minY = double.infinity;
     double maxX = double.negativeInfinity;
     double maxY = double.negativeInfinity;
 
-    for (final stroke in completedStrokes) {
+    for (final stroke in _effectiveStrokes) {
       final b = stroke.bounds;
       if (b == Rect.zero) continue;
       if (b.left < minX) minX = b.left;
@@ -216,7 +256,7 @@ class DrawingPainter extends CustomPainter {
       return spatialIndex!.queryVisibleStrokes(bounds);
     }
     // Fallback: filtra manualmente
-    return completedStrokes
+    return _effectiveStrokes
         .where((stroke) => stroke.bounds.overlaps(bounds))
         .toList();
   }
@@ -242,7 +282,7 @@ class DrawingPainter extends CustomPainter {
 
     // 🚀 VECTORIAL CACHE: replay cached strokes + draw only new ones
     // This avoids re-rendering all N strokes via BrushEngine on every paint()
-    final totalStrokes = completedStrokes.length;
+    final totalStrokes = _effectiveStrokes.length;
     final hasEraserPreview = eraserPreviewIds.isNotEmpty;
 
     // Cache invalidation: undo/delete (count decreased) or eraser preview active
@@ -270,7 +310,7 @@ class DrawingPainter extends CustomPainter {
       // 🚀 Incremental update: replay cache + draw only NEW strokes
       _strokeCache.drawCached(canvas);
 
-      final newStrokes = completedStrokes.sublist(
+      final newStrokes = _effectiveStrokes.sublist(
         _strokeCache.cachedStrokeCount,
       );
 
@@ -315,10 +355,10 @@ class DrawingPainter extends CustomPainter {
 
     // 📝 Full render: no usable cache — draw everything and cache it
     final strokes =
-        completedStrokes.length < 20
-            ? completedStrokes
+        _effectiveStrokes.length < 20
+            ? _effectiveStrokes
             : ViewportCuller.filterVisibleStrokesOptimized(
-              completedStrokes,
+              _effectiveStrokes,
               viewport,
               spatialIndex: spatialIndex,
             );
@@ -362,8 +402,8 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 🚀 Cache all strokes for next paint() (skip if eraser preview is active)
-    if (!hasEraserPreview && completedStrokes.length >= 5) {
-      _strokeCache.createCacheSynchronously(completedStrokes, (c, s) {
+    if (!hasEraserPreview && _effectiveStrokes.length >= 5) {
+      _strokeCache.createCacheSynchronously(_effectiveStrokes, (c, s) {
         final stroke = s as ProStroke;
         if (stroke.isFill) {
           _drawFillOverlay(c, stroke);
@@ -517,7 +557,8 @@ class DrawingPainter extends CustomPainter {
     // The parent Transform widget gestisce zoom/pan visivamente →
     // NESSUN repaint per offset/scale/viewportSize, a qualunque
     // number of strokes. I tile cached sono bitmap GPU-scaled.
-    return oldDelegate.completedStrokes != completedStrokes ||
+    // 🌲 Scene graph version-based change detection
+    return oldDelegate.sceneGraph.version != sceneGraph.version ||
         oldDelegate.completedShapes != completedShapes ||
         oldDelegate.currentShape != currentShape ||
         oldDelegate.layers != layers ||

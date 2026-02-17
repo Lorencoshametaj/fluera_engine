@@ -131,6 +131,9 @@ extension on _NebulaCanvasScreenState {
       _isTimeTravelMode = true;
     });
 
+    // 📸 Save live layers before time travel overwrites them
+    _savedLiveLayersBeforeTimeTravel = List.from(_layerController.layers);
+
     // 💾 Flush sessione corrente to disk (gli eventi sono ancora in-memory)
     final recorder = _timeTravelRecorder;
     if (recorder != null && recorder.hasEvents) {
@@ -206,12 +209,9 @@ extension on _NebulaCanvasScreenState {
     // Quando l'engine ricostruisce uno stato, swap le strokes nel painter
     _timeTravelEngine!.onStateChanged = () {
       if (!mounted) return;
+      // 🌲 Inject historical layers into LayerController → auto-invalidates SceneGraph
+      _layerController.clearAllAndLoadLayers(_timeTravelEngine!.currentLayers);
       setState(() {
-        _cachedAllStrokes =
-            _timeTravelEngine!.currentLayers
-                .where((l) => l.isVisible)
-                .expand((l) => l.strokes)
-                .toList();
         _cachedAllShapes =
             _timeTravelEngine!.currentLayers
                 .where((l) => l.isVisible)
@@ -257,7 +257,9 @@ extension on _NebulaCanvasScreenState {
       };
     }
 
-    // 🔄 Ripristina le strokes live dal LayerController
+    // 🔄 Restore live layers from before time travel
+    _layerController.clearAllAndLoadLayers(_savedLiveLayersBeforeTimeTravel);
+    _savedLiveLayersBeforeTimeTravel = const [];
     _refreshCachedLists();
 
     // 🖐️ Ripristina lo stato pan precedente

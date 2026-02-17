@@ -294,7 +294,6 @@ extension on _NebulaCanvasScreenState {
     // 🎬 Durante Time Travel, le strokes vengono dal engine, non dal controller
     if (_isTimeTravelMode && _timeTravelEngine != null) return;
 
-    _cachedAllStrokes = _layerController.getAllVisibleStrokes();
     _cachedAllShapes = _layerController.getAllVisibleShapes();
 
     // 🖼️ Sync images from layers (handles add, update, and remove from remote deltas)
@@ -334,7 +333,8 @@ extension on _NebulaCanvasScreenState {
 
     double maxX = 0, maxY = 0;
 
-    for (final stroke in _cachedAllStrokes) {
+    final allStrokes = _layerController.getAllVisibleStrokes();
+    for (final stroke in allStrokes) {
       final bounds = stroke.bounds;
       if (bounds.right.abs() > maxX) maxX = bounds.right.abs();
       if (bounds.bottom.abs() > maxY) maxY = bounds.bottom.abs();

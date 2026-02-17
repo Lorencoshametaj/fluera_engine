@@ -6,6 +6,7 @@ import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
 import '../rendering/optimization/spatial_index.dart';
+import '../core/scene_graph/scene_graph.dart';
 
 /// 🏗️ Abstract interface for layer management in the Nebula Engine SDK.
 ///
@@ -34,6 +35,9 @@ abstract class NebulaLayerController extends ChangeNotifier {
 
   /// Spatial index for fast hit-testing
   SpatialIndexManager get spatialIndex;
+
+  /// Scene graph for hierarchical rendering
+  SceneGraph get sceneGraph;
 
   // ============================================================================
   // LAYER MANAGEMENT

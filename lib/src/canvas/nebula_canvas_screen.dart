@@ -302,9 +302,12 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// Layer controller per gestire i layer
   late final LayerController _layerController;
 
-  /// 🔧 FIX ZOOM LAG: Cache delle liste strokes/shapes
-  List<ProStroke> _cachedAllStrokes = const [];
+  /// 🔧 FIX ZOOM LAG: Cache delle liste shapes
   List<GeometricShape> _cachedAllShapes = const [];
+
+  /// ⏱️ Snapshot of live layers before entering Time Travel
+  /// Restored on exit to bring the canvas back to the live state.
+  List<CanvasLayer> _savedLiveLayersBeforeTimeTravel = const [];
 
   /// Layer panel key per controllare apertura/chiusura
   final GlobalKey<LayerPanelState> _layerPanelKey = GlobalKey();

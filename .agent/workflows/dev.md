@@ -42,7 +42,8 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 ### Enterprise File Organization Standards
 
 #### Max File Size
-- **Hard limit: 500 LOC per file**. If a file exceeds 500 lines, decompose it.
+- **Soft limit: 500 LOC**. Preferred size for maintainability.
+- **Hard limit: 1000 LOC**. If a file exceeds 1000 lines, it MUST be decomposed.
 - **Preferred: 200–400 LOC**. Each file should have a single, clear responsibility.
 - When decomposing, use Dart `part`/`part of` with extension methods on the State class, or extract into standalone classes/helpers.
 
