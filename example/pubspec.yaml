@@ -1,0 +1,15 @@
+name: nebula_engine_example
+description: Demo app for the Nebula Engine canvas SDK.
+
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.7.0
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  nebula_engine:
+    path: ../

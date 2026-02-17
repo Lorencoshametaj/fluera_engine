@@ -1,0 +1,185 @@
+import './group_node.dart';
+import '../scene_graph/node_visitor.dart';
+import './stroke_node.dart';
+import './shape_node.dart';
+import './text_node.dart';
+import './image_node.dart';
+import '../../drawing/models/pro_drawing_point.dart';
+import '../models/shape_type.dart';
+import '../models/digital_text_element.dart';
+import '../models/image_element.dart';
+
+/// A [GroupNode] that represents a canvas layer.
+///
+/// Layers are the top-level grouping mechanism in the scene graph.
+/// Each layer is a direct child of the root node. A [LayerNode] provides
+/// typed convenience getters to query its children by element type,
+/// preserving the familiar API while storing everything in a unified
+/// children list with proper z-ordering.
+class LayerNode extends GroupNode {
+  LayerNode({
+    required super.id,
+    super.name = 'Layer',
+    super.localTransform,
+    super.opacity,
+    super.blendMode,
+    super.isVisible,
+    super.isLocked,
+  });
+
+  // ---------------------------------------------------------------------------
+  // Typed convenience getters (read-only views)
+  // ---------------------------------------------------------------------------
+
+  /// All stroke nodes in this layer.
+  List<StrokeNode> get strokeNodes => childrenOfType<StrokeNode>();
+
+  /// All shape nodes in this layer.
+  List<ShapeNode> get shapeNodes => childrenOfType<ShapeNode>();
+
+  /// All text nodes in this layer.
+  List<TextNode> get textNodes => childrenOfType<TextNode>();
+
+  /// All image nodes in this layer.
+  List<ImageNode> get imageNodes => childrenOfType<ImageNode>();
+
+  /// All ProStroke objects in this layer (convenience for rendering).
+  List<ProStroke> get strokes => strokeNodes.map((n) => n.stroke).toList();
+
+  /// All GeometricShape objects in this layer.
+  List<GeometricShape> get shapes => shapeNodes.map((n) => n.shape).toList();
+
+  /// All DigitalTextElement objects in this layer.
+  List<DigitalTextElement> get texts =>
+      textNodes.map((n) => n.textElement).toList();
+
+  /// All ImageElement objects in this layer.
+  List<ImageElement> get images =>
+      imageNodes.map((n) => n.imageElement).toList();
+
+  // ---------------------------------------------------------------------------
+  // Typed add helpers
+  // ---------------------------------------------------------------------------
+
+  /// Add a stroke to this layer. Returns the created StrokeNode.
+  StrokeNode addStroke(ProStroke stroke) {
+    final node = StrokeNode(id: stroke.id, stroke: stroke);
+    add(node);
+    return node;
+  }
+
+  /// Add a shape to this layer. Returns the created ShapeNode.
+  ShapeNode addShape(GeometricShape shape) {
+    final node = ShapeNode(id: shape.id, shape: shape);
+    add(node);
+    return node;
+  }
+
+  /// Add a text element to this layer. Returns the created TextNode.
+  TextNode addText(DigitalTextElement text) {
+    final node = TextNode(id: text.id, textElement: text);
+    add(node);
+    return node;
+  }
+
+  /// Add an image element to this layer. Returns the created ImageNode.
+  ImageNode addImage(ImageElement image) {
+    final node = ImageNode(id: image.id, imageElement: image);
+    add(node);
+    return node;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Typed remove helpers
+  // ---------------------------------------------------------------------------
+
+  /// Remove a stroke by its ID. Returns true if found and removed.
+  bool removeStrokeById(String strokeId) {
+    return removeById(strokeId) != null;
+  }
+
+  /// Remove a shape by its ID.
+  bool removeShapeById(String shapeId) {
+    return removeById(shapeId) != null;
+  }
+
+  /// Remove a text element by its ID.
+  bool removeTextById(String textId) {
+    return removeById(textId) != null;
+  }
+
+  /// Remove an image element by its ID.
+  bool removeImageById(String imageId) {
+    return removeById(imageId) != null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Typed find helpers
+  // ---------------------------------------------------------------------------
+
+  /// Find a stroke node by its stroke ID.
+  StrokeNode? findStrokeNode(String strokeId) {
+    final node = findChild(strokeId);
+    return node is StrokeNode ? node : null;
+  }
+
+  /// Find a shape node by its shape ID.
+  ShapeNode? findShapeNode(String shapeId) {
+    final node = findChild(shapeId);
+    return node is ShapeNode ? node : null;
+  }
+
+  /// Find a text node by its text element ID.
+  TextNode? findTextNode(String textId) {
+    final node = findChild(textId);
+    return node is TextNode ? node : null;
+  }
+
+  /// Find an image node by its image element ID.
+  ImageNode? findImageNode(String imageId) {
+    final node = findChild(imageId);
+    return node is ImageNode ? node : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Update helpers
+  // ---------------------------------------------------------------------------
+
+  /// Update a text element in-place.
+  bool updateText(DigitalTextElement updatedText) {
+    final node = findTextNode(updatedText.id);
+    if (node == null) return false;
+    node.textElement = updatedText;
+    return true;
+  }
+
+  /// Update an image element in-place.
+  bool updateImage(ImageElement updatedImage) {
+    final node = findImageNode(updatedImage.id);
+    if (node == null) return false;
+    node.imageElement = updatedImage;
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Counts
+  // ---------------------------------------------------------------------------
+
+  /// Total element count (all types).
+  int get elementCount => childCount;
+
+  // ---------------------------------------------------------------------------
+  // Serialization
+  // ---------------------------------------------------------------------------
+
+  @override
+  Map<String, dynamic> toJson() {
+    final json = baseToJson();
+    json['nodeType'] = 'layer';
+    json['children'] = children.map((c) => c.toJson()).toList();
+    return json;
+  }
+
+  @override
+  R accept<R>(NodeVisitor<R> visitor) => visitor.visitLayer(this);
+}

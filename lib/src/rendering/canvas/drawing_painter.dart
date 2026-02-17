@@ -1,0 +1,550 @@
+import 'package:flutter/material.dart';
+import 'dart:ui' as ui;
+import '../../drawing/models/pro_drawing_point.dart';
+import '../../drawing/models/pro_brush_settings.dart';
+import '../../core/models/shape_type.dart';
+import '../../config/adaptive_rendering_config.dart'; // 🎯 Adaptive LOD per 120Hz
+import './shape_painter.dart';
+import '../../drawing/brushes/brushes.dart';
+import '../optimization/viewport_culler.dart';
+import '../optimization/spatial_index.dart';
+import '../optimization/tile_cache_manager.dart';
+import '../optimization/stroke_cache_manager.dart';
+import '../../core/models/canvas_layer.dart';
+import '../../canvas/infinite_canvas_controller.dart';
+
+import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
+
+/// 🎨 DRAWING PAINTER - Layer disegni completati
+///
+/// RESPONSIBILITIES:
+/// - ✅ Rendering of all the completed strokes (strokes)
+/// - ✅ Rendering di tutte le forme geometriche (shapes)
+/// - ✅ Rendering della current shape in preview
+/// - 🚀 Viewport culling: draw ONLY visible elements
+/// - 🚀 QuadTree per 10k+ strokes: query O(log n)
+///
+/// ARCHITETTURA (Viewport-Level Mode):
+/// - 🚀 Positionto a livello viewport (fuori da Transform)
+/// - 🚀 repaint: controller → paint() su ogni pan/zoom frame
+/// - 🚀 Costo per-frame: O(1) via cache hit (drawPicture)
+/// - 🚀 RepaintBoundary texture = viewport size (~20MB vs ~380MB)
+///
+/// NOTA: Il current stroke is gestito da CurrentStrokePainter separato
+/// for performance ottimale (zero widget rebuild durante disegno)
+class DrawingPainter extends CustomPainter {
+  final List<ProStroke> completedStrokes;
+  final List<GeometricShape> completedShapes;
+  final GeometricShape? currentShape;
+
+  // 🚀 Parametri viewport per culling
+  final Offset canvasOffset;
+  final double canvasScale;
+  final Size viewportSize;
+
+  // ✂️ Parametri per clipping
+  final bool enableClipping;
+  final Size canvasSize;
+
+  // 🚀 Spatial Index per query O(log n)
+  final SpatialIndexManager? spatialIndex;
+
+  // 🚀 Device pixel ratio per HiDPI
+  final double devicePixelRatio;
+
+  // 🎨 Phase 3: Dirty Region Tracker for incremental rendering
+  final DirtyRegionTracker? dirtyRegionTracker;
+
+  // 🚀 TILE CACHING: Active after 50+ completed strokes
+  // Below this threshold, direct rendering (StrokeCacheManager) is faster
+  static const int _tileCachingThreshold = 50;
+
+  // 🚀 Tile cache manager (singleton per persistenza tra paint)
+  static TileCacheManager? _tileCacheManager;
+
+  // 🚀 Vectorial cache: replay cached strokes as Picture (O(1))
+  static final StrokeCacheManager _strokeCache = StrokeCacheManager();
+
+  // 🎯 Adaptive rendering config per 120Hz support
+  final AdaptiveRenderingConfig? adaptiveConfig;
+
+  // 🎨 Per-layer blend mode: visible layers for per-layer compositing
+  final List<CanvasLayer>? layers;
+
+  // 🎯 Eraser preview: stroke IDs currently under the eraser cursor
+  final Set<String> eraserPreviewIds;
+
+  // 🚀 Viewport-level controller: when set, painter applies transform itself
+  // and repaints every pan/zoom frame (O(1) via cache hit)
+  final InfiniteCanvasController? controller;
+
+  DrawingPainter({
+    required this.completedStrokes,
+    required this.completedShapes,
+    this.currentShape,
+    required this.canvasOffset,
+    required this.canvasScale,
+    required this.viewportSize,
+    this.enableClipping = false,
+    this.canvasSize = const Size(100000, 100000),
+    this.spatialIndex,
+    this.devicePixelRatio = 1.0,
+    this.dirtyRegionTracker, // Phase 3
+    this.adaptiveConfig, // 🎯 120Hz support
+    this.layers, // 🎨 Per-layer blend mode
+    this.eraserPreviewIds = const {}, // 🎯 Eraser preview
+    this.controller, // 🚀 Viewport-level mode
+  }) : super(repaint: controller); // repaint on pan/zoom when controller set
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // ✂️ Applica clipping se abilitato (per editing immagini)
+    if (enableClipping) {
+      canvas.clipRect(Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height));
+    }
+
+    // 🚀 VIEWPORT-LEVEL MODE: applica transform e usa size come viewport
+    final isViewportLevel = controller != null;
+    final effectiveOffset = isViewportLevel ? controller!.offset : canvasOffset;
+    final effectiveScale = isViewportLevel ? controller!.scale : canvasScale;
+    final effectiveViewportSize = isViewportLevel ? size : viewportSize;
+
+    if (isViewportLevel) {
+      canvas.save();
+      canvas.translate(effectiveOffset.dx, effectiveOffset.dy);
+      canvas.scale(effectiveScale);
+    }
+
+    // 🚀 VIEWPORT CULLING: calculate current viewport
+    final viewport = ViewportCuller.calculateViewport(
+      effectiveViewportSize,
+      effectiveOffset,
+      effectiveScale,
+    );
+
+    // 🚀 TILE CACHING: attivo per canvases con molti strokes
+    final useTileCaching =
+        (adaptiveConfig?.enableTileCaching ?? false) &&
+        completedStrokes.length > _tileCachingThreshold;
+
+    if (useTileCaching) {
+      _paintWithTileCaching(canvas, viewport);
+    } else {
+      _paintDirect(canvas, viewport);
+    }
+
+    // Draw shapes (sempre rendering diretto - tipicamente poche)
+    _paintShapes(canvas, viewport);
+
+    // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
+    dirtyRegionTracker?.clearDirty();
+
+    if (isViewportLevel) {
+      canvas.restore();
+    }
+  }
+
+  /// 🚀 TILE CACHING: rasterize ALL tiles with content
+  ///
+  /// ARCHITETTURA:
+  /// - paint() chiamato SOLO su cambio strokes (cached child di AnimatedBuilder)
+  /// - Calculate content bounds → rasterizza tutti i tile con strokes
+  /// - Dipinge TUTTI i tile cached (GPU composita durante pan/zoom)
+  /// - Se troppi tile (>maxCachedTiles) → fallback a StrokeCacheManager
+  void _paintWithTileCaching(Canvas canvas, Rect viewport) {
+    _tileCacheManager ??= TileCacheManager.instance;
+
+    // � Calculate bounding box of ALL content
+    final contentBounds = _calculateContentBounds();
+    if (contentBounds == null) return;
+
+    // 🗺️ Ottieni TUTTI i tile che contengono strokes
+    final allContentTiles = _tileCacheManager!.getTilesForBounds(contentBounds);
+
+    // 🛡️ FALLBACK: se troppi tile, usa cache vettoriale (sempre funzionante)
+    if (allContentTiles.length > TileCacheManager.maxCachedTiles) {
+      _paintDirect(canvas, viewport);
+      return;
+    }
+
+    // 🚀 Rasterize SOLO tile dirty o nuovi
+    for (final (tileX, tileY) in allContentTiles) {
+      if (_tileCacheManager!.isTileDirty(tileX, tileY) ||
+          !_tileCacheManager!.hasTileCached(tileX, tileY)) {
+        final tileBounds = _tileCacheManager!.getTileBounds(tileX, tileY);
+        final strokesInTile = _getStrokesInBounds(tileBounds);
+        _tileCacheManager!.rasterizeTile(
+          tileX,
+          tileY,
+          strokesInTile,
+          devicePixelRatio,
+        );
+      }
+    }
+
+    // 🎨 Dipinge TUTTI i tile cached
+    _tileCacheManager!.paintAllCachedTiles(canvas);
+  }
+
+  /// Calculatates il bounding box di tutti gli strokes completati
+  Rect? _calculateContentBounds() {
+    if (completedStrokes.isEmpty) return null;
+
+    double minX = double.infinity;
+    double minY = double.infinity;
+    double maxX = double.negativeInfinity;
+    double maxY = double.negativeInfinity;
+
+    for (final stroke in completedStrokes) {
+      final b = stroke.bounds;
+      if (b == Rect.zero) continue;
+      if (b.left < minX) minX = b.left;
+      if (b.top < minY) minY = b.top;
+      if (b.right > maxX) maxX = b.right;
+      if (b.bottom > maxY) maxY = b.bottom;
+    }
+
+    if (minX == double.infinity) return null;
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
+  }
+
+  /// Gets strokes che intersecano un bounds (usa QuadTree se disponibile)
+  List<ProStroke> _getStrokesInBounds(Rect bounds) {
+    if (spatialIndex != null && spatialIndex!.isBuilt) {
+      return spatialIndex!.queryVisibleStrokes(bounds);
+    }
+    // Fallback: filtra manualmente
+    return completedStrokes
+        .where((stroke) => stroke.bounds.overlaps(bounds))
+        .toList();
+  }
+
+  /// 🚀 Rendering con VIEWPORT CULLING + LOD
+  ///
+  /// - < 20 strokes: draw all (culling overhead > rendering them all)
+  /// - ≥ 20 strokes: filter only visible in the viewport (with 1000px prefetch)
+  /// - zoom < 50%: simplify points via Douglas-Peucker (up to 20x less work)
+  void _paintDirect(Canvas canvas, Rect viewport) {
+    // 🎨 PER-LAYER BLEND MODE: if any layer has non-default compositing,
+    // render each layer inside its own saveLayer() group.
+    final hasLayerCompositing =
+        layers != null &&
+        layers!.any(
+          (l) => l.blendMode != ui.BlendMode.srcOver || l.opacity < 1.0,
+        );
+
+    if (hasLayerCompositing && layers != null) {
+      _paintPerLayer(canvas, viewport);
+      return;
+    }
+
+    // 🚀 VECTORIAL CACHE: replay cached strokes + draw only new ones
+    // This avoids re-rendering all N strokes via BrushEngine on every paint()
+    final totalStrokes = completedStrokes.length;
+    final hasEraserPreview = eraserPreviewIds.isNotEmpty;
+
+    // Cache invalidation: undo/delete (count decreased) or eraser preview active
+    if (totalStrokes < _strokeCache.cachedStrokeCount || hasEraserPreview) {
+      _strokeCache.invalidateCache();
+    }
+
+    if (!hasEraserPreview && _strokeCache.isCacheValid(totalStrokes)) {
+      // ✅ Perfect cache hit: replay all strokes in O(1)
+      _strokeCache.drawCached(canvas);
+      return;
+    }
+
+    if (!hasEraserPreview && _strokeCache.hasCacheForStrokes(totalStrokes)) {
+      // 🚀 Incremental update: replay cache + draw only NEW strokes
+      _strokeCache.drawCached(canvas);
+
+      final newStrokes = completedStrokes.sublist(
+        _strokeCache.cachedStrokeCount,
+      );
+
+      // Draw new strokes directly on canvas
+      for (final stroke in newStrokes) {
+        if (stroke.isFill) {
+          _drawFillOverlay(canvas, stroke);
+        } else {
+          _drawStroke(
+            canvas,
+            stroke.points,
+            stroke.color,
+            stroke.baseWidth,
+            stroke.penType,
+            stroke.settings,
+          );
+        }
+      }
+
+      // Update cache to include the new strokes
+      _strokeCache.updateCache(
+        newStrokes,
+        (c, s) {
+          final stroke = s as ProStroke;
+          if (stroke.isFill) {
+            _drawFillOverlay(c, stroke);
+          } else {
+            _drawStroke(
+              c,
+              stroke.points,
+              stroke.color,
+              stroke.baseWidth,
+              stroke.penType,
+              stroke.settings,
+            );
+          }
+        },
+        Size.zero, // Size not used by StrokeCacheManager
+      );
+      return;
+    }
+
+    // 📝 Full render: no usable cache — draw everything and cache it
+    final strokes =
+        completedStrokes.length < 20
+            ? completedStrokes
+            : ViewportCuller.filterVisibleStrokesOptimized(
+              completedStrokes,
+              viewport,
+              spatialIndex: spatialIndex,
+            );
+
+    for (final stroke in strokes) {
+      final isPreview = eraserPreviewIds.contains(stroke.id);
+      if (stroke.isFill) {
+        _drawFillOverlay(canvas, stroke);
+      } else if (isPreview) {
+        // 🎯 Eraser preview: composite body + tint in one saveLayer
+        // instead of 2× separate drawStroke calls.
+        final bounds = stroke.bounds.inflate(stroke.baseWidth * 2);
+        canvas.saveLayer(bounds, Paint()..color = const Color(0x66FFFFFF));
+        _drawStroke(
+          canvas,
+          stroke.points,
+          stroke.color,
+          stroke.baseWidth,
+          stroke.penType,
+          stroke.settings,
+        );
+        // Red tint overlay inside same layer
+        canvas.drawRect(bounds, Paint()..color = const Color(0x40FF0000));
+        canvas.restore();
+      } else {
+        _drawStroke(
+          canvas,
+          stroke.points,
+          stroke.color,
+          stroke.baseWidth,
+          stroke.penType,
+          stroke.settings,
+        );
+      }
+    }
+
+    // 🚀 Cache all strokes for next paint() (skip if eraser preview is active)
+    if (!hasEraserPreview && completedStrokes.length >= 5) {
+      _strokeCache.createCacheSynchronously(completedStrokes, (c, s) {
+        final stroke = s as ProStroke;
+        if (stroke.isFill) {
+          _drawFillOverlay(c, stroke);
+        } else {
+          _drawStroke(
+            c,
+            stroke.points,
+            stroke.color,
+            stroke.baseWidth,
+            stroke.penType,
+            stroke.settings,
+          );
+        }
+      }, Size.zero);
+    }
+  }
+
+  /// 🎨 Render strokes grouped by layer, each with its own blend mode
+  void _paintPerLayer(Canvas canvas, Rect viewport) {
+    for (final layer in layers!) {
+      if (!layer.isVisible || layer.strokes.isEmpty) continue;
+
+      final strokes =
+          layer.strokes.length < 20
+              ? layer.strokes
+              : ViewportCuller.filterVisibleStrokesOptimized(
+                layer.strokes,
+                viewport,
+                spatialIndex: spatialIndex,
+              );
+
+      if (strokes.isEmpty) continue;
+
+      // saveLayer() creates an offscreen buffer for compositing
+      final layerPaint =
+          Paint()
+            ..blendMode = layer.blendMode
+            ..color = Color.fromARGB(
+              (layer.opacity * 255).round(),
+              255,
+              255,
+              255,
+            );
+      canvas.saveLayer(null, layerPaint);
+
+      for (final stroke in strokes) {
+        final isPreview = eraserPreviewIds.contains(stroke.id);
+        if (stroke.isFill) {
+          _drawFillOverlay(canvas, stroke);
+        } else if (isPreview) {
+          // 🎯 Eraser preview: composite body + tint in one saveLayer
+          final bounds = stroke.bounds.inflate(stroke.baseWidth * 2);
+          canvas.saveLayer(bounds, Paint()..color = const Color(0x66FFFFFF));
+          _drawStroke(
+            canvas,
+            stroke.points,
+            stroke.color,
+            stroke.baseWidth,
+            stroke.penType,
+            stroke.settings,
+          );
+          canvas.drawRect(bounds, Paint()..color = const Color(0x40FF0000));
+          canvas.restore();
+        } else {
+          _drawStroke(
+            canvas,
+            stroke.points,
+            stroke.color,
+            stroke.baseWidth,
+            stroke.penType,
+            stroke.settings,
+          );
+        }
+      }
+
+      canvas.restore();
+    }
+  }
+
+  /// Draws geometric shapes
+  void _paintShapes(Canvas canvas, Rect viewport) {
+    // Filter shapes visibili
+    final visibleShapes = ViewportCuller.filterVisibleShapesOptimized(
+      completedShapes,
+      viewport,
+      spatialIndex: spatialIndex,
+    );
+
+    // Draw tutte the geometric shapes completate (SOLO visibili)
+    for (final shape in visibleShapes) {
+      ShapePainter.drawShape(canvas, shape);
+    }
+
+    // Draw la current shape in preview (sempre visibile se presente)
+    if (currentShape != null) {
+      ShapePainter.drawShape(canvas, currentShape!, isPreview: true);
+    }
+  }
+
+  /// 🪣 Draw fill overlay as raster image at its canvas-space bounds
+  void _drawFillOverlay(Canvas canvas, ProStroke stroke) {
+    if (stroke.fillOverlay == null || stroke.fillBounds == null) return;
+    final paint = Paint()..filterQuality = FilterQuality.low;
+    canvas.drawImageRect(
+      stroke.fillOverlay!,
+      Rect.fromLTWH(
+        0,
+        0,
+        stroke.fillOverlay!.width.toDouble(),
+        stroke.fillOverlay!.height.toDouble(),
+      ),
+      stroke.fillBounds!,
+      paint,
+    );
+  }
+
+  void _drawStroke(
+    Canvas canvas,
+    List<ProDrawingPoint> points,
+    Color color,
+    double baseWidth,
+    ProPenType penType,
+    ProBrushSettings settings,
+  ) {
+    BrushEngine.renderStroke(
+      canvas,
+      points,
+      color,
+      baseWidth,
+      penType,
+      settings,
+    );
+  }
+
+  @override
+  bool shouldRepaint(DrawingPainter oldDelegate) {
+    // 🎨 Phase 3: If using incremental rendering, check dirty regions
+    if (dirtyRegionTracker != null && dirtyRegionTracker!.hasDirtyRegions) {
+      final viewport = ViewportCuller.calculateViewport(
+        viewportSize,
+        canvasOffset,
+        canvasScale,
+      );
+
+      if (dirtyRegionTracker!.shouldRepaint(viewport)) {
+        return true;
+      }
+    }
+
+    // 🚀 Repaint SOLO se strokes/shapes cambiano (add/remove)
+    // The parent Transform widget gestisce zoom/pan visivamente →
+    // NESSUN repaint per offset/scale/viewportSize, a qualunque
+    // number of strokes. I tile cached sono bitmap GPU-scaled.
+    return oldDelegate.completedStrokes != completedStrokes ||
+        oldDelegate.completedShapes != completedShapes ||
+        oldDelegate.currentShape != currentShape ||
+        oldDelegate.layers != layers ||
+        oldDelegate.eraserPreviewIds != eraserPreviewIds;
+  }
+
+  /// 🚀 Incremental update: overlay new stroke on cached tiles
+  /// Falls back to full invalidation for tiles not yet cached
+  static void incrementalUpdateForStroke(
+    ProStroke stroke,
+    double devicePixelRatio,
+  ) {
+    if (_tileCacheManager == null) return;
+    final bounds = stroke.bounds;
+    if (bounds == Rect.zero) return;
+
+    for (final (tileX, tileY) in _tileCacheManager!.getTilesForBounds(bounds)) {
+      // Prova incremental update (overlay sul bitmap esistente)
+      final success = _tileCacheManager!.incrementalUpdateTile(
+        tileX,
+        tileY,
+        stroke,
+        devicePixelRatio,
+      );
+      // If fallisce (tile non in cache), marca dirty per full rasterization
+      if (!success) {
+        _tileCacheManager!.invalidateTile(tileX, tileY);
+      }
+    }
+  }
+
+  /// 🚀 Invalidate tile coinvolti da uno stroke (chiamare dopo add/remove)
+  static void invalidateTilesForStroke(ProStroke stroke) {
+    _tileCacheManager?.invalidateTilesForStroke(stroke);
+  }
+
+  /// 🚀 Invalidate tutti i tile (chiamare dopo undo completo o clear)
+  static void invalidateAllTiles() {
+    _tileCacheManager?.invalidateAll();
+    _strokeCache.invalidateCache(); // Also invalidate vectorial cache
+  }
+
+  /// 🚀 Pulisce la cache (chiamare when esce dal canvas)
+  static void clearTileCache() {
+    _tileCacheManager?.clear();
+    _strokeCache.invalidateCache(); // Also clear vectorial cache
+  }
+}

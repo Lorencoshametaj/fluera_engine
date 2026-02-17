@@ -1,0 +1,49 @@
+group 'com.nebulaengine.nebula_engine'
+version '1.0'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'com.nebulaengine.nebula_engine'
+    compileSdk 34
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    defaultConfig {
+        minSdk 21
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+}
