@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../../nebula_canvas_screen.dart';
 
 /// 🎯 Menus & Panels — selection actions, image actions, layer panel, Phase 2 stubs.
 /// Extracted from _NebulaCanvasScreenState._buildImpl

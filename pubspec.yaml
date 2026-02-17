@@ -39,3 +39,4 @@ flutter:
         pluginClass: NebulaEnginePlugin
   assets:
     - assets/textures/
+    - assets/textures/images/

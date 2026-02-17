@@ -5,6 +5,7 @@ import '../../drawing/models/pro_brush_settings.dart';
 import '../../drawing/brushes/brushes.dart';
 import '../../drawing/filters/predictive_renderer.dart';
 import '../../tools/ruler/ruler_guide_system.dart';
+import '../../canvas/infinite_canvas_controller.dart';
 
 /// 🚀 CURRENT STROKE PAINTER - Layer ottimizzato per current stroke
 ///
@@ -34,6 +35,9 @@ class CurrentStrokePainter extends CustomPainter {
 
   // 🪞 Live symmetry preview
   final RulerGuideSystem? guideSystem;
+
+  // 🚀 Viewport-level mode: apply canvas transform inside paint()
+  final InfiniteCanvasController? controller;
 
   // 🚀 Predictive renderer per anti-lag (solo 60Hz mode)
   static final PredictiveRenderer _predictor = PredictiveRenderer(
@@ -80,6 +84,7 @@ class CurrentStrokePainter extends CustomPainter {
     this.canvasSize = const Size(100000, 100000),
     this.enablePredictive = true,
     this.guideSystem,
+    this.controller,
   }) : super(repaint: strokeNotifier);
 
   /// Style hash to detect when cached picture must be invalidated.
@@ -95,6 +100,14 @@ class CurrentStrokePainter extends CustomPainter {
       _predictor.reset();
       _invalidateCache();
       return;
+    }
+
+    // 🚀 VIEWPORT-LEVEL MODE: apply canvas transform
+    final isViewportLevel = controller != null;
+    if (isViewportLevel) {
+      canvas.save();
+      canvas.translate(controller!.offset.dx, controller!.offset.dy);
+      canvas.scale(controller!.scale);
     }
 
     // ✂️ Applica clipping se abilitato (per editing immagini)
@@ -140,6 +153,11 @@ class CurrentStrokePainter extends CustomPainter {
           settings,
         );
       }
+    }
+
+    // 🚀 Restore canvas if in viewport-level mode
+    if (isViewportLevel) {
+      canvas.restore();
     }
   }
 
@@ -272,14 +290,8 @@ class CurrentStrokePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CurrentStrokePainter oldDelegate) {
-    return oldDelegate.penType != penType ||
-        oldDelegate.color != color ||
-        oldDelegate.width != width ||
-        oldDelegate.settings != settings ||
-        oldDelegate.enableClipping != enableClipping ||
-        oldDelegate.guideSystem?.symmetryEnabled !=
-            guideSystem?.symmetryEnabled ||
-        oldDelegate.guideSystem?.symmetrySegments !=
-            guideSystem?.symmetrySegments;
+    // Always repaint when rebuilt — rebuilds are controlled by
+    // ValueListenableBuilder (only fires on stroke data changes).
+    return true;
   }
 }

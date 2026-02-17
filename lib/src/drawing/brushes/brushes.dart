@@ -17,3 +17,6 @@ export './pencil_brush.dart';
 export './highlighter_brush.dart';
 export './brush_engine.dart';
 export './brush_texture.dart';
+export './watercolor_brush.dart';
+export './marker_brush.dart';
+export './charcoal_brush.dart';

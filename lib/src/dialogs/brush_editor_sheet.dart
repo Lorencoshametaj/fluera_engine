@@ -210,6 +210,9 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
     ProPenType.fountain => 'Fountain Pen',
     ProPenType.pencil => 'Pencil',
     ProPenType.highlighter => 'Highlighter',
+    ProPenType.watercolor => 'Watercolor',
+    ProPenType.marker => 'Marker',
+    ProPenType.charcoal => 'Charcoal',
   };
 
   void _showSaveDialog(BuildContext context, bool isDark) {

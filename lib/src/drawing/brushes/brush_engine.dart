@@ -6,6 +6,9 @@ import '../models/pro_drawing_point.dart';
 import '../../rendering/shaders/shader_brush_service.dart';
 import '../../rendering/shaders/shader_stamp_renderer.dart';
 import '../../rendering/shaders/shader_texture_renderer.dart';
+import '../../rendering/shaders/shader_watercolor_renderer.dart';
+import '../../rendering/shaders/shader_marker_renderer.dart';
+import '../../rendering/shaders/shader_charcoal_renderer.dart';
 import './brushes.dart';
 
 /// 🎨 Unified Brush Engine — Single point of dispatch
@@ -264,6 +267,50 @@ class BrushEngine {
             opacity: settings.highlighterOpacity,
             widthMultiplier: settings.highlighterWidthMultiplier,
           );
+        case ProPenType.watercolor:
+          final wSvc = ShaderBrushService.instance;
+          if (wSvc.isAvailable && wSvc.watercolorShader != null) {
+            wSvc.renderWatercolorPro(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+              spread: settings.watercolorSpread,
+            );
+          } else {
+            WatercolorBrush.drawStroke(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+            );
+          }
+        case ProPenType.marker:
+          final mSvc = ShaderBrushService.instance;
+          if (mSvc.isAvailable && mSvc.markerShader != null) {
+            mSvc.renderMarkerPro(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+              flatness: settings.markerFlatness,
+            );
+          } else {
+            MarkerBrush.drawStroke(canvas, effectivePoints, color, baseWidth);
+          }
+        case ProPenType.charcoal:
+          final cSvc = ShaderBrushService.instance;
+          if (cSvc.isAvailable && cSvc.charcoalShader != null) {
+            cSvc.renderCharcoalPro(
+              canvas,
+              effectivePoints,
+              color,
+              baseWidth,
+              grain: settings.charcoalGrain,
+            );
+          } else {
+            CharcoalBrush.drawStroke(canvas, effectivePoints, color, baseWidth);
+          }
       }
     }
 
@@ -329,7 +376,7 @@ class BrushEngine {
     final widthScale = (baseWidth / 3.0).clamp(0.5, 4.0);
     final totalScale = typeScale * widthScale;
 
-    // Direction-following rotation + random offset
+    // Rotation based on textureRotationMode
     final firstPos =
         points.first is Offset
             ? points.first as Offset
@@ -338,15 +385,25 @@ class BrushEngine {
         points.last is Offset
             ? points.last as Offset
             : (points.last as ProDrawingPoint).position;
-    final delta = lastPos - firstPos;
-    final strokeAngle =
-        delta.distance > 1.0 ? math.atan2(delta.dy, delta.dx) : 0.0;
 
     final rng = math.Random(firstPos.dx.toInt() ^ firstPos.dy.toInt());
     final offsetX = rng.nextDouble() * textureImage.width;
     final offsetY = rng.nextDouble() * textureImage.height;
-    final jitter = (rng.nextDouble() - 0.5) * 0.174; // ±5°
-    final rotation = strokeAngle + jitter;
+
+    double rotation;
+    switch (settings.textureRotationMode) {
+      case 'fixed':
+        rotation = 0.0;
+      case 'random':
+        rotation = rng.nextDouble() * math.pi * 2;
+      case 'followStroke':
+      default:
+        final delta = lastPos - firstPos;
+        final strokeAngle =
+            delta.distance > 1.0 ? math.atan2(delta.dy, delta.dx) : 0.0;
+        final jitter = (rng.nextDouble() - 0.5) * 0.174; // ±5°
+        rotation = strokeAngle + jitter;
+    }
 
     final invScale = 1.0 / totalScale;
     final cosR = math.cos(rotation) * invScale;

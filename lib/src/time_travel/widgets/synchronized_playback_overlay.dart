@@ -410,11 +410,11 @@ class _SyncedStrokesPainter extends CustomPainter {
     // ⚠️ Clamp to ensure opacity is always in the 0.0-1.0 range
     final glowColor =
         isGhost
-            ? Colors.blue.withValues(alpha: 
-              ghostOpacity.clamp(0.0, 1.0),
+            ? Colors.blue.withValues(
+              alpha: ghostOpacity.clamp(0.0, 1.0),
             ) // Ghost: glow blu (opacity variabile)
-            : Colors.amber.withValues(alpha: 
-              (0.6 + ghostOpacity).clamp(0.0, 1.0),
+            : Colors.amber.withValues(
+              alpha: (0.6 + ghostOpacity).clamp(0.0, 1.0),
             ); // Active: glow dorato more intenso
 
     final glowWidth = stroke.baseWidth + (isGhost ? 6.0 : 10.0);
@@ -487,6 +487,17 @@ class _SyncedStrokesPainter extends CustomPainter {
         break;
       case ProPenType.highlighter:
         HighlighterBrush.drawStroke(
+          canvas,
+          stroke.points,
+          stroke.color,
+          stroke.baseWidth,
+        );
+        break;
+      case ProPenType.watercolor:
+      case ProPenType.marker:
+      case ProPenType.charcoal:
+        // Use ballpoint fallback for playback overlay
+        BallpointBrush.drawStroke(
           canvas,
           stroke.points,
           stroke.color,

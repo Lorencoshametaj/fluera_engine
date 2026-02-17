@@ -22,8 +22,7 @@ class ProBrushSettings {
   final double fountainTiltEllipseRatio;
   // 🆕 Realismo v2.0
   final double fountainJitter; // Micro-variazione naturale (0.0-0.15)
-  final double
-  fountainVelocitySensitivity; // Soglia normalizzazione speed (px)
+  final double fountainVelocitySensitivity; // Soglia normalizzazione speed (px)
   final double fountainInkAccumulation; // Effetto accumulo su rallentamento
   final bool fountainSmoothPath; // Use spline per bordi morbidi
   // 🆕 Physics v3.0 (user-tunable from long-press)
@@ -51,6 +50,11 @@ class ProBrushSettings {
   final String
   textureType; // 'none', 'pencilGrain', 'charcoal', 'watercolor', 'canvas', 'kraft'
   final double textureIntensity; // 0.0 = nessun effetto, 1.0 = pieno
+  final String textureRotationMode; // 'fixed', 'followStroke', 'random'
+  final double textureWetEdge; // 0.0-1.0 (edge darkening)
+  final double textureScatterDensity; // 0.5-3.0 (dots per brush width)
+  final double textureScatterJitter; // 0.0-1.0 (positional randomness)
+  final double textureScatterSizeVar; // 0.0-0.5 (size randomness)
 
   // === STAMP DYNAMICS (Procreate-style) ===
   final double stampSpacing; // 0.1-1.0 (fraction of brush size)
@@ -98,6 +102,15 @@ class ProBrushSettings {
   // === STABILIZER (Phase 4B) ===
   final int stabilizerLevel; // 0 = off, 10 = max smoothing
 
+  // === WATERCOLOR ===
+  final double watercolorSpread; // 0.0-2.0 (wet diffusion spread)
+
+  // === MARKER ===
+  final double markerFlatness; // 0.0-1.0 (chisel tip flatness)
+
+  // === CHARCOAL ===
+  final double charcoalGrain; // 0.0-1.0 (paper grain erosion)
+
   // === COLOR MANAGEMENT (Phase 4D) ===
   final bool useWideGamut; // false = sRGB, true = Display P3
 
@@ -137,6 +150,11 @@ class ProBrushSettings {
     // Texture defaults (Phase 3A)
     this.textureType = 'none',
     this.textureIntensity = 0.5,
+    this.textureRotationMode = 'followStroke',
+    this.textureWetEdge = 0.0,
+    this.textureScatterDensity = 1.0,
+    this.textureScatterJitter = 0.0,
+    this.textureScatterSizeVar = 0.0,
     // Stamp dynamics defaults
     this.stampSpacing = 0.25,
     this.stampSizeJitter = 0.0,
@@ -179,6 +197,12 @@ class ProBrushSettings {
     this.pressureCurve = PressureCurve.linear,
     // Stabilizer (Phase 4B)
     this.stabilizerLevel = 0,
+    // Watercolor
+    this.watercolorSpread = 1.0,
+    // Marker
+    this.markerFlatness = 0.4,
+    // Charcoal
+    this.charcoalGrain = 0.5,
     // Color Management (Phase 4D)
     this.useWideGamut = false,
   });
@@ -219,6 +243,11 @@ class ProBrushSettings {
     // Texture (Phase 3A)
     String? textureType,
     double? textureIntensity,
+    String? textureRotationMode,
+    double? textureWetEdge,
+    double? textureScatterDensity,
+    double? textureScatterJitter,
+    double? textureScatterSizeVar,
     // Stamp dynamics
     double? stampSpacing,
     double? stampSizeJitter,
@@ -261,6 +290,12 @@ class ProBrushSettings {
     PressureCurve? pressureCurve,
     // Stabilizer (Phase 4B)
     int? stabilizerLevel,
+    // Watercolor
+    double? watercolorSpread,
+    // Marker
+    double? markerFlatness,
+    // Charcoal
+    double? charcoalGrain,
     // Color Management (Phase 4D)
     bool? useWideGamut,
   }) {
@@ -302,6 +337,13 @@ class ProBrushSettings {
       ballpointMaxPressure: ballpointMaxPressure ?? this.ballpointMaxPressure,
       textureType: textureType ?? this.textureType,
       textureIntensity: textureIntensity ?? this.textureIntensity,
+      textureRotationMode: textureRotationMode ?? this.textureRotationMode,
+      textureWetEdge: textureWetEdge ?? this.textureWetEdge,
+      textureScatterDensity:
+          textureScatterDensity ?? this.textureScatterDensity,
+      textureScatterJitter: textureScatterJitter ?? this.textureScatterJitter,
+      textureScatterSizeVar:
+          textureScatterSizeVar ?? this.textureScatterSizeVar,
       stampSpacing: stampSpacing ?? this.stampSpacing,
       stampSizeJitter: stampSizeJitter ?? this.stampSizeJitter,
       stampRotationJitter: stampRotationJitter ?? this.stampRotationJitter,
@@ -343,6 +385,9 @@ class ProBrushSettings {
       stampColorPressure: stampColorPressure ?? this.stampColorPressure,
       pressureCurve: pressureCurve ?? this.pressureCurve,
       stabilizerLevel: stabilizerLevel ?? this.stabilizerLevel,
+      watercolorSpread: watercolorSpread ?? this.watercolorSpread,
+      markerFlatness: markerFlatness ?? this.markerFlatness,
+      charcoalGrain: charcoalGrain ?? this.charcoalGrain,
       useWideGamut: useWideGamut ?? this.useWideGamut,
     );
   }
@@ -388,6 +433,11 @@ class ProBrushSettings {
     // Texture (Phase 3A)
     if (textureType != 'none') 'texT': textureType,
     if (textureIntensity != 0.5) 'texI': textureIntensity,
+    if (textureRotationMode != 'followStroke') 'texRM': textureRotationMode,
+    if (textureWetEdge > 0) 'texWE': textureWetEdge,
+    if (textureScatterDensity != 1.0) 'texSD': textureScatterDensity,
+    if (textureScatterJitter > 0) 'texSJ': textureScatterJitter,
+    if (textureScatterSizeVar > 0) 'texSV': textureScatterSizeVar,
     // Stamp dynamics — omit defaults
     if (stampEnabled) 'stmE': true,
     if (stampSpacing != 0.25) 'stmS': stampSpacing,
@@ -431,6 +481,12 @@ class ProBrushSettings {
     // Stabilizer (Phase 4B) — omit if 0
     if (stabilizerLevel > 0) 'stab': stabilizerLevel,
     // Color Management (Phase 4D) — omit if false
+    // Watercolor
+    if (watercolorSpread != 1.0) 'wcSpr': watercolorSpread,
+    // Marker
+    if (markerFlatness != 0.4) 'mkFlt': markerFlatness,
+    // Charcoal
+    if (charcoalGrain != 0.5) 'chGrn': charcoalGrain,
     if (useWideGamut) 'wGam': true,
   };
 
@@ -480,6 +536,11 @@ class ProBrushSettings {
       // Texture (Phase 3A)
       textureType: (json['texT'] as String?) ?? 'none',
       textureIntensity: (json['texI'] as num?)?.toDouble() ?? 0.5,
+      textureRotationMode: (json['texRM'] as String?) ?? 'followStroke',
+      textureWetEdge: (json['texWE'] as num?)?.toDouble() ?? 0.0,
+      textureScatterDensity: (json['texSD'] as num?)?.toDouble() ?? 1.0,
+      textureScatterJitter: (json['texSJ'] as num?)?.toDouble() ?? 0.0,
+      textureScatterSizeVar: (json['texSV'] as num?)?.toDouble() ?? 0.0,
       // Stamp dynamics
       stampEnabled: (json['stmE'] as bool?) ?? false,
       stampSpacing: (json['stmS'] as num?)?.toDouble() ?? 0.25,
@@ -526,6 +587,12 @@ class ProBrushSettings {
       ),
       // Stabilizer (Phase 4B)
       stabilizerLevel: (json['stab'] as num?)?.toInt() ?? 0,
+      // Watercolor
+      watercolorSpread: (json['wcSpr'] as num?)?.toDouble() ?? 1.0,
+      // Marker
+      markerFlatness: (json['mkFlt'] as num?)?.toDouble() ?? 0.4,
+      // Charcoal
+      charcoalGrain: (json['chGrn'] as num?)?.toDouble() ?? 0.5,
       // Color Management (Phase 4D)
       useWideGamut: (json['wGam'] as bool?) ?? false,
     );
@@ -561,6 +628,11 @@ class ProBrushSettings {
       ballpointMaxPressure == 1.1 &&
       textureType == 'none' &&
       textureIntensity == 0.5 &&
+      textureRotationMode == 'followStroke' &&
+      textureWetEdge == 0.0 &&
+      textureScatterDensity == 1.0 &&
+      textureScatterJitter == 0.0 &&
+      textureScatterSizeVar == 0.0 &&
       !stampEnabled &&
       stampSpacing == 0.25 &&
       stampSizeJitter == 0.0 &&
@@ -600,6 +672,9 @@ class ProBrushSettings {
       stampColorPressure == 0.0 &&
       pressureCurve.isLinear &&
       stabilizerLevel == 0 &&
+      watercolorSpread == 1.0 &&
+      markerFlatness == 0.4 &&
+      charcoalGrain == 0.5 &&
       useWideGamut == false;
 
   @override
@@ -634,6 +709,11 @@ class ProBrushSettings {
         other.ballpointMaxPressure == ballpointMaxPressure &&
         other.textureType == textureType &&
         other.textureIntensity == textureIntensity &&
+        other.textureRotationMode == textureRotationMode &&
+        other.textureWetEdge == textureWetEdge &&
+        other.textureScatterDensity == textureScatterDensity &&
+        other.textureScatterJitter == textureScatterJitter &&
+        other.textureScatterSizeVar == textureScatterSizeVar &&
         other.stampEnabled == stampEnabled &&
         other.stampSpacing == stampSpacing &&
         other.stampSizeJitter == stampSizeJitter &&
@@ -673,6 +753,9 @@ class ProBrushSettings {
         other.stampColorPressure == stampColorPressure &&
         other.pressureCurve == pressureCurve &&
         other.stabilizerLevel == stabilizerLevel &&
+        other.watercolorSpread == watercolorSpread &&
+        other.markerFlatness == markerFlatness &&
+        other.charcoalGrain == charcoalGrain &&
         other.useWideGamut == useWideGamut;
   }
 
@@ -706,6 +789,11 @@ class ProBrushSettings {
     ballpointMaxPressure,
     textureType,
     textureIntensity,
+    textureRotationMode,
+    textureWetEdge,
+    textureScatterDensity,
+    textureScatterJitter,
+    textureScatterSizeVar,
     stampEnabled,
     stampSpacing,
     stampSizeJitter,
@@ -745,6 +833,9 @@ class ProBrushSettings {
     stampColorPressure,
     pressureCurve,
     stabilizerLevel,
+    watercolorSpread,
+    markerFlatness,
+    charcoalGrain,
     useWideGamut,
   ]);
 }

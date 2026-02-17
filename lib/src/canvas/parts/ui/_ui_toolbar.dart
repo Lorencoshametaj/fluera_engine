@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../../nebula_canvas_screen.dart';
 
 /// 🛠️ Toolbar — extracted from _NebulaCanvasScreenState._buildImpl
 extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {

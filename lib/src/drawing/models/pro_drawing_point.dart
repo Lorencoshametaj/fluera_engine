@@ -236,10 +236,13 @@ class ProStroke {
   }
 }
 
-/// Tipi di penna professionale
+/// Professional pen types
 enum ProPenType {
-  ballpoint, // Penna a sfera
-  fountain, // Stilografica
-  pencil, // Matita
-  highlighter, // Evidenziatore
+  ballpoint, // Ball-point pen
+  fountain, // Fountain pen
+  pencil, // Pencil
+  highlighter, // Highlighter
+  watercolor, // Watercolor brush (wet-on-wet diffusion)
+  marker, // Flat marker (saturated alpha accumulation)
+  charcoal, // Charcoal stick (grain erosion + noise)
 }

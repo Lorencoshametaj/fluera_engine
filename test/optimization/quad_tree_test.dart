@@ -8,16 +8,15 @@ import 'package:nebula_engine/src/core/models/shape_type.dart';
 import '../helpers/test_helpers.dart';
 
 void main() {
-  group('QuadTree<ProStroke> insert and query', () {
-    late QuadTree<ProStroke> tree;
-    final canvasBounds = const Rect.fromLTWH(0, 0, 1000, 1000);
+  group('RTree<ProStroke> insert and query', () {
+    late RTree<ProStroke> tree;
 
     setUp(() {
-      tree = QuadTree<ProStroke>(canvasBounds, (s) => s.bounds);
+      tree = RTree<ProStroke>((s) => s.bounds);
     });
 
     test('insert and query returns the stroke', () {
-      final stroke = testStroke(id: 'q1');
+      final stroke = testStroke(id: 'r1');
       tree.insert(stroke);
 
       final results = tree.queryVisible(
@@ -29,7 +28,6 @@ void main() {
 
     test('query misses strokes outside viewport', () {
       final stroke = testStroke(id: 'far');
-      // Stroke points are near origin (0-40, 0-40)
       tree.insert(stroke);
 
       final results = tree.queryVisible(
@@ -39,50 +37,39 @@ void main() {
       expect(results, isEmpty);
     });
 
-    test('insert outside bounds is ignored', () {
-      // Create stroke way outside canvas
-      final farStroke = ProStroke(
-        id: 'outside',
-        points: [
-          ProDrawingPoint(
-            position: const Offset(5000, 5000),
-            pressure: 0.5,
-            timestamp: 0,
-          ),
-        ],
+    test('insert with empty bounds is ignored', () {
+      final emptyStroke = ProStroke(
+        id: 'empty',
+        points: [],
         color: Colors.black,
         baseWidth: 2.0,
         penType: ProPenType.ballpoint,
         createdAt: DateTime(2025),
       );
-      tree.insert(farStroke);
+      tree.insert(emptyStroke);
+      expect(tree.count, 0);
+    });
 
-      // Should not appear in query within bounds
-      final results = tree.queryVisible(
-        const Rect.fromLTWH(0, 0, 100, 100),
-        margin: 0,
-      );
-      expect(results, isEmpty);
+    test('count tracks inserted items', () {
+      tree.insert(testStroke(id: 'a'));
+      tree.insert(testStroke(id: 'b'));
+      tree.insert(testStroke(id: 'c'));
+      expect(tree.count, 3);
     });
   });
 
-  group('QuadTree<ProStroke> remove', () {
+  group('RTree<ProStroke> remove', () {
     test('remove returns true for existing item', () {
-      final tree = QuadTree<ProStroke>(
-        const Rect.fromLTWH(0, 0, 1000, 1000),
-        (s) => s.bounds,
-      );
+      final tree = RTree<ProStroke>((s) => s.bounds);
       final stroke = testStroke(id: 'rem');
       tree.insert(stroke);
 
       expect(tree.remove(stroke), isTrue);
+      expect(tree.count, 0);
     });
 
     test('after removal, query no longer returns item', () {
-      final tree = QuadTree<ProStroke>(
-        const Rect.fromLTWH(0, 0, 1000, 1000),
-        (s) => s.bounds,
-      );
+      final tree = RTree<ProStroke>((s) => s.bounds);
       final stroke = testStroke(id: 'rem2');
       tree.insert(stroke);
       tree.remove(stroke);
@@ -93,34 +80,56 @@ void main() {
       );
       expect(results, isEmpty);
     });
-  });
 
-  group('QuadTree subdivision', () {
-    test('subdivides when exceeding maxItemsPerNode', () {
-      final tree = QuadTree<ProStroke>(
-        const Rect.fromLTWH(0, 0, 1000, 1000),
-        (s) => s.bounds,
-      );
-
-      // Insert more than maxItemsPerNode (16) strokes
-      for (int i = 0; i < 20; i++) {
-        tree.insert(testStroke(id: 'sub-$i'));
-      }
-
-      final stats = tree.stats;
-      // After subdivision, total nodes should be > 1
-      expect(stats['totalNodes']!, greaterThan(1));
+    test('remove non-existent item returns false', () {
+      final tree = RTree<ProStroke>((s) => s.bounds);
+      final stroke = testStroke(id: 'ghost');
+      expect(tree.remove(stroke), isFalse);
     });
   });
 
-  group('QuadTree clear', () {
-    test('clear empties the tree', () {
-      final tree = QuadTree<ProStroke>(
-        const Rect.fromLTWH(0, 0, 1000, 1000),
-        (s) => s.bounds,
+  group('RTree node splitting', () {
+    test('handles many inserts without errors', () {
+      final tree = RTree<ProStroke>((s) => s.bounds, maxEntries: 4);
+
+      // Insert more than maxEntries to trigger splits
+      for (int i = 0; i < 50; i++) {
+        tree.insert(testStroke(id: 'split-$i'));
+      }
+
+      expect(tree.count, 50);
+
+      final stats = tree.stats;
+      // After splits, total nodes should be > 1
+      expect(stats['totalNodes']!, greaterThan(1));
+      expect(stats['totalItems']!, 50);
+    });
+
+    test('all items remain queryable after splits', () {
+      final tree = RTree<ProStroke>((s) => s.bounds, maxEntries: 4);
+      final strokes = List.generate(30, (i) => testStroke(id: 'q-$i'));
+
+      for (final s in strokes) {
+        tree.insert(s);
+      }
+
+      // All strokes are near origin, so a large viewport should find all
+      final results = tree.queryVisible(
+        const Rect.fromLTWH(-100, -100, 1000, 1000),
+        margin: 0,
       );
+      expect(results.length, 30);
+    });
+  });
+
+  group('RTree clear', () {
+    test('clear empties the tree', () {
+      final tree = RTree<ProStroke>((s) => s.bounds);
       tree.insert(testStroke(id: 'cl'));
       tree.clear();
+
+      expect(tree.count, 0);
+      expect(tree.isEmpty, isTrue);
 
       final results = tree.queryVisible(
         const Rect.fromLTWH(0, 0, 1000, 1000),
@@ -130,14 +139,12 @@ void main() {
     });
   });
 
-  group('QuadTree.fromItems factory', () {
+  group('RTree.fromItems bulk load', () {
     test('builds tree from list of items', () {
       final strokes = List.generate(5, (i) => testStroke(id: 'fi-$i'));
-      final tree = QuadTree<ProStroke>.fromItems(
-        strokes,
-        const Rect.fromLTWH(0, 0, 1000, 1000),
-        (s) => s.bounds,
-      );
+      final tree = RTree<ProStroke>.fromItems(strokes, (s) => s.bounds);
+
+      expect(tree.count, 5);
 
       final results = tree.queryVisible(
         const Rect.fromLTWH(0, 0, 200, 200),
@@ -145,14 +152,29 @@ void main() {
       );
       expect(results.length, 5);
     });
+
+    test('bulk load with many items produces balanced tree', () {
+      final strokes = List.generate(100, (i) => testStroke(id: 'bulk-$i'));
+      final tree = RTree<ProStroke>.fromItems(strokes, (s) => s.bounds);
+
+      expect(tree.count, 100);
+
+      final stats = tree.stats;
+      expect(stats['totalItems']!, 100);
+      // Height should be reasonable (< 5 for 100 items with default fanout)
+      expect(stats['height']!, lessThanOrEqualTo(5));
+    });
+
+    test('bulk load empty list returns empty tree', () {
+      final tree = RTree<ProStroke>.fromItems([], (s) => s.bounds);
+
+      expect(tree.isEmpty, isTrue);
+    });
   });
 
-  group('QuadTree with margin', () {
+  group('RTree with margin', () {
     test('margin expands viewport for query', () {
-      final tree = QuadTree<ProStroke>(
-        const Rect.fromLTWH(0, 0, 10000, 10000),
-        (s) => s.bounds,
-      );
+      final tree = RTree<ProStroke>((s) => s.bounds);
       final stroke = testStroke(id: 'margin');
       tree.insert(stroke);
 
@@ -211,6 +233,19 @@ void main() {
         margin: 0,
       );
       expect(visible.length, 1);
+    });
+
+    test('removeStroke removes from index', () {
+      final manager = SpatialIndexManager();
+      final stroke = testStroke(id: 'to-remove');
+      manager.build(strokes: [stroke], shapes: []);
+      manager.removeStroke(stroke);
+
+      final visible = manager.queryVisibleStrokes(
+        const Rect.fromLTWH(0, 0, 200, 200),
+        margin: 0,
+      );
+      expect(visible, isEmpty);
     });
   });
 }

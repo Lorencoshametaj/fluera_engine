@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../../nebula_canvas_screen.dart';
 
 /// 🎨 Canvas Layers — background, drawings, gesture detector, and canvas area orchestrator.
 /// Extracted from _NebulaCanvasScreenState._buildImpl
@@ -14,6 +14,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
             _buildBackgroundLayer(),
             _buildDrawingLayer(),
             _buildGestureDetectorLayer(context),
+            _buildCurrentStrokeLayer(),
 
             // 🎤 SYNCHRONIZED PLAYBACK OVERLAY (Locale)
             if (widget.externalPlaybackController != null)
@@ -214,29 +215,6 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                                 size: _canvasSize,
                               ),
                             ),
-
-                            // 🚀 LAYER 4 (Top): TRATTO CORRENTE
-                            RepaintBoundary(
-                              child: CustomPaint(
-                                painter: CurrentStrokePainter(
-                                  strokeNotifier: _currentStrokeNotifier,
-                                  penType: _effectivePenType,
-                                  color: _effectiveColor,
-                                  width: _effectiveWidth,
-                                  settings: _brushSettings,
-                                  enableClipping:
-                                      _isImageEditFromInfiniteCanvas,
-                                  canvasSize: _canvasSize,
-                                  enablePredictive:
-                                      _renderingConfig
-                                          ?.enablePredictiveRendering ??
-                                      true,
-                                  // 🪞 Live symmetry preview
-                                  guideSystem: _rulerGuideSystem,
-                                ),
-                                size: _canvasSize,
-                              ),
-                            ),
                           ],
                         ),
                       ),
@@ -248,6 +226,35 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
           ), // InfiniteCanvasGestureDetector
         ); // IgnorePointer
       },
+    );
+  }
+
+  /// 🚀 LAYER 4 (Top): CURRENT STROKE — Viewport-level, independent repaint
+  ///
+  /// Lives OUTSIDE AnimatedBuilder's cached child because RepaintBoundary
+  /// inside that cached child does not propagate repaint notifications
+  /// from the strokeNotifier. Instead, the painter applies the canvas
+  /// transform internally (like DrawingPainter).
+  Widget _buildCurrentStrokeLayer() {
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: CurrentStrokePainter(
+            strokeNotifier: _currentStrokeNotifier,
+            penType: _effectivePenType,
+            color: _effectiveColor,
+            width: _effectiveWidth,
+            settings: _brushSettings,
+            enableClipping: _isImageEditFromInfiniteCanvas,
+            canvasSize: _canvasSize,
+            enablePredictive:
+                _renderingConfig?.enablePredictiveRendering ?? true,
+            guideSystem: _rulerGuideSystem,
+            controller: _canvasController, // 🚀 viewport-level mode
+          ),
+          size: Size.infinite,
+        ),
+      ),
     );
   }
 

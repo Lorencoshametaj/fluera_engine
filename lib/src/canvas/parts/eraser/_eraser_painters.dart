@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../../nebula_canvas_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 // ERASER PAINTERS — extracted from _build_ui.dart

@@ -5,6 +5,7 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../../drawing/brushes/brushes.dart';
 
 import './stroke_data_manager.dart';
+import './advanced_tile_optimizer.dart';
 import '../../core/engine_scope.dart';
 
 /// 🚀 TILE CACHE MANAGER - Caching per tile scalabile a 100k+ strokes
@@ -173,9 +174,12 @@ class TileCacheManager {
     // Translate to position tile at origin
     canvas.translate(-tileX * tileSize, -tileY * tileSize);
 
-    // Draw tutti gli strokes nel tile
-    for (final stroke in strokesInTile) {
-      _drawStroke(canvas, stroke);
+    // 📦 BATCH RENDERING: group strokes by penType/color/width,
+    // then draw each batch in a single pass (ballpoint combined into 1 path).
+    final optimizer = AdvancedTileOptimizer.instance;
+    final batches = optimizer.batchStrokes(strokesInTile);
+    for (final entry in batches.entries) {
+      optimizer.drawStrokeBatch(canvas, entry.key, entry.value);
     }
 
     final picture = recorder.endRecording();

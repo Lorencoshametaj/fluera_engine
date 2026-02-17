@@ -39,11 +39,65 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 - `DrawingPainter` renderizza a livello viewport (non canvas). Trasformazioni applicate direttamente nel painter.
 - **Performance è critica**: ogni modifica al rendering deve considerare frame budget (16ms), evitare allocazioni in paint(), usare il `PaintPool`.
 
-### Large File Decomposition
-- `NebulaCanvasScreen` (885 righe) usa `part` files in `parts/`:
-  - `_lifecycle.dart`, `_drawing_handlers.dart`, `_build_ui.dart`, `_canvas_operations.dart`, `_export.dart`, `_collaboration.dart`, `_cloud_sync.dart`, `_image_features.dart`, `_text_tools.dart`, `_voice_recording.dart`, `_eraser_painters.dart`, `_phase2_stubs.dart`
-- Le extensions in `part` files accedono a `setState()` della State class (il lint `invalid_use_of_protected_member` è ignorato intenzionalmente).
-- MAI creare nuovi `part` files senza necessità. Preferire composizione e estrazione in classi separate.
+### Enterprise File Organization Standards
+
+#### Max File Size
+- **Hard limit: 500 LOC per file**. If a file exceeds 500 lines, decompose it.
+- **Preferred: 200–400 LOC**. Each file should have a single, clear responsibility.
+- When decomposing, use Dart `part`/`part of` with extension methods on the State class, or extract into standalone classes/helpers.
+
+#### Decomposition Patterns
+- **`part` + extension**: for methods that need access to `State` private members (e.g., `_buildUI`, `_onDrawStart`).
+  - Extensions access `setState()` — lint `invalid_use_of_protected_member` is ignored intentionally.
+  - `part of` uses relative path: `part of '../parent.dart'` or `part of '../../parent.dart'`.
+- **`library` + `part` + extension on State**: for standalone widgets with private State (e.g., `professional_canvas_toolbar.dart`).
+- **Standalone files**: for pure logic, models, utilities — no `part` needed.
+- MAI creare nuovi `part` files senza necessità. Prefer composition and extraction into separate classes.
+
+#### Directory Grouping for `part` Files
+When a file has many `part` files (>6), group them into **logical subdirectories** with descriptive names:
+```
+parts/
+├── lifecycle/          # Init, dispose, time travel, branching
+│   ├── _lifecycle.dart
+│   ├── _lifecycle_time_travel.dart
+│   └── _lifecycle_branching.dart
+├── drawing/            # Pointer handlers, stroke update, finalization
+│   ├── _drawing_handlers.dart
+│   ├── _drawing_update.dart
+│   ├── _drawing_end.dart
+│   └── _drawing_aux.dart
+├── ui/                 # Widget build methods
+│   ├── _build_ui.dart
+│   ├── _ui_toolbar.dart
+│   ├── _ui_canvas_layer.dart
+│   ├── _ui_eraser.dart
+│   ├── _ui_overlays.dart
+│   └── _ui_menus.dart
+├── eraser/             # Eraser painting/rendering
+│   ├── _eraser_painters.dart
+│   ├── _eraser_painters_v6.dart
+│   └── _eraser_painters_v7.dart
+├── _collaboration.dart # Feature files stay at root
+├── _export.dart
+├── _cloud_sync.dart
+└── ...
+```
+- `part of` paths must match depth: root files → `'../nebula_canvas_screen.dart'`, subdirectory files → `'../../nebula_canvas_screen.dart'`.
+- Group `part` directives in the parent file with section comments (🔄 Lifecycle, ✏️ Drawing, 🎨 UI, 🧹 Eraser).
+
+#### Toolbar Decomposition (library pattern)
+```
+toolbar/
+├── professional_canvas_toolbar.dart   # library declaration + imports + build()
+├── _toolbar_top_row.dart              # part: extension with _buildTopRow
+├── _toolbar_tools_area.dart           # part: extension with _buildToolsArea
+├── menus/                             # Standalone widgets
+│   ├── more_menu.dart
+│   └── ...
+├── toolbar_brush_strip.dart           # Standalone components
+└── ...
+```
 
 ---
 
@@ -125,22 +179,27 @@ NebulaCanvasScreen(
 
 ---
 
-## 5. FILE CRITICI — Consulta sempre prima di modificare
+## 5. CRITICAL FILES — Always consult before modifying
 
-| File | Linee | Ruolo |
-|------|-------|-------|
-| `nebula_canvas_screen.dart` | 885 | Entry point del canvas |
-| `parts/_build_ui.dart` | ~3500 | Tutto il widget tree |
-| `parts/_lifecycle.dart` | ~1480 | Init, load, dispose, Time Travel |
-| `parts/_drawing_handlers.dart` | ~1500 | Gestori input disegno |
+| File | LOC | Role |
+|------|-----|------|
+| `nebula_canvas_screen.dart` | ~885 | Canvas entry point + part directives |
+| `parts/ui/_build_ui.dart` | ~50 | Widget tree orchestrator |
+| `parts/ui/_ui_canvas_layer.dart` | ~300 | Canvas layer with painters |
+| `parts/lifecycle/_lifecycle.dart` | ~600 | Init, load, dispose |
+| `parts/lifecycle/_lifecycle_time_travel.dart` | ~340 | Time Travel recorder |
+| `parts/drawing/_drawing_handlers.dart` | ~400 | Pointer-down/start handlers |
+| `parts/drawing/_drawing_update.dart` | ~500 | Continuous draw update |
+| `parts/drawing/_drawing_end.dart` | ~400 | Stroke finalization |
 | `canvas_node.dart` | 344 | Base class scene graph |
-| `brush_engine.dart` | 512 | Dispatch unificato brush |
-| `drawing_input_handler.dart` | 342 | Pipeline input 120Hz |
+| `brush_engine.dart` | 512 | Unified brush dispatch |
+| `drawing_input_handler.dart` | 342 | 120Hz input pipeline |
 | `nebula_canvas_config.dart` | 355 | Dependency injection config |
-| `tool_interface.dart` | 135 | Interfaccia base tool |
-| `tool_context.dart` | 233 | Context per tool |
-| `layer_controller.dart` | ~800 | Gestione layers |
+| `tool_interface.dart` | 135 | Base tool interface |
+| `tool_context.dart` | 233 | Tool context |
+| `layer_controller.dart` | ~800 | Layer management |
 | `nebula_engine.dart` | 255 | Barrel export |
+| `toolbar/professional_canvas_toolbar.dart` | ~430 | Toolbar (library + 2 parts) |
 
 ---
 

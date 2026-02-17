@@ -62,10 +62,16 @@ class AdaptiveRenderingConfig {
   /// 60Hz: 50px (margine per smooth transitions)
   final double viewportPadding;
 
-  /// Enable tile caching for many strokes
-  /// 120Hz: false (overhead invalidation > beneficio)
-  /// 60Hz: false (direct rendering + LOD more efficiente)
+  /// Enable tile caching for many strokes.
+  /// Tiles are viewport-sized (not canvas-sized), so GPU texture
+  /// overhead is minimal. Tile cache is O(1) per frame after initial
+  /// rasterization — faster than direct rendering for >N strokes.
   final bool enableTileCaching;
+
+  /// Stroke count threshold to activate tile caching.
+  /// Below this threshold, direct rendering is faster.
+  /// 120Hz: 100 | 90Hz: 75 | 60Hz: 50
+  final int tileCachingStrokeThreshold;
 
   const AdaptiveRenderingConfig({
     required this.targetRefreshRate,
@@ -78,6 +84,7 @@ class AdaptiveRenderingConfig {
     required this.maxPointsPerStroke,
     required this.viewportPadding,
     required this.enableTileCaching,
+    this.tileCachingStrokeThreshold = 50,
   });
 
   /// Factory per creare config ottimale basato su refresh rate
@@ -100,8 +107,8 @@ class AdaptiveRenderingConfig {
           maxPointsPerStroke: 128, // Hard limit aggressivo
           // Culling: zero tolerance
           viewportPadding: 0.0, // Render ONLY visible
-          enableTileCaching:
-              false, // ⚠️ Disableto: bitmap tiles creano texture GPU grandi
+          enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
+          tileCachingStrokeThreshold: 100, // High bar at 120Hz
         );
 
       case RefreshRate.hz90:
@@ -120,8 +127,8 @@ class AdaptiveRenderingConfig {
           maxPointsPerStroke: 192,
           // Culling moderato
           viewportPadding: 25.0,
-          enableTileCaching:
-              false, // ⚠️ Disableto: bitmap tiles creano texture GPU grandi
+          enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
+          tileCachingStrokeThreshold: 75,
         );
 
       case RefreshRate.hz60:
@@ -140,8 +147,8 @@ class AdaptiveRenderingConfig {
           maxPointsPerStroke: 256,
           // Culling standard
           viewportPadding: 50.0,
-          enableTileCaching:
-              false, // ⚠️ Disableto: bitmap tiles creano texture GPU grandi
+          enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
+          tileCachingStrokeThreshold: 50,
         );
     }
   }

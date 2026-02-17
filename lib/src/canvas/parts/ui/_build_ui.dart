@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../../nebula_canvas_screen.dart';
 
 /// 📦 Build UI — orchestrator that delegates to:
 ///   • [_ui_toolbar.dart]      → _buildToolbar()

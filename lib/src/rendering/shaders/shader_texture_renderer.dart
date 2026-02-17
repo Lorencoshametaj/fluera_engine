@@ -44,20 +44,32 @@ extension ShaderTextureRenderer on ShaderBrushService {
     final totalScale = typeScale * widthScale;
     final invScale = 1.0 / totalScale;
 
-    // Direction-following rotation + per-stroke random offset
+    // Rotation based on textureRotationMode
     final firstPos = StrokeOptimizer.getOffset(points.first);
     final lastPos = StrokeOptimizer.getOffset(points.last);
-    final delta = lastPos - firstPos;
-    final strokeAngle =
-        delta.distance > 1.0 ? math.atan2(delta.dy, delta.dx) : 0.0;
     final rng = math.Random(firstPos.dx.toInt() ^ firstPos.dy.toInt());
     final offsetX = rng.nextDouble() * textureImage.width;
     final offsetY = rng.nextDouble() * textureImage.height;
-    final jitter = (rng.nextDouble() - 0.5) * 0.174; // ±5°
-    final rotation = strokeAngle + jitter;
+
+    double rotation;
+    switch (settings.textureRotationMode) {
+      case 'fixed':
+        rotation = 0.0;
+      case 'random':
+        rotation = rng.nextDouble() * math.pi * 2;
+      case 'followStroke':
+      default:
+        final delta = lastPos - firstPos;
+        final strokeAngle =
+            delta.distance > 1.0 ? math.atan2(delta.dy, delta.dx) : 0.0;
+        final jitter = (rng.nextDouble() - 0.5) * 0.174; // ±5°
+        rotation = strokeAngle + jitter;
+    }
+
     final cosAngle = math.cos(rotation);
     final sinAngle = math.sin(rotation);
     final intensity = settings.textureIntensity;
+    final wetEdge = settings.textureWetEdge;
 
     // Hoist image sampler (texture is constant per stroke)
     shader.setImageSampler(0, textureImage);
@@ -141,6 +153,7 @@ extension ShaderTextureRenderer on ShaderBrushService {
       shader.setFloat(idx++, offsetY); // uTextureOffset.y
       shader.setFloat(idx++, cosAngle); // uCosAngle (pre-computed)
       shader.setFloat(idx++, sinAngle); // uSinAngle (pre-computed)
+      shader.setFloat(idx++, wetEdge); // uWetEdge
 
       // Paired translate (no save/restore)
       canvas.translate(rect.left, rect.top);

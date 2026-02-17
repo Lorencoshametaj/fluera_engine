@@ -23,6 +23,9 @@ import '../../core/engine_scope.dart';
 /// - [ShaderFountainPenRenderer] in `shader_fountain_pen_renderer.dart`
 /// - [ShaderStampRenderer] in `shader_stamp_renderer.dart`
 /// - [ShaderTextureRenderer] in `shader_texture_renderer.dart`
+/// - [ShaderWatercolorRenderer] in `shader_watercolor_renderer.dart`
+/// - [ShaderMarkerRenderer] in `shader_marker_renderer.dart`
+/// - [ShaderCharcoalRenderer] in `shader_charcoal_renderer.dart`
 class ShaderBrushService {
   // ═══════════════════════════════════════════════════════════════════════════
   // SINGLETON
@@ -42,6 +45,9 @@ class ShaderBrushService {
   ui.FragmentProgram? _fountainPenProgram;
   ui.FragmentProgram? _textureOverlayProgram;
   ui.FragmentProgram? _brushStampProgram;
+  ui.FragmentProgram? _watercolorProgram;
+  ui.FragmentProgram? _markerProgram;
+  ui.FragmentProgram? _charcoalProgram;
 
   bool _initialized = false;
   bool _initAttempted = false;
@@ -69,6 +75,9 @@ class ShaderBrushService {
   ui.FragmentShader? _fountainPenShader;
   ui.FragmentShader? _textureOverlayShader;
   ui.FragmentShader? _brushStampShader;
+  ui.FragmentShader? _watercolorShader;
+  ui.FragmentShader? _markerShader;
+  ui.FragmentShader? _charcoalShader;
 
   /// Shader accessors for renderer extensions.
   @internal
@@ -79,6 +88,12 @@ class ShaderBrushService {
   ui.FragmentShader? get textureOverlayShader => _textureOverlayShader;
   @internal
   ui.FragmentShader? get brushStampShader => _brushStampShader;
+  @internal
+  ui.FragmentShader? get watercolorShader => _watercolorShader;
+  @internal
+  ui.FragmentShader? get markerShader => _markerShader;
+  @internal
+  ui.FragmentShader? get charcoalShader => _charcoalShader;
 
   /// Whether the stamp brush GPU shader is ready
   bool get isStampAvailable => _initialized && _brushStampShader != null;
@@ -121,17 +136,26 @@ class ShaderBrushService {
         ui.FragmentProgram.fromAsset('shaders/fountain_pen_pro.frag'),
         ui.FragmentProgram.fromAsset('shaders/texture_overlay.frag'),
         ui.FragmentProgram.fromAsset('shaders/brush_stamp.frag'),
+        ui.FragmentProgram.fromAsset('shaders/watercolor.frag'),
+        ui.FragmentProgram.fromAsset('shaders/marker.frag'),
+        ui.FragmentProgram.fromAsset('shaders/charcoal.frag'),
       ]);
 
       _pencilProgram = results[0];
       _fountainPenProgram = results[1];
       _textureOverlayProgram = results[2];
       _brushStampProgram = results[3];
+      _watercolorProgram = results[4];
+      _markerProgram = results[5];
+      _charcoalProgram = results[6];
 
       _pencilShader = _pencilProgram!.fragmentShader();
       _fountainPenShader = _fountainPenProgram!.fragmentShader();
       _textureOverlayShader = _textureOverlayProgram!.fragmentShader();
       _brushStampShader = _brushStampProgram!.fragmentShader();
+      _watercolorShader = _watercolorProgram!.fragmentShader();
+      _markerShader = _markerProgram!.fragmentShader();
+      _charcoalShader = _charcoalProgram!.fragmentShader();
 
       _initialized = true;
     } catch (e) {
@@ -152,6 +176,9 @@ class ShaderBrushService {
       _fountainPenShader,
       _textureOverlayShader,
       _brushStampShader,
+      _watercolorShader,
+      _markerShader,
+      _charcoalShader,
     ]) {
       if (shader != null) {
         // Set minimum required uniforms to avoid out-of-bounds
@@ -182,6 +209,9 @@ class ShaderBrushService {
       _fountainPenShader,
       _textureOverlayShader,
       _brushStampShader,
+      _watercolorShader,
+      _markerShader,
+      _charcoalShader,
     ];
     for (final shader in shaders) {
       if (shader == null) continue;
@@ -288,14 +318,23 @@ class ShaderBrushService {
     _fountainPenShader?.dispose();
     _textureOverlayShader?.dispose();
     _brushStampShader?.dispose();
+    _watercolorShader?.dispose();
+    _markerShader?.dispose();
+    _charcoalShader?.dispose();
     _pencilShader = null;
     _fountainPenShader = null;
     _textureOverlayShader = null;
     _brushStampShader = null;
+    _watercolorShader = null;
+    _markerShader = null;
+    _charcoalShader = null;
     _pencilProgram = null;
     _fountainPenProgram = null;
     _textureOverlayProgram = null;
     _brushStampProgram = null;
+    _watercolorProgram = null;
+    _markerProgram = null;
+    _charcoalProgram = null;
     _initialized = false;
   }
 }

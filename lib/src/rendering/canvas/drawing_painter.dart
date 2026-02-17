@@ -14,6 +14,7 @@ import '../../core/models/canvas_layer.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
+import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
 
 /// 🎨 DRAWING PAINTER - Layer disegni completati
 ///
@@ -55,9 +56,8 @@ class DrawingPainter extends CustomPainter {
   // 🎨 Phase 3: Dirty Region Tracker for incremental rendering
   final DirtyRegionTracker? dirtyRegionTracker;
 
-  // 🚀 TILE CACHING: Active after 50+ completed strokes
-  // Below this threshold, direct rendering (StrokeCacheManager) is faster
-  static const int _tileCachingThreshold = 50;
+  // 🚀 TILE CACHING: Activates when stroke count exceeds config threshold
+  // Below the threshold, direct rendering (StrokeCacheManager) is faster
 
   // 🚀 Tile cache manager (singleton per persistenza tra paint)
   static TileCacheManager? _tileCacheManager;
@@ -122,10 +122,12 @@ class DrawingPainter extends CustomPainter {
       effectiveScale,
     );
 
-    // 🚀 TILE CACHING: attivo per canvases con molti strokes
+    // 🚀 TILE CACHING: active for canvases with many strokes
+    final tileCachingThreshold =
+        adaptiveConfig?.tileCachingStrokeThreshold ?? 50;
     final useTileCaching =
         (adaptiveConfig?.enableTileCaching ?? false) &&
-        completedStrokes.length > _tileCachingThreshold;
+        completedStrokes.length > tileCachingThreshold;
 
     if (useTileCaching) {
       _paintWithTileCaching(canvas, viewport);
@@ -244,7 +246,17 @@ class DrawingPainter extends CustomPainter {
     final hasEraserPreview = eraserPreviewIds.isNotEmpty;
 
     // Cache invalidation: undo/delete (count decreased) or eraser preview active
-    if (totalStrokes < _strokeCache.cachedStrokeCount || hasEraserPreview) {
+    if (totalStrokes < _strokeCache.cachedStrokeCount) {
+      // 🔄 UNDO SNAPSHOT: try ring buffer before full invalidation
+      if (!hasEraserPreview &&
+          _strokeCache.tryRestoreFromUndoSnapshot(totalStrokes)) {
+        // ✅ Snapshot hit: O(1) undo replay
+        _strokeCache.drawCached(canvas);
+        return;
+      }
+      _strokeCache.invalidateCache();
+    }
+    if (hasEraserPreview) {
       _strokeCache.invalidateCache();
     }
 
@@ -311,13 +323,17 @@ class DrawingPainter extends CustomPainter {
               spatialIndex: spatialIndex,
             );
 
+    // 📦 BATCH RENDERING: group strokes by penType/color/width,
+    // then draw each batch in a single pass (ballpoint paths combined).
+    // Fill overlays and eraser previews are excluded from batching.
+    final batchableStrokes = <ProStroke>[];
+
     for (final stroke in strokes) {
       final isPreview = eraserPreviewIds.contains(stroke.id);
       if (stroke.isFill) {
         _drawFillOverlay(canvas, stroke);
       } else if (isPreview) {
         // 🎯 Eraser preview: composite body + tint in one saveLayer
-        // instead of 2× separate drawStroke calls.
         final bounds = stroke.bounds.inflate(stroke.baseWidth * 2);
         canvas.saveLayer(bounds, Paint()..color = const Color(0x66FFFFFF));
         _drawStroke(
@@ -332,14 +348,16 @@ class DrawingPainter extends CustomPainter {
         canvas.drawRect(bounds, Paint()..color = const Color(0x40FF0000));
         canvas.restore();
       } else {
-        _drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          stroke.baseWidth,
-          stroke.penType,
-          stroke.settings,
-        );
+        batchableStrokes.add(stroke);
+      }
+    }
+
+    // 📦 Draw batched strokes (ballpoint paths combined into single drawPath)
+    if (batchableStrokes.isNotEmpty) {
+      final optimizer = AdvancedTileOptimizer.instance;
+      final batches = optimizer.batchStrokes(batchableStrokes);
+      for (final entry in batches.entries) {
+        optimizer.drawStrokeBatch(canvas, entry.key, entry.value);
       }
     }
 

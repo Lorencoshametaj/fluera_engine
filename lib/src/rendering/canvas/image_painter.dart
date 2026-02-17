@@ -343,6 +343,16 @@ class ImagePainter extends CustomPainter {
           scaledBaseWidth,
         );
         break;
+      case ProPenType.watercolor:
+      case ProPenType.marker:
+      case ProPenType.charcoal:
+        BallpointBrush.drawStroke(
+          canvas,
+          stroke.points,
+          stroke.color,
+          scaledBaseWidth,
+        );
+        break;
     }
   }
 

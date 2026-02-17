@@ -1,30 +1,49 @@
 import 'dart:ui' as ui;
+import 'dart:collection';
 import 'package:flutter/material.dart';
 
-/// 🚀 Gestore Cache Vettoriale per Strokes
+/// 🚀 Stroke Cache Manager with Undo Snapshot Ring Buffer
 ///
 /// RESPONSIBILITIES:
-/// - ✅ Mantiene cache ui.Picture of strokes completati
-/// - ✅ Riduce ridisegno continuo da N tratti a cache + nuovi tratti
+/// - ✅ Maintains vectorial cache (ui.Picture) of completed strokes
+/// - ✅ Incremental updates: only re-draws new strokes
 /// - ✅ Synchronous cache update (no async lag)
-/// - ✅ Invalidatezione intelligente of the cache
+/// - ✅ **Undo snapshot ring buffer**: O(1) undo/redo without re-render
 ///
-/// PERFORMANCE:
-/// - Da ridisegnare TUTTI i tratti every frame → ridisegnare SOLO nuovi tratti
-/// - Cache vettoriale (Picture) mantiene quality perfetta
-/// - Constant 120 FPS even with hundreds of strokes
+/// UNDO SNAPSHOT ARCHITECTURE:
+/// Each time the cache is built or updated, a snapshot (ui.Picture clone)
+/// is saved in a ring buffer keyed by stroke count. On undo (count decreases),
+/// the ring buffer is checked first — if a matching snapshot exists, it's
+/// replayed in O(1) instead of triggering a full re-render.
+///
+/// Ring buffer capacity: 20 entries by default (covers ~20 undo steps).
+/// LRU eviction with proper disposal of oldest snapshots.
 class StrokeCacheManager {
-  /// Cache vettoriale of strokes completati
+  /// Cache vettoriale of completed strokes
   ui.Picture? _cachedPicture;
 
-  /// Number of tratti in the cache corrente
+  /// Number of strokes in the current cache
   int _cachedStrokeCount = 0;
 
-  /// Get la cache corrente
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔄 UNDO SNAPSHOT RING BUFFER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Maximum number of undo snapshots to keep
+  static const int maxUndoSnapshots = 20;
+
+  /// Ring buffer: stroke count → cached Picture
+  /// LinkedHashMap for insertion-order iteration (LRU eviction)
+  final LinkedHashMap<int, ui.Picture> _undoSnapshots = LinkedHashMap();
+
+  /// Get the current cache
   ui.Picture? get cachedPicture => _cachedPicture;
 
-  /// Number of tratti in the cache
+  /// Number of strokes in the cache
   int get cachedStrokeCount => _cachedStrokeCount;
+
+  /// Number of undo snapshots currently stored
+  int get undoSnapshotCount => _undoSnapshots.length;
 
   /// Checks if the cache is valid for the given number of strokes
   bool isCacheValid(int totalStrokes) {
@@ -38,10 +57,55 @@ class StrokeCacheManager {
         _cachedStrokeCount <= totalStrokes;
   }
 
-  /// 🚀 Crea cache SINCRONA (no async lag)
+  /// 🔄 Try to restore cache from undo snapshot ring buffer.
   ///
-  /// [strokes] Lista of strokes da cachare
-  /// [drawStrokeCallback] Funzione per disegnare un singolo tratto
+  /// Called when stroke count **decreases** (undo/delete).
+  /// Returns true if a matching snapshot was found and restored.
+  bool tryRestoreFromUndoSnapshot(int targetStrokeCount) {
+    final snapshot = _undoSnapshots[targetStrokeCount];
+    if (snapshot == null) return false;
+
+    // Dispose current cache before replacing
+    _cachedPicture?.dispose();
+
+    // Clone the snapshot (re-record from the Picture)
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawPicture(snapshot);
+    _cachedPicture = recorder.endRecording();
+    _cachedStrokeCount = targetStrokeCount;
+
+    return true;
+  }
+
+  /// 📸 Save current cache as an undo snapshot.
+  ///
+  /// Called automatically after cache creation or update.
+  void _saveUndoSnapshot() {
+    if (_cachedPicture == null || _cachedStrokeCount <= 0) return;
+
+    // Don't duplicate: if we already have this count, skip
+    if (_undoSnapshots.containsKey(_cachedStrokeCount)) return;
+
+    // Clone the current picture for the snapshot
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawPicture(_cachedPicture!);
+    final clone = recorder.endRecording();
+
+    _undoSnapshots[_cachedStrokeCount] = clone;
+
+    // LRU eviction: remove oldest if over capacity
+    while (_undoSnapshots.length > maxUndoSnapshots) {
+      final oldestKey = _undoSnapshots.keys.first;
+      _undoSnapshots.remove(oldestKey)?.dispose();
+    }
+  }
+
+  /// 🚀 Create cache synchronously (no async lag)
+  ///
+  /// [strokes] List of strokes to cache
+  /// [drawStrokeCallback] Function to draw a single stroke
   /// [size] Size of the canvas
   void createCacheSynchronously(
     List<dynamic> strokes,
@@ -57,24 +121,27 @@ class StrokeCacheManager {
       return;
     }
 
-    // Create PictureRecorder per registrare i comandi di disegno
+    // Create PictureRecorder to record draw commands
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    // Draw tutti i tratti usando il callback
+    // Draw all strokes using the callback
     for (final stroke in strokes) {
       drawStrokeCallback(canvas, stroke);
     }
 
-    // Finalizza e salva la Picture
+    // Finalize and save the Picture
     _cachedPicture = recorder.endRecording();
     _cachedStrokeCount = strokes.length;
+
+    // 📸 Save undo snapshot
+    _saveUndoSnapshot();
   }
 
   /// Updates cache by adding new strokes to the existing cache
   ///
-  /// [newStrokes] Nuovi tratti da aggiungere
-  /// [drawStrokeCallback] Funzione per disegnare un singolo tratto
+  /// [newStrokes] New strokes to add
+  /// [drawStrokeCallback] Function to draw a single stroke
   /// [size] Size of the canvas
   void updateCache(
     List<dynamic> newStrokes,
@@ -86,7 +153,7 @@ class StrokeCacheManager {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    // Draw cache esistente se disponibile
+    // Draw existing cache if available
     final oldPicture = _cachedPicture;
     if (oldPicture != null) {
       canvas.drawPicture(oldPicture);
@@ -101,13 +168,26 @@ class StrokeCacheManager {
     _cachedPicture = recorder.endRecording();
     _cachedStrokeCount += newStrokes.length;
     oldPicture?.dispose();
+
+    // 📸 Save undo snapshot
+    _saveUndoSnapshot();
   }
 
-  /// Invalidate completamente la cache
+  /// Invalidate the cache completely
   void invalidateCache() {
     _cachedPicture?.dispose();
     _cachedPicture = null;
     _cachedStrokeCount = 0;
+    // Note: undo snapshots are intentionally NOT cleared here.
+    // They survive invalidation so undo can still find them.
+  }
+
+  /// Clear undo snapshots (e.g. on canvas reload)
+  void clearUndoSnapshots() {
+    for (final snapshot in _undoSnapshots.values) {
+      snapshot.dispose();
+    }
+    _undoSnapshots.clear();
   }
 
   /// 🚀 Draw cached picture onto the given canvas
@@ -118,10 +198,11 @@ class StrokeCacheManager {
     return true;
   }
 
-  /// Dispose delle risorse
+  /// Dispose all resources
   void dispose() {
     _cachedPicture?.dispose();
     _cachedPicture = null;
     _cachedStrokeCount = 0;
+    clearUndoSnapshots();
   }
 }

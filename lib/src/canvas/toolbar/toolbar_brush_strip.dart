@@ -88,6 +88,12 @@ class ToolbarBrushPill extends StatelessWidget {
         return isDark ? const Color(0xFFFFB74D) : const Color(0xFFF57C00);
       case ProPenType.highlighter:
         return isDark ? const Color(0xFFFFF176) : const Color(0xFFFBC02D);
+      case ProPenType.watercolor:
+        return isDark ? const Color(0xFF80DEEA) : const Color(0xFF00838F);
+      case ProPenType.marker:
+        return isDark ? const Color(0xFFCE93D8) : const Color(0xFF7B1FA2);
+      case ProPenType.charcoal:
+        return isDark ? const Color(0xFFBCAAA4) : const Color(0xFF5D4037);
     }
   }
 

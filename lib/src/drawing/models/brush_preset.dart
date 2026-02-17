@@ -119,6 +119,36 @@ class BrushPreset {
       ),
       isBuiltIn: true,
     ),
+    BrushPreset(
+      id: 'builtin_watercolor',
+      name: 'Watercolor',
+      icon: '💧',
+      penType: ProPenType.watercolor,
+      baseWidth: 12.0,
+      color: Color(0xFF2196F3),
+      settings: ProBrushSettings(watercolorSpread: 1.2),
+      isBuiltIn: true,
+    ),
+    BrushPreset(
+      id: 'builtin_marker',
+      name: 'Marker',
+      icon: '🖌️',
+      penType: ProPenType.marker,
+      baseWidth: 8.0,
+      color: Color(0xFF7B1FA2),
+      settings: ProBrushSettings(markerFlatness: 0.4),
+      isBuiltIn: true,
+    ),
+    BrushPreset(
+      id: 'builtin_charcoal',
+      name: 'Charcoal',
+      icon: '🪨',
+      penType: ProPenType.charcoal,
+      baseWidth: 6.0,
+      color: Color(0xFF3E2723),
+      settings: ProBrushSettings(charcoalGrain: 0.6),
+      isBuiltIn: true,
+    ),
   ];
 
   // ─────────────────────────────────────────────────────────────

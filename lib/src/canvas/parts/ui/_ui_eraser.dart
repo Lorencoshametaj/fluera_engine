@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../../nebula_canvas_screen.dart';
 
 /// 🏗️ Eraser Overlays — cursor, trail, particles, shapes, analytics, undo ghost, etc.
 /// Extracted from _NebulaCanvasScreenState._buildImpl

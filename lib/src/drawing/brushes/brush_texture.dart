@@ -11,6 +11,18 @@ enum TextureType {
   kraft, // Carta kraft con fibre
 }
 
+/// 🔄 Texture rotation behavior along the stroke
+enum TextureRotationMode {
+  /// No rotation — texture is axis-aligned (paper-like grain)
+  fixed,
+
+  /// Rotate texture to follow stroke direction (default)
+  followStroke,
+
+  /// Random rotation per stroke for organic variation
+  random,
+}
+
 /// 🎨 Sistema Texture per Pennelli Professionali
 ///
 /// Loads e cache texture grayscale tileable come `ui.Image`.
