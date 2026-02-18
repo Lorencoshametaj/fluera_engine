@@ -36,9 +36,6 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
             if (_isPlayingSyncedRecording && _playbackController != null)
               _buildRecordedPlaybackOverlay(context),
 
-            // 🔄 LOADING OVERLAY
-            _buildLoadingOverlay(context),
-
             // 🏎️ Edge Auto-Scroll Glow Indicator
             if (_activeEdgeScroll != 0) ...[
               // Left edge
@@ -389,19 +386,6 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
               backgroundColor: _canvasBackgroundColor,
               onNavigateToDrawing: _navigateToCurrentDrawing,
             ),
-      ),
-    );
-  }
-
-  /// 🔄 LOADING OVERLAY: covers canvas during loading
-  Widget _buildLoadingOverlay(BuildContext context) {
-    return IgnorePointer(
-      ignoring: !_isLoading,
-      child: AnimatedOpacity(
-        opacity: _isLoading ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-        child: Container(color: Theme.of(context).scaffoldBackgroundColor),
       ),
     );
   }

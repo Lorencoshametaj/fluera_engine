@@ -21,6 +21,7 @@ import '../../core/nodes/group_node.dart';
 
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
 import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
+import '../shaders/shader_brush_service.dart'; // 🚀 Shader warm-up
 
 /// 🎨 DRAWING PAINTER - Layer disegni completati
 ///
@@ -139,6 +140,10 @@ class DrawingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // 🚀 SHADER WARM-UP: Pre-compile all GPU shaders on the first paint frame.
+    // Avoids jank on the user's first stroke. Only runs once (_warmedUp guard).
+    ShaderBrushService.instance.warmUp(canvas);
+
     // ✂️ Applica clipping se abilitato (per editing immagini)
     if (enableClipping) {
       canvas.clipRect(Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height));

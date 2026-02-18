@@ -57,6 +57,10 @@ class LayerController extends NebulaLayerController {
   /// Dirty Region Tracker.
   final DirtyRegionTracker _dirtyRegionTracker = DirtyRegionTracker();
 
+  /// 🚀 DELTA SAVE: Track which layers have been modified since last save.
+  /// Only dirty layers are re-encoded and re-inserted during save.
+  final Set<String> _dirtyLayerIds = {};
+
   /// Scene graph (lazy-rebuilt from layers).
   SceneGraph _sceneGraph = SceneGraph();
   bool _sceneGraphDirty = true;
@@ -146,6 +150,19 @@ class LayerController extends NebulaLayerController {
   }
 
   // ==========================================================================
+  // 🚀 Delta Save API
+  // ==========================================================================
+
+  /// Mark a layer as dirty (content changed since last save).
+  void markLayerDirty(String layerId) => _dirtyLayerIds.add(layerId);
+
+  /// Get all layer IDs that have been modified since last save.
+  Set<String> get dirtyLayerIds => Set.unmodifiable(_dirtyLayerIds);
+
+  /// Clear dirty tracking after a successful save.
+  void clearDirtyLayerIds() => _dirtyLayerIds.clear();
+
+  // ==========================================================================
   // Layer CRUD
   // ==========================================================================
 
@@ -167,6 +184,7 @@ class LayerController extends NebulaLayerController {
     );
     _layers.add(layer);
     _activeLayerId = layer.id;
+    _dirtyLayerIds.add(layer.id);
 
     if (enableDeltaTracking) {
       _deltaTracker.recordLayerAdded(layer);
@@ -187,6 +205,7 @@ class LayerController extends NebulaLayerController {
 
     _layers.insert(index + 1, copy);
     _activeLayerId = newId;
+    _dirtyLayerIds.add(newId);
 
     if (enableDeltaTracking) {
       _deltaTracker.recordLayerAdded(copy);
@@ -507,6 +526,11 @@ class LayerController extends NebulaLayerController {
     _layers.clear();
     _layers.addAll(updatedLayers);
 
+    // Mark ALL layers dirty — undo can affect any layer
+    for (final l in _layers) {
+      _dirtyLayerIds.add(l.id);
+    }
+
     _spatialIndexDirty = true;
     _invalidateSceneGraph();
     enableDeltaTracking = wasTrackingEnabled;
@@ -523,6 +547,11 @@ class LayerController extends NebulaLayerController {
     final updatedLayers = UndoRedoManager.reapplyDelta(_layers, delta);
     _layers.clear();
     _layers.addAll(updatedLayers);
+
+    // Mark ALL layers dirty — redo can affect any layer
+    for (final l in _layers) {
+      _dirtyLayerIds.add(l.id);
+    }
 
     _spatialIndexDirty = true;
     _invalidateSceneGraph();
@@ -545,6 +574,10 @@ class LayerController extends NebulaLayerController {
     final updatedLayers = UndoRedoManager.applyInverseDelta(_layers, delta);
     _layers.clear();
     _layers.addAll(updatedLayers);
+
+    for (final l in _layers) {
+      _dirtyLayerIds.add(l.id);
+    }
 
     _spatialIndexDirty = true;
     _invalidateSceneGraph();
@@ -581,6 +614,8 @@ class LayerController extends NebulaLayerController {
     enableDeltaTracking = false;
 
     _layers.clear();
+    // Clear dirty tracking — fresh load, nothing to diff against
+    _dirtyLayerIds.clear();
 
     if (newLayers.isEmpty) {
       _createDefaultLayer();

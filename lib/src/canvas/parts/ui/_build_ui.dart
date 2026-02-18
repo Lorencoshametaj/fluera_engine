@@ -114,6 +114,9 @@ extension on _NebulaCanvasScreenState {
 
               // 🎯 Context Menus & Panels (above everything)
               ..._buildMenus(context),
+
+              // 🎬 Loading overlay (splash screen during initialization)
+              _buildLoadingOverlay(),
             ],
           ),
         ),

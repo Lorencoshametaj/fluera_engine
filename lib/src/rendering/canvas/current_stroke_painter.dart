@@ -118,6 +118,9 @@ class CurrentStrokePainter extends CustomPainter {
     if (isViewportLevel) {
       canvas.save();
       canvas.translate(controller!.offset.dx, controller!.offset.dy);
+      if (controller!.rotation != 0.0) {
+        canvas.rotate(controller!.rotation);
+      }
       canvas.scale(controller!.scale);
     }
 

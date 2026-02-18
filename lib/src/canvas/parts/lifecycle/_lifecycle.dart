@@ -76,6 +76,31 @@ extension on _NebulaCanvasScreenState {
     }
   }
 
+  /// 🚀 SPLASH SCREEN PIPELINE — runs ALL heavy initialization in parallel.
+  ///
+  /// This is the core of the loading screen optimization. Instead of running
+  /// shader compilation, isolate spawn, texture decode, and data I/O
+  /// sequentially (total = sum of all), we run them all via `Future.wait()`
+  /// so total time = max(slowest one).
+  ///
+  /// The loading overlay is visible during this entire operation.
+  Future<void> _initializeCanvas() async {
+    // These are all independent — run them in parallel
+    await Future.wait([
+      // 1. GPU shader compilation (~50-200ms on first run)
+      _initProShaders(),
+
+      // 2. Persistent isolate spawn (~2-5ms)
+      SaveIsolateService.instance.initialize(),
+
+      // 3. Texture preloading (decodes brush textures)
+      Future(() => BrushTexture.preloadAll()),
+
+      // 4. Canvas data load from SQLite (I/O bound, variable time)
+      _loadCanvasData(),
+    ]);
+  }
+
   /// 🆕 Load dati canvas — LOCAL FIRST per display istantaneo
   Future<void> _loadCanvasData() async {
     _isLoading = true; // 🔄 Disable auto-save during loading

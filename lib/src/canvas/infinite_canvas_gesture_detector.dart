@@ -116,6 +116,12 @@ class _InfiniteCanvasGestureDetectorState
   double _lastGestureRotation = 0.0;
   double _rotationVelocity = 0.0;
   double? _lastSnappedAngle; // Track snap detent to avoid repeated haptics
+  bool _rotationUnlocked = false; // Requires intentional rotation to activate
+
+  // 🌀 ROTATION: Deadzone to prevent accidental rotation during zoom/pan.
+  // The user must rotate at least ~3° before rotation activates.
+  static const double _rotationDeadzone = 0.05; // ~3° in radians
+  static const double _maxAngularVelocity = 3.0; // Cap spin speed (rad/s)
 
   // 🎯 DOUBLE-TAP ZOOM: State tracking
   int _lastSingleTapTime = 0;
@@ -637,6 +643,7 @@ class _InfiniteCanvasGestureDetectorState
     _initialOffset = widget.controller.offset;
     _initialRotation = widget.controller.rotation;
     _lastGestureRotation = 0.0;
+    _rotationUnlocked = false; // Reset deadzone for new gesture
 
     // 🌀 TWO-FINGER DOUBLE-TAP: Detect rapid 2-finger taps to reset view
     if (_pointerCount >= 2) {
@@ -694,8 +701,16 @@ class _InfiniteCanvasGestureDetectorState
     // 🌊 LIQUID: Allow elastic overshoot for zoom (raw, unclamped scale)
     final rawScale = _initialScale * details.scale;
 
-    // 🌀 ROTATION: Track rotation from gesture
-    double newRotation = _initialRotation + details.rotation;
+    // 🌀 ROTATION: Track rotation from gesture with deadzone.
+    // Rotation is suppressed until the user exceeds ~3° to prevent
+    // accidental rotation during fast zoom/pan gestures.
+    double newRotation;
+    if (_rotationUnlocked || details.rotation.abs() > _rotationDeadzone) {
+      _rotationUnlocked = true;
+      newRotation = _initialRotation + details.rotation;
+    } else {
+      newRotation = _initialRotation; // Keep locked until deadzone exceeded
+    }
 
     // 🌀 MAGNETIC SNAP: Add resistance near snap angles (like Procreate)
     // When close to a snap angle, dampen the rotation delta to create
@@ -714,7 +729,10 @@ class _InfiniteCanvasGestureDetectorState
     final rotationDelta = details.rotation - _lastGestureRotation;
     _lastGestureRotation = details.rotation;
     if (dt > 0.001) {
-      final instantAngularV = rotationDelta / dt;
+      final instantAngularV = (rotationDelta / dt).clamp(
+        -_maxAngularVelocity,
+        _maxAngularVelocity,
+      );
       _rotationVelocity = _rotationVelocity * 0.7 + instantAngularV * 0.3;
     }
 

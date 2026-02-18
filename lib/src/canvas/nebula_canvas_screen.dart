@@ -81,6 +81,8 @@ import '../dialogs/canvas_settings_dialog.dart';
 
 // ── SDK Config (Dependency Inversion) ──────────────────────────────────────
 import './nebula_canvas_config.dart';
+import '../storage/sqlite_storage_adapter.dart';
+import '../storage/save_isolate_service.dart';
 import '../platform/display_capabilities_detector.dart';
 import '../config/adaptive_rendering_config.dart';
 import '../reflow/cluster_detector.dart';
@@ -122,6 +124,7 @@ part './parts/ui/_ui_canvas_layer.dart';
 part './parts/ui/_ui_eraser.dart';
 part './parts/ui/_ui_overlays.dart';
 part './parts/ui/_ui_menus.dart';
+part './parts/ui/_loading_overlay.dart';
 
 // 🧹 Eraser Painters
 part './parts/eraser/_eraser_painters.dart';
@@ -289,8 +292,11 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// ⏱️ Timer per debouncing save
   Timer? _saveDebounceTimer;
 
-  /// 🔄 Flag to disable auto-save during loading
-  bool _isLoading = false;
+  /// 🔄 Flag to disable auto-save during loading + show splash screen
+  bool _isLoading = true;
+
+  /// Whether the loading overlay has fully faded out and can be removed from tree
+  bool _loadingOverlayDismissed = false;
 
   /// Layer controller per gestire i layer
   late final LayerController _layerController;
@@ -424,6 +430,16 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   /// Lasso tool
   late final LassoTool _lassoTool;
+
+  /// 🔒 Backup of lasso selection IDs before starting a new lasso.
+  /// Restored in _onDrawCancel if a zoom gesture interrupts the new lasso.
+  ({
+    Set<String> strokeIds,
+    Set<String> shapeIds,
+    Set<String> textIds,
+    Set<String> imageIds,
+  })?
+  _lassoSelectionBackup;
 
   // 🌊 REFLOW: Cluster detector and cache
   ClusterDetector? _clusterDetector;
@@ -605,11 +621,8 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     // ── Tool state controller (replaces Riverpod) ──────────────────────────
     _toolController = UnifiedToolController();
 
-    // ✨ PRO: Initialize GPU shader brushes
-    _initProShaders();
-
-    // 🎨 TEXTURE: Precarica texture pennello
-    BrushTexture.preloadAll();
+    // ✨ Shader init, isolate spawn, texture preload — all moved to
+    // _initializeCanvas() pipeline (runs during splash screen).
 
     // 🚀 PERFORMANCE: Pause app-level listeners via config
     _config.onPauseAppListeners?.call(true);
@@ -739,8 +752,9 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     StrokePointPool.instance.initialize();
     PathPool.instance.initialize();
 
-    // 🆕 Load canvas data (via config)
-    _loadCanvasData();
+    // 🚀 SPLASH SCREEN: Run ALL heavy init in parallel (shader, isolate,
+    // textures, data load). The loading overlay is shown until complete.
+    _initializeCanvas();
 
     // 🚀 PERFORMANCE: Defer non-critical initialization
     Future.delayed(const Duration(seconds: 2), () {
@@ -865,6 +879,9 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     _toolSystemBridge?.dispose();
     _unifiedToolController?.dispose();
     _toolController.dispose();
+
+    // 🚀 PERSISTENT ISOLATE: Shut down the background encoding isolate
+    SaveIsolateService.instance.dispose();
 
     super.dispose();
   }

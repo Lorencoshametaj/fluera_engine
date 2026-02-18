@@ -288,8 +288,11 @@ extension on _NebulaCanvasScreenState {
           }
         }
 
-        // 🔧 FIX: Invalidate tile cache so moved strokes render at new positions
-        DrawingPainter.invalidateAllTiles();
+        // � PERF: Only invalidate layer caches (not tile + stroke caches).
+        // moveSelected() updates the layer data, so layer Pictures must be
+        // rebuilt, but the tile/stroke path caches are unnecessary overhead
+        // during continuous drag.
+        DrawingPainter.invalidateLayerCaches();
 
         // Convert canvasPosition in screenPosition per auto-scroll
         final screenPosition = _canvasController.canvasToScreen(canvasPosition);
@@ -308,7 +311,7 @@ extension on _NebulaCanvasScreenState {
 
       // Altrimenti aggiorna il lasso path
       _lassoTool.updateLasso(canvasPosition);
-      setState(() {}); // Update per visualizzare il path
+      // 🚀 PERF: No setState needed — lassoPathNotifier triggers targeted repaint
       return;
     }
 

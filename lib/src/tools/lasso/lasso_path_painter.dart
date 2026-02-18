@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 
@@ -42,6 +41,10 @@ const double _kSpecialPointInnerRadius = 4.0;
 /// Closing indicator ring radius.
 const double _kCloseIndicatorRadius = 7.0;
 
+/// 🚀 PERF: Minimum squared screen-distance between decimated points.
+/// Points closer than this are skipped to reduce path complexity.
+const double _kDecimationDistSq = 4.0; // 2px squared
+
 /// Widget showing the lasso path during drawing.
 class LassoPathPainter extends CustomPainter {
   final List<Offset> path;
@@ -52,17 +55,38 @@ class LassoPathPainter extends CustomPainter {
     required this.path,
     this.color = Colors.blue,
     required this.canvasController,
-  });
+    Listenable? repaint,
+  }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
     if (path.length < 2) return;
 
-    // Convert canvas coordinates to screen coordinates
-    final screenPath =
-        path.map((p) => canvasController.canvasToScreen(p)).toList();
+    // 🚀 PERF: Convert to screen coords with decimation.
+    // Skip points that are < 2px apart in screen space to reduce path complexity.
+    final screenPath = <Offset>[];
+    Offset last = canvasController.canvasToScreen(path.first);
+    screenPath.add(last);
 
-    // Build the path from screen coordinates
+    for (var i = 1; i < path.length; i++) {
+      final sp = canvasController.canvasToScreen(path[i]);
+      final dx = sp.dx - last.dx;
+      final dy = sp.dy - last.dy;
+      if (dx * dx + dy * dy >= _kDecimationDistSq) {
+        screenPath.add(sp);
+        last = sp;
+      }
+    }
+
+    // Always include the very last point for accurate end position
+    final lastScreen = canvasController.canvasToScreen(path.last);
+    if (screenPath.last != lastScreen) {
+      screenPath.add(lastScreen);
+    }
+
+    if (screenPath.length < 2) return;
+
+    // Build the path from decimated screen coordinates
     final pathToDraw = Path();
     pathToDraw.moveTo(screenPath.first.dx, screenPath.first.dy);
     for (var i = 1; i < screenPath.length; i++) {
@@ -227,8 +251,8 @@ class LassoPathPainter extends CustomPainter {
     return dashes;
   }
 
+  /// 🚀 PERF: Repainting is driven by the `repaint` Listenable passed in
+  /// the constructor, so shouldRepaint can always return false.
   @override
-  bool shouldRepaint(LassoPathPainter oldDelegate) {
-    return !listEquals(path, oldDelegate.path) || color != oldDelegate.color;
-  }
+  bool shouldRepaint(LassoPathPainter oldDelegate) => false;
 }

@@ -18,6 +18,7 @@ class LassoSelectionOverlay extends StatefulWidget {
   final Set<String> selectedImageIds;
   final NebulaLayerController layerController;
   final InfiniteCanvasController canvasController;
+  final bool isDragging;
 
   const LassoSelectionOverlay({
     super.key,
@@ -27,6 +28,7 @@ class LassoSelectionOverlay extends StatefulWidget {
     this.selectedImageIds = const {},
     required this.layerController,
     required this.canvasController,
+    this.isDragging = false,
   });
 
   @override
@@ -49,12 +51,20 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
     _pulseAnimation = Tween<double>(begin: 0.3, end: 0.6).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    // 🚀 Follow canvas transform (zoom/pan/rotate)
+    widget.canvasController.addListener(_onTransformChanged);
   }
 
   @override
   void dispose() {
+    widget.canvasController.removeListener(_onTransformChanged);
     _pulseController.dispose();
     super.dispose();
+  }
+
+  void _onTransformChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -81,6 +91,7 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
             layerController: widget.layerController,
             animationValue: _pulseAnimation.value,
             canvasController: widget.canvasController,
+            isDragging: widget.isDragging,
           ),
           child: const SizedBox.expand(),
         );
@@ -98,6 +109,7 @@ class _SelectionHighlightPainter extends CustomPainter {
   final NebulaLayerController layerController;
   final double animationValue;
   final InfiniteCanvasController canvasController;
+  final bool isDragging;
 
   _SelectionHighlightPainter({
     required this.selectedStrokeIds,
@@ -107,6 +119,7 @@ class _SelectionHighlightPainter extends CustomPainter {
     required this.layerController,
     required this.animationValue,
     required this.canvasController,
+    this.isDragging = false,
   });
 
   @override
@@ -226,8 +239,8 @@ class _SelectionHighlightPainter extends CustomPainter {
           ..style = PaintingStyle.stroke;
     canvas.drawRect(expandedRect.deflate(1), innerPaint);
 
-    // Corner handles
-    _drawCornerHandles(canvas, expandedRect);
+    // Corner handles (hidden during drag-move)
+    if (!isDragging) _drawCornerHandles(canvas, expandedRect);
   }
 
   void _drawTextHighlight(Canvas canvas, DigitalTextElement text) {
@@ -339,8 +352,9 @@ class _SelectionHighlightPainter extends CustomPainter {
       fillPaint,
     );
 
-    // Corner handles
-    _drawCornerHandles(canvas, expandedRect, color: Colors.teal);
+    // Corner handles (hidden during drag-move)
+    if (!isDragging)
+      _drawCornerHandles(canvas, expandedRect, color: Colors.teal);
   }
 
   /// Draw corner handles on a rect.

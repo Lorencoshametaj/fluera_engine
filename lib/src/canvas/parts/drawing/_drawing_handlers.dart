@@ -179,6 +179,18 @@ extension on _NebulaCanvasScreenState {
 
     // If lasso mode is active (but no selection or tapped outside), start new lasso
     if (_effectiveIsLasso) {
+      // 🔒 Backup selection before starting new lasso — if a zoom gesture
+      // interrupts (2nd finger → _onDrawCancel), we restore the selection.
+      if (_lassoTool.hasSelection) {
+        _lassoSelectionBackup = (
+          strokeIds: Set<String>.from(_lassoTool.selectedStrokeIds),
+          shapeIds: Set<String>.from(_lassoTool.selectedShapeIds),
+          textIds: Set<String>.from(_lassoTool.selectedTextIds),
+          imageIds: Set<String>.from(_lassoTool.selectedImageIds),
+        );
+      } else {
+        _lassoSelectionBackup = null;
+      }
       _lassoTool.startLasso(canvasPosition);
       setState(() {});
       return;
@@ -379,7 +391,20 @@ extension on _NebulaCanvasScreenState {
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
 
-    // Eraif the stroke corrente dal notifier (non salvare nulla)
+    // 🔒 Restore lasso selection if a zoom gesture interrupted a new lasso
+    if (_effectiveIsLasso && _lassoSelectionBackup != null) {
+      _lassoTool.clearLassoPath();
+      _lassoTool.selectedStrokeIds.addAll(_lassoSelectionBackup!.strokeIds);
+      _lassoTool.selectedShapeIds.addAll(_lassoSelectionBackup!.shapeIds);
+      _lassoTool.selectedTextIds.addAll(_lassoSelectionBackup!.textIds);
+      _lassoTool.selectedImageIds.addAll(_lassoSelectionBackup!.imageIds);
+      _lassoSelectionBackup = null;
+      setState(() {});
+      return;
+    }
+    _lassoSelectionBackup = null;
+
+    // Erase the in-progress stroke from the notifier (don't save anything)
     _currentStrokeNotifier.clear();
 
     // Reset del drawing handler se ha uno stroke in corso

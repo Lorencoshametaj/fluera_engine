@@ -355,13 +355,16 @@ class InfiniteCanvasController extends ChangeNotifier {
     if (_ticker == null) return;
     if (_rotationLocked) return;
 
-    // Don't start for tiny angular velocities
-    if (angularVelocity.abs() < 0.1) return;
+    // Don't start for small angular velocities (prevent accidental spin)
+    if (angularVelocity.abs() < 0.5) return;
+
+    // Cap angular velocity to prevent wild spins from noisy gesture data
+    final clampedVelocity = angularVelocity.clamp(-3.0, 3.0);
 
     _rotationSim = FrictionSimulation(
-      _liquidConfig.panFriction * 2.0, // Slightly more friction for rotation
+      _liquidConfig.panFriction * 4.0, // High friction — rotation dies fast
       _rotation,
-      angularVelocity,
+      clampedVelocity,
     );
 
     _isRotationMomentumActive = true;

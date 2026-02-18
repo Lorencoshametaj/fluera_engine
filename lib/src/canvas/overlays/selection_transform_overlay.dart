@@ -62,6 +62,8 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
   @override
   void initState() {
     super.initState();
+    // 🚀 Follow canvas transform (zoom/pan/rotate) in real-time
+    widget.canvasController.addListener(_onCanvasTransformChanged);
     _settleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -79,8 +81,13 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
     });
   }
 
+  void _onCanvasTransformChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    widget.canvasController.removeListener(_onCanvasTransformChanged);
     _settleController.dispose();
     super.dispose();
   }
@@ -181,52 +188,59 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
           ),
         ),
 
-        // Handle angoli (scala proporzionale)
-        _buildHandle(screenBounds.topLeft, _HandleType.topLeft, center),
-        _buildHandle(screenBounds.topRight, _HandleType.topRight, center),
-        _buildHandle(screenBounds.bottomLeft, _HandleType.bottomLeft, center),
-        _buildHandle(screenBounds.bottomRight, _HandleType.bottomRight, center),
-
-        // Handle lati (scala su un asse)
-        _buildHandle(
-          Offset(screenBounds.center.dx, screenBounds.top),
-          _HandleType.topCenter,
-          center,
-        ),
-        _buildHandle(
-          Offset(screenBounds.center.dx, screenBounds.bottom),
-          _HandleType.bottomCenter,
-          center,
-        ),
-        _buildHandle(
-          Offset(screenBounds.left, screenBounds.center.dy),
-          _HandleType.middleLeft,
-          center,
-        ),
-        _buildHandle(
-          Offset(screenBounds.right, screenBounds.center.dy),
-          _HandleType.middleRight,
-          center,
-        ),
-
-        // Handle rotation (above the box)
-        _buildRotationHandle(
-          Offset(
-            screenBounds.center.dx,
-            screenBounds.top - _rotationHandleOffset,
+        // Hide transform handles during drag-move for cleaner UX
+        if (!widget.lassoTool.isDragging) ...[
+          // Handle angoli (scala proporzionale)
+          _buildHandle(screenBounds.topLeft, _HandleType.topLeft, center),
+          _buildHandle(screenBounds.topRight, _HandleType.topRight, center),
+          _buildHandle(screenBounds.bottomLeft, _HandleType.bottomLeft, center),
+          _buildHandle(
+            screenBounds.bottomRight,
+            _HandleType.bottomRight,
+            center,
           ),
-          center,
-        ),
 
-        // Linea connettore al rotation handle
-        Positioned(
-          left: screenBounds.center.dx - 0.5,
-          top: screenBounds.top - _rotationHandleOffset,
-          child: CustomPaint(
-            size: Size(1, _rotationHandleOffset),
-            painter: _ConnectorLinePainter(isDark: widget.isDark),
+          // Handle lati (scala su un asse)
+          _buildHandle(
+            Offset(screenBounds.center.dx, screenBounds.top),
+            _HandleType.topCenter,
+            center,
           ),
-        ),
+          _buildHandle(
+            Offset(screenBounds.center.dx, screenBounds.bottom),
+            _HandleType.bottomCenter,
+            center,
+          ),
+          _buildHandle(
+            Offset(screenBounds.left, screenBounds.center.dy),
+            _HandleType.middleLeft,
+            center,
+          ),
+          _buildHandle(
+            Offset(screenBounds.right, screenBounds.center.dy),
+            _HandleType.middleRight,
+            center,
+          ),
+
+          // Handle rotation (above the box)
+          _buildRotationHandle(
+            Offset(
+              screenBounds.center.dx,
+              screenBounds.top - _rotationHandleOffset,
+            ),
+            center,
+          ),
+
+          // Linea connettore al rotation handle
+          Positioned(
+            left: screenBounds.center.dx - 0.5,
+            top: screenBounds.top - _rotationHandleOffset,
+            child: CustomPaint(
+              size: Size(1, _rotationHandleOffset),
+              painter: _ConnectorLinePainter(isDark: widget.isDark),
+            ),
+          ),
+        ],
       ],
     );
   }

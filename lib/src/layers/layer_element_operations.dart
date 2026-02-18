@@ -23,6 +23,7 @@ extension _LayerElementOps on LayerController {
 
     // O(1): directly add to the existing LayerNode (already in scene graph)
     layer.node.addStroke(stroke);
+    _dirtyLayerIds.add(layer.id);
 
     if (_spatialIndex.isBuilt) {
       _spatialIndex.addStroke(stroke);
@@ -86,6 +87,7 @@ extension _LayerElementOps on LayerController {
     }
 
     _layers[index] = layer.copyWith(strokes: currentStrokes);
+    _dirtyLayerIds.add(layer.id);
     _dirtyRegionTracker.markDirtyBatch(allBounds);
     _dirtyRegionTracker.exitBatchMode();
 
@@ -130,6 +132,7 @@ extension _LayerElementOps on LayerController {
         final updatedStrokes = List<ProStroke>.from(layer.strokes)
           ..removeAt(strokeIndex);
         _layers[i] = layer.copyWith(strokes: updatedStrokes);
+        _dirtyLayerIds.add(layer.id); // Added
         removed = true;
         break;
       }
@@ -151,6 +154,7 @@ extension _LayerElementOps on LayerController {
 
     // O(1): directly add to the existing LayerNode
     layer.node.addShape(shape);
+    _dirtyLayerIds.add(layer.id);
 
     if (_spatialIndex.isBuilt) {
       _spatialIndex.addShape(shape);
@@ -203,6 +207,7 @@ extension _LayerElementOps on LayerController {
         final updatedShapes = List<GeometricShape>.from(layer.shapes)
           ..removeAt(shapeIndex);
         _layers[i] = layer.copyWith(shapes: updatedShapes);
+        _dirtyLayerIds.add(layer.id); // Added
         removed = true;
         break;
       }
@@ -227,6 +232,7 @@ extension _LayerElementOps on LayerController {
 
     final updatedTexts = List<DigitalTextElement>.from(layer.texts)..add(text);
     _layers[index] = layer.copyWith(texts: updatedTexts);
+    _dirtyLayerIds.add(layer.id);
 
     // TODO: Spatial index for text elements
     _spatialIndexDirty = true;
@@ -260,6 +266,7 @@ extension _LayerElementOps on LayerController {
       _emitTT(CanvasDeltaType.textRemoved, layer.id, elementId: textId);
 
       _layers[index] = layer.copyWith(texts: updatedTexts);
+      _dirtyLayerIds.add(layer.id);
       _spatialIndexDirty = true;
       _invalidateSceneGraph();
     }
@@ -273,6 +280,7 @@ extension _LayerElementOps on LayerController {
         final updatedTexts = List<DigitalTextElement>.from(layer.texts);
         updatedTexts[index] = updatedText;
         _layers[i] = layer.copyWith(texts: updatedTexts);
+        _dirtyLayerIds.add(layer.id);
 
         if (enableDeltaTracking) {
           _deltaTracker.recordTextUpdate(
@@ -309,6 +317,7 @@ extension _LayerElementOps on LayerController {
 
     final updatedImages = List<ImageElement>.from(layer.images)..add(image);
     _layers[index] = layer.copyWith(images: updatedImages);
+    _dirtyLayerIds.add(layer.id);
 
     _spatialIndexDirty = true;
     _invalidateSceneGraph();
@@ -344,6 +353,7 @@ extension _LayerElementOps on LayerController {
         final updatedImages = List<ImageElement>.from(layer.images)
           ..removeAt(index);
         _layers[i] = layer.copyWith(images: updatedImages);
+        _dirtyLayerIds.add(layer.id);
         removed = true;
         break;
       }
@@ -364,6 +374,7 @@ extension _LayerElementOps on LayerController {
         final updatedImages = List<ImageElement>.from(layer.images);
         updatedImages[index] = updatedImage;
         _layers[i] = layer.copyWith(images: updatedImages);
+        _dirtyLayerIds.add(layer.id);
         found = true;
 
         if (enableDeltaTracking) {
@@ -395,6 +406,7 @@ extension _LayerElementOps on LayerController {
         final updatedImages = List<ImageElement>.from(layer.images)
           ..add(updatedImage);
         _layers[activeIdx] = layer.copyWith(images: updatedImages);
+        _dirtyLayerIds.add(layer.id);
 
         if (enableDeltaTracking) {
           _deltaTracker.recordImageAdded(
@@ -439,6 +451,7 @@ extension _LayerElementOps on LayerController {
       final updatedShapes = List<GeometricShape>.from(layer.shapes)
         ..removeLast();
       _layers[index] = layer.copyWith(shapes: updatedShapes);
+      _dirtyLayerIds.add(layer.id);
       _spatialIndexDirty = true;
       _invalidateSceneGraph();
     } else if (layer.strokes.isNotEmpty) {
@@ -452,6 +465,7 @@ extension _LayerElementOps on LayerController {
       }
       final updatedStrokes = List<ProStroke>.from(layer.strokes)..removeLast();
       _layers[index] = layer.copyWith(strokes: updatedStrokes);
+      _dirtyLayerIds.add(layer.id);
       _spatialIndexDirty = true;
       _invalidateSceneGraph();
     }
@@ -474,6 +488,7 @@ extension _LayerElementOps on LayerController {
     _emitTT(CanvasDeltaType.layerCleared, layer.id);
 
     _layers[index] = layer.copyWith(strokes: [], shapes: [], texts: []);
+    _dirtyLayerIds.add(layer.id);
     _spatialIndexDirty = true;
     _invalidateSceneGraph();
   }

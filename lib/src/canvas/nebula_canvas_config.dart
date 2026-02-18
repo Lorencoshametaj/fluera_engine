@@ -191,6 +191,14 @@ class NebulaCanvasConfig {
   /// needed while the canvas is active). Called with `true` on enter, `false` on exit.
   final void Function(bool pause)? onPauseAppListeners;
 
+  // ===========================================================================
+  // SPLASH / LOADING CUSTOMIZATION
+  // ===========================================================================
+
+  /// Custom logo asset path for the loading screen.
+  /// If null, the default Fluera logo from the SDK is used.
+  final String? splashLogoAsset;
+
   const NebulaCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
@@ -219,6 +227,7 @@ class NebulaCanvasConfig {
     this.onShowSettings,
     this.onPauseSyncCoordinator,
     this.onPauseAppListeners,
+    this.splashLogoAsset,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';

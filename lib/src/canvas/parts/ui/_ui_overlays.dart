@@ -54,16 +54,26 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
   List<Widget> _buildStandardOverlays(BuildContext context) {
     return [
       // Lasso Path Overlay — DENTRO l'area canvas
-      if (_effectiveIsLasso && _lassoTool.lassoPath.isNotEmpty)
+      // 🚀 PERF: ValueListenableBuilder isolates repaint to just this widget
+      if (_effectiveIsLasso)
         Positioned.fill(
           child: IgnorePointer(
-            child: CustomPaint(
-              painter: LassoPathPainter(
-                path: _lassoTool.lassoPath,
-                color: Colors.blue,
-                canvasController: _canvasController,
-              ),
-              size: Size.infinite,
+            child: ValueListenableBuilder<int>(
+              valueListenable: _lassoTool.lassoPathNotifier,
+              builder: (context, _, __) {
+                if (_lassoTool.lassoPath.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return CustomPaint(
+                  painter: LassoPathPainter(
+                    path: _lassoTool.lassoPath,
+                    color: Colors.blue,
+                    canvasController: _canvasController,
+                    repaint: _lassoTool.lassoPathNotifier,
+                  ),
+                  size: Size.infinite,
+                );
+              },
             ),
           ),
         ),
@@ -77,6 +87,7 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
               selectedShapeIds: _lassoTool.selectedShapeIds,
               layerController: _layerController,
               canvasController: _canvasController,
+              isDragging: _lassoTool.isDragging,
             ),
           ),
         ),

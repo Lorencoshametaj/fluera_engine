@@ -46,6 +46,10 @@ class LassoTool {
   // Lasso path being drawn
   List<Offset> lassoPath = [];
 
+  /// 🚀 PERF: Notifier that fires when lassoPath changes.
+  /// Listeners repaint only the lasso overlay — no full setState rebuild.
+  final ValueNotifier<int> lassoPathNotifier = ValueNotifier<int>(0);
+
   // Selected element IDs by type
   final Set<String> selectedStrokeIds = {};
   final Set<String> selectedShapeIds = {};
@@ -204,11 +208,13 @@ class LassoTool {
   void startLasso(Offset position) {
     lassoPath.clear();
     lassoPath.add(position);
+    lassoPathNotifier.value++;
     clearSelection();
   }
 
   void updateLasso(Offset position) {
     lassoPath.add(position);
+    lassoPathNotifier.value++;
   }
 
   void completeLasso() {
