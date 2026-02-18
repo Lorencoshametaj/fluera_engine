@@ -297,10 +297,35 @@ extension on _NebulaCanvasScreenState {
     // 🔧 FIX ZOOM LAG: Update list cache
     _refreshCachedLists();
 
-    // Auto-save only thef not stiamo caricando
+    // 🌊 REFLOW: Rebuild cluster cache for the active layer
+    // Skip during active drag — clusters don't change, only positions do.
+    if (_clusterDetector != null && !_lassoTool.isDragging) {
+      _rebuildClusterCache();
+    }
+
+    // Auto-save only if not loading
     if (!_isLoading) {
       _autoSaveCanvas();
     }
+  }
+
+  /// 🌊 Rebuild the reflow cluster cache from the active layer.
+  void _rebuildClusterCache() {
+    if (_clusterDetector == null) return;
+
+    final activeLayer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+
+    _clusterCache = _clusterDetector!.detect(
+      strokes: activeLayer.strokes,
+      shapes: activeLayer.shapes,
+      texts: activeLayer.texts,
+      images: activeLayer.images,
+    );
+
+    _lassoTool.updateClusterCache(_clusterCache);
   }
 
   /// 🔧 Update le liste cachate da _layerController

@@ -159,12 +159,15 @@ class ViewportCuller {
     return Rect.fromPoints(shape.startPoint, shape.endPoint).inflate(padding);
   }
 
-  /// Calculates current viewport in canvas coordinates
+  /// Calculates current viewport in canvas coordinates.
+  /// When [rotation] is non-zero, inflates the viewport to cover the
+  /// rotated screen area (axis-aligned bounding box of the rotated rect).
   static Rect calculateViewport(
     Size screenSize,
     Offset canvasOffset,
-    double canvasScale,
-  ) {
+    double canvasScale, {
+    double rotation = 0.0,
+  }) {
     // Transform screen coordinates in canvas coordinates
     // Remove l'offset e scala inversa
     final topLeft = (-canvasOffset) / canvasScale;
@@ -173,6 +176,44 @@ class ViewportCuller {
       topLeft.dy + (screenSize.height / canvasScale),
     );
 
-    return Rect.fromPoints(topLeft, bottomRight);
+    var viewport = Rect.fromPoints(topLeft, bottomRight);
+
+    // When rotated, the axis-aligned viewport needs to be larger
+    // to cover the diagonal of the rotated screen
+    if (rotation != 0.0) {
+      final diagonal = viewport.longestSide * 0.42; // ~sin(45°) * side
+      viewport = viewport.inflate(diagonal);
+    }
+
+    return viewport;
+  }
+
+  /// 🔍 ADAPTIVE LOD: Skip strokes that are too small to be visible.
+  ///
+  /// At low zoom levels, tiny strokes (e.g., dots, small marks) occupy
+  /// sub-pixel area on screen and are invisible. Skipping them saves
+  /// rendering time without any visual change.
+  ///
+  /// **Safety**: This NEVER modifies stroke geometry. Strokes are either
+  /// rendered at full fidelity or skipped entirely. No path simplification.
+  ///
+  /// [minScreenPixels] — minimum screen-space size to render (default: 1.5px).
+  /// A stroke whose largest dimension × scale < this threshold is skipped.
+  static List<ProStroke> applyAdaptiveLOD(
+    List<ProStroke> strokes,
+    double canvasScale, {
+    double minScreenPixels = 1.5,
+  }) {
+    if (strokes.isEmpty || canvasScale >= 0.5) return strokes;
+
+    return strokes.where((stroke) {
+      final bounds = stroke.bounds;
+      if (bounds == Rect.zero) return false;
+      // Largest canvas-space dimension → screen pixels
+      final screenSize =
+          (bounds.width > bounds.height ? bounds.width : bounds.height) *
+          canvasScale;
+      return screenSize >= minScreenPixels;
+    }).toList();
   }
 }

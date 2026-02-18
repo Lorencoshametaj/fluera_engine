@@ -83,6 +83,11 @@ import '../dialogs/canvas_settings_dialog.dart';
 import './nebula_canvas_config.dart';
 import '../platform/display_capabilities_detector.dart';
 import '../config/adaptive_rendering_config.dart';
+import '../reflow/cluster_detector.dart';
+import '../reflow/reflow_physics_engine.dart';
+import '../reflow/content_cluster.dart';
+import './smart_guides/smart_guide_engine.dart';
+import './smart_guides/smart_guide_overlay.dart';
 
 // ============================================================================
 // PART FILES
@@ -399,8 +404,16 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// Auto-scroll during drag
   Timer? _autoScrollTimer;
   final GlobalKey _canvasAreaKey = GlobalKey();
-  static const double _edgeScrollThreshold = 50.0;
-  static const double _scrollSpeed = 5.0;
+  static const double _edgeScrollThreshold = 60.0; // 🏎️ Edge zone width
+  static const double _scrollSpeed = 8.0; // 🏎️ Max scroll speed (px/frame)
+  // 🏎️ Active edge scroll state for visual glow indicator
+  // Bits: 1=left, 2=right, 4=top, 8=bottom
+  int _activeEdgeScroll = 0;
+  // 📌 Last screen position of finger during auto-scroll (for re-deriving canvas pos)
+  Offset _autoScrollFingerScreenPos = Offset.zero;
+
+  // 📐 Smart Guides: active guide lines during drag
+  List<SmartGuideLine> _activeSmartGuides = const [];
 
   // ============================================================================
   // LIFECYCLE
@@ -411,6 +424,10 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   /// Lasso tool
   late final LassoTool _lassoTool;
+
+  // 🌊 REFLOW: Cluster detector and cache
+  ClusterDetector? _clusterDetector;
+  List<ContentCluster> _clusterCache = [];
 
   // === PHASE 3 TOOLS ===
   final RulerGuideSystem _rulerGuideSystem = RulerGuideSystem();
@@ -669,6 +686,23 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     // Initialize canvas controller
     _canvasController = InfiniteCanvasController();
 
+    // 🌊 LIQUID: Attach physics ticker from this TickerProviderStateMixin
+    _canvasController.attachTicker(this);
+
+    // 🌀 Load persisted rotation lock preference
+    _canvasController.loadPersistedState();
+
+    // 🌊 REFLOW: Initialize cluster detector and physics engine
+    final reflowConfig = _canvasController.liquidConfig.reflow;
+    if (reflowConfig.enabled) {
+      _clusterDetector = ClusterDetector(
+        temporalThresholdMs: reflowConfig.clusterTemporalThresholdMs,
+        spatialThreshold: reflowConfig.clusterSpatialThreshold,
+      );
+      final reflowEngine = ReflowPhysicsEngine(config: reflowConfig);
+      _lassoTool.attachReflow(reflowEngine, _clusterCache);
+    }
+
     // 🖥️ DISPLAY DETECTION: Delay to avoid init contention
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
@@ -816,6 +850,8 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     _currentStrokeNotifier.dispose();
     _currentShapeNotifier.dispose();
     _currentEditingStrokeNotifier.dispose();
+    // 🌊 LIQUID: Detach physics ticker before disposal
+    _canvasController.detachTicker();
     _canvasController.dispose();
     _playbackController?.dispose();
 

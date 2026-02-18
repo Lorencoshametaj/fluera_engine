@@ -51,6 +51,67 @@ extension on _NebulaCanvasScreenState {
                 ],
               ),
 
+              // 🌀 Rotation Angle Indicator (reactive, floating pill)
+              ListenableBuilder(
+                listenable: _canvasController,
+                builder: (context, _) {
+                  final rotation = _canvasController.rotation;
+                  if (rotation == 0.0) return const SizedBox.shrink();
+
+                  final isSnapped =
+                      _canvasController.checkSnapAngle(rotation) != null;
+                  final pillColor =
+                      isSnapped
+                          ? Colors.blue.withValues(alpha: 0.85)
+                          : Colors.black.withValues(alpha: 0.65);
+
+                  return Positioned(
+                    bottom: 24,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: IgnorePointer(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: pillColor,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Transform.rotate(
+                                angle: rotation,
+                                child: Icon(
+                                  isSnapped
+                                      ? Icons.check_circle_rounded
+                                      : Icons.navigation_rounded,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _canvasController.rotationDegrees,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+
               // 🎯 Context Menus & Panels (above everything)
               ..._buildMenus(context),
             ],

@@ -153,6 +153,9 @@ class DrawingPainter extends CustomPainter {
     if (isViewportLevel) {
       canvas.save();
       canvas.translate(effectiveOffset.dx, effectiveOffset.dy);
+      if (controller!.rotation != 0.0) {
+        canvas.rotate(controller!.rotation);
+      }
       canvas.scale(effectiveScale);
     }
 
@@ -161,6 +164,7 @@ class DrawingPainter extends CustomPainter {
       effectiveViewportSize,
       effectiveOffset,
       effectiveScale,
+      rotation: controller?.rotation ?? 0.0,
     );
 
     // 🚀 TILE CACHING: active for canvases with many strokes
@@ -400,11 +404,17 @@ class DrawingPainter extends CustomPainter {
               spatialIndex: spatialIndex,
             );
 
+    // 🔍 ADAPTIVE LOD: skip sub-pixel strokes at low zoom.
+    // Only active when scale < 0.5 — at normal zoom, zero overhead.
+    // Never modifies geometry — strokes are fully rendered or fully skipped.
+    final effectiveScale = controller?.scale ?? canvasScale;
+    final lodStrokes = ViewportCuller.applyAdaptiveLOD(strokes, effectiveScale);
+
     // Separate fill overlays and eraser previews (not cacheable)
     // from normal strokes (cacheable via batch rendering).
     final batchableStrokes = <ProStroke>[];
 
-    for (final stroke in strokes) {
+    for (final stroke in lodStrokes) {
       final isPreview = eraserPreviewIds.contains(stroke.id);
       if (stroke.isFill) {
         _drawFillOverlay(canvas, stroke);
@@ -505,7 +515,14 @@ class DrawingPainter extends CustomPainter {
                 spatialIndex: spatialIndex,
               );
 
-      if (strokes.isEmpty) {
+      // 🔍 ADAPTIVE LOD: skip sub-pixel strokes at low zoom
+      final effectiveScale = controller?.scale ?? canvasScale;
+      final lodStrokes = ViewportCuller.applyAdaptiveLOD(
+        strokes,
+        effectiveScale,
+      );
+
+      if (lodStrokes.isEmpty) {
         canvas.restore();
         continue;
       }

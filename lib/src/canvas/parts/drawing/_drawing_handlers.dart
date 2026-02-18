@@ -166,22 +166,23 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // If il lasso is active, controlla se inizio drag o nuovo lasso
-    if (_effectiveIsLasso) {
-      // If there is a selection and the point is inside the selection, start drag
-      if (_lassoTool.hasSelection &&
-          _lassoTool.isPointInSelection(canvasPosition)) {
+    // 🔧 FIX: When lasso tool is active with a selection, CHECK DRAG FIRST
+    // This must run BEFORE image/text hit-tests, otherwise those intercept
+    // the touch and the lasso drag is never reached.
+    if (_effectiveIsLasso && _lassoTool.hasSelection) {
+      if (_lassoTool.isPointInSelection(canvasPosition)) {
         _lassoTool.startDrag(canvasPosition);
         setState(() {});
         return;
       }
-
-      // Altrimenti, nuovo lasso
-      _lassoTool.startLasso(canvasPosition);
-      setState(() {}); // Update per visualizzare il path
-      return;
     }
 
+    // If lasso mode is active (but no selection or tapped outside), start new lasso
+    if (_effectiveIsLasso) {
+      _lassoTool.startLasso(canvasPosition);
+      setState(() {});
+      return;
+    }
     // ✒️ PEN TOOL: route events to vector path editor
     if (_toolController.isPenToolMode) {
       final screenPos = _canvasController.canvasToScreen(canvasPosition);

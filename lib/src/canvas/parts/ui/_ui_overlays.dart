@@ -90,6 +90,15 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
             setState(() {});
             _autoSaveCanvas();
           },
+          onEdgeAutoScroll: (screenPosition) {
+            final RenderBox? renderBox =
+                _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+            if (renderBox != null) {
+              final local = renderBox.globalToLocal(screenPosition);
+              _startAutoScrollIfNeeded(local, renderBox.size);
+            }
+          },
+          onEdgeAutoScrollEnd: _stopAutoScroll,
           isDark: Theme.of(context).brightness == Brightness.dark,
         ),
 
@@ -114,6 +123,20 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
                 return _penTool.buildToolOptions(ctx) ??
                     const SizedBox.shrink();
               },
+            ),
+          ),
+        ),
+
+      // 📐 Smart Guide alignment lines during drag
+      if (_activeSmartGuides.isNotEmpty)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: SmartGuidePainter(
+                guides: _activeSmartGuides,
+                controller: _canvasController,
+              ),
+              size: Size.infinite,
             ),
           ),
         ),

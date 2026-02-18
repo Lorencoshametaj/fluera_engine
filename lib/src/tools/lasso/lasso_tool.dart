@@ -6,6 +6,8 @@ import '../../core/models/canvas_layer.dart';
 import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
 import '../../layers/nebula_layer_controller.dart';
+import '../../reflow/content_cluster.dart';
+import '../../reflow/reflow_physics_engine.dart';
 
 part '_lasso_transforms.dart';
 part '_lasso_clipboard.dart';
@@ -87,7 +89,39 @@ class LassoTool {
   // Additive selection mode (Shift + lasso adds to existing selection)
   bool _additiveMode = false;
 
+  // 🌊 REFLOW: Physics engine and cluster cache for content reflow
+  ReflowPhysicsEngine? _reflowEngine;
+  List<ContentCluster> _clusterCache = [];
+
+  /// Current reflow cluster cache (for ghost rendering in overlay).
+  List<ContentCluster> get clusterCache => _clusterCache;
+
+  /// Current reflow ghost displacements (during drag, for preview rendering).
+  Map<String, Offset> reflowGhostDisplacements = {};
+
+  /// Whether content reflow is active (engine and clusters available).
+  bool get isReflowEnabled =>
+      _reflowEngine != null && _reflowEngine!.config.enabled;
+
   LassoTool({required this.layerController});
+
+  /// 🌊 REFLOW: Attach the reflow physics engine and initial cluster cache.
+  void attachReflow(ReflowPhysicsEngine engine, List<ContentCluster> clusters) {
+    _reflowEngine = engine;
+    _clusterCache = clusters;
+  }
+
+  /// 🌊 REFLOW: Update the cluster cache (called when layer content changes).
+  void updateClusterCache(List<ContentCluster> clusters) {
+    _clusterCache = clusters;
+  }
+
+  /// 🌊 REFLOW: Detach the reflow engine.
+  void detachReflow() {
+    _reflowEngine = null;
+    _clusterCache = [];
+    reflowGhostDisplacements = {};
+  }
 
   // ===========================================================================
   // Selection Query
@@ -152,8 +186,15 @@ class LassoTool {
   }
 
   void endDrag() {
+    // Set dragging false FIRST so _onLayerChanged can rebuild cluster cache
     _isDragging = false;
     _dragStartPosition = null;
+
+    // 🌊 REFLOW: On drag end, do the full solve and bake displacements
+    if (isReflowEnabled && reflowGhostDisplacements.isNotEmpty) {
+      _bakeReflowDisplacements();
+    }
+    reflowGhostDisplacements = {};
   }
 
   // ===========================================================================
@@ -377,6 +418,136 @@ class LassoTool {
         shapes: movedShapes,
         texts: movedTexts,
         images: movedImages,
+      ),
+    );
+
+    // 🌊 REFLOW: Estimate ghost displacements for surrounding content
+    if (isReflowEnabled) {
+      _calculateSelectionBounds();
+      if (_selectionBounds != null) {
+        final excludeIds = _getSelectedClusterIds();
+        reflowGhostDisplacements = _reflowEngine!.estimateDisplacements(
+          clusters: _clusterCache,
+          disturbance: _selectionBounds!,
+          excludeIds: excludeIds,
+        );
+      }
+    }
+  }
+
+  /// 🌊 REFLOW: Get cluster IDs that contain any selected element.
+  Set<String> _getSelectedClusterIds() {
+    final ids = <String>{};
+    final allSelectedIds = {
+      ...selectedStrokeIds,
+      ...selectedShapeIds,
+      ...selectedTextIds,
+      ...selectedImageIds,
+    };
+    for (final cluster in _clusterCache) {
+      for (final elementId in allSelectedIds) {
+        if (cluster.containsElement(elementId)) {
+          ids.add(cluster.id);
+          break;
+        }
+      }
+    }
+    return ids;
+  }
+
+  /// 🌊 REFLOW: Bake ghost displacements into actual element positions.
+  /// Called once on drag end for atomic undo.
+  void _bakeReflowDisplacements() {
+    if (reflowGhostDisplacements.isEmpty) return;
+
+    // Full solve (iterative collision resolution)
+    _calculateSelectionBounds();
+    if (_selectionBounds == null) return;
+
+    final excludeIds = _getSelectedClusterIds();
+    final finalDisplacements = _reflowEngine!.solve(
+      clusters: _clusterCache,
+      disturbance: _selectionBounds!,
+      excludeIds: excludeIds,
+    );
+
+    if (finalDisplacements.isEmpty) return;
+
+    // Collect all element IDs that need to move
+    final affectedElementIds = <String, Offset>{};
+    for (final entry in finalDisplacements.entries) {
+      final cluster = _clusterCache.firstWhere(
+        (c) => c.id == entry.key,
+        orElse:
+            () => ContentCluster(
+              id: '',
+              strokeIds: const [],
+              bounds: Rect.zero,
+              centroid: Offset.zero,
+            ),
+      );
+      if (cluster.id.isEmpty) continue;
+      for (final id in cluster.strokeIds) {
+        affectedElementIds[id] = entry.value;
+      }
+      for (final id in cluster.shapeIds) {
+        affectedElementIds[id] = entry.value;
+      }
+      for (final id in cluster.textIds) {
+        affectedElementIds[id] = entry.value;
+      }
+      for (final id in cluster.imageIds) {
+        affectedElementIds[id] = entry.value;
+      }
+    }
+
+    if (affectedElementIds.isEmpty) return;
+
+    // Apply displacements to actual element positions
+    final activeLayer = _getActiveLayer();
+
+    final updatedStrokes =
+        activeLayer.strokes.map((stroke) {
+          final disp = affectedElementIds[stroke.id];
+          if (disp == null) return stroke;
+          return stroke.copyWith(
+            points:
+                stroke.points
+                    .map((p) => p.copyWith(position: p.position + disp))
+                    .toList(),
+          );
+        }).toList();
+
+    final updatedShapes =
+        activeLayer.shapes.map((shape) {
+          final disp = affectedElementIds[shape.id];
+          if (disp == null) return shape;
+          return shape.copyWith(
+            startPoint: shape.startPoint + disp,
+            endPoint: shape.endPoint + disp,
+          );
+        }).toList();
+
+    final updatedTexts =
+        activeLayer.texts.map((text) {
+          final disp = affectedElementIds[text.id];
+          if (disp == null) return text;
+          return text.copyWith(position: text.position + disp);
+        }).toList();
+
+    final updatedImages =
+        activeLayer.images.map((image) {
+          final disp = affectedElementIds[image.id];
+          if (disp == null) return image;
+          return image.copyWith(position: image.position + disp);
+        }).toList();
+
+    _updateLayer(
+      activeLayer.copyWith(
+        strokes: updatedStrokes,
+        shapes: updatedShapes,
+        texts: updatedTexts,
+        images: updatedImages,
       ),
     );
   }

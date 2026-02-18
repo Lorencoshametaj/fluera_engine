@@ -3,107 +3,171 @@ part of '../../nebula_canvas_screen.dart';
 /// 📦 Drawing Auxiliary — auto-scroll, flood fill, rasterization, eraser particles, pinch
 extension on _NebulaCanvasScreenState {
   // ============================================================================
-  // AUTO-SCROLL DURANTE IL DRAG
+  // 🏎️ EDGE AUTO-SCROLL — Proportional, rotation-aware
   // ============================================================================
 
-  /// Start l'auto-scroll se necessario (vicino ai bordi)
+  /// Start or update edge auto-scroll with proportional speed.
+  ///
+  /// Speed increases quadratically as the pointer moves deeper into the
+  /// edge zone. Scroll direction is rotation-compensated so it always
+  /// moves in the expected visual direction regardless of canvas rotation.
+  ///
+  /// Instead of compensating tool positions, we store the finger's screen
+  /// position and re-derive the canvas position every tick. This ensures
+  /// the dragged element always stays under the finger.
   void _startAutoScrollIfNeeded(Offset screenPosition, Size screenSize) {
-    // Ferma timer esistente
+    // Cancel existing timer
     _autoScrollTimer?.cancel();
 
-    // Calculate distanza dai bordi
-    final distanceFromLeft = screenPosition.dx;
-    final distanceFromRight = screenSize.width - screenPosition.dx;
-    final distanceFromTop = screenPosition.dy;
-    final distanceFromBottom = screenSize.height - screenPosition.dy;
+    const double edgeZone = _NebulaCanvasScreenState._edgeScrollThreshold;
+    const double maxSpeed = _NebulaCanvasScreenState._scrollSpeed;
 
-    // Determine scroll direction
-    double scrollX = 0.0;
-    double scrollY = 0.0;
+    // Calculate how deep into each edge zone the pointer is (0 = outside, 1 = at edge)
+    final distLeft = screenPosition.dx;
+    final distRight = screenSize.width - screenPosition.dx;
+    final distTop = screenPosition.dy;
+    final distBottom = screenSize.height - screenPosition.dy;
 
-    if (distanceFromLeft < _NebulaCanvasScreenState._edgeScrollThreshold) {
-      scrollX =
-          _NebulaCanvasScreenState
-              ._scrollSpeed; // Scroll verso destra (offset positivo)
-    } else if (distanceFromRight <
-        _NebulaCanvasScreenState._edgeScrollThreshold) {
-      scrollX =
-          -_NebulaCanvasScreenState
-              ._scrollSpeed; // Scroll verso sinistra (offset negativo)
+    // Proportional intensity: 0 outside zone, 1 at screen edge (quadratic)
+    double intensityX = 0.0;
+    double intensityY = 0.0;
+
+    if (distLeft < edgeZone) {
+      final t = 1.0 - (distLeft / edgeZone); // 0 at zone edge, 1 at screen edge
+      intensityX =
+          t * t * maxSpeed; // Quadratic acceleration (positive = scroll right)
+    } else if (distRight < edgeZone) {
+      final t = 1.0 - (distRight / edgeZone);
+      intensityX = -(t * t * maxSpeed); // Negative = scroll left
     }
 
-    if (distanceFromTop < _NebulaCanvasScreenState._edgeScrollThreshold) {
-      scrollY =
-          _NebulaCanvasScreenState
-              ._scrollSpeed; // Scroll verso il basso (offset positivo)
-    } else if (distanceFromBottom <
-        _NebulaCanvasScreenState._edgeScrollThreshold) {
-      scrollY =
-          -_NebulaCanvasScreenState
-              ._scrollSpeed; // Scroll verso l'alto (offset negativo)
+    if (distTop < edgeZone) {
+      final t = 1.0 - (distTop / edgeZone);
+      intensityY = t * t * maxSpeed; // Positive = scroll down
+    } else if (distBottom < edgeZone) {
+      final t = 1.0 - (distBottom / edgeZone);
+      intensityY = -(t * t * maxSpeed); // Negative = scroll up
     }
 
-    // If c'è scroll, avvia il timer
-    if (scrollX != 0.0 || scrollY != 0.0) {
-      _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 16), (
-        timer,
-      ) {
-        // Move the canvas
-        final currentOffset = _canvasController.offset;
-        final newOffset = Offset(
-          currentOffset.dx + scrollX,
-          currentOffset.dy + scrollY,
-        );
-        _canvasController.setOffset(newOffset);
+    // If no scroll needed, stop and clear edge state
+    if (intensityX == 0.0 && intensityY == 0.0) {
+      if (_activeEdgeScroll != 0) {
+        _activeEdgeScroll = 0;
+        setState(() {});
+      }
+      return;
+    }
 
-        // Compensate the scroll by moving elements in the OPPOSITE direction
-        // Quando il canvas scorre a destra (+scrollX), gli elementi devono andare a sinistra (-scrollX)
-        // to remain visually in the same position on screen
-        final compensation = Offset(-scrollX, -scrollY);
+    // 🏎️ Track active edges for visual glow
+    int edges = 0;
+    if (distLeft < edgeZone) edges |= 1; // left
+    if (distRight < edgeZone) edges |= 2; // right
+    if (distTop < edgeZone) edges |= 4; // top
+    if (distBottom < edgeZone) edges |= 8; // bottom
+    _activeEdgeScroll = edges;
 
-        if (_lassoTool.isDragging) {
-          _lassoTool.compensateScroll(compensation);
-        }
+    // 🌀 Rotation-aware: rotate scroll vector by -rotation so visual direction is correct
+    final rotation = _canvasController.rotation;
+    double scrollX = intensityX;
+    double scrollY = intensityY;
+    if (rotation != 0.0) {
+      final cosR = math.cos(-rotation);
+      final sinR = math.sin(-rotation);
+      scrollX = intensityX * cosR - intensityY * sinR;
+      scrollY = intensityX * sinR + intensityY * cosR;
+    }
 
-        // Digital text: compensates in tool AND updates list
-        if (_digitalTextTool.isDragging || _digitalTextTool.isResizing) {
-          _digitalTextTool.compensateScroll(compensation);
+    // 📏 Scale-aware: scroll faster when zoomed out, slower when zoomed in
+    final scaleFactor = 1.0 / _canvasController.scale;
+    scrollX *= scaleFactor;
+    scrollY *= scaleFactor;
 
-          // Update element in the list to synchronize
-          if (_digitalTextTool.selectedElement != null) {
-            final index = _digitalTextElements.indexWhere(
-              (e) => e.id == _digitalTextTool.selectedElement!.id,
-            );
-            if (index != -1) {
-              _digitalTextElements[index] = _digitalTextTool.selectedElement!;
-            }
+    // 📌 Store finger screen position — re-derived to canvas coords every tick
+    _autoScrollFingerScreenPos = screenPosition;
+
+    // 🫨 Haptic pulse when entering auto-scroll zone
+    final wasScrolling = _autoScrollTimer != null;
+    if (!wasScrolling) {
+      HapticFeedback.lightImpact();
+    }
+
+    // 🏎️ Smooth ramp-up: ease into full speed over ~200ms (12 frames)
+    int _rampFrame = wasScrolling ? 12 : 0; // Skip ramp if already scrolling
+
+    _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 16), (
+      timer,
+    ) {
+      // Ramp factor: 0→1 over 12 frames
+      _rampFrame = (_rampFrame + 1).clamp(0, 12);
+      final ramp = _rampFrame / 12.0;
+      final rampedScrollX = scrollX * ramp;
+      final rampedScrollY = scrollY * ramp;
+
+      // 📌 Snapshot BEFORE scroll: where does the finger point in canvas space?
+      final canvasBefore = _canvasController.screenToCanvas(
+        _autoScrollFingerScreenPos,
+      );
+
+      // Move the canvas (using ramped speed)
+      final currentOffset = _canvasController.offset;
+      final newOffset = Offset(
+        currentOffset.dx + rampedScrollX,
+        currentOffset.dy + rampedScrollY,
+      );
+      _canvasController.setOffset(newOffset);
+
+      // 📌 Snapshot AFTER scroll: same screen position → different canvas position
+      final canvasAfter = _canvasController.screenToCanvas(
+        _autoScrollFingerScreenPos,
+      );
+
+      // The canvas-space delta: how much the "target" moved due to scroll.
+      // This automatically accounts for scale AND rotation correctly.
+      final compensation = canvasAfter - canvasBefore;
+
+      if (_lassoTool.isDragging) {
+        _lassoTool.compensateScroll(compensation);
+        DrawingPainter.invalidateAllTiles();
+      }
+
+      // Digital text: compensate + sync list
+      if (_digitalTextTool.isDragging || _digitalTextTool.isResizing) {
+        _digitalTextTool.compensateScroll(compensation);
+        if (_digitalTextTool.selectedElement != null) {
+          final index = _digitalTextElements.indexWhere(
+            (e) => e.id == _digitalTextTool.selectedElement!.id,
+          );
+          if (index != -1) {
+            _digitalTextElements[index] = _digitalTextTool.selectedElement!;
           }
         }
+      }
 
-        // 🖼️ Image: compensates in tool AND updates list
-        if (_imageTool.isDragging || _imageTool.isResizing) {
-          _imageTool.compensateScroll(compensation);
-
-          // Update element in the list to synchronize
-          if (_imageTool.selectedImage != null) {
-            final index = _imageElements.indexWhere(
-              (e) => e.id == _imageTool.selectedImage!.id,
-            );
-            if (index != -1) {
-              _imageElements[index] = _imageTool.selectedImage!;
-            }
+      // 🖼️ Image: compensate + sync list
+      if (_imageTool.isDragging || _imageTool.isResizing) {
+        _imageTool.compensateScroll(compensation);
+        if (_imageTool.selectedImage != null) {
+          final index = _imageElements.indexWhere(
+            (e) => e.id == _imageTool.selectedImage!.id,
+          );
+          if (index != -1) {
+            _imageElements[index] = _imageTool.selectedImage!;
           }
         }
+      }
 
-        setState(() {}); // Forza rebuild per aggiornare position
-      });
-    }
+      setState(() {}); // Force rebuild to update positions
+    });
   }
 
-  /// Ferma l'auto-scroll
+  /// Stop edge auto-scroll and clear visual state.
   void _stopAutoScroll() {
     _autoScrollTimer?.cancel();
     _autoScrollTimer = null;
+    if (_activeEdgeScroll != 0) {
+      _activeEdgeScroll = 0;
+      // No setState here — the drag end handler will trigger rebuild
+    }
   }
 
   /// 🪣 Phase 3D: Execute flood fill at the given canvas position

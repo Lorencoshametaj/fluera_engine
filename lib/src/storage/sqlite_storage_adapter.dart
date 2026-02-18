@@ -17,9 +17,11 @@
 // ============================================================================
 
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart' as p;
 
@@ -78,13 +80,22 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
   Future<void> initialize() async {
     if (_db != null) return; // Already initialized
 
-    // Initialize FFI for desktop platforms
-    sqfliteFfiInit();
+    // Initialize FFI for desktop platforms (no-op on mobile)
+    final bool isMobile = Platform.isAndroid || Platform.isIOS;
+    if (!isMobile) {
+      sqfliteFfiInit();
+    }
     final factory = databaseFactoryFfi;
 
-    final path =
-        databasePath ??
-        p.join(await factory.getDatabasesPath(), _kDatabaseName);
+    // Use path_provider for a reliable directory on all platforms.
+    // The FFI factory's getDatabasesPath() can fail on Android.
+    String path;
+    if (databasePath != null) {
+      path = databasePath!;
+    } else {
+      final appDir = await getApplicationDocumentsDirectory();
+      path = p.join(appDir.path, _kDatabaseName);
+    }
 
     _db = await factory.openDatabase(
       path,

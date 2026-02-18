@@ -257,6 +257,77 @@ class DrawingInputHandler {
     }
   }
 
+  /// 🎨 Adds a batch of points to the current stroke
+  ///
+  /// PERFORMANCE: This is much more efficient than calling updateStroke in a loop
+  /// as it triggers `onPointsUpdated` only once at the end.
+  void addPointsBatch({
+    required List<Offset> positions,
+    Offset?
+    screenPositionOrigin, // Optional: if provided, positions are relative to this
+    double? scaleFactor,
+    required List<double> pressures,
+    List<double>? tiltsX,
+    List<double>? tiltsY,
+    List<double>? orientations,
+    int? baseTimestamp,
+    int? timeDeltaPerPoint, // e.g., 1ms per point for interpolation
+  }) {
+    if (positions.isEmpty) return;
+
+    final count = positions.length;
+    final int startTs = baseTimestamp ?? DateTime.now().millisecondsSinceEpoch;
+    final int dt = timeDeltaPerPoint ?? 1;
+
+    for (int i = 0; i < count; i++) {
+      final pos = positions[i];
+
+      // 🚀 Transform coordinate if needed
+      final docPosition =
+          (scaleFactor != null && scaleFactor > 0)
+              ? Offset(pos.dx / scaleFactor, pos.dy / scaleFactor)
+              : pos;
+
+      final ts = startTs + (i * dt);
+      final pressure = i < pressures.length ? pressures[i] : 1.0;
+      final tx = (tiltsX != null && i < tiltsX.length) ? tiltsX[i] : 0.0;
+      final ty = (tiltsY != null && i < tiltsY.length) ? tiltsY[i] : 0.0;
+      final orientation =
+          (orientations != null && i < orientations.length)
+              ? orientations[i]
+              : 0.0;
+
+      // 🎨 FILTRI PROFESSIONALI
+      // 1. OneEuroFilter
+      Offset filteredPosition =
+          enableOneEuroFilter
+              ? _oneEuroFilter.filter(docPosition, ts)
+              : docPosition;
+
+      // 2. Stabilizer
+      if (_stabilizer.level > 0) {
+        filteredPosition = _stabilizer.stabilize(filteredPosition);
+      }
+
+      // 3. Pressure normalization
+      final normalizedPressure = _normalizePressure(pressure);
+
+      final point = ProDrawingPoint(
+        position: filteredPosition,
+        pressure: normalizedPressure,
+        tiltX: tx,
+        tiltY: ty,
+        orientation: orientation,
+        timestamp: ts,
+      );
+
+      _currentStroke.add(point);
+    }
+
+    // 🚀 Notify once for the whole batch
+    onPointsUpdated?.call(_currentStroke);
+  }
+
   /// 🎨 Complete the current stroke
   ///
   /// IMPORTANTE: NO post-stroke optimization is applied.

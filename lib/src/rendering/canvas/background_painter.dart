@@ -52,30 +52,47 @@ class BackgroundPainter extends CustomPainter {
     // 4️⃣ Viewport-level tile rendering (~4-9 visible tiles)
     final canvasScale = controller.scale;
     final canvasOffset = controller.offset;
+    final rotation = controller.rotation;
     final scaledTileSize = _cachedTileSize * canvasScale;
+
+    // When rotated, we need more tiles to cover the rotated viewport
+    final extraTiles =
+        rotation != 0.0 ? (size.longestSide / scaledTileSize * 0.5).ceil() : 0;
 
     final originScreenX = canvasOffset.dx;
     final originScreenY = canvasOffset.dy;
 
     // Primo/ultimo tile visibile (supporta coordinate negative)
-    final firstTileX = ((0 - originScreenX) / scaledTileSize).floor();
-    final firstTileY = ((0 - originScreenY) / scaledTileSize).floor();
-    final lastTileX = ((size.width - originScreenX) / scaledTileSize).ceil();
-    final lastTileY = ((size.height - originScreenY) / scaledTileSize).ceil();
+    final firstTileX =
+        ((0 - originScreenX) / scaledTileSize).floor() - extraTiles;
+    final firstTileY =
+        ((0 - originScreenY) / scaledTileSize).floor() - extraTiles;
+    final lastTileX =
+        ((size.width - originScreenX) / scaledTileSize).ceil() + extraTiles;
+    final lastTileY =
+        ((size.height - originScreenY) / scaledTileSize).ceil() + extraTiles;
 
-    // 5️⃣ Print only visible tiles
+    // 5️⃣ Apply canvas transform (translate + rotate) then print tiles
+    canvas.save();
+    canvas.translate(originScreenX, originScreenY);
+    if (rotation != 0.0) {
+      canvas.rotate(rotation);
+    }
+
     for (int ty = firstTileY; ty <= lastTileY; ty++) {
       for (int tx = firstTileX; tx <= lastTileX; tx++) {
-        final screenX = originScreenX + tx * scaledTileSize;
-        final screenY = originScreenY + ty * scaledTileSize;
+        final tileX = tx * scaledTileSize;
+        final tileY = ty * scaledTileSize;
 
         canvas.save();
-        canvas.translate(screenX, screenY);
+        canvas.translate(tileX, tileY);
         canvas.scale(canvasScale);
         canvas.drawPicture(_cachedTile!);
         canvas.restore();
       }
     }
+
+    canvas.restore();
   }
 
   /// Rigenera il tile cache only if necessario

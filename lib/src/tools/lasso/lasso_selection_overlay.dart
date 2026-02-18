@@ -149,16 +149,37 @@ class _SelectionHighlightPainter extends CustomPainter {
     if (stroke.points.isEmpty) return;
 
     final path = Path();
-    final firstScreen = canvasController.canvasToScreen(
-      stroke.points.first.position,
-    );
-    path.moveTo(firstScreen.dx, firstScreen.dy);
+    final screenPoints =
+        stroke.points
+            .map((p) => canvasController.canvasToScreen(p.position))
+            .toList();
 
-    for (var i = 1; i < stroke.points.length; i++) {
-      final screenPoint = canvasController.canvasToScreen(
-        stroke.points[i].position,
-      );
-      path.lineTo(screenPoint.dx, screenPoint.dy);
+    if (screenPoints.length < 2) return;
+
+    path.moveTo(screenPoints[0].dx, screenPoints[0].dy);
+
+    if (screenPoints.length == 2) {
+      path.lineTo(screenPoints[1].dx, screenPoints[1].dy);
+    } else {
+      // Smooth Catmull-Rom style interpolation using quadratic Bézier
+      for (var i = 0; i < screenPoints.length - 1; i++) {
+        final p0 = screenPoints[i];
+        final p1 = screenPoints[i + 1];
+        final midX = (p0.dx + p1.dx) / 2;
+        final midY = (p0.dy + p1.dy) / 2;
+
+        if (i == 0) {
+          // First segment: line to midpoint
+          path.lineTo(midX, midY);
+        } else {
+          // Use previous point as control point, midpoint as endpoint
+          path.quadraticBezierTo(p0.dx, p0.dy, midX, midY);
+        }
+      }
+      // Final segment: curve to last point
+      final last = screenPoints.last;
+      final secondLast = screenPoints[screenPoints.length - 2];
+      path.quadraticBezierTo(secondLast.dx, secondLast.dy, last.dx, last.dy);
     }
 
     // Blue highlight border

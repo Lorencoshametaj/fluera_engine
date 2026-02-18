@@ -413,6 +413,43 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                   ],
                 ],
 
+                // 🌀 Reset Rotation button — only visible when canvas is rotated
+                if (widget.isCanvasRotated &&
+                    widget.onResetRotation != null) ...[
+                  ToolbarCompactActionButton(
+                    icon: Icons.screen_rotation_alt_rounded,
+                    onPressed: () {
+                      HapticFeedback.mediumImpact();
+                      widget.onResetRotation!();
+                    },
+                    tooltip: 'Reset Rotation',
+                    isDark: isDark,
+                    isEnabled: true,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+
+                // 🌀 Lock Rotation button — always visible
+                if (widget.onToggleRotationLock != null) ...[
+                  ToolbarCompactActionButton(
+                    icon:
+                        widget.isRotationLocked
+                            ? Icons.screen_lock_rotation_rounded
+                            : Icons.screen_rotation_rounded,
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      widget.onToggleRotationLock!();
+                    },
+                    tooltip:
+                        widget.isRotationLocked
+                            ? 'Unlock Rotation'
+                            : 'Lock Rotation',
+                    isDark: isDark,
+                    isEnabled: true,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+
                 // Undo/Redo group (+ Image Editor in editing mode)
                 Container(
                   decoration: BoxDecoration(

@@ -38,6 +38,98 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
 
             // 🔄 LOADING OVERLAY
             _buildLoadingOverlay(context),
+
+            // 🏎️ Edge Auto-Scroll Glow Indicator
+            if (_activeEdgeScroll != 0) ...[
+              // Left edge
+              if (_activeEdgeScroll & 1 != 0)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 30,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            Colors.blue.withValues(alpha: 0.25),
+                            Colors.blue.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              // Right edge
+              if (_activeEdgeScroll & 2 != 0)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 30,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerRight,
+                          end: Alignment.centerLeft,
+                          colors: [
+                            Colors.blue.withValues(alpha: 0.25),
+                            Colors.blue.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              // Top edge
+              if (_activeEdgeScroll & 4 != 0)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: 30,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.blue.withValues(alpha: 0.25),
+                            Colors.blue.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              // Bottom edge
+              if (_activeEdgeScroll & 8 != 0)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 30,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            Colors.blue.withValues(alpha: 0.25),
+                            Colors.blue.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ],
         ),
       ),
@@ -114,6 +206,13 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
             onDrawUpdate: _isMultiPageEditMode ? null : _onDrawUpdate,
             onDrawEnd: _isMultiPageEditMode ? null : _onDrawEnd,
             onDrawCancel: _isMultiPageEditMode ? null : _onDrawCancel,
+            onDoubleTapZoom:
+                _isMultiPageEditMode
+                    ? null
+                    : () {
+                      // Silently remove the dot from the first tap (no redo)
+                      _layerController.discardLastAction();
+                    },
             onLongPress: _isMultiPageEditMode ? null : _onLongPress,
             enableSingleFingerPan:
                 _effectiveIsPanMode ||

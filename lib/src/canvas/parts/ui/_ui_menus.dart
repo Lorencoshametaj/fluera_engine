@@ -24,12 +24,16 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
               setState(() {
                 _lassoTool.duplicateSelected();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.mediumImpact();
             },
             onPaste: () {
               setState(() {
                 _lassoTool.pasteFromClipboard();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onSelectAll: () {
@@ -42,12 +46,16 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
               setState(() {
                 _lassoTool.bringToFront();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onSendToBack: () {
               setState(() {
                 _lassoTool.sendToBack();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onGroup: () {
@@ -72,6 +80,8 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
               setState(() {
                 _lassoTool.restoreUndo();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.mediumImpact();
             },
             onDelete: () {
@@ -80,6 +90,8 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
                 _lassoTool.clearSelection();
                 _toolController.toggleLassoMode();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.mediumImpact();
             },
             onClearSelection: () {
@@ -93,18 +105,24 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
               setState(() {
                 _lassoTool.rotateSelected();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onFlipHorizontal: () {
               setState(() {
                 _lassoTool.flipHorizontal();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onFlipVertical: () {
               setState(() {
                 _lassoTool.flipVertical();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onConvertToText: () {
@@ -134,48 +152,64 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
               setState(() {
                 _lassoTool.alignLeft();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onAlignCenterH: () {
               setState(() {
                 _lassoTool.alignCenterH();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onAlignRight: () {
               setState(() {
                 _lassoTool.alignRight();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onAlignTop: () {
               setState(() {
                 _lassoTool.alignTop();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onAlignCenterV: () {
               setState(() {
                 _lassoTool.alignCenterV();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onAlignBottom: () {
               setState(() {
                 _lassoTool.alignBottom();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onDistributeH: () {
               setState(() {
                 _lassoTool.distributeHorizontal();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onDistributeV: () {
               setState(() {
                 _lassoTool.distributeVertical();
               });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
               HapticFeedback.lightImpact();
             },
             onToggleMultiLayer: () {

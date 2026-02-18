@@ -3,7 +3,14 @@ import 'package:flutter/services.dart';
 import '../../../l10n/nebula_localizations.dart';
 import './compact_action_button.dart';
 
-/// Action menu for lasso selection (animated entry)
+/// Grouped action categories for the selection menu
+enum _MenuCategory { none, transform, arrange, advanced }
+
+/// Action menu for lasso selection — mobile-optimized with grouped categories.
+///
+/// Layout:
+/// - **Primary bar** (always visible): count, copy, duplicate, delete, close, "more"
+/// - **Expandable panel**: 3 category tabs (Transform, Arrange, Advanced)
 class SelectionActionsMenu extends StatefulWidget {
   final int selectionCount;
   final VoidCallback onDelete;
@@ -87,6 +94,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<Offset> _slideAnimation;
+  _MenuCategory _expanded = _MenuCategory.none;
 
   @override
   void initState() {
@@ -115,424 +123,584 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
     super.dispose();
   }
 
+  void _toggleCategory(_MenuCategory cat) {
+    setState(() {
+      _expanded = _expanded == cat ? _MenuCategory.none : cat;
+    });
+    HapticFeedback.selectionClick();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white70 : Colors.black87;
+
     return SlideTransition(
       position: _slideAnimation,
       child: ScaleTransition(
         scale: _scaleAnimation,
         child: Material(
           color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Compact selection info
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Expandable category panel ──
+              AnimatedSize(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.bottomCenter,
+                child:
+                    _expanded != _MenuCategory.none
+                        ? _buildCategoryPanel(isDark, bgColor)
+                        : const SizedBox.shrink(),
+              ),
+
+              const SizedBox(height: 6),
+
+              // ── Primary action bar ──
+              _buildPrimaryBar(isDark, bgColor, textColor),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Primary Action Bar
+  // ═══════════════════════════════════════════════════════════════════
+
+  Widget _buildPrimaryBar(bool isDark, Color bgColor, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Selection count badge
+          Tooltip(
+            message: widget.statsSummary ?? 'Selected',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: Colors.blue,
+                    size: 14,
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Tooltip(
-                    message: widget.statsSummary ?? 'Selected',
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.check_circle_rounded,
-                          color: Colors.blue,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${widget.selectionCount}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
+                  const SizedBox(width: 4),
+                  Text(
+                    '${widget.selectionCount}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-
-                // Action buttons
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Copy button
-                          if (widget.onCopy != null)
-                            CompactActionButton(
-                              icon: Icons.copy_rounded,
-                              color: Colors.indigo,
-                              tooltip: 'Copy',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onCopy!();
-                              },
-                            ),
-
-                          // Duplicate button
-                          if (widget.onDuplicate != null)
-                            CompactActionButton(
-                              icon: Icons.library_add_rounded,
-                              color: Colors.cyan,
-                              tooltip: 'Duplicate',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onDuplicate!();
-                              },
-                            ),
-
-                          // Paste button (visible when clipboard has content)
-                          if (widget.onPaste != null && widget.hasClipboard)
-                            CompactActionButton(
-                              icon: Icons.paste_rounded,
-                              color: Colors.green,
-                              tooltip: 'Paste',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onPaste!();
-                              },
-                            ),
-
-                          // Select All button
-                          if (widget.onSelectAll != null)
-                            CompactActionButton(
-                              icon: Icons.select_all_rounded,
-                              color: Colors.blueGrey,
-                              tooltip: 'Select All',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onSelectAll!();
-                              },
-                            ),
-
-                          // Bring to Front button
-                          if (widget.onBringToFront != null)
-                            CompactActionButton(
-                              icon: Icons.flip_to_front_rounded,
-                              color: Colors.amber.shade700,
-                              tooltip: 'Bring to Front',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onBringToFront!();
-                              },
-                            ),
-
-                          // Send to Back button
-                          if (widget.onSendToBack != null)
-                            CompactActionButton(
-                              icon: Icons.flip_to_back_rounded,
-                              color: Colors.brown,
-                              tooltip: 'Send to Back',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onSendToBack!();
-                              },
-                            ),
-
-                          // Group button
-                          if (widget.onGroup != null)
-                            CompactActionButton(
-                              icon: Icons.group_work_rounded,
-                              color: Colors.purple,
-                              tooltip: 'Group',
-                              onTap: () {
-                                HapticFeedback.mediumImpact();
-                                widget.onGroup!();
-                              },
-                            ),
-
-                          // Ungroup button
-                          if (widget.onUngroup != null)
-                            CompactActionButton(
-                              icon: Icons.workspaces_outline,
-                              color: Colors.pink,
-                              tooltip: 'Ungroup',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onUngroup!();
-                              },
-                            ),
-
-                          // Snap-to-grid toggle
-                          if (widget.onToggleSnap != null)
-                            CompactActionButton(
-                              icon: Icons.grid_4x4_rounded,
-                              color:
-                                  widget.snapEnabled
-                                      ? Colors.lime.shade700
-                                      : Colors.grey,
-                              tooltip:
-                                  widget.snapEnabled ? 'Snap: ON' : 'Snap: OFF',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onToggleSnap!();
-                              },
-                            ),
-
-                          // Undo button
-                          if (widget.onUndo != null)
-                            CompactActionButton(
-                              icon: Icons.undo_rounded,
-                              color: Colors.grey.shade600,
-                              tooltip: 'Undo',
-                              onTap: () {
-                                HapticFeedback.mediumImpact();
-                                widget.onUndo!();
-                              },
-                            ),
-
-                          // ── Round 3: Enterprise buttons ──
-
-                          // Lock / Unlock toggle
-                          if (widget.onLock != null)
-                            CompactActionButton(
-                              icon:
-                                  widget.isSelectionLocked
-                                      ? Icons.lock_rounded
-                                      : Icons.lock_open_rounded,
-                              color:
-                                  widget.isSelectionLocked
-                                      ? Colors.red.shade400
-                                      : Colors.grey.shade500,
-                              tooltip:
-                                  widget.isSelectionLocked ? 'Unlock' : 'Lock',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                if (widget.isSelectionLocked) {
-                                  widget.onUnlock?.call();
-                                } else {
-                                  widget.onLock!();
-                                }
-                              },
-                            ),
-
-                          // Align Left
-                          if (widget.onAlignLeft != null)
-                            CompactActionButton(
-                              icon: Icons.align_horizontal_left_rounded,
-                              color: Colors.deepOrange,
-                              tooltip: 'Align Left',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onAlignLeft!();
-                              },
-                            ),
-
-                          // Align Center Horizontal
-                          if (widget.onAlignCenterH != null)
-                            CompactActionButton(
-                              icon: Icons.align_horizontal_center_rounded,
-                              color: Colors.deepOrange,
-                              tooltip: 'Align Center',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onAlignCenterH!();
-                              },
-                            ),
-
-                          // Align Right
-                          if (widget.onAlignRight != null)
-                            CompactActionButton(
-                              icon: Icons.align_horizontal_right_rounded,
-                              color: Colors.deepOrange,
-                              tooltip: 'Align Right',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onAlignRight!();
-                              },
-                            ),
-
-                          // Align Top
-                          if (widget.onAlignTop != null)
-                            CompactActionButton(
-                              icon: Icons.align_vertical_top_rounded,
-                              color: Colors.deepOrange.shade300,
-                              tooltip: 'Align Top',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onAlignTop!();
-                              },
-                            ),
-
-                          // Align Center Vertical
-                          if (widget.onAlignCenterV != null)
-                            CompactActionButton(
-                              icon: Icons.align_vertical_center_rounded,
-                              color: Colors.deepOrange.shade300,
-                              tooltip: 'Align Middle',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onAlignCenterV!();
-                              },
-                            ),
-
-                          // Align Bottom
-                          if (widget.onAlignBottom != null)
-                            CompactActionButton(
-                              icon: Icons.align_vertical_bottom_rounded,
-                              color: Colors.deepOrange.shade300,
-                              tooltip: 'Align Bottom',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onAlignBottom!();
-                              },
-                            ),
-
-                          // Distribute Horizontal
-                          if (widget.onDistributeH != null)
-                            CompactActionButton(
-                              icon: Icons.horizontal_distribute_rounded,
-                              color: Colors.indigo.shade300,
-                              tooltip: 'Distribute Horizontally',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onDistributeH!();
-                              },
-                            ),
-
-                          // Distribute Vertical
-                          if (widget.onDistributeV != null)
-                            CompactActionButton(
-                              icon: Icons.vertical_distribute_rounded,
-                              color: Colors.indigo.shade300,
-                              tooltip: 'Distribute Vertically',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onDistributeV!();
-                              },
-                            ),
-
-                          // Multi-Layer toggle
-                          if (widget.onToggleMultiLayer != null)
-                            CompactActionButton(
-                              icon: Icons.layers_rounded,
-                              color:
-                                  widget.multiLayerMode
-                                      ? Colors.teal.shade600
-                                      : Colors.grey,
-                              tooltip:
-                                  widget.multiLayerMode
-                                      ? 'Multi-Layer: ON'
-                                      : 'Multi-Layer: OFF',
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                widget.onToggleMultiLayer!();
-                              },
-                            ),
-
-                          // Rotate button
-                          CompactActionButton(
-                            icon: Icons.rotate_90_degrees_ccw_rounded,
-                            color: Colors.blue,
-                            tooltip: 'Rotate',
-                            onTap: () {
-                              HapticFeedback.lightImpact();
-                              widget.onRotate();
-                            },
-                          ),
-
-                          // Flip horizontal button
-                          CompactActionButton(
-                            icon: Icons.flip,
-                            color: Colors.orange,
-                            tooltip:
-                                NebulaLocalizations.of(
-                                  context,
-                                ).proCanvas_flipHorizontal,
-                            onTap: () {
-                              HapticFeedback.lightImpact();
-                              widget.onFlipHorizontal();
-                            },
-                          ),
-
-                          // Flip vertical button
-                          CompactActionButton(
-                            icon: Icons.flip,
-                            color: Colors.teal,
-                            tooltip:
-                                NebulaLocalizations.of(
-                                  context,
-                                ).proCanvas_flipVertical,
-                            rotation: 90,
-                            onTap: () {
-                              HapticFeedback.lightImpact();
-                              widget.onFlipVertical();
-                            },
-                          ),
-
-                          // OCR — Convert to text button
-                          CompactActionButton(
-                            icon: Icons.text_fields_rounded,
-                            color: Colors.deepPurple,
-                            tooltip:
-                                NebulaLocalizations.of(
-                                  context,
-                                ).proCanvas_convertToText,
-                            onTap: () {
-                              HapticFeedback.lightImpact();
-                              widget.onConvertToText();
-                            },
-                          ),
-
-                          // Delete button
-                          CompactActionButton(
-                            icon: Icons.delete_rounded,
-                            color: Colors.red,
-                            tooltip:
-                                NebulaLocalizations.of(
-                                  context,
-                                ).proCanvas_delete,
-                            onTap: () {
-                              HapticFeedback.mediumImpact();
-                              widget.onDelete();
-                            },
-                          ),
-
-                          // Close button
-                          CompactActionButton(
-                            icon: Icons.close_rounded,
-                            color: Colors.grey.shade700,
-                            tooltip:
-                                NebulaLocalizations.of(context).proCanvas_close,
-                            onTap: () {
-                              HapticFeedback.lightImpact();
-                              widget.onClearSelection();
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
+
+          const SizedBox(width: 4),
+
+          // Copy
+          if (widget.onCopy != null)
+            CompactActionButton(
+              icon: Icons.copy_rounded,
+              color: Colors.indigo,
+              tooltip: 'Copy',
+              onTap: widget.onCopy!,
+            ),
+
+          // Duplicate
+          if (widget.onDuplicate != null)
+            CompactActionButton(
+              icon: Icons.library_add_rounded,
+              color: Colors.cyan,
+              tooltip: 'Duplicate',
+              onTap: widget.onDuplicate!,
+            ),
+
+          // Paste (only when clipboard has content)
+          if (widget.onPaste != null && widget.hasClipboard)
+            CompactActionButton(
+              icon: Icons.paste_rounded,
+              color: Colors.green,
+              tooltip: 'Paste',
+              onTap: widget.onPaste!,
+            ),
+
+          // Delete
+          CompactActionButton(
+            icon: Icons.delete_rounded,
+            color: Colors.red,
+            tooltip: NebulaLocalizations.of(context).proCanvas_delete,
+            onTap: widget.onDelete,
+          ),
+
+          // Close selection
+          CompactActionButton(
+            icon: Icons.close_rounded,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+            tooltip: NebulaLocalizations.of(context).proCanvas_close,
+            onTap: widget.onClearSelection,
+          ),
+
+          // Divider
+          Container(
+            width: 1,
+            height: 24,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            color:
+                isDark
+                    ? Colors.white.withValues(alpha: 0.15)
+                    : Colors.black.withValues(alpha: 0.1),
+          ),
+
+          // "More" overflow toggle
+          _buildCategoryToggle(
+            icon: Icons.more_horiz_rounded,
+            label: 'More',
+            isActive: _expanded != _MenuCategory.none,
+            color: Colors.blueGrey,
+            onTap: () {
+              if (_expanded == _MenuCategory.none) {
+                _toggleCategory(_MenuCategory.transform);
+              } else {
+                _toggleCategory(_MenuCategory.none);
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Category Panel (expanded)
+  // ═══════════════════════════════════════════════════════════════════
+
+  Widget _buildCategoryPanel(bool isDark, Color bgColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Category tab row
+          Row(
+            children: [
+              _buildCategoryTab(
+                icon: Icons.rotate_90_degrees_ccw_rounded,
+                label: 'Transform',
+                category: _MenuCategory.transform,
+                color: Colors.blue,
+                isDark: isDark,
+              ),
+              const SizedBox(width: 6),
+              _buildCategoryTab(
+                icon: Icons.dashboard_customize_rounded,
+                label: 'Arrange',
+                category: _MenuCategory.arrange,
+                color: Colors.deepOrange,
+                isDark: isDark,
+              ),
+              const SizedBox(width: 6),
+              _buildCategoryTab(
+                icon: Icons.tune_rounded,
+                label: 'Advanced',
+                category: _MenuCategory.advanced,
+                color: Colors.purple,
+                isDark: isDark,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          // Category content
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: _buildCategoryContent(_expanded),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryTab({
+    required IconData icon,
+    required String label,
+    required _MenuCategory category,
+    required Color color,
+    required bool isDark,
+  }) {
+    final isActive = _expanded == category;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _toggleCategory(category),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color:
+                isActive
+                    ? color.withValues(alpha: 0.15)
+                    : (isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : Colors.grey.withValues(alpha: 0.08)),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color:
+                  isActive ? color.withValues(alpha: 0.4) : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: isActive ? color : Colors.grey),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                  color:
+                      isActive
+                          ? color
+                          : (isDark ? Colors.white60 : Colors.black54),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Category Contents
+  // ═══════════════════════════════════════════════════════════════════
+
+  Widget _buildCategoryContent(_MenuCategory category) {
+    switch (category) {
+      case _MenuCategory.transform:
+        return _buildTransformContent();
+      case _MenuCategory.arrange:
+        return _buildArrangeContent();
+      case _MenuCategory.advanced:
+        return _buildAdvancedContent();
+      case _MenuCategory.none:
+        return const SizedBox.shrink();
+    }
+  }
+
+  // ── Transform ──
+  Widget _buildTransformContent() {
+    return Row(
+      key: const ValueKey('transform'),
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        CompactActionButton(
+          icon: Icons.rotate_90_degrees_ccw_rounded,
+          color: Colors.blue,
+          tooltip: 'Rotate 90°',
+          onTap: widget.onRotate,
+        ),
+        CompactActionButton(
+          icon: Icons.flip,
+          color: Colors.orange,
+          tooltip: NebulaLocalizations.of(context).proCanvas_flipHorizontal,
+          onTap: widget.onFlipHorizontal,
+        ),
+        CompactActionButton(
+          icon: Icons.flip,
+          color: Colors.teal,
+          tooltip: NebulaLocalizations.of(context).proCanvas_flipVertical,
+          rotation: 90,
+          onTap: widget.onFlipVertical,
+        ),
+      ],
+    );
+  }
+
+  // ── Arrange ──
+  Widget _buildArrangeContent() {
+    return SingleChildScrollView(
+      key: const ValueKey('arrange'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.onBringToFront != null)
+            CompactActionButton(
+              icon: Icons.flip_to_front_rounded,
+              color: Colors.amber.shade700,
+              tooltip: 'Bring to Front',
+              onTap: widget.onBringToFront!,
+            ),
+          if (widget.onSendToBack != null)
+            CompactActionButton(
+              icon: Icons.flip_to_back_rounded,
+              color: Colors.brown,
+              tooltip: 'Send to Back',
+              onTap: widget.onSendToBack!,
+            ),
+
+          // Separator
+          _buildDivider(),
+
+          // Align buttons
+          if (widget.onAlignLeft != null)
+            CompactActionButton(
+              icon: Icons.align_horizontal_left_rounded,
+              color: Colors.deepOrange,
+              tooltip: 'Align Left',
+              onTap: widget.onAlignLeft!,
+            ),
+          if (widget.onAlignCenterH != null)
+            CompactActionButton(
+              icon: Icons.align_horizontal_center_rounded,
+              color: Colors.deepOrange,
+              tooltip: 'Align Center',
+              onTap: widget.onAlignCenterH!,
+            ),
+          if (widget.onAlignRight != null)
+            CompactActionButton(
+              icon: Icons.align_horizontal_right_rounded,
+              color: Colors.deepOrange,
+              tooltip: 'Align Right',
+              onTap: widget.onAlignRight!,
+            ),
+          if (widget.onAlignTop != null)
+            CompactActionButton(
+              icon: Icons.align_vertical_top_rounded,
+              color: Colors.deepOrange.shade300,
+              tooltip: 'Align Top',
+              onTap: widget.onAlignTop!,
+            ),
+          if (widget.onAlignCenterV != null)
+            CompactActionButton(
+              icon: Icons.align_vertical_center_rounded,
+              color: Colors.deepOrange.shade300,
+              tooltip: 'Align Middle',
+              onTap: widget.onAlignCenterV!,
+            ),
+          if (widget.onAlignBottom != null)
+            CompactActionButton(
+              icon: Icons.align_vertical_bottom_rounded,
+              color: Colors.deepOrange.shade300,
+              tooltip: 'Align Bottom',
+              onTap: widget.onAlignBottom!,
+            ),
+
+          // Separator
+          _buildDivider(),
+
+          // Distribute
+          if (widget.onDistributeH != null)
+            CompactActionButton(
+              icon: Icons.horizontal_distribute_rounded,
+              color: Colors.indigo.shade300,
+              tooltip: 'Distribute H',
+              onTap: widget.onDistributeH!,
+            ),
+          if (widget.onDistributeV != null)
+            CompactActionButton(
+              icon: Icons.vertical_distribute_rounded,
+              color: Colors.indigo.shade300,
+              tooltip: 'Distribute V',
+              onTap: widget.onDistributeV!,
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Advanced ──
+  Widget _buildAdvancedContent() {
+    return SingleChildScrollView(
+      key: const ValueKey('advanced'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Select All
+          if (widget.onSelectAll != null)
+            CompactActionButton(
+              icon: Icons.select_all_rounded,
+              color: Colors.blueGrey,
+              tooltip: 'Select All',
+              onTap: widget.onSelectAll!,
+            ),
+
+          // Undo
+          if (widget.onUndo != null)
+            CompactActionButton(
+              icon: Icons.undo_rounded,
+              color: Colors.grey.shade600,
+              tooltip: 'Undo',
+              onTap: widget.onUndo!,
+            ),
+
+          _buildDivider(),
+
+          // Group / Ungroup
+          if (widget.onGroup != null)
+            CompactActionButton(
+              icon: Icons.group_work_rounded,
+              color: Colors.purple,
+              tooltip: 'Group',
+              onTap: widget.onGroup!,
+            ),
+          if (widget.onUngroup != null)
+            CompactActionButton(
+              icon: Icons.workspaces_outline,
+              color: Colors.pink,
+              tooltip: 'Ungroup',
+              onTap: widget.onUngroup!,
+            ),
+
+          _buildDivider(),
+
+          // Lock toggle
+          if (widget.onLock != null)
+            CompactActionButton(
+              icon:
+                  widget.isSelectionLocked
+                      ? Icons.lock_rounded
+                      : Icons.lock_open_rounded,
+              color:
+                  widget.isSelectionLocked
+                      ? Colors.red.shade400
+                      : Colors.grey.shade500,
+              tooltip: widget.isSelectionLocked ? 'Unlock' : 'Lock',
+              onTap: () {
+                if (widget.isSelectionLocked) {
+                  widget.onUnlock?.call();
+                } else {
+                  widget.onLock!();
+                }
+              },
+            ),
+
+          // Snap toggle
+          if (widget.onToggleSnap != null)
+            CompactActionButton(
+              icon: Icons.grid_4x4_rounded,
+              color: widget.snapEnabled ? Colors.lime.shade700 : Colors.grey,
+              tooltip: widget.snapEnabled ? 'Snap: ON' : 'Snap: OFF',
+              onTap: widget.onToggleSnap!,
+            ),
+
+          // Multi-Layer toggle
+          if (widget.onToggleMultiLayer != null)
+            CompactActionButton(
+              icon: Icons.layers_rounded,
+              color: widget.multiLayerMode ? Colors.teal.shade600 : Colors.grey,
+              tooltip:
+                  widget.multiLayerMode
+                      ? 'Multi-Layer: ON'
+                      : 'Multi-Layer: OFF',
+              onTap: widget.onToggleMultiLayer!,
+            ),
+
+          _buildDivider(),
+
+          // OCR Convert to text
+          CompactActionButton(
+            icon: Icons.text_fields_rounded,
+            color: Colors.deepPurple,
+            tooltip: NebulaLocalizations.of(context).proCanvas_convertToText,
+            onTap: widget.onConvertToText,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Helpers
+  // ═══════════════════════════════════════════════════════════════════
+
+  Widget _buildDivider() {
+    return Container(
+      width: 1,
+      height: 20,
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      color: Colors.grey.withValues(alpha: 0.25),
+    );
+  }
+
+  Widget _buildCategoryToggle({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isActive ? color.withValues(alpha: 0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isActive ? color.withValues(alpha: 0.4) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isActive ? Icons.expand_more_rounded : icon,
+              size: 18,
+              color: isActive ? color : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: isActive ? color : Colors.grey.shade600,
+              ),
+            ),
+          ],
         ),
       ),
     );

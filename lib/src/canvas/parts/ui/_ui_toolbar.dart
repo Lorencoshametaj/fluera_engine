@@ -41,8 +41,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           isEraserActive: _effectiveIsEraser,
           isLassoActive: _effectiveIsLasso,
           isDigitalTextActive: _effectiveIsDigitalText,
-          isImagePickerActive:
-              false, // 🖼️ Always false (is not a mode toggle)
+          isImagePickerActive: false, // 🖼️ Always false (is not a mode toggle)
           isRecordingActive: _isRecordingAudio,
           isPanModeActive:
               _effectiveIsPanMode, // 🖐️ Pan Mode - allows pan with a finger
@@ -288,6 +287,18 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               _digitalTextTool.deselectElement();
             }
             setState(() {}); // Trigger rebuild
+          },
+          // 🌀 Reset Rotation
+          isCanvasRotated: _canvasController.rotation != 0.0,
+          onResetRotation: () {
+            _canvasController.resetRotation();
+            setState(() {});
+          },
+          isRotationLocked: _canvasController.rotationLocked,
+          onToggleRotationLock: () {
+            _canvasController.rotationLocked =
+                !_canvasController.rotationLocked;
+            setState(() {});
           },
         );
       },

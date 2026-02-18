@@ -94,6 +94,7 @@ extension on _NebulaCanvasScreenState {
     } else if (_imageTool.isDragging) {
       _imageTool.endDrag();
       _stopAutoScroll();
+      _clearSmartGuides();
       HapticFeedback.lightImpact();
       // 🔄 Sync: notify delta tracker of image update
       if (_imageTool.selectedImage != null) {
@@ -142,6 +143,7 @@ extension on _NebulaCanvasScreenState {
       return;
     } else if (_digitalTextTool.isDragging) {
       _digitalTextTool.endDrag();
+      _clearSmartGuides();
       _stopAutoScroll();
 
       // 🔄 Sync: notify delta tracker after drag
@@ -159,7 +161,14 @@ extension on _NebulaCanvasScreenState {
     if (_effectiveIsLasso) {
       if (_lassoTool.isDragging) {
         _lassoTool.endDrag();
+        _clearSmartGuides();
         _stopAutoScroll(); // Stop auto-scroll when drag ends
+
+        // 🔧 FIX: Invalidate tile cache so final position is rendered correctly
+        DrawingPainter.invalidateAllTiles();
+
+        // 💾 Persist the moved elements
+        _autoSaveCanvas();
       } else {
         _lassoTool.completeLasso();
 
@@ -302,6 +311,20 @@ extension on _NebulaCanvasScreenState {
     // and completed strokes rendered simultaneously → visual "pop" on release.
     _currentStrokeNotifier.clear();
     _layerController.addStroke(stroke);
+
+    // 🌊 REFLOW: Incrementally update cluster cache with new stroke
+    if (_clusterDetector != null) {
+      final activeLayer = _layerController.layers.firstWhere(
+        (l) => l.id == _layerController.activeLayerId,
+        orElse: () => _layerController.layers.first,
+      );
+      _clusterCache = _clusterDetector!.addStroke(
+        _clusterCache,
+        stroke,
+        activeLayer.strokes,
+      );
+      _lassoTool.updateClusterCache(_clusterCache);
+    }
 
     // 🚀 Incremental tile cache update: only re-rasterize affected tiles
     // instead of invalidating the entire tile cache.

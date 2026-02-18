@@ -122,6 +122,10 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onBranchExplorerPressed; // 🌿 Branch Explorer
   final String? activeBranchName; // 🌿 Currently active branch
   final VoidCallback? onPaperTypePressed; // 📄 Paper type picker
+  final VoidCallback? onResetRotation; // 🌀 Reset canvas rotation to 0°
+  final VoidCallback? onToggleRotationLock; // 🌀 Toggle rotation lock
+  final bool isCanvasRotated; // 🌀 Whether canvas is currently rotated
+  final bool isRotationLocked; // 🌀 Whether rotation is locked
 
   const ProfessionalCanvasToolbar({
     super.key,
@@ -205,6 +209,10 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onBranchExplorerPressed, // 🌿 Branch Explorer
     this.activeBranchName, // 🌿 Active branch name
     this.onPaperTypePressed, // 📄 Paper type picker
+    this.onResetRotation, // 🌀 Reset rotation
+    this.onToggleRotationLock, // 🌀 Toggle rotation lock
+    this.isCanvasRotated = false, // 🌀 Rotation state
+    this.isRotationLocked = false, // 🌀 Rotation lock state
     this.hideRecordingControlWhenActive = false,
     this.isFloating = false, // 🏝️ Floating Island mode
   });

@@ -1,6 +1,11 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../../rendering/canvas/drawing_painter.dart';
 import '../../tools/lasso/lasso_tool.dart';
+import '../../reflow/content_cluster.dart';
+import '../../drawing/models/pro_drawing_point.dart';
+import '../../drawing/brushes/brushes.dart';
+import '../../core/models/shape_type.dart';
 import '../infinite_canvas_controller.dart';
 
 /// 🔲 Selection Transform Overlay
@@ -17,6 +22,8 @@ class SelectionTransformOverlay extends StatefulWidget {
   final LassoTool lassoTool;
   final InfiniteCanvasController canvasController;
   final VoidCallback onTransformComplete;
+  final void Function(Offset screenPosition)? onEdgeAutoScroll;
+  final VoidCallback? onEdgeAutoScrollEnd;
   final bool isDark;
 
   const SelectionTransformOverlay({
@@ -24,6 +31,8 @@ class SelectionTransformOverlay extends StatefulWidget {
     required this.lassoTool,
     required this.canvasController,
     required this.onTransformComplete,
+    this.onEdgeAutoScroll,
+    this.onEdgeAutoScrollEnd,
     this.isDark = false,
   });
 
@@ -32,7 +41,8 @@ class SelectionTransformOverlay extends StatefulWidget {
       _SelectionTransformOverlayState();
 }
 
-class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
+class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
+    with SingleTickerProviderStateMixin {
   // Handle attualmente trascinato
   _HandleType? _activeHandle;
   Offset? _dragStart;
@@ -40,9 +50,40 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
   double _initialAngle = 0;
   double _initialDistance = 0;
 
+  // 🌊 REFLOW: Settle animation
+  late final AnimationController _settleController;
+  Map<String, Offset> _settleDisplacements = {};
+  double _settleOpacity = 0.0;
+
   static const double _handleSize = 22.0;
   static const double _hitAreaSize = 48.0; // Minimum touch target
   static const double _rotationHandleOffset = 36.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _settleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _settleController.addListener(() {
+      _settleOpacity =
+          1.0 - Curves.easeOutCubic.transform(_settleController.value);
+      setState(() {});
+    });
+    _settleController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _settleDisplacements = {};
+        _settleOpacity = 0.0;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _settleController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,16 +102,82 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
     final screenBounds = Rect.fromPoints(topLeft, bottomRight);
     final center = screenBounds.center;
 
+    // Determine active displacements (live drag or settle animation)
+    final activeDisplacements =
+        widget.lassoTool.reflowGhostDisplacements.isNotEmpty
+            ? widget.lassoTool.reflowGhostDisplacements
+            : _settleDisplacements;
+    final activeOpacity =
+        widget.lassoTool.reflowGhostDisplacements.isNotEmpty
+            ? 1.0
+            : _settleOpacity;
+    final activeLayer = widget.lassoTool.layerController.activeLayer;
+
     return Stack(
       children: [
-        // Bounding box tratteggiato
+        // 🌊 REFLOW: Ghost preview — always in tree to avoid gesture disruption
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _ReflowGhostPainter(
+                clusters: widget.lassoTool.clusterCache,
+                displacements: activeDisplacements,
+                canvasController: widget.canvasController,
+                strokes: activeLayer?.strokes ?? [],
+                shapes: activeLayer?.shapes ?? [],
+                globalOpacity: activeOpacity,
+              ),
+            ),
+          ),
+        ),
+
+        // 🔧 FIX: Drag area — captures pan inside selection bounds for move
         Positioned(
           left: screenBounds.left,
           top: screenBounds.top,
           width: screenBounds.width,
           height: screenBounds.height,
-          child: CustomPaint(
-            painter: _DashedBorderPainter(isDark: widget.isDark),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (details) {
+              final canvasPos = widget.canvasController.screenToCanvas(
+                details.globalPosition,
+              );
+              widget.lassoTool.startDrag(canvasPos);
+            },
+            onPanUpdate: (details) {
+              final canvasPos = widget.canvasController.screenToCanvas(
+                details.globalPosition,
+              );
+              widget.lassoTool.updateDrag(canvasPos);
+              DrawingPainter.invalidateAllTiles();
+              // 🏀️ Edge auto-scroll during selection drag
+              widget.onEdgeAutoScroll?.call(details.globalPosition);
+              setState(() {});
+            },
+            onPanEnd: (_) {
+              // 🏀️ Stop edge auto-scroll
+              widget.onEdgeAutoScrollEnd?.call();
+
+              // 🌊 REFLOW: Snapshot displacements for settle animation
+              final ghostSnap = Map<String, Offset>.from(
+                widget.lassoTool.reflowGhostDisplacements,
+              );
+
+              widget.lassoTool.endDrag();
+              DrawingPainter.invalidateAllTiles();
+              widget.onTransformComplete();
+
+              // 🌊 REFLOW: Trigger settle fade-out animation
+              if (ghostSnap.isNotEmpty) {
+                _settleDisplacements = ghostSnap;
+                _settleOpacity = 1.0;
+                _settleController.forward(from: 0.0);
+              }
+            },
+            child: CustomPaint(
+              painter: _DashedBorderPainter(isDark: widget.isDark),
+            ),
           ),
         ),
 
@@ -241,6 +348,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
       // Convert stable center from screen to canvas space for the lasso tool
       final canvasCenter = widget.canvasController.screenToCanvas(stableCenter);
       widget.lassoTool.rotateSelectedByAngle(angleDelta, center: canvasCenter);
+      DrawingPainter.invalidateAllTiles();
       setState(() {});
       widget.onTransformComplete();
     } else {
@@ -252,6 +360,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
         final clampedFactor = scaleFactor.clamp(0.5, 2.0);
         widget.lassoTool.scaleSelected(clampedFactor);
         _initialDistance = currentDistance;
+        DrawingPainter.invalidateAllTiles();
         setState(() {});
         widget.onTransformComplete();
       }
@@ -395,4 +504,164 @@ class _ConnectorLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ConnectorLinePainter oldDelegate) => false;
+}
+
+/// 🌊 Painter for reflow ghost previews.
+///
+/// Renders displaced cluster content with:
+/// - Distance-based opacity (farther = more transparent)
+/// - Stroke, shape, and text/image ghost rendering
+/// - Direction arrows showing displacement direction
+/// - Global opacity for settle animation fade-out
+class _ReflowGhostPainter extends CustomPainter {
+  final List<ContentCluster> clusters;
+  final Map<String, Offset> displacements;
+  final InfiniteCanvasController canvasController;
+  final List<ProStroke> strokes;
+  final List<GeometricShape> shapes;
+  final double globalOpacity;
+
+  static const double _maxDisplacementForOpacity = 300.0;
+  static const double _arrowSize = 8.0;
+
+  _ReflowGhostPainter({
+    required this.clusters,
+    required this.displacements,
+    required this.canvasController,
+    required this.strokes,
+    required this.shapes,
+    this.globalOpacity = 1.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (displacements.isEmpty || globalOpacity <= 0.01) return;
+
+    // Build O(1) lookup maps (avoid O(n) .where() per element)
+    final clusterMap = {for (final c in clusters) c.id: c};
+    final strokeMap = {for (final s in strokes) s.id: s};
+    final shapeMap = {for (final s in shapes) s.id: s};
+
+    // Apply viewport transform (overlay is in screen space)
+    canvas.save();
+    canvas.translate(canvasController.offset.dx, canvasController.offset.dy);
+    if (canvasController.rotation != 0.0) {
+      canvas.rotate(canvasController.rotation);
+    }
+    canvas.scale(canvasController.scale);
+
+    for (final entry in displacements.entries) {
+      final cluster = clusterMap[entry.key];
+      if (cluster == null) continue;
+
+      final displacement = entry.value;
+
+      // Skip tiny displacements (visual noise)
+      if (displacement.distance < 2.0) continue;
+
+      // 🎨 Distance-based opacity: closer = more opaque, farther = more transparent
+      final distanceRatio = (displacement.distance / _maxDisplacementForOpacity)
+          .clamp(0.0, 1.0);
+      final clusterOpacity =
+          (0.6 - distanceRatio * 0.4).clamp(0.1, 0.6) * globalOpacity;
+      final amberColor = Color.fromRGBO(255, 152, 0, clusterOpacity);
+
+      canvas.save();
+      canvas.translate(displacement.dx, displacement.dy);
+
+      // 🖊️ Render strokes
+      for (final strokeId in cluster.strokeIds) {
+        final stroke = strokeMap[strokeId];
+        if (stroke == null) continue;
+
+        BrushEngine.renderStroke(
+          canvas,
+          stroke.points,
+          amberColor,
+          stroke.baseWidth,
+          stroke.penType,
+          stroke.settings,
+        );
+      }
+
+      // 🔷 Render shapes as outlined rectangles
+      for (final shapeId in cluster.shapeIds) {
+        final shape = shapeMap[shapeId];
+        if (shape == null) continue;
+
+        final shapeBounds = Rect.fromPoints(shape.startPoint, shape.endPoint);
+        final shapePaint =
+            Paint()
+              ..color = amberColor
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2.0;
+        canvas.drawRect(shapeBounds, shapePaint);
+      }
+
+      // 📝 Render text/image clusters as dashed bound outlines
+      if (cluster.textIds.isNotEmpty || cluster.imageIds.isNotEmpty) {
+        final boundPaint =
+            Paint()
+              ..color = amberColor
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5;
+        final rrect = RRect.fromRectAndRadius(
+          cluster.bounds,
+          const Radius.circular(4),
+        );
+        canvas.drawRRect(rrect, boundPaint);
+      }
+
+      canvas.restore();
+
+      // ➡️ Direction arrow at cluster bounds edge
+      _drawDirectionArrow(canvas, cluster.bounds, displacement, amberColor);
+    }
+
+    canvas.restore();
+  }
+
+  /// Draws a small arrow from the cluster center pointing in the
+  /// displacement direction, showing where the cluster will move.
+  void _drawDirectionArrow(
+    Canvas canvas,
+    Rect clusterBounds,
+    Offset displacement,
+    Color color,
+  ) {
+    final center = clusterBounds.center;
+    final direction = displacement / displacement.distance;
+    final arrowStart = center;
+    final arrowEnd =
+        center + direction * (displacement.distance * 0.5).clamp(10.0, 40.0);
+
+    final arrowPaint =
+        Paint()
+          ..color = color.withValues(
+            alpha: color.a * 1.5,
+          ) // Slightly more visible
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round;
+
+    // Shaft
+    canvas.drawLine(arrowStart, arrowEnd, arrowPaint);
+
+    // Arrowhead
+    final angle = atan2(direction.dy, direction.dx);
+    final headA =
+        arrowEnd -
+        Offset(cos(angle - 0.5) * _arrowSize, sin(angle - 0.5) * _arrowSize);
+    final headB =
+        arrowEnd -
+        Offset(cos(angle + 0.5) * _arrowSize, sin(angle + 0.5) * _arrowSize);
+    canvas.drawLine(arrowEnd, headA, arrowPaint);
+    canvas.drawLine(arrowEnd, headB, arrowPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ReflowGhostPainter oldDelegate) {
+    return displacements != oldDelegate.displacements ||
+        globalOpacity != oldDelegate.globalOpacity;
+  }
 }

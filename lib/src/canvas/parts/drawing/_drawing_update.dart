@@ -142,8 +142,26 @@ extension on _NebulaCanvasScreenState {
     }
 
     if (_imageTool.isDragging) {
-      final updated = _imageTool.updateDrag(canvasPosition);
-      if (updated != null) {
+      final rawUpdated = _imageTool.updateDrag(canvasPosition);
+      if (rawUpdated != null) {
+        var updated = rawUpdated;
+        // 📐 Smart Guides: compute snap for the dragged image
+        final loaded = _loadedImages[updated.imagePath];
+        if (loaded != null) {
+          final w = loaded.width.toDouble() * updated.scale;
+          final h = loaded.height.toDouble() * updated.scale;
+          final draggedBounds = Rect.fromCenter(
+            center: updated.position,
+            width: w,
+            height: h,
+          );
+          final snap = _applySmartGuides(draggedBounds, excludeId: updated.id);
+          if (snap != Offset.zero) {
+            updated = updated.copyWith(position: updated.position + snap);
+            _imageTool.selectImage(updated);
+          }
+        }
+
         // Find and update in the list
         final index = _imageElements.indexWhere((e) => e.id == updated.id);
         if (index != -1) {
@@ -209,8 +227,25 @@ extension on _NebulaCanvasScreenState {
     // If sta draggando
     if (_digitalTextTool.isDragging) {
       // Update drag - updateDrag moves the position in canvas coordinates
-      final updated = _digitalTextTool.updateDrag(canvasPosition);
-      if (updated != null) {
+      final rawUpdated = _digitalTextTool.updateDrag(canvasPosition);
+      if (rawUpdated != null) {
+        var updated = rawUpdated;
+        // 📐 Smart Guides for text element
+        final approxW =
+            updated.text.length * updated.fontSize * updated.scale * 0.6;
+        final approxH = updated.fontSize * updated.scale * 1.4;
+        final draggedBounds = Rect.fromLTWH(
+          updated.position.dx,
+          updated.position.dy,
+          approxW.clamp(40.0, 2000.0),
+          approxH.clamp(20.0, 500.0),
+        );
+        final snap = _applySmartGuides(draggedBounds, excludeId: updated.id);
+        if (snap != Offset.zero) {
+          updated = updated.copyWith(position: updated.position + snap);
+          _digitalTextTool.selectElement(updated);
+        }
+
         // Update the element in the list
         final index = _digitalTextElements.indexWhere(
           (e) => e.id == updated.id,
@@ -243,6 +278,18 @@ extension on _NebulaCanvasScreenState {
       // If sta draggando, aggiorna la position e auto-scroll
       if (_lassoTool.isDragging) {
         _lassoTool.updateDrag(canvasPosition);
+
+        // 📐 Smart Guides for lasso selection
+        final lassoBounds = _lassoTool.getSelectionBounds();
+        if (lassoBounds != null) {
+          final snap = _applySmartGuides(lassoBounds);
+          if (snap != Offset.zero) {
+            _lassoTool.moveSelected(snap);
+          }
+        }
+
+        // 🔧 FIX: Invalidate tile cache so moved strokes render at new positions
+        DrawingPainter.invalidateAllTiles();
 
         // Convert canvasPosition in screenPosition per auto-scroll
         final screenPosition = _canvasController.canvasToScreen(canvasPosition);
@@ -510,6 +557,68 @@ extension on _NebulaCanvasScreenState {
         tiltY: tiltY,
         orientation: 0.0,
       );
+    }
+  }
+
+  // ==========================================================================
+  // 📐 Smart Guides helpers
+  // ==========================================================================
+
+  /// Collect bounds of all visible elements except [excludeId].
+  List<Rect> _collectTargetBounds({String? excludeId}) {
+    final targets = <Rect>[];
+
+    // Images
+    for (final img in _imageElements) {
+      if (img.id == excludeId) continue;
+      final loaded = _loadedImages[img.imagePath];
+      if (loaded == null) continue;
+      final w = loaded.width.toDouble() * img.scale;
+      final h = loaded.height.toDouble() * img.scale;
+      targets.add(Rect.fromCenter(center: img.position, width: w, height: h));
+    }
+
+    // Digital text elements
+    for (final txt in _digitalTextElements) {
+      if (txt.id == excludeId) continue;
+      // Approximate bounds: position is top-left, estimate size from fontSize
+      final approxWidth = txt.text.length * txt.fontSize * txt.scale * 0.6;
+      final approxHeight = txt.fontSize * txt.scale * 1.4;
+      targets.add(
+        Rect.fromLTWH(
+          txt.position.dx,
+          txt.position.dy,
+          approxWidth.clamp(40.0, 2000.0),
+          approxHeight.clamp(20.0, 500.0),
+        ),
+      );
+    }
+
+    return targets;
+  }
+
+  /// Run smart guide engine and update state. Returns the snap offset to apply.
+  Offset _applySmartGuides(Rect draggedBounds, {String? excludeId}) {
+    final targets = _collectTargetBounds(excludeId: excludeId);
+    final result = SmartGuideEngine.compute(
+      draggedBounds: draggedBounds,
+      targetBounds: targets,
+    );
+
+    // Haptic on first snap
+    if (result.hasSnap && _activeSmartGuides.isEmpty) {
+      HapticFeedback.selectionClick();
+    }
+
+    _activeSmartGuides = result.guides;
+    return result.snapOffset;
+  }
+
+  /// Clear smart guides (called on drag end).
+  void _clearSmartGuides() {
+    if (_activeSmartGuides.isNotEmpty) {
+      _activeSmartGuides = const [];
+      setState(() {});
     }
   }
 }

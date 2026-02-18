@@ -7,6 +7,9 @@ part of '../nebula_canvas_screen.dart';
 ///   - `_config.onCloudSync()` for full cloud save
 ///   - `_config.onDeltaSync()` for incremental delta push
 extension CloudSyncExtension on _NebulaCanvasScreenState {
+  /// Flag to log auto-save errors only once (avoid console spam).
+  static bool _autoSaveErrorLogged = false;
+
   /// Builds a [NebulaCanvasSaveData] snapshot of the current canvas state.
   NebulaCanvasSaveData _buildSaveData() {
     return NebulaCanvasSaveData(
@@ -26,19 +29,33 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
 
   /// 💾 AUTO-SAVE canvas (called on every modification).
   ///
+  /// **Debounced** (500ms): rapid modifications are batched so the expensive
+  /// JSON serialization runs only once after the user pauses.
+  /// Heavy work is deferred via `Future.microtask` to avoid blocking the
+  /// current pointer-event/paint frame.
+  ///
   /// 1. Always saves locally via storage adapter or legacy callback.
   /// 2. If cloud sync is enabled, pushes deltas and debounced full save
   ///    via `_config.onCloudSync`.
   Future<void> _autoSaveCanvas() async {
     if (_isLoading) return;
 
+    // Push deltas immediately (lightweight — no JSON serialization)
+    if (_isSharedCanvas) {
+      _snapshotAndPushCloudDeltas();
+    }
+
+    // Debounce heavy serialization + I/O
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _performSave();
+    });
+  }
+
+  /// Actually perform the save (runs after debounce).
+  Future<void> _performSave() async {
     try {
       final saveData = _buildSaveData();
-
-      // Push deltas for shared canvases BEFORE local save can consume them
-      if (_isSharedCanvas) {
-        _snapshotAndPushCloudDeltas();
-      }
 
       // 1️⃣ Local save — prefer storageAdapter over legacy callback
       if (_config.storageAdapter != null) {
@@ -54,8 +71,13 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
         _config.onCloudSync?.call(_canvasId, saveData.toJson());
       }
     } catch (e) {
-      // Don't block the user on save errors
-      debugPrint('[CloudSync] Auto-save error: $e');
+      // Log once to avoid console spam (e.g. storage adapter not initialized)
+      if (!_autoSaveErrorLogged) {
+        _autoSaveErrorLogged = true;
+        debugPrint(
+          '[CloudSync] Auto-save error (further errors suppressed): $e',
+        );
+      }
     }
   }
 

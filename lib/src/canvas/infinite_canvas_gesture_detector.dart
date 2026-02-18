@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import './infinite_canvas_controller.dart';
 import '../drawing/input/stylus_detector.dart';
 
@@ -16,17 +17,27 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final Widget child;
   final Function(Offset, double pressure, double tiltX, double tiltY)?
   onDrawStart;
-  final Function(Offset, double pressure, double tiltX, double tiltY)?
+  final Function(Offset position, double pressure, double tiltX, double tiltY)?
   onDrawUpdate;
+
+  /// 🚀 Callback ottimizzata for batch updates
+  final Function(
+    List<Offset> positions,
+    List<double> pressures,
+    List<double> tiltsX,
+    List<double> tiltsY,
+  )?
+  onDrawBatchUpdate;
   final Function(Offset)? onDrawEnd;
   final VoidCallback?
-  onDrawCancel; // 🚫 Clear stroke without salvare (es. 2° dito interrompe)
+  onDrawCancel; // 🚫 Clear stroke without saving (e.g. 2nd finger interrupts)
+  final VoidCallback?
+  onDoubleTapZoom; // 🎯 Called on double-tap zoom to undo the first tap's dot
   final Function(Offset)? onLongPress;
   final bool blockPanZoom; // 🔒 Block pan/zoom when true
   final bool
   enableSingleFingerPan; // 🖐️ Enable pan with a finger instead of drawing
-  final bool
-  isStylusModeEnabled; // 🖊️ Stylus mode: stylus draws, finger pans
+  final bool isStylusModeEnabled; // 🖊️ Stylus mode: stylus draws, finger pans
 
   const InfiniteCanvasGestureDetector({
     super.key,
@@ -34,8 +45,10 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     required this.child,
     this.onDrawStart,
     this.onDrawUpdate,
+    this.onDrawBatchUpdate,
     this.onDrawEnd,
     this.onDrawCancel,
+    this.onDoubleTapZoom,
     this.onLongPress,
     this.blockPanZoom = false, // Default: pan/zoom enabled
     this.enableSingleFingerPan = false, // Default: disegno with a dito
@@ -57,8 +70,7 @@ class _InfiniteCanvasGestureDetectorState
   bool _isDrawing = false;
   Offset? _firstPointerPosition;
   bool _hasMoved = false;
-  bool _wasMultiTouch =
-      false; // Flag to track se c'era multi-touch recente
+  bool _wasMultiTouch = false; // Flag to track se c'era multi-touch recente
   int _lastPointerChangeTime = 0; // Timestamp ultimo cambio pointer count
 
   // State per pan with a dito
@@ -86,6 +98,30 @@ class _InfiniteCanvasGestureDetectorState
 
   // 🖊️ Flag to enable/disable drawing in stylus mode
   bool _shouldEnableDrawing = true;
+
+  // 🌊 LIQUID: Velocity tracking for pan momentum
+  Offset _lastScaleFocalPoint = Offset.zero;
+  int _lastScaleUpdateTime = 0;
+  Offset _panVelocity = Offset.zero;
+  // 🌊 LIQUID: Track if we were zooming (2+ fingers) vs panning
+  bool _wasZooming = false;
+  Offset _lastScaleEndFocalPoint = Offset.zero;
+
+  // 🔄 GESTURE CONTINUITY: Smooth transition when pointer count changes
+  bool _gestureTransitioning = false;
+  int _previousPointerCount = 0;
+
+  // 🌀 ROTATION: State tracking
+  double _initialRotation = 0.0;
+  double _lastGestureRotation = 0.0;
+  double _rotationVelocity = 0.0;
+  double? _lastSnappedAngle; // Track snap detent to avoid repeated haptics
+
+  // 🎯 DOUBLE-TAP ZOOM: State tracking
+  int _lastSingleTapTime = 0;
+  Offset _lastSingleTapPosition = Offset.zero;
+  bool _pendingFirstTap =
+      false; // True while waiting to see if second tap comes
 
   /// 🎯 REALISM FIX: Simula pressione realistica per dito from the speed
   /// - Stylus: uses real pressure (0.0-1.0 con variazione)
@@ -175,6 +211,9 @@ class _InfiniteCanvasGestureDetectorState
     _pointerCount++;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
+    // 🌊 LIQUID: Stop any running physics animation on new touch
+    widget.controller.stopAnimation();
+
     // 🖊️ Register the pointer for stylus manager
     _stylusManager.addPointer(event);
 
@@ -212,30 +251,38 @@ class _InfiniteCanvasGestureDetectorState
     }
 
     // 🚀 FIX: Start drawing IMMEDIATELY on pointer down
-    // This cattura il primo punto without aspettare onPointerMove
+    // This captures the first point without waiting for onPointerMove
     // Solves the problem of losing the first points during writing
     if (_pointerCount == 1 &&
         _shouldEnableDrawing &&
         !widget.enableSingleFingerPan) {
+      // 🎯 DOUBLE-TAP CHECK: If this could be the second tap of a double-tap,
+      // suppress drawing to avoid the temporary dot flash.
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final isLikelySecondTap =
+          _pendingFirstTap &&
+          (now - _lastSingleTapTime) < 300 &&
+          (event.localPosition - _lastSingleTapPosition).distance < 40;
+
       _isDrawing = true;
       _lastDrawPosition = event.localPosition;
-      final normalizedPressure = _normalizePressure(event); // 🎯 FIX 3
+      final normalizedPressure = _normalizePressure(event);
       _lastPressure = normalizedPressure;
 
-      // 🖊️ FIX: Calculate tiltX and tiltY from tilt and orientation
-      final tiltMagnitude = event.tilt; // 0 to π/2
-      final orientation = event.orientation; // -π to π
+      // 🖊️ Calculate tiltX and tiltY from tilt and orientation
+      final tiltMagnitude = event.tilt;
+      final orientation = event.orientation;
       _lastTiltX = (tiltMagnitude * math.cos(orientation)).clamp(-1.0, 1.0);
       _lastTiltY = (tiltMagnitude * math.sin(orientation)).clamp(-1.0, 1.0);
 
-      if (widget.onDrawStart != null) {
+      if (!isLikelySecondTap && widget.onDrawStart != null) {
         final canvasPoint = widget.controller.screenToCanvas(
           event.localPosition,
         );
-        _lastCanvasPosition = canvasPoint; // 🚀 FIX #5: cache canvas position
+        _lastCanvasPosition = canvasPoint;
         widget.onDrawStart!(
           canvasPoint,
-          normalizedPressure, // 🎯 Usa pressure normalizzata
+          normalizedPressure,
           _lastTiltX,
           _lastTiltY,
         );
@@ -250,12 +297,15 @@ class _InfiniteCanvasGestureDetectorState
     // Ignora se ci sono 2+ dita (zoom/pan)
     if (_pointerCount >= 2) return;
 
-    // NON disegnare se c'era multi-touch negli ultimi 60ms
-    // Reduced from 200ms to minimize lost input after zoom
+    // 🔄 GESTURE CONTINUITY: Don't draw/pan right after multi-touch
+    // Extended cooldown prevents accidental strokes when lifting fingers.
     final timeSinceLastChange =
         DateTime.now().millisecondsSinceEpoch - _lastPointerChangeTime;
     if (_wasMultiTouch && timeSinceLastChange < 60) {
-      return; // Ignora il movimento
+      // Re-anchor positions so first move after cooldown doesn't jump
+      _lastPanPosition = event.localPosition;
+      _lastDrawPosition = event.localPosition;
+      return; // Ignore movement during cooldown
     }
 
     // 🖐️ If finger pan mode is active, pan instead of drawing
@@ -263,9 +313,24 @@ class _InfiniteCanvasGestureDetectorState
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
         _lastPanPosition = event.localPosition;
+        // 🌊 LIQUID: Reset velocity tracking for single-finger pan
+        _lastScaleUpdateTime = DateTime.now().microsecondsSinceEpoch;
+        _panVelocity = Offset.zero;
       } else {
         // Calculate il delta di movimento
         final delta = event.localPosition - _lastPanPosition;
+
+        // 🌊 LIQUID: Track velocity
+        final now = DateTime.now().microsecondsSinceEpoch;
+        final dt = (now - _lastScaleUpdateTime) / 1000000.0;
+        if (dt > 0.001) {
+          final instantV = delta / dt;
+          _panVelocity = Offset(
+            _panVelocity.dx * 0.7 + instantV.dx * 0.3,
+            _panVelocity.dy * 0.7 + instantV.dy * 0.3,
+          );
+        }
+        _lastScaleUpdateTime = now;
         _lastPanPosition = event.localPosition;
 
         // Applica il pan
@@ -286,9 +351,25 @@ class _InfiniteCanvasGestureDetectorState
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
         _lastPanPosition = event.localPosition;
+        // 🌊 LIQUID: Reset velocity tracking
+        _lastScaleUpdateTime = DateTime.now().microsecondsSinceEpoch;
+        _panVelocity = Offset.zero;
       } else {
         final delta = event.localPosition - _lastPanPosition;
+
+        // 🌊 LIQUID: Track velocity
+        final now = DateTime.now().microsecondsSinceEpoch;
+        final dt = (now - _lastScaleUpdateTime) / 1000000.0;
+        if (dt > 0.001) {
+          final instantV = delta / dt;
+          _panVelocity = Offset(
+            _panVelocity.dx * 0.7 + instantV.dx * 0.3,
+            _panVelocity.dy * 0.7 + instantV.dy * 0.3,
+          );
+        }
+        _lastScaleUpdateTime = now;
         _lastPanPosition = event.localPosition;
+
         final newOffset = widget.controller.offset + delta;
         widget.controller.updateTransform(
           offset: newOffset,
@@ -319,7 +400,7 @@ class _InfiniteCanvasGestureDetectorState
       // 🚀 FIX: Removed block "if (!_isDrawing)" which called onDrawStart
       // onDrawStart ora is called in onPointerDown per catturare il primo punto
       // Qui gestiamo SOLO gli update of the drawing already iniziato
-      if (_isDrawing && widget.onDrawUpdate != null) {
+      if (_isDrawing) {
         final canvasPoint = widget.controller.screenToCanvas(
           event.localPosition,
         );
@@ -340,7 +421,7 @@ class _InfiniteCanvasGestureDetectorState
 
         // 🚀 FIX #5: INTERPOLATION IN CANVAS SPACE
         // Instead of converting each interpolated point with screenToCanvas(),
-        // interpoliamo direttamente among the posizioni canvas already calcolate.
+        // we interpolate directly between cached canvas positions.
         if (_lastCanvasPosition != null) {
           final distance = (event.localPosition - _lastDrawPosition!).distance;
           if (distance > _interpolationThreshold) {
@@ -348,7 +429,8 @@ class _InfiniteCanvasGestureDetectorState
             final steps = rawSteps.clamp(
               1,
               _maxInterpolatedPoints + 1,
-            ); // Limita punti
+            ); // Limit points
+
             for (int i = 1; i < steps; i++) {
               final t = i / steps;
               // 🚀 Direct interpolation in canvas space (zero screenToCanvas!)
@@ -356,12 +438,14 @@ class _InfiniteCanvasGestureDetectorState
                   Offset.lerp(_lastCanvasPosition!, canvasPoint, t)!;
               final interpolatedPressure =
                   _lastPressure + (normalizedPressure - _lastPressure) * t;
-              // 🖊️ Interpola anthat the tilt
               final interpolatedTiltX =
                   _lastTiltX + (currentTiltX - _lastTiltX) * t;
               final interpolatedTiltY =
                   _lastTiltY + (currentTiltY - _lastTiltY) * t;
-              widget.onDrawUpdate!(
+
+              // 🚀 PERF: silent=true skips repaint notification.
+              // Only the final real point (below) triggers a single repaint.
+              widget.onDrawUpdate?.call(
                 interpolatedCanvas,
                 interpolatedPressure,
                 interpolatedTiltX,
@@ -377,9 +461,11 @@ class _InfiniteCanvasGestureDetectorState
         _lastPressure = normalizedPressure;
         _lastTiltX = currentTiltX;
         _lastTiltY = currentTiltY;
-        widget.onDrawUpdate!(
+
+        // 🚀 Send the actual current point — this triggers the repaint
+        widget.onDrawUpdate?.call(
           canvasPoint,
-          normalizedPressure, // 🎯 Usa pressure normalizzata
+          normalizedPressure,
           currentTiltX,
           currentTiltY,
         );
@@ -388,8 +474,15 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onPointerUp(PointerUpEvent event) {
+    _previousPointerCount = _pointerCount;
     _pointerCount--;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
+
+    // 🔄 GESTURE CONTINUITY: Mark transition when going from 2+ to 1 finger
+    // This prevents jumps when _onScaleStart re-fires with new focal point.
+    if (_previousPointerCount >= 2 && _pointerCount >= 1) {
+      _gestureTransitioning = true;
+    }
 
     // 🖊️ Remove the pointer from stylus manager
     _stylusManager.removePointer(event.pointer);
@@ -398,11 +491,19 @@ class _InfiniteCanvasGestureDetectorState
     if (_pointerCount == 0) {
       // Reset multi-touch flag when all fingers are lifted
       _wasMultiTouch = false;
+      _gestureTransitioning = false; // Reset stale transition flag
+
+      // 🌊 LIQUID: Launch momentum from single-finger pan
+      if (_isSingleFingerPanning && _panVelocity.distance > 0) {
+        widget.controller.startMomentum(_panVelocity);
+        _panVelocity = Offset.zero;
+      }
+
       _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
 
-      if (_isDrawing) {
-        // Drawing normale (con movimento)
+      if (_isDrawing && _hasMoved) {
+        // Drawing with movement — finalize stroke
         _isDrawing = false;
         if (widget.onDrawEnd != null) {
           final canvasPoint = widget.controller.screenToCanvas(
@@ -410,30 +511,74 @@ class _InfiniteCanvasGestureDetectorState
           );
           widget.onDrawEnd!(canvasPoint);
         }
-      } else if (!_hasMoved &&
-          _firstPointerPosition != null &&
-          !widget.enableSingleFingerPan &&
-          _shouldEnableDrawing) {
-        // Tap veloce (nessun movimento) → disegna un puntino
-        // Ma SOLO if not siamo in mode pan (altrimenti il tap non fa nulla)
-        // 🖊️ AND ONLY if drawing was enabled (stylus in stylus mode)
-        final canvasPoint = widget.controller.screenToCanvas(
-          _firstPointerPosition!,
-        );
+        // Drawing stroke resets double-tap state
+        _pendingFirstTap = false;
+        _lastSingleTapTime = 0;
+      } else if (!_hasMoved && !_wasMultiTouch) {
+        // 🎯 Quick tap (no movement, single finger) — double-tap zoom check
+        final wasDrawing = _isDrawing;
+        _isDrawing = false;
 
-        // Simula start + end nello stesso punto (tap veloce, no tilt)
-        if (widget.onDrawStart != null) {
-          widget.onDrawStart!(canvasPoint, 1.0, 0.0, 0.0);
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final timeSinceLastTap = now - _lastSingleTapTime;
+        final distFromLastTap =
+            (event.localPosition - _lastSingleTapPosition).distance;
+
+        if (timeSinceLastTap < 300 &&
+            distFromLastTap < 40 &&
+            _pendingFirstTap) {
+          // 🎯 DOUBLE-TAP DETECTED!
+          _pendingFirstTap = false;
+          _lastSingleTapTime = 0;
+
+          // Cancel any in-progress stroke from this (second) tap
+          if (wasDrawing) {
+            widget.onDrawCancel?.call();
+          }
+
+          HapticFeedback.mediumImpact();
+
+          // Discrete zoom levels: 1x → 2x → 3x → back to 1x
+          final currentScale = widget.controller.scale;
+          double targetScale;
+          if (currentScale < 1.8) {
+            targetScale = 2.0;
+          } else if (currentScale < 2.8) {
+            targetScale = 3.0;
+          } else {
+            targetScale = 1.0;
+          }
+          widget.controller.animateZoomTo(targetScale, event.localPosition);
+
+          // Discard the first tap's dot silently (if drawing mode created one)
+          widget.onDoubleTapZoom?.call();
+        } else {
+          // First tap — record timing for double-tap detection
+          _pendingFirstTap = true;
+          _lastSingleTapTime = now;
+          _lastSingleTapPosition = event.localPosition;
+
+          // In drawing mode, finalize the dot
+          if (wasDrawing) {
+            if (widget.onDrawEnd != null) {
+              final canvasPoint = widget.controller.screenToCanvas(
+                event.localPosition,
+              );
+              widget.onDrawEnd!(canvasPoint);
+            }
+          }
         }
-        if (widget.onDrawEnd != null) {
-          widget.onDrawEnd!(canvasPoint);
-        }
+      } else {
+        // Multi-touch or other — just clean up
+        _isDrawing = false;
+        _pendingFirstTap = false;
+        _lastSingleTapTime = 0;
       }
 
       // Reset state
       _firstPointerPosition = null;
       _hasMoved = false;
-      _lastDrawPosition = null; // 🚀 Reset interpolazione
+      _lastDrawPosition = null; // 🚀 Reset interpolation
       _lastCanvasPosition = null; // 🚀 FIX #5: Reset canvas cache
       _lastPressure = 1.0;
     }
@@ -466,10 +611,59 @@ class _InfiniteCanvasGestureDetectorState
     }
   }
 
+  // 🌀 Two-finger double-tap detection (reset view)
+  int _lastTwoFingerTapTime = 0;
+  Offset _lastTwoFingerTapPosition = Offset.zero;
+
   void _onScaleStart(ScaleStartDetails details) {
+    // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
+    // (e.g., 2→1 fingers), re-anchor to current state to prevent jumps.
+    if (_gestureTransitioning) {
+      _gestureTransitioning = false;
+      _initialScale = widget.controller.scale;
+      _initialFocalPoint = details.localFocalPoint;
+      _initialOffset = widget.controller.offset;
+      _initialRotation = widget.controller.rotation;
+      _lastGestureRotation = 0.0;
+      _lastScaleFocalPoint = details.localFocalPoint;
+      _lastScaleUpdateTime = DateTime.now().microsecondsSinceEpoch;
+      // Keep existing velocity for smooth momentum handoff
+      _wasZooming = false;
+      return; // Skip all other initialization — seamless transition
+    }
+
     _initialScale = widget.controller.scale;
-    _initialFocalPoint = details.focalPoint;
+    _initialFocalPoint = details.localFocalPoint;
     _initialOffset = widget.controller.offset;
+    _initialRotation = widget.controller.rotation;
+    _lastGestureRotation = 0.0;
+
+    // 🌀 TWO-FINGER DOUBLE-TAP: Detect rapid 2-finger taps to reset view
+    if (_pointerCount >= 2) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final timeSinceLastTap = now - _lastTwoFingerTapTime;
+      final distFromLastTap =
+          (details.localFocalPoint - _lastTwoFingerTapPosition).distance;
+
+      if (timeSinceLastTap < 400 && distFromLastTap < 80) {
+        // Double-tap detected! Reset rotation + zoom
+        HapticFeedback.mediumImpact();
+        widget.controller.resetRotation();
+        widget.controller.startZoomSpringBack(details.localFocalPoint);
+        _lastTwoFingerTapTime = 0; // Reset to avoid triple-tap
+        return;
+      }
+
+      _lastTwoFingerTapTime = now;
+      _lastTwoFingerTapPosition = details.localFocalPoint;
+    }
+
+    // 🌊 LIQUID: Initialize velocity tracking
+    _lastScaleFocalPoint = details.localFocalPoint;
+    _lastScaleUpdateTime = DateTime.now().microsecondsSinceEpoch;
+    _panVelocity = Offset.zero;
+    _rotationVelocity = 0.0;
+    _wasZooming = false;
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
@@ -477,26 +671,126 @@ class _InfiniteCanvasGestureDetectorState
     // 🔒 Block pan/zoom if the digital text tool is resizing/dragging
     if (_pointerCount < 2 || widget.blockPanZoom) return;
 
-    // Calculate nuovo scale con limiti (dezoom massimo 0.2x, zoom massimo 5x)
-    final newScale = (_initialScale * details.scale).clamp(0.2, 5.0);
+    // 🌊 LIQUID: Track velocity for momentum
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final dt = (now - _lastScaleUpdateTime) / 1000000.0; // seconds
+    if (dt > 0.001) {
+      final delta = details.localFocalPoint - _lastScaleFocalPoint;
+      final instantVelocity = delta / dt;
+      // Exponential smoothing (α = 0.3) for stable velocity
+      _panVelocity = Offset(
+        _panVelocity.dx * 0.7 + instantVelocity.dx * 0.3,
+        _panVelocity.dy * 0.7 + instantVelocity.dy * 0.3,
+      );
+    }
+    _lastScaleFocalPoint = details.localFocalPoint;
+    _lastScaleUpdateTime = now;
+
+    // Detect if user is zooming (scale significantly changed)
+    if ((details.scale - 1.0).abs() > 0.02) {
+      _wasZooming = true;
+    }
+
+    // 🌊 LIQUID: Allow elastic overshoot for zoom (raw, unclamped scale)
+    final rawScale = _initialScale * details.scale;
+
+    // 🌀 ROTATION: Track rotation from gesture
+    double newRotation = _initialRotation + details.rotation;
+
+    // 🌀 MAGNETIC SNAP: Add resistance near snap angles (like Procreate)
+    // When close to a snap angle, dampen the rotation delta to create
+    // a "sticky" feel. The user must push harder to break free.
+    final snapAngle = widget.controller.checkSnapAngle(newRotation);
+    if (snapAngle != null && !widget.controller.rotationLocked) {
+      final distFromSnap = (newRotation - snapAngle).abs();
+      final snapThreshold = 0.18; // ~10° magnetic zone (wide detent)
+      // Cubic dampening: very strong near center, fades at edges
+      final t = (distFromSnap / snapThreshold).clamp(0.0, 1.0);
+      final dampening = t * t * t; // 0 at center, 1 at edge
+      newRotation = snapAngle + (newRotation - snapAngle) * dampening;
+    }
+
+    // 🌀 ROTATION: Track angular velocity
+    final rotationDelta = details.rotation - _lastGestureRotation;
+    _lastGestureRotation = details.rotation;
+    if (dt > 0.001) {
+      final instantAngularV = rotationDelta / dt;
+      _rotationVelocity = _rotationVelocity * 0.7 + instantAngularV * 0.3;
+    }
 
     // Calculate il delta di pan dat the point iniziale
-    final panDelta = details.focalPoint - _initialFocalPoint;
+    final panDelta = details.localFocalPoint - _initialFocalPoint;
 
-    // Calculate offset considerando sia lo zoom that the pan
-    // 1. Start zoom: keep the initial focal point fixed
-    final focalPointCanvas =
-        (_initialFocalPoint - _initialOffset) / _initialScale;
-    final offsetAfterZoom = _initialFocalPoint - (focalPointCanvas * newScale);
+    // 🎯 FIX: Use the ACTUAL rotation/scale that will be applied, not raw values.
+    // When rotation is locked, the controller ignores newRotation.
+    // When elastic clamping is active, the applied scale differs from rawScale.
+    final effectiveRotation =
+        widget.controller.rotationLocked ? _initialRotation : newRotation;
 
-    // 2. Aggiungi il pan
-    final newOffset = offsetAfterZoom + panDelta;
+    // Calculate offset considering zoom + pan + rotation
+    // Convert focal point from screen → canvas using initial transform
+    // (undo translate → undo rotate → undo scale)
+    final translated = _initialFocalPoint - _initialOffset;
+    final cosR0 = math.cos(-_initialRotation);
+    final sinR0 = math.sin(-_initialRotation);
+    final unrotated = Offset(
+      translated.dx * cosR0 - translated.dy * sinR0,
+      translated.dx * sinR0 + translated.dy * cosR0,
+    );
+    final focalPointCanvas = unrotated / _initialScale;
 
-    // Applica trasformazione (zoom + pan)
-    widget.controller.updateTransform(offset: newOffset, scale: newScale);
+    // Apply new transform: scale → rotate → translate
+    // 🎯 Use getEffectiveScale to compute offset with the ACTUAL scale that
+    // will be applied. This prevents the canvas from 'escaping' when rawScale
+    // is far beyond elastic limits (e.g., pinch zoom to extreme values).
+    final effectiveScale = widget.controller.getEffectiveScale(rawScale);
+    final cosR = math.cos(effectiveRotation);
+    final sinR = math.sin(effectiveRotation);
+    final scaledFocal = Offset(
+      focalPointCanvas.dx * effectiveScale,
+      focalPointCanvas.dy * effectiveScale,
+    );
+    final rotatedFocal = Offset(
+      scaledFocal.dx * cosR - scaledFocal.dy * sinR,
+      scaledFocal.dx * sinR + scaledFocal.dy * cosR,
+    );
+    final newOffset = _initialFocalPoint - rotatedFocal + panDelta;
+
+    // 🌊 LIQUID: Apply transform with elastic bounds + rotation
+    widget.controller.updateTransform(
+      offset: newOffset,
+      scale: rawScale,
+      rotation: newRotation,
+      elastic: true,
+    );
+
+    // 🌀 SNAP HAPTIC: Fire haptic when crossing a snap angle detent
+    if (!widget.controller.rotationLocked) {
+      final snapAngle = widget.controller.checkSnapAngle(newRotation);
+      if (snapAngle != null && snapAngle != _lastSnappedAngle) {
+        HapticFeedback.lightImpact();
+        _lastSnappedAngle = snapAngle;
+      } else if (snapAngle == null) {
+        _lastSnappedAngle = null;
+      }
+    }
+
+    _lastScaleEndFocalPoint = details.localFocalPoint;
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
-    // Reset state
+    // 🌊 LIQUID: Launch zoom spring-back if scale is beyond limits
+    widget.controller.startZoomSpringBack(_lastScaleEndFocalPoint);
+
+    // 🌊 LIQUID: Launch pan momentum from terminal velocity
+    if (_panVelocity.distance > 0) {
+      widget.controller.startMomentum(_panVelocity);
+    }
+
+    // 🌀 ROTATION: Launch rotation momentum
+    widget.controller.startRotationMomentum(_rotationVelocity);
+
+    _panVelocity = Offset.zero;
+    _rotationVelocity = 0.0;
   }
 }

@@ -256,6 +256,12 @@ export 'src/canvas/nebula_canvas_screen.dart';
 export 'src/canvas/nebula_canvas_config.dart';
 export 'src/canvas/infinite_canvas_controller.dart';
 export 'src/canvas/infinite_canvas_gesture_detector.dart';
+export 'src/canvas/liquid_canvas_config.dart';
+
+// ────────────────────────── REFLOW ──────────────────────────
+export 'src/reflow/content_cluster.dart';
+export 'src/reflow/cluster_detector.dart';
+export 'src/reflow/reflow_physics_engine.dart';
 
 // ────────────────────────── DIALOGS ──────────────────────────
 export 'src/dialogs/canvas_settings_dialog.dart';

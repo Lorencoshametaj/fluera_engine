@@ -1,62 +1,643 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import './liquid_canvas_config.dart';
 
-/// Controller per canvas infinito con zoom e pan
+/// 🌊 Controller for infinite canvas with zoom, pan, and liquid physics.
+///
+/// DESIGN PRINCIPLES:
+/// - Momentum deceleration after pan lift (FrictionSimulation)
+/// - Spring-back when zoom exceeds min/max bounds (SpringSimulation)
+/// - Elastic overshoot: briefly shows beyond-limits view before springing back
+/// - Immediate stop on new touch (zero latency response)
+/// - All physics driven by a single Ticker for battery efficiency
+/// - Backward compatible: works identically without attaching a ticker
+///
+/// ARCHITECTURE:
+/// - Extends ChangeNotifier for widget reactivity (AnimatedBuilder, painters)
+/// - Physics state machine: IDLE → MOMENTUM / SPRING → IDLE
+/// - Ticker callback drives all active simulations each frame
 class InfiniteCanvasController extends ChangeNotifier {
-  // Canvas transformations
+  // ============================================================================
+  // 🎯 CORE STATE
+  // ============================================================================
+
   Offset _offset = Offset.zero;
   double _scale = 1.0;
+  double _rotation = 0.0; // radians, clockwise
 
-  // Limiti zoom
-  static const double _minScale = 0.1; // Dezoom massimo per vedere more canvas
+  // Zoom limits (logical bounds — elastic overshoot can exceed these)
+  static const double _minScale = 0.1;
   static const double _maxScale = 5.0;
 
   // Getters
   Offset get offset => _offset;
   double get scale => _scale;
+  double get rotation => _rotation;
 
-  /// Applica offset (pan)
+  // 🌀 Rotation lock (persisted)
+  static const String _rotationLockKey = 'nebula_rotation_locked';
+  bool _rotationLocked = false;
+  bool get rotationLocked => _rotationLocked;
+  set rotationLocked(bool value) {
+    _rotationLocked = value;
+    notifyListeners();
+    // Persist asynchronously
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool(_rotationLockKey, value);
+    });
+  }
+
+  /// Load persisted rotation lock state. Call once after construction.
+  Future<void> loadPersistedState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final locked = prefs.getBool(_rotationLockKey) ?? false;
+    if (locked != _rotationLocked) {
+      _rotationLocked = locked;
+      notifyListeners();
+    }
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS
+  // ============================================================================
+
+  /// Physics configuration (injectable, immutable)
+  LiquidCanvasConfig _liquidConfig = const LiquidCanvasConfig();
+  LiquidCanvasConfig get liquidConfig => _liquidConfig;
+  set liquidConfig(LiquidCanvasConfig config) {
+    _liquidConfig = config;
+  }
+
+  /// Ticker provided by the widget tree (TickerProviderStateMixin)
+  Ticker? _ticker;
+  Duration _lastTickTime = Duration.zero;
+
+  // — Pan momentum state —
+  FrictionSimulation? _panSimX;
+  FrictionSimulation? _panSimY;
+  double _momentumStartTime = 0;
+  bool _isMomentumActive = false;
+
+  // — Zoom spring state —
+  SpringSimulation? _zoomSim;
+  double _springStartTime = 0;
+  bool _isZoomSpringActive = false;
+  Offset _zoomSpringFocalPoint = Offset.zero;
+  double _zoomSpringStartScale = 1.0;
+
+  // — Rotation momentum state —
+  FrictionSimulation? _rotationSim;
+  double _rotationMomentumStartTime = 0;
+  bool _isRotationMomentumActive = false;
+
+  // — Rotation spring state —
+  SpringSimulation? _rotationSpring;
+  bool _isRotationSpringActive = false;
+
+  /// Whether any physics animation is running.
+  bool get isAnimating =>
+      _isMomentumActive ||
+      _isZoomSpringActive ||
+      _isRotationMomentumActive ||
+      _isRotationSpringActive;
+
+  // ============================================================================
+  // 🎛️ CORE API
+  // ============================================================================
+
+  /// Apply offset (pan)
   void setOffset(Offset newOffset) {
     _offset = newOffset;
     notifyListeners();
   }
 
-  /// Applica zoom
+  /// Apply zoom with hard clamp (no elastic overshoot)
   void setScale(double newScale) {
     _scale = newScale.clamp(_minScale, _maxScale);
     notifyListeners();
   }
 
-  /// Applica trasformazione combinata (zoom + pan)
-  void updateTransform({required Offset offset, required double scale}) {
+  /// Apply combined transform (zoom + pan + rotation) with optional elastic bounds.
+  ///
+  /// When [elastic] is true and liquid physics are enabled, the scale
+  /// is allowed to overshoot the limits with increasing resistance,
+  /// creating the signature rubber-band feel.
+  void updateTransform({
+    required Offset offset,
+    required double scale,
+    double? rotation,
+    bool elastic = false,
+  }) {
     _offset = offset;
-    _scale = scale.clamp(_minScale, _maxScale);
+    if (rotation != null && !_rotationLocked) _rotation = rotation;
+    if (elastic && _liquidConfig.enabled && _liquidConfig.enableElasticZoom) {
+      // Allow overshoot with rubber-band resistance
+      _scale = _applyElasticClamp(scale);
+    } else {
+      _scale = scale.clamp(_minScale, _maxScale);
+    }
     notifyListeners();
   }
 
-  /// Reset alla vista iniziale
+  /// Preview what scale value [updateTransform] would actually apply.
+  ///
+  /// When elastic zoom is enabled, returns the elastically-clamped value.
+  /// Otherwise returns the hard-clamped value. Does NOT mutate state.
+  double getEffectiveScale(double rawScale, {bool elastic = true}) {
+    if (elastic && _liquidConfig.enabled && _liquidConfig.enableElasticZoom) {
+      return _applyElasticClamp(rawScale);
+    }
+    return rawScale.clamp(_minScale, _maxScale);
+  }
+
+  /// Reset to initial view
   void reset() {
+    stopAnimation();
     _offset = Offset.zero;
     _scale = 1.0;
+    _rotation = 0.0;
     notifyListeners();
   }
 
-  /// 🎯 Cenbetween the viewport sull'origine (0,0) of the canvas
+  /// 🎯 Center the viewport on the canvas origin (0,0)
   void centerCanvas(
     Size viewportSize, {
     Size canvasSize = const Size(5000, 5000),
   }) {
-    // The origin (0,0) of the canvas maps to the center of the screen
     _offset = Offset(viewportSize.width / 2, viewportSize.height / 2);
     notifyListeners();
   }
 
-  /// Convert screen coordinates in canvas coordinates
+  /// Convert screen coordinates to canvas coordinates
   Offset screenToCanvas(Offset screenPoint) {
-    return (screenPoint - _offset) / _scale;
+    if (_rotation == 0.0) {
+      return (screenPoint - _offset) / _scale;
+    }
+    // Undo translate → undo rotate → undo scale
+    final translated = screenPoint - _offset;
+    final cosR = math.cos(-_rotation);
+    final sinR = math.sin(-_rotation);
+    final rotated = Offset(
+      translated.dx * cosR - translated.dy * sinR,
+      translated.dx * sinR + translated.dy * cosR,
+    );
+    return rotated / _scale;
   }
 
-  /// Convert canvas coordinates in screen coordinates
+  /// Convert canvas coordinates to screen coordinates
   Offset canvasToScreen(Offset canvasPoint) {
-    return canvasPoint * _scale + _offset;
+    if (_rotation == 0.0) {
+      return canvasPoint * _scale + _offset;
+    }
+    // Scale → rotate → translate
+    final scaled = canvasPoint * _scale;
+    final cosR = math.cos(_rotation);
+    final sinR = math.sin(_rotation);
+    final rotated = Offset(
+      scaled.dx * cosR - scaled.dy * sinR,
+      scaled.dx * sinR + scaled.dy * cosR,
+    );
+    return rotated + _offset;
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Ticker Lifecycle
+  // ============================================================================
+
+  /// Attach a ticker from the widget tree for physics animations.
+  /// Call from initState() — the State must use TickerProviderStateMixin.
+  void attachTicker(TickerProvider vsync) {
+    _ticker?.dispose();
+    _ticker = vsync.createTicker(_onTick);
+  }
+
+  /// Detach the ticker. Call from dispose().
+  void detachTicker() {
+    _ticker?.dispose();
+    _ticker = null;
+    _isMomentumActive = false;
+    _isZoomSpringActive = false;
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Pan Momentum
+  // ============================================================================
+
+  /// Launch pan momentum from terminal velocity (called on gesture end).
+  ///
+  /// Uses [FrictionSimulation] for natural exponential deceleration.
+  /// The simulation is driven per-axis for independent X/Y damping.
+  void startMomentum(Offset velocity) {
+    if (!_liquidConfig.enabled) return;
+    if (_ticker == null) return;
+
+    // Don't start momentum for tiny velocities
+    final speed = velocity.distance;
+    if (speed < _liquidConfig.momentumThreshold) return;
+
+    // Create friction simulations for each axis
+    _panSimX = FrictionSimulation(
+      _liquidConfig.panFriction,
+      _offset.dx,
+      velocity.dx,
+    );
+    _panSimY = FrictionSimulation(
+      _liquidConfig.panFriction,
+      _offset.dy,
+      velocity.dy,
+    );
+
+    _isMomentumActive = true;
+    _momentumStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  /// Immediately stop all running animations.
+  /// Call on new touch-down for instant response.
+  void stopAnimation() {
+    _isMomentumActive = false;
+    _isZoomSpringActive = false;
+    _isRotationMomentumActive = false;
+    _isRotationSpringActive = false;
+    _panSimX = null;
+    _panSimY = null;
+    _zoomSim = null;
+    _rotationSim = null;
+    _rotationSpring = null;
+    if (_ticker?.isTicking ?? false) {
+      _ticker!.stop();
+    }
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Zoom Spring-Back
+  // ============================================================================
+
+  /// Start spring animation to bounce zoom back to limits.
+  ///
+  /// Called when the gesture ends with the scale beyond [_minScale, _maxScale].
+  /// The focal point is preserved so the spring-back feels anchored.
+  void startZoomSpringBack(Offset focalPointScreen) {
+    if (!_liquidConfig.enabled || !_liquidConfig.enableElasticZoom) return;
+    if (_ticker == null) return;
+
+    // Determine target: clamp to nearest limit
+    final targetScale = _scale.clamp(_minScale, _maxScale);
+    if ((_scale - targetScale).abs() < 0.001) return; // Already within bounds
+
+    final spring = SpringDescription(
+      mass: _liquidConfig.zoomSpringMass,
+      stiffness: _liquidConfig.zoomSpringStiffness,
+      damping: _liquidConfig.zoomSpringDamping,
+    );
+
+    _zoomSim = SpringSimulation(
+      spring,
+      _scale, // current position
+      targetScale, // target position
+      0.0, // initial velocity (at rest relative to spring)
+    );
+
+    _zoomSpringFocalPoint = focalPointScreen;
+    _zoomSpringStartScale = _scale;
+    _isZoomSpringActive = true;
+    _springStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  /// 🎯 Animate zoom to a specific scale, centered on a focal point.
+  ///
+  /// Used by double-tap zoom: smoothly springs from the current scale to
+  /// [targetScale], keeping the [focalPointScreen] visually anchored.
+  /// The animation is driven by the same ticker as zoom spring-back.
+  void animateZoomTo(double targetScale, Offset focalPointScreen) {
+    if (_ticker == null) return;
+
+    // Clamp target within allowed bounds
+    final clampedTarget = targetScale.clamp(_minScale, _maxScale);
+    if ((_scale - clampedTarget).abs() < 0.001) return; // Already there
+
+    // Stiffer spring for intentional zoom (feels snappy, not floaty)
+    const spring = SpringDescription(
+      mass: 1.0,
+      stiffness: 180.0,
+      damping: 22.0,
+    );
+
+    _zoomSim = SpringSimulation(
+      spring,
+      _scale, // current
+      clampedTarget, // target
+      0.0, // start at rest
+    );
+
+    _zoomSpringFocalPoint = focalPointScreen;
+    _zoomSpringStartScale = _scale;
+    _isZoomSpringActive = true;
+    _springStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Rotation Momentum
+  // ============================================================================
+
+  /// Launch rotation momentum from terminal angular velocity.
+  /// Called on gesture end when the user was rotating the canvas.
+  void startRotationMomentum(double angularVelocity) {
+    if (!_liquidConfig.enabled) return;
+    if (_ticker == null) return;
+    if (_rotationLocked) return;
+
+    // Don't start for tiny angular velocities
+    if (angularVelocity.abs() < 0.1) return;
+
+    _rotationSim = FrictionSimulation(
+      _liquidConfig.panFriction * 2.0, // Slightly more friction for rotation
+      _rotation,
+      angularVelocity,
+    );
+
+    _isRotationMomentumActive = true;
+    _rotationMomentumStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  // — Rotation spring state (for animated reset / snap) —
+  double _rotationSpringStartTime = 0;
+  double _rotationSpringTarget = 0.0;
+
+  /// Snap rotation back to 0° with a spring animation.
+  void resetRotation() {
+    _animateRotationTo(0.0);
+  }
+
+  /// Animate rotation to a target angle with a spring.
+  void _animateRotationTo(double targetRotation) {
+    if (_ticker == null) return;
+    if ((_rotation - targetRotation).abs() < 0.001) {
+      _rotation = targetRotation;
+      notifyListeners();
+      return;
+    }
+
+    final spring = SpringDescription(
+      mass: 1.0,
+      stiffness: 300.0,
+      damping: 22.0,
+    );
+
+    _rotationSpring = SpringSimulation(
+      spring,
+      _rotation, // current
+      targetRotation, // target
+      0.0, // initial velocity
+    );
+
+    _rotationSpringTarget = targetRotation;
+    _isRotationSpringActive = true;
+    _isRotationMomentumActive = false; // Cancel any momentum
+    _rotationSim = null;
+    _rotationSpringStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  // 🌀 Snap angles: 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°
+  static const double _snapThreshold =
+      0.18; // ~10° tolerance (matches gesture magnetic zone)
+  static const List<double> _snapAngles = [
+    0.0,
+    math.pi / 4, // 45°
+    math.pi / 2, // 90°
+    3 * math.pi / 4, // 135°
+    math.pi, // 180°
+    -3 * math.pi / 4, // -135° / 225°
+    -math.pi / 2, // -90° / 270°
+    -math.pi / 4, // -45° / 315°
+    -math.pi, // -180°
+  ];
+
+  /// Check if the current rotation is close to a snap angle.
+  /// Returns the snap angle if within threshold, null otherwise.
+  double? checkSnapAngle(double rotation) {
+    for (final snap in _snapAngles) {
+      if ((rotation - snap).abs() < _snapThreshold) {
+        return snap;
+      }
+    }
+    return null;
+  }
+
+  /// Convert rotation in radians to degrees string for display.
+  String get rotationDegrees {
+    final degrees = (_rotation * 180.0 / math.pi) % 360;
+    final normalized = degrees < 0 ? degrees + 360 : degrees;
+    return '${normalized.toStringAsFixed(1)}°';
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Ticker Callback
+  // ============================================================================
+
+  void _onTick(Duration elapsed) {
+    if (!_isMomentumActive &&
+        !_isZoomSpringActive &&
+        !_isRotationMomentumActive &&
+        !_isRotationSpringActive) {
+      _ticker?.stop();
+      return;
+    }
+
+    // Calculate delta time in seconds
+    final double t;
+    if (_lastTickTime == Duration.zero) {
+      t = 0.016; // First frame: assume 60fps
+      _lastTickTime = elapsed;
+    } else {
+      t = (elapsed - _lastTickTime).inMicroseconds / 1000000.0;
+      _lastTickTime = elapsed;
+    }
+
+    bool needsNotify = false;
+
+    // — PAN MOMENTUM —
+    if (_isMomentumActive && _panSimX != null && _panSimY != null) {
+      _momentumStartTime += t;
+
+      final newX = _panSimX!.x(_momentumStartTime);
+      final newY = _panSimY!.x(_momentumStartTime);
+
+      // Check if momentum has effectively stopped
+      final vx = _panSimX!.dx(_momentumStartTime).abs();
+      final vy = _panSimY!.dx(_momentumStartTime).abs();
+
+      if (vx < _liquidConfig.stopVelocity && vy < _liquidConfig.stopVelocity) {
+        _isMomentumActive = false;
+        _panSimX = null;
+        _panSimY = null;
+      } else {
+        _offset = Offset(newX, newY);
+        needsNotify = true;
+      }
+    }
+
+    // — ZOOM SPRING-BACK —
+    if (_isZoomSpringActive && _zoomSim != null) {
+      _springStartTime += t;
+
+      final newScale = _zoomSim!.x(_springStartTime);
+
+      // Apply focal-point-preserving zoom (rotation-aware)
+      // screenToCanvas: undo translate → undo rotate → undo scale
+      final translated = _zoomSpringFocalPoint - _offset;
+      final cosR = math.cos(-_rotation);
+      final sinR = math.sin(-_rotation);
+      final unrotated = Offset(
+        translated.dx * cosR - translated.dy * sinR,
+        translated.dx * sinR + translated.dy * cosR,
+      );
+      final focalCanvas = unrotated / _scale;
+
+      _scale = newScale;
+
+      // canvasToScreen: scale → rotate → translate
+      final scaled = focalCanvas * _scale;
+      final cosRf = math.cos(_rotation);
+      final sinRf = math.sin(_rotation);
+      final rotated = Offset(
+        scaled.dx * cosRf - scaled.dy * sinRf,
+        scaled.dx * sinRf + scaled.dy * cosRf,
+      );
+      _offset = _zoomSpringFocalPoint - rotated;
+
+      needsNotify = true;
+
+      // Check if spring has settled
+      if (_zoomSim!.isDone(_springStartTime)) {
+        _scale = _scale.clamp(_minScale, _maxScale);
+        // Recalculate offset for the exact clamped scale
+        final settledScaled = focalCanvas * _scale;
+        final settledRotated = Offset(
+          settledScaled.dx * cosRf - settledScaled.dy * sinRf,
+          settledScaled.dx * sinRf + settledScaled.dy * cosRf,
+        );
+        _offset = _zoomSpringFocalPoint - settledRotated;
+        _isZoomSpringActive = false;
+        _zoomSim = null;
+        needsNotify = true;
+      }
+    }
+
+    // — ROTATION MOMENTUM —
+    if (_isRotationMomentumActive && _rotationSim != null) {
+      _rotationMomentumStartTime += t;
+
+      final newRotation = _rotationSim!.x(_rotationMomentumStartTime);
+      final angularV = _rotationSim!.dx(_rotationMomentumStartTime).abs();
+
+      if (angularV < 0.001) {
+        // Check if we're near a snap angle when momentum ends
+        final snapAngle = checkSnapAngle(newRotation);
+        if (snapAngle != null) {
+          _rotation = snapAngle;
+        } else {
+          _rotation = newRotation;
+        }
+        _isRotationMomentumActive = false;
+        _rotationSim = null;
+      } else {
+        _rotation = newRotation;
+      }
+      needsNotify = true;
+    }
+
+    // — ROTATION SPRING (animated reset/snap) —
+    if (_isRotationSpringActive && _rotationSpring != null) {
+      _rotationSpringStartTime += t;
+
+      _rotation = _rotationSpring!.x(_rotationSpringStartTime);
+      needsNotify = true;
+
+      if (_rotationSpring!.isDone(_rotationSpringStartTime)) {
+        _rotation = _rotationSpringTarget;
+        _isRotationSpringActive = false;
+        _rotationSpring = null;
+        needsNotify = true;
+      }
+    }
+
+    if (needsNotify) {
+      notifyListeners();
+    }
+
+    // Stop ticker if all simulations are done
+    if (!_isMomentumActive &&
+        !_isZoomSpringActive &&
+        !_isRotationMomentumActive &&
+        !_isRotationSpringActive) {
+      _ticker?.stop();
+    }
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Helpers
+  // ============================================================================
+
+  /// Ensure the ticker is running (idempotent — safe to call multiple times).
+  void _ensureTickerRunning() {
+    if (_ticker != null && !_ticker!.isTicking) {
+      _lastTickTime = Duration.zero;
+      _ticker!.start();
+    }
+  }
+
+  /// Apply rubber-band elastic clamping for zoom.
+  ///
+  /// When the scale is within bounds, returns it unchanged.
+  /// When beyond bounds, applies logarithmic resistance so the user can
+  /// "pull" past the limit but with increasing difficulty.
+  double _applyElasticClamp(double rawScale) {
+    final config = _liquidConfig;
+    final minElastic = config.minElasticScale(_minScale);
+    final maxElastic = config.maxElasticScale(_maxScale);
+
+    if (rawScale >= _minScale && rawScale <= _maxScale) {
+      return rawScale;
+    }
+
+    if (rawScale > _maxScale) {
+      // How far past the limit (0.0 = at limit, 1.0+ = way past)
+      final overshoot = (rawScale - _maxScale) / _maxScale;
+      // Logarithmic resistance: diminishing overshoot
+      final dampedOvershoot =
+          overshoot / (1.0 + overshoot * config.elasticResistance);
+      return (_maxScale * (1.0 + dampedOvershoot)).clamp(_maxScale, maxElastic);
+    }
+
+    // rawScale < _minScale
+    final undershoot = (_minScale - rawScale) / _minScale;
+    final dampedUndershoot =
+        undershoot / (1.0 + undershoot * config.elasticResistance);
+    return (_minScale * (1.0 - dampedUndershoot)).clamp(minElastic, _minScale);
+  }
+
+  // ============================================================================
+  // DISPOSE
+  // ============================================================================
+
+  @override
+  void dispose() {
+    stopAnimation();
+    _ticker?.dispose();
+    _ticker = null;
+    super.dispose();
   }
 }

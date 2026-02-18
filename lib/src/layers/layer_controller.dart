@@ -533,6 +533,25 @@ class LayerController extends NebulaLayerController {
   bool get canUndo => _undoRedoManager.canUndo;
   bool get canRedo => _undoRedoManager.canRedo;
 
+  /// 🗑️ Silently discard the last action without adding to redo stack.
+  /// Used by double-tap zoom to remove the accidental dot from the first tap.
+  void discardLastAction() {
+    final delta = _undoRedoManager.discardLastUndo();
+    if (delta == null) return;
+
+    final wasTrackingEnabled = enableDeltaTracking;
+    enableDeltaTracking = false;
+
+    final updatedLayers = UndoRedoManager.applyInverseDelta(_layers, delta);
+    _layers.clear();
+    _layers.addAll(updatedLayers);
+
+    _spatialIndexDirty = true;
+    _invalidateSceneGraph();
+    enableDeltaTracking = wasTrackingEnabled;
+    notifyListeners();
+  }
+
   // ==========================================================================
   // Scene graph (private)
   // ==========================================================================

@@ -47,7 +47,11 @@ class CurrentStrokePainter extends CustomPainter {
   );
 
   // ─── INCREMENTAL CACHE ──────────────────────────────────────────
-  /// Minimum stroke length before caching kicks in.
+  // Disabled: the overlap zone between cached body and tail produces
+  // a visible double-rendering artifact (thin trailing line) with GPU
+  // vertex tessellation brushes. Full re-render per frame is fast
+  // enough thanks to drawVertices().
+  static const bool _enableIncrementalCache = false;
   static const int _cacheThreshold = 20;
 
   /// How many new points to accumulate before refreshing the cache.
@@ -102,6 +106,13 @@ class CurrentStrokePainter extends CustomPainter {
       return;
     }
 
+    // Skip rendering for single-point strokes to prevent the initial dot flash.
+    // Still allow predictor and cache tracking to proceed normally.
+    if (currentStroke.length < 2) {
+      _lastRenderedCount = currentStroke.length;
+      return;
+    }
+
     // 🚀 VIEWPORT-LEVEL MODE: apply canvas transform
     final isViewportLevel = controller != null;
     if (isViewportLevel) {
@@ -123,10 +134,12 @@ class CurrentStrokePainter extends CustomPainter {
         currentStroke.length >= 2;
 
     // ─── Choose render strategy ──────────────────────────────────
-    if (!hasSymmetry && currentStroke.length > _cacheThreshold) {
+    if (_enableIncrementalCache &&
+        !hasSymmetry &&
+        currentStroke.length > _cacheThreshold) {
       _paintIncremental(canvas, currentStroke);
     } else {
-      // Short stroke or symmetry → full render
+      // Full render (default — incremental cache disabled)
       _invalidateCache();
       _drawStroke(canvas, currentStroke, color, width, penType, settings);
     }

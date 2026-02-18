@@ -128,6 +128,19 @@ class UndoRedoManager extends ChangeNotifier {
     return delta;
   }
 
+  /// 🗑️ Discard last undo entry WITHOUT pushing to redo stack.
+  ///
+  /// Used when the action should be silently removed (e.g., double-tap zoom
+  /// removing the accidental dot from the first tap).
+  CanvasDelta? discardLastUndo() {
+    if (!canUndo) return null;
+
+    final delta = _undoStack.removeLast();
+    // Intentionally NOT adding to _redoStack
+    notifyListeners();
+    return delta;
+  }
+
   /// ➡️ Redo: reapply undone delta
   CanvasDelta? redo() {
     if (!canRedo) return null;
