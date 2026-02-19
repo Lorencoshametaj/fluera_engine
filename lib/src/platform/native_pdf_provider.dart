@@ -11,13 +11,18 @@ import '../core/models/pdf_text_rect.dart';
 /// - **iOS**: `PDFKit` (Apple native)
 /// - **Android**: `android.graphics.pdf.PdfRenderer`
 ///
+/// Supports multiple simultaneous documents via `documentId`. Each instance
+/// of this class manages a single document; the native side stores multiple
+/// documents keyed by ID.
+///
 /// Pixel data is transferred as raw RGBA `Uint8List` and decoded into
 /// `ui.Image` using `decodeImageFromPixels` — no PNG encode/decode overhead.
 ///
 /// Usage:
 /// ```dart
+/// final provider = NativeNebulaPdfProvider(documentId: 'doc_123');
 /// final config = NebulaCanvasConfig(
-///   pdfProvider: NativeNebulaPdfProvider(),
+///   pdfProvider: provider,
 ///   // ...
 /// );
 /// ```
@@ -26,8 +31,14 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
     'com.nebulaengine/pdf_renderer',
   );
 
+  /// Unique identifier for this document on the native side.
+  final String documentId;
+
   int _pageCount = 0;
   final Map<int, Size> _pageSizeCache = {};
+  bool _isDisposed = false;
+
+  NativeNebulaPdfProvider({required this.documentId});
 
   // ===========================================================================
   // Load Document
@@ -35,8 +46,11 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
 
   @override
   Future<bool> loadDocument(List<int> bytes) async {
+    if (_isDisposed) return false;
+
     try {
       final result = await _channel.invokeMethod<Map>('loadDocument', {
+        'documentId': documentId,
         'bytes': Uint8List.fromList(bytes),
       });
 
@@ -45,6 +59,17 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
       final success = result['success'] as bool? ?? false;
       _pageCount = result['pageCount'] as int? ?? 0;
       _pageSizeCache.clear();
+
+      // Pre-cache all page sizes from native response
+      final pageSizes = result['pageSizes'] as List?;
+      if (pageSizes != null) {
+        for (int i = 0; i < pageSizes.length; i++) {
+          final sizeMap = pageSizes[i] as Map;
+          final w = (sizeMap['width'] as num?)?.toDouble() ?? 0.0;
+          final h = (sizeMap['height'] as num?)?.toDouble() ?? 0.0;
+          _pageSizeCache[i] = Size(w, h);
+        }
+      }
 
       return success && _pageCount > 0;
     } catch (e) {
@@ -63,19 +88,14 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
   @override
   Size pageSize(int pageIndex) {
     if (pageIndex < 0 || pageIndex >= _pageCount) return Size.zero;
-
-    // Return cached size if available
-    if (_pageSizeCache.containsKey(pageIndex)) {
-      return _pageSizeCache[pageIndex]!;
-    }
-
-    // Otherwise return zero — caller should use pageSizeAsync
-    return Size.zero;
+    return _pageSizeCache[pageIndex] ?? Size.zero;
   }
 
   /// Async version that fetches page size from native side.
   Future<Size> pageSizeAsync(int pageIndex) async {
-    if (pageIndex < 0 || pageIndex >= _pageCount) return Size.zero;
+    if (_isDisposed || pageIndex < 0 || pageIndex >= _pageCount) {
+      return Size.zero;
+    }
 
     if (_pageSizeCache.containsKey(pageIndex)) {
       return _pageSizeCache[pageIndex]!;
@@ -83,6 +103,7 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
 
     try {
       final result = await _channel.invokeMethod<Map>('getPageSize', {
+        'documentId': documentId,
         'pageIndex': pageIndex,
       });
 
@@ -110,7 +131,7 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
     required double scale,
     required Size targetSize,
   }) async {
-    if (pageIndex < 0 || pageIndex >= _pageCount) return null;
+    if (_isDisposed || pageIndex < 0 || pageIndex >= _pageCount) return null;
 
     final targetWidth = targetSize.width.toInt();
     final targetHeight = targetSize.height.toInt();
@@ -119,6 +140,7 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
 
     try {
       final result = await _channel.invokeMethod<Map>('renderPage', {
+        'documentId': documentId,
         'pageIndex': pageIndex,
         'targetWidth': targetWidth,
         'targetHeight': targetHeight,
@@ -139,6 +161,9 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
   }
 
   /// Decode raw RGBA pixel buffer into a `ui.Image`.
+  ///
+  /// Pixels arrive as RGBA from the native side (Android's PdfRendererPlugin
+  /// already performs the ARGB→RGBA swizzle in Kotlin).
   Future<ui.Image> _decodePixels(Uint8List pixels, int width, int height) {
     final completer = Completer<ui.Image>();
 
@@ -157,10 +182,11 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
 
   @override
   Future<List<PdfTextRect>> extractTextGeometry(int pageIndex) async {
-    if (pageIndex < 0 || pageIndex >= _pageCount) return [];
+    if (_isDisposed || pageIndex < 0 || pageIndex >= _pageCount) return [];
 
     try {
       final result = await _channel.invokeMethod<List>('extractText', {
+        'documentId': documentId,
         'pageIndex': pageIndex,
       });
 
@@ -187,10 +213,11 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
 
   @override
   Future<String> getPageText(int pageIndex) async {
-    if (pageIndex < 0 || pageIndex >= _pageCount) return '';
+    if (_isDisposed || pageIndex < 0 || pageIndex >= _pageCount) return '';
 
     try {
       final result = await _channel.invokeMethod<String>('getPageText', {
+        'documentId': documentId,
         'pageIndex': pageIndex,
       });
       return result ?? '';
@@ -206,8 +233,25 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
 
   @override
   void dispose() {
-    _channel.invokeMethod('dispose');
+    if (_isDisposed) return;
+    _isDisposed = true;
+
+    _channel.invokeMethod('dispose', {'documentId': documentId}).catchError((
+      _,
+    ) {
+      // Fire-and-forget: native cleanup might fail if engine detached
+    });
+
     _pageCount = 0;
     _pageSizeCache.clear();
+  }
+
+  /// Dispose all documents on the native side.
+  static Future<void> disposeAll() async {
+    try {
+      await _channel.invokeMethod('disposeAll');
+    } catch (_) {
+      // Swallow: native side may already be detached
+    }
   }
 }

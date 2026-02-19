@@ -15,11 +15,14 @@ class ImageElement {
   final DateTime createdAt;
   final int pageIndex; // Page this image belongs to
 
-  // ✨ Filtri colore
-  final double brightness; // -0.5 a +0.5
-  final double contrast; // -0.5 a +0.5
-  final double saturation; // -0.5 a +0.5
-  final double opacity; // 0.0 a 1.0
+  // ✨ Color filters
+  final double brightness; // -0.5 to +0.5
+  final double contrast; // -0.5 to +0.5
+  final double saturation; // -1.0 to +1.0
+  final double opacity; // 0.0 to 1.0
+  final double vignette; // 0.0 (off) to 1.0 (max)
+  final double hueShift; // -1.0 to +1.0 (maps to -π to +π)
+  final double temperature; // -1.0 (cool) to +1.0 (warm)
 
   // 🔄 Transformations
   final bool flipHorizontal;
@@ -46,6 +49,9 @@ class ImageElement {
     this.contrast = 0.0,
     this.saturation = 0.0,
     this.opacity = 1.0,
+    this.vignette = 0.0,
+    this.hueShift = 0.0,
+    this.temperature = 0.0,
     this.flipHorizontal = false,
     this.flipVertical = false,
     this.cropRect,
@@ -53,7 +59,7 @@ class ImageElement {
     this.drawingShapes = const [],
   });
 
-  /// Creates una copia con modifiche
+  /// Creates a copy with modifications
   ImageElement copyWith({
     String? id,
     String? imagePath,
@@ -68,6 +74,9 @@ class ImageElement {
     double? contrast,
     double? saturation,
     double? opacity,
+    double? vignette,
+    double? hueShift,
+    double? temperature,
     bool? flipHorizontal,
     bool? flipVertical,
     Rect? cropRect,
@@ -89,6 +98,9 @@ class ImageElement {
       contrast: contrast ?? this.contrast,
       saturation: saturation ?? this.saturation,
       opacity: opacity ?? this.opacity,
+      vignette: vignette ?? this.vignette,
+      hueShift: hueShift ?? this.hueShift,
+      temperature: temperature ?? this.temperature,
       flipHorizontal: flipHorizontal ?? this.flipHorizontal,
       flipVertical: flipVertical ?? this.flipVertical,
       cropRect: clearCrop ? null : (cropRect ?? this.cropRect),
@@ -97,7 +109,7 @@ class ImageElement {
     );
   }
 
-  /// Serialize in JSON
+  /// Serialize to JSON
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -113,6 +125,9 @@ class ImageElement {
       'contrast': contrast,
       'saturation': saturation,
       'opacity': opacity,
+      'vignette': vignette,
+      'hueShift': hueShift,
+      'temperature': temperature,
       'flipHorizontal': flipHorizontal,
       'flipVertical': flipVertical,
       'cropRect':
@@ -129,7 +144,7 @@ class ImageElement {
     };
   }
 
-  /// Deserializza da JSON
+  /// Deserialize from JSON
   factory ImageElement.fromJson(Map<String, dynamic> json) {
     Rect? cropRect;
     if (json['cropRect'] != null) {
@@ -165,6 +180,9 @@ class ImageElement {
       contrast: (json['contrast'] as num?)?.toDouble() ?? 0.0,
       saturation: (json['saturation'] as num?)?.toDouble() ?? 0.0,
       opacity: (json['opacity'] as num?)?.toDouble() ?? 1.0,
+      vignette: (json['vignette'] as num?)?.toDouble() ?? 0.0,
+      hueShift: (json['hueShift'] as num?)?.toDouble() ?? 0.0,
+      temperature: (json['temperature'] as num?)?.toDouble() ?? 0.0,
       flipHorizontal: json['flipHorizontal'] as bool? ?? false,
       flipVertical: json['flipVertical'] as bool? ?? false,
       cropRect: cropRect,

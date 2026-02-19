@@ -14,8 +14,33 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
   /// Lock flag to prevent overlapping save operations from piling up.
   static bool _saveInProgress = false;
 
+  /// 🎛️ Build a JSON string for variable state persistence.
+  String? _buildVariablesJsonString(NebulaCanvasSaveData saveData) {
+    final colls = saveData.variableCollectionsJson;
+    if (colls == null || colls.isEmpty) return null;
+    return jsonEncode(<String, dynamic>{
+      'collections': colls,
+      if (saveData.variableBindingsJson != null)
+        'bindings': saveData.variableBindingsJson,
+      if (saveData.variableActiveModesJson != null)
+        'activeModes': saveData.variableActiveModesJson,
+    });
+  }
+
   /// Builds a [NebulaCanvasSaveData] snapshot of the current canvas state.
   NebulaCanvasSaveData _buildSaveData() {
+    // 🎛️ Serialize variable state (only if non-empty)
+    final collectionsJson =
+        _variableCollections.isNotEmpty
+            ? _variableCollections.map((c) => c.toJson()).toList()
+            : null;
+    final bindingsJson =
+        _variableBindings.bindingCount > 0 ? _variableBindings.toJson() : null;
+    final activeModesJson =
+        _variableResolver.activeModes.isNotEmpty
+            ? _variableResolver.activeModesToJson()
+            : null;
+
     return NebulaCanvasSaveData(
       canvasId: _canvasId,
       layers: _layerController.layers,
@@ -28,6 +53,9 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
       infiniteCanvasId: widget.infiniteCanvasId,
       nodeId: widget.nodeId,
       guides: _rulerGuideSystem.toJson(),
+      variableCollectionsJson: collectionsJson,
+      variableBindingsJson: bindingsJson,
+      variableActiveModesJson: activeModesJson,
     );
   }
 
@@ -97,6 +125,7 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
             nodeId: saveData.nodeId,
             guides: saveData.guides,
             dirtyLayerIds: dirtyIds.isNotEmpty ? dirtyIds : null,
+            variablesJson: _buildVariablesJsonString(saveData),
           );
         } else {
           // Legacy path for custom adapters (JSON required by interface)

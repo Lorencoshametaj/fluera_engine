@@ -13,11 +13,13 @@ import '../../core/nodes/rich_text_node.dart';
 import '../../core/nodes/symbol_system.dart';
 import '../../core/nodes/frame_node.dart';
 import '../../core/nodes/advanced_mask_node.dart';
+import '../../core/nodes/boolean_group_node.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../core/effects/shader_effect.dart';
 import '../../core/scene_graph/scene_graph.dart';
 import '../../drawing/brushes/brushes.dart';
+import '../../systems/layout_engine.dart';
 import '../canvas/shape_painter.dart';
 import './path_renderer.dart';
 import './rich_text_renderer.dart';
@@ -110,6 +112,8 @@ class SceneGraphRenderer {
       _renderAdvancedMask(canvas, node, viewport);
     } else if (node is FrameNode) {
       _renderFrame(canvas, node, viewport);
+    } else if (node is BooleanGroupNode) {
+      _renderBooleanGroup(canvas, node);
     } else if (node is PdfDocumentNode) {
       _renderPdfDocument(canvas, node, viewport);
     } else if (node is PdfPageNode) {
@@ -454,6 +458,11 @@ class SceneGraphRenderer {
 
   /// Render a frame (auto-layout container) with fill, border, clip, and children.
   void _renderFrame(Canvas canvas, FrameNode node, Rect viewport) {
+    // Resolve layout if dirty before rendering.
+    if (node.needsLayout) {
+      LayoutEngine.resolveFrame(node);
+    }
+
     final bounds = node.localBounds;
 
     // Draw fill background.
@@ -557,6 +566,36 @@ class SceneGraphRenderer {
         canvas,
         Offset((rect.width - tp.width) / 2, (rect.height - tp.height) / 2),
       );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boolean Group rendering
+  // ---------------------------------------------------------------------------
+
+  /// Render a [BooleanGroupNode] by painting its computed boolean path.
+  void _renderBooleanGroup(Canvas canvas, BooleanGroupNode node) {
+    final flutterPath = node.computedPath.toFlutterPath();
+
+    // Draw fill.
+    if (node.fillColor != null) {
+      final paint =
+          Paint()
+            ..color = node.fillColor!
+            ..style = PaintingStyle.fill;
+      canvas.drawPath(flutterPath, paint);
+    }
+
+    // Draw stroke.
+    if (node.strokeColor != null) {
+      final paint =
+          Paint()
+            ..color = node.strokeColor!
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = node.strokeWidth
+            ..strokeCap = node.strokeCap
+            ..strokeJoin = node.strokeJoin;
+      canvas.drawPath(flutterPath, paint);
     }
   }
 }

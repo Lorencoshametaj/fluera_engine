@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/key_value_store.dart';
 import './liquid_canvas_config.dart';
 
 /// 🌊 Controller for infinite canvas with zoom, pan, and liquid physics.
@@ -45,14 +45,14 @@ class InfiniteCanvasController extends ChangeNotifier {
     _rotationLocked = value;
     notifyListeners();
     // Persist asynchronously
-    SharedPreferences.getInstance().then((prefs) {
+    KeyValueStore.getInstance().then((prefs) {
       prefs.setBool(_rotationLockKey, value);
     });
   }
 
   /// Load persisted rotation lock state. Call once after construction.
   Future<void> loadPersistedState() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final locked = prefs.getBool(_rotationLockKey) ?? false;
     if (locked != _rotationLocked) {
       _rotationLocked = locked;
@@ -104,6 +104,12 @@ class InfiniteCanvasController extends ChangeNotifier {
       _isRotationMomentumActive ||
       _isRotationSpringActive ||
       _isPanSpringActive;
+
+  /// Request a repaint for all painters listening to this controller.
+  ///
+  /// Use when external state (e.g. image list) has changed and painters
+  /// need to re-render, but a full widget rebuild is unnecessary.
+  void markNeedsPaint() => notifyListeners();
 
   // ============================================================================
   // 🎛️ CORE API

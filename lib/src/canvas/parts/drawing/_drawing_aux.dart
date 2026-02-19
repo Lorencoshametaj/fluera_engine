@@ -243,7 +243,7 @@ extension on _NebulaCanvasScreenState {
 
     // Create a fill stroke with the overlay attached
     final fillStroke = ProStroke(
-      id: const Uuid().v4(),
+      id: generateUid(),
       points: [
         ProDrawingPoint(
           position: canvasPosition,

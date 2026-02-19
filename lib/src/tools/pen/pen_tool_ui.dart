@@ -58,6 +58,8 @@ extension _PenToolUI on PenTool {
             editingAnchorIndex: _editingAnchorIndex,
             selectedAnchorIndices: _selectedAnchorIndices,
             showCurvatureComb: showCurvatureComb,
+            isEditingExisting: _isEditingExisting,
+            cursorHint: _cursorHint,
           ),
         ),
       ),
@@ -236,6 +238,106 @@ extension _PenToolUI on PenTool {
                             }
                             onToolOptionsChanged?.call();
                           },
+                        ),
+                    ],
+                  ),
+                ],
+
+                // ── ROW 3: Path operations (reverse, delete selected, type cycle) ──
+                if (_anchors.length >= 2) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Reverse path direction.
+                      _actionChip(
+                        cs: cs,
+                        icon: Icons.swap_horiz_rounded,
+                        onTap: () {
+                          reversePathDirection();
+                          onToolOptionsChanged?.call();
+                        },
+                      ),
+                      const SizedBox(width: 4),
+
+                      // Delete selected anchors.
+                      if (_selectedAnchorIndices.isNotEmpty)
+                        _actionChip(
+                          cs: cs,
+                          icon: Icons.delete_outline_rounded,
+                          color: cs.error,
+                          onTap: () {
+                            deleteSelectedAnchors();
+                            onToolOptionsChanged?.call();
+                          },
+                        ),
+                      if (_selectedAnchorIndices.isNotEmpty)
+                        const SizedBox(width: 4),
+
+                      // Cycle type on last-tapped anchor.
+                      if (_editingAnchorIndex >= 0 ||
+                          _lastTappedAnchorIndex >= 0)
+                        _actionChip(
+                          cs: cs,
+                          icon: Icons.transform_rounded,
+                          onTap: () {
+                            final idx =
+                                _editingAnchorIndex >= 0
+                                    ? _editingAnchorIndex
+                                    : _lastTappedAnchorIndex;
+                            cycleAnchorTypeAt(idx);
+                            onToolOptionsChanged?.call();
+                          },
+                        ),
+
+                      // Equalize handles.
+                      if (_editingAnchorIndex >= 0)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: _actionChip(
+                            cs: cs,
+                            icon: Icons.balance_rounded,
+                            onTap: () {
+                              equalizeHandlesAt(_editingAnchorIndex);
+                              onToolOptionsChanged?.call();
+                            },
+                          ),
+                        ),
+
+                      // Auto-smooth.
+                      const SizedBox(width: 4),
+                      _actionChip(
+                        cs: cs,
+                        icon: Icons.auto_awesome_rounded,
+                        onTap: () {
+                          autoSmooth();
+                          onToolOptionsChanged?.call();
+                        },
+                      ),
+
+                      // Edit mode badge.
+                      if (_isEditingExisting)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: cs.tertiaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'EDIT',
+                              style: TextStyle(
+                                color: cs.onTertiaryContainer,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                          ),
                         ),
                     ],
                   ),

@@ -1,5 +1,5 @@
 import 'dart:ui';
-import 'package:uuid/uuid.dart';
+import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
@@ -30,8 +30,6 @@ class ClusterDetector {
   /// part of the same cluster (in canvas pixels at scale 1.0).
   /// Default: 50px — covers the gap between 'i' dot and body.
   final double spatialThreshold;
-
-  static const _uuid = Uuid();
 
   const ClusterDetector({
     this.temporalThresholdMs = 1500,
@@ -167,7 +165,7 @@ class ClusterDetector {
       // Create new single-stroke cluster
       result.add(
         ContentCluster(
-          id: 'cluster_stroke_${_uuid.v4()}',
+          id: 'cluster_stroke_${generateUid()}',
           strokeIds: [newStroke.id],
           bounds: newBounds,
           centroid: newBounds.center,
@@ -188,7 +186,7 @@ class ClusterDetector {
       final bounds = strokes[0].bounds;
       return [
         ContentCluster(
-          id: 'cluster_stroke_${_uuid.v4()}',
+          id: 'cluster_stroke_${generateUid()}',
           strokeIds: [strokes[0].id],
           bounds: bounds,
           centroid: bounds.center,
@@ -267,7 +265,7 @@ class ClusterDetector {
       }
 
       return ContentCluster(
-        id: 'cluster_stroke_${_uuid.v4()}',
+        id: 'cluster_stroke_${generateUid()}',
         strokeIds: ids,
         bounds: bounds,
         centroid: bounds.center,

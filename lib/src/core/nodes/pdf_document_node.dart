@@ -1,10 +1,12 @@
 import 'dart:ui';
+import 'dart:math' as math;
 import '../scene_graph/canvas_node.dart';
 import '../scene_graph/node_visitor.dart';
 import './group_node.dart';
 import './pdf_page_node.dart';
 import '../models/pdf_document_model.dart';
 import '../models/pdf_page_model.dart';
+import '../models/pdf_layout_preset.dart';
 
 /// 📄 Scene graph container node for an entire PDF document.
 ///
@@ -42,11 +44,12 @@ class PdfDocumentNode extends GroupNode {
 
   /// Get a specific page node by page index.
   PdfPageNode? pageAt(int pageIndex) {
-    try {
-      return pageNodes.firstWhere((n) => n.pageModel.pageIndex == pageIndex);
-    } catch (_) {
-      return null;
+    for (final child in children) {
+      if (child is PdfPageNode && child.pageModel.pageIndex == pageIndex) {
+        return child;
+      }
     }
+    return null;
   }
 
   // ---------------------------------------------------------------------------
@@ -55,38 +58,55 @@ class PdfDocumentNode extends GroupNode {
 
   /// Position all locked pages in a grid layout.
   ///
+  /// Uses per-row max height to handle mixed page sizes (portrait + landscape).
   /// Unlocked pages retain their [PdfPageModel.customOffset].
-  /// After layout, the document's [localBounds] will encompass all pages.
   void performGridLayout() {
     final cols = documentModel.gridColumns;
     final spacing = documentModel.gridSpacing;
     final origin = documentModel.gridOrigin;
 
-    int row = 0;
-    int col = 0;
+    // Cache locally to avoid rebuilding the list on each access
+    final pages = pageNodes;
+    if (pages.isEmpty) return;
 
-    for (final pageNode in pageNodes) {
+    // First pass: compute max height per row for locked pages
+    final lockedPages = pages.where((p) => p.pageModel.isLocked).toList();
+    final rowCount = (lockedPages.length / cols).ceil();
+    final rowMaxHeights = List<double>.filled(rowCount, 0.0);
+
+    for (int i = 0; i < lockedPages.length; i++) {
+      final row = i ~/ cols;
+      final h = lockedPages[i].pageModel.originalSize.height;
+      if (h > rowMaxHeights[row]) rowMaxHeights[row] = h;
+    }
+
+    // Second pass: position pages using cumulative row heights
+    int lockedIdx = 0;
+    double cumulativeY = 0;
+
+    for (final pageNode in pages) {
       if (pageNode.pageModel.isLocked) {
-        // Calculate grid position
+        final row = lockedIdx ~/ cols;
+        final col = lockedIdx % cols;
+
         final pageWidth = pageNode.pageModel.originalSize.width;
-        final pageHeight = pageNode.pageModel.originalSize.height;
 
         final x = origin.dx + col * (pageWidth + spacing);
-        final y = origin.dy + row * (pageHeight + spacing);
+        final y = origin.dy + cumulativeY;
 
         pageNode.setPosition(x, y);
         pageNode.invalidateTransformCache();
 
-        // Update grid position in page model
         pageNode.pageModel = pageNode.pageModel.copyWith(
           gridRow: row,
           gridCol: col,
         );
 
-        col++;
-        if (col >= cols) {
-          col = 0;
-          row++;
+        lockedIdx++;
+
+        // Advance to next row when column wraps
+        if (lockedIdx % cols == 0 && row < rowMaxHeights.length) {
+          cumulativeY += rowMaxHeights[row] + spacing;
         }
       } else {
         // Unlocked pages use their custom offset
@@ -128,6 +148,139 @@ class PdfDocumentNode extends GroupNode {
   }
 
   // ---------------------------------------------------------------------------
+  // Layout presets
+  // ---------------------------------------------------------------------------
+
+  /// Apply a [PdfLayoutPreset] to this document.
+  ///
+  /// Updates grid columns and spacing, then locks/unlocks all pages
+  /// according to the preset. Triggers [performGridLayout].
+  void applyLayoutPreset(PdfLayoutPreset preset) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+
+    documentModel = documentModel.copyWith(
+      gridColumns: preset.columns,
+      gridSpacing: preset.spacing,
+      lastModifiedAt: now,
+    );
+
+    // Lock or unlock all pages based on preset
+    for (final page in pageNodes) {
+      if (preset.locksPages && !page.pageModel.isLocked) {
+        page.pageModel = page.pageModel.copyWith(
+          isLocked: true,
+          clearCustomOffset: true,
+          lastModifiedAt: now,
+        );
+      } else if (!preset.locksPages && page.pageModel.isLocked) {
+        page.pageModel = page.pageModel.copyWith(
+          isLocked: false,
+          customOffset: page.position,
+          lastModifiedAt: now,
+        );
+      }
+    }
+
+    performGridLayout();
+  }
+
+  /// Change grid columns and re-layout.
+  void setGridColumns(int columns) {
+    if (columns < 1 || columns > 10) return;
+    documentModel = documentModel.copyWith(
+      gridColumns: columns,
+      lastModifiedAt: DateTime.now().microsecondsSinceEpoch,
+    );
+    performGridLayout();
+  }
+
+  /// Change grid spacing and re-layout.
+  void setGridSpacing(double spacing) {
+    documentModel = documentModel.copyWith(
+      gridSpacing: spacing.clamp(0.0, 200.0),
+      lastModifiedAt: DateTime.now().microsecondsSinceEpoch,
+    );
+    performGridLayout();
+  }
+
+  /// Rotate a page by [angleDegrees] (typically 90 increments).
+  void rotatePage(int pageIndex, {double angleDegrees = 90}) {
+    final pageNode = pageAt(pageIndex);
+    if (pageNode == null) return;
+
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final raw = pageNode.pageModel.rotation + (angleDegrees * math.pi / 180);
+    // Normalize to [0, 2π) — add twoPi first since Dart % preserves sign
+    final twoPi = 2.0 * math.pi;
+    final newRotation = ((raw % twoPi) + twoPi) % twoPi;
+
+    pageNode.pageModel = pageNode.pageModel.copyWith(
+      rotation: newRotation,
+      lastModifiedAt: now,
+    );
+    documentModel = documentModel.copyWith(lastModifiedAt: now);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Annotations
+  // ---------------------------------------------------------------------------
+
+  /// Find which page (if any) a stroke's bounding rect overlaps,
+  /// and add [annotationId] to that page's annotation list.
+  ///
+  /// Returns the page index it was linked to, or -1 if no overlap.
+  int linkAnnotation(String annotationId, Rect strokeBounds) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+
+    for (final page in pageNodes) {
+      final pageRect = pageRectFor(page);
+      if (pageRect.overlaps(strokeBounds)) {
+        // O(1) dup-check via Set
+        final existing = page.pageModel.annotations;
+        if (!existing.contains(annotationId)) {
+          page.pageModel = page.pageModel.copyWith(
+            annotations: [...existing, annotationId],
+            lastModifiedAt: now,
+          );
+        }
+        return page.pageModel.pageIndex;
+      }
+    }
+    return -1;
+  }
+
+  /// Remove an annotation ID from all pages (e.g. on stroke delete / undo).
+  void unlinkAnnotation(String annotationId) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    for (final page in pageNodes) {
+      final existing = page.pageModel.annotations;
+      if (existing.contains(annotationId)) {
+        page.pageModel = page.pageModel.copyWith(
+          annotations: List<String>.of(existing)..remove(annotationId),
+          lastModifiedAt: now,
+        );
+      }
+    }
+  }
+
+  /// Toggle annotation visibility on a specific page.
+  void togglePageAnnotations(int pageIndex) {
+    final page = pageAt(pageIndex);
+    if (page == null) return;
+    page.pageModel = page.pageModel.copyWith(
+      showAnnotations: !page.pageModel.showAnnotations,
+      lastModifiedAt: DateTime.now().microsecondsSinceEpoch,
+    );
+  }
+
+  /// Get the canvas-space rect for a page.
+  Rect pageRectFor(PdfPageNode page) {
+    final pos = page.position;
+    final size = page.pageModel.originalSize;
+    return Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
+  }
+
+  // ---------------------------------------------------------------------------
   // Memory management
   // ---------------------------------------------------------------------------
 
@@ -144,6 +297,67 @@ class PdfDocumentNode extends GroupNode {
   void disposeAllCachedImages() {
     for (final page in pageNodes) {
       page.disposeCachedImage();
+    }
+  }
+
+  /// Evict least-recently-used cached images, keeping at most [maxCached].
+  ///
+  /// Uses [PdfPageNode.lastDrawnTimestamp] for LRU ordering.
+  void evictLeastRecentlyUsed({int maxCached = 10}) {
+    final pages = pageNodes;
+    final cached = pages.where((p) => p.cachedImage != null).toList();
+    if (cached.length <= maxCached) return;
+
+    // Sort ascending by timestamp (oldest first)
+    cached.sort((a, b) => a.lastDrawnTimestamp.compareTo(b.lastDrawnTimestamp));
+
+    final toEvict = cached.length - maxCached;
+    for (int i = 0; i < toEvict; i++) {
+      cached[i].disposeCachedImage();
+    }
+  }
+
+  /// Reorder a page from [fromIndex] to [toIndex] (0-based within pageNodes).
+  ///
+  /// Updates page indices and re-layouts the grid.
+  void reorderPage(int fromIndex, int toIndex) {
+    final pages = pageNodes;
+    if (fromIndex < 0 || fromIndex >= pages.length) return;
+    if (toIndex < 0 || toIndex >= pages.length) return;
+    if (fromIndex == toIndex) return;
+
+    final now = DateTime.now().microsecondsSinceEpoch;
+
+    // Remove then insert at target position in the children list
+    final page = pages[fromIndex];
+    remove(page);
+
+    // Re-fetch after removal to get correct insertion index
+    final updatedPages = pageNodes;
+    final insertIdx = toIndex.clamp(0, updatedPages.length);
+    insertAt(insertIdx, page);
+
+    // Re-assign pageIndex to match new order
+    final reordered = pageNodes;
+    for (int i = 0; i < reordered.length; i++) {
+      reordered[i].pageModel = reordered[i].pageModel.copyWith(
+        pageIndex: i,
+        lastModifiedAt: now,
+      );
+    }
+
+    documentModel = documentModel.copyWith(lastModifiedAt: now);
+    _syncTotalPages();
+    performGridLayout();
+  }
+
+  /// Sync [documentModel.totalPages] with actual child count.
+  ///
+  /// Call after any operation that adds, removes, or reorders pages.
+  void _syncTotalPages() {
+    final actual = pageNodes.length;
+    if (documentModel.totalPages != actual) {
+      documentModel = documentModel.copyWith(totalPages: actual);
     }
   }
 
@@ -175,13 +389,40 @@ class PdfDocumentNode extends GroupNode {
   }
 
   factory PdfDocumentNode.fromJson(Map<String, dynamic> json) {
-    final node = PdfDocumentNode(
-      id: json['id'] as String,
-      documentModel: PdfDocumentModel.fromJson(
+    // E5: Defensive fallback if documentModel is missing or malformed
+    PdfDocumentModel docModel;
+    if (json['documentModel'] is Map<String, dynamic>) {
+      docModel = PdfDocumentModel.fromJson(
         json['documentModel'] as Map<String, dynamic>,
-      ),
+      );
+    } else {
+      docModel = const PdfDocumentModel(
+        sourceHash: '',
+        totalPages: 0,
+        pages: [],
+      );
+    }
+
+    final node = PdfDocumentNode(
+      id: json['id'] as String? ?? 'unknown',
+      documentModel: docModel,
     );
     CanvasNode.applyBaseFromJson(node, json);
+
+    // Restore child PdfPageNodes
+    if (json['children'] is List<dynamic>) {
+      final childrenJson = json['children'] as List<dynamic>;
+      for (final childJson in childrenJson) {
+        if (childJson is Map<String, dynamic>) {
+          final nodeType = childJson['nodeType'] as String?;
+          if (nodeType == 'pdfPage') {
+            final pageNode = PdfPageNode.fromJson(childJson);
+            node.add(pageNode);
+          }
+        }
+      }
+    }
+
     return node;
   }
 
@@ -196,5 +437,5 @@ class PdfDocumentNode extends GroupNode {
   String toString() =>
       'PdfDocumentNode(id: $id, '
       '${documentModel.totalPages} pages, '
-      '${pageNodes.where((p) => p.pageModel.isLocked).length} locked)';
+      '${children.length} children)';
 }

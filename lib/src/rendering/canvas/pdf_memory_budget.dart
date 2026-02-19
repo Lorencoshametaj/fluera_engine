@@ -48,8 +48,12 @@ class PdfMemoryBudget {
   /// The most recently computed budget in megabytes.
   int get currentBudgetMB => _currentBudgetMB;
 
-  /// Current budget in bytes.
-  int get currentBudgetBytes => _currentBudgetMB * 1024 * 1024;
+  /// Number of active PDF documents sharing this device's budget.
+  int activeDocumentCount = 1;
+
+  /// Current budget in bytes, divided by active document count.
+  int get currentBudgetBytes =>
+      (_currentBudgetMB * 1024 * 1024) ~/ activeDocumentCount.clamp(1, 100);
 
   /// Target LOD scale based on current device capabilities.
   ///
@@ -67,10 +71,10 @@ class PdfMemoryBudget {
 
   /// Number of off-screen pages to prefetch, based on budget.
   int get prefetchCount {
-    if (_currentBudgetMB >= 400) return 4;
-    if (_currentBudgetMB >= 200) return 2;
-    if (_currentBudgetMB >= 100) return 1;
-    return 0; // No prefetch under memory pressure
+    if (_currentBudgetMB >= 400) return 6;
+    if (_currentBudgetMB >= 200) return 4;
+    if (_currentBudgetMB >= 100) return 3;
+    return 1;
   }
 
   /// Whether we should downgrade existing caches due to pressure.
@@ -80,9 +84,9 @@ class PdfMemoryBudget {
   ///
   /// Maps the current canvas zoom level to a raster scale factor.
   static double lodScaleForZoom(double zoom) {
-    if (zoom < 0.3) return 0.25;
-    if (zoom < 0.8) return 0.5;
-    if (zoom < 1.5) return 1.0;
+    if (zoom < 0.15) return 0.25;
+    if (zoom < 0.4) return 0.5;
+    if (zoom < 1.0) return 1.0;
     return 2.0;
   }
 

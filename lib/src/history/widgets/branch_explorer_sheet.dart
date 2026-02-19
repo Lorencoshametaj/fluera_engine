@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 
 import '../models/canvas_branch.dart';
 import '../branching_manager.dart';
@@ -239,7 +238,23 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
   ) {
     final isActive = widget.activeBranchId == branch.id;
     final isMain = branch.id == 'br_main';
-    final dateStr = DateFormat('d MMM, HH:mm').format(branch.createdAt);
+    final _m = [
+      'Gen',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mag',
+      'Giu',
+      'Lug',
+      'Ago',
+      'Set',
+      'Ott',
+      'Nov',
+      'Dic',
+    ];
+    final d = branch.createdAt;
+    final dateStr =
+        '${d.day} ${_m[d.month - 1]}, ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     final branchColor =
         isMain ? const Color(0xFF7C4DFF) : _getBranchColor(branch);
 

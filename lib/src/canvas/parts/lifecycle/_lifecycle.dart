@@ -269,6 +269,37 @@ extension on _NebulaCanvasScreenState {
       if (guidesJson != null) {
         _rulerGuideSystem.loadFromJson(guidesJson);
       }
+
+      // 🎛️ Restore design variable state
+      final varCollsJson = data['variableCollections'] as List<dynamic>?;
+      if (varCollsJson != null) {
+        _variableCollections.clear();
+        for (final cJson in varCollsJson) {
+          _variableCollections.add(
+            VariableCollection.fromJson(
+              Map<String, dynamic>.from(cJson as Map),
+            ),
+          );
+        }
+        // Re-sync resolver with restored collections
+        for (final c in _variableCollections) {
+          _variableResolver.addCollection(c);
+        }
+      }
+      final varBindingsJson =
+          data['variableBindings'] as Map<dynamic, dynamic>?;
+      if (varBindingsJson != null) {
+        _variableBindings.loadFromJson(
+          Map<String, dynamic>.from(varBindingsJson),
+        );
+      }
+      final varModesJson =
+          data['variableActiveModes'] as Map<dynamic, dynamic>?;
+      if (varModesJson != null) {
+        _variableResolver.loadActiveModes(
+          Map<String, dynamic>.from(varModesJson),
+        );
+      }
     });
 
     // 🎯 Load layers AFTER setState to avoid notifications during build
@@ -326,6 +357,12 @@ extension on _NebulaCanvasScreenState {
       setState(() {
         // Dati caricati completamente - forza rebuild finale
       });
+    }
+
+    // 📄 Restore PDF documents from saved metadata
+    final pdfDocsList = data['pdfDocuments'] as List<dynamic>?;
+    if (pdfDocsList != null && pdfDocsList.isNotEmpty) {
+      _restorePdfDocuments(pdfDocsList);
     }
   }
 

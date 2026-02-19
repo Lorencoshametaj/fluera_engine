@@ -44,8 +44,11 @@ export 'src/core/nodes/rich_text_node.dart';
 export 'src/core/nodes/symbol_system.dart';
 export 'src/core/nodes/frame_node.dart';
 export 'src/core/nodes/advanced_mask_node.dart';
+export 'src/core/nodes/boolean_group_node.dart';
 export 'src/core/nodes/pdf_page_node.dart';
 export 'src/core/nodes/pdf_document_node.dart';
+export 'src/core/models/pdf_layout_preset.dart';
+export 'src/canvas/toolbar/pdf_contextual_toolbar.dart';
 
 // Vector
 export 'src/core/vector/vector_path.dart';
@@ -245,6 +248,7 @@ export 'src/export/export_preset.dart' hide ExportFormat, ExportConfig;
 export 'src/export/saved_export_area.dart';
 export 'src/export/timelapse_export_config.dart';
 export 'src/export/binary_canvas_format.dart';
+export 'src/export/pdf_annotation_exporter.dart';
 
 // ────────────────────────── AUDIO ──────────────────────────
 export 'src/audio/native_audio_models.dart';
@@ -256,6 +260,7 @@ export 'src/audio/platform_channels/audio_recorder_channel.dart';
 
 // ────────────────────────── SYSTEMS ──────────────────────────
 export 'src/systems/smart_snap_engine.dart';
+export 'src/systems/layout_engine.dart';
 export 'src/systems/animation_timeline.dart';
 export 'src/systems/selection_manager.dart';
 export 'src/systems/dirty_tracker.dart';
@@ -264,6 +269,14 @@ export 'src/systems/style_system.dart';
 export 'src/systems/prototype_flow.dart';
 export 'src/systems/plugin_api.dart';
 export 'src/systems/accessibility_tree.dart';
+export 'src/systems/responsive_breakpoint.dart';
+export 'src/systems/responsive_variant.dart';
+export 'src/systems/design_variables.dart';
+export 'src/systems/variable_binding.dart';
+export 'src/systems/variable_commands.dart';
+export 'src/systems/variable_resolver.dart';
+export 'src/systems/variable_scope.dart';
+export 'src/systems/design_token_exporter.dart';
 
 // ────────────────────────── CANVAS (Screen) ──────────────────────────
 export 'src/canvas/nebula_canvas_screen.dart';

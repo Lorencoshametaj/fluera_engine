@@ -154,6 +154,18 @@ class NebulaLocalizations {
   // Image editor — before/after
   String get proCanvas_beforeAfter => 'Before / After';
 
+  // Image editor — advanced adjustments
+  String get proCanvas_vignette => 'Vignette';
+  String get proCanvas_hueShift => 'Hue';
+  String get proCanvas_temperature => 'Temperature';
+  String get proCanvas_imageInfo => 'Image Info';
+  String get proCanvas_undoEdit => 'Undo';
+  String get proCanvas_redoEdit => 'Redo';
+  String get proCanvas_discardChanges => 'Discard changes?';
+  String get proCanvas_discardChangesMessage =>
+      'You have unsaved edits. Are you sure you want to discard them?';
+  String get proCanvas_discardConfirm => 'Discard';
+
   // ============================================================================
   // BRUSH SETTINGS
   // ============================================================================

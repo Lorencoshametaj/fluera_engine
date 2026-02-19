@@ -78,7 +78,7 @@ extension on _NebulaCanvasScreenState {
       final viewportCenter = _canvasController.screenToCanvas(screenCenter);
 
       final newElement = DigitalTextElement(
-        id: const Uuid().v4(),
+        id: generateUid(),
         text: result.text,
         position: viewportCenter,
         color: result.color,

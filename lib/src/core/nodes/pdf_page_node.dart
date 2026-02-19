@@ -35,6 +35,12 @@ class PdfPageNode extends CanvasNode {
     return cachedImage!.width * cachedImage!.height * 4; // RGBA
   }
 
+  /// Timestamp of last paint call — used for LRU eviction ordering.
+  int lastDrawnTimestamp = 0;
+
+  /// Stopwatch time when cached image was last updated — for fade-in animation.
+  int cacheUpdatedAt = 0;
+
   PdfPageNode({
     required super.id,
     required this.pageModel,
@@ -75,6 +81,7 @@ class PdfPageNode extends CanvasNode {
   /// Whether this page has a valid cached image at the given [targetScale].
   bool hasCacheAtScale(double targetScale) {
     if (cachedImage == null) return false;
+    if (targetScale <= 0) return false; // E7: guard division by zero
     // Allow ±25% tolerance before re-render
     final ratio = cachedScale / targetScale;
     return ratio > 0.75 && ratio < 1.5;
@@ -112,19 +119,31 @@ class PdfPageNode extends CanvasNode {
   }
 
   factory PdfPageNode.fromJson(Map<String, dynamic> json) {
-    final node = PdfPageNode(
-      id: json['id'] as String,
-      pageModel: PdfPageModel.fromJson(
+    // D1: Defensive fallback if pageModel is missing or malformed
+    PdfPageModel pageModel;
+    if (json['pageModel'] is Map<String, dynamic>) {
+      pageModel = PdfPageModel.fromJson(
         json['pageModel'] as Map<String, dynamic>,
-      ),
+      );
+    } else {
+      pageModel = const PdfPageModel(
+        pageIndex: 0,
+        originalSize: Size(612, 792),
+      );
+    }
+
+    final node = PdfPageNode(
+      id: json['id'] as String? ?? 'unknown',
+      pageModel: pageModel,
     );
     CanvasNode.applyBaseFromJson(node, json);
 
     // Restore cached text geometry if present
-    if (json['textRects'] != null) {
+    if (json['textRects'] is List<dynamic>) {
       node.textRects =
           (json['textRects'] as List<dynamic>)
-              .map((r) => PdfTextRect.fromJson(r as Map<String, dynamic>))
+              .whereType<Map<String, dynamic>>()
+              .map((r) => PdfTextRect.fromJson(r))
               .toList();
     }
 

@@ -28,11 +28,12 @@ import 'package:path/path.dart' as p;
 
 import 'nebula_storage_adapter.dart';
 import '../core/models/canvas_layer.dart';
+import '../core/nodes/pdf_document_node.dart';
 import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 2;
+const int _kSchemaVersion = 3;
 
 /// Database file name.
 const String _kDatabaseName = 'nebula_canvas.db';
@@ -133,6 +134,8 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         infinite_canvas_id TEXT,
         node_id       TEXT,
         guides_json   TEXT,
+        pdf_documents_json TEXT,
+        variables_json TEXT,
         layer_count   INTEGER NOT NULL DEFAULT 0,
         stroke_count  INTEGER NOT NULL DEFAULT 0,
         created_at    INTEGER NOT NULL,
@@ -169,6 +172,12 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     if (oldVersion < 2) {
       await _createRecordingsTable(db);
       debugPrint('[NebulaStorage] Migration v1→v2: recordings table created');
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE canvases ADD COLUMN variables_json TEXT');
+      debugPrint(
+        '[NebulaStorage] Migration v2→v3: variables_json column added',
+      );
     }
   }
 
@@ -211,6 +220,20 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
             .map((l) => CanvasLayer.fromJson(l as Map<String, dynamic>))
             .toList();
 
+    // 🎛️ Build variables JSON sidecar from save data
+    String? variablesJson;
+    final varColls = data['variableCollections'] as List<dynamic>?;
+    if (varColls != null && varColls.isNotEmpty) {
+      final varData = <String, dynamic>{
+        'collections': varColls,
+        if (data['variableBindings'] != null)
+          'bindings': data['variableBindings'],
+        if (data['variableActiveModes'] != null)
+          'activeModes': data['variableActiveModes'],
+      };
+      variablesJson = jsonEncode(varData);
+    }
+
     // Delegate to the zero-round-trip path
     await saveCanvasLayers(
       canvasId: canvasId,
@@ -222,6 +245,7 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       infiniteCanvasId: data['infiniteCanvasId'] as String?,
       nodeId: data['nodeId'] as String?,
       guides: data['guides'] as Map<String, dynamic>?,
+      variablesJson: variablesJson,
     );
   }
 
@@ -253,6 +277,7 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     String? nodeId,
     Map<String, dynamic>? guides,
     Set<String>? dirtyLayerIds,
+    String? variablesJson,
   }) async {
     final db = _ensureInitialized();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -282,6 +307,23 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       blobMap[layersToEncode[i].id] = encodedBlobs[i];
     }
 
+    // 💾 Extract PDF document metadata from layers for separate storage.
+    // PDF nodes are part of the scene graph but the binary format doesn't
+    // support them — we store them as a JSON sidecar.
+    final pdfDocumentsJson = <Map<String, dynamic>>[];
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode) {
+          pdfDocumentsJson.add({
+            'layerId': layer.id,
+            'document': child.toJson(),
+          });
+        }
+      }
+    }
+    final pdfJson =
+        pdfDocumentsJson.isNotEmpty ? jsonEncode(pdfDocumentsJson) : null;
+
     // SQLite writes are I/O-bound and async — they don't block the main thread.
     final guidesJson = guides != null ? jsonEncode(guides) : null;
     await db.transaction((txn) async {
@@ -291,8 +333,9 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         INSERT OR REPLACE INTO canvases (
           canvas_id, title, paper_type, background_color,
           active_layer_id, infinite_canvas_id, node_id, guides_json,
+          pdf_documents_json, variables_json,
           layer_count, stroke_count, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
         [
           canvasId,
@@ -303,6 +346,8 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
           infiniteCanvasId,
           nodeId,
           guidesJson,
+          pdfJson,
+          variablesJson,
           layers.length,
           totalStrokes,
           now,
@@ -424,6 +469,31 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     if (guidesStr != null) {
       try {
         result['guides'] = jsonDecode(guidesStr);
+      } catch (_) {}
+    }
+
+    // Parse PDF documents JSON if present
+    final pdfStr = meta['pdf_documents_json'] as String?;
+    if (pdfStr != null) {
+      try {
+        result['pdfDocuments'] = jsonDecode(pdfStr);
+      } catch (_) {}
+    }
+
+    // 🎛️ Parse design variables JSON if present
+    final varsStr = meta['variables_json'] as String?;
+    if (varsStr != null) {
+      try {
+        final varsData = jsonDecode(varsStr) as Map<String, dynamic>;
+        if (varsData['collections'] != null) {
+          result['variableCollections'] = varsData['collections'];
+        }
+        if (varsData['bindings'] != null) {
+          result['variableBindings'] = varsData['bindings'];
+        }
+        if (varsData['activeModes'] != null) {
+          result['variableActiveModes'] = varsData['activeModes'];
+        }
       } catch (_) {}
     }
 

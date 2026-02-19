@@ -39,7 +39,7 @@ extension on _NebulaCanvasScreenState {
         );
 
         final stroke = ProStroke(
-          id: const Uuid().v4(),
+          id: generateUid(),
           points: relativePoints,
           color: _effectiveColor,
           baseWidth: _effectiveWidth,
@@ -67,6 +67,19 @@ extension on _NebulaCanvasScreenState {
 
         // Do not fare auto-save qui, lo faremo when esce from the mode editing
       }
+      return;
+    }
+
+    // 🌀 End single-finger handle rotation
+    if (_imageTool.isHandleRotating) {
+      _imageTool.endHandleRotation();
+      _imageVersion++;
+      _rebuildImageSpatialIndex();
+      if (_imageTool.selectedImage != null) {
+        _layerController.updateImage(_imageTool.selectedImage!);
+        if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
+      }
+      setState(() {});
       return;
     }
 
@@ -311,7 +324,7 @@ extension on _NebulaCanvasScreenState {
 
       if (result.recognizedAt(sensitivity.threshold)) {
         final shape = GeometricShape(
-          id: const Uuid().v4(),
+          id: generateUid(),
           type: result.type!,
           startPoint: result.boundingBox.topLeft,
           endPoint: result.boundingBox.bottomRight,
@@ -349,7 +362,7 @@ extension on _NebulaCanvasScreenState {
 
     // Create stroke completo con valori immutabili
     final stroke = ProStroke(
-      id: const Uuid().v4(),
+      id: generateUid(),
       points: finalPoints,
       color: _effectiveColor,
       baseWidth: _effectiveWidth,
@@ -368,6 +381,9 @@ extension on _NebulaCanvasScreenState {
     // and completed strokes rendered simultaneously → visual "pop" on release.
     _currentStrokeNotifier.clear();
     _layerController.addStroke(stroke);
+
+    // 📄 PDF Annotation Linking: if stroke overlaps a PDF page, link it
+    _linkStrokeToPdfPage(stroke);
 
     // 🌊 REFLOW: Incrementally update cluster cache with new stroke
     if (_clusterDetector != null) {
@@ -437,7 +453,7 @@ extension on _NebulaCanvasScreenState {
 
       for (final pts in mirrorSets) {
         final mirroredStroke = ProStroke(
-          id: const Uuid().v4(),
+          id: generateUid(),
           points: pts,
           color: stroke.color,
           baseWidth: stroke.baseWidth,

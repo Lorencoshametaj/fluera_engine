@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../utils/key_value_store.dart';
 import 'eraser_hit_tester.dart';
 
 // ============================================================================
@@ -27,7 +27,7 @@ class EraserPresetManager {
     required double autoCompleteThreshold,
     required bool velocityAdaptive,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final presets = _loadMap(prefs);
     presets[name] = {
       'radius': radius,
@@ -48,7 +48,7 @@ class EraserPresetManager {
 
   /// Load a named preset. Returns the preset map, or null if not found.
   static Future<Map<String, dynamic>?> load(String name) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final presets = _loadMap(prefs);
     final preset = presets[name];
     if (preset == null) return null;
@@ -57,13 +57,13 @@ class EraserPresetManager {
 
   /// List all saved preset names.
   static Future<List<String>> list() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     return _loadMap(prefs).keys.toList();
   }
 
   /// Delete a named preset.
   static Future<void> delete(String name) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final presets = _loadMap(prefs);
     presets.remove(name);
     await prefs.setString(_presetsPrefKey, jsonEncode(presets));
@@ -71,7 +71,7 @@ class EraserPresetManager {
 
   // ─── Internal ──────────────────────────────────────────────────────
 
-  static Map<String, dynamic> _loadMap(SharedPreferences prefs) {
+  static Map<String, dynamic> _loadMap(KeyValueStore prefs) {
     final existing = prefs.getString(_presetsPrefKey) ?? '{}';
     if (existing == '{}') return {};
     return Map<String, dynamic>.from(jsonDecode(existing) as Map);

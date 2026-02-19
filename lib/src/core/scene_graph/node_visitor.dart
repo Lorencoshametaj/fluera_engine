@@ -11,6 +11,7 @@ import '../nodes/rich_text_node.dart';
 import '../nodes/symbol_system.dart';
 import '../nodes/frame_node.dart';
 import '../nodes/advanced_mask_node.dart';
+import '../nodes/boolean_group_node.dart';
 import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
 import '../effects/shader_effect.dart';
@@ -43,6 +44,7 @@ abstract class NodeVisitor<R> {
   R visitSymbolInstance(SymbolInstanceNode node);
   R visitFrame(FrameNode node);
   R visitAdvancedMask(AdvancedMaskNode node);
+  R visitBooleanGroup(BooleanGroupNode node);
   R visitShader(ShaderNode node);
   R visitPdfPage(PdfPageNode node);
   R visitPdfDocument(PdfDocumentNode node);
@@ -91,6 +93,8 @@ class DefaultNodeVisitor<R> implements NodeVisitor<R> {
   R visitFrame(FrameNode node) => defaultValue;
   @override
   R visitAdvancedMask(AdvancedMaskNode node) => defaultValue;
+  @override
+  R visitBooleanGroup(BooleanGroupNode node) => defaultValue;
   @override
   R visitShader(ShaderNode node) => defaultValue;
   @override

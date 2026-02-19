@@ -3,8 +3,8 @@ library professional_canvas_toolbar;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import '../../utils/key_value_store.dart';
+import './hsv_color_picker.dart';
 import '../../l10n/nebula_localizations.dart';
 import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';
@@ -244,7 +244,7 @@ class _ProfessionalCanvasToolbarState
 
   // Load colori salvati
   Future<void> _loadCustomColors() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final List<String>? savedColors = prefs.getStringList('custom_colors');
     if (savedColors != null && savedColors.length == 6) {
       setState(() {
@@ -258,7 +258,7 @@ class _ProfessionalCanvasToolbarState
 
   // Save colori
   Future<void> _saveCustomColors() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final colorStrings =
         _customColors.map((c) => c.toARGB32().toString()).toList();
     await prefs.setStringList('custom_colors', colorStrings);
@@ -275,7 +275,7 @@ class _ProfessionalCanvasToolbarState
         return AlertDialog(
           title: Text(l10n.proCanvas_chooseColor),
           content: SingleChildScrollView(
-            child: ColorPicker(
+            child: HsvColorPicker(
               pickerColor: pickerColor,
               onColorChanged: (color) {
                 pickerColor = color;

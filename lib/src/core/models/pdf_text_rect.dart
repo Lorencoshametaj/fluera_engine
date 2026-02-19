@@ -42,21 +42,37 @@ class PdfTextRect {
   };
 
   factory PdfTextRect.fromJson(Map<String, dynamic> json) {
-    final r = json['rect'] as Map<String, dynamic>;
+    // E1: Defensive parsing — fallback to zero rect if missing
+    Rect rect = Rect.zero;
+    if (json['rect'] is Map<String, dynamic>) {
+      final r = json['rect'] as Map<String, dynamic>;
+      rect = Rect.fromLTRB(
+        (r['left'] as num?)?.toDouble() ?? 0,
+        (r['top'] as num?)?.toDouble() ?? 0,
+        (r['right'] as num?)?.toDouble() ?? 0,
+        (r['bottom'] as num?)?.toDouble() ?? 0,
+      );
+    }
     return PdfTextRect(
-      rect: Rect.fromLTRB(
-        (r['left'] as num).toDouble(),
-        (r['top'] as num).toDouble(),
-        (r['right'] as num).toDouble(),
-        (r['bottom'] as num).toDouble(),
-      ),
-      text: json['text'] as String,
+      rect: rect,
+      text: json['text'] as String? ?? '',
       charOffset: (json['charOffset'] as num?)?.toInt() ?? 0,
     );
   }
 
   /// Returns true if [point] (in page-local coordinates) hits this rect.
   bool containsPoint(Offset point) => rect.contains(point);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PdfTextRect &&
+          rect == other.rect &&
+          text == other.text &&
+          charOffset == other.charOffset;
+
+  @override
+  int get hashCode => Object.hash(rect, text, charOffset);
 
   @override
   String toString() => 'PdfTextRect("$text", rect: $rect, offset: $charOffset)';

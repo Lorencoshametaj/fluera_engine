@@ -7,6 +7,9 @@ import '../../systems/spatial_index.dart';
 import '../../systems/dirty_tracker.dart';
 import '../../systems/animation_timeline.dart';
 import '../../systems/prototype_flow.dart';
+import '../../systems/design_variables.dart';
+import '../../systems/variable_binding.dart';
+import '../../systems/variable_resolver.dart';
 import './scene_graph_observer.dart';
 
 /// Top-level container for the canvas scene graph.
@@ -46,6 +49,23 @@ class SceneGraph with SceneGraphObservable {
   /// Prototype flows for interactive prototyping links.
   final List<PrototypeFlow> prototypeFlows = [];
 
+  /// Design variable collections (themes, breakpoints, etc.).
+  final List<VariableCollection> variableCollections = [];
+
+  /// Registry of variable-to-node property bindings.
+  final VariableBindingRegistry variableBindings = VariableBindingRegistry();
+
+  /// Runtime resolver for variable values and mode switching.
+  late final VariableResolver variableResolver = VariableResolver(
+    collections: variableCollections,
+    bindings: variableBindings,
+  );
+
+  /// Observer that auto-removes bindings when nodes are deleted.
+  late final VariableBindingObserver _bindingObserver = VariableBindingObserver(
+    variableBindings,
+  );
+
   /// Whether this scene graph has been disposed.
   bool _disposed = false;
 
@@ -61,7 +81,9 @@ class SceneGraph with SceneGraphObservable {
   /// an existing [LayerNode]) and a full rebuild is not needed.
   void bumpVersion() => _version++;
 
-  SceneGraph() : rootNode = GroupNode(id: '_root', name: 'Root');
+  SceneGraph() : rootNode = GroupNode(id: '_root', name: 'Root') {
+    addObserver(_bindingObserver);
+  }
 
   // ---------------------------------------------------------------------------
   // Layer access
@@ -186,6 +208,13 @@ class SceneGraph with SceneGraphObservable {
       if (timeline.tracks.isNotEmpty) 'timeline': timeline.toJson(),
       if (prototypeFlows.isNotEmpty)
         'prototypeFlows': prototypeFlows.map((f) => f.toJson()).toList(),
+      if (variableCollections.isNotEmpty)
+        'variableCollections':
+            variableCollections.map((c) => c.toJson()).toList(),
+      if (variableBindings.bindingCount > 0)
+        'variableBindings': variableBindings.toJson(),
+      if (variableResolver.activeModes.isNotEmpty)
+        'variableActiveModes': variableResolver.activeModesToJson(),
     };
   }
 
@@ -217,6 +246,29 @@ class SceneGraph with SceneGraphObservable {
           PrototypeFlow.fromJson(flowJson as Map<String, dynamic>),
         );
       }
+    }
+
+    // Restore variable collections.
+    if (json['variableCollections'] != null) {
+      for (final cJson in json['variableCollections'] as List<dynamic>) {
+        graph.variableCollections.add(
+          VariableCollection.fromJson(cJson as Map<String, dynamic>),
+        );
+      }
+    }
+
+    // Restore variable bindings.
+    if (json['variableBindings'] != null) {
+      graph.variableBindings.loadFromJson(
+        json['variableBindings'] as Map<String, dynamic>,
+      );
+    }
+
+    // Restore active modes.
+    if (json['variableActiveModes'] != null) {
+      graph.variableResolver.loadActiveModes(
+        json['variableActiveModes'] as Map<String, dynamic>,
+      );
     }
 
     return graph;
@@ -287,9 +339,13 @@ class SceneGraph with SceneGraphObservable {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    removeObserver(_bindingObserver);
+    variableResolver.dispose();
     dirtyTracker.dispose();
     rootNode.clear();
     prototypeFlows.clear();
+    variableCollections.clear();
+    variableBindings.clear();
     disposeObservable();
   }
 }

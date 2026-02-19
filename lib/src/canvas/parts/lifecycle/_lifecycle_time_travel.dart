@@ -322,7 +322,6 @@ extension on _NebulaCanvasScreenState {
   /// 🔮 Confirm placement: apply offset and add to LayerController
   void _commitRecoveryPlacement() {
     final offset = _recoveryPlacementOffset;
-    final uuid = const Uuid();
 
     debugPrint('🔮 [Recover] Committing with offset: $offset');
 
@@ -334,7 +333,7 @@ extension on _NebulaCanvasScreenState {
           }).toList();
 
       final recovered = stroke.copyWith(
-        id: uuid.v4(),
+        id: generateUid(),
         createdAt: DateTime.now(),
         points: movedPoints,
       );
@@ -344,7 +343,7 @@ extension on _NebulaCanvasScreenState {
     // Shapes: sposta startPoint e endPoint
     for (final shape in _pendingRecoveryShapes) {
       final recovered = shape.copyWith(
-        id: uuid.v4(),
+        id: generateUid(),
         createdAt: DateTime.now(),
         startPoint: shape.startPoint + offset,
         endPoint: shape.endPoint + offset,
@@ -364,7 +363,7 @@ extension on _NebulaCanvasScreenState {
       }
 
       final recovered = image.copyWith(
-        id: uuid.v4(),
+        id: generateUid(),
         createdAt: DateTime.now(),
         position: image.position + offset,
       );
@@ -374,7 +373,7 @@ extension on _NebulaCanvasScreenState {
     // Texts: sposta position
     for (final text in _pendingRecoveryTexts) {
       final recovered = text.copyWith(
-        id: uuid.v4(),
+        id: generateUid(),
         createdAt: DateTime.now(),
         position: text.position + offset,
       );

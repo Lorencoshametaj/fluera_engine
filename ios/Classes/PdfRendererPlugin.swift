@@ -5,7 +5,7 @@ import PDFKit
 /// 📄 PdfRendererPlugin — Native iOS PDF Rendering via PDFKit
 ///
 /// Provides direct access to Apple's PDFKit for:
-/// - Loading PDF documents from raw bytes
+/// - Loading PDF documents from raw bytes (multi-document support)
 /// - Rendering pages as raw RGBA pixel buffers
 /// - Extracting text geometry for selection
 ///
@@ -13,7 +13,9 @@ import PDFKit
 public class PdfRendererPlugin: NSObject, FlutterPlugin {
     
     private var methodChannel: FlutterMethodChannel?
-    private var currentDocument: PDFDocument?
+    
+    /// Multi-document storage keyed by documentId.
+    private var documents: [String: PDFDocument] = [:]
     
     // MARK: - Plugin Registration
     
@@ -43,7 +45,9 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
         case "getPageText":
             handleGetPageText(call, result: result)
         case "dispose":
-            handleDispose(result: result)
+            handleDispose(call, result: result)
+        case "disposeAll":
+            handleDisposeAll(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -53,8 +57,9 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
     
     private func handleLoadDocument(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
-              let flutterData = args["bytes"] as? FlutterStandardTypedData else {
-            result(FlutterError(code: "INVALID_ARGS", message: "Missing 'bytes'", details: nil))
+              let flutterData = args["bytes"] as? FlutterStandardTypedData,
+              let documentId = args["documentId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing 'bytes' or 'documentId'", details: nil))
             return
         }
         
@@ -64,13 +69,27 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
             return
         }
         
-        // Release previous document
-        currentDocument = nil
-        currentDocument = document
+        // Remove previous document with same ID if present
+        documents[documentId] = document
+        
+        // Pre-compute all page sizes for Dart-side cache
+        var pageSizes: [[String: Double]] = []
+        for i in 0..<document.pageCount {
+            if let page = document.page(at: i) {
+                let bounds = page.bounds(for: .mediaBox)
+                pageSizes.append([
+                    "width": Double(bounds.width),
+                    "height": Double(bounds.height)
+                ])
+            } else {
+                pageSizes.append(["width": 0.0, "height": 0.0])
+            }
+        }
         
         result([
             "pageCount": document.pageCount,
-            "success": true
+            "success": true,
+            "pageSizes": pageSizes
         ])
     }
     
@@ -78,12 +97,13 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
     
     private func handleGetPageSize(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
+              let documentId = args["documentId"] as? String,
               let pageIndex = args["pageIndex"] as? Int else {
-            result(FlutterError(code: "INVALID_ARGS", message: "Missing 'pageIndex'", details: nil))
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing arguments", details: nil))
             return
         }
         
-        guard let document = currentDocument,
+        guard let document = documents[documentId],
               pageIndex >= 0 && pageIndex < document.pageCount,
               let page = document.page(at: pageIndex) else {
             result(["width": 0.0, "height": 0.0])
@@ -101,6 +121,7 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
     
     private func handleRenderPage(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
+              let documentId = args["documentId"] as? String,
               let pageIndex = args["pageIndex"] as? Int,
               let targetWidth = args["targetWidth"] as? Int,
               let targetHeight = args["targetHeight"] as? Int else {
@@ -108,7 +129,7 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
             return
         }
         
-        guard let document = currentDocument,
+        guard let document = documents[documentId],
               pageIndex >= 0 && pageIndex < document.pageCount,
               let page = document.page(at: pageIndex) else {
             result(nil)
@@ -122,7 +143,9 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
             
             // Create RGBA bitmap context
             let colorSpace = CGColorSpaceCreateDeviceRGB()
-            let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            // Use noneSkipLast (opaque) — PDFs are fully opaque,
+            // avoids premultiplied alpha darkening artifacts.
+            let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
             
             guard let context = CGContext(
                 data: nil,
@@ -147,7 +170,6 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
             let scaleY = CGFloat(height) / pageBounds.height
             
             context.saveGState()
-            // PDF coordinate system is bottom-up; CGContext for bitmap is also bottom-up
             context.scaleBy(x: scaleX, y: scaleY)
             
             // Draw the PDF page
@@ -179,63 +201,85 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
     
     private func handleExtractText(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
+              let documentId = args["documentId"] as? String,
               let pageIndex = args["pageIndex"] as? Int else {
-            result(FlutterError(code: "INVALID_ARGS", message: "Missing 'pageIndex'", details: nil))
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing arguments", details: nil))
             return
         }
         
-        guard let document = currentDocument,
+        guard let document = documents[documentId],
               pageIndex >= 0 && pageIndex < document.pageCount,
               let page = document.page(at: pageIndex) else {
             result([])
             return
         }
         
-        // Extract text rects using PDFKit selections
-        var textRects: [[String: Any]] = []
-        let pageBounds = page.bounds(for: .mediaBox)
-        
-        guard let pageText = page.string, !pageText.isEmpty else {
-            result([])
-            return
-        }
-        
-        // Get character-level selections for text geometry
-        var charOffset = 0
-        for i in 0..<pageText.count {
-            let range = NSRange(location: i, length: 1)
-            if let selection = page.selection(for: range) {
-                let bounds = selection.bounds(for: page)
-                // Convert from PDF coords (bottom-up) to top-down
-                let flippedY = pageBounds.height - bounds.origin.y - bounds.height
-                
-                let char = String(pageText[pageText.index(pageText.startIndex, offsetBy: i)])
-                
-                textRects.append([
-                    "x": Double(bounds.origin.x),
-                    "y": Double(flippedY),
-                    "width": Double(bounds.width),
-                    "height": Double(bounds.height),
-                    "text": char,
-                    "charOffset": charOffset
-                ])
+        // Move to background queue — text extraction can be slow on dense pages
+        DispatchQueue.global(qos: .userInitiated).async {
+            let pageBounds = page.bounds(for: .mediaBox)
+            
+            guard let pageText = page.string, !pageText.isEmpty else {
+                DispatchQueue.main.async { result([]) }
+                return
             }
-            charOffset += 1
+            
+            var textRects: [[String: Any]] = []
+            textRects.reserveCapacity(pageText.count)
+            
+            // Word-level batch extraction → split into chars.
+            // Using word ranges avoids O(n²) per-character PDFSelection creation.
+            let nsText = pageText as NSString
+            var wordStart = 0
+            
+            while wordStart < nsText.length {
+                let wordRange = nsText.rangeOfComposedCharacterSequences(
+                    for: NSRange(location: wordStart, length: min(64, nsText.length - wordStart))
+                )
+                
+                if let selection = page.selection(for: wordRange) {
+                    // Split word selection into individual chars
+                    for offset in 0..<wordRange.length {
+                        let charIdx = wordRange.location + offset
+                        let charRange = NSRange(location: charIdx, length: 1)
+                        if let charSelection = page.selection(for: charRange) {
+                            let bounds = charSelection.bounds(for: page)
+                            let flippedY = pageBounds.height - bounds.origin.y - bounds.height
+                            
+                            let char = nsText.substring(with: charRange)
+                            
+                            textRects.append([
+                                "x": Double(bounds.origin.x),
+                                "y": Double(flippedY),
+                                "width": Double(bounds.width),
+                                "height": Double(bounds.height),
+                                "text": char,
+                                "charOffset": charIdx
+                            ])
+                        }
+                    }
+                }
+                
+                wordStart += wordRange.length
+                if wordRange.length == 0 { wordStart += 1 } // Safety: avoid infinite loop
+            }
+            
+            DispatchQueue.main.async {
+                result(textRects)
+            }
         }
-        
-        result(textRects)
     }
     
     // MARK: - Get Page Text
     
     private func handleGetPageText(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
+              let documentId = args["documentId"] as? String,
               let pageIndex = args["pageIndex"] as? Int else {
-            result(FlutterError(code: "INVALID_ARGS", message: "Missing 'pageIndex'", details: nil))
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing arguments", details: nil))
             return
         }
         
-        guard let document = currentDocument,
+        guard let document = documents[documentId],
               pageIndex >= 0 && pageIndex < document.pageCount,
               let page = document.page(at: pageIndex) else {
             result("")
@@ -247,8 +291,18 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
     
     // MARK: - Dispose
     
-    private func handleDispose(result: @escaping FlutterResult) {
-        currentDocument = nil
+    private func handleDispose(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let documentId = args["documentId"] as? String else {
+            result(nil)
+            return
+        }
+        documents.removeValue(forKey: documentId)
+        result(nil)
+    }
+    
+    private func handleDisposeAll(result: @escaping FlutterResult) {
+        documents.removeAll()
         result(nil)
     }
 }

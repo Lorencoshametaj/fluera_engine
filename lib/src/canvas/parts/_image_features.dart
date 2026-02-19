@@ -36,21 +36,23 @@ extension on _NebulaCanvasScreenState {
       );
       final viewportCenter = _canvasController.screenToCanvas(screenCenter);
 
-      // 📏 Calculate initial scale to have reasonable size
-      // Target: larghezza max 800px sullo schermo (size more grande per canvas 100k)
-      const double targetScreenWidth = 800.0;
+      // 📏 Calculate initial scale to have reasonable size on screen.
+      // Target: ~400px on screen, regardless of current canvas zoom.
+      final screenWidth = MediaQuery.of(context).size.width;
+      final targetScreenWidth = screenWidth * 0.45; // ~45% of screen width
       final imageWidth = image.width.toDouble();
+      final canvasZoom = _canvasController.scale;
 
-      // Scale per canvas (without considerare zoom)
-      double initialScale = targetScreenWidth / imageWidth;
+      // Convert from screen pixels to canvas units, then scale to image pixels
+      double initialScale = (targetScreenWidth / canvasZoom) / imageWidth;
 
-      // Limita lo scale tra 0.1 e 2.0 (permetti ingrandimento fino a 2x)
-      initialScale = initialScale.clamp(0.1, 2.0);
+      // Clamp to sane range
+      initialScale = initialScale.clamp(0.05, 3.0);
 
       // 🌐 Upload to Storage if on a shared canvas (so remote users can access it)
       String? storageUrl;
       String? thumbnailUrl;
-      final imageId = const Uuid().v4();
+      final imageId = generateUid();
       // Phase 2: upload to cloud storage for shared canvases
       // if (_isSharedCanvas) {
       //   final syncId = widget.infiniteCanvasId ?? _canvasId;

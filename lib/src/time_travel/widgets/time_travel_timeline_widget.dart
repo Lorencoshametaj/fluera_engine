@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../services/time_travel_playback_engine.dart';
 
@@ -622,7 +621,24 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
 
   // ============================================================================
   // FORMATTING HELPERS
-  // ============================================================================
+  static const _months = [
+    'Gen',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mag',
+    'Giu',
+    'Lug',
+    'Ago',
+    'Set',
+    'Ott',
+    'Nov',
+    'Dic',
+  ];
+  static const _weekdays = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+
+  static String _hm(DateTime dt) =>
+      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
   /// Formatta timestamp assoluto in modo smart:
   /// - Oggi: "14:30"
@@ -636,19 +652,15 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
     final diff = today.difference(eventDay).inDays;
 
     if (diff == 0) {
-      // Oggi → solo ora
-      return DateFormat.Hm().format(dt);
+      return _hm(dt);
     } else if (diff == 1) {
-      return 'Ieri, ${DateFormat.Hm().format(dt)}';
+      return 'Ieri, ${_hm(dt)}';
     } else if (diff < 7) {
-      // This week → day + time
-      return '${DateFormat.E().format(dt)}, ${DateFormat.Hm().format(dt)}';
+      return '${_weekdays[dt.weekday - 1]}, ${_hm(dt)}';
     } else if (dt.year == now.year) {
-      // Quest'anno → giorno mese + ora
-      return DateFormat('d MMM, HH:mm').format(dt);
+      return '${dt.day} ${_months[dt.month - 1]}, ${_hm(dt)}';
     } else {
-      // Anno diverso
-      return DateFormat('d MMM y').format(dt);
+      return '${dt.day} ${_months[dt.month - 1]} ${dt.year}';
     }
   }
 }
@@ -868,6 +880,21 @@ class _TimelineHeatmapPainter extends CustomPainter {
     }
   }
 
+  static const _months = [
+    'Gen',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mag',
+    'Giu',
+    'Lug',
+    'Ago',
+    'Set',
+    'Ott',
+    'Nov',
+    'Dic',
+  ];
+
   /// Formatta data per etichetta compatta
   String _formatDateLabel(DateTime dt, DateTime today, DateTime now) {
     final eventDay = DateTime(dt.year, dt.month, dt.day);
@@ -876,9 +903,9 @@ class _TimelineHeatmapPainter extends CustomPainter {
     if (diff == 0) return 'Oggi';
     if (diff == 1) return 'Ieri';
     if (dt.year == now.year) {
-      return DateFormat('d MMM').format(dt);
+      return '${dt.day} ${_months[dt.month - 1]}';
     }
-    return DateFormat('d MMM y').format(dt);
+    return '${dt.day} ${_months[dt.month - 1]} ${dt.year}';
   }
 
   @override

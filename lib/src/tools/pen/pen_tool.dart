@@ -1,6 +1,7 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:uuid/uuid.dart';
+import '../../utils/uid.dart';
 import '../base/tool_context.dart';
 import '../base/base_tool.dart';
 import '../base/tool_interface.dart';
@@ -41,6 +42,24 @@ part 'pen_tool_geometry.dart';
 /// What part of an anchor is being edited.
 enum _EditTarget { position, handleIn, handleOut }
 
+/// Cursor feedback hint — indicates what action will occur on click.
+enum PenCursorHint {
+  /// No hint (cursor not in a meaningful area).
+  none,
+
+  /// Will add a new anchor point.
+  addPoint,
+
+  /// Will edit an existing anchor (reposition, handles).
+  editAnchor,
+
+  /// Will close the path (near first anchor with ≥3 points).
+  closePath,
+
+  /// Will insert a point on an existing segment.
+  addOnSegment,
+}
+
 class PenTool extends BaseTool {
   // ============================================================================
   // 🔧 CONFIGURATION
@@ -70,6 +89,7 @@ class PenTool extends BaseTool {
 
   PenTool({
     this.onPathNodeCreated,
+    this.onPathNodeEdited,
     this.fillColor,
     this.strokeColor = Colors.black,
     this.strokeWidth = 2.0,
@@ -185,11 +205,89 @@ class PenTool extends BaseTool {
   /// Used to show the live Bézier curve shape before releasing.
   AnchorPoint? _previewAnchor;
 
+  // ── Handle double-tap tracking ──
+
+  /// Last handle tap: anchor index.
+  int _lastTappedHandleIndex = -1;
+
+  /// Whether the last handle tap was on handleIn (true) or handleOut (false).
+  bool _lastTappedHandleIsIn = false;
+
+  /// Timestamp of the last handle tap.
+  int _lastHandleTapMs = 0;
+
+  // ── Alt key for handle break ──
+
+  /// Whether the Alt/Option key is currently held down.
+  bool _altKeyDown = false;
+
+  // ── Edit existing PathNode ──
+
+  /// Whether we are editing an existing PathNode (vs creating new).
+  bool _isEditingExisting = false;
+
+  /// ID of the PathNode being edited (null when creating new).
+  String? _editingNodeId;
+
+  /// Callback invoked when the user finishes editing an existing path.
+  final void Function(String nodeId, PathNode updatedNode)? onPathNodeEdited;
+
+  // ── Context menu state ──
+
+  /// Anchor index for the context menu (-1 = none).
+  int _contextMenuAnchorIndex = -1;
+
+  /// Whether to show the anchor context menu popup.
+  bool _showAnchorContextMenu = false;
+
+  /// Segment index for the segment context menu (-1 = none).
+  int _contextMenuSegmentIndex = -1;
+
+  /// Whether to show the segment context menu popup.
+  bool _showSegmentContextMenu = false;
+
+  // ── Cursor feedback hint ──
+
+  /// Current cursor hint for visual feedback.
+  PenCursorHint _cursorHint = PenCursorHint.none;
+
   /// Whether we are in path-building mode.
   bool get isBuilding => _anchors.isNotEmpty;
 
+  /// Whether we are editing an existing PathNode.
+  bool get isEditingExisting => _isEditingExisting;
+
   /// Read-only access to current anchors (for testing/inspection).
   List<AnchorPoint> get anchors => List.unmodifiable(_anchors);
+
+  /// Current cursor hint.
+  PenCursorHint get cursorHint => _cursorHint;
+
+  /// Whether the anchor context menu is visible.
+  bool get showAnchorContextMenu => _showAnchorContextMenu;
+
+  /// Index of anchor for context menu.
+  int get contextMenuAnchorIndex => _contextMenuAnchorIndex;
+
+  /// Whether the segment context menu is visible.
+  bool get showSegmentContextMenu => _showSegmentContextMenu;
+
+  /// Index of segment for context menu.
+  int get contextMenuSegmentIndex => _contextMenuSegmentIndex;
+
+  /// Set selected anchor indices for testing.
+  @visibleForTesting
+  void setSelectedAnchorsForTest(Set<int> indices) {
+    _selectedAnchorIndices
+      ..clear()
+      ..addAll(indices);
+  }
+
+  /// Insert an anchor on a segment for testing.
+  @visibleForTesting
+  void insertAnchorOnSegmentForTest(int segIndex, double t) {
+    insertAnchorOnSegment(segIndex, t);
+  }
 
   // ============================================================================
   // LIFECYCLE
@@ -283,6 +381,91 @@ class PenTool extends BaseTool {
     HapticFeedback.lightImpact();
   }
 
+  /// Public method to delete selected anchors (used by touch UI).
+  void deleteSelectedAnchors() {
+    if (_selectedAnchorIndices.isNotEmpty) {
+      _deleteAnchors(Set<int>.from(_selectedAnchorIndices));
+      HapticFeedback.mediumImpact();
+    }
+  }
+
+  /// Public method to reverse path direction (used by touch UI).
+  void reversePathDirection() {
+    if (_anchors.length >= 2) {
+      _reversePath();
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  /// Public method to cycle anchor type at [index] (used by touch UI).
+  void cycleAnchorTypeAt(int index) {
+    if (index >= 0 && index < _anchors.length) {
+      _cycleAnchorType(_anchors[index], index);
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  /// Public method to equalize handles at [index] (used by touch UI).
+  void equalizeHandlesAt(int index) {
+    if (index >= 0 && index < _anchors.length) {
+      _equalizeHandles(index);
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  /// Public method to auto-smooth all anchors (used by touch UI).
+  void autoSmooth() {
+    if (_anchors.length >= 2) {
+      _autoSmooth();
+      HapticFeedback.mediumImpact();
+    }
+  }
+
+  /// Public method to delete a segment (split path).
+  void splitPathAtSegment(int segIndex, ToolContext context) {
+    if (segIndex >= 0 && segIndex < _anchors.length - 1) {
+      _deleteSegment(segIndex, context);
+      HapticFeedback.heavyImpact();
+    }
+  }
+
+  /// Dismiss any visible context menu.
+  void dismissContextMenu() {
+    _showAnchorContextMenu = false;
+    _showSegmentContextMenu = false;
+    _contextMenuAnchorIndex = -1;
+    _contextMenuSegmentIndex = -1;
+  }
+
+  // ============================================================================
+  // ✏️ EDIT EXISTING PATHNODE
+  // ============================================================================
+
+  /// Enter edit mode for an existing [PathNode].
+  ///
+  /// Extracts anchors from the node's VectorPath and loads them
+  /// into the tool state so the user can modify anchor points,
+  /// handles, and then re-finalize to update the node in place.
+  void editPathNode(PathNode node) {
+    _reset();
+    final extracted = AnchorPoint.fromVectorPath(node.path);
+    _anchors.addAll(extracted);
+
+    // Copy visual properties.
+    fillColor = node.fillColor;
+    fillGradient = node.fillGradient;
+    strokeColor = node.strokeColor ?? Colors.black;
+    strokeWidth = node.strokeWidth;
+    strokeCap = node.strokeCap;
+    strokeJoin = node.strokeJoin;
+
+    // Mark as editing existing.
+    _isEditingExisting = true;
+    _editingNodeId = node.id;
+
+    HapticFeedback.mediumImpact();
+  }
+
   @override
   Widget? buildToolOptions(BuildContext buildContext) =>
       buildPenToolOptions(buildContext);
@@ -349,4 +532,18 @@ class PenTool extends BaseTool {
       insertAnchorOnSegment(segIndex, t);
 
   Offset _applySnapping(Offset pos) => applySnapping(pos);
+
+  void _deleteAnchors(Set<int> indices) => deleteAnchorsByIndex(indices);
+
+  void _reversePath() => reversePath();
+
+  void _equalizeHandles(int index) => equalizeHandles(index);
+
+  void _cycleAnchorType(AnchorPoint anchor, int index) =>
+      cycleAnchorType(anchor, index);
+
+  void _deleteSegment(int segIndex, ToolContext context) =>
+      deleteSegment(segIndex, context);
+
+  void _autoSmooth({double tension = 0.5}) => autoSmoothPath(tension: tension);
 }

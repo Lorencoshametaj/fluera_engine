@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 import '../l10n/nebula_localizations.dart';
 import '../core/models/image_element.dart';
-import '../drawing/models/pro_drawing_point.dart';
+import 'image_editor_models.dart';
+import 'image_editor_preview.dart';
+import 'image_editor_crop.dart';
 
 // ============================================================================
-// 🎨 IMAGE EDITOR DIALOG — Material Design 3
-// Professional image editor dialog with color adjustments, transforms, and crop.
+// 🎨 IMAGE EDITOR DIALOG — Material Design 3  (Enterprise Quality)
+//
+// Entry point for the professional image editor. State, undo/redo, and
+// keyboard shortcuts live here. Tabs, painters, and crop are decomposed
+// into sibling files.
 // ============================================================================
 
 class ImageEditorDialog extends StatefulWidget {
@@ -30,100 +36,257 @@ class ImageEditorDialog extends StatefulWidget {
 
 class _ImageEditorDialogState extends State<ImageEditorDialog>
     with SingleTickerProviderStateMixin {
-  late double _scale;
-  late double _rotation;
-  late double _brightness;
-  late double _contrast;
-  late double _saturation;
-  late double _opacity;
-  late bool _flipHorizontal;
-  late bool _flipVertical;
+  // Editable state
+  late double _scale, _rotation, _brightness, _contrast;
+  late double _saturation, _opacity, _vignette, _hueShift, _temperature;
+  late bool _flipH, _flipV;
   Rect? _cropRect;
 
   late final TabController _tabController;
+  final FocusNode _focusNode = FocusNode(); // Feature 5: keyboard
+
+  bool _showOriginal = false;
+  String _activeFilterId = 'none';
+  int _previewKey = 0;
+
+  // Feature 6: Undo/Redo
+  final List<EditorSnapshot> _undoStack = [];
+  final List<EditorSnapshot> _redoStack = [];
 
   @override
   void initState() {
     super.initState();
-    _scale = widget.imageElement.scale;
-    _rotation = widget.imageElement.rotation;
-    _brightness = widget.imageElement.brightness;
-    _contrast = widget.imageElement.contrast;
-    _saturation = widget.imageElement.saturation;
-    _opacity = widget.imageElement.opacity;
-    _flipHorizontal = widget.imageElement.flipHorizontal;
-    _flipVertical = widget.imageElement.flipVertical;
-    _cropRect = widget.imageElement.cropRect;
-    _tabController = TabController(length: 2, vsync: this);
+    final e = widget.imageElement;
+    _scale = e.scale;
+    _rotation = e.rotation;
+    _brightness = e.brightness;
+    _contrast = e.contrast;
+    _saturation = e.saturation;
+    _opacity = e.opacity;
+    _vignette = e.vignette;
+    _hueShift = e.hueShift;
+    _temperature = e.temperature;
+    _flipH = e.flipHorizontal;
+    _flipV = e.flipVertical;
+    _cropRect = e.cropRect;
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
-  /// Whether any value has been changed from the original.
-  bool get _hasChanges =>
-      _rotation != widget.imageElement.rotation ||
-      _brightness != widget.imageElement.brightness ||
-      _contrast != widget.imageElement.contrast ||
-      _saturation != widget.imageElement.saturation ||
-      _opacity != widget.imageElement.opacity ||
-      _flipHorizontal != widget.imageElement.flipHorizontal ||
-      _flipVertical != widget.imageElement.flipVertical ||
-      _cropRect != widget.imageElement.cropRect;
+  // --------------------------------------------------------------------------
+  // State helpers
+  // --------------------------------------------------------------------------
+
+  bool get _hasChanges {
+    final e = widget.imageElement;
+    return _scale != e.scale ||
+        _rotation != e.rotation ||
+        _brightness != e.brightness ||
+        _contrast != e.contrast ||
+        _saturation != e.saturation ||
+        _opacity != e.opacity ||
+        _vignette != e.vignette ||
+        _hueShift != e.hueShift ||
+        _temperature != e.temperature ||
+        _flipH != e.flipHorizontal ||
+        _flipV != e.flipVertical ||
+        _cropRect != e.cropRect;
+  }
+
+  EditorSnapshot _snapshot() => EditorSnapshot(
+    rotation: _rotation,
+    brightness: _brightness,
+    contrast: _contrast,
+    saturation: _saturation,
+    opacity: _opacity,
+    vignette: _vignette,
+    hueShift: _hueShift,
+    temperature: _temperature,
+    flipH: _flipH,
+    flipV: _flipV,
+    cropRect: _cropRect,
+    filterId: _activeFilterId,
+  );
+
+  void _pushUndo() {
+    _undoStack.add(_snapshot());
+    _redoStack.clear();
+  }
+
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    _redoStack.add(_snapshot());
+    _restoreSnapshot(_undoStack.removeLast());
+  }
+
+  void _redo() {
+    if (_redoStack.isEmpty) return;
+    _undoStack.add(_snapshot());
+    _restoreSnapshot(_redoStack.removeLast());
+  }
+
+  void _restoreSnapshot(EditorSnapshot s) {
+    setState(() {
+      _rotation = s.rotation;
+      _brightness = s.brightness;
+      _contrast = s.contrast;
+      _saturation = s.saturation;
+      _opacity = s.opacity;
+      _vignette = s.vignette;
+      _hueShift = s.hueShift;
+      _temperature = s.temperature;
+      _flipH = s.flipH;
+      _flipV = s.flipV;
+      _cropRect = s.cropRect;
+      _activeFilterId = s.filterId;
+      _previewKey++;
+    });
+    HapticFeedback.lightImpact();
+  }
 
   void _resetAll() {
+    _pushUndo();
     setState(() {
+      // Note: _scale is not reset — it's set via canvas pinch, not editor sliders.
       _rotation = 0;
       _brightness = 0;
       _contrast = 0;
       _saturation = 0;
       _opacity = 1.0;
-      _flipHorizontal = false;
-      _flipVertical = false;
+      _vignette = 0;
+      _hueShift = 0;
+      _temperature = 0;
+      _flipH = false;
+      _flipV = false;
       _cropRect = null;
+      _activeFilterId = 'none';
+      _previewKey++;
     });
     HapticFeedback.mediumImpact();
   }
+
+  void _applyFilter(FilterPreset filter) {
+    if (filter.id == _activeFilterId) return;
+    _pushUndo();
+    setState(() {
+      _activeFilterId = filter.id;
+      if (filter.id == 'none') {
+        _brightness = 0;
+        _contrast = 0;
+        _saturation = 0;
+      } else {
+        _brightness = filter.brightness;
+        _contrast = filter.contrast;
+        _saturation = filter.saturation;
+      }
+      _previewKey++;
+    });
+    HapticFeedback.lightImpact();
+  }
+
+  // Feature 2: Confirm before discard
+  Future<void> _handleClose() async {
+    if (!_hasChanges) {
+      Navigator.pop(context);
+      return;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final l10n = NebulaLocalizations.of(ctx);
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: Text(l10n.proCanvas_discardChanges),
+          content: Text(l10n.proCanvas_discardChangesMessage),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: cs.error),
+              child: Text(l10n.proCanvas_discardConfirm),
+            ),
+          ],
+        );
+      },
+    );
+    if (discard == true && mounted) Navigator.pop(context);
+  }
+
+  // Feature 5: Keyboard shortcuts
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final ctrl =
+        HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    if (ctrl && event.logicalKey == LogicalKeyboardKey.keyZ) {
+      _undo();
+      return KeyEventResult.handled;
+    }
+    if (ctrl && event.logicalKey == LogicalKeyboardKey.keyY) {
+      _redo();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  // --------------------------------------------------------------------------
+  // Build
+  // --------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    return Dialog(
-      backgroundColor: cs.surfaceContainerHigh,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 520,
-          maxHeight: MediaQuery.of(context).size.height * 0.88,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildHeader(cs, tt),
-            _buildPreview(cs),
-            _buildTabBar(cs),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [_buildTransformTab(cs, tt), _buildColorTab(cs, tt)],
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Dialog(
+        backgroundColor: cs.surfaceContainerHigh,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 520,
+            maxHeight: MediaQuery.of(context).size.height * 0.88,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildHeader(cs, tt),
+              _buildPreview(cs),
+              _buildTabBar(cs),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildTransformTab(cs, tt),
+                    _buildColorTab(cs, tt),
+                    _buildFiltersTab(cs, tt),
+                  ],
+                ),
               ),
-            ),
-            _buildActions(cs, tt),
-          ],
+              _buildActions(cs, tt),
+            ],
+          ),
         ),
       ),
     );
   }
 
   // --------------------------------------------------------------------------
-  // 🏷️ Header
+  // Header — with image info, undo/redo buttons
   // --------------------------------------------------------------------------
 
   Widget _buildHeader(ColorScheme cs, TextTheme tt) {
@@ -134,10 +297,31 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
           Icon(Icons.auto_fix_high_rounded, color: cs.primary, size: 24),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              NebulaLocalizations.of(context).proCanvas_professionalEditor,
-              style: tt.titleLarge?.copyWith(color: cs.onSurface),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  NebulaLocalizations.of(context).proCanvas_professionalEditor,
+                  style: tt.titleLarge?.copyWith(color: cs.onSurface),
+                ),
+                Text(
+                  '${widget.image.width} × ${widget.image.height}',
+                  style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
+              ],
             ),
+          ),
+          IconButton(
+            onPressed: _undoStack.isNotEmpty ? _undo : null,
+            icon: const Icon(Icons.undo_rounded, size: 20),
+            tooltip: 'Undo (Ctrl+Z)',
+            style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
+          ),
+          IconButton(
+            onPressed: _redoStack.isNotEmpty ? _redo : null,
+            icon: const Icon(Icons.redo_rounded, size: 20),
+            tooltip: 'Redo (Ctrl+Y)',
+            style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
           ),
           if (_hasChanges)
             IconButton(
@@ -147,7 +331,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
               style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
             ),
           IconButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: _handleClose,
             icon: const Icon(Icons.close_rounded),
             style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
           ),
@@ -157,42 +341,78 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   }
 
   // --------------------------------------------------------------------------
-  // 🖼️ Preview
+  // Preview — with before/after toggle + animated transitions
   // --------------------------------------------------------------------------
 
   Widget _buildPreview(ColorScheme cs) {
-    return Container(
-      height: 240,
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.outlineVariant, width: 1),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
-        child: CustomPaint(
-          painter: _PreviewPainter(
-            image: widget.image,
-            rotation: _rotation,
-            flipHorizontal: _flipHorizontal,
-            flipVertical: _flipVertical,
-            brightness: _brightness,
-            contrast: _contrast,
-            saturation: _saturation,
-            opacity: _opacity,
-            cropRect: _cropRect,
-            drawingStrokes: widget.imageElement.drawingStrokes,
+    final l10n = NebulaLocalizations.of(context);
+    return Column(
+      children: [
+        Container(
+          height: 220,
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: cs.outlineVariant, width: 1),
           ),
-          child: const SizedBox.expand(),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: CustomPaint(
+                key: ValueKey<int>(_previewKey),
+                painter: PreviewPainter(
+                  image: widget.image,
+                  rotation: _showOriginal ? 0 : _rotation,
+                  flipHorizontal: _showOriginal ? false : _flipH,
+                  flipVertical: _showOriginal ? false : _flipV,
+                  brightness: _showOriginal ? 0 : _brightness,
+                  contrast: _showOriginal ? 0 : _contrast,
+                  saturation: _showOriginal ? 0 : _saturation,
+                  opacity: _showOriginal ? 1.0 : _opacity,
+                  vignette: _showOriginal ? 0 : _vignette,
+                  hueShift: _showOriginal ? 0 : _hueShift,
+                  temperature: _showOriginal ? 0 : _temperature,
+                  cropRect: _showOriginal ? null : _cropRect,
+                  drawingStrokes: widget.imageElement.drawingStrokes,
+                ),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
         ),
-      ),
+        if (_hasChanges)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: TextButton.icon(
+              onPressed: () => setState(() => _showOriginal = !_showOriginal),
+              icon: Icon(
+                _showOriginal
+                    ? Icons.visibility_off_rounded
+                    : Icons.compare_rounded,
+                size: 18,
+              ),
+              label: Text(
+                _showOriginal
+                    ? l10n.proCanvas_filterNone
+                    : l10n.proCanvas_beforeAfter,
+                style: const TextStyle(fontSize: 13),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor:
+                    _showOriginal ? cs.primary : cs.onSurfaceVariant,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+      ],
     );
   }
-
-  // --------------------------------------------------------------------------
-  // 🗂️ Tab Bar
-  // --------------------------------------------------------------------------
 
   Widget _buildTabBar(ColorScheme cs) {
     final l10n = NebulaLocalizations.of(context);
@@ -202,21 +422,26 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
       unselectedLabelColor: cs.onSurfaceVariant,
       indicatorColor: cs.primary,
       dividerColor: cs.outlineVariant.withValues(alpha: 0.5),
+      labelStyle: const TextStyle(fontSize: 12),
       tabs: [
         Tab(
           icon: const Icon(Icons.transform_rounded, size: 20),
           text: l10n.proCanvas_transformations,
         ),
         Tab(
-          icon: const Icon(Icons.palette_rounded, size: 20),
+          icon: const Icon(Icons.tune_rounded, size: 20),
           text: l10n.proCanvas_colorAdjustments,
+        ),
+        Tab(
+          icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+          text: l10n.proCanvas_filters,
         ),
       ],
     );
   }
 
   // --------------------------------------------------------------------------
-  // 🔄 Transform Tab
+  // Transform Tab
   // --------------------------------------------------------------------------
 
   Widget _buildTransformTab(ColorScheme cs, TextTheme tt) {
@@ -224,21 +449,32 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       children: [
-        // Rotation slider
-        _buildSliderRow(
-          cs: cs,
-          tt: tt,
-          icon: Icons.rotate_right_rounded,
-          label: l10n.proCanvas_rotation,
-          value: _rotation,
-          min: -3.14159,
-          max: 3.14159,
-          valueText: '${(_rotation * 180 / 3.14159).toInt()}°',
-          onChanged: (v) => setState(() => _rotation = v),
+        _slider(
+          cs,
+          tt,
+          Icons.rotate_right_rounded,
+          l10n.proCanvas_rotation,
+          _rotation,
+          -math.pi,
+          math.pi,
+          0,
+          '${(_rotation * 180 / math.pi).toInt()}°',
+          (v) => setState(() => _rotation = v),
+        ),
+        const SizedBox(height: 8),
+        // Quick rotation presets
+        Row(
+          children: [
+            _quickRotateBtn(cs, 0, '0°'),
+            const SizedBox(width: 8),
+            _quickRotateBtn(cs, math.pi / 2, '90°'),
+            const SizedBox(width: 8),
+            _quickRotateBtn(cs, math.pi, '180°'),
+            const SizedBox(width: 8),
+            _quickRotateBtn(cs, -math.pi / 2, '270°'),
+          ],
         ),
         const SizedBox(height: 20),
-
-        // Flip chips
         Text(
           'Flip',
           style: tt.labelLarge?.copyWith(color: cs.onSurfaceVariant),
@@ -248,31 +484,31 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
           spacing: 8,
           children: [
             FilterChip(
-              selected: _flipHorizontal,
+              selected: _flipH,
               label: Text(l10n.proCanvas_flipH),
               avatar: const Icon(Icons.flip_rounded, size: 18),
               onSelected: (_) {
-                setState(() => _flipHorizontal = !_flipHorizontal);
+                _pushUndo();
+                setState(() => _flipH = !_flipH);
                 HapticFeedback.lightImpact();
               },
             ),
             FilterChip(
-              selected: _flipVertical,
+              selected: _flipV,
               label: Text(l10n.proCanvas_flipV),
               avatar: Transform.rotate(
-                angle: 1.5708,
+                angle: math.pi / 2,
                 child: const Icon(Icons.flip_rounded, size: 18),
               ),
               onSelected: (_) {
-                setState(() => _flipVertical = !_flipVertical);
+                _pushUndo();
+                setState(() => _flipV = !_flipV);
                 HapticFeedback.lightImpact();
               },
             ),
           ],
         ),
         const SizedBox(height: 20),
-
-        // Crop
         FilledButton.tonalIcon(
           onPressed: _openCropEditor,
           icon: const Icon(Icons.crop_rounded),
@@ -285,7 +521,10 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
         if (_cropRect != null) ...[
           const SizedBox(height: 8),
           TextButton.icon(
-            onPressed: () => setState(() => _cropRect = null),
+            onPressed: () {
+              _pushUndo();
+              setState(() => _cropRect = null);
+            },
             icon: const Icon(Icons.close_rounded, size: 18),
             label: Text(l10n.proCanvas_removeCrop),
             style: TextButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
@@ -295,8 +534,35 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
     );
   }
 
+  Widget _quickRotateBtn(ColorScheme cs, double angle, String label) {
+    final active = (_rotation - angle).abs() < 0.01;
+    return Expanded(
+      child: FilledButton.tonal(
+        onPressed: () {
+          _pushUndo();
+          setState(() => _rotation = angle);
+          HapticFeedback.lightImpact();
+        },
+        style: FilledButton.styleFrom(
+          backgroundColor:
+              active ? cs.primaryContainer : cs.surfaceContainerHighest,
+          foregroundColor: active ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          visualDensity: VisualDensity.compact,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+
   // --------------------------------------------------------------------------
-  // 🎨 Color Tab
+  // Color Tab
   // --------------------------------------------------------------------------
 
   Widget _buildColorTab(ColorScheme cs, TextTheme tt) {
@@ -304,72 +570,211 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       children: [
-        _buildSliderRow(
-          cs: cs,
-          tt: tt,
-          icon: Icons.brightness_6_rounded,
-          label: l10n.proCanvas_brightness,
-          value: _brightness,
-          min: -0.5,
-          max: 0.5,
-          valueText: _formatPercent(_brightness),
-          onChanged: (v) => setState(() => _brightness = v),
+        _slider(
+          cs,
+          tt,
+          Icons.brightness_6_rounded,
+          l10n.proCanvas_brightness,
+          _brightness,
+          -0.5,
+          0.5,
+          0,
+          _pct(_brightness),
+          (v) => setState(() {
+            _brightness = v;
+            _activeFilterId = 'none';
+          }),
         ),
-        const SizedBox(height: 16),
-        _buildSliderRow(
-          cs: cs,
-          tt: tt,
-          icon: Icons.contrast_rounded,
-          label: l10n.proCanvas_contrast,
-          value: _contrast,
-          min: -0.5,
-          max: 0.5,
-          valueText: _formatPercent(_contrast),
-          onChanged: (v) => setState(() => _contrast = v),
+        const SizedBox(height: 12),
+        _slider(
+          cs,
+          tt,
+          Icons.contrast_rounded,
+          l10n.proCanvas_contrast,
+          _contrast,
+          -0.5,
+          0.5,
+          0,
+          _pct(_contrast),
+          (v) => setState(() {
+            _contrast = v;
+            _activeFilterId = 'none';
+          }),
         ),
-        const SizedBox(height: 16),
-        _buildSliderRow(
-          cs: cs,
-          tt: tt,
-          icon: Icons.palette_rounded,
-          label: l10n.proCanvas_saturation,
-          value: _saturation,
-          min: -1.0,
-          max: 1.0,
-          valueText: _formatPercent(_saturation),
-          onChanged: (v) => setState(() => _saturation = v),
+        const SizedBox(height: 12),
+        _slider(
+          cs,
+          tt,
+          Icons.palette_rounded,
+          l10n.proCanvas_saturation,
+          _saturation,
+          -1,
+          1,
+          0,
+          _pct(_saturation),
+          (v) => setState(() {
+            _saturation = v;
+            _activeFilterId = 'none';
+          }),
         ),
-        const SizedBox(height: 16),
-        _buildSliderRow(
-          cs: cs,
-          tt: tt,
-          icon: Icons.opacity_rounded,
-          label: l10n.proCanvas_opacity,
-          value: _opacity,
-          min: 0.1,
-          max: 1.0,
-          valueText: '${(_opacity * 100).toInt()}%',
-          onChanged: (v) => setState(() => _opacity = v),
+        const SizedBox(height: 12),
+        _slider(
+          cs,
+          tt,
+          Icons.opacity_rounded,
+          l10n.proCanvas_opacity,
+          _opacity,
+          0.1,
+          1,
+          1,
+          '${(_opacity * 100).toInt()}%',
+          (v) => setState(() => _opacity = v),
+        ),
+        const SizedBox(height: 12),
+        _slider(
+          cs,
+          tt,
+          Icons.vignette_rounded,
+          l10n.proCanvas_vignette,
+          _vignette,
+          0,
+          1,
+          0,
+          '${(_vignette * 100).toInt()}%',
+          (v) => setState(() => _vignette = v),
+        ),
+        const SizedBox(height: 12),
+        _slider(
+          cs,
+          tt,
+          Icons.color_lens_rounded,
+          l10n.proCanvas_hueShift,
+          _hueShift,
+          -1,
+          1,
+          0,
+          _pct(_hueShift),
+          (v) => setState(() {
+            _hueShift = v;
+            _activeFilterId = 'none';
+          }),
+        ),
+        const SizedBox(height: 12),
+        _slider(
+          cs,
+          tt,
+          Icons.thermostat_rounded,
+          l10n.proCanvas_temperature,
+          _temperature,
+          -1,
+          1,
+          0,
+          _pct(_temperature),
+          (v) => setState(() {
+            _temperature = v;
+            _activeFilterId = 'none';
+          }),
         ),
       ],
     );
   }
 
   // --------------------------------------------------------------------------
-  // 🎚️ Slider Row — MD3 native
+  // Filters Tab — cached thumbnails via RepaintBoundary
   // --------------------------------------------------------------------------
 
-  Widget _buildSliderRow({
-    required ColorScheme cs,
-    required TextTheme tt,
-    required IconData icon,
-    required String label,
-    required double value,
-    required double min,
-    required double max,
-    required String valueText,
-    required ValueChanged<double> onChanged,
-  }) {
+  Widget _buildFiltersTab(ColorScheme cs, TextTheme tt) {
+    final l10n = NebulaLocalizations.of(context);
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.85,
+      ),
+      itemCount: kFilterPresets.length,
+      itemBuilder: (_, i) {
+        final f = kFilterPresets[i];
+        final active = _activeFilterId == f.id;
+        return GestureDetector(
+          onTap: () => _applyFilter(f),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              color: active ? cs.primaryContainer : cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: active ? cs.primary : cs.outlineVariant,
+                width: active ? 2 : 1,
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Feature 3: RepaintBoundary for cached thumbnails
+                RepaintBoundary(
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: cs.surfaceContainerLowest,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: CustomPaint(
+                        painter: PreviewPainter(
+                          image: widget.image,
+                          rotation: 0,
+                          flipHorizontal: false,
+                          flipVertical: false,
+                          brightness: f.brightness,
+                          contrast: f.contrast,
+                          saturation: f.saturation,
+                          opacity: 1.0,
+                          drawingStrokes: const [],
+                        ),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  f.labelFn(l10n),
+                  style: tt.labelMedium?.copyWith(
+                    color: active ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Slider Row — with double-tap reset + center haptics (Feature 4)
+  // --------------------------------------------------------------------------
+
+  Widget _slider(
+    ColorScheme cs,
+    TextTheme tt,
+    IconData icon,
+    String label,
+    double value,
+    double min,
+    double max,
+    double def,
+    String text,
+    ValueChanged<double> onChanged,
+  ) {
+    final isDef = (value - def).abs() < 0.001;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -379,29 +784,50 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
             const SizedBox(width: 8),
             Text(label, style: tt.labelLarge?.copyWith(color: cs.onSurface)),
             const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: cs.primaryContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                valueText,
-                style: tt.labelMedium?.copyWith(
-                  color: cs.onPrimaryContainer,
-                  fontWeight: FontWeight.w600,
+            GestureDetector(
+              onDoubleTap:
+                  isDef
+                      ? null
+                      : () {
+                        _pushUndo();
+                        onChanged(def);
+                        HapticFeedback.lightImpact();
+                      },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      isDef ? cs.surfaceContainerHighest : cs.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  text,
+                  style: tt.labelMedium?.copyWith(
+                    color: isDef ? cs.onSurfaceVariant : cs.onPrimaryContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
           ],
         ),
-        Slider(value: value, min: min, max: max, onChanged: onChanged),
+        _HapticSlider(
+          value: value,
+          min: min,
+          max: max,
+          defaultValue: def,
+          onChangeStart: () => _pushUndo(),
+          onChanged: onChanged,
+        ),
       ],
     );
   }
 
   // --------------------------------------------------------------------------
-  // ✅ Actions Footer
+  // Actions Footer — with confirm-before-discard
   // --------------------------------------------------------------------------
 
   Widget _buildActions(ColorScheme cs, TextTheme tt) {
@@ -410,7 +836,6 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Row(
         children: [
-          // Delete
           TextButton.icon(
             onPressed: () {
               Navigator.pop(context);
@@ -421,31 +846,28 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
             style: TextButton.styleFrom(foregroundColor: cs.error),
           ),
           const Spacer(),
-
-          // Cancel
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l10n.cancel),
-          ),
+          TextButton(onPressed: _handleClose, child: Text(l10n.cancel)),
           const SizedBox(width: 8),
-
-          // Save
           FilledButton.icon(
             onPressed: () {
-              final updated = widget.imageElement.copyWith(
-                scale: _scale,
-                rotation: _rotation,
-                brightness: _brightness,
-                contrast: _contrast,
-                saturation: _saturation,
-                opacity: _opacity,
-                flipHorizontal: _flipHorizontal,
-                flipVertical: _flipVertical,
-                cropRect: _cropRect,
-                clearCrop:
-                    _cropRect == null && widget.imageElement.cropRect != null,
+              widget.onSave(
+                widget.imageElement.copyWith(
+                  scale: _scale,
+                  rotation: _rotation,
+                  brightness: _brightness,
+                  contrast: _contrast,
+                  saturation: _saturation,
+                  opacity: _opacity,
+                  vignette: _vignette,
+                  hueShift: _hueShift,
+                  temperature: _temperature,
+                  flipHorizontal: _flipH,
+                  flipVertical: _flipV,
+                  cropRect: _cropRect,
+                  clearCrop:
+                      _cropRect == null && widget.imageElement.cropRect != null,
+                ),
               );
-              widget.onSave(updated);
               Navigator.pop(context);
             },
             icon: const Icon(Icons.check_rounded),
@@ -457,583 +879,88 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   }
 
   // --------------------------------------------------------------------------
-  // ✂️ Crop Editor
+  // Crop Editor — with undo push (Feature 6)
   // --------------------------------------------------------------------------
 
   Future<void> _openCropEditor() async {
+    _pushUndo(); // Feature 6: Crop undo
     final result = await showDialog<Rect?>(
       context: context,
       barrierDismissible: false,
       builder:
-          (context) => _CropEditorDialog(
-            image: widget.image,
-            initialCropRect: _cropRect,
-          ),
+          (_) =>
+              CropEditorDialog(image: widget.image, initialCropRect: _cropRect),
     );
-
     if (result != null) {
       setState(() => _cropRect = result);
+    } else {
+      // User cancelled crop — restore undo
+      if (_undoStack.isNotEmpty) {
+        _undoStack.removeLast();
+      }
     }
   }
 
   // --------------------------------------------------------------------------
-  // 🛠️ Helpers
+  // Helpers
   // --------------------------------------------------------------------------
 
-  String _formatPercent(double v) {
-    final pct = (v * 100).toInt();
-    return pct >= 0 ? '+$pct%' : '$pct%';
+  String _pct(double v) {
+    final p = (v * 100).toInt();
+    return p >= 0 ? '+$p%' : '$p%';
   }
 }
 
-// ============================================================================
-// ✂️ CROP EDITOR DIALOG — Material Design 3
-// Interactive crop editor with rule-of-thirds grid and corner handles.
-// ============================================================================
+// =============================================================================
+// Stateful slider that tracks its own previous value for per-slider haptics.
+// Prevents ghost selectionClick when jumping between different sliders.
+// =============================================================================
 
-class _CropEditorDialog extends StatefulWidget {
-  final ui.Image image;
-  final Rect? initialCropRect;
+class _HapticSlider extends StatefulWidget {
+  final double value;
+  final double min;
+  final double max;
+  final double defaultValue;
+  final VoidCallback onChangeStart;
+  final ValueChanged<double> onChanged;
 
-  const _CropEditorDialog({required this.image, this.initialCropRect});
+  const _HapticSlider({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.defaultValue,
+    required this.onChangeStart,
+    required this.onChanged,
+  });
 
   @override
-  State<_CropEditorDialog> createState() => _CropEditorDialogState();
+  State<_HapticSlider> createState() => _HapticSliderState();
 }
 
-class _CropEditorDialogState extends State<_CropEditorDialog> {
-  late Rect _cropRect;
-  Offset? _dragStart;
-  String? _dragHandle; // 'tl', 'tr', 'bl', 'br', 'center'
-
-  @override
-  void initState() {
-    super.initState();
-    _cropRect =
-        widget.initialCropRect ?? const Rect.fromLTRB(0.1, 0.1, 0.9, 0.9);
-  }
+class _HapticSliderState extends State<_HapticSlider> {
+  double _prevValue = 0;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final l10n = NebulaLocalizations.of(context);
-
-    return Dialog(
-      backgroundColor: cs.surfaceContainerHighest,
-      insetPadding: const EdgeInsets.all(16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 8, 8),
-            child: Row(
-              children: [
-                Icon(Icons.crop_rounded, color: cs.primary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    l10n.proCanvas_cropImage,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(color: cs.onSurface),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(l10n.cancel),
-                ),
-                const SizedBox(width: 4),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, _cropRect),
-                  child: Text(l10n.apply),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
-          ),
-
-          Divider(height: 1, color: cs.outlineVariant),
-
-          // Interactive crop area
-          Expanded(
-            child: Container(
-              color: cs.surfaceContainerLowest,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return GestureDetector(
-                    onPanStart: (d) => _onPanStart(d, constraints),
-                    onPanUpdate: (d) => _onPanUpdate(d, constraints),
-                    onPanEnd:
-                        (_) => setState(() {
-                          _dragStart = null;
-                          _dragHandle = null;
-                        }),
-                    child: CustomPaint(
-                      size: Size(constraints.maxWidth, constraints.maxHeight),
-                      painter: _CropPainter(
-                        image: widget.image,
-                        cropRect: _cropRect,
-                        primaryColor: cs.primary,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-
-          // Instructions
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            child: Text(
-              l10n.proCanvas_cropInstructions,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _onPanStart(DragStartDetails details, BoxConstraints constraints) {
-    final localPos = details.localPosition;
-    final imageRect = _getImageRect(constraints);
-
-    final cropPixelRect = Rect.fromLTRB(
-      imageRect.left + _cropRect.left * imageRect.width,
-      imageRect.top + _cropRect.top * imageRect.height,
-      imageRect.left + _cropRect.right * imageRect.width,
-      imageRect.top + _cropRect.bottom * imageRect.height,
-    );
-
-    const handleSize = 40.0;
-
-    if ((localPos - cropPixelRect.topLeft).distance < handleSize) {
-      _dragHandle = 'tl';
-    } else if ((localPos - cropPixelRect.topRight).distance < handleSize) {
-      _dragHandle = 'tr';
-    } else if ((localPos - cropPixelRect.bottomLeft).distance < handleSize) {
-      _dragHandle = 'bl';
-    } else if ((localPos - cropPixelRect.bottomRight).distance < handleSize) {
-      _dragHandle = 'br';
-    } else if (cropPixelRect.contains(localPos)) {
-      _dragHandle = 'center';
-    }
-
-    if (_dragHandle != null) {
-      _dragStart = localPos;
-    }
-  }
-
-  void _onPanUpdate(DragUpdateDetails details, BoxConstraints constraints) {
-    if (_dragStart == null || _dragHandle == null) return;
-
-    final delta = details.localPosition - _dragStart!;
-    final imageRect = _getImageRect(constraints);
-    final dx = delta.dx / imageRect.width;
-    final dy = delta.dy / imageRect.height;
-
-    setState(() {
-      switch (_dragHandle!) {
-        case 'tl':
-          _cropRect = Rect.fromLTRB(
-            (_cropRect.left + dx).clamp(0.0, _cropRect.right - 0.1),
-            (_cropRect.top + dy).clamp(0.0, _cropRect.bottom - 0.1),
-            _cropRect.right,
-            _cropRect.bottom,
-          );
-        case 'tr':
-          _cropRect = Rect.fromLTRB(
-            _cropRect.left,
-            (_cropRect.top + dy).clamp(0.0, _cropRect.bottom - 0.1),
-            (_cropRect.right + dx).clamp(_cropRect.left + 0.1, 1.0),
-            _cropRect.bottom,
-          );
-        case 'bl':
-          _cropRect = Rect.fromLTRB(
-            (_cropRect.left + dx).clamp(0.0, _cropRect.right - 0.1),
-            _cropRect.top,
-            _cropRect.right,
-            (_cropRect.bottom + dy).clamp(_cropRect.top + 0.1, 1.0),
-          );
-        case 'br':
-          _cropRect = Rect.fromLTRB(
-            _cropRect.left,
-            _cropRect.top,
-            (_cropRect.right + dx).clamp(_cropRect.left + 0.1, 1.0),
-            (_cropRect.bottom + dy).clamp(_cropRect.top + 0.1, 1.0),
-          );
-        case 'center':
-          final w = _cropRect.width;
-          final h = _cropRect.height;
-          var newLeft = (_cropRect.left + dx).clamp(0.0, 1.0 - w);
-          var newTop = (_cropRect.top + dy).clamp(0.0, 1.0 - h);
-          _cropRect = Rect.fromLTWH(newLeft, newTop, w, h);
-      }
-      _dragStart = details.localPosition;
-    });
-  }
-
-  Rect _getImageRect(BoxConstraints constraints) {
-    final containerRatio = constraints.maxWidth / constraints.maxHeight;
-    final imageRatio = widget.image.width / widget.image.height;
-
-    double width, height;
-    if (containerRatio > imageRatio) {
-      height = constraints.maxHeight;
-      width = height * imageRatio;
-    } else {
-      width = constraints.maxWidth;
-      height = width / imageRatio;
-    }
-
-    return Rect.fromLTWH(
-      (constraints.maxWidth - width) / 2,
-      (constraints.maxHeight - height) / 2,
-      width,
-      height,
-    );
-  }
-}
-
-// ============================================================================
-// 🎨 CROP PAINTER
-// Renders the image with a dark overlay outside the crop area, rule-of-thirds
-// grid, and corner handles using the theme's primary color.
-// ============================================================================
-
-class _CropPainter extends CustomPainter {
-  final ui.Image image;
-  final Rect cropRect;
-  final Color primaryColor;
-
-  _CropPainter({
-    required this.image,
-    required this.cropRect,
-    required this.primaryColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Fit-contain the image
-    final containerRatio = size.width / size.height;
-    final imageRatio = image.width / image.height;
-
-    double w, h, left, top;
-    if (containerRatio > imageRatio) {
-      h = size.height;
-      w = h * imageRatio;
-      left = (size.width - w) / 2;
-      top = 0;
-    } else {
-      w = size.width;
-      h = w / imageRatio;
-      left = 0;
-      top = (size.height - h) / 2;
-    }
-
-    final imageRect = Rect.fromLTWH(left, top, w, h);
-
-    // Draw image
-    canvas.drawImageRect(
-      image,
-      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-      imageRect,
-      Paint()..filterQuality = FilterQuality.medium,
-    );
-
-    // Dark overlay outside crop
-    final cropPixel = Rect.fromLTRB(
-      imageRect.left + cropRect.left * imageRect.width,
-      imageRect.top + cropRect.top * imageRect.height,
-      imageRect.left + cropRect.right * imageRect.width,
-      imageRect.top + cropRect.bottom * imageRect.height,
-    );
-
-    final overlayPaint = Paint()..color = Colors.black.withValues(alpha: 0.55);
-
-    // Top, Bottom, Left, Right bands
-    canvas.drawRect(
-      Rect.fromLTRB(
-        imageRect.left,
-        imageRect.top,
-        imageRect.right,
-        cropPixel.top,
-      ),
-      overlayPaint,
-    );
-    canvas.drawRect(
-      Rect.fromLTRB(
-        imageRect.left,
-        cropPixel.bottom,
-        imageRect.right,
-        imageRect.bottom,
-      ),
-      overlayPaint,
-    );
-    canvas.drawRect(
-      Rect.fromLTRB(
-        imageRect.left,
-        cropPixel.top,
-        cropPixel.left,
-        cropPixel.bottom,
-      ),
-      overlayPaint,
-    );
-    canvas.drawRect(
-      Rect.fromLTRB(
-        cropPixel.right,
-        cropPixel.top,
-        imageRect.right,
-        cropPixel.bottom,
-      ),
-      overlayPaint,
-    );
-
-    // Crop border
-    canvas.drawRect(
-      cropPixel,
-      Paint()
-        ..color = primaryColor
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke,
-    );
-
-    // Rule-of-thirds grid
-    final gridPaint =
-        Paint()
-          ..color = primaryColor.withValues(alpha: 0.35)
-          ..strokeWidth = 0.8;
-
-    for (var i = 1; i < 3; i++) {
-      final x = cropPixel.left + (cropPixel.width * i / 3);
-      canvas.drawLine(
-        Offset(x, cropPixel.top),
-        Offset(x, cropPixel.bottom),
-        gridPaint,
-      );
-
-      final y = cropPixel.top + (cropPixel.height * i / 3);
-      canvas.drawLine(
-        Offset(cropPixel.left, y),
-        Offset(cropPixel.right, y),
-        gridPaint,
-      );
-    }
-
-    // Corner handles
-    const handleRadius = 6.0;
-    final handleFill = Paint()..color = primaryColor;
-    final handleStroke =
-        Paint()
-          ..color = Colors.white
-          ..strokeWidth = 2
-          ..style = PaintingStyle.stroke;
-
-    for (final corner in [
-      cropPixel.topLeft,
-      cropPixel.topRight,
-      cropPixel.bottomLeft,
-      cropPixel.bottomRight,
-    ]) {
-      canvas.drawCircle(corner, handleRadius, handleFill);
-      canvas.drawCircle(corner, handleRadius, handleStroke);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_CropPainter old) =>
-      old.cropRect != cropRect || old.primaryColor != primaryColor;
-}
-
-// ============================================================================
-// 🖼️ PREVIEW PAINTER
-// Renders image with all effects (rotation, flip, crop, color adjustments,
-// opacity) and any drawing strokes on top.
-// ============================================================================
-
-class _PreviewPainter extends CustomPainter {
-  final ui.Image image;
-  final double rotation;
-  final bool flipHorizontal;
-  final bool flipVertical;
-  final double brightness;
-  final double contrast;
-  final double saturation;
-  final double opacity;
-  final Rect? cropRect;
-  final List<ProStroke> drawingStrokes;
-
-  _PreviewPainter({
-    required this.image,
-    required this.rotation,
-    required this.flipHorizontal,
-    required this.flipVertical,
-    required this.brightness,
-    required this.contrast,
-    required this.saturation,
-    required this.opacity,
-    this.cropRect,
-    this.drawingStrokes = const [],
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-
-    final center = Offset(size.width / 2, size.height / 2);
-    canvas.translate(center.dx, center.dy);
-
-    if (rotation != 0) canvas.rotate(rotation);
-
-    if (flipHorizontal || flipVertical) {
-      canvas.scale(flipHorizontal ? -1.0 : 1.0, flipVertical ? -1.0 : 1.0);
-    }
-
-    // Source rect (with crop if present)
-    Rect srcRect;
-    double displayWidth, displayHeight;
-
-    if (cropRect != null) {
-      final imgW = image.width.toDouble();
-      final imgH = image.height.toDouble();
-      srcRect = Rect.fromLTRB(
-        cropRect!.left * imgW,
-        cropRect!.top * imgH,
-        cropRect!.right * imgW,
-        cropRect!.bottom * imgH,
-      );
-      displayWidth = srcRect.width;
-      displayHeight = srcRect.height;
-    } else {
-      srcRect = Rect.fromLTWH(
-        0,
-        0,
-        image.width.toDouble(),
-        image.height.toDouble(),
-      );
-      displayWidth = image.width.toDouble();
-      displayHeight = image.height.toDouble();
-    }
-
-    // Fit-contain scale
-    final containerRatio = size.width / size.height;
-    final imageRatio = displayWidth / displayHeight;
-    final scale =
-        containerRatio > imageRatio
-            ? size.height / displayHeight
-            : size.width / displayWidth;
-
-    final dstRect = Rect.fromCenter(
-      center: Offset.zero,
-      width: displayWidth * scale,
-      height: displayHeight * scale,
-    );
-
-    // Paint with effects
-    final paint = Paint()..filterQuality = FilterQuality.medium;
-
-    // 🔧 Opacity via paint.color alpha (NOT BlendMode.dstIn)
-    if (opacity < 1.0) {
-      paint.color = Color.fromRGBO(255, 255, 255, opacity);
-    }
-
-    // Color matrix filter
-    if (brightness != 0 || contrast != 0 || saturation != 0) {
-      paint.colorFilter = ColorFilter.matrix(_getColorMatrix());
-    }
-
-    canvas.drawImageRect(image, srcRect, dstRect, paint);
-
-    // Draw strokes on top
-    if (drawingStrokes.isNotEmpty) {
-      canvas.save();
-      canvas.scale(scale);
-
-      for (final stroke in drawingStrokes) {
-        if (stroke.points.isEmpty) continue;
-
-        final strokePaint =
-            Paint()
-              ..color = stroke.color
-              ..strokeWidth = stroke.baseWidth
-              ..strokeCap = StrokeCap.round
-              ..strokeJoin = StrokeJoin.round
-              ..style = PaintingStyle.stroke;
-
-        final path = Path();
-        bool isFirst = true;
-
-        for (final point in stroke.points) {
-          if (isFirst) {
-            path.moveTo(point.position.dx, point.position.dy);
-            isFirst = false;
-          } else {
-            path.lineTo(point.position.dx, point.position.dy);
-          }
+    return Slider(
+      value: widget.value,
+      min: widget.min,
+      max: widget.max,
+      onChangeStart: (_) {
+        widget.onChangeStart();
+        _prevValue = widget.value;
+      },
+      onChanged: (v) {
+        // Haptic feedback when crossing the default/zero value
+        final def = widget.defaultValue;
+        if (def >= widget.min && def <= widget.max) {
+          final crossed =
+              (_prevValue < def && v >= def) || (_prevValue > def && v <= def);
+          if (crossed) HapticFeedback.selectionClick();
         }
-
-        canvas.drawPath(path, strokePaint);
-      }
-
-      canvas.restore();
-    }
-
-    canvas.restore();
+        _prevValue = v;
+        widget.onChanged(v);
+      },
+    );
   }
-
-  List<double> _getColorMatrix() {
-    final b = brightness * 255;
-    final c = contrast + 1.0;
-    final t = (1.0 - c) / 2.0 * 255;
-    final s = saturation + 1.0;
-
-    const lumR = 0.3086;
-    const lumG = 0.6094;
-    const lumB = 0.0820;
-
-    final sr = (1 - s) * lumR;
-    final sg = (1 - s) * lumG;
-    final sb = (1 - s) * lumB;
-
-    return [
-      (sr + s) * c,
-      sg * c,
-      sb * c,
-      0,
-      b + t,
-      sr * c,
-      (sg + s) * c,
-      sb * c,
-      0,
-      b + t,
-      sr * c,
-      sg * c,
-      (sb + s) * c,
-      0,
-      b + t,
-      0,
-      0,
-      0,
-      1,
-      0,
-    ];
-  }
-
-  @override
-  bool shouldRepaint(_PreviewPainter old) =>
-      old.rotation != rotation ||
-      old.flipHorizontal != flipHorizontal ||
-      old.flipVertical != flipVertical ||
-      old.brightness != brightness ||
-      old.contrast != contrast ||
-      old.saturation != saturation ||
-      old.opacity != opacity ||
-      old.cropRect != cropRect ||
-      old.drawingStrokes != drawingStrokes;
 }

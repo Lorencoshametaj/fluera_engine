@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import '../../core/vector/anchor_point.dart';
+import './pen_tool.dart' show PenCursorHint;
 
 /// 🎨 CustomPainter that renders the Pen Tool overlay.
 ///
@@ -57,6 +58,12 @@ class PenToolPainter extends CustomPainter {
   /// Whether to draw the curvature comb visualization.
   final bool showCurvatureComb;
 
+  /// Whether we are editing an existing path (vs creating new).
+  final bool isEditingExisting;
+
+  /// Current cursor hint for visual feedback.
+  final PenCursorHint cursorHint;
+
   /// Color for multi-selection highlight.
   static const Color _multiSelectColor = Color(0xFF42A5F5);
 
@@ -74,6 +81,8 @@ class PenToolPainter extends CustomPainter {
     this.editingAnchorIndex = -1,
     this.selectedAnchorIndices = const {},
     this.showCurvatureComb = false,
+    this.isEditingExisting = false,
+    this.cursorHint = PenCursorHint.none,
   }) : previewAnchors = previewAnchors ?? anchors;
 
   // ==========================================================================
@@ -178,6 +187,9 @@ class PenToolPainter extends CustomPainter {
     _drawAnchorPoints(canvas);
     _drawCloseIndicator(canvas);
     _drawAnchorCountBadge(canvas);
+    if (isEditingExisting) _drawEditModeIndicator(canvas, size);
+    _drawAnchorTypeLabel(canvas);
+    _drawCursorHint(canvas);
   }
 
   /// #4: Draw a semi-transparent fill preview during path construction.
@@ -623,6 +635,71 @@ class PenToolPainter extends CustomPainter {
   }
 
   // ==========================================================================
+  // CURSOR HINT — contextual icon near cursor
+  // ==========================================================================
+
+  void _drawCursorHint(Canvas canvas) {
+    if (cursorHint == PenCursorHint.none || cursorPosition == null) return;
+
+    final String symbol;
+    final Color bgColor;
+    switch (cursorHint) {
+      case PenCursorHint.addPoint:
+        symbol = '+';
+        bgColor =
+            isDarkMode ? const Color(0xCC424242) : const Color(0xCC000000);
+        break;
+      case PenCursorHint.editAnchor:
+        symbol = '◆';
+        bgColor = const Color(0xCCFF9800);
+        break;
+      case PenCursorHint.closePath:
+        symbol = '○';
+        bgColor =
+            isDarkMode ? const Color(0xCC388E3C) : const Color(0xCC4CAF50);
+        break;
+      case PenCursorHint.addOnSegment:
+        symbol = '⊕';
+        bgColor =
+            isDarkMode ? const Color(0xCC1565C0) : const Color(0xCC2196F3);
+        break;
+      case PenCursorHint.none:
+        return;
+    }
+
+    final pos = cursorPosition! + const Offset(14, -14);
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: symbol,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          height: 1.0,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final pad = 4.0;
+    final rect = Rect.fromLTWH(
+      pos.dx - pad,
+      pos.dy - pad,
+      tp.width + pad * 2,
+      tp.height + pad * 2,
+    );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(4)),
+      Paint()
+        ..color = bgColor
+        ..style = PaintingStyle.fill,
+    );
+    tp.paint(canvas, pos);
+  }
+
+  // ==========================================================================
   // REPAINT — #7: use listEquals for proper comparison
   // ==========================================================================
 
@@ -638,7 +715,9 @@ class PenToolPainter extends CustomPainter {
         fillColor != oldDelegate.fillColor ||
         editingAnchorIndex != oldDelegate.editingAnchorIndex ||
         !_setEquals(selectedAnchorIndices, oldDelegate.selectedAnchorIndices) ||
-        showCurvatureComb != oldDelegate.showCurvatureComb;
+        showCurvatureComb != oldDelegate.showCurvatureComb ||
+        isEditingExisting != oldDelegate.isEditingExisting ||
+        cursorHint != oldDelegate.cursorHint;
   }
 
   /// Compare two sets for equality (order-independent).
@@ -710,5 +789,102 @@ class PenToolPainter extends CustomPainter {
   ) {
     final mt = 1.0 - t;
     return (p2 - p1 * 2 + p0) * (6 * mt) + (p3 - p2 * 2 + p1) * (6 * t);
+  }
+
+  // ==========================================================================
+  // ✏️ EDIT MODE INDICATOR
+  // ==========================================================================
+
+  /// Draws a subtle dashed bounding box to show the user is editing
+  /// an existing path (not creating a new one).
+  void _drawEditModeIndicator(Canvas canvas, Size size) {
+    if (anchors.length < 2) return;
+
+    // Compute bounding rect of all anchors.
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (final anchor in anchors) {
+      if (anchor.position.dx < minX) minX = anchor.position.dx;
+      if (anchor.position.dy < minY) minY = anchor.position.dy;
+      if (anchor.position.dx > maxX) maxX = anchor.position.dx;
+      if (anchor.position.dy > maxY) maxY = anchor.position.dy;
+    }
+
+    final rect = Rect.fromLTRB(minX - 12, minY - 12, maxX + 12, maxY + 12);
+    final editPaint =
+        Paint()
+          ..color = _editHighlightColor.withValues(alpha: 0.35)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0;
+
+    final editPath =
+        Path()
+          ..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)));
+    _drawDashedPath(canvas, editPath, editPaint);
+
+    // Small "EDIT" label in corner.
+    final tp = TextPainter(
+      text: TextSpan(
+        text: 'EDITING',
+        style: TextStyle(
+          color: _editHighlightColor.withValues(alpha: 0.7),
+          fontSize: 8,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.0,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(rect.left + 4, rect.top - 12));
+  }
+
+  // ==========================================================================
+  // 🏷️ ANCHOR TYPE LABEL
+  // ==========================================================================
+
+  /// Draw a tiny label (C/S/Y) near the currently editing anchor to show type.
+  void _drawAnchorTypeLabel(Canvas canvas) {
+    if (editingAnchorIndex < 0 || editingAnchorIndex >= anchors.length) return;
+
+    final anchor = anchors[editingAnchorIndex];
+    final label = switch (anchor.type) {
+      AnchorType.corner => 'C',
+      AnchorType.smooth => 'S',
+      AnchorType.symmetric => 'Y',
+    };
+
+    final fg = isDarkMode ? Colors.white70 : Colors.black87;
+    final bg =
+        isDarkMode
+            ? Colors.black.withValues(alpha: 0.6)
+            : Colors.white.withValues(alpha: 0.8);
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(color: fg, fontSize: 9, fontWeight: FontWeight.w700),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final pos = anchor.position + const Offset(-18, -12);
+    final bgRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(pos.dx - 2, pos.dy - 1, tp.width + 4, tp.height + 2),
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(
+      bgRect,
+      Paint()
+        ..color = bg
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawRRect(
+      bgRect,
+      Paint()
+        ..color = _editHighlightColor.withValues(alpha: 0.5)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5,
+    );
+    tp.paint(canvas, pos);
   }
 }

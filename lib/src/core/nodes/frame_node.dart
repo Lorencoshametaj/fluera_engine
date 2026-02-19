@@ -1,7 +1,11 @@
-import 'package:flutter/material.dart';
+import 'dart:math' as math;
+import 'package:flutter/material.dart'
+    hide CrossAxisAlignment, MainAxisAlignment;
 import '../scene_graph/canvas_node.dart';
 import '../scene_graph/node_visitor.dart';
 import './group_node.dart';
+import '../../systems/responsive_breakpoint.dart';
+import '../../systems/responsive_variant.dart';
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -16,7 +20,7 @@ enum LayoutDirection {
   vertical,
 }
 
-/// How a child sizes itself along the parent's primary axis.
+/// How a child sizes itself along a given axis.
 enum SizingMode {
   /// Fixed pixel size (user-specified).
   fixed,
@@ -26,6 +30,24 @@ enum SizingMode {
 
   /// Expand to fill available space.
   fill,
+}
+
+/// Whether a child participates in flow or is absolutely positioned.
+enum PositionMode {
+  /// Child is positioned by the layout engine (normal flow).
+  auto,
+
+  /// Child is placed at fixed coordinates, excluded from flow.
+  absolute,
+}
+
+/// Whether children wrap to new lines when they overflow.
+enum LayoutWrap {
+  /// No wrapping — all children in a single line.
+  noWrap,
+
+  /// Wrap children to next line when they exceed available space.
+  wrap,
 }
 
 /// Alignment of children along the cross axis.
@@ -48,6 +70,13 @@ enum MainAxisAlignment {
 /// Per-child layout constraint within a [FrameNode].
 ///
 /// Determines how the child behaves when its parent resizes.
+///
+/// DESIGN PRINCIPLES:
+/// - Every field has a sensible default so constraints can be created
+///   with just `LayoutConstraint()`.
+/// - JSON serialization only emits non-default values for compactness.
+/// - Fully backward-compatible: old JSON without new fields deserializes
+///   with defaults.
 class LayoutConstraint {
   /// Sizing along the parent's primary axis.
   SizingMode primarySizing;
@@ -79,6 +108,26 @@ class LayoutConstraint {
   /// is [SizingMode.fill]. Higher values take more available space.
   double flexGrow;
 
+  /// Whether this child participates in auto-layout flow or is
+  /// absolutely positioned within the parent frame.
+  PositionMode positionMode;
+
+  /// Absolute X position (used when [positionMode] is [PositionMode.absolute]).
+  double? absoluteX;
+
+  /// Absolute Y position (used when [positionMode] is [PositionMode.absolute]).
+  double? absoluteY;
+
+  /// Optional aspect ratio (width / height). When set, the layout engine
+  /// enforces this ratio after computing one dimension.
+  double? aspectRatio;
+
+  /// Per-child cross-axis alignment override.
+  ///
+  /// When non-null, overrides the parent frame's [CrossAxisAlignment]
+  /// for this specific child only.
+  CrossAxisAlignment? alignSelf;
+
   LayoutConstraint({
     this.primarySizing = SizingMode.hug,
     this.crossSizing = SizingMode.hug,
@@ -93,6 +142,11 @@ class LayoutConstraint {
     this.pinTop = false,
     this.pinBottom = false,
     this.flexGrow = 1.0,
+    this.positionMode = PositionMode.auto,
+    this.absoluteX,
+    this.absoluteY,
+    this.aspectRatio,
+    this.alignSelf,
   });
 
   Map<String, dynamic> toJson() => {
@@ -109,6 +163,11 @@ class LayoutConstraint {
     'pinTop': pinTop,
     'pinBottom': pinBottom,
     'flexGrow': flexGrow,
+    if (positionMode != PositionMode.auto) 'positionMode': positionMode.name,
+    if (absoluteX != null) 'absoluteX': absoluteX,
+    if (absoluteY != null) 'absoluteY': absoluteY,
+    if (aspectRatio != null) 'aspectRatio': aspectRatio,
+    if (alignSelf != null) 'alignSelf': alignSelf!.name,
   };
 
   factory LayoutConstraint.fromJson(Map<String, dynamic> json) {
@@ -130,6 +189,16 @@ class LayoutConstraint {
       pinTop: json['pinTop'] as bool? ?? false,
       pinBottom: json['pinBottom'] as bool? ?? false,
       flexGrow: (json['flexGrow'] as num?)?.toDouble() ?? 1.0,
+      positionMode: PositionMode.values.byName(
+        json['positionMode'] as String? ?? 'auto',
+      ),
+      absoluteX: (json['absoluteX'] as num?)?.toDouble(),
+      absoluteY: (json['absoluteY'] as num?)?.toDouble(),
+      aspectRatio: (json['aspectRatio'] as num?)?.toDouble(),
+      alignSelf:
+          json['alignSelf'] != null
+              ? CrossAxisAlignment.values.byName(json['alignSelf'] as String)
+              : null,
     );
   }
 }
@@ -144,12 +213,22 @@ class LayoutConstraint {
 /// and sizing based on [LayoutDirection], padding, spacing, and
 /// per-child [LayoutConstraint]s.
 ///
+/// DESIGN PRINCIPLES:
+/// - Supports both auto-layout (flow) and absolute positioning modes
+/// - Children can wrap to new lines when [wrap] is enabled
+/// - Per-axis sizing (widthSizing / heightSizing) for independent control
+/// - Aspect ratio enforcement on children
+/// - alignSelf overrides for per-child cross-axis alignment
+/// - Dirty flag for lazy layout resolution
+/// - Nested frames are recursively laid out bottom-up
+///
 /// ```dart
 /// final frame = FrameNode(
 ///   id: 'toolbar',
 ///   direction: LayoutDirection.horizontal,
 ///   padding: EdgeInsets.all(16),
 ///   spacing: 8,
+///   wrap: LayoutWrap.wrap,
 /// );
 /// frame.addWithConstraint(buttonNode, LayoutConstraint(
 ///   primarySizing: SizingMode.fixed,
@@ -173,6 +252,9 @@ class FrameNode extends GroupNode {
   /// Cross axis alignment.
   CrossAxisAlignment crossAxisAlignment;
 
+  /// Whether children wrap to new lines on overflow.
+  LayoutWrap wrap;
+
   /// Whether the frame clips children that overflow.
   bool clipContent;
 
@@ -189,8 +271,34 @@ class FrameNode extends GroupNode {
   /// Fixed size of the frame (null = hug content).
   Size? frameSize;
 
+  /// Independent width sizing mode (overrides frameSize logic).
+  SizingMode widthSizing;
+
+  /// Independent height sizing mode (overrides frameSize logic).
+  SizingMode heightSizing;
+
   /// Per-child layout constraints.
   final Map<String, LayoutConstraint> _constraints = {};
+
+  /// Whether layout needs to be recalculated.
+  bool _layoutDirty = true;
+
+  // ---------------------------------------------------------------------------
+  // Responsive variants
+  // ---------------------------------------------------------------------------
+
+  /// Breakpoint definitions for responsive layout.
+  ///
+  /// When non-empty, the layout engine uses these to select a
+  /// [ResponsiveVariant] based on the current viewport width.
+  List<ResponsiveBreakpoint> breakpoints;
+
+  /// Per-breakpoint layout overrides, keyed by breakpoint name.
+  final Map<String, ResponsiveVariant> _responsiveVariants = {};
+
+  /// Snapshot of base values before responsive overrides are applied.
+  /// Used by [restoreBaseValues] to undo overrides after layout.
+  Map<String, dynamic>? _baseSnapshot;
 
   FrameNode({
     required super.id,
@@ -205,13 +313,33 @@ class FrameNode extends GroupNode {
     this.spacing = 0,
     this.mainAxisAlignment = MainAxisAlignment.start,
     this.crossAxisAlignment = CrossAxisAlignment.start,
+    this.wrap = LayoutWrap.noWrap,
     this.clipContent = true,
     this.fillColor,
     this.borderRadius = 0,
     this.strokeColor,
     this.strokeWidth = 1,
     this.frameSize,
+    this.widthSizing = SizingMode.hug,
+    this.heightSizing = SizingMode.hug,
+    this.breakpoints = const [],
   });
+
+  // ---------------------------------------------------------------------------
+  // Dirty flag
+  // ---------------------------------------------------------------------------
+
+  /// Whether this frame needs layout recalculation.
+  bool get needsLayout => _layoutDirty;
+
+  /// Mark this frame (and parent frames) as needing layout.
+  void markLayoutDirty() {
+    _layoutDirty = true;
+    // Propagate up — parent frames may need to re-measure.
+    if (parent is FrameNode) {
+      (parent as FrameNode).markLayoutDirty();
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Constraint management
@@ -221,6 +349,7 @@ class FrameNode extends GroupNode {
   void addWithConstraint(CanvasNode child, LayoutConstraint constraint) {
     add(child);
     _constraints[child.id] = constraint;
+    markLayoutDirty();
   }
 
   /// Get the constraint for a child, or a default one.
@@ -230,13 +359,137 @@ class FrameNode extends GroupNode {
   /// Set/update the constraint for a child.
   void setConstraint(String childId, LayoutConstraint constraint) {
     _constraints[childId] = constraint;
+    markLayoutDirty();
   }
 
   /// Remove constraint when child is removed.
   @override
   bool remove(CanvasNode child) {
     _constraints.remove(child.id);
-    return super.remove(child);
+    final removed = super.remove(child);
+    if (removed) markLayoutDirty();
+    return removed;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Responsive variant management
+  // ---------------------------------------------------------------------------
+
+  /// Whether this frame has any responsive variants defined.
+  bool get hasResponsiveVariants => _responsiveVariants.isNotEmpty;
+
+  /// All registered responsive variants (unmodifiable view).
+  Map<String, ResponsiveVariant> get responsiveVariants =>
+      Map.unmodifiable(_responsiveVariants);
+
+  /// Add or replace a responsive variant for a breakpoint.
+  void addResponsiveVariant(ResponsiveVariant variant) {
+    _responsiveVariants[variant.breakpointName] = variant;
+    markLayoutDirty();
+  }
+
+  /// Remove the responsive variant for a breakpoint.
+  void removeResponsiveVariant(String breakpointName) {
+    _responsiveVariants.remove(breakpointName);
+    markLayoutDirty();
+  }
+
+  /// Get the variant for a specific breakpoint, if any.
+  ResponsiveVariant? variantFor(String breakpointName) =>
+      _responsiveVariants[breakpointName];
+
+  /// Apply responsive overrides for the given [viewportWidth].
+  ///
+  /// Resolves the matching breakpoint, then applies non-null overrides
+  /// from the corresponding variant on top of the base values.
+  /// Call [restoreBaseValues] after layout to undo the overrides.
+  void applyResponsiveOverrides(double viewportWidth) {
+    if (_responsiveVariants.isEmpty) return;
+
+    final effectiveBreakpoints =
+        breakpoints.isNotEmpty
+            ? breakpoints
+            : ResponsiveBreakpoint.defaultPresets;
+
+    final bp = ResponsiveBreakpoint.resolve(
+      viewportWidth,
+      effectiveBreakpoints,
+    );
+    if (bp == null) return;
+
+    final variant = _responsiveVariants[bp.name];
+    if (variant == null) return;
+
+    // Snapshot base values before overriding.
+    _baseSnapshot = {
+      'direction': direction,
+      'padding': padding,
+      'spacing': spacing,
+      'mainAxisAlignment': mainAxisAlignment,
+      'crossAxisAlignment': crossAxisAlignment,
+      'wrap': wrap,
+      'frameSize': frameSize,
+      'widthSizing': widthSizing,
+      'heightSizing': heightSizing,
+      'constraintOverrides': variant.constraintOverrides.keys.toList(),
+      'originalConstraints': {
+        for (final childId in variant.constraintOverrides.keys)
+          childId:
+              _constraints.containsKey(childId) ? _constraints[childId] : null,
+      },
+    };
+
+    // Apply overrides (null = inherit base).
+    if (variant.direction != null) direction = variant.direction!;
+    if (variant.padding != null) padding = variant.padding!;
+    if (variant.spacing != null) spacing = variant.spacing!;
+    if (variant.mainAxisAlignment != null) {
+      mainAxisAlignment = variant.mainAxisAlignment!;
+    }
+    if (variant.crossAxisAlignment != null) {
+      crossAxisAlignment = variant.crossAxisAlignment!;
+    }
+    if (variant.wrap != null) wrap = variant.wrap!;
+    if (variant.frameSize != null) frameSize = variant.frameSize!;
+    if (variant.widthSizing != null) widthSizing = variant.widthSizing!;
+    if (variant.heightSizing != null) heightSizing = variant.heightSizing!;
+
+    // Apply per-child constraint overrides.
+    for (final entry in variant.constraintOverrides.entries) {
+      _constraints[entry.key] = entry.value;
+    }
+  }
+
+  /// Restore base values after responsive override was applied.
+  ///
+  /// Must be called after layout when [applyResponsiveOverrides] was used.
+  void restoreBaseValues() {
+    if (_baseSnapshot == null) return;
+
+    direction = _baseSnapshot!['direction'] as LayoutDirection;
+    padding = _baseSnapshot!['padding'] as EdgeInsets;
+    spacing = _baseSnapshot!['spacing'] as double;
+    mainAxisAlignment =
+        _baseSnapshot!['mainAxisAlignment'] as MainAxisAlignment;
+    crossAxisAlignment =
+        _baseSnapshot!['crossAxisAlignment'] as CrossAxisAlignment;
+    wrap = _baseSnapshot!['wrap'] as LayoutWrap;
+    frameSize = _baseSnapshot!['frameSize'] as Size?;
+    widthSizing = _baseSnapshot!['widthSizing'] as SizingMode;
+    heightSizing = _baseSnapshot!['heightSizing'] as SizingMode;
+
+    // Restore original constraints.
+    final originals =
+        _baseSnapshot!['originalConstraints'] as Map<String, dynamic>;
+    for (final entry in originals.entries) {
+      if (entry.value != null) {
+        _constraints[entry.key] = entry.value as LayoutConstraint;
+      } else {
+        _constraints.remove(entry.key);
+      }
+    }
+
+    _baseSnapshot = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -245,21 +498,74 @@ class FrameNode extends GroupNode {
 
   /// Perform auto layout — positions and sizes all children
   /// according to their constraints, padding, spacing, and alignment.
+  ///
+  /// Handles:
+  /// 1. Absolute positioning (excluded from flow)
+  /// 2. Nested frames (recursive bottom-up layout)
+  /// 3. Wrap layout (multi-line)
+  /// 4. Flex-grow distribution
+  /// 5. Aspect ratio enforcement
+  /// 6. alignSelf per-child overrides
   void performLayout() {
-    final visibleChildren = children.where((c) => c.isVisible).toList();
-    if (visibleChildren.isEmpty) return;
+    final allVisible = children.where((c) => c.isVisible).toList();
+    if (allVisible.isEmpty) {
+      _layoutDirty = false;
+      return;
+    }
 
+    // ---- Step 0: Recursively layout nested FrameNodes (bottom-up) ----
+    for (final child in allVisible) {
+      if (child is FrameNode) {
+        child.performLayout();
+      }
+    }
+
+    // ---- Step 1: Separate absolute vs flow children ----
+    final flowChildren = <CanvasNode>[];
+    final absoluteChildren = <CanvasNode>[];
+
+    for (final child in allVisible) {
+      final constraint = constraintFor(child.id);
+      if (constraint.positionMode == PositionMode.absolute) {
+        absoluteChildren.add(child);
+      } else {
+        flowChildren.add(child);
+      }
+    }
+
+    // Position absolute children.
+    for (final child in absoluteChildren) {
+      final constraint = constraintFor(child.id);
+      child.setPosition(constraint.absoluteX ?? 0, constraint.absoluteY ?? 0);
+    }
+
+    // ---- Step 2: Layout flow children ----
+    if (flowChildren.isEmpty) {
+      _layoutDirty = false;
+      return;
+    }
+
+    if (wrap == LayoutWrap.wrap) {
+      _performWrapLayout(flowChildren);
+    } else {
+      _performSingleLineLayout(flowChildren);
+    }
+
+    _layoutDirty = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Single-line layout (no wrap)
+  // ---------------------------------------------------------------------------
+
+  void _performSingleLineLayout(List<CanvasNode> visibleChildren) {
     final isHorizontal = direction == LayoutDirection.horizontal;
 
     // Available space inside padding.
     final contentWidth =
-        (frameSize?.width ?? _huggingWidth(visibleChildren)) -
-        padding.left -
-        padding.right;
+        _resolveFrameWidth(visibleChildren) - padding.left - padding.right;
     final contentHeight =
-        (frameSize?.height ?? _huggingHeight(visibleChildren)) -
-        padding.top -
-        padding.bottom;
+        _resolveFrameHeight(visibleChildren) - padding.top - padding.bottom;
 
     final availableMain = isHorizontal ? contentWidth : contentHeight;
     final availableCross = isHorizontal ? contentHeight : contentWidth;
@@ -276,7 +582,7 @@ class FrameNode extends GroupNode {
       double mainSize;
       double crossSize;
 
-      // Primary axis sizing
+      // Primary axis sizing.
       switch (constraint.primarySizing) {
         case SizingMode.fixed:
           mainSize =
@@ -292,7 +598,7 @@ class FrameNode extends GroupNode {
           totalFlexGrow += constraint.flexGrow;
       }
 
-      // Cross axis sizing
+      // Cross axis sizing.
       switch (constraint.crossSizing) {
         case SizingMode.fixed:
           crossSize =
@@ -305,9 +611,16 @@ class FrameNode extends GroupNode {
           crossSize = availableCross;
       }
 
-      // Apply min/max
-      final w = isHorizontal ? mainSize : crossSize;
-      final h = isHorizontal ? crossSize : mainSize;
+      // Convert back to width/height.
+      double w = isHorizontal ? mainSize : crossSize;
+      double h = isHorizontal ? crossSize : mainSize;
+
+      // Apply aspect ratio.
+      if (constraint.aspectRatio != null && constraint.aspectRatio! > 0) {
+        h = w / constraint.aspectRatio!;
+      }
+
+      // Apply min/max.
       childSizes[child.id] = Size(
         w.clamp(constraint.minWidth, constraint.maxWidth),
         h.clamp(constraint.minHeight, constraint.maxHeight),
@@ -325,10 +638,18 @@ class FrameNode extends GroupNode {
           final flexShare =
               (constraint.flexGrow / totalFlexGrow) * remainingMain;
           final current = childSizes[child.id]!;
-          childSizes[child.id] =
-              isHorizontal
-                  ? Size(flexShare, current.height)
-                  : Size(current.width, flexShare);
+          double w = isHorizontal ? flexShare : current.width;
+          double h = isHorizontal ? current.height : flexShare;
+
+          // Re-apply aspect ratio after fill sizing.
+          if (constraint.aspectRatio != null && constraint.aspectRatio! > 0) {
+            h = w / constraint.aspectRatio!;
+          }
+
+          childSizes[child.id] = Size(
+            w.clamp(constraint.minWidth, constraint.maxWidth),
+            h.clamp(constraint.minHeight, constraint.maxHeight),
+          );
         }
       }
     }
@@ -337,24 +658,26 @@ class FrameNode extends GroupNode {
     double mainOffset = _mainAxisStartOffset(
       mainAxisAlignment,
       availableMain,
-      fixedTotal + (totalFlexGrow > 0 ? remainingMain : 0),
+      fixedTotal + (totalFlexGrow > 0 ? math.max(0, remainingMain) : 0),
       totalSpacing,
       visibleChildren.length,
     );
 
     for (final child in visibleChildren) {
       final size = childSizes[child.id]!;
+      final constraint = constraintFor(child.id);
       final childMain = isHorizontal ? size.width : size.height;
       final childCross = isHorizontal ? size.height : size.width;
 
-      // Cross axis positioning
+      // Cross axis positioning — use alignSelf if set.
+      final effectiveCrossAlign = constraint.alignSelf ?? crossAxisAlignment;
       final crossOffset = _crossAxisOffset(
-        crossAxisAlignment,
+        effectiveCrossAlign,
         availableCross,
         childCross,
       );
 
-      // Set position
+      // Set position.
       final x =
           isHorizontal ? padding.left + mainOffset : padding.left + crossOffset;
       final y =
@@ -362,16 +685,170 @@ class FrameNode extends GroupNode {
 
       child.setPosition(x, y);
 
-      // Advance along main axis
+      // Advance along main axis.
       mainOffset +=
           childMain +
           _mainAxisSpacing(
             mainAxisAlignment,
             availableMain,
-            fixedTotal + (totalFlexGrow > 0 ? remainingMain : 0),
+            fixedTotal + (totalFlexGrow > 0 ? math.max(0, remainingMain) : 0),
             totalSpacing,
             visibleChildren.length,
           );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wrap layout (multi-line)
+  // ---------------------------------------------------------------------------
+
+  void _performWrapLayout(List<CanvasNode> visibleChildren) {
+    final isHorizontal = direction == LayoutDirection.horizontal;
+
+    final contentWidth =
+        _resolveFrameWidth(visibleChildren) - padding.left - padding.right;
+    final contentHeight =
+        _resolveFrameHeight(visibleChildren) - padding.top - padding.bottom;
+
+    final availableMain = isHorizontal ? contentWidth : contentHeight;
+
+    // ---- Build lines by overflow ----
+    final lines = <List<CanvasNode>>[];
+    var currentLine = <CanvasNode>[];
+    double currentLineMain = 0;
+
+    for (final child in visibleChildren) {
+      final constraint = constraintFor(child.id);
+      final childBounds = child.localBounds;
+
+      double mainSize;
+      switch (constraint.primarySizing) {
+        case SizingMode.fixed:
+          mainSize =
+              isHorizontal
+                  ? (constraint.fixedWidth ?? childBounds.width)
+                  : (constraint.fixedHeight ?? childBounds.height);
+        case SizingMode.hug:
+          mainSize = isHorizontal ? childBounds.width : childBounds.height;
+        case SizingMode.fill:
+          mainSize = isHorizontal ? childBounds.width : childBounds.height;
+      }
+
+      final spacingBefore = currentLine.isNotEmpty ? spacing : 0;
+
+      if (currentLine.isNotEmpty &&
+          currentLineMain + spacingBefore + mainSize > availableMain) {
+        // Overflow — start new line
+        lines.add(currentLine);
+        currentLine = <CanvasNode>[child];
+        currentLineMain = mainSize;
+      } else {
+        currentLine.add(child);
+        currentLineMain += spacingBefore + mainSize;
+      }
+    }
+    if (currentLine.isNotEmpty) {
+      lines.add(currentLine);
+    }
+
+    // ---- Position each line ----
+    double crossOffset = 0;
+
+    for (final line in lines) {
+      double mainOffset = 0;
+      double maxCross = 0;
+
+      for (final child in line) {
+        final constraint = constraintFor(child.id);
+        final childBounds = child.localBounds;
+
+        double mainSize;
+        switch (constraint.primarySizing) {
+          case SizingMode.fixed:
+            mainSize =
+                isHorizontal
+                    ? (constraint.fixedWidth ?? childBounds.width)
+                    : (constraint.fixedHeight ?? childBounds.height);
+          case SizingMode.hug:
+            mainSize = isHorizontal ? childBounds.width : childBounds.height;
+          case SizingMode.fill:
+            mainSize = isHorizontal ? childBounds.width : childBounds.height;
+        }
+
+        double crossSize;
+        switch (constraint.crossSizing) {
+          case SizingMode.fixed:
+            crossSize =
+                isHorizontal
+                    ? (constraint.fixedHeight ?? childBounds.height)
+                    : (constraint.fixedWidth ?? childBounds.width);
+          case SizingMode.hug:
+            crossSize = isHorizontal ? childBounds.height : childBounds.width;
+          case SizingMode.fill:
+            crossSize = isHorizontal ? childBounds.height : childBounds.width;
+        }
+
+        // Apply aspect ratio.
+        double w = isHorizontal ? mainSize : crossSize;
+        double h = isHorizontal ? crossSize : mainSize;
+        if (constraint.aspectRatio != null && constraint.aspectRatio! > 0) {
+          h = w / constraint.aspectRatio!;
+        }
+        w = w.clamp(constraint.minWidth, constraint.maxWidth);
+        h = h.clamp(constraint.minHeight, constraint.maxHeight);
+
+        final childCross = isHorizontal ? h : w;
+        maxCross = math.max(maxCross, childCross);
+
+        // Set position.
+        final x =
+            isHorizontal
+                ? padding.left + mainOffset
+                : padding.left + crossOffset;
+        final y =
+            isHorizontal ? padding.top + crossOffset : padding.top + mainOffset;
+
+        child.setPosition(x, y);
+
+        mainOffset += mainSize + spacing;
+      }
+
+      crossOffset += maxCross + spacing;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Frame size resolution
+  // ---------------------------------------------------------------------------
+
+  /// Resolve the frame width based on [widthSizing] or [frameSize].
+  double _resolveFrameWidth(List<CanvasNode> flowChildren) {
+    // frameSize takes precedence for backward compatibility.
+    if (frameSize != null) return frameSize!.width;
+
+    switch (widthSizing) {
+      case SizingMode.fixed:
+        return frameSize?.width ?? _huggingWidth(flowChildren);
+      case SizingMode.hug:
+        return _huggingWidth(flowChildren);
+      case SizingMode.fill:
+        // Fill parent — use parent's available width if known.
+        return frameSize?.width ?? _huggingWidth(flowChildren);
+    }
+  }
+
+  /// Resolve the frame height based on [heightSizing] or [frameSize].
+  double _resolveFrameHeight(List<CanvasNode> flowChildren) {
+    // frameSize takes precedence for backward compatibility.
+    if (frameSize != null) return frameSize!.height;
+
+    switch (heightSizing) {
+      case SizingMode.fixed:
+        return frameSize?.height ?? _huggingHeight(flowChildren);
+      case SizingMode.hug:
+        return _huggingHeight(flowChildren);
+      case SizingMode.fill:
+        return frameSize?.height ?? _huggingHeight(flowChildren);
     }
   }
 
@@ -505,6 +982,7 @@ class FrameNode extends GroupNode {
     json['spacing'] = spacing;
     json['mainAxisAlignment'] = mainAxisAlignment.name;
     json['crossAxisAlignment'] = crossAxisAlignment.name;
+    if (wrap != LayoutWrap.noWrap) json['wrap'] = wrap.name;
     json['clipContent'] = clipContent;
     if (fillColor != null) json['fillColor'] = fillColor!.toARGB32();
     json['borderRadius'] = borderRadius;
@@ -516,10 +994,23 @@ class FrameNode extends GroupNode {
         'height': frameSize!.height,
       };
     }
+    if (widthSizing != SizingMode.hug) json['widthSizing'] = widthSizing.name;
+    if (heightSizing != SizingMode.hug) {
+      json['heightSizing'] = heightSizing.name;
+    }
     json['children'] = children.map((c) => c.toJson()).toList();
     json['constraints'] = _constraints.map(
       (key, value) => MapEntry(key, value.toJson()),
     );
+    // Responsive variants (optional, only emitted when present).
+    if (breakpoints.isNotEmpty) {
+      json['breakpoints'] = breakpoints.map((b) => b.toJson()).toList();
+    }
+    if (_responsiveVariants.isNotEmpty) {
+      json['responsiveVariants'] = _responsiveVariants.map(
+        (key, value) => MapEntry(key, value.toJson()),
+      );
+    }
     return json;
   }
 
@@ -546,6 +1037,7 @@ class FrameNode extends GroupNode {
       crossAxisAlignment: CrossAxisAlignment.values.byName(
         json['crossAxisAlignment'] as String? ?? 'start',
       ),
+      wrap: LayoutWrap.values.byName(json['wrap'] as String? ?? 'noWrap'),
       clipContent: json['clipContent'] as bool? ?? true,
       fillColor:
           json['fillColor'] != null ? Color(json['fillColor'] as int) : null,
@@ -562,14 +1054,40 @@ class FrameNode extends GroupNode {
                 (frameSizeJson['height'] as num).toDouble(),
               )
               : null,
+      widthSizing: SizingMode.values.byName(
+        json['widthSizing'] as String? ?? 'hug',
+      ),
+      heightSizing: SizingMode.values.byName(
+        json['heightSizing'] as String? ?? 'hug',
+      ),
     );
 
     CanvasNode.applyBaseFromJson(node, json);
 
-    // Restore constraints
+    // Restore constraints.
     final constraintsJson = json['constraints'] as Map<String, dynamic>? ?? {};
     for (final entry in constraintsJson.entries) {
       node._constraints[entry.key] = LayoutConstraint.fromJson(
+        entry.value as Map<String, dynamic>,
+      );
+    }
+
+    // Restore breakpoints (optional, backward-compatible).
+    final breakpointsJson = json['breakpoints'] as List<dynamic>?;
+    if (breakpointsJson != null) {
+      node.breakpoints =
+          breakpointsJson
+              .map(
+                (b) => ResponsiveBreakpoint.fromJson(b as Map<String, dynamic>),
+              )
+              .toList();
+    }
+
+    // Restore responsive variants (optional, backward-compatible).
+    final variantsJson =
+        json['responsiveVariants'] as Map<String, dynamic>? ?? {};
+    for (final entry in variantsJson.entries) {
+      node._responsiveVariants[entry.key] = ResponsiveVariant.fromJson(
         entry.value as Map<String, dynamic>,
       );
     }

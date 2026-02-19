@@ -176,6 +176,10 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                     layers: _layerController.layers,
                     eraserPreviewIds: _eraserPreviewIds,
                     controller: _canvasController, // 🚀 viewport-level mode
+                    pdfPainters: _pdfPainters,
+                    onPdfRepaint: () {
+                      if (mounted) setState(() {});
+                    },
                   ),
                   size: Size.infinite,
                 ),
@@ -199,7 +203,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
           child: IgnorePointer(
             child: CustomPaint(
               painter: ImagePainter(
-                images: List<ImageElement>.from(_imageElements),
+                images: _imageElements,
                 loadedImages: _loadedImages,
                 selectedImage: _imageTool.selectedImage,
                 imageTool: _imageTool,
@@ -212,6 +216,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                 devicePixelRatio: dpr,
                 spatialIndex: _imageSpatialIndex,
                 memoryManager: _imageMemoryManager,
+                imageRepaintNotifier: _imageRepaintNotifier,
               ),
               size: Size.infinite,
             ),
@@ -257,8 +262,14 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                 _digitalTextTool.isResizing ||
                 _digitalTextTool.isDragging ||
                 _imageTool.isResizing ||
-                _imageTool
-                    .isDragging, // 🔒 Block pan only when interacting with text/images
+                _imageTool.isDragging ||
+                _imageTool.isRotating ||
+                _imageTool.selectedImage !=
+                    null, // 🌀 Block canvas zoom when image selected → 2 fingers rotate image
+            // 🌀 IMAGE ROTATION: Two-finger rotate + scale on selected image
+            onImageScaleStart: _onImageScaleStart,
+            onImageTransform: _onImageTransform,
+            onImageScaleEnd: _onImageScaleEnd,
             // 🚀 PERF FIX: Content builders OUTSIDE AnimatedBuilder.
             child: ValueListenableBuilder<GeometricShape?>(
               valueListenable: _currentShapeNotifier,

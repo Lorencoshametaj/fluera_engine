@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
+import '../../utils/uid.dart';
 import '../effects/node_effect.dart';
 import '../../systems/accessibility_tree.dart';
 import './canvas_node_factory.dart';
@@ -190,7 +190,7 @@ abstract class CanvasNode {
   /// composed of the original + '_copy' suffix.
   CanvasNode clone() {
     final json = toJson();
-    json['id'] = const Uuid().v4();
+    json['id'] = generateUid();
     return CanvasNodeFactory.fromJson(json);
   }
 

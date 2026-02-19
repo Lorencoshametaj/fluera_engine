@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
+import '../../utils/uid.dart';
 import '../base/tool_context.dart';
 import '../base/base_tool.dart';
 import '../../core/models/shape_type.dart';
@@ -88,7 +88,7 @@ class UnifiedShapeTool extends BaseTool {
     _currentEndPoint = currentCanvasPosition;
 
     _currentShape = GeometricShape(
-      id: const Uuid().v4(),
+      id: generateUid(),
       type: shapeType,
       startPoint: _startPoint!,
       endPoint: _currentEndPoint!,
@@ -173,7 +173,7 @@ class UnifiedShapeTool extends BaseTool {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.grey.shade900.withValues(alpha:  0.95),
+            color: Colors.grey.shade900.withValues(alpha: 0.95),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(
@@ -280,7 +280,7 @@ class _ShapePreviewPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint =
         Paint()
-          ..color = shape.color.withValues(alpha:  0.7)
+          ..color = shape.color.withValues(alpha: 0.7)
           ..strokeWidth = shape.strokeWidth
           ..style = shape.filled ? PaintingStyle.fill : PaintingStyle.stroke;
 

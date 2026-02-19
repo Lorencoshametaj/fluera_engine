@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../utils/key_value_store.dart';
 import '../models/pro_brush_settings.dart';
 import '../../../testing/brush_settings_dialog.dart';
 import '../../core/engine_scope.dart';
@@ -14,8 +14,10 @@ import '../../core/engine_scope.dart';
 /// - Conversione: converte tra ProBrushSettings e BrushSettings
 class BrushSettingsService extends ChangeNotifier {
   static const String _prefsKey = 'brush_settings_v1';
+
   /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static BrushSettingsService get instance => EngineScope.current.brushSettingsService;
+  static BrushSettingsService get instance =>
+      EngineScope.current.brushSettingsService;
 
   /// Creates a new instance (used by [EngineScope]).
   BrushSettingsService.create();
@@ -32,7 +34,7 @@ class BrushSettingsService extends ChangeNotifier {
     if (_isInitialized) return;
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await KeyValueStore.getInstance();
       final jsonString = prefs.getString(_prefsKey);
 
       if (jsonString != null) {
@@ -57,7 +59,7 @@ class BrushSettingsService extends ChangeNotifier {
 
     // Save su SharedPreferences
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await KeyValueStore.getInstance();
       final jsonString = jsonEncode(newSettings.toJson());
       await prefs.setString(_prefsKey, jsonString);
     } catch (e) {

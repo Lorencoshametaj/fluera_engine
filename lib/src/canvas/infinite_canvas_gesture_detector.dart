@@ -39,6 +39,11 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   enableSingleFingerPan; // 🖐️ Enable pan with a finger instead of drawing
   final bool isStylusModeEnabled; // 🖊️ Stylus mode: stylus draws, finger pans
 
+  // 🌀 Image rotation callbacks (two-finger rotate + scale on selected image)
+  final VoidCallback? onImageScaleStart;
+  final Function(double rotationDelta, double scaleDelta)? onImageTransform;
+  final VoidCallback? onImageScaleEnd;
+
   const InfiniteCanvasGestureDetector({
     super.key,
     required this.controller,
@@ -50,9 +55,12 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onDrawCancel,
     this.onDoubleTapZoom,
     this.onLongPress,
-    this.blockPanZoom = false, // Default: pan/zoom enabled
-    this.enableSingleFingerPan = false, // Default: disegno with a dito
-    this.isStylusModeEnabled = false, // Default: stylus mode disabled
+    this.blockPanZoom = false,
+    this.enableSingleFingerPan = false,
+    this.isStylusModeEnabled = false,
+    this.onImageScaleStart,
+    this.onImageTransform,
+    this.onImageScaleEnd,
   });
 
   @override
@@ -122,6 +130,13 @@ class _InfiniteCanvasGestureDetectorState
   // The user must rotate at least ~3° before rotation activates.
   static const double _rotationDeadzone = 0.05; // ~3° in radians
   static const double _maxAngularVelocity = 3.0; // Cap spin speed (rad/s)
+
+  // 🌀 IMAGE ROTATION: State tracking for image-specific rotation
+  bool _imageRotationUnlocked = false;
+  double _imageRotationAccum = 0.0; // Accumulated rotation for image
+  bool _imageScaleStarted = false; // Whether we fired onImageScaleStart
+  double? _imageLastSnappedAngle; // For haptic deduplication
+  double _imageInitialScale = 1.0; // Scale at gesture start
 
   // 🎯 DOUBLE-TAP ZOOM: State tracking
   int _lastSingleTapTime = 0;
@@ -484,8 +499,8 @@ class _InfiniteCanvasGestureDetectorState
     _pointerCount--;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
-    // 🔄 GESTURE CONTINUITY: Mark transition when going from 2+ to 1 finger
-    // This prevents jumps when _onScaleStart re-fires with new focal point.
+    // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
+    // (e.g., 2→1 fingers), re-anchor to current state to prevent jumps.
     if (_previousPointerCount >= 2 && _pointerCount >= 1) {
       _gestureTransitioning = true;
     }
@@ -674,9 +689,56 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
-    // Only con 2+ dita (zoom e pan)
-    // 🔒 Block pan/zoom if the digital text tool is resizing/dragging
-    if (_pointerCount < 2 || widget.blockPanZoom) return;
+    // Only process with 2+ fingers
+    if (_pointerCount < 2) return;
+
+    // 🌀 IMAGE ROTATION: When blockPanZoom is active (image selected),
+    // route rotation + scale to the image instead of the canvas.
+    if (widget.blockPanZoom) {
+      // Fire start callback once
+      if (!_imageScaleStarted) {
+        _imageScaleStarted = true;
+        _imageRotationAccum = 0.0;
+        _imageRotationUnlocked = false;
+        _imageLastSnappedAngle = null;
+        _imageInitialScale = details.scale;
+        widget.onImageScaleStart?.call();
+      }
+
+      // 🧲 MAGNETIC SNAP: Snap to 0°/45°/90°/180°/270° with haptic
+      double rotation = 0.0;
+      if (_imageRotationUnlocked ||
+          details.rotation.abs() > _rotationDeadzone) {
+        _imageRotationUnlocked = true;
+        rotation = details.rotation;
+
+        // Check snap angles (every 45° = π/4 radians)
+        const snapInterval = 0.7853981633974483; // π/4 = 45°
+        const snapThreshold = 0.12; // ~7° magnetic zone
+        final nearestSnap = (rotation / snapInterval).round() * snapInterval;
+        final distFromSnap = (rotation - nearestSnap).abs();
+        if (distFromSnap < snapThreshold) {
+          // Cubic dampening for magnetic feel
+          final t = (distFromSnap / snapThreshold).clamp(0.0, 1.0);
+          final dampening = t * t * t;
+          rotation = nearestSnap + (rotation - nearestSnap) * dampening;
+
+          // Haptic at snap crossing
+          if (_imageLastSnappedAngle != nearestSnap) {
+            HapticFeedback.lightImpact();
+            _imageLastSnappedAngle = nearestSnap;
+          }
+        } else {
+          _imageLastSnappedAngle = null;
+        }
+      }
+
+      // 🤏 Simultaneous scale: ratio relative to gesture start
+      final scaleRatio = details.scale / _imageInitialScale;
+
+      widget.onImageTransform?.call(rotation, scaleRatio);
+      return;
+    }
 
     // 🌊 LIQUID: Track velocity for momentum
     final now = DateTime.now().microsecondsSinceEpoch;
@@ -797,6 +859,19 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
+    // 🌀 IMAGE ROTATION: End image rotation if active
+    if (_imageScaleStarted) {
+      _imageScaleStarted = false;
+      _imageRotationUnlocked = false;
+      _imageRotationAccum = 0.0;
+      _imageLastSnappedAngle = null;
+      widget.onImageScaleEnd?.call();
+    }
+
+    // If blockPanZoom is true, it means we were handling image gestures,
+    // so we should not apply canvas pan/zoom/rotation momentum.
+    if (widget.blockPanZoom) return;
+
     // 🌊 LIQUID: Launch zoom spring-back if scale is beyond limits
     widget.controller.startZoomSpringBack(_lastScaleEndFocalPoint);
 

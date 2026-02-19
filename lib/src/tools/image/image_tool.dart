@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'dart:math' as math;
 import '../../core/models/image_element.dart';
 
 /// 🖼️ IMAGE TOOL
@@ -9,11 +10,23 @@ class ImageTool {
   Offset? _dragStartPosition;
   Offset? _resizeStartPosition;
   double? _initialScale;
+  bool _isRotating = false;
+  double _initialImageRotation = 0.0;
+  double _initialImageScale = 1.0;
 
   // Size of handles di resize (more piccoli per aspetto professionale)
   static const double handleSize = 10.0; // Visuale (raggio 5px)
-  static const double handleHitArea =
-      28.0; // Area touch (more grande per facilità)
+  static const double handleHitArea = 28.0; // Area touch
+
+  // 🌀 Rotation handle: positioned above the image
+  static const double rotationHandleDistance = 40.0; // Distance above image
+  static const double rotationHandleHitArea = 36.0; // Touch area
+
+  // 🌀 Single-finger rotation state
+  bool _isHandleRotating = false;
+  double _handleRotationInitial = 0.0;
+  Offset _handleRotationCenter = Offset.zero;
+  double _handleRotationStartAngle = 0.0;
 
   /// Elemento selezionato
   ImageElement? get selectedImage => _selectedImage;
@@ -23,6 +36,9 @@ class ImageTool {
 
   /// È in mode resize?
   bool get isResizing => _resizeHandle != null;
+
+  /// È in mode rotazione (two-finger)?
+  bool get isRotating => _isRotating;
 
   /// Seleziona un'immagine
   void selectImage(ImageElement image) {
@@ -44,37 +60,34 @@ class ImageTool {
     _initialScale = null;
   }
 
-  /// Hit test su un'immagine (controlla if the punto tocca l'immagine)
+  /// Hit test su un'immagine (rotation-aware)
   bool hitTest(ImageElement image, Offset point, Size imageSize) {
-    // The image is drawn with:
-    // 1. translate(position)
-    // 2. scale(scale)
-    // 3. drawImage da topLeft di un rect centrato su zero
-    // So we must calculate the final rect after all transformations
+    // Transform point into image-local space (undo rotation around center)
+    final localPoint = _unrotatePoint(point, image.position, image.rotation);
 
     final scaledWidth = imageSize.width * image.scale;
     final scaledHeight = imageSize.height * image.scale;
 
-    // The original rect is centered on zero, so topLeft = (-width/2, -height/2)
-    // Dopo la scala: scaledTopLeft = (-scaledWidth/2, -scaledHeight/2)
-    // Dopo la traslazione: finalTopLeft = position + scaledTopLeft
-    final scaledTopLeft = Offset(-scaledWidth / 2, -scaledHeight / 2);
-    final finalTopLeft = image.position + scaledTopLeft;
-
-    final rect = Rect.fromLTWH(
-      finalTopLeft.dx,
-      finalTopLeft.dy,
-      scaledWidth,
-      scaledHeight,
+    final rect = Rect.fromCenter(
+      center: image.position,
+      width: scaledWidth,
+      height: scaledHeight,
     );
 
-    return rect.contains(point);
+    return rect.contains(localPoint);
   }
 
-  /// Hit test sugli handle di resize
+  /// Hit test sugli handle di resize (rotation-aware)
   /// Returns il nome dell'handle ('tl', 'tr', 'bl', 'br') o null
   String? hitTestResizeHandle(Offset point, Size imageSize) {
     if (_selectedImage == null) return null;
+
+    // Transform point into image-local space
+    final localPoint = _unrotatePoint(
+      point,
+      _selectedImage!.position,
+      _selectedImage!.rotation,
+    );
 
     final scaledWidth = imageSize.width * _selectedImage!.scale;
     final scaledHeight = imageSize.height * _selectedImage!.scale;
@@ -85,7 +98,6 @@ class ImageTool {
       height: scaledHeight,
     );
 
-    // Posizioni of handles
     final handles = {
       'tl': rect.topLeft,
       'tr': rect.topRight,
@@ -93,20 +105,71 @@ class ImageTool {
       'br': rect.bottomRight,
     };
 
-    // Check quale handle was toccato
     for (final entry in handles.entries) {
       final handleRect = Rect.fromCenter(
         center: entry.value,
         width: handleHitArea,
         height: handleHitArea,
       );
-      if (handleRect.contains(point)) {
+      if (handleRect.contains(localPoint)) {
         return entry.key;
       }
     }
 
     return null;
   }
+
+  /// Hit test on the rotation handle (circle above the image)
+  bool hitTestRotationHandle(Offset point, Size imageSize) {
+    if (_selectedImage == null) return false;
+
+    final scaledHeight = imageSize.height * _selectedImage!.scale;
+    // Handle is above the image center, in rotated space
+    final handleCenter = _rotatePoint(
+      _selectedImage!.position +
+          Offset(0, -scaledHeight / 2 - rotationHandleDistance),
+      _selectedImage!.position,
+      _selectedImage!.rotation,
+    );
+
+    return (point - handleCenter).distance < rotationHandleHitArea / 2;
+  }
+
+  /// Start single-finger rotation via the handle
+  void startHandleRotation(Offset position) {
+    if (_selectedImage == null) return;
+    _isHandleRotating = true;
+    _isRotating = true;
+    _handleRotationCenter = _selectedImage!.position;
+    _handleRotationInitial = _selectedImage!.rotation;
+    _initialImageScale = _selectedImage!.scale;
+    // Angle from center to initial touch point
+    final delta = position - _handleRotationCenter;
+    _handleRotationStartAngle = math.atan2(delta.dy, delta.dx);
+  }
+
+  /// Update single-finger rotation via the handle
+  ImageElement? updateHandleRotation(Offset currentPosition) {
+    if (_selectedImage == null || !_isHandleRotating) return null;
+
+    final delta = currentPosition - _handleRotationCenter;
+    final currentAngle = math.atan2(delta.dy, delta.dx);
+    final angleDelta = currentAngle - _handleRotationStartAngle;
+
+    final newRotation = _handleRotationInitial + angleDelta;
+    final updatedImage = _selectedImage!.copyWith(rotation: newRotation);
+    _selectedImage = updatedImage;
+    return updatedImage;
+  }
+
+  /// End single-finger handle rotation
+  void endHandleRotation() {
+    _isHandleRotating = false;
+    _isRotating = false;
+  }
+
+  /// Whether the handle rotation is active
+  bool get isHandleRotating => _isHandleRotating;
 
   /// Start drag
   void startDrag(Offset position) {
@@ -225,6 +288,36 @@ class ImageTool {
     _initialScale = null;
   }
 
+  /// Start two-finger rotation
+  void startRotation() {
+    if (_selectedImage == null) return;
+    _isRotating = true;
+    _initialImageRotation = _selectedImage!.rotation;
+    _initialImageScale = _selectedImage!.scale;
+  }
+
+  /// Update rotation + scale simultaneously (absolute deltas from gesture start)
+  ImageElement? updateRotation(
+    double absoluteRotationDelta,
+    double scaleRatio,
+  ) {
+    if (_selectedImage == null || !_isRotating) return null;
+
+    final newRotation = _initialImageRotation + absoluteRotationDelta;
+    final newScale = (_initialImageScale * scaleRatio).clamp(0.05, 3.0);
+    final updatedImage = _selectedImage!.copyWith(
+      rotation: newRotation,
+      scale: newScale,
+    );
+    _selectedImage = updatedImage;
+    return updatedImage;
+  }
+
+  /// End rotation
+  void endRotation() {
+    _isRotating = false;
+  }
+
   /// Get bounds of the image selezionata
   Rect? getSelectedBounds(Size imageSize) {
     if (_selectedImage == null) return null;
@@ -236,6 +329,36 @@ class ImageTool {
       center: _selectedImage!.position,
       width: scaledWidth,
       height: scaledHeight,
+    );
+  }
+
+  // ===========================================================================
+  // 🧮 Geometry helpers
+  // ===========================================================================
+
+  /// Transform point into unrotated space around a center (inverse rotation)
+  Offset _unrotatePoint(Offset point, Offset center, double rotation) {
+    if (rotation == 0.0) return point;
+    final dx = point.dx - center.dx;
+    final dy = point.dy - center.dy;
+    final cos = math.cos(-rotation);
+    final sin = math.sin(-rotation);
+    return Offset(
+      center.dx + dx * cos - dy * sin,
+      center.dy + dx * sin + dy * cos,
+    );
+  }
+
+  /// Rotate a point around a center (forward rotation)
+  Offset _rotatePoint(Offset point, Offset center, double rotation) {
+    if (rotation == 0.0) return point;
+    final dx = point.dx - center.dx;
+    final dy = point.dy - center.dy;
+    final cos = math.cos(rotation);
+    final sin = math.sin(rotation);
+    return Offset(
+      center.dx + dx * cos - dy * sin,
+      center.dy + dx * sin + dy * cos,
     );
   }
 }

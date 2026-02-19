@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
+import '../../utils/key_value_store.dart';
+import '../../utils/uid.dart';
 import '../models/brush_preset.dart';
 
 /// 🎨 Phase 4C: Brush Preset Manager
@@ -9,7 +9,6 @@ import '../models/brush_preset.dart';
 /// User presets are persisted to SharedPreferences as a JSON list.
 class BrushPresetManager {
   static const _storageKey = 'pro_brush_presets_v1';
-  static const _uuid = Uuid();
 
   List<BrushPreset> _userPresets = [];
 
@@ -24,7 +23,7 @@ class BrushPresetManager {
 
   /// Load user presets from SharedPreferences
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final raw = prefs.getString(_storageKey);
     if (raw == null || raw.isEmpty) {
       _userPresets = [];
@@ -44,7 +43,7 @@ class BrushPresetManager {
 
   /// Save user presets to SharedPreferences
   Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final json = jsonEncode(_userPresets.map((p) => p.toJson()).toList());
     await prefs.setString(_storageKey, json);
   }
@@ -67,7 +66,7 @@ class BrushPresetManager {
     required BrushPreset template,
   }) async {
     final preset = template.copyWith(
-      id: 'user_${_uuid.v4()}',
+      id: 'user_${generateUid()}',
       name: name,
       icon: icon,
       isBuiltIn: false,

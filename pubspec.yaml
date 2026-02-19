@@ -12,20 +12,18 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # UI
-  flutter_colorpicker: ^1.1.0
+
   flutter_riverpod: ^3.0.3
   # Storage & IO
-  shared_preferences: ^2.2.3
   path_provider: ^2.1.1
   sqflite_common_ffi: ^2.3.4+4
   sqlite3_flutter_libs: ^0.5.28
   path: ^1.8.3
   image_picker: ^1.1.2
+  file_picker: ^8.0.0
   # Utilities
   crypto: ^3.0.6
-  uuid: ^4.5.1
-  intl: ^0.19.0
+
 
 dev_dependencies:
   flutter_test:

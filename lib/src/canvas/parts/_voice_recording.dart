@@ -147,7 +147,7 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
       // 🎵 Create sync builder when recording with strokes
       if (_recordingWithStrokes) {
         _syncRecordingBuilder = SynchronizedRecordingBuilder(
-          id: const Uuid().v4(),
+          id: generateUid(),
           audioPath: '', // Will be updated when recording stops
           startTime: _recordingStartTime!,
           canvasId: widget.canvasId,
@@ -272,7 +272,7 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
                 syncRecording != null
                     ? syncRecording.copyWith(canvasId: _canvasId)
                     : SynchronizedRecording.empty(
-                      id: const Uuid().v4(),
+                      id: generateUid(),
                       audioPath: audioPath,
                       startTime: capturedStartTime,
                       canvasId: _canvasId,

@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/key_value_store.dart';
 import '../core/engine_scope.dart';
 
 /// 🖼️ IMAGE CACHE SERVICE v2.0
@@ -288,7 +288,7 @@ class ImageCacheService {
   /// Loads LRU metadata da SharedPreferences
   Future<void> _loadLruMetadata() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await KeyValueStore.getInstance();
       final json = prefs.getString(_lruMetadataKey);
       if (json != null) {
         final data = jsonDecode(json) as Map<String, dynamic>;
@@ -304,7 +304,7 @@ class ImageCacheService {
   /// Saves LRU metadata in SharedPreferences
   Future<void> _saveLruMetadata() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await KeyValueStore.getInstance();
       final data = _diskLruMetadata.map((k, v) => MapEntry(k, v.toJson()));
       await prefs.setString(_lruMetadataKey, jsonEncode(data));
     } catch (e) {}

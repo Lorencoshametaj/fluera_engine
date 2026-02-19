@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../collaboration/nebula_sync_interfaces.dart';
@@ -209,6 +210,13 @@ class NebulaCanvasConfig {
   /// (e.g. PDFKit on iOS, PdfRenderer on Android, pdf.js on web).
   final NebulaPdfProvider? pdfProvider;
 
+  /// Callback for picking a PDF file (dependency inversion).
+  ///
+  /// The host app implements file picking (e.g. via `file_picker` package)
+  /// and returns raw PDF bytes, or `null` if the user cancelled.
+  /// Only called when [pdfProvider] is non-null.
+  final Future<Uint8List?> Function()? onPickPdfFile;
+
   const NebulaCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
@@ -238,6 +246,7 @@ class NebulaCanvasConfig {
     this.onPauseAppListeners,
     this.splashLogoAsset,
     this.pdfProvider,
+    this.onPickPdfFile,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';
@@ -278,6 +287,11 @@ class NebulaCanvasSaveData {
   final DateTime? createdAt;
   final Map<String, dynamic>? guides;
 
+  /// 🎛️ Design variable state (JSON-serialized for persistence).
+  final List<Map<String, dynamic>>? variableCollectionsJson;
+  final Map<String, dynamic>? variableBindingsJson;
+  final Map<String, dynamic>? variableActiveModesJson;
+
   const NebulaCanvasSaveData({
     required this.canvasId,
     required this.layers,
@@ -291,6 +305,9 @@ class NebulaCanvasSaveData {
     this.nodeId,
     this.createdAt,
     this.guides,
+    this.variableCollectionsJson,
+    this.variableBindingsJson,
+    this.variableActiveModesJson,
   });
 
   /// Serialize to a generic JSON map for cloud storage providers.
@@ -303,6 +320,11 @@ class NebulaCanvasSaveData {
     if (infiniteCanvasId != null) 'infiniteCanvasId': infiniteCanvasId,
     if (nodeId != null) 'nodeId': nodeId,
     if (guides != null) 'guides': guides,
+    if (variableCollectionsJson != null && variableCollectionsJson!.isNotEmpty)
+      'variableCollections': variableCollectionsJson,
+    if (variableBindingsJson != null) 'variableBindings': variableBindingsJson,
+    if (variableActiveModesJson != null)
+      'variableActiveModes': variableActiveModesJson,
     'updatedAt': DateTime.now().millisecondsSinceEpoch,
   };
 }

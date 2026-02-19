@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 
 /// 📄 Pure data model for a single PDF page on the canvas.
 ///
@@ -35,6 +36,9 @@ class PdfPageModel {
   /// IDs of annotation nodes (strokes, shapes) drawn on this page.
   final List<String> annotations;
 
+  /// Whether annotations are visible on this page.
+  final bool showAnnotations;
+
   /// Microseconds since epoch — last annotation or position change.
   final int lastModifiedAt;
 
@@ -47,6 +51,7 @@ class PdfPageModel {
     this.customOffset,
     this.rotation = 0.0,
     this.annotations = const [],
+    this.showAnnotations = true,
     int? lastModifiedAt,
   }) : lastModifiedAt = lastModifiedAt ?? 0;
 
@@ -64,6 +69,7 @@ class PdfPageModel {
     bool clearCustomOffset = false,
     double? rotation,
     List<String>? annotations,
+    bool? showAnnotations,
     int? lastModifiedAt,
   }) {
     return PdfPageModel(
@@ -76,6 +82,7 @@ class PdfPageModel {
           clearCustomOffset ? null : (customOffset ?? this.customOffset),
       rotation: rotation ?? this.rotation,
       annotations: annotations ?? this.annotations,
+      showAnnotations: showAnnotations ?? this.showAnnotations,
       lastModifiedAt: lastModifiedAt ?? this.lastModifiedAt,
     );
   }
@@ -97,26 +104,33 @@ class PdfPageModel {
       'customOffset': {'dx': customOffset!.dx, 'dy': customOffset!.dy},
     if (rotation != 0.0) 'rotation': rotation,
     if (annotations.isNotEmpty) 'annotations': annotations,
+    if (!showAnnotations) 'showAnnotations': false,
     'lastModifiedAt': lastModifiedAt,
   };
 
   factory PdfPageModel.fromJson(Map<String, dynamic> json) {
-    final sizeJson = json['originalSize'] as Map<String, dynamic>;
+    // C7: Defensive fallback for missing originalSize
+    Size originalSize = const Size(612, 792); // US Letter default
+    if (json['originalSize'] is Map<String, dynamic>) {
+      final sizeJson = json['originalSize'] as Map<String, dynamic>;
+      originalSize = Size(
+        (sizeJson['width'] as num?)?.toDouble() ?? 612,
+        (sizeJson['height'] as num?)?.toDouble() ?? 792,
+      );
+    }
+
     Offset? customOffset;
-    if (json['customOffset'] != null) {
+    if (json['customOffset'] is Map<String, dynamic>) {
       final co = json['customOffset'] as Map<String, dynamic>;
       customOffset = Offset(
-        (co['dx'] as num).toDouble(),
-        (co['dy'] as num).toDouble(),
+        (co['dx'] as num?)?.toDouble() ?? 0,
+        (co['dy'] as num?)?.toDouble() ?? 0,
       );
     }
 
     return PdfPageModel(
-      pageIndex: (json['pageIndex'] as num).toInt(),
-      originalSize: Size(
-        (sizeJson['width'] as num).toDouble(),
-        (sizeJson['height'] as num).toDouble(),
-      ),
+      pageIndex: (json['pageIndex'] as num?)?.toInt() ?? 0,
+      originalSize: originalSize,
       isLocked: json['isLocked'] as bool? ?? true,
       gridRow: (json['gridRow'] as num?)?.toInt() ?? 0,
       gridCol: (json['gridCol'] as num?)?.toInt() ?? 0,
@@ -127,9 +141,39 @@ class PdfPageModel {
               ?.map((e) => e as String)
               .toList() ??
           const [],
+      showAnnotations: json['showAnnotations'] as bool? ?? true,
       lastModifiedAt: (json['lastModifiedAt'] as num?)?.toInt() ?? 0,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PdfPageModel &&
+          pageIndex == other.pageIndex &&
+          originalSize == other.originalSize &&
+          isLocked == other.isLocked &&
+          gridRow == other.gridRow &&
+          gridCol == other.gridCol &&
+          customOffset == other.customOffset &&
+          rotation == other.rotation &&
+          listEquals(annotations, other.annotations) &&
+          showAnnotations == other.showAnnotations &&
+          lastModifiedAt == other.lastModifiedAt;
+
+  @override
+  int get hashCode => Object.hash(
+    pageIndex,
+    originalSize,
+    isLocked,
+    gridRow,
+    gridCol,
+    customOffset,
+    rotation,
+    annotations.length,
+    showAnnotations,
+    lastModifiedAt,
+  );
 
   @override
   String toString() =>

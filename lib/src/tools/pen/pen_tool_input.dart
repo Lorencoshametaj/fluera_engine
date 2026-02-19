@@ -50,6 +50,20 @@ extension _PenToolInput on PenTool {
         final screenHIn = context.canvasToScreen(hIn);
         if ((screenHIn - event.localPosition).distance <
             PenTool._anchorHitRadius) {
+          // Double-tap on handle → retract it.
+          final now2 = DateTime.now().millisecondsSinceEpoch;
+          if (_lastTappedHandleIndex == i &&
+              _lastTappedHandleIsIn &&
+              (now2 - _lastHandleTapMs) < PenTool._doubleTapMs) {
+            anchor.handleIn = null;
+            HapticFeedback.mediumImpact();
+            _lastTappedHandleIndex = -1;
+            state = ToolOperationState.idle;
+            return;
+          }
+          _lastTappedHandleIndex = i;
+          _lastTappedHandleIsIn = true;
+          _lastHandleTapMs = now2;
           _editingAnchorIndex = i;
           _editTarget = _EditTarget.handleIn;
           return;
@@ -61,6 +75,20 @@ extension _PenToolInput on PenTool {
         final screenHOut = context.canvasToScreen(hOut);
         if ((screenHOut - event.localPosition).distance <
             PenTool._anchorHitRadius) {
+          // Double-tap on handle → retract it.
+          final now2 = DateTime.now().millisecondsSinceEpoch;
+          if (_lastTappedHandleIndex == i &&
+              !_lastTappedHandleIsIn &&
+              (now2 - _lastHandleTapMs) < PenTool._doubleTapMs) {
+            anchor.handleOut = null;
+            HapticFeedback.mediumImpact();
+            _lastTappedHandleIndex = -1;
+            state = ToolOperationState.idle;
+            return;
+          }
+          _lastTappedHandleIndex = i;
+          _lastTappedHandleIsIn = false;
+          _lastHandleTapMs = now2;
           _editingAnchorIndex = i;
           _editTarget = _EditTarget.handleOut;
           return;
@@ -133,8 +161,9 @@ extension _PenToolInput on PenTool {
 
   void handlePointerMove(ToolContext context, PointerMoveEvent event) {
     if (state == ToolOperationState.idle) {
-      // Not in an operation — just track cursor for rubber-band.
+      // Not in an operation — track cursor for rubber-band and compute hint.
       _cursorCanvasPosition = context.screenToCanvas(event.localPosition);
+      _computeCursorHint(context, event.localPosition);
       return;
     }
 
@@ -197,15 +226,19 @@ extension _PenToolInput on PenTool {
             snapped = PenTool._constrainTo45(snapped, anchor.position);
           }
           anchor.handleOut = snapped - anchor.position;
-          // Symmetric: mirror handleIn
-          if (anchor.type == AnchorType.symmetric) {
+          // Alt+drag → independent handle movement (break symmetry).
+          if (_altKeyDown) {
+            // Don't mirror — leave handleIn as-is.
+          } else if (anchor.type == AnchorType.symmetric) {
             anchor.handleIn = -(snapped - anchor.position);
           } else if (anchor.type == AnchorType.smooth &&
               anchor.handleIn != null) {
-            // Smooth: keep colinear, preserve length
+            // Smooth: keep colinear, preserve length.
             final len = anchor.handleIn!.distance;
             final dir = -(snapped - anchor.position);
-            anchor.handleIn = dir / dir.distance * len;
+            if (dir.distance > 0) {
+              anchor.handleIn = dir / dir.distance * len;
+            }
           }
           break;
         case _EditTarget.handleIn:
@@ -214,14 +247,18 @@ extension _PenToolInput on PenTool {
             snapped = PenTool._constrainTo45(snapped, anchor.position);
           }
           anchor.handleIn = snapped - anchor.position;
-          // Symmetric: mirror handleOut
-          if (anchor.type == AnchorType.symmetric) {
+          // Alt+drag → independent handle movement (break symmetry).
+          if (_altKeyDown) {
+            // Don't mirror — leave handleOut as-is.
+          } else if (anchor.type == AnchorType.symmetric) {
             anchor.handleOut = -(snapped - anchor.position);
           } else if (anchor.type == AnchorType.smooth &&
               anchor.handleOut != null) {
             final len = anchor.handleOut!.distance;
             final dir = -(snapped - anchor.position);
-            anchor.handleOut = dir / dir.distance * len;
+            if (dir.distance > 0) {
+              anchor.handleOut = dir / dir.distance * len;
+            }
           }
           break;
       }
@@ -273,26 +310,18 @@ extension _PenToolInput on PenTool {
     if (_editingAnchorIndex >= 0) {
       final dist =
           (event.localPosition - _screenPosFromCanvasStart(context)).distance;
+      final elapsed = DateTime.now().millisecondsSinceEpoch - _pointerDownMs;
+
       if (_editTarget == _EditTarget.position && dist < PenTool._dragDeadZone) {
-        // A2: Long-press on anchor → toggle multi-selection.
-        final elapsed = DateTime.now().millisecondsSinceEpoch - _pointerDownMs;
+        // A2: Long-press on anchor → show context menu.
         if (_longPressPending && elapsed >= PenTool._longPressMs) {
-          if (_selectedAnchorIndices.contains(_editingAnchorIndex)) {
-            _selectedAnchorIndices.remove(_editingAnchorIndex);
-          } else {
-            _selectedAnchorIndices.add(_editingAnchorIndex);
-          }
+          _contextMenuAnchorIndex = _editingAnchorIndex;
+          _showAnchorContextMenu = true;
           HapticFeedback.mediumImpact();
         } else {
-          // #2: Tap without drag on anchor → toggle smooth/corner.
+          // #2: Tap without drag on anchor → cycle: corner→smooth→symmetric→corner.
           final anchor = _anchors[_editingAnchorIndex];
-          if (anchor.type == AnchorType.corner) {
-            anchor.type = AnchorType.smooth;
-          } else {
-            anchor.type = AnchorType.corner;
-            anchor.handleIn = null;
-            anchor.handleOut = null;
-          }
+          cycleAnchorType(anchor, _editingAnchorIndex);
           HapticFeedback.selectionClick();
         }
       } else {
@@ -364,6 +393,18 @@ extension _PenToolInput on PenTool {
   /// Call this from the host widget's key handler.
   /// Returns true if the event was consumed.
   bool handleKeyboardEvent(KeyEvent event, ToolContext context) {
+    // Track Alt key state for handle break.
+    if (event is KeyDownEvent &&
+        (event.logicalKey == LogicalKeyboardKey.altLeft ||
+            event.logicalKey == LogicalKeyboardKey.altRight)) {
+      _altKeyDown = true;
+    }
+    if (event is KeyUpEvent &&
+        (event.logicalKey == LogicalKeyboardKey.altLeft ||
+            event.logicalKey == LogicalKeyboardKey.altRight)) {
+      _altKeyDown = false;
+    }
+
     if (event is! KeyDownEvent) return false;
 
     if (event.logicalKey == LogicalKeyboardKey.escape) {
@@ -379,15 +420,92 @@ extension _PenToolInput on PenTool {
       }
     }
 
-    // Backspace / Delete → remove last anchor.
+    // Backspace / Delete → remove selected anchors or last anchor.
     if (event.logicalKey == LogicalKeyboardKey.backspace ||
         event.logicalKey == LogicalKeyboardKey.delete) {
-      if (_anchors.isNotEmpty) {
+      if (_selectedAnchorIndices.isNotEmpty) {
+        deleteAnchorsByIndex(Set<int>.from(_selectedAnchorIndices));
+        HapticFeedback.mediumImpact();
+        return true;
+      } else if (_anchors.isNotEmpty) {
         _anchors.removeLast();
         return true;
       }
     }
 
+    // 'S' key → cycle anchor type on editing or last-tapped anchor.
+    if (event.logicalKey == LogicalKeyboardKey.keyS) {
+      final targetIdx =
+          _editingAnchorIndex >= 0
+              ? _editingAnchorIndex
+              : _lastTappedAnchorIndex;
+      if (targetIdx >= 0 && targetIdx < _anchors.length) {
+        cycleAnchorType(_anchors[targetIdx], targetIdx);
+        HapticFeedback.selectionClick();
+        return true;
+      }
+    }
+
+    // 'R' key → reverse path direction.
+    if (event.logicalKey == LogicalKeyboardKey.keyR) {
+      if (_anchors.length >= 2) {
+        reversePath();
+        HapticFeedback.selectionClick();
+        return true;
+      }
+    }
+
+    // 'A' key → auto-smooth all anchors.
+    if (event.logicalKey == LogicalKeyboardKey.keyA) {
+      if (_anchors.length >= 2) {
+        autoSmoothPath();
+        HapticFeedback.mediumImpact();
+        return true;
+      }
+    }
+
     return false;
+  }
+
+  // ── CURSOR HINT COMPUTATION ──
+
+  /// Compute cursor hint based on what the cursor is hovering over.
+  void _computeCursorHint(ToolContext context, Offset screenPos) {
+    if (_anchors.isEmpty) {
+      _cursorHint = PenCursorHint.addPoint;
+      return;
+    }
+
+    // Check close indicator first (near first anchor with ≥3 points).
+    if (_anchors.length >= 3) {
+      final firstScreenPos = context.canvasToScreen(_anchors.first.position);
+      final threshold =
+          PenTool._baseCloseThreshold / context.scale.clamp(0.1, 10.0);
+      if ((firstScreenPos - screenPos).distance < threshold * context.scale) {
+        _cursorHint = PenCursorHint.closePath;
+        return;
+      }
+    }
+
+    // Check anchors.
+    for (int i = 0; i < _anchors.length; i++) {
+      final anchorScreenPos = context.canvasToScreen(_anchors[i].position);
+      if ((anchorScreenPos - screenPos).distance < PenTool._anchorHitRadius) {
+        _cursorHint = PenCursorHint.editAnchor;
+        return;
+      }
+    }
+
+    // Check segments.
+    if (_anchors.length >= 2) {
+      final canvasPos = context.screenToCanvas(screenPos);
+      final result = _hitTestSegments(canvasPos, context);
+      if (result != null) {
+        _cursorHint = PenCursorHint.addOnSegment;
+        return;
+      }
+    }
+
+    _cursorHint = PenCursorHint.addPoint;
   }
 }

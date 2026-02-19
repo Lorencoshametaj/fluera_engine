@@ -8,7 +8,7 @@ extension on _NebulaCanvasScreenState {
     double tiltX,
     double tiltY,
   ) {
-    // 🔵 PRESENCE: Feed cursor + tool info to remote users via RTDB (throttled 250ms)
+    //  PRESENCE: Feed cursor + tool info to remote users via RTDB (throttled 250ms)
     if (_isSharedCanvas) {
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastCursorFeedTime > 200) {
@@ -106,22 +106,43 @@ extension on _NebulaCanvasScreenState {
       final distance = (canvasPosition - _initialTapPosition!).distance;
 
       if (distance > _NebulaCanvasScreenState._dragThreshold) {
-        // Movimento rilevato! Clear timer e inizia drag
+        // Movement detected! Clear timer and start drag
         _imageLongPressTimer?.cancel();
         _imageLongPressEditorTimer?.cancel();
 
-        // Start il drag from the position iniziale
+        // Start drag from the initial position
         _imageTool.startDrag(_initialTapPosition!);
-        _initialTapPosition = null; // Reset
+        _initialTapPosition = null;
         // 🔒 SYNC: Lock this image for remote collaborators
         if (_isSharedCanvas && _imageTool.selectedImage != null) {
           _realtimeSyncManager?.setActiveElement(_imageTool.selectedImage!.id);
         }
+        // 🚀 PERF: Immediately process first drag frame (don't wait for next event)
+        final firstUpdate = _imageTool.updateDrag(canvasPosition);
+        if (firstUpdate != null) {
+          final idx = _imageElements.indexWhere((e) => e.id == firstUpdate.id);
+          if (idx != -1) _imageElements[idx] = firstUpdate;
+          _imageVersion++;
+          _imageRepaintNotifier.value++;
+        }
+        return;
       } else {
-        // Movimento troppo piccolo, ignora (aspetta timer)
+        // Movement too small, wait for timer
         return;
       }
-    } // 🖼️ ALWAYS handle resize/drag of images (max priority)
+    } // 🌀 Handle single-finger rotation via rotation handle
+    if (_imageTool.isHandleRotating) {
+      final updated = _imageTool.updateHandleRotation(canvasPosition);
+      if (updated != null) {
+        final index = _imageElements.indexWhere((e) => e.id == updated.id);
+        if (index != -1) _imageElements[index] = updated;
+        _imageVersion++;
+        _imageRepaintNotifier.value++;
+      }
+      return;
+    }
+
+    // 🖼️ ALWAYS handle resize/drag of images (max priority)
     if (_imageTool.isResizing) {
       final updated = _imageTool.updateResize(canvasPosition);
       if (updated != null) {
@@ -139,47 +160,29 @@ extension on _NebulaCanvasScreenState {
           final canvasSize = renderBox.size;
           _startAutoScrollIfNeeded(screenPosition, canvasSize);
         }
-        setState(() {});
+        // 🚀 PERF: repaint-only path — no full widget rebuild needed.
+        // ImagePainter reads _imageElements directly and repaints via controller.
+        _imageVersion++;
+        _imageRepaintNotifier.value++;
       }
       return;
     }
 
     if (_imageTool.isDragging) {
-      final rawUpdated = _imageTool.updateDrag(canvasPosition);
-      if (rawUpdated != null) {
-        var updated = rawUpdated;
-        // 📐 Smart Guides: compute snap for the dragged image
-        final loaded = _loadedImages[updated.imagePath];
-        if (loaded != null) {
-          final w = loaded.width.toDouble() * updated.scale;
-          final h = loaded.height.toDouble() * updated.scale;
-          final draggedBounds = Rect.fromCenter(
-            center: updated.position,
-            width: w,
-            height: h,
-          );
-          final snap = _applySmartGuides(draggedBounds, excludeId: updated.id);
-          if (snap != Offset.zero) {
-            updated = updated.copyWith(position: updated.position + snap);
-            _imageTool.selectImage(updated);
-          }
-        }
-
-        // Find and update in the list
+      final updated = _imageTool.updateDrag(canvasPosition);
+      if (updated != null) {
+        // 🚀 PERF: Direct list update + repaint — zero overhead path
         final index = _imageElements.indexWhere((e) => e.id == updated.id);
         if (index != -1) {
           _imageElements[index] = updated;
         }
 
-        // 🔄 SYNC: Lightweight position update during drag (no RTDB delta push)
-        // Full delta sync happens at drag end to avoid OOM from serializing
-        // entire ImageElement (including drawingStrokes) every frame.
+        // 🔄 SYNC: Throttled position update for collaboration
         if (_isSharedCanvas) {
           final now = DateTime.now().millisecondsSinceEpoch;
           if (now - _lastDragSyncTime >=
               _NebulaCanvasScreenState._dragSyncThrottleMs) {
             _lastDragSyncTime = now;
-            // Update layer state only (no delta recording)
             final wasTracking = _layerController.enableDeltaTracking;
             _layerController.enableDeltaTracking = false;
             _layerController.updateImage(updated);
@@ -187,15 +190,9 @@ extension on _NebulaCanvasScreenState {
           }
         }
 
-        // Auto-scroll ai bordi
-        final screenPosition = _canvasController.canvasToScreen(canvasPosition);
-        final RenderBox? renderBox =
-            _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
-        if (renderBox != null) {
-          final canvasSize = renderBox.size;
-          _startAutoScrollIfNeeded(screenPosition, canvasSize);
-        }
-        setState(() {});
+        // 🚀 PERF: repaint-only path — no widget rebuild, no smart guides.
+        _imageVersion++;
+        _imageRepaintNotifier.value++;
       }
       return;
     }

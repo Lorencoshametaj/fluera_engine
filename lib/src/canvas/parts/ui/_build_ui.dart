@@ -123,10 +123,53 @@ extension on _NebulaCanvasScreenState {
 
               // 🎬 Loading overlay (splash screen during initialization)
               _buildLoadingOverlay(),
+
+              // 🎛️ Design Variables: floating toggle button (top-right)
+              Positioned(
+                right: 12,
+                top: 8,
+                child: ToolbarVariableButton(
+                  isActive: _showVariablePanel,
+                  onTap: _toggleVariablePanel,
+                  isDark: Theme.of(context).brightness == Brightness.dark,
+                  variableCount: _totalVariableCount,
+                ),
+              ),
+
+              // 🎛️ Design Variables: manager panel overlay
+              _buildVariableManagerOverlay(),
+
+              // 📄 PDF contextual toolbar (when PDF documents are active)
+              if (_pdfPainters.isNotEmpty)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: PdfContextualToolbar(
+                    documentNode: _findFirstPdfDocument(),
+                    onLayoutChanged: () {
+                      if (mounted) setState(() {});
+                    },
+                    onClose: () {
+                      // Hide by setting state — toolbar will not show next time
+                      if (mounted) setState(() {});
+                    },
+                  ),
+                ),
             ],
           ),
         ),
       ),
     ); // Focus + Scaffold
+  }
+
+  /// Find the first [PdfDocumentNode] in the layer tree.
+  PdfDocumentNode? _findFirstPdfDocument() {
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode) return child;
+      }
+    }
+    return null;
   }
 }

@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
+
 import './pdf_page_model.dart';
 
 /// 📄 Pure data model for a PDF document on the canvas.
@@ -40,6 +42,9 @@ class PdfDocumentModel {
   /// Optional link to Looponia's Timeline for Stroke Memory integration.
   final String? timelineRef;
 
+  /// Local file path where the PDF bytes are stored for persistence.
+  final String? filePath;
+
   const PdfDocumentModel({
     required this.sourceHash,
     required this.totalPages,
@@ -50,6 +55,7 @@ class PdfDocumentModel {
     int? createdAt,
     int? lastModifiedAt,
     this.timelineRef,
+    this.filePath,
   }) : createdAt = createdAt ?? 0,
        lastModifiedAt = lastModifiedAt ?? 0;
 
@@ -68,6 +74,7 @@ class PdfDocumentModel {
     int? lastModifiedAt,
     String? timelineRef,
     bool clearTimelineRef = false,
+    String? filePath,
   }) {
     return PdfDocumentModel(
       sourceHash: sourceHash ?? this.sourceHash,
@@ -79,6 +86,7 @@ class PdfDocumentModel {
       createdAt: createdAt ?? this.createdAt,
       lastModifiedAt: lastModifiedAt ?? this.lastModifiedAt,
       timelineRef: clearTimelineRef ? null : (timelineRef ?? this.timelineRef),
+      filePath: filePath ?? this.filePath,
     );
   }
 
@@ -96,6 +104,7 @@ class PdfDocumentModel {
     'createdAt': createdAt,
     'lastModifiedAt': lastModifiedAt,
     if (timelineRef != null) 'timelineRef': timelineRef,
+    if (filePath != null) 'filePath': filePath,
   };
 
   factory PdfDocumentModel.fromJson(Map<String, dynamic> json) {
@@ -113,15 +122,45 @@ class PdfDocumentModel {
       gridOrigin:
           originJson != null
               ? Offset(
-                (originJson['dx'] as num).toDouble(),
-                (originJson['dy'] as num).toDouble(),
+                (originJson['dx'] as num?)?.toDouble() ?? 0,
+                (originJson['dy'] as num?)?.toDouble() ?? 0,
               )
               : Offset.zero,
       createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
       lastModifiedAt: (json['lastModifiedAt'] as num?)?.toInt() ?? 0,
       timelineRef: json['timelineRef'] as String?,
+      filePath: json['filePath'] as String?,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PdfDocumentModel &&
+          sourceHash == other.sourceHash &&
+          totalPages == other.totalPages &&
+          listEquals(pages, other.pages) &&
+          gridColumns == other.gridColumns &&
+          gridSpacing == other.gridSpacing &&
+          gridOrigin == other.gridOrigin &&
+          createdAt == other.createdAt &&
+          lastModifiedAt == other.lastModifiedAt &&
+          timelineRef == other.timelineRef &&
+          filePath == other.filePath;
+
+  @override
+  int get hashCode => Object.hash(
+    sourceHash,
+    totalPages,
+    pages.length,
+    gridColumns,
+    gridSpacing,
+    gridOrigin,
+    createdAt,
+    lastModifiedAt,
+    timelineRef,
+    filePath,
+  );
 
   @override
   String toString() =>

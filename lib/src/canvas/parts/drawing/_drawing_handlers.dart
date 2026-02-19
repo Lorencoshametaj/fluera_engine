@@ -91,6 +91,13 @@ extension on _NebulaCanvasScreenState {
               )
               : Size.zero;
 
+      // 🌀 Check rotation handle first (above the image)
+      if (_imageTool.hitTestRotationHandle(canvasPosition, imageSize)) {
+        _imageTool.startHandleRotation(canvasPosition);
+        setState(() {});
+        return;
+      }
+
       final handle = _imageTool.hitTestResizeHandle(canvasPosition, imageSize);
       if (handle != null) {
         _imageTool.startResize(handle, canvasPosition);
@@ -110,6 +117,26 @@ extension on _NebulaCanvasScreenState {
         final imageSize = Size(image.width.toDouble(), image.height.toDouble());
 
         if (_imageTool.hitTest(imageElement, canvasPosition, imageSize)) {
+          // 🌀 DOUBLE-TAP RESET: If tapping already-selected image quickly, reset rotation
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (_imageTool.selectedImage?.id == imageElement.id &&
+              imageElement.rotation != 0.0 &&
+              now - _lastImageTapTime < 350) {
+            // Reset rotation
+            final resetImage = imageElement.copyWith(rotation: 0.0);
+            _imageTool.selectImage(resetImage);
+            final idx = _imageElements.indexWhere((e) => e.id == resetImage.id);
+            if (idx != -1) _imageElements[idx] = resetImage;
+            _layerController.updateImage(resetImage);
+            _imageVersion++;
+            _imageRepaintNotifier.value++;
+            HapticFeedback.mediumImpact();
+            _lastImageTapTime = 0; // Prevent triple-tap
+            setState(() {});
+            return;
+          }
+          _lastImageTapTime = now;
+
           // Select the image but do NOT start dragging yet
           _imageTool.selectImage(imageElement);
 
@@ -343,7 +370,7 @@ extension on _NebulaCanvasScreenState {
               )
               : canvasPosition;
       _currentShapeNotifier.value = GeometricShape(
-        id: const Uuid().v4(),
+        id: generateUid(),
         type: _effectiveShapeType,
         startPoint: snappedPos,
         endPoint: snappedPos,
@@ -422,5 +449,35 @@ extension on _NebulaCanvasScreenState {
 
     // Reset timestamp registrazione
     _currentStrokeStartTime = null;
+  }
+
+  // ===========================================================================
+  // 🌀 IMAGE ROTATION — Two-finger rotate on selected image
+  // ===========================================================================
+
+  /// Called once when two-finger gesture starts on a selected image
+  void _onImageScaleStart() {
+    _imageTool.startRotation();
+  }
+
+  /// Called continuously with rotation + scale during two-finger gesture
+  void _onImageTransform(double rotationDelta, double scaleRatio) {
+    final updated = _imageTool.updateRotation(rotationDelta, scaleRatio);
+    if (updated != null) {
+      final index = _imageElements.indexWhere((e) => e.id == updated.id);
+      if (index != -1) {
+        _imageElements[index] = updated;
+      }
+      _imageVersion++;
+      _imageRepaintNotifier.value++;
+    }
+  }
+
+  /// Called when two-finger gesture ends — persist the rotation
+  void _onImageScaleEnd() {
+    if (_imageTool.selectedImage != null) {
+      _layerController.updateImage(_imageTool.selectedImage!);
+      _imageTool.endRotation();
+    }
   }
 }

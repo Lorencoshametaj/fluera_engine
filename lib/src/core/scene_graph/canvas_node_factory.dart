@@ -11,6 +11,7 @@ import '../nodes/rich_text_node.dart';
 import '../nodes/symbol_system.dart';
 import '../nodes/frame_node.dart';
 import '../nodes/advanced_mask_node.dart';
+import '../nodes/boolean_group_node.dart';
 import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
 import '../effects/shader_effect.dart';
@@ -75,6 +76,16 @@ class CanvasNodeFactory {
 
       case 'shader':
         return ShaderNode.fromJson(json);
+
+      case 'booleanGroup':
+        final boolGroup = BooleanGroupNode.fromJson(json);
+        if (json['children'] != null) {
+          boolGroup.loadChildrenFromJson(
+            json['children'] as List<dynamic>,
+            fromJson,
+          );
+        }
+        return boolGroup;
 
       case 'pdfPage':
         return PdfPageNode.fromJson(json);

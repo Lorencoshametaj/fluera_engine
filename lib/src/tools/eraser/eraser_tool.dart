@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../utils/key_value_store.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../layers/nebula_layer_controller.dart';
@@ -188,7 +188,7 @@ class EraserTool {
   // ═══════════════════════════════════════════════════════════════════
 
   Future<void> loadPersistedRadius() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     final saved = prefs.getDouble(_radiusPrefKey);
     if (saved != null) {
       eraserRadius = saved.clamp(minRadius, maxRadius);
@@ -196,7 +196,7 @@ class EraserTool {
   }
 
   Future<void> persistRadius() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await KeyValueStore.getInstance();
     await prefs.setDouble(_radiusPrefKey, eraserRadius);
   }
 

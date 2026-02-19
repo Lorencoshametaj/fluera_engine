@@ -338,16 +338,9 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             _toolController.toggleGhostSuggestionMode();
             setState(() {});
           },
-          onPdfImportPressed:
-              widget.config.pdfProvider != null
-                  ? () {
-                    // 📄 PDF import — host app handles file picking,
-                    // then feeds bytes to PdfImportController
-                    debugPrint(
-                      '[PDF] Import pressed — host app should pick file',
-                    );
-                  }
-                  : null,
+          onPdfImportPressed: () {
+            pickAndAddPdf();
+          },
         );
       },
     );

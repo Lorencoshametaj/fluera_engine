@@ -1,6 +1,13 @@
 import 'dart:ui';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'package:vector_math/vector_math_64.dart' show Matrix4;
 import './vector_path.dart';
+import '../scene_graph/canvas_node.dart';
+import '../nodes/path_node.dart';
+import '../nodes/shape_node.dart';
+import '../vector/shape_presets.dart';
+import '../models/shape_type.dart';
 
 /// Type of boolean operation.
 enum BooleanOpType {
@@ -65,6 +72,10 @@ class BooleanResult {
 class BooleanOps {
   BooleanOps._();
 
+  // ---------------------------------------------------------------------------
+  // Core operations
+  // ---------------------------------------------------------------------------
+
   /// Execute a boolean operation on two vector paths.
   ///
   /// Converts both [VectorPath]s to Flutter `Path` objects,
@@ -80,20 +91,9 @@ class BooleanOps {
     final flutterA = pathA.toFlutterPath();
     final flutterB = pathB.toFlutterPath();
 
-    final PathOperation flutterOp;
-    switch (operation) {
-      case BooleanOpType.union:
-        flutterOp = PathOperation.union;
-      case BooleanOpType.subtract:
-        flutterOp = PathOperation.difference;
-      case BooleanOpType.intersect:
-        flutterOp = PathOperation.intersect;
-      case BooleanOpType.exclude:
-        flutterOp = PathOperation.xor;
-    }
-
+    final flutterOp = _toPathOperation(operation);
     final resultFlutterPath = Path.combine(flutterOp, flutterA, flutterB);
-    final resultVectorPath = _flutterPathToVectorPath(resultFlutterPath);
+    final resultVectorPath = flutterPathToVectorPath(resultFlutterPath);
 
     return BooleanResult(
       resultPath: resultVectorPath,
@@ -102,6 +102,47 @@ class BooleanOps {
       sourceBId: sourceBId,
     );
   }
+
+  /// Execute a boolean operation on a raw Flutter [Path] pair.
+  ///
+  /// Lower-level than [execute] — skips VectorPath conversion on input.
+  /// Useful when you already have Flutter paths (e.g., from nodes).
+  static VectorPath executeOnFlutterPaths(
+    BooleanOpType operation,
+    Path pathA,
+    Path pathB,
+  ) {
+    final flutterOp = _toPathOperation(operation);
+    final result = Path.combine(flutterOp, pathA, pathB);
+    return flutterPathToVectorPath(result);
+  }
+
+  /// Chain the same operation across multiple [VectorPath]s.
+  ///
+  /// E.g., `multiExecute(BooleanOpType.union, [a, b, c])` produces
+  /// `union(union(a, b), c)`.
+  ///
+  /// Returns an empty path if [paths] is empty.
+  static VectorPath multiExecute(
+    BooleanOpType operation,
+    List<VectorPath> paths,
+  ) {
+    if (paths.isEmpty) return VectorPath(segments: []);
+    if (paths.length == 1) return paths.first;
+
+    final flutterOp = _toPathOperation(operation);
+    Path result = paths.first.toFlutterPath();
+
+    for (int i = 1; i < paths.length; i++) {
+      result = Path.combine(flutterOp, result, paths[i].toFlutterPath());
+    }
+
+    return flutterPathToVectorPath(result);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Convenience shortcuts
+  // ---------------------------------------------------------------------------
 
   /// Union: combine both shapes into one outline.
   static BooleanResult union(
@@ -159,9 +200,14 @@ class BooleanOps {
     sourceBId: sourceBId,
   );
 
+  // ---------------------------------------------------------------------------
+  // Utilities
+  // ---------------------------------------------------------------------------
+
   /// Check whether two paths overlap at all.
   ///
-  /// Useful for validating before performing boolean ops.
+  /// Performs a fast bounding-box check first, then a precise path
+  /// intersection check.
   static bool pathsOverlap(VectorPath a, VectorPath b) {
     final boundsA = a.computeBounds();
     final boundsB = b.computeBounds();
@@ -180,66 +226,151 @@ class BooleanOps {
   ///
   /// Useful for merging multiple shapes into one outline.
   static VectorPath flattenUnion(List<VectorPath> paths) {
-    if (paths.isEmpty) return VectorPath(segments: []);
-    if (paths.length == 1) return paths.first;
+    return multiExecute(BooleanOpType.union, paths);
+  }
 
-    Path result = paths.first.toFlutterPath();
-    for (int i = 1; i < paths.length; i++) {
-      result = Path.combine(
-        PathOperation.union,
-        result,
-        paths[i].toFlutterPath(),
-      );
+  /// Convert any supported [CanvasNode] to a [VectorPath].
+  ///
+  /// Applies the node's world transform so the path is in scene coordinates.
+  /// Supports [PathNode] and [ShapeNode].
+  ///
+  /// Returns `null` for unsupported node types.
+  static VectorPath? nodeToVectorPath(CanvasNode node) {
+    VectorPath? local;
+
+    if (node is PathNode) {
+      local = node.path;
+    } else if (node is ShapeNode) {
+      local = _shapeToVectorPath(node.shape);
     }
-    return _flutterPathToVectorPath(result);
+
+    if (local == null) return null;
+
+    // Apply the node's world transform so path is in scene coordinates.
+    final worldMatrix = node.worldTransform;
+    final identity = Matrix4.identity();
+    if (worldMatrix == identity) return local;
+    return local.transformed(Float64List.fromList(worldMatrix.storage));
+  }
+
+  /// Convert a [GeometricShape] to a [VectorPath] using [ShapePresets].
+  static VectorPath _shapeToVectorPath(GeometricShape shape) {
+    final bounds = Rect.fromPoints(shape.startPoint, shape.endPoint);
+    switch (shape.type) {
+      case ShapeType.rectangle:
+        return ShapePresets.rectangle(bounds);
+      case ShapeType.circle:
+        return ShapePresets.ellipse(bounds);
+      case ShapeType.triangle:
+        return ShapePresets.triangle(bounds);
+      case ShapeType.diamond:
+        return ShapePresets.diamond(bounds);
+      case ShapeType.pentagon:
+        return ShapePresets.pentagon(bounds);
+      case ShapeType.hexagon:
+        return ShapePresets.hexagon(bounds);
+      case ShapeType.star:
+        return ShapePresets.star(bounds);
+      case ShapeType.heart:
+        return ShapePresets.heart(bounds);
+      case ShapeType.arrow:
+        return ShapePresets.arrow(shape.startPoint, shape.endPoint);
+      case ShapeType.line:
+        return ShapePresets.line(shape.startPoint, shape.endPoint);
+      case ShapeType.freehand:
+        // Freehand shapes don't have a preset — use bounding rect as fallback.
+        return ShapePresets.rectangle(bounds);
+    }
   }
 
   // ---------------------------------------------------------------------------
-  // Flutter Path → VectorPath conversion
+  // Flutter Path → VectorPath conversion (adaptive sampling)
   // ---------------------------------------------------------------------------
 
   /// Convert a Flutter [Path] back to a [VectorPath].
   ///
-  /// Uses [Path.computeMetrics] to extract contours and samples
-  /// points along each contour to reconstruct line segments.
-  static VectorPath _flutterPathToVectorPath(Path flutterPath) {
+  /// Uses dense sampling along each contour via [Path.computeMetrics].
+  /// Handles compound paths (multiple contours) by emitting a [MoveSegment]
+  /// at the start of each contour.
+  ///
+  /// Applies collinear-point merging to reduce segment count for straight edges.
+  static VectorPath flutterPathToVectorPath(Path flutterPath) {
     final segments = <PathSegment>[];
 
     for (final metric in flutterPath.computeMetrics()) {
       final length = metric.length;
       if (length == 0) continue;
 
-      // Sample the contour at regular intervals to create line segments.
-      final sampleCount = math.max(8, (length / 4).ceil());
-      Offset? firstPoint;
-      Offset? prevPoint;
+      // Dense sampling — enough points for smooth curves, merged for lines.
+      final sampleCount = math.max(12, (length / 2).ceil());
+      final points = <Offset>[];
 
       for (int i = 0; i <= sampleCount; i++) {
-        final t = i / sampleCount;
-        final tangent = metric.getTangentForOffset(t * length);
+        final dist = (i / sampleCount) * length;
+        final tangent = metric.getTangentForOffset(dist);
         if (tangent == null) continue;
-
-        final point = tangent.position;
-
-        if (prevPoint == null) {
-          // First point: emit a MoveSegment.
-          segments.add(MoveSegment(endPoint: point));
-          firstPoint = point;
-        } else {
-          // Subsequent points: emit LineSegments.
-          segments.add(LineSegment(endPoint: point));
-        }
-        prevPoint = point;
+        points.add(tangent.position);
       }
 
-      // Close the contour if needed.
-      if (metric.isClosed && firstPoint != null && prevPoint != null) {
-        if ((prevPoint - firstPoint).distance > 1.0) {
-          segments.add(LineSegment(endPoint: firstPoint));
+      if (points.isEmpty) continue;
+
+      // Emit segments with collinear merging.
+      segments.add(MoveSegment(endPoint: points.first));
+
+      for (int i = 1; i < points.length; i++) {
+        final p = points[i];
+
+        // Merge near-collinear consecutive segments.
+        if (i >= 2) {
+          final prev = points[i - 1];
+          final prevPrev = points[i - 2];
+          if (_isCollinear(prevPrev, prev, p, tolerance: 0.8)) {
+            if (segments.isNotEmpty && segments.last is LineSegment) {
+              segments[segments.length - 1] = LineSegment(endPoint: p);
+              continue;
+            }
+          }
+        }
+
+        segments.add(LineSegment(endPoint: p));
+      }
+
+      // Close contour.
+      if (metric.isClosed && points.length > 1) {
+        final first = points.first;
+        final last = points.last;
+        if ((last - first).distance > 0.5) {
+          segments.add(LineSegment(endPoint: first));
         }
       }
     }
 
     return VectorPath(segments: segments, isClosed: true);
+  }
+
+  /// Check if three points are approximately collinear.
+  static bool _isCollinear(
+    Offset a,
+    Offset b,
+    Offset c, {
+    double tolerance = 1.0,
+  }) {
+    // Cross-product magnitude — 0 means perfectly collinear.
+    final cross = (b.dx - a.dx) * (c.dy - a.dy) - (b.dy - a.dy) * (c.dx - a.dx);
+    return cross.abs() < tolerance;
+  }
+
+  /// Map [BooleanOpType] to Flutter's [PathOperation].
+  static PathOperation _toPathOperation(BooleanOpType op) {
+    switch (op) {
+      case BooleanOpType.union:
+        return PathOperation.union;
+      case BooleanOpType.subtract:
+        return PathOperation.difference;
+      case BooleanOpType.intersect:
+        return PathOperation.intersect;
+      case BooleanOpType.exclude:
+        return PathOperation.xor;
+    }
   }
 }

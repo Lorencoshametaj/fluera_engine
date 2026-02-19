@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../drawing/models/pro_brush_settings.dart';
@@ -18,6 +19,11 @@ import '../../core/scene_graph/canvas_node.dart';
 import '../../core/nodes/stroke_node.dart';
 import '../../core/nodes/layer_node.dart';
 import '../../core/nodes/group_node.dart';
+import '../../core/nodes/pdf_document_node.dart';
+import '../../core/nodes/pdf_page_node.dart';
+import '../canvas/pdf_page_painter.dart';
+import '../../tools/pdf/pdf_text_selection_controller.dart';
+import '../../export/pdf_annotation_exporter.dart';
 
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
 import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
@@ -87,6 +93,15 @@ class DrawingPainter extends CustomPainter {
   // 🌲 Scene graph: sole source of truth for strokes
   final SceneGraph sceneGraph;
 
+  // 📄 PDF painters: one per document ID
+  final Map<String, PdfPagePainter> pdfPainters;
+
+  // 📄 Callback to trigger repaint when async PDF renders complete
+  final VoidCallback? onPdfRepaint;
+
+  // 📝 Active text selection on PDF pages
+  final PdfTextSelection? pdfTextSelection;
+
   // 🌲 Cached materialized strokes (lazily computed once per paint frame)
   List<ProStroke>? _materializedCache;
   int _materializedVersion = -1;
@@ -107,6 +122,9 @@ class DrawingPainter extends CustomPainter {
     this.eraserPreviewIds = const {}, // 🎯 Eraser preview
     this.controller, // 🚀 Viewport-level mode
     required this.sceneGraph, // 🌲 Scene graph source (sole source of truth)
+    this.pdfPainters = const {}, // 📄 PDF page painters
+    this.onPdfRepaint, // 📄 Repaint callback for async PDF renders
+    this.pdfTextSelection, // 📝 Text selection overlay
   }) : super(repaint: controller); // repaint on pan/zoom when controller set
 
   /// 🌲 Effective strokes: materialized from the scene graph tree.
@@ -187,6 +205,9 @@ class DrawingPainter extends CustomPainter {
 
     // Draw shapes (always direct rendering - typically few)
     _paintShapes(canvas, viewport);
+
+    // 📄 Draw PDF documents
+    _paintPdfDocuments(canvas, viewport);
 
     // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
     dirtyRegionTracker?.clearDirty();
@@ -605,6 +626,385 @@ class DrawingPainter extends CustomPainter {
     if (currentShape != null) {
       ShapePainter.drawShape(canvas, currentShape!, isPreview: true);
     }
+  }
+
+  /// 📄 Paint all PDF document nodes found in the scene graph layers.
+  ///
+  /// Uses [PdfPagePainter] for LOD-aware progressive rendering with
+  /// prefetching, LRU eviction, and debounced LOD upgrades.
+  void _paintPdfDocuments(Canvas canvas, Rect viewport) {
+    // Collect pages per document (not globally!) for correct isolation
+    final pagesPerDocument = <String, List<PdfPageNode>>{};
+
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      _collectAndPaintPdfNodes(canvas, layer, viewport, pagesPerDocument);
+    }
+
+    // Prefetch, flush, evict — each painter only sees its OWN document's pages
+    for (final entry in pdfPainters.entries) {
+      final docId = entry.key;
+      final painter = entry.value;
+      final docPages = pagesPerDocument[docId] ?? const [];
+
+      painter.prefetchAdjacent(
+        docPages,
+        viewport,
+        currentZoom: controller?.scale ?? canvasScale,
+        onNeedRepaint: onPdfRepaint,
+      );
+      painter.flushStaleQueue(viewport);
+      painter.evictOffViewport(docPages, viewport);
+      painter.cleanupStalePages(docPages);
+    }
+  }
+
+  /// Recursively find and paint PDF nodes in a subtree.
+  void _collectAndPaintPdfNodes(
+    Canvas canvas,
+    CanvasNode node,
+    Rect viewport,
+    Map<String, List<PdfPageNode>> pagesPerDocument,
+  ) {
+    if (node is PdfDocumentNode) {
+      // 🚀 Culling: If document is off-screen, skip its pages entirely
+      if (!node.worldBounds.overlaps(viewport)) return;
+
+      final painter = pdfPainters[node.id];
+      final docPages = pagesPerDocument.putIfAbsent(node.id, () => []);
+      for (final child in node.children) {
+        if (child is PdfPageNode && child.isVisible) {
+          docPages.add(child);
+          _paintPdfPage(canvas, child, viewport, painter);
+        }
+      }
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) {
+          _collectAndPaintPdfNodes(canvas, child, viewport, pagesPerDocument);
+        }
+      }
+    }
+  }
+
+  // 📄 Reusable Paint objects for PDF rendering (zero per-frame allocation)
+  static final Paint _pdfShadowPaint =
+      Paint()
+        ..color = const Color(0x30000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+  static final Paint _pdfPageBgPaint = Paint()..color = const Color(0xFFFFFFFF);
+  static final Paint _pdfBorderPaint =
+      Paint()
+        ..color = const Color(0xFFE0E0E0)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5;
+
+  /// Paint a single PDF page with professional styling.
+  ///
+  /// Features: drop shadow, white background, LOD-aware content via
+  /// [PdfPagePainter], thin border. Falls back to a numbered placeholder
+  /// if no [PdfPagePainter] is available for this document.
+  void _paintPdfPage(
+    Canvas canvas,
+    PdfPageNode pageNode,
+    Rect viewport,
+    PdfPagePainter? painter,
+  ) {
+    final pos = pageNode.position;
+    final size = pageNode.pageModel.originalSize;
+    final pageRect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
+
+    // Viewport culling (rotation-aware: rotated pages have inflated bounds)
+    final rotation = pageNode.pageModel.rotation;
+    final cullRect =
+        rotation != 0
+            ? PdfAnnotationExporter.inflatedBoundsForRotation(
+              pageRect,
+              rotation,
+            )
+            : pageRect;
+    if (!cullRect.overlaps(viewport)) return;
+
+    // 🔄 Apply page rotation around center
+    if (rotation != 0) {
+      canvas.save();
+      final cx = pageRect.center.dx;
+      final cy = pageRect.center.dy;
+      canvas.translate(cx, cy);
+      canvas.rotate(rotation);
+      canvas.translate(-cx, -cy);
+    }
+
+    // 🎨 Drop shadow (professional paper look)
+    final shadowRect = pageRect.translate(0, 4);
+    canvas.drawRect(shadowRect, _pdfShadowPaint);
+
+    // White page background
+    canvas.drawRect(pageRect, _pdfPageBgPaint);
+
+    // Draw page content via PdfPagePainter (LOD-aware) or fallback
+    canvas.save();
+    canvas.translate(pos.dx, pos.dy);
+
+    if (painter != null) {
+      painter.paintPage(
+        canvas,
+        pageNode,
+        currentZoom: controller?.scale ?? canvasScale,
+        onNeedRepaint: onPdfRepaint,
+        viewport: viewport,
+      );
+    } else {
+      // Fallback: basic placeholder with page number
+      final localRect = Rect.fromLTWH(0, 0, size.width, size.height);
+      final pageNum = '${pageNode.pageModel.pageIndex + 1}';
+      final tp = TextPainter(
+        text: TextSpan(
+          text: pageNum,
+          style: const TextStyle(
+            color: Color(0xFFBBBBBB),
+            fontSize: 28,
+            fontWeight: FontWeight.w300,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset(
+          (localRect.width - tp.width) / 2,
+          (localRect.height - tp.height) / 2,
+        ),
+      );
+    }
+
+    canvas.restore();
+
+    // 📝 Annotation layer: draw strokes linked to this page, clipped to bounds
+    final annotations = pageNode.pageModel.annotations;
+    if (annotations.isNotEmpty && pageNode.pageModel.showAnnotations) {
+      canvas.save();
+      canvas.clipRect(pageRect);
+      _paintPageAnnotations(canvas, annotations);
+      canvas.restore();
+    }
+
+    // 📝 Text selection highlight overlay
+    if (pdfTextSelection != null &&
+        pdfTextSelection!.isNotEmpty &&
+        pdfTextSelection!.pageIndex == pageNode.pageModel.pageIndex) {
+      _paintTextSelectionOverlay(canvas, pdfTextSelection!, pageRect);
+    }
+
+    // Thin border
+    canvas.drawRect(pageRect, _pdfBorderPaint);
+
+    // 📑 Page number badge (bottom-right corner)
+    if (showPdfPageNumbers) {
+      _paintPageNumberBadge(canvas, pageNode, pageRect);
+    }
+
+    // 🔒 Lock icon overlay (small pill at top-right)
+    if (pageNode.pageModel.isLocked) {
+      _paintLockIndicator(canvas, pageRect);
+    }
+
+    // Close rotation transform if applied
+    if (rotation != 0) {
+      canvas.restore();
+    }
+  }
+
+  /// Whether to show page number badges on PDF pages.
+  bool showPdfPageNumbers = true;
+
+  /// Paint annotation strokes linked to a page.
+  ///
+  /// Looks up strokes by ID from all layer stroke lists and renders them.
+  /// Assumes the canvas is already clipped to the page rect.
+  void _paintPageAnnotations(Canvas canvas, List<String> annotationIds) {
+    if (layers == null) return;
+
+    final idSet = annotationIds.toSet();
+    for (final layer in layers!) {
+      if (!layer.isVisible) continue;
+      for (final stroke in layer.strokes) {
+        if (idSet.contains(stroke.id)) {
+          _renderStroke(canvas, stroke);
+        }
+      }
+    }
+  }
+
+  // Pre-allocated paints for text selection overlay (B6: avoid per-frame alloc)
+  static final Paint _selectionHighlightPaint =
+      Paint()
+        ..color = const Color(0x4D2196F3) // Material Blue 20%
+        ..style = PaintingStyle.fill;
+
+  static final Paint _selectionHandlePaint =
+      Paint()
+        ..color = const Color(0xFF2196F3) // Material Blue solid
+        ..style = PaintingStyle.fill;
+
+  /// Paint text selection highlights and drag handles.
+  ///
+  /// [selection] contains the selected spans in page-local coordinates.
+  /// [pageRect] is the page's canvas-space rect, used to offset the spans.
+  void _paintTextSelectionOverlay(
+    Canvas canvas,
+    PdfTextSelection selection,
+    Rect pageRect,
+  ) {
+    if (selection.isEmpty) return;
+
+    final pageOffset = Offset(pageRect.left, pageRect.top);
+
+    // Clip to page bounds so highlights don't bleed outside
+    canvas.save();
+    canvas.clipRect(pageRect);
+
+    // Draw highlight rectangles for each selected span
+    for (final span in selection.spans) {
+      final r = span.rect.shift(pageOffset);
+      canvas.drawRect(r, _selectionHighlightPaint);
+    }
+
+    // Draw drag handles at start and end of selection
+    // Scale inversely with zoom so handles stay visually consistent
+    final effectiveScale = controller?.scale ?? canvasScale;
+    final handleRadius = math.max(3.0, 5.0 / effectiveScale);
+
+    if (selection.spans.isNotEmpty) {
+      final firstRect = selection.spans.first.rect.shift(pageOffset);
+      final lastRect = selection.spans.last.rect.shift(pageOffset);
+
+      // Start handle: left edge, center vertically
+      canvas.drawCircle(
+        Offset(firstRect.left, firstRect.center.dy),
+        handleRadius,
+        _selectionHandlePaint,
+      );
+
+      // End handle: right edge, center vertically
+      canvas.drawCircle(
+        Offset(lastRect.right, lastRect.center.dy),
+        handleRadius,
+        _selectionHandlePaint,
+      );
+    }
+
+    canvas.restore();
+  }
+
+  // F3: Pre-allocated paints for lock indicator (avoid per-frame alloc)
+  static final Paint _lockPillPaint = Paint()..color = const Color(0x99000000);
+  static final Paint _lockBodyPaint = Paint()..color = const Color(0xFFFFFFFF);
+  static final Paint _lockShacklePaint =
+      Paint()
+        ..color = const Color(0xFFFFFFFF)
+        ..style = PaintingStyle.stroke;
+
+  /// Paint a small lock indicator pill at the top-right of a page.
+  void _paintLockIndicator(Canvas canvas, Rect pageRect) {
+    final effectiveScale = controller?.scale ?? canvasScale;
+    final iconSize = 14.0 / effectiveScale;
+    final padding = 6.0 / effectiveScale;
+    final pillWidth = iconSize + padding * 2;
+    final pillHeight = iconSize + padding * 2;
+
+    final pillRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        pageRect.right - pillWidth - padding,
+        pageRect.top + padding,
+        pillWidth,
+        pillHeight,
+      ),
+      Radius.circular(pillHeight / 2),
+    );
+
+    // Semi-transparent dark pill
+    canvas.drawRRect(pillRect, _lockPillPaint);
+
+    // Lock icon (draw a simple padlock shape)
+    final cx = pillRect.center.dx;
+    final cy = pillRect.center.dy;
+    final s = iconSize * 0.35;
+
+    // Body (rounded rect)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(cx, cy + s * 0.2),
+          width: s * 1.6,
+          height: s * 1.4,
+        ),
+        Radius.circular(s * 0.2),
+      ),
+      _lockBodyPaint,
+    );
+
+    // Shackle (arc) — strokeWidth is dynamic so set per-call
+    _lockShacklePaint.strokeWidth = s * 0.35;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(cx, cy - s * 0.3),
+        width: s * 1.0,
+        height: s * 1.0,
+      ),
+      math.pi,
+      math.pi,
+      false,
+      _lockShacklePaint,
+    );
+  }
+
+  /// Paint a small page-number pill at the bottom-right of a page.
+  void _paintPageNumberBadge(
+    Canvas canvas,
+    PdfPageNode pageNode,
+    Rect pageRect,
+  ) {
+    final totalPages =
+        (pageNode.parent is PdfDocumentNode)
+            ? (pageNode.parent as PdfDocumentNode).documentModel.totalPages
+            : 0;
+    if (totalPages == 0) return;
+
+    final pageNum = pageNode.pageModel.pageIndex + 1;
+    final label = '$pageNum / $totalPages';
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Color(0xFFFFFFFF),
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.3,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final badgePad = 6.0;
+    final badgeW = tp.width + badgePad * 2;
+    final badgeH = tp.height + badgePad;
+    final badgeRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        pageRect.right - badgeW - 8,
+        pageRect.bottom - badgeH - 8,
+        badgeW,
+        badgeH,
+      ),
+      const Radius.circular(6),
+    );
+
+    canvas.drawRRect(badgeRect, _lockPillPaint); // reuse same dark pill paint
+    tp.paint(
+      canvas,
+      Offset(badgeRect.left + badgePad, badgeRect.top + badgePad / 2),
+    );
   }
 
   /// 🪣 Draw fill overlay as raster image at its canvas-space bounds

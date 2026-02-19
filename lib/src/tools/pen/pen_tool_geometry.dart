@@ -17,7 +17,7 @@ extension _PenToolGeometry on PenTool {
     final vectorPath = AnchorPoint.toVectorPath(_anchors, closed: closed);
 
     final pathNode = PathNode(
-      id: const Uuid().v4(),
+      id: _isEditingExisting ? _editingNodeId! : generateUid(),
       path: vectorPath,
       name: 'Path',
       fillColor: fillColor,
@@ -28,7 +28,11 @@ extension _PenToolGeometry on PenTool {
       strokeJoin: strokeJoin,
     );
 
-    onPathNodeCreated?.call(pathNode);
+    if (_isEditingExisting && _editingNodeId != null) {
+      onPathNodeEdited?.call(_editingNodeId!, pathNode);
+    } else {
+      onPathNodeCreated?.call(pathNode);
+    }
 
     // 📳 Haptic feedback on path finalization
     HapticFeedback.mediumImpact();
@@ -51,6 +55,17 @@ extension _PenToolGeometry on PenTool {
     _lastAnchorTapMs = 0;
     _selectedAnchorIndices.clear();
     _longPressPending = false;
+    _lastTappedHandleIndex = -1;
+    _lastTappedHandleIsIn = false;
+    _lastHandleTapMs = 0;
+    _altKeyDown = false;
+    _isEditingExisting = false;
+    _editingNodeId = null;
+    _showAnchorContextMenu = false;
+    _contextMenuAnchorIndex = -1;
+    _showSegmentContextMenu = false;
+    _contextMenuSegmentIndex = -1;
+    _cursorHint = PenCursorHint.none;
     state = ToolOperationState.idle;
   }
 
@@ -197,6 +212,278 @@ extension _PenToolGeometry on PenTool {
   /// Linear interpolation between two offsets.
   Offset lerpOffset(Offset a, Offset b, double t) {
     return Offset(a.dx + (b.dx - a.dx) * t, a.dy + (b.dy - a.dy) * t);
+  }
+
+  // ── ANCHOR TYPE CYCLING ──
+
+  /// Cycle anchor type: corner → smooth → symmetric → corner.
+  ///
+  /// - **corner → smooth**: Creates default handles from neighbor direction
+  ///   (1/3 of the distance to each neighbor).
+  /// - **smooth → symmetric**: Equalizes both handles to the longer length.
+  /// - **symmetric → corner**: Removes both handles.
+  void cycleAnchorType(AnchorPoint anchor, int index) {
+    switch (anchor.type) {
+      case AnchorType.corner:
+        // → smooth: generate handles from neighbor directions.
+        _generateSmartHandles(anchor, index);
+        anchor.type = AnchorType.smooth;
+        break;
+      case AnchorType.smooth:
+        // → symmetric: equalize handles to the longer length.
+        if (anchor.handleIn != null && anchor.handleOut != null) {
+          final maxLen =
+              anchor.handleIn!.distance > anchor.handleOut!.distance
+                  ? anchor.handleIn!.distance
+                  : anchor.handleOut!.distance;
+          if (maxLen > 0) {
+            anchor.handleOut =
+                anchor.handleOut! / anchor.handleOut!.distance * maxLen;
+            anchor.handleIn =
+                anchor.handleIn! / anchor.handleIn!.distance * maxLen;
+          }
+        } else {
+          // Only one handle exists — mirror it.
+          anchor.handleOut ??=
+              anchor.handleIn != null ? -anchor.handleIn! : null;
+          anchor.handleIn ??=
+              anchor.handleOut != null ? -anchor.handleOut! : null;
+        }
+        anchor.type = AnchorType.symmetric;
+        break;
+      case AnchorType.symmetric:
+        // → corner: remove handles.
+        anchor.handleIn = null;
+        anchor.handleOut = null;
+        anchor.type = AnchorType.corner;
+        break;
+    }
+  }
+
+  /// Generate smart handles for a corner → smooth conversion.
+  ///
+  /// Uses 1/3 of the distance to each neighbor as handle length,
+  /// pointing in the direction of that neighbor.
+  void _generateSmartHandles(AnchorPoint anchor, int index) {
+    Offset? prevPos;
+    Offset? nextPos;
+
+    if (index > 0) prevPos = _anchors[index - 1].position;
+    if (index < _anchors.length - 1) nextPos = _anchors[index + 1].position;
+
+    if (prevPos != null && nextPos != null) {
+      // Both neighbors: tangent direction is from prev → next.
+      final tangent = nextPos - prevPos;
+      final tangentLen = tangent.distance;
+      if (tangentLen > 0) {
+        final dir = tangent / tangentLen;
+        final distToPrev = (anchor.position - prevPos).distance / 3.0;
+        final distToNext = (nextPos - anchor.position).distance / 3.0;
+        anchor.handleIn = -dir * distToPrev;
+        anchor.handleOut = dir * distToNext;
+      }
+    } else if (prevPos != null) {
+      final delta = prevPos - anchor.position;
+      final len = delta.distance / 3.0;
+      if (len > 0) {
+        anchor.handleIn = delta / delta.distance * len;
+        anchor.handleOut = -(delta / delta.distance * len);
+      }
+    } else if (nextPos != null) {
+      final delta = nextPos - anchor.position;
+      final len = delta.distance / 3.0;
+      if (len > 0) {
+        anchor.handleOut = delta / delta.distance * len;
+        anchor.handleIn = -(delta / delta.distance * len);
+      }
+    }
+  }
+
+  /// Equalize both handle lengths to their average, preserving direction.
+  void equalizeHandles(int anchorIndex) {
+    if (anchorIndex < 0 || anchorIndex >= _anchors.length) return;
+    final anchor = _anchors[anchorIndex];
+    if (anchor.handleIn == null || anchor.handleOut == null) return;
+
+    final avgLen =
+        (anchor.handleIn!.distance + anchor.handleOut!.distance) / 2.0;
+    if (avgLen < 0.01) return;
+
+    anchor.handleIn = anchor.handleIn! / anchor.handleIn!.distance * avgLen;
+    anchor.handleOut = anchor.handleOut! / anchor.handleOut!.distance * avgLen;
+  }
+
+  // ── PATH REVERSAL ──
+
+  /// Reverse the path direction: reverse anchor order and swap handles.
+  void reversePath() {
+    if (_anchors.length < 2) return;
+
+    // Swap handleIn ↔ handleOut for each anchor.
+    for (final anchor in _anchors) {
+      final tmpIn = anchor.handleIn;
+      anchor.handleIn = anchor.handleOut;
+      anchor.handleOut = tmpIn;
+    }
+
+    // Reverse the list in place.
+    final reversed = _anchors.reversed.toList();
+    _anchors
+      ..clear()
+      ..addAll(reversed);
+
+    // Update multi-selection indices to match new positions.
+    final maxIdx = _anchors.length - 1;
+    final adjusted = _selectedAnchorIndices.map((idx) => maxIdx - idx).toSet();
+    _selectedAnchorIndices
+      ..clear()
+      ..addAll(adjusted);
+  }
+
+  // ── ANCHOR DELETION ──
+
+  /// Delete anchors at the specified [indices].
+  ///
+  /// Removes in reverse order to keep indices stable during removal.
+  void deleteAnchorsByIndex(Set<int> indices) {
+    if (indices.isEmpty) return;
+
+    // Sort descending to remove from end first.
+    final sorted = indices.toList()..sort((a, b) => b.compareTo(a));
+    for (final idx in sorted) {
+      if (idx >= 0 && idx < _anchors.length) {
+        _anchors.removeAt(idx);
+      }
+    }
+
+    // Clear selection — indices no longer valid.
+    _selectedAnchorIndices.clear();
+  }
+
+  // ── SEGMENT DELETION (SPLIT PATH) ──
+
+  /// Delete segment at [segIndex], splitting the path into two.
+  ///
+  /// - If only 2 anchors → clear the path entirely.
+  /// - If ≥3 anchors → finalize anchors `[0..segIndex]` as a separate
+  ///   open PathNode, then keep `[segIndex+1..end]` as the current
+  ///   editing session.
+  ///
+  /// The first half is finalized via [onPathNodeCreated] callback.
+  /// Handles at the split boundary are cleared (they pointed to the
+  /// deleted segment).
+  void deleteSegment(int segIndex, ToolContext context) {
+    if (segIndex < 0 || segIndex >= _anchors.length - 1) return;
+
+    // Only 2 anchors — just clear.
+    if (_anchors.length <= 2) {
+      resetState();
+      return;
+    }
+
+    // Split into two lists.
+    final firstHalf = _anchors.sublist(0, segIndex + 1);
+    final secondHalf = _anchors.sublist(segIndex + 1);
+
+    // Clear dangling handles at the split boundary.
+    firstHalf.last.handleOut = null;
+    secondHalf.first.handleIn = null;
+
+    // Finalize the first half as a separate open PathNode if it has ≥2 anchors.
+    if (firstHalf.length >= 2) {
+      context.saveUndoState();
+      final vectorPath = AnchorPoint.toVectorPath(firstHalf);
+      final pathNode = PathNode(
+        id: generateUid(),
+        path: vectorPath,
+        name: 'Path',
+        fillColor: fillColor,
+        fillGradient: fillGradient,
+        strokeColor: strokeColor,
+        strokeWidth: strokeWidth,
+        strokeCap: strokeCap,
+        strokeJoin: strokeJoin,
+      );
+      onPathNodeCreated?.call(pathNode);
+    }
+
+    // Load the second half as the current editing session.
+    _anchors
+      ..clear()
+      ..addAll(secondHalf);
+
+    // Clear selection — indices no longer valid.
+    _selectedAnchorIndices.clear();
+    _editingAnchorIndex = -1;
+
+    // If the second half has < 2 anchors, just keep it for further editing.
+    // The user can continue adding points or cancel.
+  }
+
+  // ── AUTO-SMOOTH (CATMULL-ROM → BÉZIER) ──
+
+  /// Convert all corner anchors to smooth using Catmull-Rom tangent
+  /// interpolation for optimal handle placement.
+  ///
+  /// For each anchor with neighbors, computes the tangent direction as
+  /// `(next - prev)` and sets handles to `tangent * (distance / 6)`.
+  /// This produces C1-continuous curves that pass through all anchor points.
+  ///
+  /// [tension] controls curvature tightness:
+  /// - 0.5 (default) = standard Catmull-Rom
+  /// - Lower = tighter curves (closer to straight lines)
+  /// - Higher = looser, more rounded curves
+  void autoSmoothPath({double tension = 0.5}) {
+    if (_anchors.length < 2) return;
+
+    final n = _anchors.length;
+    for (int i = 0; i < n; i++) {
+      final anchor = _anchors[i];
+
+      if (i == 0) {
+        // First anchor: use forward difference.
+        final next = _anchors[i + 1].position;
+        final tangent = next - anchor.position;
+        final len = tangent.distance;
+        if (len > 0) {
+          final dir = tangent / len;
+          final handleLen = len / (3.0 / tension);
+          anchor.handleOut = dir * handleLen;
+          // No handleIn for the first anchor of an open path.
+          anchor.handleIn = null;
+        }
+        anchor.type = AnchorType.smooth;
+      } else if (i == n - 1) {
+        // Last anchor: use backward difference.
+        final prev = _anchors[i - 1].position;
+        final tangent = anchor.position - prev;
+        final len = tangent.distance;
+        if (len > 0) {
+          final dir = tangent / len;
+          final handleLen = len / (3.0 / tension);
+          anchor.handleIn = -dir * handleLen;
+          // No handleOut for the last anchor of an open path.
+          anchor.handleOut = null;
+        }
+        anchor.type = AnchorType.smooth;
+      } else {
+        // Interior anchor: Catmull-Rom tangent from neighbors.
+        final prev = _anchors[i - 1].position;
+        final next = _anchors[i + 1].position;
+        final tangent = next - prev;
+        final tangentLen = tangent.distance;
+        if (tangentLen > 0) {
+          final dir = tangent / tangentLen;
+          final distToPrev = (anchor.position - prev).distance;
+          final distToNext = (next - anchor.position).distance;
+          final handleInLen = distToPrev / (3.0 / tension);
+          final handleOutLen = distToNext / (3.0 / tension);
+          anchor.handleIn = -dir * handleInLen;
+          anchor.handleOut = dir * handleOutLen;
+        }
+        anchor.type = AnchorType.smooth;
+      }
+    }
   }
 
   // ── GRID + GUIDE SNAPPING PIPELINE ──

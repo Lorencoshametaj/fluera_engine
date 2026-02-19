@@ -42,6 +42,51 @@ abstract class Command {
 }
 
 // ---------------------------------------------------------------------------
+// Composite Command
+// ---------------------------------------------------------------------------
+
+/// Groups multiple [Command]s into a single undoable operation.
+///
+/// Use this when a user action logically consists of several steps
+/// (e.g. rename = remove + add) but should appear as one entry in the
+/// undo history.
+///
+/// ```dart
+/// final composite = CompositeCommand(
+///   label: 'Create themed button',
+///   commands: [addNodeCmd, addBindingCmd, setValueCmd],
+/// );
+/// composite.execute(); // runs all three
+/// composite.undo();    // reverses all three in reverse order
+/// ```
+class CompositeCommand extends Command {
+  final List<Command> commands;
+
+  CompositeCommand({required super.label, required this.commands});
+
+  @override
+  void execute() {
+    for (final cmd in commands) {
+      cmd.execute();
+    }
+  }
+
+  @override
+  void undo() {
+    for (final cmd in commands.reversed) {
+      cmd.undo();
+    }
+  }
+
+  @override
+  void redo() {
+    for (final cmd in commands) {
+      cmd.redo();
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Concrete Commands
 // ---------------------------------------------------------------------------
 

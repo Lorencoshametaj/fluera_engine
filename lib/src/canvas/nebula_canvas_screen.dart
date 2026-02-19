@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -6,7 +7,8 @@ import 'package:flutter/material.dart';
 import '../drawing/brushes/brush_texture.dart';
 
 import 'package:flutter/services.dart';
-import 'package:uuid/uuid.dart';
+import 'package:path_provider/path_provider.dart';
+import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../drawing/models/pro_brush_settings.dart';
 import '../drawing/models/pro_brush_settings_dialog.dart';
@@ -95,6 +97,21 @@ import './smart_guides/smart_guide_overlay.dart';
 import '../audio/default_voice_recording_provider.dart';
 import '../rendering/canvas/image_memory_manager.dart';
 import '../rendering/optimization/spatial_index.dart';
+import '../tools/pdf/pdf_import_controller.dart';
+import '../platform/native_pdf_provider.dart';
+import '../core/nodes/pdf_document_node.dart';
+import '../core/nodes/pdf_page_node.dart';
+import '../rendering/canvas/pdf_page_painter.dart';
+import '../rendering/canvas/pdf_memory_budget.dart';
+import './toolbar/pdf_contextual_toolbar.dart';
+import 'package:file_picker/file_picker.dart';
+import './overlays/variable_manager_panel.dart';
+import './overlays/variable_property_sheet.dart';
+import './toolbar/toolbar_variable_button.dart';
+import '../systems/design_variables.dart';
+import '../systems/variable_binding.dart';
+import '../systems/variable_resolver.dart';
+import '../systems/design_token_exporter.dart';
 
 // ============================================================================
 // PART FILES
@@ -111,9 +128,11 @@ part './parts/_canvas_operations.dart';
 part './parts/_export.dart';
 part './parts/_text_tools.dart';
 part './parts/_image_features.dart';
+part './parts/_pdf_features.dart';
 part './parts/_voice_recording.dart';
 part './parts/_cloud_sync.dart';
 part './parts/_phase2_stubs.dart';
+part './parts/_design_variables.dart';
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -497,6 +516,12 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// Used by ImagePainter for fast shouldRepaint + Picture cache invalidation
   int _imageVersion = 0;
 
+  /// 🚀 PERF: Dedicated repaint notifier for the image layer ONLY.
+  /// During drag/resize, incrementing this triggers ONLY the ImagePainter
+  /// repaint — NOT DrawingPainter or BackgroundPainter. This is the key
+  /// optimization that prevents re-rendering all strokes every frame.
+  final ValueNotifier<int> _imageRepaintNotifier = ValueNotifier<int>(0);
+
   /// 🌐 R-tree spatial index for O(log n) image viewport culling
   RTree<ImageElement>? _imageSpatialIndex;
 
@@ -504,6 +529,12 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   final ImageMemoryManager _imageMemoryManager = ImageMemoryManager(
     maxImages: 20,
   );
+
+  /// 📄 PDF providers: one per imported document (keyed by document ID)
+  final Map<String, NativeNebulaPdfProvider> _pdfProviders = {};
+
+  /// 📄 PDF page painters: one per document for LOD-aware rendering
+  final Map<String, PdfPagePainter> _pdfPainters = {};
 
   /// 🌐 Rebuild the R-tree spatial index from current image elements.
   void _rebuildImageSpatialIndex() {
@@ -553,7 +584,8 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   /// Tracciamento movimento
   Offset? _initialTapPosition;
-  static const double _dragThreshold = 25.0;
+  int _lastImageTapTime = 0; // 🌀 Double-tap tracking for rotation reset
+  static const double _dragThreshold = 8.0;
 
   /// 🔄 SYNC: Throttle for real-time drag broadcast (100ms)
   int _lastDragSyncTime = 0;
@@ -638,6 +670,21 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   Rect _exportArea = Rect.zero;
   ExportConfig _exportConfig = const ExportConfig();
   ExportProgressController? _exportProgressController;
+
+  /// 🎛️ Whether the design variables panel is open.
+  bool _showVariablePanel = false;
+
+  /// 🎛️ Design variable collections (themes, tokens, etc.).
+  final List<VariableCollection> _variableCollections = [];
+
+  /// 🎛️ Variable-to-node property bindings.
+  final VariableBindingRegistry _variableBindings = VariableBindingRegistry();
+
+  /// 🎛️ Runtime variable resolver.
+  late final VariableResolver _variableResolver = VariableResolver(
+    collections: _variableCollections,
+    bindings: _variableBindings,
+  );
 
   // ============================================================================
   // 📤 MULTI-PAGE EDIT MODE STATE
