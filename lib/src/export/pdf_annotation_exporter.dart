@@ -90,6 +90,11 @@ class PdfAnnotationExporter {
     this.includeHiddenAnnotations = true,
   });
 
+  // G3: Pre-allocated paints for export (avoid per-call alloc)
+  static final ui.Paint _whiteBgPaint =
+      ui.Paint()..color = const ui.Color(0xFFFFFFFF);
+  static final ui.Paint _imagePaint = ui.Paint();
+
   // ---------------------------------------------------------------------------
   // Export entire document
   // ---------------------------------------------------------------------------
@@ -199,7 +204,7 @@ class PdfAnnotationExporter {
     // 1. White background
     canvas.drawRect(
       ui.Rect.fromLTWH(0, 0, pageSize.width, pageSize.height),
-      ui.Paint()..color = const ui.Color(0xFFFFFFFF),
+      _whiteBgPaint,
     );
 
     // 2. Draw cached PDF page image (scaled to fill page)
@@ -211,7 +216,7 @@ class PdfAnnotationExporter {
         page.cachedImage!.height.toDouble(),
       );
       final dstRect = ui.Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
-      canvas.drawImageRect(page.cachedImage!, srcRect, dstRect, ui.Paint());
+      canvas.drawImageRect(page.cachedImage!, srcRect, dstRect, _imagePaint);
     }
 
     // 3. Overlay annotations clipped to page bounds

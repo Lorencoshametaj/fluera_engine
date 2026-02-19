@@ -16,6 +16,15 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
+    // ⏪ Command-based undo (variable ops, node ops, etc.)
+    if (_commandHistory.canUndo) {
+      _commandHistory.undo();
+      setState(() {});
+      _autoSaveCanvas();
+      HapticFeedback.lightImpact();
+      return;
+    }
+
     // Altrimenti undo sul layer corrente
     _layerController.undoLastElement();
     // 🚀 Invalidate tile cache (l'undo potrebbe rimuovere strokes)
@@ -38,6 +47,15 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
+    // ⏪ Command-based redo (variable ops, node ops, etc.)
+    if (_commandHistory.canRedo) {
+      _commandHistory.redo();
+      setState(() {});
+      _autoSaveCanvas();
+      HapticFeedback.lightImpact();
+      return;
+    }
+
     // Altrimenti redo sul layer corrente
     if (_undoStack.isEmpty) return;
     final restored = _undoStack.removeLast();
@@ -51,6 +69,7 @@ extension on _NebulaCanvasScreenState {
   void _clear() {
     _layerController.clearActiveLayer();
     _undoStack.clear();
+    _commandHistory.clear();
     _currentStrokeNotifier.clear();
     // 🚀 Invalidate the entire tile cache
     DrawingPainter.invalidateAllTiles();

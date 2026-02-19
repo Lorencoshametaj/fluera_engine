@@ -144,6 +144,7 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
 
     // Re-layout grid
+    _syncTotalPages();
     performGridLayout();
   }
 
@@ -181,6 +182,7 @@ class PdfDocumentNode extends GroupNode {
       }
     }
 
+    _syncTotalPages();
     performGridLayout();
   }
 
@@ -351,6 +353,79 @@ class PdfDocumentNode extends GroupNode {
     performGridLayout();
   }
 
+  /// Insert a blank page at [afterIndex] (0-based) or at the end if null.
+  ///
+  /// Creates a new [PdfPageNode] with blank content and the given [size]
+  /// (defaults to A4 portrait: 612×792 PDF points). Returns the created node.
+  PdfPageNode insertBlankPage({int? afterIndex, Size? size}) {
+    final pageSize = size ?? const Size(612, 792); // US Letter / A4
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final pages = pageNodes;
+
+    // Determine insertion position (after afterIndex, or at end)
+    final insertIdx =
+        afterIndex != null
+            ? (afterIndex + 1).clamp(0, pages.length)
+            : pages.length;
+
+    // E7: Set descriptive name for layer panel identification
+    final blankPage = PdfPageNode(
+      id: 'blank_${now}_$insertIdx',
+      name: 'Blank Page ${insertIdx + 1}',
+      pageModel: PdfPageModel(
+        pageIndex: insertIdx,
+        originalSize: pageSize,
+        lastModifiedAt: now,
+      ),
+    );
+
+    insertAt(insertIdx, blankPage);
+
+    // Re-index all pages after insertion
+    final updated = pageNodes;
+    for (int i = 0; i < updated.length; i++) {
+      updated[i].pageModel = updated[i].pageModel.copyWith(
+        pageIndex: i,
+        lastModifiedAt: now,
+      );
+    }
+
+    documentModel = documentModel.copyWith(lastModifiedAt: now);
+    _syncTotalPages();
+    performGridLayout();
+
+    return blankPage;
+  }
+
+  /// E6: Remove a page by [pageIndex] (0-based).
+  ///
+  /// Removes the node, re-indexes remaining pages, syncs totalPages,
+  /// and recalculates the grid layout. Returns the removed node
+  /// (useful for undo commands).
+  PdfPageNode? removePage(int pageIndex) {
+    final pages = pageNodes;
+    if (pageIndex < 0 || pageIndex >= pages.length) return null;
+
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final page = pages[pageIndex];
+    remove(page);
+
+    // Re-index remaining pages
+    final remaining = pageNodes;
+    for (int i = 0; i < remaining.length; i++) {
+      remaining[i].pageModel = remaining[i].pageModel.copyWith(
+        pageIndex: i,
+        lastModifiedAt: now,
+      );
+    }
+
+    documentModel = documentModel.copyWith(lastModifiedAt: now);
+    _syncTotalPages();
+    performGridLayout();
+
+    return page;
+  }
+
   /// Sync [documentModel.totalPages] with actual child count.
   ///
   /// Call after any operation that adds, removes, or reorders pages.
@@ -436,6 +511,6 @@ class PdfDocumentNode extends GroupNode {
   @override
   String toString() =>
       'PdfDocumentNode(id: $id, '
-      '${documentModel.totalPages} pages, '
+      '${children.length} pages, '
       '${children.length} children)';
 }

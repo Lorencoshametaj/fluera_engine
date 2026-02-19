@@ -138,24 +138,6 @@ extension on _NebulaCanvasScreenState {
 
               // 🎛️ Design Variables: manager panel overlay
               _buildVariableManagerOverlay(),
-
-              // 📄 PDF contextual toolbar (when PDF documents are active)
-              if (_pdfPainters.isNotEmpty)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: PdfContextualToolbar(
-                    documentNode: _findFirstPdfDocument(),
-                    onLayoutChanged: () {
-                      if (mounted) setState(() {});
-                    },
-                    onClose: () {
-                      // Hide by setting state — toolbar will not show next time
-                      if (mounted) setState(() {});
-                    },
-                  ),
-                ),
             ],
           ),
         ),

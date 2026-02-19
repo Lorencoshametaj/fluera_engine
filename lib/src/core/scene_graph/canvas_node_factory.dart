@@ -14,6 +14,7 @@ import '../nodes/advanced_mask_node.dart';
 import '../nodes/boolean_group_node.dart';
 import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
+import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
@@ -96,6 +97,9 @@ class CanvasNodeFactory {
           doc.loadChildrenFromJson(json['children'] as List<dynamic>, fromJson);
         }
         return doc;
+
+      case 'vector_network':
+        return VectorNetworkNode.fromJson(json);
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

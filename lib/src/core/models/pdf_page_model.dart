@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
+import 'pdf_annotation_model.dart';
 
 /// 📄 Pure data model for a single PDF page on the canvas.
 ///
@@ -39,6 +40,9 @@ class PdfPageModel {
   /// Whether annotations are visible on this page.
   final bool showAnnotations;
 
+  /// Structured annotations (highlights, underlines, sticky notes).
+  final List<PdfAnnotation> structuredAnnotations;
+
   /// Microseconds since epoch — last annotation or position change.
   final int lastModifiedAt;
 
@@ -52,6 +56,7 @@ class PdfPageModel {
     this.rotation = 0.0,
     this.annotations = const [],
     this.showAnnotations = true,
+    this.structuredAnnotations = const [],
     int? lastModifiedAt,
   }) : lastModifiedAt = lastModifiedAt ?? 0;
 
@@ -70,6 +75,7 @@ class PdfPageModel {
     double? rotation,
     List<String>? annotations,
     bool? showAnnotations,
+    List<PdfAnnotation>? structuredAnnotations,
     int? lastModifiedAt,
   }) {
     return PdfPageModel(
@@ -83,6 +89,8 @@ class PdfPageModel {
       rotation: rotation ?? this.rotation,
       annotations: annotations ?? this.annotations,
       showAnnotations: showAnnotations ?? this.showAnnotations,
+      structuredAnnotations:
+          structuredAnnotations ?? this.structuredAnnotations,
       lastModifiedAt: lastModifiedAt ?? this.lastModifiedAt,
     );
   }
@@ -105,6 +113,9 @@ class PdfPageModel {
     if (rotation != 0.0) 'rotation': rotation,
     if (annotations.isNotEmpty) 'annotations': annotations,
     if (!showAnnotations) 'showAnnotations': false,
+    if (structuredAnnotations.isNotEmpty)
+      'structuredAnnotations':
+          structuredAnnotations.map((a) => a.toJson()).toList(),
     'lastModifiedAt': lastModifiedAt,
   };
 
@@ -138,10 +149,15 @@ class PdfPageModel {
       rotation: (json['rotation'] as num?)?.toDouble() ?? 0.0,
       annotations:
           (json['annotations'] as List<dynamic>?)
-              ?.map((e) => e as String)
+              ?.whereType<String>()
               .toList() ??
           const [],
       showAnnotations: json['showAnnotations'] as bool? ?? true,
+      structuredAnnotations:
+          (json['structuredAnnotations'] as List<dynamic>?)
+              ?.map((a) => PdfAnnotation.fromJson(a as Map<String, dynamic>))
+              .toList() ??
+          const [],
       lastModifiedAt: (json['lastModifiedAt'] as num?)?.toInt() ?? 0,
     );
   }
@@ -159,6 +175,7 @@ class PdfPageModel {
           rotation == other.rotation &&
           listEquals(annotations, other.annotations) &&
           showAnnotations == other.showAnnotations &&
+          listEquals(structuredAnnotations, other.structuredAnnotations) &&
           lastModifiedAt == other.lastModifiedAt;
 
   @override
@@ -172,6 +189,7 @@ class PdfPageModel {
     rotation,
     annotations.length,
     showAnnotations,
+    structuredAnnotations.length,
     lastModifiedAt,
   );
 

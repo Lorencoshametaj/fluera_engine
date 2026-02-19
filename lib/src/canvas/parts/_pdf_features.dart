@@ -105,6 +105,15 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
       documentId: documentId,
     );
 
+    // 📄 Initialize annotation & search controllers for toolbar
+    _pdfAnnotationController?.dispose();
+    _pdfAnnotationController = PdfAnnotationController();
+    _pdfAnnotationController!.attach(docNode);
+
+    _pdfSearchController?.dispose();
+    _pdfSearchController = PdfSearchController(provider: provider);
+    _pdfSearchController!.setDocumentBytes(Uint8List.fromList(bytes));
+
     // 🔋 Update shared budget: divide memory across all active documents
     final docCount = _pdfPainters.length;
     for (final p in _pdfPainters.values) {
@@ -213,6 +222,15 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
           orElse: () => _layerController.layers.first,
         );
         targetLayer.node.add(docNode);
+
+        // 📄 Initialize controllers for toolbar (uses last restored doc)
+        _pdfAnnotationController?.dispose();
+        _pdfAnnotationController = PdfAnnotationController();
+        _pdfAnnotationController!.attach(docNode);
+
+        _pdfSearchController?.dispose();
+        _pdfSearchController = PdfSearchController(provider: provider);
+        _pdfSearchController!.setDocumentBytes(Uint8List.fromList(bytes));
 
         debugPrint(
           '[PDF] Restored "$documentId" — '

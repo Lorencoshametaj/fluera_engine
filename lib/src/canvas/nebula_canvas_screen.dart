@@ -104,6 +104,8 @@ import '../core/nodes/pdf_page_node.dart';
 import '../rendering/canvas/pdf_page_painter.dart';
 import '../rendering/canvas/pdf_memory_budget.dart';
 import './toolbar/pdf_contextual_toolbar.dart';
+import '../tools/pdf/pdf_annotation_controller.dart';
+import '../tools/pdf/pdf_search_controller.dart';
 import 'package:file_picker/file_picker.dart';
 import './overlays/variable_manager_panel.dart';
 import './overlays/variable_property_sheet.dart';
@@ -112,6 +114,8 @@ import '../systems/design_variables.dart';
 import '../systems/variable_binding.dart';
 import '../systems/variable_resolver.dart';
 import '../systems/design_token_exporter.dart';
+import '../history/command_history.dart';
+import '../systems/variable_commands.dart';
 
 // ============================================================================
 // PART FILES
@@ -536,6 +540,12 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// 📄 PDF page painters: one per document for LOD-aware rendering
   final Map<String, PdfPagePainter> _pdfPainters = {};
 
+  /// 📄 PDF annotation controller (shared, attached to active document)
+  PdfAnnotationController? _pdfAnnotationController;
+
+  /// 📄 PDF search controller (shared, uses active document's provider)
+  PdfSearchController? _pdfSearchController;
+
   /// 🌐 Rebuild the R-tree spatial index from current image elements.
   void _rebuildImageSpatialIndex() {
     _imageSpatialIndex = RTree<ImageElement>.fromItems(_imageElements, (img) {
@@ -685,6 +695,9 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     collections: _variableCollections,
     bindings: _variableBindings,
   );
+
+  /// ⏪ Command history for undoable variable (and future node) operations.
+  final CommandHistory _commandHistory = CommandHistory();
 
   // ============================================================================
   // 📤 MULTI-PAGE EDIT MODE STATE

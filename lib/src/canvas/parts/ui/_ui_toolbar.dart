@@ -341,6 +341,34 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           onPdfImportPressed: () {
             pickAndAddPdf();
           },
+          // 📄 PDF active state — contextual tools
+          isPdfActive: _pdfPainters.isNotEmpty,
+          pdfDocument: _findFirstPdfDocument(),
+          pdfAnnotationController: _pdfAnnotationController,
+          pdfSearchController: _pdfSearchController,
+          pdfSelectedPageIndex: 0,
+          onPdfInsertBlankPage:
+              _pdfPainters.isNotEmpty
+                  ? () {
+                    final doc = _findFirstPdfDocument();
+                    if (doc != null) {
+                      doc.insertBlankPage(
+                        afterIndex: doc.documentModel.totalPages - 1,
+                      );
+                      setState(() {});
+                      _autoSaveCanvas();
+                    }
+                  }
+                  : null,
+          onPdfDeletePage: (pageIndex) {
+            final doc = _findFirstPdfDocument();
+            if (doc != null && doc.documentModel.totalPages > 1) {
+              doc.removePage(pageIndex);
+              setState(() {});
+              _autoSaveCanvas();
+            }
+          },
+          onPdfExport: null, // TODO: wire to export annotated PDF
         );
       },
     );

@@ -55,6 +55,9 @@ export 'src/core/vector/vector_path.dart';
 export 'src/core/vector/anchor_point.dart';
 export 'src/core/vector/shape_presets.dart';
 export 'src/core/vector/boolean_ops.dart';
+export 'src/core/vector/vector_network.dart';
+export 'src/core/nodes/vector_network_node.dart';
+export 'src/core/vector/vector_network_svg.dart';
 
 // Effects
 export 'src/core/effects/node_effect.dart';
@@ -153,6 +156,10 @@ export 'src/tools/unified_tool_controller.dart';
 export 'src/tools/pdf/pdf_grid_controller.dart';
 export 'src/tools/pdf/pdf_text_selection_controller.dart';
 export 'src/tools/pdf/pdf_import_controller.dart';
+export 'src/tools/pdf/pdf_search_controller.dart';
+export 'src/tools/pdf/pdf_annotation_controller.dart';
+export 'src/core/models/pdf_annotation_model.dart';
+export 'src/canvas/toolbar/pdf_thumbnail_sidebar.dart';
 
 // ────────────────────────── RENDERING ──────────────────────────
 

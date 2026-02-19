@@ -21,8 +21,10 @@ import '../../core/nodes/layer_node.dart';
 import '../../core/nodes/group_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../core/nodes/pdf_page_node.dart';
+import '../../core/models/pdf_annotation_model.dart';
 import '../canvas/pdf_page_painter.dart';
 import '../../tools/pdf/pdf_text_selection_controller.dart';
+import '../../tools/pdf/pdf_search_controller.dart';
 import '../../export/pdf_annotation_exporter.dart';
 
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
@@ -102,6 +104,9 @@ class DrawingPainter extends CustomPainter {
   // 📝 Active text selection on PDF pages
   final PdfTextSelection? pdfTextSelection;
 
+  // 🔍 Search controller for full-text search highlights
+  final PdfSearchController? pdfSearchController;
+
   // 🌲 Cached materialized strokes (lazily computed once per paint frame)
   List<ProStroke>? _materializedCache;
   int _materializedVersion = -1;
@@ -125,6 +130,7 @@ class DrawingPainter extends CustomPainter {
     this.pdfPainters = const {}, // 📄 PDF page painters
     this.onPdfRepaint, // 📄 Repaint callback for async PDF renders
     this.pdfTextSelection, // 📝 Text selection overlay
+    this.pdfSearchController, // 🔍 Full-text search highlights
   }) : super(repaint: controller); // repaint on pan/zoom when controller set
 
   /// 🌲 Effective strokes: materialized from the scene graph tree.
@@ -699,6 +705,24 @@ class DrawingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.5;
 
+  // 🔍 Search highlight paints
+  static final Paint _searchHighlightPaint =
+      Paint()..color = const Color(0x40FFEB3B); // Yellow 25%
+  static final Paint _searchCurrentPaint =
+      Paint()..color = const Color(0x80FF9800); // Orange 50%
+
+  // 🏷️ Structured annotation render paints
+  static final Paint _annotHighlightPaint = Paint(); // I6: reuse for highlights
+  static final Paint _underlinePaint =
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+  static final Paint _stickyIconBgPaint =
+      Paint()..color = const Color(0xFFFFF176);
+  static final Paint _stickyFoldPaint =
+      Paint()..color = const Color(0x40000000); // I7: static fold paint
+  static final Path _stickyFoldPath = Path(); // I7: reusable fold path
+
   /// Paint a single PDF page with professional styling.
   ///
   /// Features: drop shadow, white background, LOD-aware content via
@@ -794,6 +818,21 @@ class DrawingPainter extends CustomPainter {
         pdfTextSelection!.isNotEmpty &&
         pdfTextSelection!.pageIndex == pageNode.pageModel.pageIndex) {
       _paintTextSelectionOverlay(canvas, pdfTextSelection!, pageRect);
+    }
+
+    // 📝 Structured annotations (highlights, underlines, sticky notes)
+    final structuredAnnotations = pageNode.pageModel.structuredAnnotations;
+    if (structuredAnnotations.isNotEmpty &&
+        pageNode.pageModel.showAnnotations) {
+      canvas.save();
+      canvas.clipRect(pageRect);
+      _paintStructuredAnnotations(canvas, structuredAnnotations, pageRect);
+      canvas.restore();
+    }
+
+    // 🔍 Search highlights
+    if (pdfSearchController != null && pdfSearchController!.hasMatches) {
+      _paintSearchHighlights(canvas, pageNode, pageRect);
     }
 
     // Thin border
@@ -1111,5 +1150,102 @@ class DrawingPainter extends CustomPainter {
     _strokeCache.invalidateCache();
     _strokeCache.clearUndoSnapshots();
     invalidateLayerCaches();
+  }
+
+  // ===========================================================================
+  // 🔍 PDF Search Highlights
+  // ===========================================================================
+
+  /// Paint search match highlights on a PDF page.
+  ///
+  /// Shows yellow rectangles for all matches and an orange rectangle
+  /// for the currently focused match.
+  void _paintSearchHighlights(
+    Canvas canvas,
+    PdfPageNode pageNode,
+    Rect pageRect,
+  ) {
+    if (pdfSearchController == null || !pdfSearchController!.hasMatches) return;
+
+    final pageOffset = Offset(pageRect.left, pageRect.top);
+
+    canvas.save();
+    canvas.clipRect(pageRect);
+
+    // All matches on this page (yellow)
+    final allRects = pdfSearchController!.highlightRectsForPage(pageNode);
+    for (final r in allRects) {
+      canvas.drawRect(r.shift(pageOffset), _searchHighlightPaint);
+    }
+
+    // Current match (orange)
+    final currentRect = pdfSearchController!.currentMatchRectForPage(pageNode);
+    if (currentRect != null) {
+      canvas.drawRect(currentRect.shift(pageOffset), _searchCurrentPaint);
+    }
+
+    canvas.restore();
+  }
+
+  // ===========================================================================
+  // 🏷️ PDF Structured Annotations
+  // ===========================================================================
+
+  /// Paint structured annotations (highlights, underlines, sticky notes).
+  ///
+  /// Assumes canvas is already clipped to page bounds.
+  void _paintStructuredAnnotations(
+    Canvas canvas,
+    List<PdfAnnotation> annotations,
+    Rect pageRect,
+  ) {
+    final pageOffset = Offset(pageRect.left, pageRect.top);
+
+    for (final annotation in annotations) {
+      final annotRect = annotation.rect.shift(pageOffset);
+
+      // I8: Skip annotations entirely outside the page clip rect
+      if (!annotRect.overlaps(pageRect)) continue;
+
+      switch (annotation.type) {
+        case PdfAnnotationType.highlight:
+          // I6: Reuse static Paint — set color per annotation
+          _annotHighlightPaint.color = annotation.color;
+          canvas.drawRect(annotRect, _annotHighlightPaint);
+
+        case PdfAnnotationType.underline:
+          _underlinePaint.color = annotation.color;
+          canvas.drawLine(
+            Offset(annotRect.left, annotRect.bottom),
+            Offset(annotRect.right, annotRect.bottom),
+            _underlinePaint,
+          );
+
+        case PdfAnnotationType.stickyNote:
+          final iconSize = math.min(20.0, annotRect.width);
+          final iconRect = Rect.fromLTWH(
+            annotRect.left,
+            annotRect.top,
+            iconSize,
+            iconSize,
+          );
+          _stickyIconBgPaint.color = annotation.color;
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(iconRect, const Radius.circular(3)),
+            _stickyIconBgPaint,
+          );
+          // I7: Reuse static fold Path — reset and rebuild
+          final foldSize = iconSize * 0.3;
+          _stickyFoldPath.reset();
+          _stickyFoldPath.moveTo(iconRect.right - foldSize, iconRect.top);
+          _stickyFoldPath.lineTo(iconRect.right, iconRect.top + foldSize);
+          _stickyFoldPath.lineTo(
+            iconRect.right - foldSize,
+            iconRect.top + foldSize,
+          );
+          _stickyFoldPath.close();
+          canvas.drawPath(_stickyFoldPath, _stickyFoldPaint);
+      }
+    }
   }
 }

@@ -16,9 +16,11 @@ import '../../core/nodes/advanced_mask_node.dart';
 import '../../core/nodes/boolean_group_node.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
+import '../../core/nodes/vector_network_node.dart';
 import '../../core/effects/shader_effect.dart';
 import '../../core/scene_graph/scene_graph.dart';
 import '../../drawing/brushes/brushes.dart';
+import './vector_network_renderer.dart';
 import '../../systems/layout_engine.dart';
 import '../canvas/shape_painter.dart';
 import './path_renderer.dart';
@@ -118,6 +120,8 @@ class SceneGraphRenderer {
       _renderPdfDocument(canvas, node, viewport);
     } else if (node is PdfPageNode) {
       _renderPdfPage(canvas, node);
+    } else if (node is VectorNetworkNode) {
+      _renderVectorNetwork(canvas, node);
     }
 
     // End post-effect layers.
@@ -597,5 +601,10 @@ class SceneGraphRenderer {
             ..strokeJoin = node.strokeJoin;
       canvas.drawPath(flutterPath, paint);
     }
+  }
+
+  /// Render a vector network node via VectorNetworkRenderer.
+  void _renderVectorNetwork(Canvas canvas, VectorNetworkNode node) {
+    VectorNetworkRenderer.drawVectorNetworkNode(canvas, node);
   }
 }

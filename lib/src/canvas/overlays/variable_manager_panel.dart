@@ -519,7 +519,6 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
                 child: Switch(
                   value: resolvedValue == true,
                   onChanged: (val) {
-                    v.setValue(modeId, val);
                     widget.onValueChanged?.call(
                       collection.id,
                       v.id,
@@ -925,7 +924,6 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
       case DesignVariableType.boolean:
         // Boolean uses inline toggle, no dialog needed
         final current = collection.resolveVariable(variable.id, modeId);
-        variable.setValue(modeId, !(current == true));
         widget.onValueChanged?.call(
           collection.id,
           variable.id,
@@ -1030,7 +1028,6 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
                     ),
                     FilledButton(
                       onPressed: () {
-                        variable.setValue(modeId, selectedColor.toARGB32());
                         widget.onValueChanged?.call(
                           collection.id,
                           variable.id,
@@ -1087,7 +1084,6 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
                 onPressed: () {
                   final val = num.tryParse(controller.text);
                   if (val != null) {
-                    variable.setValue(modeId, val);
                     widget.onValueChanged?.call(
                       collection.id,
                       variable.id,
@@ -1139,7 +1135,6 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
               ),
               FilledButton(
                 onPressed: () {
-                  variable.setValue(modeId, controller.text);
                   widget.onValueChanged?.call(
                     collection.id,
                     variable.id,

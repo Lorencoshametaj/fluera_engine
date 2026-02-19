@@ -6,6 +6,8 @@ part of '../nebula_canvas_screen.dart';
 // State and methods for the VariableManagerPanel & property binding sheet.
 // The canvas screen owns variable state directly because the SceneGraph is
 // lazily rebuilt from layers, which would discard variable state.
+//
+// All mutations go through CommandHistory for full undo/redo support.
 // =============================================================================
 
 extension DesignVariablesUI on _NebulaCanvasScreenState {
@@ -34,6 +36,24 @@ extension DesignVariablesUI on _NebulaCanvasScreenState {
   }
 
   // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  DesignVariable? _findVariable(String collectionId, String variableId) {
+    for (final c in _variableCollections) {
+      if (c.id == collectionId) return c.findVariable(variableId);
+    }
+    return null;
+  }
+
+  VariableCollection? _findCollection(String collectionId) {
+    for (final c in _variableCollections) {
+      if (c.id == collectionId) return c;
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
   // Panel widget builder
   // ---------------------------------------------------------------------------
 
@@ -49,16 +69,36 @@ extension DesignVariablesUI on _NebulaCanvasScreenState {
         resolver: _variableResolver,
         bindings: _variableBindings,
         onClose: _toggleVariablePanel,
+
+        // ── Value editing (undoable) ──────────────────────────────
         onValueChanged: (collectionId, variableId, modeId, value) {
-          // Value already set on DesignVariable by the panel — just persist
+          final v = _findVariable(collectionId, variableId);
+          if (v == null) return;
+          _commandHistory.execute(
+            SetVariableValueCommand(
+              variable: v,
+              modeId: modeId,
+              newValue: value,
+            ),
+          );
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Mode switch (undoable) ───────────────────────────────
         onModeSwitch: (collectionId, modeId) {
-          _variableResolver.setActiveMode(collectionId, modeId);
+          _commandHistory.execute(
+            SetActiveModeCommand(
+              resolver: _variableResolver,
+              collectionId: collectionId,
+              newModeId: modeId,
+            ),
+          );
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Add collection (not undoable — structural) ───────────
         onAddCollection: (name) {
           final id = 'col_${DateTime.now().microsecondsSinceEpoch}';
           final collection = VariableCollection(id: id, name: name);
@@ -67,6 +107,8 @@ extension DesignVariablesUI on _NebulaCanvasScreenState {
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Add mode (not undoable — structural) ─────────────────
         onAddMode: (collectionId, modeName) {
           for (final c in _variableCollections) {
             if (c.id == collectionId) {
@@ -78,48 +120,60 @@ extension DesignVariablesUI on _NebulaCanvasScreenState {
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Add variable (undoable) ──────────────────────────────
         onAddVariable: (collectionId, variable) {
-          for (final c in _variableCollections) {
-            if (c.id == collectionId) {
-              c.addVariable(variable);
-              break;
-            }
-          }
+          final c = _findCollection(collectionId);
+          if (c == null) return;
+          _commandHistory.execute(
+            AddVariableCommand(collection: c, variable: variable),
+          );
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Remove variable (undoable, restores bindings on undo) ─
         onRemoveVariable: (collectionId, variableId) {
-          for (final c in _variableCollections) {
-            if (c.id == collectionId) {
-              c.removeVariable(variableId);
-              break;
-            }
-          }
+          final c = _findCollection(collectionId);
+          if (c == null) return;
+          final v = c.findVariable(variableId);
+          if (v == null) return;
+          _commandHistory.execute(
+            RemoveVariableCommand(
+              collection: c,
+              variable: v,
+              bindingRegistry: _variableBindings,
+            ),
+          );
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Rename variable (undoable) ───────────────────────────
         onVariableRenamed: (collectionId, variableId, newName) {
-          for (final c in _variableCollections) {
-            if (c.id == collectionId) {
-              final v = c.variables.cast<DesignVariable?>().firstWhere(
-                (v) => v!.id == variableId,
-                orElse: () => null,
-              );
-              if (v != null) {
-                v.name = newName;
-              }
-              break;
-            }
-          }
+          final v = _findVariable(collectionId, variableId);
+          if (v == null) return;
+          _commandHistory.execute(
+            PropertyChangeCommand<String>(
+              label: 'Rename "${v.name}" → "$newName"',
+              oldValue: v.name,
+              newValue: newName,
+              setter: (val) => v.name = val,
+            ),
+          );
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Token import ─────────────────────────────────────────
         onImportTokens: (collection) {
           _variableCollections.add(collection);
           _variableResolver.addCollection(collection);
           setState(() {});
           _autoSaveCanvas();
         },
+
+        // ── Token export ─────────────────────────────────────────
         onExportTokens: (json) {
           debugPrint('🌐 [DesignTokenExport]\n$json');
         },
@@ -149,11 +203,15 @@ extension DesignVariablesUI on _NebulaCanvasScreenState {
             collections: _variableCollections,
             bindings: _variableBindings,
             onBind: (variableId) {
-              _variableBindings.addBinding(
-                VariableBinding(
-                  variableId: variableId,
-                  nodeId: nodeId,
-                  nodeProperty: propertyName,
+              final binding = VariableBinding(
+                variableId: variableId,
+                nodeId: nodeId,
+                nodeProperty: propertyName,
+              );
+              _commandHistory.execute(
+                AddBindingCommand(
+                  registry: _variableBindings,
+                  binding: binding,
                 ),
               );
               _autoSaveCanvas();
@@ -163,7 +221,12 @@ extension DesignVariablesUI on _NebulaCanvasScreenState {
               final existing = _variableBindings.bindingsForNode(nodeId);
               for (final b in existing) {
                 if (b.nodeProperty == propertyName) {
-                  _variableBindings.removeBinding(b);
+                  _commandHistory.execute(
+                    RemoveBindingCommand(
+                      registry: _variableBindings,
+                      binding: b,
+                    ),
+                  );
                   break;
                 }
               }

@@ -1,614 +1,490 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/models/pdf_annotation_model.dart';
 import '../../core/models/pdf_layout_preset.dart';
 import '../../core/nodes/pdf_document_node.dart';
-import '../../tools/pdf/pdf_text_selection_controller.dart';
+import '../../history/command_history.dart';
+import '../../tools/pdf/pdf_annotation_controller.dart';
+import '../../tools/pdf/pdf_search_controller.dart';
 
-// ============================================================================
-// 📄 PDF CONTEXTUAL TOOLBAR — Appears when a PDF document is active
-// ============================================================================
+// =============================================================================
+// 📄 PDF TOOLBAR POPUPS — Anchored popup panels triggered from toolbar buttons
+// =============================================================================
 
-/// Contextual toolbar for PDF document interaction.
-///
-/// Shows layout presets, grid column selector, spacing slider,
-/// page actions (rotate, lock/unlock), and page navigation info.
-///
-/// DESIGN: Material Design 3 bottom bar with glassmorphism, matching
-/// the style of the main canvas toolbar.
-class PdfContextualToolbar extends StatefulWidget {
-  /// The active PDF document node.
-  final PdfDocumentNode? documentNode;
+/// Shows the PDF page navigation & actions popup anchored below [anchor].
+void showPdfPagePopup({
+  required BuildContext context,
+  required Rect anchor,
+  required PdfDocumentNode doc,
+  required int selectedPageIndex,
+  required ValueChanged<int> onPageChanged,
+  VoidCallback? onInsertBlankPage,
+  void Function(int)? onDeletePage,
+  VoidCallback? onLayoutChanged,
+  VoidCallback? onExport,
+}) {
+  showMenu<void>(
+    context: context,
+    position: RelativeRect.fromLTRB(
+      anchor.left,
+      anchor.bottom + 4,
+      anchor.right,
+      0,
+    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    elevation: 8,
+    constraints: const BoxConstraints(minWidth: 280, maxWidth: 320),
+    items: [
+      _PopupHeader(
+        icon: Icons.file_copy_rounded,
+        title: 'Pages',
+        trailing: '${doc.documentModel.totalPages}',
+      ),
+      _PopupDivider(),
+      _PdfPageNavItem(
+        doc: doc,
+        selectedPageIndex: selectedPageIndex,
+        onPageChanged: onPageChanged,
+        onLayoutChanged: onLayoutChanged,
+      ),
+      _PopupDivider(),
+      _PdfPageActionsItem(
+        doc: doc,
+        selectedPageIndex: selectedPageIndex,
+        onInsertBlankPage: onInsertBlankPage,
+        onDeletePage: onDeletePage,
+        onLayoutChanged: onLayoutChanged,
+      ),
+      if (onExport != null) ...[
+        _PopupDivider(),
+        _PdfExportItem(onExport: onExport),
+      ],
+    ],
+  );
+}
 
-  /// Callback to trigger a canvas repaint after layout changes.
+/// Shows the PDF search popup anchored below [anchor].
+void showPdfSearchPopup({
+  required BuildContext context,
+  required Rect anchor,
+  required PdfDocumentNode doc,
+  required PdfSearchController searchController,
+  VoidCallback? onLayoutChanged,
+  void Function(int pageIndex)? onGoToPage,
+}) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.transparent,
+    builder:
+        (ctx) => _PdfSearchPanel(
+          anchor: anchor,
+          doc: doc,
+          searchController: searchController,
+          onLayoutChanged: onLayoutChanged,
+          onGoToPage: onGoToPage,
+        ),
+  );
+}
+
+/// Shows the PDF annotation popup anchored below [anchor].
+void showPdfAnnotatePopup({
+  required BuildContext context,
+  required Rect anchor,
+  required PdfAnnotationController annotationController,
+  required int selectedPageIndex,
+  CommandHistory? history,
+  VoidCallback? onLayoutChanged,
+}) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.transparent,
+    builder:
+        (ctx) => _PdfAnnotatePanel(
+          anchor: anchor,
+          annotationController: annotationController,
+          selectedPageIndex: selectedPageIndex,
+          history: history,
+          onLayoutChanged: onLayoutChanged,
+        ),
+  );
+}
+
+/// Shows the PDF layout popup anchored below [anchor].
+void showPdfLayoutPopup({
+  required BuildContext context,
+  required Rect anchor,
+  required PdfDocumentNode doc,
+  VoidCallback? onLayoutChanged,
+}) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.transparent,
+    builder:
+        (ctx) => _PdfLayoutPanel(
+          anchor: anchor,
+          doc: doc,
+          onLayoutChanged: onLayoutChanged,
+        ),
+  );
+}
+
+// =============================================================================
+// Menu items
+// =============================================================================
+
+class _PopupHeader extends PopupMenuEntry<void> {
+  final IconData icon;
+  final String title;
+  final String? trailing;
+
+  const _PopupHeader({required this.icon, required this.title, this.trailing});
+
+  @override
+  double get height => 40;
+
+  @override
+  bool represents(void value) => false;
+
+  @override
+  State<_PopupHeader> createState() => _PopupHeaderState();
+}
+
+class _PopupHeaderState extends State<_PopupHeader> {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Icon(widget.icon, size: 18, color: cs.primary),
+          const SizedBox(width: 8),
+          Text(
+            widget.title,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+            ),
+          ),
+          if (widget.trailing != null) ...[
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: cs.primaryContainer.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                widget.trailing!,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onPrimaryContainer,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PopupDivider extends PopupMenuEntry<void> {
+  @override
+  double get height => 1;
+
+  @override
+  bool represents(void value) => false;
+
+  @override
+  State<_PopupDivider> createState() => _PopupDividerState();
+}
+
+class _PopupDividerState extends State<_PopupDivider> {
+  @override
+  Widget build(BuildContext context) {
+    return const Divider(height: 1);
+  }
+}
+
+class _PdfPageNavItem extends PopupMenuEntry<void> {
+  final PdfDocumentNode doc;
+  final int selectedPageIndex;
+  final ValueChanged<int> onPageChanged;
   final VoidCallback? onLayoutChanged;
 
-  /// Callback when the toolbar should close.
-  final VoidCallback? onClose;
-
-  /// Current page index (0-based) for page indicator.
-  final int? currentPageIndex;
-
-  /// Callback when a page is deleted.
-  final void Function(int pageIndex)? onPageDeleted;
-
-  /// Text selection controller for toggling selection mode.
-  final PdfTextSelectionController? textSelectionController;
-
-  /// Callback when user taps export (annotated PDF).
-  final VoidCallback? onExport;
-
-  const PdfContextualToolbar({
-    super.key,
-    required this.documentNode,
+  const _PdfPageNavItem({
+    required this.doc,
+    required this.selectedPageIndex,
+    required this.onPageChanged,
     this.onLayoutChanged,
-    this.onClose,
-    this.currentPageIndex,
-    this.onPageDeleted,
-    this.textSelectionController,
-    this.onExport,
   });
 
   @override
-  State<PdfContextualToolbar> createState() => _PdfContextualToolbarState();
+  double get height => 48;
+
+  @override
+  bool represents(void value) => false;
+
+  @override
+  State<_PdfPageNavItem> createState() => _PdfPageNavItemState();
 }
 
-class _PdfContextualToolbarState extends State<PdfContextualToolbar>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
-  late Animation<Offset> _slideAnimation;
+class _PdfPageNavItemState extends State<_PdfPageNavItem> {
+  late int _page;
 
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
-    );
-    _animController.forward();
+    _page = widget.selectedPageIndex;
   }
-
-  @override
-  void dispose() {
-    _animController.dispose();
-    super.dispose();
-  }
-
-  PdfDocumentNode? get _doc => widget.documentNode;
-
-  /// Currently selected page index for page-specific actions.
-  int _selectedPageIndex = 0;
 
   @override
   Widget build(BuildContext context) {
-    if (_doc == null) return const SizedBox.shrink();
-
-    // F2: Clamp before any child builder accesses _selectedPageIndex
-    final totalPages = _doc!.documentModel.totalPages;
-    if (totalPages > 0) {
-      _selectedPageIndex = _selectedPageIndex.clamp(0, totalPages - 1);
-    } else {
-      _selectedPageIndex = 0;
-    }
-
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final total = widget.doc.documentModel.totalPages;
+    final page = widget.doc.pageAt(_page);
+    final isLocked = page?.pageModel.isLocked ?? false;
 
-    return SlideTransition(
-      position: _slideAnimation,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color:
-              isDark
-                  ? cs.surfaceContainerHighest.withValues(alpha: 0.95)
-                  : cs.surfaceContainerLow.withValues(alpha: 0.95),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Rotate left
+          _miniBtn(Icons.rotate_left_rounded, cs, () {
+            widget.doc.rotatePage(_page, angleDegrees: -90);
+            widget.onLayoutChanged?.call();
+            setState(() {});
+          }),
+          const SizedBox(width: 4),
+          // Previous
+          _miniBtn(
+            Icons.chevron_left_rounded,
+            cs,
+            _page > 0
+                ? () => setState(() {
+                  _page--;
+                  widget.onPageChanged(_page);
+                })
+                : null,
+          ),
+          const SizedBox(width: 4),
+          // Page indicator
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: cs.primaryContainer.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(8),
             ),
-          ],
-          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.3)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ── Header with page info and close ─────────────────────────
-            _buildHeader(cs),
-            const SizedBox(height: 10),
-
-            // ── Page actions (rotate, lock, annotations) ────────────────
-            _buildPageActions(cs, isDark),
-            const SizedBox(height: 10),
-
-            // ── Layout presets ──────────────────────────────────────────
-            _buildLayoutPresets(cs, isDark),
-            const SizedBox(height: 10),
-
-            // ── Grid columns + spacing ─────────────────────────────────
-            _buildGridControls(cs, isDark),
-            const SizedBox(height: 10),
-
-            // ── Export annotated ─────────────────────────────────────────
-            if (widget.onExport != null) _buildExportButton(cs, isDark),
-          ],
-        ),
+            child: Text(
+              '${_page + 1} / $total',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: cs.onPrimaryContainer,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Next
+          _miniBtn(
+            Icons.chevron_right_rounded,
+            cs,
+            _page < total - 1
+                ? () => setState(() {
+                  _page++;
+                  widget.onPageChanged(_page);
+                })
+                : null,
+          ),
+          const SizedBox(width: 4),
+          // Rotate right
+          _miniBtn(Icons.rotate_right_rounded, cs, () {
+            widget.doc.rotatePage(_page, angleDegrees: 90);
+            widget.onLayoutChanged?.call();
+            setState(() {});
+          }),
+          const SizedBox(width: 4),
+          // Lock toggle
+          _miniBtn(
+            isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+            cs,
+            () {
+              widget.doc.togglePageLock(_page);
+              widget.onLayoutChanged?.call();
+              setState(() {});
+            },
+            active: !isLocked,
+          ),
+        ],
       ),
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Header
-  // ---------------------------------------------------------------------------
-
-  Widget _buildHeader(ColorScheme cs) {
-    final totalPages = _doc!.documentModel.totalPages;
-    final currentPage = _selectedPageIndex + 1;
-
-    return Row(
-      children: [
-        Icon(Icons.picture_as_pdf_rounded, color: cs.primary, size: 20),
-        const SizedBox(width: 8),
-        Text(
-          'PDF',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: cs.onSurface,
-          ),
-        ),
-        const SizedBox(width: 8),
-
-        // Page navigator: prev / indicator / next
-        _PageNavButton(
-          icon: Icons.chevron_left_rounded,
-          enabled: _selectedPageIndex > 0,
-          cs: cs,
-          onTap: () {
-            setState(() => _selectedPageIndex--);
-          },
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+  Widget _miniBtn(
+    IconData icon,
+    ColorScheme cs,
+    VoidCallback? onTap, {
+    bool active = false,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap:
+            onTap != null
+                ? () {
+                  HapticFeedback.lightImpact();
+                  onTap();
+                }
+                : null,
+        child: Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: cs.primaryContainer.withValues(alpha: 0.5),
+            color: active ? cs.primaryContainer.withValues(alpha: 0.5) : null,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text(
-            '$currentPage / $totalPages',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: cs.onPrimaryContainer,
-            ),
-          ),
-        ),
-        _PageNavButton(
-          icon: Icons.chevron_right_rounded,
-          enabled: _selectedPageIndex < totalPages - 1,
-          cs: cs,
-          onTap: () {
-            setState(() => _selectedPageIndex++);
-          },
-        ),
-
-        const Spacer(),
-        // Grid info
-        Text(
-          '${_doc!.documentModel.gridColumns} col',
-          style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-        ),
-        const SizedBox(width: 12),
-        // Close button
-        GestureDetector(
-          onTap: widget.onClose,
           child: Icon(
-            Icons.close_rounded,
-            size: 20,
-            color: cs.onSurfaceVariant,
+            icon,
+            size: 18,
+            color:
+                onTap == null
+                    ? cs.onSurface.withValues(alpha: 0.25)
+                    : (active ? cs.primary : cs.onSurfaceVariant),
           ),
         ),
-      ],
+      ),
     );
   }
+}
 
-  // ---------------------------------------------------------------------------
-  // Page actions row
-  // ---------------------------------------------------------------------------
+class _PdfPageActionsItem extends PopupMenuEntry<void> {
+  final PdfDocumentNode doc;
+  final int selectedPageIndex;
+  final VoidCallback? onInsertBlankPage;
+  final void Function(int)? onDeletePage;
+  final VoidCallback? onLayoutChanged;
 
-  Widget _buildPageActions(ColorScheme cs, bool isDark) {
-    final page = _doc!.pageAt(_selectedPageIndex);
-    if (page == null) return const SizedBox.shrink();
+  const _PdfPageActionsItem({
+    required this.doc,
+    required this.selectedPageIndex,
+    this.onInsertBlankPage,
+    this.onDeletePage,
+    this.onLayoutChanged,
+  });
 
-    final isLocked = page.pageModel.isLocked;
-    final showAnnotations = page.pageModel.showAnnotations;
-    final annotationCount = page.pageModel.annotations.length;
+  @override
+  double get height => 44;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        // Rotate CCW
-        _ActionButton(
-          icon: Icons.rotate_left_rounded,
-          label: '−90°',
-          cs: cs,
-          isDark: isDark,
-          onTap: () {
-            HapticFeedback.lightImpact();
-            _doc!.rotatePage(_selectedPageIndex, angleDegrees: -90);
-            widget.onLayoutChanged?.call();
-            setState(() {});
-          },
-        ),
+  @override
+  bool represents(void value) => false;
 
-        // Rotate CW
-        _ActionButton(
-          icon: Icons.rotate_right_rounded,
-          label: '+90°',
-          cs: cs,
-          isDark: isDark,
-          onTap: () {
-            HapticFeedback.lightImpact();
-            _doc!.rotatePage(_selectedPageIndex, angleDegrees: 90);
-            widget.onLayoutChanged?.call();
-            setState(() {});
-          },
-        ),
+  @override
+  State<_PdfPageActionsItem> createState() => _PdfPageActionsItemState();
+}
 
-        // Lock / Unlock toggle
-        _ActionButton(
-          icon: isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-          label: isLocked ? 'Locked' : 'Free',
-          isActive: !isLocked,
-          cs: cs,
-          isDark: isDark,
-          onTap: () {
-            HapticFeedback.mediumImpact();
-            _doc!.togglePageLock(_selectedPageIndex);
-            widget.onLayoutChanged?.call();
-            setState(() {});
-          },
-        ),
-
-        // Annotations toggle
-        _ActionButton(
-          icon:
-              showAnnotations
-                  ? Icons.edit_note_rounded
-                  : Icons.edit_off_rounded,
-          label: annotationCount > 0 ? '$annotationCount' : 'Ann.',
-          isActive: showAnnotations,
-          cs: cs,
-          isDark: isDark,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            _doc!.togglePageAnnotations(_selectedPageIndex);
-            widget.onLayoutChanged?.call();
-            setState(() {});
-          },
-        ),
-
-        // Text selection toggle
-        if (widget.textSelectionController != null)
-          _ActionButton(
-            icon: Icons.text_fields_rounded,
-            label: 'Text',
-            isActive: widget.textSelectionController!.isActive,
-            cs: cs,
-            isDark: isDark,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              widget.textSelectionController!.toggle();
-              widget.onLayoutChanged?.call();
-              setState(() {});
-            },
-          ),
-
-        // Copy selected text (only if selection active)
-        if (widget.textSelectionController != null &&
-            widget.textSelectionController!.selection.isNotEmpty)
-          _ActionButton(
-            icon: Icons.copy_rounded,
-            label: 'Copy',
-            cs: cs,
-            isDark: isDark,
-            onTap: () {
-              HapticFeedback.mediumImpact();
-              widget.textSelectionController!.copyToClipboard();
-            },
-          ),
-
-        // Delete page
-        if (widget.onPageDeleted != null && _doc!.pageNodes.length > 1)
-          _ActionButton(
-            icon: Icons.delete_outline_rounded,
-            label: 'Delete',
-            cs: cs,
-            isDark: isDark,
-            onTap: () {
-              HapticFeedback.heavyImpact();
-              widget.onPageDeleted!(_selectedPageIndex);
-              if (_selectedPageIndex >= _doc!.pageNodes.length) {
-                _selectedPageIndex = _doc!.pageNodes.length - 1;
-              }
-              widget.onLayoutChanged?.call();
-              setState(() {});
-            },
-          ),
-      ],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Export button
-  // ---------------------------------------------------------------------------
-
-  Widget _buildExportButton(ColorScheme cs, bool isDark) {
+class _PdfPageActionsItemState extends State<_PdfPageActionsItem> {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: SizedBox(
-        width: double.infinity,
-        height: 40,
-        child: FilledButton.tonalIcon(
-          onPressed: () {
-            HapticFeedback.mediumImpact();
-            widget.onExport?.call();
-          },
-          icon: const Icon(Icons.ios_share_rounded, size: 18),
-          label: const Text(
-            'Export Annotated',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          if (widget.onInsertBlankPage != null)
+            _actionBtn(Icons.add_rounded, 'Insert', cs, () {
+              HapticFeedback.mediumImpact();
+              widget.onInsertBlankPage!();
+              widget.onLayoutChanged?.call();
+              Navigator.pop(context);
+            }),
+          if (widget.onDeletePage != null && widget.doc.pageNodes.length > 1)
+            _actionBtn(Icons.delete_outline_rounded, 'Delete', cs, () {
+              HapticFeedback.heavyImpact();
+              widget.onDeletePage!(widget.selectedPageIndex);
+              widget.onLayoutChanged?.call();
+              Navigator.pop(context);
+            }, destructive: true),
+        ],
       ),
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Layout presets row
-  // ---------------------------------------------------------------------------
-
-  Widget _buildLayoutPresets(ColorScheme cs, bool isDark) {
-    final currentCols = _doc!.documentModel.gridColumns;
-
-    // Determine which preset is currently active
-    PdfLayoutPreset? activePreset;
-    final allLocked = _doc!.pageNodes.every((p) => p.pageModel.isLocked);
-    final allUnlocked = _doc!.pageNodes.every((p) => !p.pageModel.isLocked);
-
-    if (allUnlocked) {
-      activePreset = PdfLayoutPreset.freeform;
-    } else if (currentCols == 1 && _doc!.documentModel.gridSpacing <= 15) {
-      activePreset = PdfLayoutPreset.reading;
-    } else if (currentCols == 1 && _doc!.documentModel.gridSpacing > 50) {
-      activePreset = PdfLayoutPreset.single;
-    } else if (currentCols == 2) {
-      activePreset = PdfLayoutPreset.standard;
-    } else if (currentCols >= 3) {
-      activePreset = PdfLayoutPreset.overview;
-    }
-
-    return SizedBox(
-      height: 36,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children:
-            PdfLayoutPreset.values.map((preset) {
-              final isActive = preset == activePreset;
-              return Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: _PresetChip(
-                  label: preset.label,
-                  icon: preset.icon,
-                  isActive: isActive,
-                  isDark: isDark,
-                  cs: cs,
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    _doc!.applyLayoutPreset(preset);
-                    widget.onLayoutChanged?.call();
-                    setState(() {});
-                  },
-                ),
-              );
-            }).toList(),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Grid controls (columns + spacing)
-  // ---------------------------------------------------------------------------
-
-  Widget _buildGridControls(ColorScheme cs, bool isDark) {
-    final cols = _doc!.documentModel.gridColumns;
-    final spacing = _doc!.documentModel.gridSpacing;
-
-    return Row(
-      children: [
-        // Column buttons (1-4)
-        ...[1, 2, 3, 4].map(
-          (c) => Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: _ColumnButton(
-              value: c,
-              isActive: cols == c,
-              cs: cs,
-              isDark: isDark,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                _doc!.setGridColumns(c);
-                widget.onLayoutChanged?.call();
-                setState(() {});
-              },
-            ),
-          ),
-        ),
-
-        const SizedBox(width: 8),
-
-        // Spacing slider
-        Expanded(
+  Widget _actionBtn(
+    IconData icon,
+    String label,
+    ColorScheme cs,
+    VoidCallback onTap, {
+    bool destructive = false,
+  }) {
+    final color = destructive ? cs.error : cs.onSurfaceVariant;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.space_bar_rounded,
-                size: 16,
-                color: cs.onSurfaceVariant,
-              ),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderThemeData(
-                    trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 14,
-                    ),
-                    activeTrackColor: cs.primary,
-                    inactiveTrackColor: cs.surfaceContainerHighest,
-                    thumbColor: cs.primary,
-                  ),
-                  child: Slider(
-                    value: spacing,
-                    min: 0,
-                    max: 100,
-                    onChanged: (v) {
-                      _doc!.setGridSpacing(v);
-                      widget.onLayoutChanged?.call();
-                      setState(() {});
-                    },
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 32,
-                child: Text(
-                  '${spacing.toInt()}',
-                  style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-                  textAlign: TextAlign.right,
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
           ),
         ),
-      ],
-    );
-  }
-}
-
-// =============================================================================
-// Private sub-widgets
-// =============================================================================
-
-/// Chip widget for layout preset selection.
-class _PresetChip extends StatelessWidget {
-  final String label;
-  final String icon;
-  final bool isActive;
-  final bool isDark;
-  final ColorScheme cs;
-  final VoidCallback onTap;
-
-  const _PresetChip({
-    required this.label,
-    required this.icon,
-    required this.isActive,
-    required this.isDark,
-    required this.cs,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color:
-              isActive
-                  ? cs.primaryContainer
-                  : (isDark
-                      ? cs.surfaceContainerHigh
-                      : cs.surfaceContainerHighest),
-          borderRadius: BorderRadius.circular(12),
-          border:
-              isActive
-                  ? Border.all(color: cs.primary.withValues(alpha: 0.5))
-                  : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(icon, style: const TextStyle(fontSize: 14)),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                color: isActive ? cs.onPrimaryContainer : cs.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 }
 
-/// Button for column count selection.
-class _ColumnButton extends StatelessWidget {
-  final int value;
-  final bool isActive;
-  final ColorScheme cs;
-  final bool isDark;
-  final VoidCallback onTap;
+class _PdfExportItem extends PopupMenuEntry<void> {
+  final VoidCallback onExport;
 
-  const _ColumnButton({
-    required this.value,
-    required this.isActive,
-    required this.cs,
-    required this.isDark,
-    required this.onTap,
-  });
+  const _PdfExportItem({required this.onExport});
 
   @override
+  double get height => 44;
+
+  @override
+  bool represents(void value) => false;
+
+  @override
+  State<_PdfExportItem> createState() => _PdfExportItemState();
+}
+
+class _PdfExportItemState extends State<_PdfExportItem> {
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color:
-              isActive
-                  ? cs.primary
-                  : (isDark
-                      ? cs.surfaceContainerHigh
-                      : cs.surfaceContainerHighest),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          '$value',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isActive ? cs.onPrimary : cs.onSurfaceVariant,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: SizedBox(
+        width: double.infinity,
+        height: 34,
+        child: FilledButton.tonalIcon(
+          onPressed: () {
+            HapticFeedback.mediumImpact();
+            widget.onExport();
+            Navigator.pop(context);
+          },
+          icon: const Icon(Icons.ios_share_rounded, size: 16),
+          label: const Text(
+            'Export Annotated',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ),
       ),
@@ -616,94 +492,779 @@ class _ColumnButton extends StatelessWidget {
   }
 }
 
-/// Small chevron button for page navigation.
-class _PageNavButton extends StatelessWidget {
-  final IconData icon;
-  final bool enabled;
-  final ColorScheme cs;
-  final VoidCallback onTap;
+// =============================================================================
+// 🔍 SEARCH PANEL — Floating anchored dialog
+// =============================================================================
 
-  const _PageNavButton({
-    required this.icon,
-    required this.enabled,
-    required this.cs,
-    required this.onTap,
+class _PdfSearchPanel extends StatefulWidget {
+  final Rect anchor;
+  final PdfDocumentNode doc;
+  final PdfSearchController searchController;
+  final VoidCallback? onLayoutChanged;
+  final void Function(int pageIndex)? onGoToPage;
+
+  const _PdfSearchPanel({
+    required this.anchor,
+    required this.doc,
+    required this.searchController,
+    this.onLayoutChanged,
+    this.onGoToPage,
   });
 
   @override
+  State<_PdfSearchPanel> createState() => _PdfSearchPanelState();
+}
+
+class _PdfSearchPanelState extends State<_PdfSearchPanel> {
+  final _textController = TextEditingController();
+  final _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _textController.text = widget.searchController.query;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Icon(
-          icon,
-          size: 20,
-          color: enabled ? cs.onSurface : cs.onSurface.withValues(alpha: 0.25),
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sc = widget.searchController;
+
+    return Stack(
+      children: [
+        // Dismiss tap area
+        GestureDetector(onTap: () => Navigator.pop(context)),
+        Positioned(
+          left: (widget.anchor.left - 40).clamp(
+            8,
+            MediaQuery.of(context).size.width - 308,
+          ),
+          top: widget.anchor.bottom + 8,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(16),
+            color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(12),
+              child: ListenableBuilder(
+                listenable: sc,
+                builder: (context, _) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Search field
+                      SizedBox(
+                        height: 38,
+                        child: TextField(
+                          controller: _textController,
+                          focusNode: _focusNode,
+                          style: TextStyle(fontSize: 13, color: cs.onSurface),
+                          decoration: InputDecoration(
+                            hintText: 'Search in PDF...',
+                            hintStyle: TextStyle(
+                              fontSize: 13,
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search_rounded,
+                              size: 18,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            suffixIcon:
+                                _textController.text.isNotEmpty
+                                    ? IconButton(
+                                      icon: Icon(
+                                        Icons.clear_rounded,
+                                        size: 16,
+                                        color: cs.onSurfaceVariant,
+                                      ),
+                                      onPressed: () {
+                                        _textController.clear();
+                                        sc.clearSearch();
+                                        setState(() {});
+                                      },
+                                      visualDensity: VisualDensity.compact,
+                                    )
+                                    : null,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                            filled: true,
+                            fillColor:
+                                isDark
+                                    ? cs.surfaceContainerHighest
+                                    : cs.surfaceContainerHigh,
+                          ),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (query) {
+                            if (query.isNotEmpty) {
+                              sc.search(widget.doc, query);
+                            }
+                          },
+                          onChanged: (query) {
+                            setState(() {});
+                            if (query.isEmpty) sc.clearSearch();
+                          },
+                        ),
+                      ),
+
+                      // Results nav
+                      if (sc.hasMatches) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconButton.filledTonal(
+                              onPressed: () {
+                                sc.previousMatch();
+                                widget.onLayoutChanged?.call();
+                                if (sc.currentMatch != null) {
+                                  widget.onGoToPage?.call(
+                                    sc.currentMatch!.pageIndex,
+                                  );
+                                }
+                              },
+                              icon: const Icon(
+                                Icons.keyboard_arrow_up_rounded,
+                                size: 18,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: cs.tertiaryContainer.withValues(
+                                  alpha: 0.7,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${sc.currentIndex + 1} / ${sc.matchCount}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: cs.onTertiaryContainer,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filledTonal(
+                              onPressed: () {
+                                sc.nextMatch();
+                                widget.onLayoutChanged?.call();
+                                if (sc.currentMatch != null) {
+                                  widget.onGoToPage?.call(
+                                    sc.currentMatch!.pageIndex,
+                                  );
+                                }
+                              },
+                              icon: const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                size: 18,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ],
+                        ),
+                      ],
+
+                      // No results
+                      if (!sc.hasMatches &&
+                          !sc.isSearching &&
+                          sc.query.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'No results found',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+
+                      // Loading
+                      if (sc.isSearching)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 }
 
-/// Action button with icon and label for page actions.
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isActive;
-  final ColorScheme cs;
-  final bool isDark;
-  final VoidCallback onTap;
+// =============================================================================
+// 🏷️ ANNOTATE PANEL — Floating anchored dialog
+// =============================================================================
 
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    this.isActive = false,
-    required this.cs,
-    required this.isDark,
-    required this.onTap,
+class _PdfAnnotatePanel extends StatefulWidget {
+  final Rect anchor;
+  final PdfAnnotationController annotationController;
+  final int selectedPageIndex;
+  final CommandHistory? history;
+  final VoidCallback? onLayoutChanged;
+
+  const _PdfAnnotatePanel({
+    required this.anchor,
+    required this.annotationController,
+    required this.selectedPageIndex,
+    this.history,
+    this.onLayoutChanged,
   });
 
   @override
+  State<_PdfAnnotatePanel> createState() => _PdfAnnotatePanelState();
+}
+
+class _PdfAnnotatePanelState extends State<_PdfAnnotatePanel> {
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color:
-              isActive
-                  ? cs.primaryContainer.withValues(alpha: 0.7)
-                  : (isDark
-                      ? cs.surfaceContainerHigh
-                      : cs.surfaceContainerHighest),
-          borderRadius: BorderRadius.circular(10),
-          border:
-              isActive
-                  ? Border.all(color: cs.primary.withValues(alpha: 0.4))
-                  : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: isActive ? cs.primary : cs.onSurfaceVariant,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                color: isActive ? cs.primary : cs.onSurfaceVariant,
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ac = widget.annotationController;
+
+    return Stack(
+      children: [
+        GestureDetector(onTap: () => Navigator.pop(context)),
+        Positioned(
+          left: (widget.anchor.left - 60).clamp(
+            8,
+            MediaQuery.of(context).size.width - 288,
+          ),
+          top: widget.anchor.bottom + 8,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(16),
+            color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
+            child: Container(
+              width: 280,
+              padding: const EdgeInsets.all(12),
+              child: ListenableBuilder(
+                listenable: ac,
+                builder: (context, _) {
+                  final pageAnnotations = ac.annotationsForPage(
+                    widget.selectedPageIndex,
+                  );
+
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.edit_note_rounded,
+                            size: 18,
+                            color: cs.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Annotations',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (pageAnnotations.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: cs.primaryContainer.withValues(
+                                  alpha: 0.5,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${pageAnnotations.length}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: cs.onPrimaryContainer,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Type picker
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children:
+                            PdfAnnotationType.values.map((type) {
+                              final isActive = ac.activeType == type;
+                              return GestureDetector(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  ac.activeType = type;
+                                  ac.activeColor = type.defaultColor;
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        isActive
+                                            ? cs.primaryContainer.withValues(
+                                              alpha: 0.7,
+                                            )
+                                            : (isDark
+                                                ? cs.surfaceContainerHighest
+                                                : cs.surfaceContainerHigh),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border:
+                                        isActive
+                                            ? Border.all(
+                                              color: cs.primary.withValues(
+                                                alpha: 0.4,
+                                              ),
+                                            )
+                                            : null,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _annotationIcon(type),
+                                        size: 18,
+                                        color:
+                                            isActive
+                                                ? cs.primary
+                                                : cs.onSurfaceVariant,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        type.name,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight:
+                                              isActive
+                                                  ? FontWeight.w600
+                                                  : FontWeight.w400,
+                                          color:
+                                              isActive
+                                                  ? cs.primary
+                                                  : cs.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Color + clear
+                      Row(
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: ac.activeColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: cs.outlineVariant.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Page ${widget.selectedPageIndex + 1}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (pageAnnotations.isNotEmpty)
+                            TextButton.icon(
+                              onPressed: () {
+                                HapticFeedback.heavyImpact();
+                                ac.clearPage(widget.selectedPageIndex);
+                                widget.onLayoutChanged?.call();
+                              },
+                              icon: const Icon(
+                                Icons.clear_all_rounded,
+                                size: 14,
+                              ),
+                              label: const Text(
+                                'Clear',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                              style: TextButton.styleFrom(
+                                foregroundColor: cs.error,
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+
+                      // Undo/redo
+                      if (widget.history != null) ...[
+                        const SizedBox(height: 8),
+                        ValueListenableBuilder<int>(
+                          valueListenable: widget.history!.revision,
+                          builder: (context, _, __) {
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton.filledTonal(
+                                  onPressed:
+                                      widget.history!.canUndo
+                                          ? () {
+                                            widget.history!.undo();
+                                            widget.onLayoutChanged?.call();
+                                          }
+                                          : null,
+                                  icon: const Icon(
+                                    Icons.undo_rounded,
+                                    size: 16,
+                                  ),
+                                  tooltip: widget.history!.undoLabel ?? 'Undo',
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton.filledTonal(
+                                  onPressed:
+                                      widget.history!.canRedo
+                                          ? () {
+                                            widget.history!.redo();
+                                            widget.onLayoutChanged?.call();
+                                          }
+                                          : null,
+                                  icon: const Icon(
+                                    Icons.redo_rounded,
+                                    size: 16,
+                                  ),
+                                  tooltip: widget.history!.redoLabel ?? 'Redo',
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ],
+                  );
+                },
               ),
             ),
-          ],
+          ),
         ),
-      ),
+      ],
+    );
+  }
+
+  IconData _annotationIcon(PdfAnnotationType type) {
+    switch (type) {
+      case PdfAnnotationType.highlight:
+        return Icons.highlight_rounded;
+      case PdfAnnotationType.underline:
+        return Icons.format_underlined_rounded;
+      case PdfAnnotationType.stickyNote:
+        return Icons.sticky_note_2_rounded;
+    }
+  }
+}
+
+// =============================================================================
+// ⚙️ LAYOUT PANEL — Floating anchored dialog
+// =============================================================================
+
+class _PdfLayoutPanel extends StatefulWidget {
+  final Rect anchor;
+  final PdfDocumentNode doc;
+  final VoidCallback? onLayoutChanged;
+
+  const _PdfLayoutPanel({
+    required this.anchor,
+    required this.doc,
+    this.onLayoutChanged,
+  });
+
+  @override
+  State<_PdfLayoutPanel> createState() => _PdfLayoutPanelState();
+}
+
+class _PdfLayoutPanelState extends State<_PdfLayoutPanel> {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final doc = widget.doc;
+    final cols = doc.documentModel.gridColumns;
+    final spacing = doc.documentModel.gridSpacing;
+
+    // Detect active preset
+    PdfLayoutPreset? activePreset;
+    final allUnlocked = doc.pageNodes.every((p) => !p.pageModel.isLocked);
+    if (allUnlocked) {
+      activePreset = PdfLayoutPreset.freeform;
+    } else if (cols == 1 && spacing <= 15) {
+      activePreset = PdfLayoutPreset.reading;
+    } else if (cols == 1 && spacing > 50) {
+      activePreset = PdfLayoutPreset.single;
+    } else if (cols == 2) {
+      activePreset = PdfLayoutPreset.standard;
+    } else if (cols >= 3) {
+      activePreset = PdfLayoutPreset.overview;
+    }
+
+    return Stack(
+      children: [
+        GestureDetector(onTap: () => Navigator.pop(context)),
+        Positioned(
+          left: (widget.anchor.left - 80).clamp(
+            8,
+            MediaQuery.of(context).size.width - 308,
+          ),
+          top: widget.anchor.bottom + 8,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(16),
+            color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.grid_view_rounded,
+                        size: 18,
+                        color: cs.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Layout',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${cols}col',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Presets
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children:
+                        PdfLayoutPreset.values.map((preset) {
+                          final isActive = preset == activePreset;
+                          return GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              doc.applyLayoutPreset(preset);
+                              widget.onLayoutChanged?.call();
+                              setState(() {});
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    isActive
+                                        ? cs.primaryContainer
+                                        : (isDark
+                                            ? cs.surfaceContainerHighest
+                                            : cs.surfaceContainerHigh),
+                                borderRadius: BorderRadius.circular(10),
+                                border:
+                                    isActive
+                                        ? Border.all(
+                                          color: cs.primary.withValues(
+                                            alpha: 0.4,
+                                          ),
+                                        )
+                                        : null,
+                              ),
+                              child: Text(
+                                '${preset.icon} ${preset.label}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight:
+                                      isActive
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                  color:
+                                      isActive
+                                          ? cs.onPrimaryContainer
+                                          : cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Grid columns
+                  Row(
+                    children: [
+                      ...List.generate(4, (i) {
+                        final c = i + 1;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Material(
+                            color:
+                                cols == c
+                                    ? cs.primary
+                                    : (isDark
+                                        ? cs.surfaceContainerHighest
+                                        : cs.surfaceContainerHigh),
+                            borderRadius: BorderRadius.circular(8),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                doc.setGridColumns(c);
+                                widget.onLayoutChanged?.call();
+                                setState(() {});
+                              },
+                              child: SizedBox(
+                                width: 32,
+                                height: 32,
+                                child: Center(
+                                  child: Text(
+                                    '$c',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          cols == c
+                                              ? cs.onPrimary
+                                              : cs.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                      const SizedBox(width: 8),
+                      // Spacing
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.space_bar_rounded,
+                              size: 14,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            Expanded(
+                              child: SliderTheme(
+                                data: SliderThemeData(
+                                  trackHeight: 3,
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 5,
+                                  ),
+                                  overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 12,
+                                  ),
+                                  activeTrackColor: cs.primary,
+                                  inactiveTrackColor:
+                                      cs.surfaceContainerHighest,
+                                  thumbColor: cs.primary,
+                                ),
+                                child: Slider(
+                                  value: spacing,
+                                  min: 0,
+                                  max: 100,
+                                  onChanged: (v) {
+                                    doc.setGridSpacing(v);
+                                    widget.onLayoutChanged?.call();
+                                    setState(() {});
+                                  },
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 24,
+                              child: Text(
+                                '${spacing.toInt()}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

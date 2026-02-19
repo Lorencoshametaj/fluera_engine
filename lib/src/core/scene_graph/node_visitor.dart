@@ -14,6 +14,7 @@ import '../nodes/advanced_mask_node.dart';
 import '../nodes/boolean_group_node.dart';
 import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
+import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 
 /// Double-dispatch visitor for type-safe scene graph traversal.
@@ -48,6 +49,7 @@ abstract class NodeVisitor<R> {
   R visitShader(ShaderNode node);
   R visitPdfPage(PdfPageNode node);
   R visitPdfDocument(PdfDocumentNode node);
+  R visitVectorNetwork(VectorNetworkNode node);
 }
 
 /// Default implementation that returns a fallback value for every node type.
@@ -101,4 +103,6 @@ class DefaultNodeVisitor<R> implements NodeVisitor<R> {
   R visitPdfPage(PdfPageNode node) => defaultValue;
   @override
   R visitPdfDocument(PdfDocumentNode node) => defaultValue;
+  @override
+  R visitVectorNetwork(VectorNetworkNode node) => defaultValue;
 }

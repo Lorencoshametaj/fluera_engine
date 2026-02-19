@@ -11,7 +11,11 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../../testing/brush_testing.dart';
 import '../../collaboration/sync_state_provider.dart';
-// SDK: AI filters removed — use optional callback via NebulaToolbarConfig
+import '../../core/nodes/pdf_document_node.dart';
+import '../../tools/pdf/pdf_annotation_controller.dart';
+import '../../tools/pdf/pdf_search_controller.dart';
+import '../../history/command_history.dart';
+import 'pdf_contextual_toolbar.dart';
 
 import 'toolbar_status.dart';
 import 'toolbar_tool_buttons.dart';
@@ -124,6 +128,16 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   onShapeRecognitionSensitivityCycle; // 🔷 Long-press to cycle sensitivity
   final VoidCallback? onGhostSuggestionToggle; // 👻 Double-tap to toggle ghost
   final VoidCallback? onPdfImportPressed; // 📄 PDF import
+  // 📄 PDF active state — contextual tools appear when a PDF is loaded
+  final bool isPdfActive;
+  final PdfDocumentNode? pdfDocument;
+  final PdfAnnotationController? pdfAnnotationController;
+  final PdfSearchController? pdfSearchController;
+  final CommandHistory? pdfCommandHistory;
+  final VoidCallback? onPdfInsertBlankPage;
+  final void Function(int)? onPdfDeletePage;
+  final VoidCallback? onPdfExport;
+  final int pdfSelectedPageIndex;
 
   const ProfessionalCanvasToolbar({
     super.key,
@@ -209,6 +223,15 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onShapeRecognitionSensitivityCycle, // 🔷 Sensitivity cycle
     this.onGhostSuggestionToggle, // 👻 Ghost toggle
     this.onPdfImportPressed, // 📄 PDF import
+    this.isPdfActive = false,
+    this.pdfDocument,
+    this.pdfAnnotationController,
+    this.pdfSearchController,
+    this.pdfCommandHistory,
+    this.onPdfInsertBlankPage,
+    this.onPdfDeletePage,
+    this.onPdfExport,
+    this.pdfSelectedPageIndex = 0,
     this.hideRecordingControlWhenActive = false,
     this.isFloating = false, // 🏝️ Floating Island mode
   });

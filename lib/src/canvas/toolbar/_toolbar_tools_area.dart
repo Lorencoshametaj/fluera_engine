@@ -287,6 +287,85 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 ),
               ),
             ],
+            // 📄 PDF CONTEXTUAL BUTTONS — appear when a PDF is active
+            if (widget.isPdfActive && widget.pdfDocument != null) ...[
+              const SizedBox(width: 8),
+              // Pages
+              _PdfToolbarButton(
+                icon: Icons.file_copy_rounded,
+                tooltip: 'Pages',
+                badge: '${widget.pdfDocument!.documentModel.totalPages}',
+                isDark: isDark,
+                onTap: (anchor) {
+                  showPdfPagePopup(
+                    context: context,
+                    anchor: anchor,
+                    doc: widget.pdfDocument!,
+                    selectedPageIndex: widget.pdfSelectedPageIndex,
+                    onPageChanged: (_) {},
+                    onInsertBlankPage: widget.onPdfInsertBlankPage,
+                    onDeletePage: widget.onPdfDeletePage,
+                    onLayoutChanged: null,
+                    onExport: widget.onPdfExport,
+                  );
+                },
+              ),
+              const SizedBox(width: 4),
+              // Search
+              if (widget.pdfSearchController != null)
+                _PdfToolbarButton(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Search PDF',
+                  badge:
+                      widget.pdfSearchController!.hasMatches
+                          ? '${widget.pdfSearchController!.matchCount}'
+                          : null,
+                  isDark: isDark,
+                  onTap: (anchor) {
+                    showPdfSearchPopup(
+                      context: context,
+                      anchor: anchor,
+                      doc: widget.pdfDocument!,
+                      searchController: widget.pdfSearchController!,
+                    );
+                  },
+                ),
+              const SizedBox(width: 4),
+              // Annotate
+              if (widget.pdfAnnotationController != null)
+                _PdfToolbarButton(
+                  icon: Icons.edit_note_rounded,
+                  tooltip: 'Annotate',
+                  badge:
+                      widget.pdfAnnotationController!.allAnnotations.isNotEmpty
+                          ? '${widget.pdfAnnotationController!.allAnnotations.length}'
+                          : null,
+                  isDark: isDark,
+                  onTap: (anchor) {
+                    showPdfAnnotatePopup(
+                      context: context,
+                      anchor: anchor,
+                      annotationController: widget.pdfAnnotationController!,
+                      selectedPageIndex: widget.pdfSelectedPageIndex,
+                      history: widget.pdfCommandHistory,
+                    );
+                  },
+                ),
+              const SizedBox(width: 4),
+              // Layout
+              _PdfToolbarButton(
+                icon: Icons.grid_view_rounded,
+                tooltip: 'Layout',
+                isDark: isDark,
+                onTap: (anchor) {
+                  showPdfLayoutPopup(
+                    context: context,
+                    anchor: anchor,
+                    doc: widget.pdfDocument!,
+                  );
+                },
+              ),
+            ],
             const SizedBox(width: 12),
             if (!widget.hideRecordingControlWhenActive ||
                 !widget.isRecordingActive)
@@ -479,6 +558,81 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                             : (isDark ? Colors.white70 : Colors.black54),
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact PDF toolbar button with optional badge.
+/// Captures its render box and passes the [Rect] to [onTap].
+class _PdfToolbarButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final String? badge;
+  final bool isDark;
+  final void Function(Rect anchor) onTap;
+
+  const _PdfToolbarButton({
+    required this.icon,
+    required this.tooltip,
+    this.badge,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            final box = context.findRenderObject() as RenderBox;
+            final pos = box.localToGlobal(Offset.zero);
+            onTap(pos & box.size);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: cs.primaryContainer.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 18, color: cs.primary),
+                if (badge != null) ...[
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: cs.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
