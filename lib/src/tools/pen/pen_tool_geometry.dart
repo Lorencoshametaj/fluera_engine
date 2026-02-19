@@ -42,6 +42,7 @@ extension _PenToolGeometry on PenTool {
     _anchors.clear();
     _cursorCanvasPosition = null;
     _dragHandleCanvas = null;
+    _previewAnchor = null;
     _isDragging = false;
     _editingAnchorIndex = -1;
     _editTarget = _EditTarget.position;

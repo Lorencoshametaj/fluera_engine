@@ -13,6 +13,8 @@ import '../../core/nodes/rich_text_node.dart';
 import '../../core/nodes/symbol_system.dart';
 import '../../core/nodes/frame_node.dart';
 import '../../core/nodes/advanced_mask_node.dart';
+import '../../core/nodes/pdf_page_node.dart';
+import '../../core/nodes/pdf_document_node.dart';
 import '../../core/effects/shader_effect.dart';
 import '../../core/scene_graph/scene_graph.dart';
 import '../../drawing/brushes/brushes.dart';
@@ -108,6 +110,10 @@ class SceneGraphRenderer {
       _renderAdvancedMask(canvas, node, viewport);
     } else if (node is FrameNode) {
       _renderFrame(canvas, node, viewport);
+    } else if (node is PdfDocumentNode) {
+      _renderPdfDocument(canvas, node, viewport);
+    } else if (node is PdfPageNode) {
+      _renderPdfPage(canvas, node);
     }
 
     // End post-effect layers.
@@ -498,6 +504,59 @@ class SceneGraphRenderer {
       } else {
         canvas.drawRect(bounds, strokePaint);
       }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PDF Node rendering
+  // ---------------------------------------------------------------------------
+
+  /// Render a PDF document (group container) by rendering all page children.
+  void _renderPdfDocument(Canvas canvas, PdfDocumentNode node, Rect viewport) {
+    _renderChildren(canvas, node, viewport);
+  }
+
+  /// Render a single PDF page from its raster cache or a placeholder.
+  ///
+  /// Uses the pre-decoded [PdfPageNode.cachedImage] if available.
+  /// When the cache is empty (page not yet decoded), draws a light-gray
+  /// rectangle with the page number as a placeholder. The actual async
+  /// decode is triggered externally by the rendering pipeline.
+  void _renderPdfPage(Canvas canvas, PdfPageNode node) {
+    final bounds = node.pageModel.originalSize;
+    final rect = Rect.fromLTWH(0, 0, bounds.width, bounds.height);
+
+    if (node.cachedImage != null) {
+      // Draw the cached raster tile, scaled to fill the page bounds.
+      final srcRect = Rect.fromLTWH(
+        0,
+        0,
+        node.cachedImage!.width.toDouble(),
+        node.cachedImage!.height.toDouble(),
+      );
+      canvas.drawImageRect(node.cachedImage!, srcRect, rect, Paint());
+    } else {
+      // Placeholder: light gray fill with page number.
+      canvas.drawRect(rect, Paint()..color = const Color(0xFFF0F0F0));
+
+      // Page number text
+      final pageNum = '${node.pageModel.pageIndex + 1}';
+      final tp = TextPainter(
+        text: TextSpan(
+          text: pageNum,
+          style: const TextStyle(
+            color: Color(0xFFAAAAAA),
+            fontSize: 32,
+            fontWeight: FontWeight.w300,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      tp.paint(
+        canvas,
+        Offset((rect.width - tp.width) / 2, (rect.height - tp.height) / 2),
+      );
     }
   }
 }

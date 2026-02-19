@@ -149,38 +149,9 @@ class TimelapseExportDialog {
   }
 }
 
-// ─── AudioRecordingController ───────────────────────────────────────────
-
-/// Stub for audio recording (Phase 2).
-/// Phase 2: the host app will provide a real implementation backed by
-/// platform-specific audio APIs.
-class AudioRecordingController {
-  bool get isRecording => false;
-  bool get hasPermission => false;
-  Future<bool> requestPermission() async => false;
-  String? currentRecordingPath;
-  Duration duration = Duration.zero;
-
-  Future<void> start() async {}
-  Future<String?> stop() async => null;
-  Future<String?> startRecording() async {
-    debugPrint(
-      '[AudioRecordingController] Recording not available in SDK (Phase 2)',
-    );
-    return null;
-  }
-
-  Future<String?> startRecordingCompressed() async {
-    debugPrint(
-      '[AudioRecordingController] Compressed recording not available in SDK (Phase 2)',
-    );
-    return null;
-  }
-
-  Future<String?> stopRecording() async => null;
-  Future<void> deleteTemporaryFile(String path) async {}
-  void dispose() {}
-}
+// AudioRecordingController — removed.
+// Replaced by NativeAudioRecorder + DefaultVoiceRecordingProvider in
+// lib/src/audio/.
 
 // ─── ExportProgressController ───────────────────────────────────────────
 

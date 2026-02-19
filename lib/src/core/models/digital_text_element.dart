@@ -1,29 +1,38 @@
 import 'package:flutter/material.dart';
 
-/// 📝 ELEMENTO TESTO DIGITALE
-/// Rappresenta un testo inserito tramite tastiera on the canvas
-/// With support for:
-/// - Positionmento libero
-/// - Ridimensionamento (scale)
-/// - Selezione e trascinamento
-/// - Persistenza e serializzazione
-/// - OCR Mode (text recognized from handwriting)
+/// 📝 Digital text element on the canvas
+///
+/// Represents text inserted via keyboard with support for:
+/// - Free positioning on canvas (absolute coordinates)
+/// - Scaling (resize via handles)
+/// - Selection and dragging
+/// - JSON persistence and serialization
+/// - OCR mode (text recognized from handwriting)
+///
+/// 🚀 PERFORMANCE: Layout is cached via [layoutPainter]. The TextPainter is
+/// created lazily on first access and reused for subsequent calls to
+/// [getBounds], [containsPoint], and by [DigitalTextPainter.paint].
+/// Since [copyWith] returns a new instance, the cache is automatically
+/// invalidated (new instance = null cache fields).
 class DigitalTextElement {
   final String id;
   final String text;
-  final Offset position; // Position on the canvas (coordinate assolute)
+  final Offset position;
   final Color color;
   final double fontSize;
   final FontWeight fontWeight;
   final String fontFamily;
-  final double scale; // Fattore di scala per resize (1.0 = normale)
-  final bool isOCR; // True if the testo proviene da riconoscimento OCR
-  final int?
-  pageIndex; // 📄 Index of the PDF page it belongs to (null for normal canvas)
+  final double scale;
+  final bool isOCR;
+  final int? pageIndex;
   final DateTime createdAt;
   final DateTime? modifiedAt;
 
-  const DigitalTextElement({
+  // ── Layout cache (lazily initialized) ────────────────────────────────────
+  TextPainter? _cachedPainter;
+  Rect? _cachedBounds;
+
+  DigitalTextElement({
     required this.id,
     required this.text,
     required this.position,
@@ -68,34 +77,58 @@ class DigitalTextElement {
     );
   }
 
-  /// Calculates bounds del testo (per hit testing)
-  Rect getBounds(BuildContext context) {
-    final textPainter = TextPainter(
+  // ── Layout caching ───────────────────────────────────────────────────────
+
+  /// 🚀 Ensure [_cachedPainter] is valid. Creates a TextPainter on first call,
+  /// reuses it on subsequent calls for the same instance.
+  void _ensureLayout() {
+    if (_cachedPainter != null) return;
+
+    _cachedPainter = TextPainter(
       text: TextSpan(
         text: text,
         style: TextStyle(
+          color: color,
           fontSize: fontSize * scale,
           fontWeight: fontWeight,
           fontFamily: fontFamily,
         ),
       ),
       textDirection: TextDirection.ltr,
+      textAlign: TextAlign.left,
     )..layout();
+  }
 
-    return Rect.fromLTWH(
+  /// 🚀 Cached TextPainter — reused by [DigitalTextPainter.paint] to avoid
+  /// per-frame allocation. Lazily created on first access.
+  TextPainter get layoutPainter {
+    _ensureLayout();
+    return _cachedPainter!;
+  }
+
+  /// Calculates bounds of the text element (for hit testing and rendering).
+  /// Result is cached per instance.
+  Rect getBounds() {
+    if (_cachedBounds != null) return _cachedBounds!;
+
+    _ensureLayout();
+    _cachedBounds = Rect.fromLTWH(
       position.dx,
       position.dy,
-      textPainter.width,
-      textPainter.height,
+      _cachedPainter!.width,
+      _cachedPainter!.height,
     );
+    return _cachedBounds!;
   }
 
-  /// Checks if a point touches this text
-  bool containsPoint(Offset point, BuildContext context) {
-    return getBounds(context).contains(point);
+  /// Checks if a point touches this text element
+  bool containsPoint(Offset point) {
+    return getBounds().contains(point);
   }
 
-  /// Serializezione JSON
+  // ── Serialization ────────────────────────────────────────────────────────
+
+  /// JSON serialization
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -113,7 +146,7 @@ class DigitalTextElement {
     };
   }
 
-  /// Deserializzazione JSON
+  /// JSON deserialization
   factory DigitalTextElement.fromJson(Map<String, dynamic> json) {
     return DigitalTextElement(
       id: json['id'] as String,

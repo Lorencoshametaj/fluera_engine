@@ -46,6 +46,7 @@ import '../tools/image/image_tool.dart';
 import '../tools/ruler/ruler_guide_system.dart';
 import '../tools/flood_fill/flood_fill_tool.dart';
 import '../tools/pen/pen_tool.dart';
+import '../tools/shape/shape_recognizer.dart';
 import '../tools/base/tool_context.dart';
 import '../layers/adapters/infinite_canvas_adapter.dart';
 
@@ -83,6 +84,7 @@ import '../dialogs/canvas_settings_dialog.dart';
 import './nebula_canvas_config.dart';
 import '../storage/sqlite_storage_adapter.dart';
 import '../storage/save_isolate_service.dart';
+import '../storage/recording_storage_service.dart';
 import '../platform/display_capabilities_detector.dart';
 import '../config/adaptive_rendering_config.dart';
 import '../reflow/cluster_detector.dart';
@@ -90,6 +92,9 @@ import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
 import './smart_guides/smart_guide_engine.dart';
 import './smart_guides/smart_guide_overlay.dart';
+import '../audio/default_voice_recording_provider.dart';
+import '../rendering/canvas/image_memory_manager.dart';
+import '../rendering/optimization/spatial_index.dart';
 
 // ============================================================================
 // PART FILES
@@ -107,7 +112,6 @@ part './parts/_export.dart';
 part './parts/_text_tools.dart';
 part './parts/_image_features.dart';
 part './parts/_voice_recording.dart';
-// part 'parts/_navigation_pdf.dart';  // Phase 2: PDF navigation
 part './parts/_cloud_sync.dart';
 part './parts/_phase2_stubs.dart';
 
@@ -125,6 +129,7 @@ part './parts/ui/_ui_eraser.dart';
 part './parts/ui/_ui_overlays.dart';
 part './parts/ui/_ui_menus.dart';
 part './parts/ui/_loading_overlay.dart';
+part './parts/ui/_shape_recognition_toast.dart';
 
 // 🧹 Eraser Painters
 part './parts/eraser/_eraser_painters.dart';
@@ -322,6 +327,15 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     null,
   );
 
+  /// 🔷 Shape recognition toast data (null = hidden)
+  final ValueNotifier<_ShapeRecognitionToastData?> _shapeRecognitionToast =
+      ValueNotifier(null);
+
+  /// 👻 Ghost suggestion data (null = hidden)
+  final ValueNotifier<_GhostSuggestionData?> _ghostSuggestion = ValueNotifier(
+    null,
+  );
+
   /// Canvas infinito controller
   late final InfiniteCanvasController _canvasController;
 
@@ -479,6 +493,47 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   final List<ImageElement> _imageElements = [];
   final Map<String, ui.Image> _loadedImages = {};
 
+  /// 🧠 Version counter: incremented on every image content mutation
+  /// Used by ImagePainter for fast shouldRepaint + Picture cache invalidation
+  int _imageVersion = 0;
+
+  /// 🌐 R-tree spatial index for O(log n) image viewport culling
+  RTree<ImageElement>? _imageSpatialIndex;
+
+  /// 🧠 LRU memory manager for loaded images
+  final ImageMemoryManager _imageMemoryManager = ImageMemoryManager(
+    maxImages: 20,
+  );
+
+  /// 🌐 Rebuild the R-tree spatial index from current image elements.
+  void _rebuildImageSpatialIndex() {
+    _imageSpatialIndex = RTree<ImageElement>.fromItems(_imageElements, (img) {
+      final w = _loadedImages[img.imagePath]?.width.toDouble() ?? 200.0;
+      final h = _loadedImages[img.imagePath]?.height.toDouble() ?? 150.0;
+      final halfW = w * img.scale * 0.5;
+      final halfH = h * img.scale * 0.5;
+
+      // 🔄 Improvement 4: expand bounds to AABB of rotated rect
+      if (img.rotation != 0.0) {
+        final cosR = math.cos(img.rotation).abs();
+        final sinR = math.sin(img.rotation).abs();
+        final rotHalfW = halfW * cosR + halfH * sinR;
+        final rotHalfH = halfW * sinR + halfH * cosR;
+        return Rect.fromCenter(
+          center: img.position,
+          width: rotHalfW * 2,
+          height: rotHalfH * 2,
+        );
+      }
+
+      return Rect.fromCenter(
+        center: img.position,
+        width: halfW * 2,
+        height: halfH * 2,
+      );
+    });
+  }
+
   /// 🔄 Loading pulse animation for image placeholders
   Timer? _loadingPulseTimer;
   double _loadingPulseValue = 0.0;
@@ -552,15 +607,17 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   );
   final List<ProStroke> _imageEditingStrokes = [];
   final List<ProStroke> _imageEditingUndoStack = [];
+  // 🚀 Fix 1: incremental conversion — avoids O(n) per frame
+  final List<ProDrawingPoint> _editingConvertedPoints = [];
+  DateTime _editingStrokeCreatedAt = DateTime.now();
 
   // 🎤 State per tracking temporale strokes
   DateTime? _lastStrokeStartTime;
 
-  /// 🎤 Audio recording controller
-  AudioRecordingController? _audioRecordingController;
+  /// 🎤 Audio recording state
   bool _isRecordingAudio = false;
   Duration _recordingDuration = Duration.zero;
-  Timer? _recordingTimer;
+
   StreamSubscription<Duration>? _recordingDurationSubscription;
   List<String> _savedRecordings = [];
   bool _recordingWithStrokes = false;
@@ -572,9 +629,6 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   List<SynchronizedRecording> _syncedRecordings = [];
   SynchronizedPlaybackController? _playbackController;
   bool _isPlayingSyncedRecording = false;
-
-  /// 🎧 Audio player state
-  String? _playingAudioPath;
 
   // ============================================================================
   // 📤 EXPORT MODE STATE
@@ -670,6 +724,28 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
       toolController: _unifiedToolController!,
       onOperationComplete: _autoSaveCanvas,
       onSaveUndo: null,
+      onGetTextElements: () => _digitalTextElements,
+      onUpdateTextElement: (updated) {
+        final idx = _digitalTextElements.indexWhere((e) => e.id == updated.id);
+        if (idx != -1) {
+          setState(() => _digitalTextElements[idx] = updated);
+          _layerController.updateText(updated);
+        }
+      },
+      onRemoveTextElement: (id) {
+        setState(() => _digitalTextElements.removeWhere((e) => e.id == id));
+      },
+      onGetImageElements: () => _imageElements,
+      onUpdateImageElement: (updated) {
+        final idx = _imageElements.indexWhere((e) => e.id == updated.id);
+        if (idx != -1) {
+          setState(() => _imageElements[idx] = updated);
+          _layerController.updateImage(updated);
+        }
+      },
+      onRemoveImageElement: (id) {
+        setState(() => _imageElements.removeWhere((e) => e.id == id));
+      },
     );
     _toolSystemBridge!.registerDefaultTools();
 
@@ -819,6 +895,8 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
       image.dispose();
     }
     _loadedImages.clear();
+    ImagePainter.invalidateCache();
+    _imageMemoryManager.clear();
 
     _loadingPulseTimer?.cancel();
     _recordingsListener?.cancel();
@@ -882,6 +960,28 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
     // 🚀 PERSISTENT ISOLATE: Shut down the background encoding isolate
     SaveIsolateService.instance.dispose();
+
+    // 🎤 VOICE RECORDING: Stop active recording and clean up provider
+    if (_isRecordingAudio) {
+      _recordingDurationSubscription?.cancel();
+      _recordingDurationSubscription = null;
+      _syncRecordingBuilder = null;
+      _isRecordingAudio = false;
+      // Fire-and-forget — provider.stopRecording() will stop the native recorder
+      _voiceRecordingProvider.stopRecording().catchError((_) => null);
+    }
+
+    // 🔧 FIX #1: Stop any active synced playback to prevent setState on disposed state
+    if (_isPlayingSyncedRecording) {
+      _playbackController?.stop();
+      _playbackController = null;
+      _isPlayingSyncedRecording = false;
+      _voiceRecordingProvider.stopPlayback();
+    }
+    // 🔧 FIX #7: Clean up playback completion listener
+    VoiceRecordingExtension._playbackCompletedSubs[hashCode]?.cancel();
+    VoiceRecordingExtension._playbackCompletedSubs.remove(hashCode);
+    _disposeDefaultVoiceRecordingProvider();
 
     super.dispose();
   }

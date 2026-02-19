@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
+import '../tools/shape/shape_recognizer.dart';
 import './base/tool_context.dart';
 import './base/tool_registry.dart';
 
@@ -10,7 +11,7 @@ import './base/tool_registry.dart';
 /// - Tool state (color, width, opacity, brush type)
 /// - Current active tool
 /// - Special modes (eraser, lasso, pan, stylus)
-/// - Coordination between Canvas, PDF, and Multiview
+/// - Coordination between Canvas and Multiview
 ///
 /// DESIGN PRINCIPLES:
 /// - Single source of truth for all tool state
@@ -20,7 +21,6 @@ import './base/tool_registry.dart';
 /// Replaces and unifies:
 /// - Internal variables of ProfessionalCanvasScreenState
 /// - Existing MultiviewToolController
-/// - Duplicated logic in PDFCanvasView
 class UnifiedToolController extends ChangeNotifier {
   // ============================================================================
   // TOOL SETTINGS STATE
@@ -150,6 +150,69 @@ class UnifiedToolController extends ChangeNotifier {
   /// 🪣 Fill tool mode
   bool _isFillMode = false;
   bool get isFillMode => _isFillMode;
+
+  /// 🔷 Shape recognition mode — when enabled, freehand strokes are
+  /// analyzed on pointer-up and replaced with perfect geometric shapes.
+  bool _shapeRecognitionEnabled = false;
+  bool get shapeRecognitionEnabled => _shapeRecognitionEnabled;
+
+  /// 🔷 Shape recognition sensitivity level.
+  ShapeRecognitionSensitivity _shapeRecognitionSensitivity =
+      ShapeRecognitionSensitivity.medium;
+  ShapeRecognitionSensitivity get shapeRecognitionSensitivity =>
+      _shapeRecognitionSensitivity;
+
+  /// 🔷 Ghost suggestion mode — when enabled, recognized shapes are
+  /// shown as a semi-transparent preview before auto-accepting.
+  bool _ghostSuggestionMode = false;
+  bool get ghostSuggestionMode => _ghostSuggestionMode;
+
+  /// 🔀 Multi-stroke buffer — accumulates recent unrecognized strokes
+  /// and tries to combine them into a single shape.
+  final List<_BufferedStroke> _multiStrokeBuffer = [];
+  static const _multiStrokeTimeoutMs = 800; // Max time between strokes
+  static const _maxBufferedStrokes = 3; // Max strokes to combine
+
+  /// Get combined points from the multi-stroke buffer.
+  List<Offset>? getMultiStrokePoints() {
+    if (_multiStrokeBuffer.length < 2) return null;
+
+    // Check time gap between strokes
+    for (int i = 1; i < _multiStrokeBuffer.length; i++) {
+      final gap =
+          _multiStrokeBuffer[i].timestamp
+              .difference(_multiStrokeBuffer[i - 1].timestamp)
+              .inMilliseconds;
+      if (gap > _multiStrokeTimeoutMs) {
+        // Gap too large — clear older strokes
+        _multiStrokeBuffer.removeRange(0, i);
+        return null;
+      }
+    }
+
+    // Combine all buffered points
+    final combined = <Offset>[];
+    for (final stroke in _multiStrokeBuffer) {
+      combined.addAll(stroke.points);
+    }
+    return combined.length >= 5 ? combined : null;
+  }
+
+  /// Add a stroke to the multi-stroke buffer.
+  void bufferStroke(List<Offset> points) {
+    _multiStrokeBuffer.add(
+      _BufferedStroke(points: points, timestamp: DateTime.now()),
+    );
+    // Keep buffer size bounded
+    while (_multiStrokeBuffer.length > _maxBufferedStrokes) {
+      _multiStrokeBuffer.removeAt(0);
+    }
+  }
+
+  /// Clear the multi-stroke buffer (called on successful recognition).
+  void clearMultiStrokeBuffer() {
+    _multiStrokeBuffer.clear();
+  }
 
   // ============================================================================
   // SETTERS WITH NOTIFICATION
@@ -302,6 +365,40 @@ class UnifiedToolController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 🔷 Toggle shape recognition mode
+  void toggleShapeRecognition() {
+    _shapeRecognitionEnabled = !_shapeRecognitionEnabled;
+    notifyListeners();
+  }
+
+  /// 🔷 Set shape recognition mode
+  void setShapeRecognition(bool value) {
+    if (_shapeRecognitionEnabled == value) return;
+    _shapeRecognitionEnabled = value;
+    notifyListeners();
+  }
+
+  /// 🔷 Set shape recognition sensitivity
+  void setShapeRecognitionSensitivity(ShapeRecognitionSensitivity value) {
+    if (_shapeRecognitionSensitivity == value) return;
+    _shapeRecognitionSensitivity = value;
+    notifyListeners();
+  }
+
+  /// 🔷 Cycle through sensitivity levels (low → medium → high → low)
+  void cycleShapeRecognitionSensitivity() {
+    final values = ShapeRecognitionSensitivity.values;
+    final nextIndex = (_shapeRecognitionSensitivity.index + 1) % values.length;
+    _shapeRecognitionSensitivity = values[nextIndex];
+    notifyListeners();
+  }
+
+  /// 👻 Toggle ghost suggestion mode
+  void toggleGhostSuggestionMode() {
+    _ghostSuggestionMode = !_ghostSuggestionMode;
+    notifyListeners();
+  }
+
   /// Reset to drawing mode (deselect everything)
   void resetToDrawingMode() {
     _activeToolId = null;
@@ -350,6 +447,9 @@ class UnifiedToolController extends ChangeNotifier {
     'eraseWholeStroke': _eraseWholeStroke,
     'backgroundColor': _backgroundColor.toARGB32(),
     'paperType': _paperType,
+    'shapeRecognitionEnabled': _shapeRecognitionEnabled,
+    'shapeRecognitionSensitivity': _shapeRecognitionSensitivity.index,
+    'ghostSuggestionMode': _ghostSuggestionMode,
   };
 
   void fromJson(Map<String, dynamic> json) {
@@ -366,6 +466,14 @@ class UnifiedToolController extends ChangeNotifier {
       _backgroundColor = Color(json['backgroundColor']);
     }
     _paperType = json['paperType'] ?? 'blank';
+    _shapeRecognitionEnabled = json['shapeRecognitionEnabled'] ?? false;
+    final sensIndex = json['shapeRecognitionSensitivity'] ?? 1;
+    _shapeRecognitionSensitivity =
+        ShapeRecognitionSensitivity.values[sensIndex.clamp(
+          0,
+          ShapeRecognitionSensitivity.values.length - 1,
+        )];
+    _ghostSuggestionMode = json['ghostSuggestionMode'] ?? false;
     notifyListeners();
   }
 
@@ -449,4 +557,12 @@ UnifiedToolController:
     detachRegistry();
     super.dispose();
   }
+}
+
+/// Internal data class for multi-stroke buffering.
+class _BufferedStroke {
+  final List<Offset> points;
+  final DateTime timestamp;
+
+  const _BufferedStroke({required this.points, required this.timestamp});
 }

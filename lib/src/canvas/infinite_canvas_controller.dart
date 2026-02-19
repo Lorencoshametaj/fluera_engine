@@ -102,7 +102,8 @@ class InfiniteCanvasController extends ChangeNotifier {
       _isMomentumActive ||
       _isZoomSpringActive ||
       _isRotationMomentumActive ||
-      _isRotationSpringActive;
+      _isRotationSpringActive ||
+      _isPanSpringActive;
 
   // ============================================================================
   // 🎛️ CORE API
@@ -263,11 +264,15 @@ class InfiniteCanvasController extends ChangeNotifier {
     _isZoomSpringActive = false;
     _isRotationMomentumActive = false;
     _isRotationSpringActive = false;
+    _isPanSpringActive = false;
+    _isTransformSpringActive = false;
     _panSimX = null;
     _panSimY = null;
     _zoomSim = null;
     _rotationSim = null;
     _rotationSpring = null;
+    _panSpringSimX = null;
+    _panSpringSimY = null;
     if (_ticker?.isTicking ?? false) {
       _ticker!.stop();
     }
@@ -339,6 +344,103 @@ class InfiniteCanvasController extends ChangeNotifier {
     _zoomSpringFocalPoint = focalPointScreen;
     _zoomSpringStartScale = _scale;
     _isZoomSpringActive = true;
+    _springStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Pan-to-Target Spring
+  // ============================================================================
+
+  // — Pan spring state —
+  SpringSimulation? _panSpringSimX;
+  SpringSimulation? _panSpringSimY;
+  double _panSpringStartTime = 0;
+  bool _isPanSpringActive = false;
+
+  // — Combined transform spring state —
+  bool _isTransformSpringActive = false;
+
+  /// 🎯 Animate pan offset to a target position with spring physics.
+  ///
+  /// Used for "scroll-to-selection", "scroll-to-origin", or any
+  /// programmatic camera move that should feel organic.
+  void animateOffsetTo(Offset targetOffset, {Offset velocity = Offset.zero}) {
+    if (_ticker == null) return;
+
+    final config = _liquidConfig;
+    if ((targetOffset - _offset).distance < 0.5) return; // Already there
+
+    final spring = SpringDescription(
+      mass: 1.0,
+      stiffness: config.panSpringStiffness,
+      damping: config.panSpringDamping,
+    );
+
+    _panSpringSimX = SpringSimulation(
+      spring,
+      _offset.dx,
+      targetOffset.dx,
+      velocity.dx,
+    );
+    _panSpringSimY = SpringSimulation(
+      spring,
+      _offset.dy,
+      targetOffset.dy,
+      velocity.dy,
+    );
+
+    _isPanSpringActive = true;
+    _isTransformSpringActive = false;
+    _panSpringStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  /// 🎯 Animate both offset and scale to target values simultaneously.
+  ///
+  /// Used for "fit selection in viewport", "fit all content", or any
+  /// combined camera transition. The [focalPoint] (in screen coords)
+  /// stays visually anchored during the animation.
+  void animateToTransform({
+    required Offset targetOffset,
+    required double targetScale,
+    Offset? focalPoint,
+  }) {
+    if (_ticker == null) return;
+
+    final clampedScale = targetScale.clamp(_minScale, _maxScale);
+    final offsetDist = (targetOffset - _offset).distance;
+    final scaleDist = (_scale - clampedScale).abs();
+    if (offsetDist < 0.5 && scaleDist < 0.001) return; // Already there
+
+    final config = _liquidConfig;
+
+    final spring = SpringDescription(
+      mass: 1.0,
+      stiffness: config.panSpringStiffness,
+      damping: config.panSpringDamping,
+    );
+
+    _panSpringSimX = SpringSimulation(spring, _offset.dx, targetOffset.dx, 0.0);
+    _panSpringSimY = SpringSimulation(spring, _offset.dy, targetOffset.dy, 0.0);
+
+    // Reuse zoom spring for the scale component
+    final zoomSpring = SpringDescription(
+      mass: config.zoomSpringMass,
+      stiffness: config.panSpringStiffness,
+      damping: config.panSpringDamping,
+    );
+
+    _zoomSim = SpringSimulation(zoomSpring, _scale, clampedScale, 0.0);
+    _zoomSpringFocalPoint = focalPoint ?? Offset.zero;
+    _zoomSpringStartScale = _scale;
+
+    _isPanSpringActive = true;
+    _isTransformSpringActive = true;
+    _isZoomSpringActive = true;
+    _panSpringStartTime = 0;
     _springStartTime = 0;
     _lastTickTime = Duration.zero;
     _ensureTickerRunning();
@@ -451,10 +553,7 @@ class InfiniteCanvasController extends ChangeNotifier {
   // ============================================================================
 
   void _onTick(Duration elapsed) {
-    if (!_isMomentumActive &&
-        !_isZoomSpringActive &&
-        !_isRotationMomentumActive &&
-        !_isRotationSpringActive) {
+    if (!isAnimating) {
       _ticker?.stop();
       return;
     }
@@ -577,15 +676,44 @@ class InfiniteCanvasController extends ChangeNotifier {
       }
     }
 
+    // — PAN SPRING (programmatic camera move) —
+    if (_isPanSpringActive &&
+        _panSpringSimX != null &&
+        _panSpringSimY != null) {
+      _panSpringStartTime += t;
+
+      final newX = _panSpringSimX!.x(_panSpringStartTime);
+      final newY = _panSpringSimY!.x(_panSpringStartTime);
+
+      // When running a combined transform spring, the zoom spring
+      // handles offset via focal-point anchoring. For pan-only spring,
+      // we drive offset directly here.
+      if (!_isTransformSpringActive) {
+        _offset = Offset(newX, newY);
+      }
+
+      needsNotify = true;
+
+      final doneX = _panSpringSimX!.isDone(_panSpringStartTime);
+      final doneY = _panSpringSimY!.isDone(_panSpringStartTime);
+      if (doneX && doneY) {
+        if (!_isTransformSpringActive) {
+          _offset = Offset(newX, newY);
+        }
+        _isPanSpringActive = false;
+        _isTransformSpringActive = false;
+        _panSpringSimX = null;
+        _panSpringSimY = null;
+        needsNotify = true;
+      }
+    }
+
     if (needsNotify) {
       notifyListeners();
     }
 
     // Stop ticker if all simulations are done
-    if (!_isMomentumActive &&
-        !_isZoomSpringActive &&
-        !_isRotationMomentumActive &&
-        !_isRotationSpringActive) {
+    if (!isAnimating) {
       _ticker?.stop();
     }
   }

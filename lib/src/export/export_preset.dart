@@ -304,7 +304,7 @@ class ExportPreset {
 }
 
 /// 🖼️ Formato di output for export
-enum ExportFormat { png, jpeg, pdf }
+enum ExportFormat { png, jpeg }
 
 /// ⚙️ Quality DPI for export
 enum ExportQuality {
@@ -396,9 +396,9 @@ class ExportConfig {
     return size.width > 8192 || size.height > 8192;
   }
 
-  /// If supera il limite, deve essere multi-page PDF
+  /// If image exceeds single-page limit, requires multi-page export
   bool get requiresMultiPage {
-    return exceedsImageLimit && format != ExportFormat.pdf;
+    return exceedsImageLimit;
   }
 }
 

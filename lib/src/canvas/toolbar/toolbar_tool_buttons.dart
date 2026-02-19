@@ -238,3 +238,84 @@ class ToolbarImagePickerButton extends StatelessWidget {
     );
   }
 }
+
+/// Shape Recognition toggle button.
+/// Shows a colored dot indicating sensitivity level (green=high, yellow=medium, red=low).
+/// Shows a 👻 indicator when ghost suggestion mode is active.
+class ToolbarShapeRecognitionButton extends StatelessWidget {
+  final bool isActive;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onDoubleTap;
+  final bool isDark;
+  final bool ghostEnabled;
+
+  /// 0 = low, 1 = medium, 2 = high
+  final int sensitivityIndex;
+
+  const ToolbarShapeRecognitionButton({
+    super.key,
+    required this.isActive,
+    required this.onTap,
+    this.onLongPress,
+    this.onDoubleTap,
+    required this.isDark,
+    this.sensitivityIndex = 1,
+    this.ghostEnabled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    // Sensitivity dot color
+    final dotColor = switch (sensitivityIndex) {
+      0 => Colors.red,
+      1 => Colors.amber,
+      _ => Colors.green,
+    };
+    return GestureDetector(
+      onLongPress: onLongPress,
+      onDoubleTap: onDoubleTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          _ToolToggleButton(
+            isActive: isActive,
+            onTap: onTap,
+            isDark: isDark,
+            icon: Icons.auto_fix_high_rounded,
+            activeColor: Colors.indigo,
+          ),
+          // Sensitivity dot (top-right)
+          if (isActive)
+            Positioned(
+              right: 4,
+              top: 2,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: cs.surface, width: 1.5),
+                ),
+              ),
+            ),
+          // Ghost mode indicator (top-left)
+          if (isActive && ghostEnabled)
+            Positioned(
+              left: 4,
+              top: 1,
+              child: Text(
+                '👻',
+                style: TextStyle(
+                  fontSize: 10,
+                  shadows: [Shadow(color: cs.surface, blurRadius: 2)],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

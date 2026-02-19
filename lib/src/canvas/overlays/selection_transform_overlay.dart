@@ -7,6 +7,9 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../../drawing/brushes/brushes.dart';
 import '../../core/models/shape_type.dart';
 import '../infinite_canvas_controller.dart';
+import '../spring_animation_controller.dart';
+import '../liquid_canvas_config.dart';
+import 'package:flutter/services.dart';
 
 /// 🔲 Selection Transform Overlay
 ///
@@ -26,6 +29,10 @@ class SelectionTransformOverlay extends StatefulWidget {
   final VoidCallback? onEdgeAutoScrollEnd;
   final bool isDark;
 
+  /// 🌊 SNAP: Callback to compute smart guide snap offset for a given bounds.
+  /// Returns the correction offset to apply (Offset.zero if no snap).
+  final Offset Function(Rect bounds)? onComputeSnap;
+
   const SelectionTransformOverlay({
     super.key,
     required this.lassoTool,
@@ -34,6 +41,7 @@ class SelectionTransformOverlay extends StatefulWidget {
     this.onEdgeAutoScroll,
     this.onEdgeAutoScrollEnd,
     this.isDark = false,
+    this.onComputeSnap,
   });
 
   @override
@@ -55,6 +63,23 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
   Map<String, Offset> _settleDisplacements = {};
   double _settleOpacity = 0.0;
 
+  // 🌊 FLING: Spring controller for node drag inertia
+  late final SpringAnimationController _flingController;
+  Offset _flingPreviousOffset = Offset.zero;
+  bool _isFlingActive = false;
+
+  // 🌊 SNAP SPRING: Post-fling snap-to-guide spring animation
+  bool _isSnapSpringActive = false;
+  Offset _snapSpringPreviousOffset = Offset.zero;
+
+  // 🌊 TIER 4: Mid-fling snap throttle + edge bounce
+  int _flingFrameCount = 0;
+
+  // 🌊 TIER 4: Handle velocity tracking for spring-eased scale/rotate
+  double _lastHandleScaleDelta = 0.0;
+  double _lastHandleRotationDelta = 0.0;
+  int _lastHandleTimestamp = 0;
+
   static const double _handleSize = 22.0;
   static const double _hitAreaSize = 48.0; // Minimum touch target
   static const double _rotationHandleOffset = 36.0;
@@ -64,6 +89,8 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
     super.initState();
     // 🚀 Follow canvas transform (zoom/pan/rotate) in real-time
     widget.canvasController.addListener(_onCanvasTransformChanged);
+    // 🚀 PERF: Listen to drag updates for smooth handle positioning
+    widget.lassoTool.dragNotifier.addListener(_onDragUpdate);
     _settleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -79,16 +106,28 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
         _settleOpacity = 0.0;
       }
     });
+
+    // 🌊 FLING: Initialize spring controller for drag inertia
+    _flingController = SpringAnimationController();
+    _flingController.attachTicker(this);
+    _flingController.onOffsetUpdate = _onFlingOrSnapUpdate;
+    _flingController.onComplete = _onAnimationComplete;
   }
 
   void _onCanvasTransformChanged() {
     if (mounted) setState(() {});
   }
 
+  void _onDragUpdate() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     widget.canvasController.removeListener(_onCanvasTransformChanged);
+    widget.lassoTool.dragNotifier.removeListener(_onDragUpdate);
     _settleController.dispose();
+    _flingController.dispose();
     super.dispose();
   }
 
@@ -147,6 +186,12 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onPanStart: (details) {
+              // 🌊 FLING/SNAP: Cancel any active animation on new touch
+              if (_isFlingActive || _isSnapSpringActive) {
+                _flingController.stop();
+                _isFlingActive = false;
+                _isSnapSpringActive = false;
+              }
               final canvasPos = widget.canvasController.screenToCanvas(
                 details.globalPosition,
               );
@@ -162,7 +207,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
               widget.onEdgeAutoScroll?.call(details.globalPosition);
               setState(() {});
             },
-            onPanEnd: (_) {
+            onPanEnd: (details) {
               // 🏀️ Stop edge auto-scroll
               widget.onEdgeAutoScrollEnd?.call();
 
@@ -180,6 +225,32 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
                 _settleDisplacements = ghostSnap;
                 _settleOpacity = 1.0;
                 _settleController.forward(from: 0.0);
+              }
+
+              // 🌊 FLING: Launch friction fling if velocity exceeds threshold
+              final rawVelocity = widget.lassoTool.lastDragVelocity;
+              final config = widget.canvasController.liquidConfig;
+              if (rawVelocity.distance > config.nodeDragFlingThreshold &&
+                  widget.lassoTool.hasSelection) {
+                // 🚀 T4: Velocity clamping
+                final velocity =
+                    rawVelocity.distance > config.nodeDragMaxFlingVelocity
+                        ? rawVelocity *
+                            (config.nodeDragMaxFlingVelocity /
+                                rawVelocity.distance)
+                        : rawVelocity;
+
+                // ⚖️ T4: Adaptive friction — heavier selections decelerate faster
+                final adaptiveFriction =
+                    config.nodeDragFlingFriction +
+                    config.nodeDragAdaptiveFrictionFactor *
+                        widget.lassoTool.selectionCount;
+
+                _flingPreviousOffset = Offset.zero;
+                _flingController.snapOffsetTo(Offset.zero);
+                _flingController.fling(velocity, friction: adaptiveFriction);
+                _isFlingActive = true;
+                _flingFrameCount = 0;
               }
             },
             child: CustomPaint(
@@ -343,6 +414,8 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
   ) {
     if (_activeHandle == null || _dragStart == null) return;
 
+    final now = DateTime.now().millisecondsSinceEpoch;
+
     if (type == _HandleType.rotation) {
       // Use the stable center captured at drag start (not the live one)
       final stableCenter = _rotationCenter ?? center;
@@ -359,11 +432,16 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
       _initialAngle = currentAngle;
 
+      // 🌊 T4: Track rotation velocity for spring overshoot
+      _lastHandleRotationDelta = angleDelta;
+      _lastHandleTimestamp = now;
+
       // Convert stable center from screen to canvas space for the lasso tool
       final canvasCenter = widget.canvasController.screenToCanvas(stableCenter);
       widget.lassoTool.rotateSelectedByAngle(angleDelta, center: canvasCenter);
-      DrawingPainter.invalidateAllTiles();
-      setState(() {});
+      // 🚀 PERF: Only invalidate layer caches (not tile + stroke caches)
+      DrawingPainter.invalidateLayerCaches();
+      widget.lassoTool.dragNotifier.value++;
       widget.onTransformComplete();
     } else {
       // Scala
@@ -372,20 +450,245 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
         final scaleFactor = currentDistance / _initialDistance;
         // Clamp to avoid scale troppo estreme
         final clampedFactor = scaleFactor.clamp(0.5, 2.0);
+
+        // 🌊 T4: Track scale velocity for spring overshoot
+        _lastHandleScaleDelta = clampedFactor - 1.0;
+        _lastHandleTimestamp = now;
+
         widget.lassoTool.scaleSelected(clampedFactor);
         _initialDistance = currentDistance;
-        DrawingPainter.invalidateAllTiles();
-        setState(() {});
+        // 🚀 PERF: Only invalidate layer caches (not tile + stroke caches)
+        DrawingPainter.invalidateLayerCaches();
+        widget.lassoTool.dragNotifier.value++;
         widget.onTransformComplete();
       }
     }
   }
 
   void _onHandleDragEnd() {
+    // 🌊 REFLOW: Bake ghost displacements on gesture end (same as drag end)
+    if (widget.lassoTool.isReflowEnabled &&
+        widget.lassoTool.reflowGhostDisplacements.isNotEmpty) {
+      // Capture ghost displacements for settle fade-out animation
+      _settleDisplacements = Map<String, Offset>.from(
+        widget.lassoTool.reflowGhostDisplacements,
+      );
+      _settleOpacity = 1.0;
+
+      // Bake displacements into actual positions
+      widget.lassoTool.bakeReflowDisplacements();
+      widget.lassoTool.reflowGhostDisplacements = {};
+
+      // Trigger settle fade-out animation
+      _settleController.forward(from: 0);
+    }
+
+    // 🌊 T4: Spring overshoot for scale/rotate handles
+    // If the last handle gesture had momentum, apply a tiny spring continuation
+    final timeSinceLastHandle =
+        DateTime.now().millisecondsSinceEpoch - _lastHandleTimestamp;
+    if (timeSinceLastHandle < 100 &&
+        !_isFlingActive &&
+        !_isSnapSpringActive &&
+        widget.lassoTool.hasSelection) {
+      final bounds = widget.lassoTool.getSelectionBounds();
+      if (bounds != null) {
+        // Convert rotation/scale momentum into a small translate overshoot
+        Offset overshoot = Offset.zero;
+        if (_lastHandleRotationDelta.abs() > 0.01) {
+          // Rotation momentum → tangential overshoot from center
+          final radius = bounds.shortestSide / 2;
+          overshoot = Offset(
+            -_lastHandleRotationDelta * radius * 0.3,
+            _lastHandleRotationDelta * radius * 0.15,
+          );
+        } else if (_lastHandleScaleDelta.abs() > 0.02) {
+          // Scale momentum → radial overshoot from center
+          final magnitude = _lastHandleScaleDelta * 8.0;
+          overshoot = Offset(magnitude, magnitude);
+        }
+
+        if (overshoot.distance > 1.0) {
+          _isSnapSpringActive = true;
+          _snapSpringPreviousOffset = Offset.zero;
+          _flingController.snapOffsetTo(Offset.zero);
+          // Animate to overshoot, then spring back to zero
+          _flingController.animateOffsetTo(
+            overshoot,
+            spring: SpringAnimationController.bouncy,
+          );
+        }
+      }
+    }
+
+    // Reset handle tracking
+    _lastHandleScaleDelta = 0.0;
+    _lastHandleRotationDelta = 0.0;
+    _lastHandleTimestamp = 0;
+
+    // 🚀 PERF: Full cache invalidation at gesture end (lightweight during gesture)
+    DrawingPainter.invalidateAllTiles();
+
     _activeHandle = null;
     _dragStart = null;
     _rotationCenter = null;
     widget.onTransformComplete();
+  }
+
+  // ==========================================================================
+  // 🌊 FLING & SNAP CALLBACKS
+  // ==========================================================================
+
+  /// Called each frame during friction fling or snap spring with accumulated offset.
+  void _onFlingOrSnapUpdate(Offset currentOffset) {
+    if (!(_isFlingActive || _isSnapSpringActive) ||
+        !widget.lassoTool.hasSelection) {
+      return;
+    }
+
+    // Compute incremental delta from last frame
+    final previousOffset =
+        _isSnapSpringActive ? _snapSpringPreviousOffset : _flingPreviousOffset;
+    final delta = currentOffset - previousOffset;
+
+    if (_isSnapSpringActive) {
+      _snapSpringPreviousOffset = currentOffset;
+    } else {
+      _flingPreviousOffset = currentOffset;
+    }
+
+    // Apply to selected elements
+    widget.lassoTool.moveSelected(delta);
+    DrawingPainter.invalidateLayerCaches();
+    widget.lassoTool.dragNotifier.value++;
+
+    // 🧲 T4: Mid-fling magnetic catch — check for snap guides every 4 frames
+    if (_isFlingActive) {
+      _flingFrameCount++;
+      if (_flingFrameCount % 4 == 0) {
+        final computeSnap = widget.onComputeSnap;
+        if (computeSnap != null) {
+          final bounds = widget.lassoTool.getSelectionBounds();
+          if (bounds != null) {
+            final config = widget.canvasController.liquidConfig;
+            final snapOffset = computeSnap(bounds);
+            if (snapOffset != Offset.zero &&
+                snapOffset.distance < config.nodeDragMidFlingSnapDistance) {
+              // Caught! Stop fling and snap-spring to guide
+              _flingController.stop();
+              _isFlingActive = false;
+              HapticFeedback.selectionClick();
+              _isSnapSpringActive = true;
+              _snapSpringPreviousOffset = Offset.zero;
+              _flingController.snapOffsetTo(Offset.zero);
+              _flingController.animateOffsetTo(
+                snapOffset,
+                spring: SpringAnimationController.snappy,
+              );
+              return;
+            }
+          }
+        }
+      }
+
+      // 🏔️ T4: Edge bounce-back — if selection leaves viewport, spring back
+      final bounds = widget.lassoTool.getSelectionBounds();
+      if (bounds != null && mounted) {
+        final viewportSize = MediaQuery.of(context).size;
+        final screenCenter = widget.canvasController.canvasToScreen(
+          bounds.center,
+        );
+        const edgePadding = 60.0;
+        if (screenCenter.dx < -edgePadding ||
+            screenCenter.dx > viewportSize.width + edgePadding ||
+            screenCenter.dy < -edgePadding ||
+            screenCenter.dy > viewportSize.height + edgePadding) {
+          // Selection flew off-screen → stop fling and spring back
+          _flingController.stop();
+          _isFlingActive = false;
+
+          // Compute bounce-back offset to bring center to nearest edge
+          final targetScreenX = screenCenter.dx.clamp(
+            edgePadding,
+            viewportSize.width - edgePadding,
+          );
+          final targetScreenY = screenCenter.dy.clamp(
+            edgePadding,
+            viewportSize.height - edgePadding,
+          );
+          final targetCanvas = widget.canvasController.screenToCanvas(
+            Offset(targetScreenX, targetScreenY),
+          );
+          final bounceBack = targetCanvas - bounds.center;
+
+          HapticFeedback.mediumImpact();
+          _isSnapSpringActive = true;
+          _snapSpringPreviousOffset = Offset.zero;
+          _flingController.snapOffsetTo(Offset.zero);
+          _flingController.animateOffsetTo(
+            bounceBack,
+            spring: SpringAnimationController.bouncy,
+          );
+          return;
+        }
+      }
+    }
+
+    if (mounted) setState(() {});
+  }
+
+  /// Called when either fling or snap spring animation finishes.
+  void _onAnimationComplete() {
+    if (_isFlingActive) {
+      // Fling just ended — check for post-fling snap
+      _isFlingActive = false;
+      _tryPostFlingSnap();
+      return;
+    }
+
+    if (_isSnapSpringActive) {
+      _isSnapSpringActive = false;
+    }
+
+    // Final cleanup
+    DrawingPainter.invalidateAllTiles();
+    widget.onTransformComplete();
+  }
+
+  /// After fling settles, check if selection is near a snap guide and spring to it.
+  void _tryPostFlingSnap() {
+    final computeSnap = widget.onComputeSnap;
+    if (computeSnap == null || !widget.lassoTool.hasSelection) {
+      // No snap callback — just finalize
+      DrawingPainter.invalidateAllTiles();
+      widget.onTransformComplete();
+      return;
+    }
+
+    final bounds = widget.lassoTool.getSelectionBounds();
+    if (bounds == null) {
+      DrawingPainter.invalidateAllTiles();
+      widget.onTransformComplete();
+      return;
+    }
+
+    final snapOffset = computeSnap(bounds);
+    if (snapOffset == Offset.zero || snapOffset.distance < 0.5) {
+      // No meaningful snap nearby
+      DrawingPainter.invalidateAllTiles();
+      widget.onTransformComplete();
+      return;
+    }
+
+    // 🌊 SNAP: Spring-animate to snapped position
+    HapticFeedback.selectionClick();
+    _isSnapSpringActive = true;
+    _snapSpringPreviousOffset = Offset.zero;
+    _flingController.snapOffsetTo(Offset.zero);
+    _flingController.animateOffsetTo(
+      snapOffset,
+      spring: SpringAnimationController.snappy,
+    );
   }
 }
 

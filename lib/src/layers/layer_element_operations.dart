@@ -38,7 +38,7 @@ extension _LayerElementOps on LayerController {
     }
 
     if (enableDeltaTracking) {
-      _deltaTracker.recordStrokeAdded(layer.id, stroke, pageIndex: pageIndex);
+      _deltaTracker.recordStrokeAdded(layer.id, stroke);
       _dirtyRegionTracker.markDirty(stroke.bounds);
     }
     _emitTT(
@@ -99,7 +99,7 @@ extension _LayerElementOps on LayerController {
     if (enableDeltaTracking) {
       _deltaTracker.recordLayerModified(layer.id, {
         'batchStrokesAdded': strokes.length,
-      }, pageIndex: pageIndex);
+      });
     }
   }
 
@@ -124,7 +124,6 @@ extension _LayerElementOps on LayerController {
           _deltaTracker.recordStrokeRemoved(
             layer.id,
             strokeId,
-            pageIndex: pageIndex,
           );
         }
         _emitTT(CanvasDeltaType.strokeRemoved, layer.id, elementId: strokeId);
@@ -168,7 +167,7 @@ extension _LayerElementOps on LayerController {
     }
 
     if (enableDeltaTracking) {
-      _deltaTracker.recordShapeAdded(layer.id, shape, pageIndex: pageIndex);
+      _deltaTracker.recordShapeAdded(layer.id, shape);
     }
     _emitTT(
       CanvasDeltaType.shapeAdded,
@@ -199,7 +198,6 @@ extension _LayerElementOps on LayerController {
           _deltaTracker.recordShapeRemoved(
             layer.id,
             shapeId,
-            pageIndex: pageIndex,
           );
         }
         _emitTT(CanvasDeltaType.shapeRemoved, layer.id, elementId: shapeId);
@@ -239,7 +237,7 @@ extension _LayerElementOps on LayerController {
     _invalidateSceneGraph();
 
     if (enableDeltaTracking) {
-      _deltaTracker.recordTextAdded(layer.id, text, pageIndex: pageIndex);
+      _deltaTracker.recordTextAdded(layer.id, text);
     }
     _emitTT(
       CanvasDeltaType.textAdded,
@@ -261,7 +259,7 @@ extension _LayerElementOps on LayerController {
 
     if (updatedTexts.length != layer.texts.length) {
       if (enableDeltaTracking) {
-        _deltaTracker.recordTextRemoved(layer.id, textId, pageIndex: pageIndex);
+        _deltaTracker.recordTextRemoved(layer.id, textId);
       }
       _emitTT(CanvasDeltaType.textRemoved, layer.id, elementId: textId);
 
@@ -287,7 +285,6 @@ extension _LayerElementOps on LayerController {
             layer.id,
             updatedText,
             previousText: layer.texts[index],
-            pageIndex: pageIndex,
           );
         }
         _emitTT(
@@ -323,7 +320,7 @@ extension _LayerElementOps on LayerController {
     _invalidateSceneGraph();
 
     if (enableDeltaTracking) {
-      _deltaTracker.recordImageAdded(layer.id, image, pageIndex: pageIndex);
+      _deltaTracker.recordImageAdded(layer.id, image);
     }
     _emitTT(
       CanvasDeltaType.imageAdded,
@@ -345,7 +342,6 @@ extension _LayerElementOps on LayerController {
           _deltaTracker.recordImageRemoved(
             layer.id,
             imageId,
-            pageIndex: pageIndex,
           );
         }
         _emitTT(CanvasDeltaType.imageRemoved, layer.id, elementId: imageId);
@@ -382,7 +378,6 @@ extension _LayerElementOps on LayerController {
             layer.id,
             updatedImage,
             previousImage: layer.images[index],
-            pageIndex: pageIndex,
           );
         }
         _emitTT(
@@ -412,7 +407,6 @@ extension _LayerElementOps on LayerController {
           _deltaTracker.recordImageAdded(
             layer.id,
             updatedImage,
-            pageIndex: pageIndex,
           );
         }
         _emitTT(
@@ -445,7 +439,6 @@ extension _LayerElementOps on LayerController {
         _deltaTracker.recordShapeRemoved(
           layer.id,
           shapeToRemove.id,
-          pageIndex: pageIndex,
         );
       }
       final updatedShapes = List<GeometricShape>.from(layer.shapes)
@@ -460,7 +453,6 @@ extension _LayerElementOps on LayerController {
         _deltaTracker.recordStrokeRemoved(
           layer.id,
           strokeToRemove.id,
-          pageIndex: pageIndex,
         );
       }
       final updatedStrokes = List<ProStroke>.from(layer.strokes)..removeLast();
@@ -482,7 +474,6 @@ extension _LayerElementOps on LayerController {
       _deltaTracker.recordLayerCleared(
         layer.id,
         layerSnapshot: layer.toJson(),
-        pageIndex: pageIndex,
       );
     }
     _emitTT(CanvasDeltaType.layerCleared, layer.id);

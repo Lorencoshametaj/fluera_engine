@@ -12,7 +12,7 @@
 /// - **Rendering**: Tile-cached rendering with spatial indexing, viewport
 ///   culling, and LOD management
 /// - **Collaboration**: Real-time sync via Firebase with cursor presence
-/// - **Export**: Multi-format pipeline (PNG, SVG, PDF, timelapse)
+/// - **Export**: Multi-format pipeline (PNG, SVG, timelapse)
 /// - **Tools**: Extensible tool system with pen, eraser, lasso, shape,
 ///   text, image, ruler, and flood fill tools
 ///
@@ -44,6 +44,8 @@ export 'src/core/nodes/rich_text_node.dart';
 export 'src/core/nodes/symbol_system.dart';
 export 'src/core/nodes/frame_node.dart';
 export 'src/core/nodes/advanced_mask_node.dart';
+export 'src/core/nodes/pdf_page_node.dart';
+export 'src/core/nodes/pdf_document_node.dart';
 
 // Vector
 export 'src/core/vector/vector_path.dart';
@@ -63,6 +65,10 @@ export 'src/core/models/canvas_layer.dart';
 export 'src/core/models/digital_text_element.dart';
 export 'src/core/models/image_element.dart';
 export 'src/core/models/shape_type.dart';
+export 'src/core/models/pdf_page_model.dart';
+export 'src/core/models/pdf_document_model.dart';
+export 'src/core/models/pdf_text_rect.dart';
+export 'src/tools/shape/shape_recognizer.dart';
 
 // Utilities
 export 'src/core/engine_logger.dart';
@@ -141,6 +147,9 @@ export 'src/tools/pen/pen_tool.dart';
 export 'src/tools/pen/pen_tool_painter.dart';
 export 'src/tools/unified_tools.dart';
 export 'src/tools/unified_tool_controller.dart';
+export 'src/tools/pdf/pdf_grid_controller.dart';
+export 'src/tools/pdf/pdf_text_selection_controller.dart';
+export 'src/tools/pdf/pdf_import_controller.dart';
 
 // ────────────────────────── RENDERING ──────────────────────────
 
@@ -162,6 +171,8 @@ export 'src/rendering/canvas/paper_pattern_painter.dart';
 export 'src/rendering/canvas/pro_stroke_painter.dart';
 export 'src/rendering/canvas/ruler_painter.dart';
 export 'src/rendering/canvas/canvas_painters.dart';
+export 'src/rendering/canvas/pdf_page_painter.dart';
+export 'src/rendering/canvas/pdf_memory_budget.dart';
 
 // Shaders
 export 'src/rendering/shaders/shader_brush_service.dart';
@@ -238,7 +249,10 @@ export 'src/export/binary_canvas_format.dart';
 // ────────────────────────── AUDIO ──────────────────────────
 export 'src/audio/native_audio_models.dart';
 export 'src/audio/native_audio_player.dart';
+export 'src/audio/native_audio_recorder.dart';
+export 'src/audio/default_voice_recording_provider.dart';
 export 'src/audio/platform_channels/audio_player_channel.dart';
+export 'src/audio/platform_channels/audio_recorder_channel.dart';
 
 // ────────────────────────── SYSTEMS ──────────────────────────
 export 'src/systems/smart_snap_engine.dart';
@@ -257,6 +271,7 @@ export 'src/canvas/nebula_canvas_config.dart';
 export 'src/canvas/infinite_canvas_controller.dart';
 export 'src/canvas/infinite_canvas_gesture_detector.dart';
 export 'src/canvas/liquid_canvas_config.dart';
+export 'src/canvas/spring_animation_controller.dart';
 
 // ────────────────────────── REFLOW ──────────────────────────
 export 'src/reflow/content_cluster.dart';
@@ -281,6 +296,7 @@ export 'src/config/advanced_split_layout.dart';
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/nebula_storage_adapter.dart';
 export 'src/storage/sqlite_storage_adapter.dart';
+export 'src/storage/recording_storage_service.dart';
 export 'src/storage/nebula_canvas_gallery.dart';
 
 // ────────────────────────── SERVICES ──────────────────────────
@@ -297,6 +313,7 @@ export 'src/platform/display_link_service.dart';
 export 'src/platform/native_vibration.dart';
 export 'src/platform/native_stylus_input.dart';
 export 'src/platform/native_performance_monitor.dart' hide PerformanceMetrics;
+export 'src/platform/native_pdf_provider.dart';
 
 // ────────────────────────── L10N ──────────────────────────
 export 'src/l10n/nebula_localizations.dart';

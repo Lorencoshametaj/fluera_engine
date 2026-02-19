@@ -109,47 +109,58 @@ extension _LassoTransforms on LassoTool {
           rotCenter;
     }
 
+    // 🚀 PERF: Only rebuild lists for element types that have selections.
     final rotatedStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            final rotatedPoints =
-                stroke.points
-                    .map((p) => p.copyWith(position: rotatePoint(p.position)))
-                    .toList();
-            return stroke.copyWith(points: rotatedPoints);
-          }
-          return stroke;
-        }).toList();
+        selectedStrokeIds.isEmpty
+            ? activeLayer.strokes
+            : activeLayer.strokes.map((stroke) {
+              if (selectedStrokeIds.contains(stroke.id)) {
+                final rotatedPoints =
+                    stroke.points
+                        .map(
+                          (p) => p.copyWith(position: rotatePoint(p.position)),
+                        )
+                        .toList();
+                return stroke.copyWith(points: rotatedPoints);
+              }
+              return stroke;
+            }).toList();
 
     final rotatedShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            return shape.copyWith(
-              startPoint: rotatePoint(shape.startPoint),
-              endPoint: rotatePoint(shape.endPoint),
-            );
-          }
-          return shape;
-        }).toList();
+        selectedShapeIds.isEmpty
+            ? activeLayer.shapes
+            : activeLayer.shapes.map((shape) {
+              if (selectedShapeIds.contains(shape.id)) {
+                return shape.copyWith(
+                  startPoint: rotatePoint(shape.startPoint),
+                  endPoint: rotatePoint(shape.endPoint),
+                );
+              }
+              return shape;
+            }).toList();
 
     final rotatedTexts =
-        activeLayer.texts.map((text) {
-          if (selectedTextIds.contains(text.id)) {
-            return text.copyWith(position: rotatePoint(text.position));
-          }
-          return text;
-        }).toList();
+        selectedTextIds.isEmpty
+            ? activeLayer.texts
+            : activeLayer.texts.map((text) {
+              if (selectedTextIds.contains(text.id)) {
+                return text.copyWith(position: rotatePoint(text.position));
+              }
+              return text;
+            }).toList();
 
     final rotatedImages =
-        activeLayer.images.map((image) {
-          if (selectedImageIds.contains(image.id)) {
-            return image.copyWith(
-              position: rotatePoint(image.position),
-              rotation: image.rotation + radians,
-            );
-          }
-          return image;
-        }).toList();
+        selectedImageIds.isEmpty
+            ? activeLayer.images
+            : activeLayer.images.map((image) {
+              if (selectedImageIds.contains(image.id)) {
+                return image.copyWith(
+                  position: rotatePoint(image.position),
+                  rotation: image.rotation + radians,
+                );
+              }
+              return image;
+            }).toList();
 
     final updatedLayer = activeLayer.copyWith(
       strokes: rotatedStrokes,
@@ -185,54 +196,65 @@ extension _LassoTransforms on LassoTool {
           scaleCenter;
     }
 
+    // 🚀 PERF: Only rebuild lists for element types that have selections.
     final scaledStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            final scaledPoints =
-                stroke.points
-                    .map((p) => p.copyWith(position: scalePoint(p.position)))
-                    .toList();
-            return stroke.copyWith(
-              points: scaledPoints,
-              baseWidth: stroke.baseWidth * factor,
-            );
-          }
-          return stroke;
-        }).toList();
+        selectedStrokeIds.isEmpty
+            ? activeLayer.strokes
+            : activeLayer.strokes.map((stroke) {
+              if (selectedStrokeIds.contains(stroke.id)) {
+                final scaledPoints =
+                    stroke.points
+                        .map(
+                          (p) => p.copyWith(position: scalePoint(p.position)),
+                        )
+                        .toList();
+                return stroke.copyWith(
+                  points: scaledPoints,
+                  baseWidth: stroke.baseWidth * factor,
+                );
+              }
+              return stroke;
+            }).toList();
 
     final scaledShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            return shape.copyWith(
-              startPoint: scalePoint(shape.startPoint),
-              endPoint: scalePoint(shape.endPoint),
-              strokeWidth: shape.strokeWidth * factor,
-            );
-          }
-          return shape;
-        }).toList();
+        selectedShapeIds.isEmpty
+            ? activeLayer.shapes
+            : activeLayer.shapes.map((shape) {
+              if (selectedShapeIds.contains(shape.id)) {
+                return shape.copyWith(
+                  startPoint: scalePoint(shape.startPoint),
+                  endPoint: scalePoint(shape.endPoint),
+                  strokeWidth: shape.strokeWidth * factor,
+                );
+              }
+              return shape;
+            }).toList();
 
     final scaledTexts =
-        activeLayer.texts.map((text) {
-          if (selectedTextIds.contains(text.id)) {
-            return text.copyWith(
-              position: scalePoint(text.position),
-              scale: text.scale * factor,
-            );
-          }
-          return text;
-        }).toList();
+        selectedTextIds.isEmpty
+            ? activeLayer.texts
+            : activeLayer.texts.map((text) {
+              if (selectedTextIds.contains(text.id)) {
+                return text.copyWith(
+                  position: scalePoint(text.position),
+                  scale: text.scale * factor,
+                );
+              }
+              return text;
+            }).toList();
 
     final scaledImages =
-        activeLayer.images.map((image) {
-          if (selectedImageIds.contains(image.id)) {
-            return image.copyWith(
-              position: scalePoint(image.position),
-              scale: image.scale * factor,
-            );
-          }
-          return image;
-        }).toList();
+        selectedImageIds.isEmpty
+            ? activeLayer.images
+            : activeLayer.images.map((image) {
+              if (selectedImageIds.contains(image.id)) {
+                return image.copyWith(
+                  position: scalePoint(image.position),
+                  scale: image.scale * factor,
+                );
+              }
+              return image;
+            }).toList();
 
     final updatedLayer = activeLayer.copyWith(
       strokes: scaledStrokes,
@@ -243,6 +265,16 @@ extension _LassoTransforms on LassoTool {
 
     _updateLayer(updatedLayer);
     _calculateSelectionBounds();
+
+    // 🌊 REFLOW: Estimate ghost displacements for surrounding content during scale
+    if (isReflowEnabled && _selectionBounds != null) {
+      final excludeIds = _getSelectedClusterIds();
+      reflowGhostDisplacements = _reflowEngine!.estimateDisplacements(
+        clusters: _clusterCache,
+        disturbance: _selectionBounds!,
+        excludeIds: excludeIds,
+      );
+    }
   }
 
   // ===========================================================================

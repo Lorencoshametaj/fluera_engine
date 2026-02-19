@@ -1,32 +1,205 @@
 import 'package:flutter/material.dart';
 import '../../core/models/digital_text_element.dart';
+import '../base/tool_interface.dart';
+import '../base/tool_context.dart';
 
-/// 🔧 DIGITAL TEXT TOOL
-/// Handles l'interazione con text elements digitale:
+/// 🔧 Digital Text Tool
+///
+/// Handles interaction with digital text elements on the canvas:
 /// - Selection on tap
 /// - Dragging (with auto-scroll at edges)
-/// - Resizing via handles
-/// - Deselection su tap area vuota
-class DigitalTextTool {
-  /// Elemento correntemente selezionato
+/// - Resizing via corner handles
+/// - Deselection on tap in empty area
+///
+/// Implements [DrawingTool] for integration with the unified tool system
+/// while preserving the existing API used by canvas part files.
+class DigitalTextTool implements DrawingTool {
+  // ============================================================================
+  // DRAWING TOOL IDENTITY
+  // ============================================================================
+
+  @override
+  String get toolId => 'digital_text';
+
+  @override
+  IconData get icon => Icons.text_fields;
+
+  @override
+  String get label => 'Text';
+
+  @override
+  String get description => 'Add and edit digital text elements';
+
+  // ============================================================================
+  // DRAWING TOOL STATE
+  // ============================================================================
+
+  @override
+  ToolOperationState get state {
+    if (isResizing || isDragging) return ToolOperationState.active;
+    if (hasSelection) return ToolOperationState.started;
+    return ToolOperationState.idle;
+  }
+
+  @override
+  bool get hasOverlay => true;
+
+  @override
+  bool get supportsUndo => true;
+
+  @override
+  bool get requiresExclusiveGesture => false;
+
+  // ============================================================================
+  // DRAWING TOOL LIFECYCLE
+  // ============================================================================
+
+  @override
+  void onActivate(ToolContext context) {
+    // Text tool activation — no special setup needed
+  }
+
+  @override
+  void onDeactivate(ToolContext context) {
+    // Clear selection when switching away from text tool
+    deselectElement();
+  }
+
+  // ============================================================================
+  // DRAWING TOOL POINTER EVENTS
+  // ============================================================================
+  // These handlers are invoked when DigitalTextTool is the ACTIVE tool in the
+  // ToolRegistry. They use ToolContext for text element access and updates.
+  //
+  // NOTE: Text elements are also interactive when OTHER tools are active
+  // (always-on hit-testing). That path still flows through the canvas part
+  // files' direct API (hitTest, startDrag, etc.) for backward compatibility.
+
+  @override
+  void onPointerDown(ToolContext context, PointerDownEvent event) {
+    final canvasPosition = context.screenToCanvas(event.localPosition);
+    final elements = context.getTextElements();
+
+    // 1. Check resize handles first (if there's a selection)
+    if (hasSelection) {
+      final handleIndex = hitTestResizeHandles(
+        canvasPosition,
+        _selectedElement!,
+      );
+      if (handleIndex != null) {
+        startResize(handleIndex, canvasPosition);
+        return;
+      }
+    }
+
+    // 2. Hit-test text elements
+    final hitElement = hitTest(canvasPosition, elements);
+    if (hitElement != null) {
+      selectElement(hitElement);
+      startDrag(canvasPosition);
+      return;
+    }
+
+    // 3. Tapped on empty area — deselect
+    if (hasSelection) {
+      deselectElement();
+    }
+  }
+
+  @override
+  void onPointerMove(ToolContext context, PointerMoveEvent event) {
+    final canvasPosition = context.screenToCanvas(event.localPosition);
+
+    // Handle resize
+    if (isResizing) {
+      final updated = updateResize(canvasPosition);
+      if (updated != null) {
+        context.updateTextElement(updated);
+      }
+      return;
+    }
+
+    // Handle drag
+    if (isDragging) {
+      final updated = updateDrag(canvasPosition);
+      if (updated != null) {
+        context.updateTextElement(updated);
+      }
+      return;
+    }
+  }
+
+  @override
+  void onPointerUp(ToolContext context, PointerUpEvent event) {
+    if (isResizing) {
+      endResize();
+      if (_selectedElement != null) {
+        context.updateTextElement(_selectedElement!);
+      }
+      context.notifyOperationComplete();
+      return;
+    }
+
+    if (isDragging) {
+      endDrag();
+      if (_selectedElement != null) {
+        context.updateTextElement(_selectedElement!);
+      }
+      context.notifyOperationComplete();
+      return;
+    }
+  }
+
+  @override
+  void onPointerCancel(ToolContext context) {
+    // Cancel any in-progress drag or resize
+    if (isDragging) endDrag();
+    if (isResizing) endResize();
+  }
+
+  // ============================================================================
+  // DRAWING TOOL UI
+  // ============================================================================
+
+  @override
+  Widget? buildOverlay(ToolContext context) => null;
+
+  @override
+  Widget? buildToolOptions(BuildContext context) => null;
+
+  // ============================================================================
+  // DRAWING TOOL SERIALIZATION
+  // ============================================================================
+
+  @override
+  Map<String, dynamic> saveConfig() => {};
+
+  @override
+  void loadConfig(Map<String, dynamic> config) {}
+
+  // ============================================================================
+  // TEXT TOOL STATE (existing API — preserved for backward compatibility)
+  // ============================================================================
+
+  /// Currently selected element
   DigitalTextElement? _selectedElement;
 
-  /// Offset iniziale del drag (to calculate delta)
+  /// Drag start position (for calculating delta)
   Offset? _dragStartCanvasPosition;
 
-  /// Handle di resize in dragging (null = nessuno, altrimenti indice 0-3)
+  /// Resize handle being dragged (null = none, 0-3 = corner index)
   int? _resizeHandleIndex;
 
-  /// Previous position during resize (for incremental delta calculation)
+  /// Previous position during resize (for incremental delta)
   Offset? _previousResizePosition;
 
-  /// Getter per l'selected element
+  /// Getter for selected element
   DigitalTextElement? get selectedElement => _selectedElement;
 
-  /// Checks if there is a selected element
+  /// Whether an element is currently selected
   bool get hasSelection => _selectedElement != null;
 
-  /// Reset completo
+  /// Full reset of tool state
   void reset() {
     _selectedElement = null;
     _dragStartCanvasPosition = null;
@@ -34,12 +207,12 @@ class DigitalTextTool {
     _previousResizePosition = null;
   }
 
-  /// Seleziona un elemento
+  /// Select an element
   void selectElement(DigitalTextElement element) {
     _selectedElement = element;
   }
 
-  /// Deseleziona elemento corrente
+  /// Deselect current element
   void deselectElement() {
     _selectedElement = null;
     _dragStartCanvasPosition = null;
@@ -47,28 +220,27 @@ class DigitalTextTool {
     _previousResizePosition = null;
   }
 
-  /// Hit test: trova elemento toccato da un punto
+  // ============================================================================
+  // HIT TESTING
+  // ============================================================================
+
+  /// Hit test: find element touched at a canvas point
   DigitalTextElement? hitTest(
     Offset canvasPosition,
     List<DigitalTextElement> elements,
-    BuildContext context,
   ) {
-    // Check from last to first (those above have priority)
+    // Check from last to first (topmost elements have priority)
     for (int i = elements.length - 1; i >= 0; i--) {
-      if (elements[i].containsPoint(canvasPosition, context)) {
+      if (elements[i].containsPoint(canvasPosition)) {
         return elements[i];
       }
     }
     return null;
   }
 
-  /// Hit test su handles di resize (ritorna indice handle o null)
-  int? hitTestResizeHandles(
-    Offset canvasPosition,
-    DigitalTextElement element,
-    BuildContext context,
-  ) {
-    final bounds = element.getBounds(context);
+  /// Hit test on resize handles (returns handle index or null)
+  int? hitTestResizeHandles(Offset canvasPosition, DigitalTextElement element) {
+    final bounds = element.getBounds();
     final handles = _getResizeHandles(bounds);
 
     for (int i = 0; i < handles.length; i++) {
@@ -84,7 +256,7 @@ class DigitalTextTool {
     return null;
   }
 
-  /// Gets posizioni dei 4 handles di resize
+  /// Gets positions of the 4 resize corner handles
   List<Offset> _getResizeHandles(Rect bounds) {
     return [
       bounds.topLeft, // 0: top-left
@@ -94,58 +266,57 @@ class DigitalTextTool {
     ];
   }
 
-  /// Gets handles di resize per elemento (metodo pubblico)
-  List<Offset> getResizeHandles(
-    DigitalTextElement element,
-    BuildContext context,
-  ) {
-    final bounds = element.getBounds(context);
+  /// Gets resize handles for element (public method)
+  List<Offset> getResizeHandles(DigitalTextElement element) {
+    final bounds = element.getBounds();
     return _getResizeHandles(bounds);
   }
 
-  /// Start drag of the element
+  // ============================================================================
+  // DRAG
+  // ============================================================================
+
+  /// Start drag of selected element
   void startDrag(Offset canvasPosition) {
     if (_selectedElement == null) return;
     _dragStartCanvasPosition = canvasPosition;
   }
 
-  /// Updates drag of the element
+  /// Update drag position
   DigitalTextElement? updateDrag(Offset canvasPosition) {
     if (_selectedElement == null || _dragStartCanvasPosition == null) {
       return null;
     }
 
-    // Calculate delta dat the point precedente (non dat the point iniziale!)
+    // Calculate delta from the previous point (not the initial point!)
     final delta = canvasPosition - _dragStartCanvasPosition!;
 
-    // Sposta l'elemento del delta
     _selectedElement = _selectedElement!.copyWith(
       position: _selectedElement!.position + delta,
       modifiedAt: DateTime.now(),
     );
 
-    // IMPORTANTE: Update dragStartPosition for the next frame
+    // Update drag start for next frame
     _dragStartCanvasPosition = canvasPosition;
 
     return _selectedElement;
   }
 
-  /// Termina drag
+  /// End drag
   void endDrag() {
     _dragStartCanvasPosition = null;
   }
 
-  /// Compensate the canvas scroll during drag (for smooth auto-scroll)
+  /// Compensate canvas scroll during drag (for smooth auto-scroll)
   void compensateScroll(Offset scrollDelta) {
     if (_selectedElement == null) return;
 
-    // Compensate the position like the lasso
     _selectedElement = _selectedElement!.copyWith(
       position: _selectedElement!.position + scrollDelta,
       modifiedAt: DateTime.now(),
     );
 
-    // Compensate the reference points to maintain the correct delta
+    // Compensate reference points to maintain correct delta
     if (isDragging && _dragStartCanvasPosition != null) {
       _dragStartCanvasPosition = _dragStartCanvasPosition! + scrollDelta;
     }
@@ -155,36 +326,33 @@ class DigitalTextTool {
     }
   }
 
-  /// Start resize
-  void startResize(
-    int handleIndex,
-    Offset canvasPosition,
-    BuildContext context,
-  ) {
+  // ============================================================================
+  // RESIZE
+  // ============================================================================
+
+  /// Start resize from a specific handle
+  void startResize(int handleIndex, Offset canvasPosition) {
     if (_selectedElement == null) return;
     _resizeHandleIndex = handleIndex;
     _dragStartCanvasPosition = canvasPosition;
-    _previousResizePosition = canvasPosition; // Save position iniziale
+    _previousResizePosition = canvasPosition;
   }
 
-  /// Updates resize
-  DigitalTextElement? updateResize(
-    Offset canvasPosition,
-    BuildContext context,
-  ) {
+  /// Update resize
+  DigitalTextElement? updateResize(Offset canvasPosition) {
     if (_selectedElement == null ||
         _resizeHandleIndex == null ||
         _previousResizePosition == null) {
       return null;
     }
 
-    // Calculate delta from the position PRECEDENTE (non from the beginning!)
+    // Calculate delta from the previous position (not the initial!)
     final delta = canvasPosition - _previousResizePosition!;
 
-    // Use the distance to calculate scale variation
+    // Use distance to calculate scale variation
     final scaleDelta = (delta.dx.abs() + delta.dy.abs()) / 200.0;
 
-    // Determina if it is zoom in o out basato sulla direzione dell'handle
+    // Determine zoom direction based on handle and drag direction
     final isZoomIn =
         (_resizeHandleIndex == 3 &&
             delta.dx > 0 &&
@@ -197,11 +365,11 @@ class DigitalTextTool {
             delta.dy > 0) || // bottom-left
         (_resizeHandleIndex == 0 && delta.dx < 0 && delta.dy < 0); // top-left
 
-    // Applica delta incrementale alla scala CORRENTE
+    // Apply incremental delta to current scale
     double newScale =
         _selectedElement!.scale + (isZoomIn ? scaleDelta : -scaleDelta);
 
-    // Limita scala tra 0.3 e 3.0
+    // Clamp scale between 0.3 and 3.0
     newScale = newScale.clamp(0.3, 3.0);
 
     _selectedElement = _selectedElement!.copyWith(
@@ -209,37 +377,44 @@ class DigitalTextTool {
       modifiedAt: DateTime.now(),
     );
 
-    // IMPORTANTE: Update position precedente for the next frame
+    // Update previous position for next frame
     _previousResizePosition = canvasPosition;
 
     return _selectedElement;
   }
 
-  /// Termina resize
+  /// End resize
   void endResize() {
     _resizeHandleIndex = null;
     _dragStartCanvasPosition = null;
     _previousResizePosition = null;
   }
 
-  /// Checks se sta facendo resize
+  /// Whether currently resizing
   bool get isResizing => _resizeHandleIndex != null;
 
-  /// Checks se sta facendo drag
+  /// Whether currently dragging
   bool get isDragging => _dragStartCanvasPosition != null && !isResizing;
 
-  /// Draws selection box e handles
+  // ============================================================================
+  // PAINTING (Selection feedback)
+  // ============================================================================
+
+  /// Draws selection box and handles (currently disabled)
   void paintSelection(
     Canvas canvas,
     DigitalTextElement element,
     BuildContext context,
   ) {
-    // RETTANGOLO DISATTIVATO - solo per debug
-    // NON disegnare nulla
+    // Selection painting is handled by the overlay widgets
     return;
   }
 
-  /// Calculates if the drag is vicino ai bordi (per auto-scroll)
+  // ============================================================================
+  // AUTO-SCROLL
+  // ============================================================================
+
+  /// Calculates auto-scroll delta when drag is near screen edges
   Offset? calculateAutoScrollDelta(
     Offset screenPosition,
     Size screenSize, {

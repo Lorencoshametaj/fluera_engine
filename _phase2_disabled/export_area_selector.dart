@@ -4,11 +4,11 @@ import '../models/export_preset.dart';
 import '../services/canvas_export_service.dart';
 
 /// 🎯 EXPORT AREA SELECTOR
-/// 
+///
 /// Widget overlay per selezionare visivamente l'area da esportare.
 /// Presenta un rettangolo ridimensionabile con 8 handles (4 angoli + 4 lati)
 /// e oscura l'area esterna per evidenziare la selezione.
-/// 
+///
 /// FEATURES:
 /// - ✅ 8 handles di ridimensionamento
 /// - ✅ Drag per spostare l'intera selezione
@@ -19,25 +19,25 @@ import '../services/canvas_export_service.dart';
 class ExportAreaSelector extends StatefulWidget {
   /// Bounds iniziali della selezione (in coordinate canvas)
   final Rect initialBounds;
-  
+
   /// Bounds massimi consentiti (limiti del canvas)
   final Rect maxBounds;
-  
+
   /// Callback quando i bounds cambiano
   final ValueChanged<Rect> onBoundsChanged;
-  
+
   /// Preset corrente (per mantenere aspect ratio)
   final ExportPreset? preset;
-  
+
   /// Qualità export corrente (per calcolo dimensioni pixel)
   final ExportQuality quality;
-  
+
   /// Scala del canvas (zoom level)
   final double canvasScale;
-  
+
   /// Offset del canvas (pan position)
   final Offset canvasOffset;
-  
+
   /// Se true, mantiene l'aspect ratio durante il resize
   final bool lockAspectRatio;
 
@@ -57,13 +57,13 @@ class ExportAreaSelector extends StatefulWidget {
   State<ExportAreaSelector> createState() => _ExportAreaSelectorState();
 }
 
-class _ExportAreaSelectorState extends State<ExportAreaSelector> 
+class _ExportAreaSelectorState extends State<ExportAreaSelector>
     with SingleTickerProviderStateMixin {
   late Rect _bounds;
   String? _activeHandle;
   Offset? _dragStart;
   Rect? _boundsAtDragStart;
-  
+
   // Animazione per il bordo pulsante
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -77,12 +77,12 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
   void initState() {
     super.initState();
     _bounds = widget.initialBounds;
-    
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
-    
+
     _pulseAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
@@ -97,7 +97,8 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
   @override
   void didUpdateWidget(ExportAreaSelector oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.initialBounds != oldWidget.initialBounds && _activeHandle == null) {
+    if (widget.initialBounds != oldWidget.initialBounds &&
+        _activeHandle == null) {
       _bounds = widget.initialBounds;
     }
   }
@@ -124,12 +125,12 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
     return LayoutBuilder(
       builder: (context, constraints) {
         final screenBounds = _screenBounds;
-        
+
         return Stack(
           children: [
             // Overlay scuro fuori dalla selezione
             _buildDarkOverlay(constraints.biggest, screenBounds),
-            
+
             // Bordo della selezione
             Positioned(
               left: screenBounds.left,
@@ -138,13 +139,13 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
               height: screenBounds.height,
               child: _buildSelectionBorder(),
             ),
-            
+
             // Handles di ridimensionamento
             ..._buildHandles(screenBounds),
-            
+
             // Indicatore dimensioni
             _buildDimensionsIndicator(screenBounds),
-            
+
             // Griglia interna (regola dei terzi)
             Positioned(
               left: screenBounds.left,
@@ -165,7 +166,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
       size: containerSize,
       painter: _DarkOverlayPainter(
         selectionRect: selectionRect,
-        overlayColor: Colors.black.withValues(alpha:  0.5),
+        overlayColor: Colors.black.withValues(alpha: 0.5),
       ),
     );
   }
@@ -178,12 +179,14 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
         return Container(
           decoration: BoxDecoration(
             border: Border.all(
-              color: Colors.white.withValues(alpha:  _pulseAnimation.value),
+              color: Colors.white.withValues(alpha: _pulseAnimation.value),
               width: 2,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.blue.withValues(alpha:  0.3 * _pulseAnimation.value),
+                color: Colors.blue.withValues(
+                  alpha: 0.3 * _pulseAnimation.value,
+                ),
                 blurRadius: 8,
                 spreadRadius: 2,
               ),
@@ -191,8 +194,11 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
           ),
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onPanStart: (details) => _onDragStart('center', details.localPosition),
-            onPanUpdate: (details) => _onDragUpdate(details.localPosition, details.delta),
+            onPanStart:
+                (details) => _onDragStart('center', details.localPosition),
+            onPanUpdate:
+                (details) =>
+                    _onDragUpdate(details.localPosition, details.delta),
             onPanEnd: (_) => _onDragEnd(),
           ),
         );
@@ -203,7 +209,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
   /// Costruisce gli 8 handles di ridimensionamento
   List<Widget> _buildHandles(Rect bounds) {
     final handles = <Widget>[];
-    
+
     final positions = {
       'tl': bounds.topLeft,
       'tc': Offset(bounds.center.dx, bounds.top),
@@ -214,11 +220,11 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
       'bc': Offset(bounds.center.dx, bounds.bottom),
       'br': bounds.bottomRight,
     };
-    
+
     for (final entry in positions.entries) {
       handles.add(_buildHandle(entry.key, entry.value));
     }
-    
+
     return handles;
   }
 
@@ -226,7 +232,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
   Widget _buildHandle(String id, Offset position) {
     final isCorner = id.length == 2 && !id.contains('c');
     final size = isCorner ? _handleSize : _handleSize * 0.7;
-    
+
     return Positioned(
       left: position.dx - _handleHitArea / 2,
       top: position.dy - _handleHitArea / 2,
@@ -235,7 +241,8 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanStart: (details) => _onDragStart(id, details.localPosition),
-        onPanUpdate: (details) => _onDragUpdate(details.localPosition, details.delta),
+        onPanUpdate:
+            (details) => _onDragUpdate(details.localPosition, details.delta),
         onPanEnd: (_) => _onDragEnd(),
         child: Center(
           child: AnimatedBuilder(
@@ -251,7 +258,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
                   border: Border.all(color: Colors.blue, width: 2),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha:  0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -270,29 +277,38 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
     final scale = widget.quality.dpi / 72.0;
     final widthPx = (_bounds.width * scale).round();
     final heightPx = (_bounds.height * scale).round();
-    
-    final exceedsLimit = widthPx > CanvasExportService.maxImageDimension || 
-                         heightPx > CanvasExportService.maxImageDimension;
-    
+
+    final exceedsLimit =
+        widthPx > CanvasExportService.maxImageDimension ||
+        heightPx > CanvasExportService.maxImageDimension;
+
     return Positioned(
       left: bounds.left,
       top: bounds.bottom + 8,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: exceedsLimit 
-              ? Colors.orange.withValues(alpha:  0.9)
-              : Colors.black.withValues(alpha:  0.8),
+          color:
+              exceedsLimit
+                  ? Colors.orange.withValues(alpha: 0.9)
+                  : Colors.black.withValues(alpha: 0.8),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: exceedsLimit ? Colors.orange : Colors.white.withValues(alpha:  0.3),
+            color:
+                exceedsLimit
+                    ? Colors.orange
+                    : Colors.white.withValues(alpha: 0.3),
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (exceedsLimit) ...[
-              const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 14),
+              const Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.white,
+                size: 14,
+              ),
               const SizedBox(width: 4),
             ],
             Text(
@@ -307,14 +323,14 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
             Text(
               '@ ${widget.quality.dpi.toInt()} DPI',
               style: TextStyle(
-                color: Colors.white.withValues(alpha:  0.7),
+                color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 11,
               ),
             ),
             if (exceedsLimit) ...[
               const SizedBox(width: 8),
               const Text(
-                '(PDF only)',
+                '(Large)',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 10,
@@ -330,9 +346,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
 
   /// Griglia dei terzi sovrapposta alla selezione
   Widget _buildGridOverlay() {
-    return CustomPaint(
-      painter: _GridOverlayPainter(),
-    );
+    return CustomPaint(painter: _GridOverlayPainter());
   }
 
   // ============================================================
@@ -350,10 +364,10 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
 
   void _onDragUpdate(Offset localPosition, Offset delta) {
     if (_activeHandle == null || _boundsAtDragStart == null) return;
-    
+
     // Converti delta da screen a canvas
     final canvasDelta = delta / widget.canvasScale;
-    
+
     setState(() {
       switch (_activeHandle!) {
         case 'center':
@@ -384,7 +398,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
           _bounds = _resizeFromRight(canvasDelta);
           break;
       }
-      
+
       // Notifica il cambio
       widget.onBoundsChanged(_bounds);
     });
@@ -407,107 +421,116 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
 
   Rect _moveBounds(Offset delta) {
     var newBounds = _bounds.shift(delta);
-    
+
     // Limita ai bounds massimi
     if (newBounds.left < widget.maxBounds.left) {
-      newBounds = newBounds.translate(widget.maxBounds.left - newBounds.left, 0);
+      newBounds = newBounds.translate(
+        widget.maxBounds.left - newBounds.left,
+        0,
+      );
     }
     if (newBounds.top < widget.maxBounds.top) {
       newBounds = newBounds.translate(0, widget.maxBounds.top - newBounds.top);
     }
     if (newBounds.right > widget.maxBounds.right) {
-      newBounds = newBounds.translate(widget.maxBounds.right - newBounds.right, 0);
+      newBounds = newBounds.translate(
+        widget.maxBounds.right - newBounds.right,
+        0,
+      );
     }
     if (newBounds.bottom > widget.maxBounds.bottom) {
-      newBounds = newBounds.translate(0, widget.maxBounds.bottom - newBounds.bottom);
+      newBounds = newBounds.translate(
+        0,
+        widget.maxBounds.bottom - newBounds.bottom,
+      );
     }
-    
+
     return newBounds;
   }
 
   Rect _resizeFromTopLeft(Offset delta) {
     final newLeft = (_bounds.left + delta.dx).clamp(
-      widget.maxBounds.left, 
+      widget.maxBounds.left,
       _bounds.right - _minSize,
     );
     final newTop = (_bounds.top + delta.dy).clamp(
-      widget.maxBounds.top, 
+      widget.maxBounds.top,
       _bounds.bottom - _minSize,
     );
-    
+
     if (widget.lockAspectRatio && widget.preset?.aspectRatio != null) {
       return _adjustForAspectRatio(
         Rect.fromLTRB(newLeft, newTop, _bounds.right, _bounds.bottom),
         'tl',
       );
     }
-    
+
     return Rect.fromLTRB(newLeft, newTop, _bounds.right, _bounds.bottom);
   }
 
   Rect _resizeFromTopRight(Offset delta) {
     final newRight = (_bounds.right + delta.dx).clamp(
-      _bounds.left + _minSize, 
+      _bounds.left + _minSize,
       widget.maxBounds.right,
     );
     final newTop = (_bounds.top + delta.dy).clamp(
-      widget.maxBounds.top, 
+      widget.maxBounds.top,
       _bounds.bottom - _minSize,
     );
-    
+
     if (widget.lockAspectRatio && widget.preset?.aspectRatio != null) {
       return _adjustForAspectRatio(
         Rect.fromLTRB(_bounds.left, newTop, newRight, _bounds.bottom),
         'tr',
       );
     }
-    
+
     return Rect.fromLTRB(_bounds.left, newTop, newRight, _bounds.bottom);
   }
 
   Rect _resizeFromBottomLeft(Offset delta) {
     final newLeft = (_bounds.left + delta.dx).clamp(
-      widget.maxBounds.left, 
+      widget.maxBounds.left,
       _bounds.right - _minSize,
     );
     final newBottom = (_bounds.bottom + delta.dy).clamp(
-      _bounds.top + _minSize, 
+      _bounds.top + _minSize,
       widget.maxBounds.bottom,
     );
-    
+
     if (widget.lockAspectRatio && widget.preset?.aspectRatio != null) {
       return _adjustForAspectRatio(
         Rect.fromLTRB(newLeft, _bounds.top, _bounds.right, newBottom),
         'bl',
       );
     }
-    
+
     return Rect.fromLTRB(newLeft, _bounds.top, _bounds.right, newBottom);
   }
 
   Rect _resizeFromBottomRight(Offset delta) {
     final newRight = (_bounds.right + delta.dx).clamp(
-      _bounds.left + _minSize, 
+      _bounds.left + _minSize,
       widget.maxBounds.right,
     );
     final newBottom = (_bounds.bottom + delta.dy).clamp(
-      _bounds.top + _minSize, 
+      _bounds.top + _minSize,
       widget.maxBounds.bottom,
     );
-    
+
     if (widget.lockAspectRatio && widget.preset?.aspectRatio != null) {
       return _adjustForAspectRatio(
         Rect.fromLTRB(_bounds.left, _bounds.top, newRight, newBottom),
         'br',
       );
     }
-    
+
     return Rect.fromLTRB(_bounds.left, _bounds.top, newRight, newBottom);
   }
 
   Rect _resizeFromTop(Offset delta) {
     final newTop = (_bounds.top + delta.dy).clamp(
-      widget.maxBounds.top, 
+      widget.maxBounds.top,
       _bounds.bottom - _minSize,
     );
     return Rect.fromLTRB(_bounds.left, newTop, _bounds.right, _bounds.bottom);
@@ -515,7 +538,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
 
   Rect _resizeFromBottom(Offset delta) {
     final newBottom = (_bounds.bottom + delta.dy).clamp(
-      _bounds.top + _minSize, 
+      _bounds.top + _minSize,
       widget.maxBounds.bottom,
     );
     return Rect.fromLTRB(_bounds.left, _bounds.top, _bounds.right, newBottom);
@@ -523,7 +546,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
 
   Rect _resizeFromLeft(Offset delta) {
     final newLeft = (_bounds.left + delta.dx).clamp(
-      widget.maxBounds.left, 
+      widget.maxBounds.left,
       _bounds.right - _minSize,
     );
     return Rect.fromLTRB(newLeft, _bounds.top, _bounds.right, _bounds.bottom);
@@ -531,7 +554,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
 
   Rect _resizeFromRight(Offset delta) {
     final newRight = (_bounds.right + delta.dx).clamp(
-      _bounds.left + _minSize, 
+      _bounds.left + _minSize,
       widget.maxBounds.right,
     );
     return Rect.fromLTRB(_bounds.left, _bounds.top, newRight, _bounds.bottom);
@@ -543,7 +566,7 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
     final width = newBounds.width;
     final height = newBounds.height;
     final currentAspect = width / height;
-    
+
     if (currentAspect > aspect) {
       // Troppo largo, aggiusta width
       final newWidth = height * aspect;
@@ -551,16 +574,16 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
         case 'tl':
         case 'bl':
           return Rect.fromLTRB(
-            newBounds.right - newWidth, 
-            newBounds.top, 
-            newBounds.right, 
+            newBounds.right - newWidth,
+            newBounds.top,
+            newBounds.right,
             newBounds.bottom,
           );
         default:
           return Rect.fromLTRB(
-            newBounds.left, 
-            newBounds.top, 
-            newBounds.left + newWidth, 
+            newBounds.left,
+            newBounds.top,
+            newBounds.left + newWidth,
             newBounds.bottom,
           );
       }
@@ -571,16 +594,16 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
         case 'tl':
         case 'tr':
           return Rect.fromLTRB(
-            newBounds.left, 
-            newBounds.bottom - newHeight, 
-            newBounds.right, 
+            newBounds.left,
+            newBounds.bottom - newHeight,
+            newBounds.right,
             newBounds.bottom,
           );
         default:
           return Rect.fromLTRB(
-            newBounds.left, 
-            newBounds.top, 
-            newBounds.right, 
+            newBounds.left,
+            newBounds.top,
+            newBounds.right,
             newBounds.top + newHeight,
           );
       }
@@ -598,21 +621,21 @@ class _ExportAreaSelectorState extends State<ExportAreaSelector>
   /// Imposta i bounds per un preset specifico mantenendo il centro
   void applyPreset(ExportPreset preset) {
     if (preset.aspectRatio == null) return;
-    
+
     final center = _bounds.center;
     final currentArea = _bounds.width * _bounds.height;
-    
+
     // Calcola nuove dimensioni mantenendo area simile
     final aspect = preset.aspectRatio!;
     final newHeight = (currentArea / aspect).abs();
     final newWidth = newHeight * aspect;
-    
+
     final newBounds = Rect.fromCenter(
       center: center,
       width: newWidth,
       height: newHeight,
     );
-    
+
     // Limita ai bounds massimi
     setState(() {
       _bounds = newBounds.intersect(widget.maxBounds);
@@ -639,13 +662,10 @@ class _DarkOverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = overlayColor;
     final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
-    
+
     // Disegna 4 rettangoli intorno alla selezione
     // Top
-    canvas.drawRect(
-      Rect.fromLTRB(0, 0, size.width, selectionRect.top),
-      paint,
-    );
+    canvas.drawRect(Rect.fromLTRB(0, 0, size.width, selectionRect.top), paint);
     // Bottom
     canvas.drawRect(
       Rect.fromLTRB(0, selectionRect.bottom, size.width, size.height),
@@ -653,12 +673,22 @@ class _DarkOverlayPainter extends CustomPainter {
     );
     // Left
     canvas.drawRect(
-      Rect.fromLTRB(0, selectionRect.top, selectionRect.left, selectionRect.bottom),
+      Rect.fromLTRB(
+        0,
+        selectionRect.top,
+        selectionRect.left,
+        selectionRect.bottom,
+      ),
       paint,
     );
     // Right
     canvas.drawRect(
-      Rect.fromLTRB(selectionRect.right, selectionRect.top, size.width, selectionRect.bottom),
+      Rect.fromLTRB(
+        selectionRect.right,
+        selectionRect.top,
+        size.width,
+        selectionRect.bottom,
+      ),
       paint,
     );
   }
@@ -666,7 +696,7 @@ class _DarkOverlayPainter extends CustomPainter {
   @override
   bool shouldRepaint(_DarkOverlayPainter oldDelegate) {
     return selectionRect != oldDelegate.selectionRect ||
-           overlayColor != oldDelegate.overlayColor;
+        overlayColor != oldDelegate.overlayColor;
   }
 }
 
@@ -674,10 +704,11 @@ class _DarkOverlayPainter extends CustomPainter {
 class _GridOverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha:  0.3)
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
+    final paint =
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.3)
+          ..strokeWidth = 1
+          ..style = PaintingStyle.stroke;
 
     // Linee verticali (terzi)
     final thirdWidth = size.width / 3;

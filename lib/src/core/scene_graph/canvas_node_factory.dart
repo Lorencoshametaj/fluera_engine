@@ -11,6 +11,8 @@ import '../nodes/rich_text_node.dart';
 import '../nodes/symbol_system.dart';
 import '../nodes/frame_node.dart';
 import '../nodes/advanced_mask_node.dart';
+import '../nodes/pdf_page_node.dart';
+import '../nodes/pdf_document_node.dart';
 import '../effects/shader_effect.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
@@ -73,6 +75,16 @@ class CanvasNodeFactory {
 
       case 'shader':
         return ShaderNode.fromJson(json);
+
+      case 'pdfPage':
+        return PdfPageNode.fromJson(json);
+
+      case 'pdfDocument':
+        final doc = PdfDocumentNode.fromJson(json);
+        if (json['children'] != null) {
+          doc.loadChildrenFromJson(json['children'] as List<dynamic>, fromJson);
+        }
+        return doc;
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

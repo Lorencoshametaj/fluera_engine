@@ -101,8 +101,7 @@ class TimeTravelRecorder {
             type == CanvasDeltaType.shapeRemoved ||
             type == CanvasDeltaType.textRemoved ||
             type == CanvasDeltaType.imageRemoved ||
-            type == CanvasDeltaType.layerRemoved ||
-            type == CanvasDeltaType.pageRemoved);
+            type == CanvasDeltaType.layerRemoved);
 
     // 📦 Compress elementData for stroke (delta encoding + quantization + RLE)
     final compressedData =

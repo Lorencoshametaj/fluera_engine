@@ -354,6 +354,129 @@ void main() {
       expect(config.zoomSpringStiffness, 400.0);
       expect(config.momentumThreshold, 200.0);
     });
+
+    test('config has node drag spring defaults', () {
+      const config = LiquidCanvasConfig();
+      expect(config.nodeDragSpringStiffness, 400.0);
+      expect(config.nodeDragSpringDamping, 28.0);
+      expect(config.nodeDragFlingFriction, 0.02);
+      expect(config.nodeDragFlingThreshold, 150.0);
+    });
+
+    test('config has pan spring defaults', () {
+      const config = LiquidCanvasConfig();
+      expect(config.panSpringStiffness, 200.0);
+      expect(config.panSpringDamping, 22.0);
+    });
+  });
+
+  group('InfiniteCanvasController — Pan Spring (animateOffsetTo)', () {
+    late InfiniteCanvasController controller;
+
+    setUp(() {
+      controller = InfiniteCanvasController();
+      controller.liquidConfig = const LiquidCanvasConfig();
+    });
+
+    tearDown(() {
+      controller.dispose();
+    });
+
+    test('animateOffsetTo does nothing without ticker', () {
+      controller.animateOffsetTo(const Offset(100, 200));
+      expect(controller.isAnimating, isFalse);
+    });
+
+    test('animateOffsetTo activates with ticker', () async {
+      await _withTicker((vsync) {
+        controller.attachTicker(vsync);
+        controller.animateOffsetTo(const Offset(500, 300));
+        expect(controller.isAnimating, isTrue);
+        controller.stopAnimation();
+        controller.detachTicker();
+      });
+    });
+
+    test('animateOffsetTo does nothing when already at target', () async {
+      await _withTicker((vsync) {
+        controller.attachTicker(vsync);
+        controller.setOffset(const Offset(100, 200));
+        controller.animateOffsetTo(const Offset(100, 200));
+        expect(controller.isAnimating, isFalse);
+        controller.detachTicker();
+      });
+    });
+
+    test('stopAnimation halts pan spring', () async {
+      await _withTicker((vsync) {
+        controller.attachTicker(vsync);
+        controller.animateOffsetTo(const Offset(500, 300));
+        expect(controller.isAnimating, isTrue);
+        controller.stopAnimation();
+        expect(controller.isAnimating, isFalse);
+        controller.detachTicker();
+      });
+    });
+  });
+
+  group('InfiniteCanvasController — Combined Transform Spring', () {
+    late InfiniteCanvasController controller;
+
+    setUp(() {
+      controller = InfiniteCanvasController();
+      controller.liquidConfig = const LiquidCanvasConfig();
+    });
+
+    tearDown(() {
+      controller.dispose();
+    });
+
+    test('animateToTransform does nothing without ticker', () {
+      controller.animateToTransform(
+        targetOffset: const Offset(100, 200),
+        targetScale: 2.0,
+      );
+      expect(controller.isAnimating, isFalse);
+    });
+
+    test('animateToTransform activates with ticker', () async {
+      await _withTicker((vsync) {
+        controller.attachTicker(vsync);
+        controller.animateToTransform(
+          targetOffset: const Offset(500, 300),
+          targetScale: 2.5,
+        );
+        expect(controller.isAnimating, isTrue);
+        controller.stopAnimation();
+        controller.detachTicker();
+      });
+    });
+
+    test('animateToTransform clamps scale to bounds', () async {
+      await _withTicker((vsync) {
+        controller.attachTicker(vsync);
+        controller.animateToTransform(
+          targetOffset: const Offset(500, 300),
+          targetScale: 10.0, // Above max (5.0)
+        );
+        expect(controller.isAnimating, isTrue);
+        controller.stopAnimation();
+        controller.detachTicker();
+      });
+    });
+
+    test('animateToTransform does nothing when at target', () async {
+      await _withTicker((vsync) {
+        controller.attachTicker(vsync);
+        controller.updateTransform(offset: const Offset(100, 200), scale: 2.0);
+        controller.animateToTransform(
+          targetOffset: const Offset(100, 200),
+          targetScale: 2.0,
+        );
+        expect(controller.isAnimating, isFalse);
+        controller.detachTicker();
+      });
+    });
   });
 }
 

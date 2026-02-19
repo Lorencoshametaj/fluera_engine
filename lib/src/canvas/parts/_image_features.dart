@@ -75,6 +75,8 @@ extension on _NebulaCanvasScreenState {
         _imageElements.add(newImage);
         _loadedImages[imagePath] = image; // Add alla cache
         _imageTool.selectImage(newImage); // Seleziona automaticamente
+        _imageVersion++;
+        _rebuildImageSpatialIndex();
       });
 
       // 🔄 Sync: notify delta tracker for synchronization
@@ -116,7 +118,6 @@ extension on _NebulaCanvasScreenState {
     // Feedback haptic
     HapticFeedback.mediumImpact();
 
-
     setState(() {
       _imageInEditMode = imageElement;
       _imageTool.clearSelection(); // Deseleziona to avoid handles
@@ -130,7 +131,6 @@ extension on _NebulaCanvasScreenState {
   /// 🎨 Esce from the mode editing immagine e salva gli strokes
   void _exitImageEditMode() {
     if (_imageInEditMode == null) return;
-
 
     // Update l'immagine con gli strokes disegnati
     final index = _imageElements.indexWhere(
@@ -147,6 +147,8 @@ extension on _NebulaCanvasScreenState {
         drawingStrokes: allStrokes,
       );
       _imageElements[index] = updatedImage;
+      _imageVersion++;
+      _rebuildImageSpatialIndex();
 
       // 🔄 Sync: notify delta tracker for synchronization
       _layerController.updateImage(updatedImage);
@@ -174,51 +176,32 @@ extension on _NebulaCanvasScreenState {
     if (image == null) return;
 
     // Convert la position da canvas space a image space
-    final imageSpacePos = _convertPointToImageSpace(
+    final imageSpacePos = _canvasToImageSpace(
       canvasPosition,
       _imageInEditMode!,
-      image,
     );
 
-    // Raggio gomma MOLTO more grande per essere efficace
-    // In image space le coordinate potrebbero essere more piccole
+    // Raggio gomma in image space
     const eraserRadius = 100.0;
-
-
-    // DEBUG: mostra coordinate del primo punto di ogni stroke
-    if (_imageEditingStrokes.isNotEmpty) {
-      final firstStroke = _imageEditingStrokes.first;
-      if (firstStroke.points.isNotEmpty) {
-      }
-    }
-    if (_imageInEditMode!.drawingStrokes.isNotEmpty) {
-      final firstExisting = _imageInEditMode!.drawingStrokes.first;
-      if (firstExisting.points.isNotEmpty) {
-      }
-    }
 
     bool somethingErased = false;
 
     setState(() {
-      // Processa strokes NUOVI - cancella l'INTERO stroke se toccato
+      // Processa strokes NUOVI — early-exit per stroke
       final strokesToRemove = <ProStroke>[];
       for (final stroke in _imageEditingStrokes) {
-        // Check if ANY point of the stroke is within the eraser radius
-        final hasPointInEraserRadius = stroke.points.any((point) {
-          final distance = (point.position - imageSpacePos).distance;
-          return distance <= eraserRadius;
-        });
-
-        if (hasPointInEraserRadius) {
-          strokesToRemove.add(stroke);
-          somethingErased = true;
+        for (final point in stroke.points) {
+          if ((point.position - imageSpacePos).distance <= eraserRadius) {
+            strokesToRemove.add(stroke);
+            somethingErased = true;
+            break; // ⚡ Early exit: no need to check remaining points
+          }
         }
       }
 
-      // Remove strokes cancellati
       _imageEditingStrokes.removeWhere((s) => strokesToRemove.contains(s));
 
-      // Processa strokes ESISTENTI - cancella l'INTERO stroke se toccato
+      // Processa strokes ESISTENTI — early-exit per stroke
       final index = _imageElements.indexWhere(
         (e) => e.id == _imageInEditMode!.id,
       );
@@ -229,144 +212,105 @@ extension on _NebulaCanvasScreenState {
         final existingStrokesToRemove = <ProStroke>[];
 
         for (final stroke in existingStrokes) {
-          // Check if ANY point of the stroke is within the eraser radius
-          final hasPointInEraserRadius = stroke.points.any((point) {
-            final distance = (point.position - imageSpacePos).distance;
-            return distance <= eraserRadius;
-          });
-
-          if (hasPointInEraserRadius) {
-            existingStrokesToRemove.add(stroke);
-            somethingErased = true;
+          for (final point in stroke.points) {
+            if ((point.position - imageSpacePos).distance <= eraserRadius) {
+              existingStrokesToRemove.add(stroke);
+              somethingErased = true;
+              break; // ⚡ Early exit
+            }
           }
         }
 
         if (existingStrokesToRemove.isNotEmpty) {
-          // Remove strokes cancellati
           existingStrokes.removeWhere(
             (s) => existingStrokesToRemove.contains(s),
           );
 
-          // Update l'immagine
           _imageInEditMode = _imageInEditMode!.copyWith(
             drawingStrokes: existingStrokes,
           );
           _imageElements[index] = _imageInEditMode!;
+          _imageVersion++;
+          _rebuildImageSpatialIndex();
         }
+      }
+
+      // 🧠 Fix 8: erasing invalidates redo history
+      if (somethingErased) {
+        _imageEditingUndoStack.clear();
       }
     });
 
     if (somethingErased) {
       HapticFeedback.lightImpact();
-    } else {
     }
   }
 
-  /// Convert un singolo punto da canvas space a image space
-  /// USE THE SAME LOGIC as _convertPointsToImageSpace for consistency!
-  Offset _convertPointToImageSpace(
-    Offset canvasPoint,
-    ImageElement imageElement,
-    ui.Image image,
-  ) {
-    // Translate to the image coordinate system
-    var relativePos = canvasPoint - imageElement.position;
+  /// 🔄 Convert a single canvas-space point to image-space.
+  /// Central method — all coordinate conversion goes through here.
+  Offset _canvasToImageSpace(Offset canvasPoint, ImageElement imageElement) {
+    // Translate relative to image center
+    var p = canvasPoint - imageElement.position;
 
-    // Applica rotazione inversa
+    // Inverse rotation
     if (imageElement.rotation != 0) {
       final cos = math.cos(-imageElement.rotation);
       final sin = math.sin(-imageElement.rotation);
-      final x = relativePos.dx * cos - relativePos.dy * sin;
-      final y = relativePos.dx * sin + relativePos.dy * cos;
-      relativePos = Offset(x, y);
+      p = Offset(p.dx * cos - p.dy * sin, p.dx * sin + p.dy * cos);
     }
 
-    // Applica scala inversa
+    // Inverse scale
     if (imageElement.scale != 1.0) {
-      relativePos = relativePos / imageElement.scale;
+      p = p / imageElement.scale;
     }
 
-    // Applica flip inverso
+    // Inverse flip
     if (imageElement.flipHorizontal || imageElement.flipVertical) {
-      relativePos = Offset(
-        imageElement.flipHorizontal ? -relativePos.dx : relativePos.dx,
-        imageElement.flipVertical ? -relativePos.dy : relativePos.dy,
+      p = Offset(
+        imageElement.flipHorizontal ? -p.dx : p.dx,
+        imageElement.flipVertical ? -p.dy : p.dy,
       );
     }
 
-    return relativePos;
+    return p;
   }
 
-  /// 🔄 Converte coordinate da spazio canvas a spazio immagine
-  /// (coordinate relative all'immagine considerando position, rotazione, scala)
+  /// 🔄 Batch-convert drawing points from canvas space to image space.
   List<ProDrawingPoint> _convertPointsToImageSpace(
     List<ProDrawingPoint> points,
     ImageElement imageElement,
   ) {
     return points.map((point) {
-      // Translate to the image coordinate system
-      var relativePos = point.position - imageElement.position;
-
-      // Applica rotazione inversa
-      if (imageElement.rotation != 0) {
-        final cos = math.cos(-imageElement.rotation);
-        final sin = math.sin(-imageElement.rotation);
-        final x = relativePos.dx * cos - relativePos.dy * sin;
-        final y = relativePos.dx * sin + relativePos.dy * cos;
-        relativePos = Offset(x, y);
-      }
-
-      // Applica scala inversa
-      if (imageElement.scale != 1.0) {
-        relativePos = relativePos / imageElement.scale;
-      }
-
-      // Applica flip inverso
-      if (imageElement.flipHorizontal || imageElement.flipVertical) {
-        relativePos = Offset(
-          imageElement.flipHorizontal ? -relativePos.dx : relativePos.dx,
-          imageElement.flipVertical ? -relativePos.dy : relativePos.dy,
-        );
-      }
-
-      return point.copyWith(position: relativePos);
+      final converted = _canvasToImageSpace(point.position, imageElement);
+      return point.copyWith(position: converted);
     }).toList();
   }
 
-  /// � Verify if a point is within the image boundaries
+  /// 🔄 Convert a single drawing point from canvas space to image space.
+  ProDrawingPoint _convertSinglePointToImageSpace(
+    ProDrawingPoint point,
+    ImageElement imageElement,
+  ) {
+    final converted = _canvasToImageSpace(point.position, imageElement);
+    return point.copyWith(position: converted);
+  }
+
+  /// ✔️ Check if a canvas-space point is inside the image bounds.
   bool _isPointInsideImage(
     Offset canvasPosition,
     ImageElement imageElement,
     ui.Image image,
   ) {
-    // Convert il punto in coordinate relative all'immagine
-    var relativePos = canvasPosition - imageElement.position;
+    // Uses unified conversion (includes flip — Fix 2)
+    final p = _canvasToImageSpace(canvasPosition, imageElement);
 
-    // Applica rotazione inversa
-    if (imageElement.rotation != 0) {
-      final cos = math.cos(-imageElement.rotation);
-      final sin = math.sin(-imageElement.rotation);
-      final x = relativePos.dx * cos - relativePos.dy * sin;
-      final y = relativePos.dx * sin + relativePos.dy * cos;
-      relativePos = Offset(x, y);
-    }
+    final halfWidth = image.width.toDouble() / 2;
+    final halfHeight = image.height.toDouble() / 2;
 
-    // Applica scala inversa
-    if (imageElement.scale != 1.0) {
-      relativePos = relativePos / imageElement.scale;
-    }
-
-    // Check if it is within the image boundaries
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
-
-    final halfWidth = imageWidth / 2;
-    final halfHeight = imageHeight / 2;
-
-    return relativePos.dx >= -halfWidth &&
-        relativePos.dx <= halfWidth &&
-        relativePos.dy >= -halfHeight &&
-        relativePos.dy <= halfHeight;
+    return p.dx >= -halfWidth &&
+        p.dx <= halfWidth &&
+        p.dy >= -halfHeight &&
+        p.dy <= halfHeight;
   }
 
   /// �🎨 Apre editor professionale per modificare immagine (mantenuto per compatibility)
@@ -386,7 +330,6 @@ extension on _NebulaCanvasScreenState {
       ];
 
       elementToEdit = imageElement.copyWith(drawingStrokes: allStrokes);
-
 
       // Exit editing mode after saving strokes
       _exitImageEditMode();
@@ -419,6 +362,8 @@ extension on _NebulaCanvasScreenState {
                 setState(() {
                   _imageElements[index] = updated;
                   _imageTool.selectImage(updated);
+                  _imageVersion++;
+                  _rebuildImageSpatialIndex();
                 });
 
                 // 🔄 Sync: notify delta tracker for synchronization
@@ -434,6 +379,8 @@ extension on _NebulaCanvasScreenState {
               setState(() {
                 _imageElements.removeWhere((e) => e.id == imageElement.id);
                 _imageTool.clearSelection();
+                _imageVersion++;
+                _rebuildImageSpatialIndex();
               });
 
               // 🔄 Sync: notify delta tracker for synchronization

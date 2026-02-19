@@ -40,6 +40,39 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
 
               // 🔷 TOGGLE FORME GEOMETRICHE
               _buildShapesToggleButton(isDark, l10n),
+
+              // 🔷 SHAPE RECOGNITION
+              if (widget.onShapeRecognitionToggle != null) ...[
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'Shape Recognition',
+                  waitDuration: const Duration(milliseconds: 500),
+                  child: ToolbarShapeRecognitionButton(
+                    isActive: widget.shapeRecognitionEnabled,
+                    sensitivityIndex: widget.shapeRecognitionSensitivityIndex,
+                    ghostEnabled: widget.ghostSuggestionEnabled,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onShapeRecognitionToggle!();
+                    },
+                    onLongPress:
+                        widget.onShapeRecognitionSensitivityCycle != null
+                            ? () {
+                              HapticFeedback.mediumImpact();
+                              widget.onShapeRecognitionSensitivityCycle!();
+                            }
+                            : null,
+                    onDoubleTap:
+                        widget.onGhostSuggestionToggle != null
+                            ? () {
+                              HapticFeedback.lightImpact();
+                              widget.onGhostSuggestionToggle!();
+                            }
+                            : null,
+                    isDark: isDark,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -216,6 +249,44 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               },
               isDark: isDark,
             ),
+            // 📄 PDF Import Button (only if provider is configured)
+            if (widget.onPdfImportPressed != null) ...[
+              const SizedBox(width: 12),
+              Tooltip(
+                message: l10n.pdf_importDocument,
+                waitDuration: const Duration(milliseconds: 500),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onPdfImportPressed!();
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (isDark ? Colors.white : Colors.black)
+                            .withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: (isDark ? Colors.white : Colors.black)
+                              .withValues(alpha: 0.1),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.picture_as_pdf_rounded,
+                        size: 22,
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(width: 12),
             if (!widget.hideRecordingControlWhenActive ||
                 !widget.isRecordingActive)

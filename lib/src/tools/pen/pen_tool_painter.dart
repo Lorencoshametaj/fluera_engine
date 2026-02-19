@@ -17,8 +17,12 @@ import '../../core/vector/anchor_point.dart';
 /// All positions are in SCREEN coordinates (pre-transformed by the tool).
 /// Supports dark/light mode via [isDarkMode].
 class PenToolPainter extends CustomPainter {
-  /// Anchor points in screen coordinates.
+  /// Anchor points in screen coordinates (committed only — for dots/handles).
   final List<AnchorPoint> anchors;
+
+  /// Preview anchors in screen coordinates (committed + in-progress preview).
+  /// Used for path/fill preview to show the live Bézier shape during drag.
+  final List<AnchorPoint> previewAnchors;
 
   /// Current cursor position in screen coordinates (for rubber-band line).
   final Offset? cursorPosition;
@@ -58,6 +62,7 @@ class PenToolPainter extends CustomPainter {
 
   PenToolPainter({
     required this.anchors,
+    List<AnchorPoint>? previewAnchors,
     this.cursorPosition,
     this.dragHandle,
     this.showCloseIndicator = false,
@@ -69,7 +74,7 @@ class PenToolPainter extends CustomPainter {
     this.editingAnchorIndex = -1,
     this.selectedAnchorIndices = const {},
     this.showCurvatureComb = false,
-  });
+  }) : previewAnchors = previewAnchors ?? anchors;
 
   // ==========================================================================
   // 🎯 THEME-AWARE COLORS
@@ -177,9 +182,9 @@ class PenToolPainter extends CustomPainter {
 
   /// #4: Draw a semi-transparent fill preview during path construction.
   void _drawFillPreview(Canvas canvas) {
-    if (fillColor == null || anchors.length < 2) return;
+    if (fillColor == null || previewAnchors.length < 2) return;
 
-    final vectorPath = AnchorPoint.toVectorPath(anchors, closed: true);
+    final vectorPath = AnchorPoint.toVectorPath(previewAnchors, closed: true);
     final flutterPath = vectorPath.toFlutterPath();
 
     canvas.drawPath(
@@ -190,11 +195,11 @@ class PenToolPainter extends CustomPainter {
     );
   }
 
-  /// Draw the Bézier path connecting all placed anchors.
+  /// Draw the Bézier path connecting all placed anchors (uses preview for live shape).
   void _drawPathPreview(Canvas canvas) {
-    if (anchors.length < 2) return;
+    if (previewAnchors.length < 2) return;
 
-    final vectorPath = AnchorPoint.toVectorPath(anchors, closed: false);
+    final vectorPath = AnchorPoint.toVectorPath(previewAnchors, closed: false);
     final flutterPath = vectorPath.toFlutterPath();
     canvas.drawPath(flutterPath, _pathPaint);
   }
@@ -202,6 +207,36 @@ class PenToolPainter extends CustomPainter {
   /// #5: Draw the animated DASHED rubber-band (marching ants) from last anchor.
   void _drawRubberBand(Canvas canvas) {
     if (anchors.isEmpty || cursorPosition == null) return;
+
+    // When a preview anchor exists (tap+drag in progress), the path preview
+    // already shows the curve shape. Draw rubber band from the preview anchor
+    // to cursor to show the "next segment" direction.
+    final hasPreview = previewAnchors.length > anchors.length;
+    if (hasPreview) {
+      final previewAnchor = previewAnchors.last;
+      final handleOut = previewAnchor.handleOutAbsolute;
+      Path curvePath;
+      if (handleOut != null) {
+        curvePath =
+            Path()
+              ..moveTo(previewAnchor.position.dx, previewAnchor.position.dy)
+              ..cubicTo(
+                handleOut.dx,
+                handleOut.dy,
+                cursorPosition!.dx,
+                cursorPosition!.dy,
+                cursorPosition!.dx,
+                cursorPosition!.dy,
+              );
+      } else {
+        curvePath =
+            Path()
+              ..moveTo(previewAnchor.position.dx, previewAnchor.position.dy)
+              ..lineTo(cursorPosition!.dx, cursorPosition!.dy);
+      }
+      _drawDashedPath(canvas, curvePath, _rubberBandPaint);
+      return;
+    }
 
     final lastAnchor = anchors.last;
     Path curvePath;
@@ -282,15 +317,19 @@ class PenToolPainter extends CustomPainter {
     }
 
     // Active drag handle (not yet committed).
+    // Use preview anchor position when available (= where user tapped down),
+    // not anchors.last (= previous committed anchor).
     if (dragHandle != null && anchors.isNotEmpty) {
-      final lastAnchor = anchors.last;
-      canvas.drawLine(lastAnchor.position, dragHandle!, linePaint);
+      final hasPreview = previewAnchors.length > anchors.length;
+      final origin =
+          hasPreview ? previewAnchors.last.position : anchors.last.position;
+      canvas.drawLine(origin, dragHandle!, linePaint);
       canvas.drawCircle(dragHandle!, _handleRadius, dotPaint);
       canvas.drawCircle(dragHandle!, _handleRadius, dotBorder);
 
       // Mirror handle (symmetric).
-      final mirror = lastAnchor.position * 2.0 - dragHandle!;
-      canvas.drawLine(lastAnchor.position, mirror, linePaint);
+      final mirror = origin * 2.0 - dragHandle!;
+      canvas.drawLine(origin, mirror, linePaint);
       canvas.drawCircle(mirror, _handleRadius, dotPaint);
       canvas.drawCircle(mirror, _handleRadius, dotBorder);
     }
@@ -377,6 +416,20 @@ class PenToolPainter extends CustomPainter {
       }
 
       // Normal anchor — corner ◆ vs smooth ●.
+      if (isCorner) {
+        _drawDiamond(canvas, pos, _anchorRadius, fillPaint);
+        _drawDiamond(canvas, pos, _anchorRadius, borderPaint);
+      } else {
+        canvas.drawCircle(pos, _anchorRadius, fillPaint);
+        canvas.drawCircle(pos, _anchorRadius, borderPaint);
+      }
+    }
+
+    // Draw preview anchor dot (the anchor being created during tap+drag).
+    if (previewAnchors.length > anchors.length) {
+      final preview = previewAnchors.last;
+      final pos = preview.position;
+      final isCorner = preview.type == AnchorType.corner;
       if (isCorner) {
         _drawDiamond(canvas, pos, _anchorRadius, fillPaint);
         _drawDiamond(canvas, pos, _anchorRadius, borderPaint);
@@ -576,6 +629,7 @@ class PenToolPainter extends CustomPainter {
   @override
   bool shouldRepaint(PenToolPainter oldDelegate) {
     return !listEquals(anchors, oldDelegate.anchors) ||
+        !listEquals(previewAnchors, oldDelegate.previewAnchors) ||
         cursorPosition != oldDelegate.cursorPosition ||
         dragHandle != oldDelegate.dragHandle ||
         showCloseIndicator != oldDelegate.showCloseIndicator ||

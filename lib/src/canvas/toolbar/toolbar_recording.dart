@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 // TOOLBAR RECORDING — Recording button (pulse) + view recordings
 // ============================================================================
 
-/// Recording button with pulse animation when active
+/// Recording button with pulse animation and amplitude bars when active
 class ToolbarRecordingButton extends StatefulWidget {
   final bool isActive;
   final Duration duration;
   final VoidCallback onTap;
   final bool isDark;
+
+  /// Normalized amplitude level (0.0 – 1.0) for waveform bars.
+  final double amplitudeLevel;
 
   const ToolbarRecordingButton({
     super.key,
@@ -17,6 +20,7 @@ class ToolbarRecordingButton extends StatefulWidget {
     required this.duration,
     required this.onTap,
     required this.isDark,
+    this.amplitudeLevel = 0.0,
   });
 
   @override
@@ -46,7 +50,7 @@ class _ToolbarRecordingButtonState extends State<ToolbarRecordingButton>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    // Active recording state with pulse animation
+    // Active recording state with pulse animation + amplitude bars
     if (widget.isActive) {
       return AnimatedBuilder(
         animation: _pulseController,
@@ -94,7 +98,13 @@ class _ToolbarRecordingButtonState extends State<ToolbarRecordingButton>
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
+                    // Amplitude bars
+                    _AmplitudeBars(
+                      level: widget.amplitudeLevel,
+                      color: cs.onError,
+                    ),
+                    const SizedBox(width: 6),
                     // Timer
                     Text(
                       '$minutes:$seconds',
@@ -135,6 +145,40 @@ class _ToolbarRecordingButtonState extends State<ToolbarRecordingButton>
             color: cs.onSurface.withValues(alpha: 0.6),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Mini amplitude bars — 5 bars that animate based on audio level.
+class _AmplitudeBars extends StatelessWidget {
+  final double level;
+  final Color color;
+
+  const _AmplitudeBars({required this.level, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 20,
+      height: 16,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: List.generate(5, (i) {
+          // Each bar has a different threshold to create a stair-step effect
+          final barThreshold = (i + 1) / 6.0;
+          final barLevel = (level / barThreshold).clamp(0.15, 1.0);
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 80),
+            width: 2,
+            height: 3 + (barLevel * 13),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.6 + barLevel * 0.4),
+              borderRadius: BorderRadius.circular(1),
+            ),
+          );
+        }),
       ),
     );
   }

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../collaboration/nebula_sync_interfaces.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/models/digital_text_element.dart';
+import '../core/models/pdf_text_rect.dart';
 import '../export/export_preset.dart';
 import '../core/models/image_element.dart';
 import '../config/multi_page_config.dart';
@@ -128,13 +130,10 @@ class NebulaCanvasConfig {
   final Future<String?> Function(List<ProStroke> strokes)? onRunOCR;
 
   // ===========================================================================
-  // PDF NAVIGATION
+  // SPLIT VIEW
   // ===========================================================================
 
-  /// Open PDF canvas view (navigates to PDF screen)
-  final void Function(BuildContext context, {String? pdfPath})? onOpenPdf;
-
-  /// Open split view with PDF
+  /// Open split view
   final void Function(BuildContext context, {String? canvasId})?
   onOpenSplitView;
 
@@ -199,6 +198,17 @@ class NebulaCanvasConfig {
   /// If null, the default Fluera logo from the SDK is used.
   final String? splashLogoAsset;
 
+  // ===========================================================================
+  // PDF VIEWER
+  // ===========================================================================
+
+  /// PDF rendering provider (optional feature).
+  ///
+  /// When provided, enables native PDF document viewing on the canvas.
+  /// The host app implements this with platform-specific PDF libraries
+  /// (e.g. PDFKit on iOS, PdfRenderer on Android, pdf.js on web).
+  final NebulaPdfProvider? pdfProvider;
+
   const NebulaCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
@@ -216,7 +226,6 @@ class NebulaCanvasConfig {
     this.onStoreImage,
     this.onLoadImage,
     this.onRunOCR,
-    this.onOpenPdf,
     this.onOpenSplitView,
     this.timeTravel,
     this.permissions,
@@ -228,6 +237,7 @@ class NebulaCanvasConfig {
     this.onPauseSyncCoordinator,
     this.onPauseAppListeners,
     this.splashLogoAsset,
+    this.pdfProvider,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';
@@ -330,6 +340,10 @@ abstract class NebulaVoiceRecordingProvider {
   Stream<Duration> get recordingDuration;
   Future<void> playRecording(String path);
   Future<void> stopPlayback();
+
+  /// Stream that emits when audio playback completes naturally.
+  /// Default implementation returns an empty stream (never completes).
+  Stream<void> get playbackCompleted => const Stream.empty();
 }
 
 /// Abstract real-time sync provider
@@ -375,4 +389,54 @@ class NebulaPresenceUser {
     required this.cursorColor,
     this.cursorPosition,
   });
+}
+
+/// Abstract PDF rendering provider.
+///
+/// Decouples the engine from platform-specific PDF libraries.
+/// The host app (Looponia) implements this using:
+/// - **iOS**: `PDFKit` via method channels
+/// - **Android**: `PdfRenderer` via method channels
+/// - **Web**: `pdf.js` via `dart:js_interop`
+///
+/// The engine calls these methods to decode pages as raster tiles
+/// and extract text geometry for the selection layer.
+abstract class NebulaPdfProvider {
+  /// Load a PDF document from raw bytes.
+  ///
+  /// Returns `true` if the document was loaded successfully.
+  /// After calling this, [pageCount] and [pageSize] are available.
+  Future<bool> loadDocument(List<int> bytes);
+
+  /// Total page count of the loaded document.
+  int get pageCount;
+
+  /// Native size (in PDF points, 72 ppi) for each page.
+  ///
+  /// Returns [Size.zero] if [pageIndex] is out of range.
+  Size pageSize(int pageIndex);
+
+  /// Decode a page at the given scale into a raster image.
+  ///
+  /// [targetSize] is the desired pixel dimensions of the output.
+  /// Returns `null` if the page is out of range or decoding fails.
+  ///
+  /// This is called from an async pipeline — never on the UI thread.
+  Future<ui.Image?> renderPage({
+    required int pageIndex,
+    required double scale,
+    required Size targetSize,
+  });
+
+  /// Extract text geometry rects for a page.
+  ///
+  /// Returns positioned [PdfTextRect]s for text selection / copy.
+  /// Called lazily on the first text selection attempt for a page.
+  Future<List<PdfTextRect>> extractTextGeometry(int pageIndex);
+
+  /// Get the full plain text content of a page (for search).
+  Future<String> getPageText(int pageIndex);
+
+  /// Release all resources associated with the loaded document.
+  void dispose();
 }

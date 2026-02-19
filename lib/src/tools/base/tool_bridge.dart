@@ -3,12 +3,14 @@ import './tool_interface.dart';
 import './tool_context.dart';
 import './tool_registry.dart';
 import '../unified_tools.dart';
+import '../text/digital_text_tool.dart';
+import '../../core/models/digital_text_element.dart';
+import '../../core/models/image_element.dart';
 import '../../layers/nebula_layer_controller.dart';
-// SDK: PDF controller — use abstract adapter
+
 import '../unified_tool_controller.dart';
 import '../../layers/adapters/canvas_adapter.dart';
 import '../../layers/adapters/infinite_canvas_adapter.dart';
-// SDK: PDF adapter — use abstract CanvasAdapter implementation
 
 /// 🌉 TOOL SYSTEM BRIDGE
 ///
@@ -41,10 +43,20 @@ class ToolSystemBridge {
   /// Callback to save undo state
   final VoidCallback? onSaveUndo;
 
+  /// Text CRUD callbacks — wired to canvas state
+  final List<DigitalTextElement> Function()? onGetTextElements;
+  final void Function(DigitalTextElement)? onUpdateTextElement;
+  final void Function(String)? onRemoveTextElement;
+
+  /// Image CRUD callbacks — wired to canvas state
+  final List<ImageElement> Function()? onGetImageElements;
+  final void Function(ImageElement)? onUpdateImageElement;
+  final void Function(String)? onRemoveImageElement;
+
   /// Tool registry
   final ToolRegistry _registry = ToolRegistry.instance;
 
-  /// Current adapter (Canvas or PDF)
+  /// Current adapter for the active context
   CanvasAdapter? _currentAdapter;
 
   /// Current context for tool operations
@@ -58,6 +70,12 @@ class ToolSystemBridge {
     required this.toolController,
     required this.onOperationComplete,
     this.onSaveUndo,
+    this.onGetTextElements,
+    this.onUpdateTextElement,
+    this.onRemoveTextElement,
+    this.onGetImageElements,
+    this.onUpdateImageElement,
+    this.onRemoveImageElement,
   }) {
     // Listen to tool controller changes
     _toolChangeListener = _onToolControllerChanged;
@@ -82,7 +100,7 @@ class ToolSystemBridge {
 
   /// Register the default tools
   void registerDefaultTools() {
-    _registry.registerAll([UnifiedShapeTool()]);
+    _registry.registerAll([UnifiedShapeTool(), DigitalTextTool()]);
   }
 
   /// Register a custom tool
@@ -105,22 +123,13 @@ class ToolSystemBridge {
       canvasId: canvasId,
       onOperationComplete: onOperationComplete,
       onSaveUndo: onSaveUndo,
+      onGetTextElements: onGetTextElements,
+      onUpdateTextElement: onUpdateTextElement,
+      onRemoveTextElement: onRemoveTextElement,
+      onGetImageElements: onGetImageElements,
+      onUpdateImageElement: onUpdateImageElement,
+      onRemoveImageElement: onRemoveImageElement,
     );
-
-    _updateContext(scale, viewOffset, viewportSize);
-  }
-
-  /// Set adapter for a PDF page context.
-  ///
-  /// The app provides a concrete [CanvasAdapter] implementation for PDF pages.
-  /// The SDK does not depend on any PDF-specific types.
-  void setPDFContext({
-    required CanvasAdapter pdfAdapter,
-    required double scale,
-    required Offset viewOffset,
-    required Size viewportSize,
-  }) {
-    _currentAdapter = pdfAdapter;
 
     _updateContext(scale, viewOffset, viewportSize);
   }

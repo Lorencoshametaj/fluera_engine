@@ -72,6 +72,7 @@ class BallpointBrush {
     double baseWidth, {
     required double minPressure,
     required double maxPressure,
+    bool isLive = false,
   }) {
     if (points.isEmpty) return;
 
@@ -97,7 +98,11 @@ class BallpointBrush {
     );
 
     // 🚀 USE OPTIMIZED PATH BUILDER for unified path
-    final path = OptimizedPathBuilder.buildSmoothPath(points);
+    // During live drawing, use incremental builder (O(ΔN) instead of O(N))
+    final path =
+        isLive
+            ? OptimizedPathBuilder.buildSmoothPathIncremental(points)
+            : OptimizedPathBuilder.buildSmoothPath(points);
 
     // 🚀 A SINGLE drawPath()!
     canvas.drawPath(path, paint);

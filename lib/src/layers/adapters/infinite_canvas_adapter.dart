@@ -6,25 +6,43 @@ import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
 import '../nebula_layer_controller.dart';
 
-/// 🖼️ Adapter per Canvas Infinito
+/// 🖼️ Adapter for Infinite Canvas
 ///
-/// Implementa CanvasAdapter for the canvas infinito standard.
-/// Supporta:
+/// Implements CanvasAdapter for the standard infinite canvas.
+/// Supports:
 /// - Coordinate conversion with scale and offset
-/// - Bounds infiniti (null)
-/// - Spatial indexing for viewport query
+/// - Infinite bounds (null)
+/// - Spatial indexing for viewport queries
 class InfiniteCanvasAdapter extends CanvasAdapter {
-  /// Callback called when a'operazione is completata (trigger auto-save)
+  /// Callback called when an operation is completed (trigger auto-save)
   final VoidCallback onOperationComplete;
 
-  /// Callback called when state needs to be saved for ado
+  /// Callback called when state needs to be saved for undo
   final VoidCallback? onSaveUndo;
 
   /// Callback for adding text elements (managed separately)
   final void Function(DigitalTextElement)? onAddTextElement;
 
+  /// Callback for getting all text elements
+  final List<DigitalTextElement> Function()? onGetTextElements;
+
+  /// Callback for updating a text element
+  final void Function(DigitalTextElement)? onUpdateTextElement;
+
+  /// Callback for removing a text element by ID
+  final void Function(String)? onRemoveTextElement;
+
   /// Callback for adding image elements (managed separately)
   final void Function(ImageElement)? onAddImageElement;
+
+  /// Callback for getting all image elements
+  final List<ImageElement> Function()? onGetImageElements;
+
+  /// Callback for updating an image element
+  final void Function(ImageElement)? onUpdateImageElement;
+
+  /// Callback for removing an image element by ID
+  final void Function(String)? onRemoveImageElement;
 
   /// ID of the canvas
   final String canvasId;
@@ -34,7 +52,13 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
     required this.onOperationComplete,
     this.onSaveUndo,
     this.onAddTextElement,
+    this.onGetTextElements,
+    this.onUpdateTextElement,
+    this.onRemoveTextElement,
     this.onAddImageElement,
+    this.onGetImageElements,
+    this.onUpdateImageElement,
+    this.onRemoveImageElement,
   });
 
   // ============================================================================
@@ -48,7 +72,7 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
   String get contextId => canvasId;
 
   @override
-  Rect? get bounds => null; // Canvas infinito
+  Rect? get bounds => null; // Infinite canvas
 
   // ============================================================================
   // COORDINATE CONVERSION
@@ -97,12 +121,12 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
     NebulaLayerController controller,
     Rect viewport,
   ) {
-    // Use spatial index se disponibile for performance O(log n)
+    // Use spatial index when available for O(log n) performance
     if (controller.spatialIndex.isBuilt) {
       return controller.spatialIndex.queryVisibleStrokes(viewport);
     }
 
-    // Fallback: filtra tutti gli strokes visibili
+    // Fallback: filter all visible strokes
     final visibleStrokes = <ProStroke>[];
     for (final stroke in controller.getAllVisibleStrokes()) {
       if (stroke.bounds.overlaps(viewport)) {
@@ -137,12 +161,12 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
     NebulaLayerController controller,
     Rect viewport,
   ) {
-    // Use spatial index se disponibile
+    // Use spatial index when available
     if (controller.spatialIndex.isBuilt) {
       return controller.spatialIndex.queryVisibleShapes(viewport);
     }
 
-    // Fallback: filtra tutte le shapes visibili
+    // Fallback: filter all visible shapes
     final visibleShapes = <GeometricShape>[];
     for (final shape in controller.getAllVisibleShapes()) {
       final shapeBounds = Rect.fromPoints(shape.startPoint, shape.endPoint);
@@ -163,8 +187,38 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
   }
 
   @override
+  List<DigitalTextElement> getTextElements() {
+    return onGetTextElements?.call() ?? [];
+  }
+
+  @override
+  void updateTextElement(DigitalTextElement element) {
+    onUpdateTextElement?.call(element);
+  }
+
+  @override
+  void removeTextElement(String elementId) {
+    onRemoveTextElement?.call(elementId);
+  }
+
+  @override
   void addImageElement(ImageElement element) {
     onAddImageElement?.call(element);
+  }
+
+  @override
+  List<ImageElement> getImageElements() {
+    return onGetImageElements?.call() ?? [];
+  }
+
+  @override
+  void updateImageElement(ImageElement element) {
+    onUpdateImageElement?.call(element);
+  }
+
+  @override
+  void removeImageElement(String elementId) {
+    onRemoveImageElement?.call(elementId);
   }
 
   // ============================================================================

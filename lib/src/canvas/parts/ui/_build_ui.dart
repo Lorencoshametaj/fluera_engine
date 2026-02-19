@@ -115,6 +115,12 @@ extension on _NebulaCanvasScreenState {
               // 🎯 Context Menus & Panels (above everything)
               ..._buildMenus(context),
 
+              // 🔷 Shape recognition toast
+              _buildShapeRecognitionToast(),
+
+              // 👻 Ghost shape suggestion overlay
+              _buildGhostSuggestionOverlay(),
+
               // 🎬 Loading overlay (splash screen during initialization)
               _buildLoadingOverlay(),
             ],

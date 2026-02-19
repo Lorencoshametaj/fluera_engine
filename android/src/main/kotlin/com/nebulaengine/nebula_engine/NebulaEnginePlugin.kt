@@ -17,6 +17,8 @@ class NebulaEnginePlugin : FlutterPlugin {
     private var stylusInputPlugin: StylusInputPlugin? = null
     private var vibrationPlugin: VibrationPlugin? = null
     private var performanceMonitorPlugin: PerformanceMonitorPlugin? = null
+    private var audioRecorderPlugin: AudioRecorderPlugin? = null
+    private var pdfRendererPlugin: PdfRendererPlugin? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         // Register predicted touch plugin
@@ -34,6 +36,14 @@ class NebulaEnginePlugin : FlutterPlugin {
         // Register performance monitor plugin
         performanceMonitorPlugin = PerformanceMonitorPlugin()
         performanceMonitorPlugin?.onAttachedToEngine(binding)
+
+        // Register audio recorder plugin
+        audioRecorderPlugin = AudioRecorderPlugin()
+        audioRecorderPlugin?.onAttachedToEngine(binding)
+
+        // Register PDF renderer plugin
+        pdfRendererPlugin = PdfRendererPlugin()
+        pdfRendererPlugin?.onAttachedToEngine(binding)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -48,6 +58,12 @@ class NebulaEnginePlugin : FlutterPlugin {
 
         performanceMonitorPlugin?.onDetachedFromEngine(binding)
         performanceMonitorPlugin = null
+
+        audioRecorderPlugin?.onDetachedFromEngine(binding)
+        audioRecorderPlugin = null
+
+        pdfRendererPlugin?.onDetachedFromEngine(binding)
+        pdfRendererPlugin = null
     }
 }
 

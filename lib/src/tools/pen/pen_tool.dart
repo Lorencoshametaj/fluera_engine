@@ -181,6 +181,10 @@ class PenTool extends BaseTool {
   /// When set, new anchors and position drags snap to nearest grid intersection.
   double? gridSpacing;
 
+  /// Preview anchor built during tap+drag (not yet committed).
+  /// Used to show the live Bézier curve shape before releasing.
+  AnchorPoint? _previewAnchor;
+
   /// Whether we are in path-building mode.
   bool get isBuilding => _anchors.isNotEmpty;
 

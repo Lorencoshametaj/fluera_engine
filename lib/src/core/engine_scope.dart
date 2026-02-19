@@ -17,6 +17,7 @@ import '../drawing/input/predicted_touch_service.dart';
 import '../platform/native_stylus_input.dart';
 import '../platform/native_performance_monitor.dart';
 import '../audio/platform_channels/audio_player_channel.dart';
+import '../audio/platform_channels/audio_recorder_channel.dart';
 import '../services/image_cache_service.dart';
 
 /// Scoped dependency container for the Nebula Engine.
@@ -145,6 +146,10 @@ class EngineScope {
   /// Native audio player platform channel.
   late final NativeAudioPlayerChannel audioPlayerChannel =
       NativeAudioPlayerChannel.create();
+
+  /// Native audio recorder platform channel.
+  late final NativeAudioRecorderChannel audioRecorderChannel =
+      NativeAudioRecorderChannel.create();
 
   /// Image loading and LRU caching service.
   late final ImageCacheService imageCacheService = ImageCacheService.create();

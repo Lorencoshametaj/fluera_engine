@@ -340,7 +340,19 @@ class EraserTool {
     final activeLayer = layerController.activeLayer;
     if (activeLayer == null || activeLayer.isLocked) return result;
 
+    // 🚀 PERF: Pre-filter with spatial index to avoid O(N) full scan
+    final nearbyIds = _spatialIndex.getNearbyStrokeIds(
+      position,
+      eraserRadius: eraserRadius + 10,
+      eraserShape: eraserShape,
+      eraserShapeWidth: eraserShapeWidth,
+      eraserShapeAngle: eraserShapeAngle,
+    );
+
     for (final stroke in activeLayer.strokes) {
+      // Skip strokes outside spatial index range (if index is valid)
+      if (nearbyIds.isNotEmpty && !nearbyIds.contains(stroke.id)) continue;
+
       if (EraserHitTester.strokeIntersectsEraser(
         stroke,
         position,
@@ -445,6 +457,12 @@ class EraserTool {
     for (final index in strokeIndicesToProcess.reversed) {
       final stroke = layer.strokes[index] as ProStroke;
 
+      // 🚀 PERF: Incremental spatial index update — keeps index valid for
+      // subsequent eraseAt() calls within the same interpolation loop.
+      // Without this, markDirty() would cause all following calls to
+      // fall back to O(N) full scan.
+      _spatialIndex.incrementalRemove(stroke);
+
       if (opacityEraseMode) {
         final currentAlpha = stroke.color.a;
         final newAlpha = (currentAlpha - opacityEraseStrength).clamp(0.0, 1.0);
@@ -465,6 +483,7 @@ class EraserTool {
           );
           layerController.removeStroke(stroke.id);
           layerController.addStroke(fadedStroke);
+          _spatialIndex.incrementalAdd(fadedStroke);
         }
       } else if (eraseWholeStroke) {
         _currentGestureOps.add(
@@ -480,10 +499,10 @@ class EraserTool {
 
         for (final frag in fragments) {
           layerController.addStroke(frag);
+          _spatialIndex.incrementalAdd(frag);
         }
       }
       _currentGestureEraseCount++;
-      _spatialIndex.markDirty();
 
       final bbox = EraserHitTester.strokeBBox(stroke);
       if (bbox != null) {
@@ -565,10 +584,29 @@ class EraserTool {
     final activeLayer = layerController.activeLayer;
     if (activeLayer == null) return position;
 
+    // 🚀 PERF: Pre-filter with spatial index — only check nearby strokes
+    // instead of iterating every point of every stroke (O(N×M) → O(K×M))
+    final nearbyIds = _spatialIndex.getNearbyStrokeIds(
+      position,
+      eraserRadius: snapRadius,
+      eraserShape: EraserShape.circle,
+    );
+
     double bestDistSq = snapRadius * snapRadius;
     Offset bestPos = position;
 
     for (final stroke in activeLayer.strokes) {
+      // Skip strokes outside spatial range (if index is valid)
+      if (nearbyIds.isNotEmpty && !nearbyIds.contains(stroke.id)) continue;
+
+      // 🚀 PERF: Bounding box pre-rejection — skip iterating all points
+      // if the stroke's bounds are entirely outside the snap radius
+      final bounds = stroke.bounds;
+      if (bounds != Rect.zero) {
+        final inflated = bounds.inflate(snapRadius);
+        if (!inflated.contains(position)) continue;
+      }
+
       for (final point in stroke.points) {
         final dSq = EraserHitTester.distanceSq(position, point.position);
         if (dSq < bestDistSq) {

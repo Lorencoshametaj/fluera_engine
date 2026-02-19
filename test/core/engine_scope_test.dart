@@ -97,6 +97,10 @@ void main() {
       expect(EngineScope.current.audioPlayerChannel, isNotNull);
     });
 
+    test('audioRecorderChannel is available', () {
+      expect(EngineScope.current.audioRecorderChannel, isNotNull);
+    });
+
     test('imageCacheService is available', () {
       expect(EngineScope.current.imageCacheService, isNotNull);
     });

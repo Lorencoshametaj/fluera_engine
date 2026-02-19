@@ -21,6 +21,7 @@ extension _PenToolInput on PenTool {
     beginOperation(context, event.localPosition);
     _isDragging = false;
     _dragHandleCanvas = null;
+    _previewAnchor = null;
     _editingAnchorIndex = -1;
 
     final canvasPos = context.screenToCanvas(event.localPosition);
@@ -31,7 +32,8 @@ extension _PenToolInput on PenTool {
       final firstScreenPos = context.canvasToScreen(_anchors.first.position);
       final tapScreenPos = event.localPosition;
       // Threshold scales inversely with zoom for consistent feel
-      final threshold = PenTool._baseCloseThreshold / context.scale.clamp(0.1, 10.0);
+      final threshold =
+          PenTool._baseCloseThreshold / context.scale.clamp(0.1, 10.0);
       if ((firstScreenPos - tapScreenPos).distance <
           threshold * context.scale) {
         _finalizePath(context, closed: true);
@@ -46,7 +48,8 @@ extension _PenToolInput on PenTool {
       final hIn = anchor.handleInAbsolute;
       if (hIn != null) {
         final screenHIn = context.canvasToScreen(hIn);
-        if ((screenHIn - event.localPosition).distance < PenTool._anchorHitRadius) {
+        if ((screenHIn - event.localPosition).distance <
+            PenTool._anchorHitRadius) {
           _editingAnchorIndex = i;
           _editTarget = _EditTarget.handleIn;
           return;
@@ -56,7 +59,8 @@ extension _PenToolInput on PenTool {
       final hOut = anchor.handleOutAbsolute;
       if (hOut != null) {
         final screenHOut = context.canvasToScreen(hOut);
-        if ((screenHOut - event.localPosition).distance < PenTool._anchorHitRadius) {
+        if ((screenHOut - event.localPosition).distance <
+            PenTool._anchorHitRadius) {
           _editingAnchorIndex = i;
           _editTarget = _EditTarget.handleOut;
           return;
@@ -67,7 +71,8 @@ extension _PenToolInput on PenTool {
     // Then check if tapping near an existing anchor (for editing/toggle).
     for (int i = 0; i < _anchors.length; i++) {
       final anchorScreenPos = context.canvasToScreen(_anchors[i].position);
-      if ((anchorScreenPos - event.localPosition).distance < PenTool._anchorHitRadius) {
+      if ((anchorScreenPos - event.localPosition).distance <
+          PenTool._anchorHitRadius) {
         // #2: Double-tap on anchor → delete it.
         final now2 = DateTime.now().millisecondsSinceEpoch;
         if (i == _lastTappedAnchorIndex &&
@@ -234,10 +239,28 @@ extension _PenToolInput on PenTool {
     if (_isDragging) {
       // #3: Constrain drag handle angles.
       if (constrainAngles && startCanvasPosition != null) {
-        _dragHandleCanvas = PenTool._constrainTo45(canvasPos, startCanvasPosition!);
+        _dragHandleCanvas = PenTool._constrainTo45(
+          canvasPos,
+          startCanvasPosition!,
+        );
       } else {
         _dragHandleCanvas = canvasPos;
       }
+
+      // Build live preview anchor showing the actual curve shape.
+      if (startCanvasPosition != null) {
+        final anchorPos = _applySnapping(startCanvasPosition!);
+        final handleOut = (_dragHandleCanvas ?? canvasPos) - anchorPos;
+        final handleIn = -handleOut;
+        _previewAnchor = AnchorPoint(
+          position: anchorPos,
+          handleIn: _anchors.isEmpty ? null : handleIn,
+          handleOut: handleOut,
+          type: AnchorType.symmetric,
+        );
+      }
+    } else {
+      _previewAnchor = null;
     }
   }
 
@@ -317,6 +340,7 @@ extension _PenToolInput on PenTool {
 
     _isDragging = false;
     _dragHandleCanvas = null;
+    _previewAnchor = null;
     _cursorCanvasPosition = canvasPos;
 
     // 📳 Haptic feedback on anchor placement

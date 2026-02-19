@@ -98,6 +98,9 @@ extension on _NebulaCanvasScreenState {
 
       // 4. Canvas data load from SQLite (I/O bound, variable time)
       _loadCanvasData(),
+
+      // 5. 🎤 Load saved recordings from SQLite
+      _loadSavedRecordings(),
     ]);
   }
 
@@ -116,6 +119,13 @@ extension on _NebulaCanvasScreenState {
       // 🚀 1. LOCAL FIRST: prefer storageAdapter over legacy callback
       if (_config.storageAdapter != null) {
         await _config.storageAdapter!.initialize();
+
+        // 🎤 Initialize RecordingStorageService with shared DB
+        if (_config.storageAdapter is SqliteStorageAdapter) {
+          final sqliteAdapter = _config.storageAdapter as SqliteStorageAdapter;
+          RecordingStorageService.instance.initialize(sqliteAdapter.database);
+        }
+
         data = await _config.storageAdapter!.loadCanvas(_canvasId);
         print(
           '🎨 [ProCanvasScreen] StorageAdapter load result: ${data != null ? "FOUND (${data.keys.length} keys)" : "NULL"}',
@@ -216,6 +226,8 @@ extension on _NebulaCanvasScreenState {
               )
               .toList(),
         );
+        _imageVersion++;
+        _rebuildImageSpatialIndex();
       }
 
       // Load settings — supports both:
@@ -361,6 +373,7 @@ extension on _NebulaCanvasScreenState {
     _cachedAllShapes = _layerController.getAllVisibleShapes();
 
     // 🖼️ Sync images from layers (handles add, update, and remove from remote deltas)
+    final previousCount = _imageElements.length;
     final layerImageIds = <String>{};
     for (final layer in _layerController.layers) {
       for (final img in layer.images) {
@@ -382,6 +395,14 @@ extension on _NebulaCanvasScreenState {
           !layerImageIds.contains(e.id) &&
           _layerController.layers.isNotEmpty,
     );
+
+    // 🧠 Cache coherency: if images changed, bump version + rebuild R-tree + prune cache
+    if (_imageElements.length != previousCount || layerImageIds.isNotEmpty) {
+      _imageVersion++;
+      _rebuildImageSpatialIndex();
+      // 🗑️ Prune per-image cache entries for deleted images
+      ImagePainter.pruneCache(_imageElements.map((e) => e.id).toSet());
+    }
 
     // 🚀 DYNAMIC CANVAS: Expand if content exceeds 50% of size
     _expandCanvasIfNeeded();
@@ -523,7 +544,10 @@ extension on _NebulaCanvasScreenState {
         if (mounted && image != null) {
           setState(() {
             _loadedImages[imagePath] = image;
+            _imageVersion++;
+            _rebuildImageSpatialIndex();
           });
+          _imageMemoryManager.markAccessed(imagePath);
           _stopLoadingPulseIfDone();
         }
         return;
@@ -546,7 +570,10 @@ extension on _NebulaCanvasScreenState {
                 !_loadedImages.containsKey(imagePath)) {
               setState(() {
                 _loadedImages[imagePath] = thumbImage;
+                _imageVersion++;
+                _rebuildImageSpatialIndex();
               });
+              _imageMemoryManager.markAccessed(imagePath);
             }
           } catch (_) {
             // Thumbnail failed — no problem, full image will load
@@ -564,8 +591,22 @@ extension on _NebulaCanvasScreenState {
           final oldImage = _loadedImages[imagePath];
           setState(() {
             _loadedImages[imagePath] = image;
+            _imageVersion++;
+            _rebuildImageSpatialIndex();
           });
           oldImage?.dispose();
+          _imageMemoryManager.markAccessed(imagePath);
+
+          // 🧠 LRU: evict excess images after batch loading
+          if (_loadedImages.length > _imageMemoryManager.maxImages) {
+            // Get currently visible image paths for protection
+            final viewportPaths =
+                _imageElements
+                    .where((img) => _loadedImages.containsKey(img.imagePath))
+                    .map((img) => img.imagePath)
+                    .toSet();
+            _imageMemoryManager.scheduleEviction(_loadedImages, viewportPaths);
+          }
           _stopLoadingPulseIfDone();
         }
       }
@@ -655,59 +696,76 @@ extension on _NebulaCanvasScreenState {
     }
   }
 
-  /// 🎤 Load saved recordings tramite VoiceRecordingService
-  /// Phase 2: voice recordings will be re-enabled
+  /// 🎤 Load saved recordings from SQLite via RecordingStorageService
   Future<void> _loadSavedRecordings() async {
     try {
-      // Phase 2: VoiceRecordingService stub returns empty list
-      final recordings = await VoiceRecordingService.getRecordingsForParent(
-        _canvasId,
-      );
+      if (!RecordingStorageService.instance.isInitialized) {
+        // Service not initialized yet — will be initialized during _loadCanvasData
+        // when SqliteStorageAdapter.initialize() runs. Retry after a short delay.
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (!RecordingStorageService.instance.isInitialized) return;
+      }
+
+      final recordings = await RecordingStorageService.instance
+          .loadRecordingsForCanvas(_canvasId);
+
+      if (recordings.isEmpty) return;
 
       final audioFiles = <String>[];
       final loadedSyncRecordings = <SynchronizedRecording>[];
 
-      for (final rec in recordings) {
-        // Add audio path to saved recordings
-        final recAudioPath = (rec as dynamic).audioPath as String?;
-        if (recAudioPath != null) {
-          audioFiles.add(recAudioPath);
+      for (final recording in recordings) {
+        // 🔧 FIX #4: Skip recordings whose audio file no longer exists
+        final audioFile = File(recording.audioPath);
+        if (!await audioFile.exists()) {
+          debugPrint(
+            '[Lifecycle] Skipping recording ${recording.id} — '
+            'file missing: ${recording.audioPath}',
+          );
+          // 🔧 FIX #3 (audit 4): Also remove stale entry from SQLite
+          if (RecordingStorageService.instance.isInitialized) {
+            RecordingStorageService.instance
+                .deleteRecording(recording.id)
+                .catchError((_) => 0);
+          }
+          continue;
         }
 
-        // If is una registrazione con tratti, carica il JSON
-        final recType = (rec as dynamic).recordingType as String?;
-        final recStrokesPath = (rec as dynamic).strokesDataPath as String?;
-        if (recType == 'with_strokes' && recStrokesPath != null) {
-          final file = File(recStrokesPath);
-          if (await file.exists()) {
-            try {
-              final jsonString = await file.readAsString();
-              final syncRecording = SynchronizedRecording.fromJsonString(
-                jsonString,
-              );
-              // 🔄 Update audio path in syncRecording for safety
-              // (ensures it points to the correct audio file managed by the service)
-              if (recAudioPath != null) {
-                loadedSyncRecordings.add(
-                  syncRecording.copyWith(audioPath: recAudioPath),
-                );
-              } else {
-                loadedSyncRecordings.add(syncRecording);
-              }
-            } catch (e) {}
-          } else {
-            // TODO: Handle download from strokesDataUrl if missing locally
-          }
+        audioFiles.add(recording.audioPath);
+        if (recording.hasStrokes) {
+          loadedSyncRecordings.add(recording);
         }
       }
 
       if (mounted) {
         setState(() {
-          _savedRecordings = audioFiles;
-          _syncedRecordings = loadedSyncRecordings;
+          // 🔧 FIX #4: Merge instead of overwrite to prevent race
+          // (user might save a recording during the same init pipeline)
+          for (final path in audioFiles) {
+            if (!_savedRecordings.contains(path)) {
+              _savedRecordings.add(path);
+            }
+          }
+          for (final rec in loadedSyncRecordings) {
+            if (!_syncedRecordings.any((r) => r.id == rec.id)) {
+              _syncedRecordings.add(rec);
+            }
+          }
         });
       }
-    } catch (e) {}
+
+      debugPrint(
+        '[Lifecycle] Loaded ${recordings.length} recordings '
+        '(${loadedSyncRecordings.length} with strokes)',
+      );
+
+      // 🔧 FIX #4 (audit 4): Clean up stale temp recordings
+      DefaultVoiceRecordingProvider.cleanupTempRecordings(
+        olderThan: const Duration(hours: 24),
+      );
+    } catch (e) {
+      debugPrint('[Lifecycle] Failed to load recordings: $e');
+    }
   }
 
   // ============================================================================

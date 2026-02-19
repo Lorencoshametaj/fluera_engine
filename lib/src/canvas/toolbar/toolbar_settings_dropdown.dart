@@ -14,7 +14,7 @@ class ToolbarSettingsDropdown extends StatefulWidget {
   final VoidCallback? onExportPressed;
   final String? noteTitle;
   final ValueChanged<String>? onNoteTitleChanged;
-  final dynamic pdfController;
+
   final VoidCallback? onPaperTypePressed;
 
   const ToolbarSettingsDropdown({
@@ -25,7 +25,7 @@ class ToolbarSettingsDropdown extends StatefulWidget {
     this.onExportPressed,
     this.noteTitle,
     this.onNoteTitleChanged,
-    this.pdfController,
+
     this.onPaperTypePressed,
   });
 
@@ -36,8 +36,6 @@ class ToolbarSettingsDropdown extends StatefulWidget {
 
 class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
   final Set<String> _downloadedLanguages = {};
-
-  bool get _isPdfMode => widget.pdfController != null;
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +51,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
       itemBuilder:
           (BuildContext context) => [
             // Rename Note (only in canvas mode)
-            if (widget.onNoteTitleChanged != null && !_isPdfMode) ...[
+            if (widget.onNoteTitleChanged != null) ...[
               PopupMenuItem<String>(
                 value: 'rename_note',
                 height: 48,
@@ -74,46 +72,26 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
               ),
               const PopupMenuDivider(),
             ],
-            // PDF Template Settings (only in PDF mode)
-            if (_isPdfMode)
-              PopupMenuItem<String>(
-                value: 'pdf_template_settings',
-                height: 48,
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.settings_rounded,
-                      size: 20,
-                      color: cs.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      l10n.proCanvas_pdfTemplateSettings,
-                      style: TextStyle(fontSize: 14, color: cs.onSurface),
-                    ),
-                  ],
-                ),
+
+            // Paper Mode
+            PopupMenuItem<String>(
+              value: 'paper_mode',
+              height: 48,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.grid_on_rounded,
+                    size: 20,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    l10n.proCanvas_paperMode,
+                    style: TextStyle(fontSize: 14, color: cs.onSurface),
+                  ),
+                ],
               ),
-            // Paper Mode (canvas mode only)
-            if (!_isPdfMode)
-              PopupMenuItem<String>(
-                value: 'paper_mode',
-                height: 48,
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.grid_on_rounded,
-                      size: 20,
-                      color: cs.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      l10n.proCanvas_paperMode,
-                      style: TextStyle(fontSize: 14, color: cs.onSurface),
-                    ),
-                  ],
-                ),
-              ),
+            ),
             // Brush Settings
             if (widget.onBrushSettingsPressed != null)
               PopupMenuItem<String>(
@@ -134,7 +112,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
                   ],
                 ),
               ),
-            // Export Canvas/PDF
+            // Export Canvas
             if (widget.onExportPressed != null)
               PopupMenuItem<String>(
                 value: 'export_canvas',
@@ -148,9 +126,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      _isPdfMode
-                          ? l10n.proCanvas_exportPdf
-                          : l10n.proCanvas_exportCanvas,
+                      l10n.proCanvas_exportCanvas,
                       style: TextStyle(fontSize: 14, color: cs.onSurface),
                     ),
                   ],
@@ -225,9 +201,6 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
             } else {
               widget.onSettings();
             }
-            break;
-          case 'pdf_template_settings':
-            widget.onSettings();
             break;
           case 'brush_settings':
             final box = context.findRenderObject() as RenderBox;

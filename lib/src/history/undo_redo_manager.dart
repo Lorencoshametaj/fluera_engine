@@ -299,11 +299,6 @@ class UndoRedoManager extends ChangeNotifier {
           layerMap[delta.layerId] = layer.copyWith(images: updatedImages);
         }
         break;
-
-      case CanvasDeltaType.pageAdded:
-      case CanvasDeltaType.pageRemoved:
-        // Undo page addition/removal — handled at PDFController level, not layer level
-        break;
     }
 
     return layerMap.values.toList();

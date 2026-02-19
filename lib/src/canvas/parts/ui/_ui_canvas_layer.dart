@@ -13,6 +13,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
           children: [
             _buildBackgroundLayer(),
             _buildDrawingLayer(),
+            _buildImageLayer(),
             _buildGestureDetectorLayer(context),
             _buildCurrentStrokeLayer(),
 
@@ -186,6 +187,40 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
     );
   }
 
+  /// 🖼️ LAYER 2: IMAGES (VIEWPORT-LEVEL)
+  /// Renders images at viewport level with controller-based repaint,
+  /// matching the same pattern as DrawingPainter.
+  Widget _buildImageLayer() {
+    return ListenableBuilder(
+      listenable: _layerController,
+      builder: (context, _) {
+        final dpr = MediaQuery.of(context).devicePixelRatio;
+        return RepaintBoundary(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: ImagePainter(
+                images: List<ImageElement>.from(_imageElements),
+                loadedImages: _loadedImages,
+                selectedImage: _imageTool.selectedImage,
+                imageTool: _imageTool,
+                imageInEditMode: _imageInEditMode,
+                imageEditingStrokes: _imageEditingStrokes,
+                currentEditingStroke: _currentEditingStrokeNotifier.value,
+                loadingPulse: _loadingPulseValue,
+                controller: _canvasController,
+                imageVersion: _imageVersion,
+                devicePixelRatio: dpr,
+                spatialIndex: _imageSpatialIndex,
+                memoryManager: _imageMemoryManager,
+              ),
+              size: Size.infinite,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// 🚀 INFINITE CANVAS: Gesture detector with OverflowBox transform stack
   Widget _buildGestureDetectorLayer(BuildContext context) {
     return LayoutBuilder(
@@ -292,25 +327,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                                 ),
                               ),
 
-                            // 🖼️ LAYER 3: IMMAGINI
-                            RepaintBoundary(
-                              child: CustomPaint(
-                                painter: ImagePainter(
-                                  images: List<ImageElement>.from(
-                                    _imageElements,
-                                  ),
-                                  loadedImages: _loadedImages,
-                                  selectedImage: _imageTool.selectedImage,
-                                  imageTool: _imageTool,
-                                  imageInEditMode: _imageInEditMode,
-                                  imageEditingStrokes: _imageEditingStrokes,
-                                  currentEditingStroke:
-                                      _currentEditingStrokeNotifier.value,
-                                  loadingPulse: _loadingPulseValue,
-                                ),
-                                size: _canvasSize,
-                              ),
-                            ),
+                            // 🖼️ LAYER 3: IMAGES (now rendered at viewport level by _buildImageLayer)
                           ],
                         ),
                       ),
@@ -384,7 +401,6 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
               canvasScale: _canvasController.scale,
               onClose: _stopSyncedPlayback,
               backgroundColor: _canvasBackgroundColor,
-              onNavigateToDrawing: _navigateToCurrentDrawing,
             ),
       ),
     );

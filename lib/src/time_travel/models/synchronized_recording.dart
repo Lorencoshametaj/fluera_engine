@@ -1,10 +1,10 @@
 import 'dart:convert';
 import '../../drawing/models/pro_drawing_point.dart';
 
-/// Synchronized stroke with timestamps relative to the recording
-/// Contiene il timestamp di inizio e fine of the stroke rispetto all'inizio of the recording
+/// Synchronized stroke with timestamps relative to the recording.
+/// Contains the start and end timestamps of the stroke relative to the recording start.
 class SyncedStroke {
-  /// Lo stroke originale completo
+  /// The complete original stroke
   final ProStroke stroke;
 
   /// Start timestamp relative to the recording (milliseconds)
@@ -15,7 +15,7 @@ class SyncedStroke {
   /// When the user completed this stroke
   final int relativeEndMs;
 
-  /// 📄 Index of the PDF page on which the stroke was drawn
+  /// 📄 Index of the page on which the stroke was drawn
   final int pageIndex;
 
   const SyncedStroke({
@@ -25,11 +25,11 @@ class SyncedStroke {
     this.pageIndex = 0,
   });
 
-  /// Durata of the stroke in millisecondi
+  /// Duration of the stroke in milliseconds
   int get durationMs => relativeEndMs - relativeStartMs;
 
-  /// Calculates quanti punti of the stroke sono visibili a un dato tempo di playback
-  /// [playbackTimeMs] - tempo corrente di riproduzione in ms
+  /// Calculates how many points of the stroke are visible at a given playback time.
+  /// [playbackTimeMs] - current playback time in ms
   /// Returns: number of points to show (0 if the stroke has not started yet)
   int visiblePointsAtTime(int playbackTimeMs) {
     // If playback has not yet reached the start of the stroke
@@ -38,19 +38,19 @@ class SyncedStroke {
     // If playback has passed the end of the stroke, show everything
     if (playbackTimeMs >= relativeEndMs) return stroke.points.length;
 
-    // Calculate la percentuale di progresso nel tratto
+    // Calculate progress percentage through the stroke
     final elapsed = playbackTimeMs - relativeStartMs;
     final progress = elapsed / durationMs;
 
-    // Calculate quanti punti mostrare
+    // Calculate how many points to show
     return (stroke.points.length * progress).ceil().clamp(
       0,
       stroke.points.length,
     );
   }
 
-  /// Creates una versione parziale of the stroke con only the punti visibili
-  /// [playbackTimeMs] - tempo corrente di riproduzione in ms
+  /// Creates a partial version of the stroke with only visible points.
+  /// [playbackTimeMs] - current playback time in ms
   ProStroke? getPartialStroke(int playbackTimeMs) {
     final visibleCount = visiblePointsAtTime(playbackTimeMs);
     if (visibleCount == 0) return null;
@@ -80,40 +80,40 @@ class SyncedStroke {
   );
 }
 
-/// Registrazione sincronizzata che lega audio e tratti con timing preciso
-/// Permette di riprodurre l'audio insieme ai tratti che si "disegnano" in real-time
+/// Synchronized recording that links audio and strokes with precise timing.
+/// Allows playback of audio together with strokes that "draw" in real-time.
 class SynchronizedRecording {
-  /// ID univoco of the recording
+  /// Unique ID of the recording
   final String id;
 
-  /// Path del file audio
+  /// Path to the audio file
   final String audioPath;
 
-  /// Durata totale of the recording
+  /// Total duration of the recording
   final Duration totalDuration;
 
-  /// Timestamp di inizio of the recording
+  /// Start timestamp of the recording
   final DateTime startTime;
 
-  /// Lista di strokes sincronizzati con timestamps relativi
+  /// List of synchronized strokes with relative timestamps
   final List<SyncedStroke> syncedStrokes;
 
-  /// ID of the canvas di origine
+  /// ID of the source canvas
   final String? canvasId;
 
   /// Source note title
   final String? noteTitle;
 
-  /// 🏷️ Recording type ('pdf', 'note', 'mixed')
+  /// 🏷️ Recording type ('note', 'mixed')
   final String? recordingType;
 
-  /// 📂 Path locale del file JSON (opzionale, per riferimento)
+  /// 📂 Local path to the JSON file (optional, for reference)
   final String? strokesPath;
 
-  /// ☁️ URL Cloud Storage for the file audio (sync remoto)
+  /// ☁️ Cloud Storage URL for the audio file (remote sync)
   final String? audioStorageUrl;
 
-  /// ☁️ URL Cloud Storage for the file JSON strokes (sync remoto)
+  /// ☁️ Cloud Storage URL for the JSON strokes file (remote sync)
   final String? strokesStorageUrl;
 
   const SynchronizedRecording({
@@ -130,7 +130,7 @@ class SynchronizedRecording {
     this.strokesStorageUrl,
   });
 
-  /// Creates una registrazione vuota
+  /// Creates an empty recording
   factory SynchronizedRecording.empty({
     required String id,
     required String audioPath,
@@ -152,7 +152,7 @@ class SynchronizedRecording {
     );
   }
 
-  /// Creates una copia con modifiche
+  /// Creates a copy with modifications
   SynchronizedRecording copyWith({
     String? id,
     String? audioPath,
@@ -187,9 +187,9 @@ class SynchronizedRecording {
   /// Checks if the recording has strokes
   bool get hasStrokes => syncedStrokes.isNotEmpty;
 
-  /// Gets tutti i tratti parziali visibili a un dato tempo
-  /// [playbackTimeMs] - tempo corrente di riproduzione in ms
-  /// Returns: list of strokes (parziali o completi) da renderizzare
+  /// Gets all partial strokes visible at a given time.
+  /// [playbackTimeMs] - current playback time in ms
+  /// Returns: list of strokes (partial or complete) to render
   List<ProStroke> getVisibleStrokesAtTime(int playbackTimeMs) {
     final result = <ProStroke>[];
 
@@ -203,9 +203,9 @@ class SynchronizedRecording {
     return result;
   }
 
-  /// Gets tutti gli strokes "ghost" (not yet started) with reduced opacity
-  /// [playbackTimeMs] - tempo corrente di riproduzione in ms
-  /// [ghostOpacity] - opacity per i ghost strokes (default 0.1)
+  /// Gets all "ghost" strokes (not yet started) with reduced opacity.
+  /// [playbackTimeMs] - current playback time in ms
+  /// [ghostOpacity] - opacity for ghost strokes (default 0.1)
   List<ProStroke> getGhostStrokesAtTime(
     int playbackTimeMs, {
     double ghostOpacity = 0.1,
@@ -226,7 +226,7 @@ class SynchronizedRecording {
     return result;
   }
 
-  /// Serializezione JSON
+  /// JSON serialization
   Map<String, dynamic> toJson() => {
     'id': id,
     'audioPath': audioPath,
@@ -240,10 +240,10 @@ class SynchronizedRecording {
     if (strokesStorageUrl != null) 'strokesStorageUrl': strokesStorageUrl,
   };
 
-  /// Serializezione JSON come stringa compressa
+  /// JSON serialization as compressed string
   String toJsonString() => jsonEncode(toJson());
 
-  /// Deserializzazione JSON
+  /// JSON deserialization
   factory SynchronizedRecording.fromJson(Map<String, dynamic> json) {
     return SynchronizedRecording(
       id: json['id'] as String,
@@ -262,7 +262,7 @@ class SynchronizedRecording {
     );
   }
 
-  /// Deserializzazione da stringa JSON
+  /// Deserialization from JSON string
   factory SynchronizedRecording.fromJsonString(String jsonString) {
     return SynchronizedRecording.fromJson(
       jsonDecode(jsonString) as Map<String, dynamic>,
@@ -298,11 +298,11 @@ class SynchronizedRecordingBuilder {
     _recordingStartEpoch = startTime.millisecondsSinceEpoch;
   }
 
-  /// Adds a stroke to the recording
-  /// [stroke] - lo stroke completato
+  /// Adds a stroke to the recording.
+  /// [stroke] - the completed stroke
   /// [strokeStartTime] - start timestamp of the stroke (DateTime.now() when the user started)
   /// [strokeEndTime] - end timestamp of the stroke (DateTime.now() when the user finished)
-  /// [pageIndex] - index of the PDF page on which it was drawn
+  /// [pageIndex] - index of the page on which it was drawn
   void addStroke(
     ProStroke stroke,
     DateTime strokeStartTime,
@@ -314,7 +314,6 @@ class SynchronizedRecordingBuilder {
     final relativeEnd =
         strokeEndTime.millisecondsSinceEpoch - _recordingStartEpoch;
 
-
     _strokes.add(
       SyncedStroke(
         stroke: stroke,
@@ -325,16 +324,16 @@ class SynchronizedRecordingBuilder {
     );
   }
 
-  /// Adds a stroke using timestamps of points
-  /// Calculates automaticamente start/end dai timestamps of points of the stroke
+  /// Adds a stroke using timestamps of points.
+  /// Automatically calculates start/end from the stroke's point timestamps.
   void addStrokeWithPointTimestamps(ProStroke stroke) {
     if (stroke.points.isEmpty) return;
 
-    // Use il timestamp del primo e last point
+    // Use the timestamp of the first and last point
     final firstPointTimestamp = stroke.points.first.timestamp;
     final lastPointTimestamp = stroke.points.last.timestamp;
 
-    // If aggiungiamo stroke con punti, assumiamo Note if not settato
+    // If adding strokes with points, assume 'note' type if not already set
     _recordingType ??= 'note';
 
     final relativeStart = firstPointTimestamp - _recordingStartEpoch;
@@ -349,14 +348,14 @@ class SynchronizedRecordingBuilder {
     );
   }
 
-  /// Number of strokes aggiunti finora
+  /// Number of strokes added so far
   int get strokeCount => _strokes.length;
 
   /// Checks if there are strokes
   bool get hasStrokes => _strokes.isNotEmpty;
 
-  /// Builds la registrazione finale
-  /// [duration] - durata totale of the recording audio
+  /// Builds the final recording.
+  /// [duration] - total duration of the audio recording
   SynchronizedRecording build(Duration duration) {
     return SynchronizedRecording(
       id: id,
@@ -370,16 +369,16 @@ class SynchronizedRecordingBuilder {
     );
   }
 
-  /// Explicitly sets the recording type to distinguish PDF from Note
+  /// Explicitly sets the recording type
   void setRecordingType(String type) {
     // 🧠 Be more tolerant: if type is already set but we DO NOT have strokes yet,
-    // allow changing one's mind (useful if initialized as 'pdf' but then drawing on 'note')
+    // allow changing one's mind
     if (_strokes.isEmpty) {
       _recordingType = type;
       return;
     }
 
-    // If is already settato e diverso, diventa 'mixed'
+    // If already set and different, it becomes 'mixed'
     if (_recordingType != null && _recordingType != type) {
       _recordingType = 'mixed';
     } else {
@@ -387,7 +386,19 @@ class SynchronizedRecordingBuilder {
     }
   }
 
-  /// Resets il builder for aa nuova registrazione
+  /// Remove a stroke from the builder by its ID.
+  ///
+  /// Called when the user performs undo during an active recording session,
+  /// so the undone stroke doesn't appear as a ghost during playback.
+  /// Returns true if a stroke was found and removed.
+  bool removeStrokeById(String strokeId) {
+    final index = _strokes.indexWhere((s) => s.stroke.id == strokeId);
+    if (index < 0) return false;
+    _strokes.removeAt(index);
+    return true;
+  }
+
+  /// Resets the builder for a new recording
   void reset() {
     _strokes.clear();
     _recordingStartEpoch = DateTime.now().millisecondsSinceEpoch;

@@ -13,7 +13,7 @@ class ImageElement {
   final double scale; // Scala (1.0 = size originale)
   final double rotation; // Rotazione in radianti
   final DateTime createdAt;
-  final int pageIndex; // Pagina del PDF a cui appartiene l'immagine
+  final int pageIndex; // Page this image belongs to
 
   // ✨ Filtri colore
   final double brightness; // -0.5 a +0.5

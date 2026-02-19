@@ -61,23 +61,21 @@ extension on _NebulaCanvasScreenState {
     );
   }
 
-  /// Shows dialog per inserire testo digitale
+  /// Shows dialog for inserting digital text
   Future<void> _showDigitalTextDialog() async {
     final result = await DigitalTextInputDialog.show(
       context,
       initialColor: _effectiveColor,
     );
 
-
     if (result != null && mounted) {
-      // Create text element al centro of the viewport
+      // Create text element at the center of the viewport
       // 🛠️ FIX: Use screenToCanvas to convert screen center to canvas coordinates
       final screenCenter = Offset(
         MediaQuery.of(context).size.width / 2,
         MediaQuery.of(context).size.height / 2,
       );
       final viewportCenter = _canvasController.screenToCanvas(screenCenter);
-
 
       final newElement = DigitalTextElement(
         id: const Uuid().v4(),
@@ -91,20 +89,19 @@ extension on _NebulaCanvasScreenState {
 
       setState(() {
         _digitalTextElements.add(newElement);
-        // Seleziona automaticamente il nuovo elemento
+        // Auto-select the new element
         _digitalTextTool.selectElement(newElement);
       });
 
       // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addText(newElement);
 
-
       // 💾 Auto-save after adding digital text
       _autoSaveCanvas();
     }
   }
 
-  /// Shows dialog per MODIFICARE testo digitale esistente (long press)
+  /// Shows dialog for editing existing digital text (on long press)
   Future<void> _editDigitalTextElement(DigitalTextElement element) async {
     final result = await DigitalTextInputDialog.show(
       context,
@@ -113,11 +110,11 @@ extension on _NebulaCanvasScreenState {
     );
 
     if (result != null && mounted) {
-      // Find the element e aggiornalo
+      // Find the element and update it
       final index = _digitalTextElements.indexOf(element);
       if (index != -1) {
         setState(() {
-          // Replaci con nuovo elemento aggiornato
+          // Replace with new updated element
           _digitalTextElements[index] = DigitalTextElement(
             id: element.id,
             text: result.text,
@@ -128,7 +125,7 @@ extension on _NebulaCanvasScreenState {
             createdAt: element.createdAt,
             modifiedAt: DateTime.now(),
           );
-          // Ri-seleziona l'elemento aggiornato
+          // Re-select the updated element
           _digitalTextTool.selectElement(_digitalTextElements[index]);
         });
 
@@ -138,7 +135,7 @@ extension on _NebulaCanvasScreenState {
     }
   }
 
-  /// Handles long press sul canvas (per modificare testo)
+  /// Handles long press on canvas (for editing text)
   void _onLongPress(Offset canvasPosition) {
     // 🔒 VIEWER GUARD
     if (_checkViewerGuard()) return;
@@ -147,12 +144,25 @@ extension on _NebulaCanvasScreenState {
     final hitElement = _digitalTextTool.hitTest(
       canvasPosition,
       _digitalTextElements,
-      context,
     );
 
     if (hitElement != null) {
-      // Show dialog di modifica
+      // Show edit dialog
       _editDigitalTextElement(hitElement);
     }
+  }
+
+  /// Syncs a text element updated by DigitalTextTool back into the canvas state.
+  ///
+  /// Centralizes the repeated pattern of:
+  /// 1. Finding the element by ID in _digitalTextElements
+  /// 2. Replacing it with the updated version
+  /// 3. Notifying the layer controller for delta tracking
+  void _syncTextElementFromTool(DigitalTextElement updated) {
+    final idx = _digitalTextElements.indexWhere((e) => e.id == updated.id);
+    if (idx != -1) {
+      _digitalTextElements[idx] = updated;
+    }
+    _layerController.updateText(updated);
   }
 }

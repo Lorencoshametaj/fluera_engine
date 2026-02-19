@@ -28,6 +28,7 @@ class GeometricShape {
   final DateTime createdAt;
   final GradientFill? fillGradient;
   final GradientFill? strokeGradient;
+  final double rotation; // Rotation angle in radians (for rotated shapes)
 
   GeometricShape({
     required this.id,
@@ -40,6 +41,7 @@ class GeometricShape {
     required this.createdAt,
     this.fillGradient,
     this.strokeGradient,
+    this.rotation = 0.0,
   });
 
   /// Copia con modifiche
@@ -54,6 +56,7 @@ class GeometricShape {
     DateTime? createdAt,
     GradientFill? fillGradient,
     GradientFill? strokeGradient,
+    double? rotation,
   }) {
     return GeometricShape(
       id: id ?? this.id,
@@ -66,6 +69,7 @@ class GeometricShape {
       createdAt: createdAt ?? this.createdAt,
       fillGradient: fillGradient ?? this.fillGradient,
       strokeGradient: strokeGradient ?? this.strokeGradient,
+      rotation: rotation ?? this.rotation,
     );
   }
 
@@ -81,6 +85,7 @@ class GeometricShape {
     'createdAt': createdAt.toIso8601String(),
     if (fillGradient != null) 'fillGradient': fillGradient!.toJson(),
     if (strokeGradient != null) 'strokeGradient': strokeGradient!.toJson(),
+    if (rotation != 0.0) 'rotation': rotation,
   };
 
   /// Deserializzazione JSON
@@ -115,6 +120,7 @@ class GeometricShape {
                 json['strokeGradient'] as Map<String, dynamic>,
               )
               : null,
+      rotation: (json['rotation'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

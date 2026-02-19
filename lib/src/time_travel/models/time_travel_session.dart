@@ -120,8 +120,7 @@ class TimeTravelEvent {
       type == CanvasDeltaType.shapeAdded ||
       type == CanvasDeltaType.textAdded ||
       type == CanvasDeltaType.imageAdded ||
-      type == CanvasDeltaType.layerAdded ||
-      type == CanvasDeltaType.pageAdded;
+      type == CanvasDeltaType.layerAdded;
 
   /// È un evento che rimuove un elemento?
   bool get isRemoval =>
@@ -129,8 +128,7 @@ class TimeTravelEvent {
       type == CanvasDeltaType.shapeRemoved ||
       type == CanvasDeltaType.textRemoved ||
       type == CanvasDeltaType.imageRemoved ||
-      type == CanvasDeltaType.layerRemoved ||
-      type == CanvasDeltaType.pageRemoved;
+      type == CanvasDeltaType.layerRemoved;
 
   /// È un evento di modifica (update)?
   bool get isUpdate =>

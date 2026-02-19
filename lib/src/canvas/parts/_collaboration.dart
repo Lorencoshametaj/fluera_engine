@@ -63,6 +63,8 @@ extension CollaborationExtension on _NebulaCanvasScreenState {
                   }
                 }
               }
+              // 🧠 Full cache invalidation on remote updates (content may be completely different)
+              ImagePainter.invalidateCache();
               setState(() {});
             }
           },

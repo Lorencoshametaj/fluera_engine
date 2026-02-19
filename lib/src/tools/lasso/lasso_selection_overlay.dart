@@ -20,6 +20,9 @@ class LassoSelectionOverlay extends StatefulWidget {
   final InfiniteCanvasController canvasController;
   final bool isDragging;
 
+  /// 🚀 PERF: Optional notifier for smooth repositioning during drag.
+  final ValueNotifier<int>? dragNotifier;
+
   const LassoSelectionOverlay({
     super.key,
     required this.selectedStrokeIds,
@@ -29,6 +32,7 @@ class LassoSelectionOverlay extends StatefulWidget {
     required this.layerController,
     required this.canvasController,
     this.isDragging = false,
+    this.dragNotifier,
   });
 
   @override
@@ -54,11 +58,14 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
 
     // 🚀 Follow canvas transform (zoom/pan/rotate)
     widget.canvasController.addListener(_onTransformChanged);
+    // 🚀 PERF: Listen to drag updates for smooth highlight repositioning
+    widget.dragNotifier?.addListener(_onTransformChanged);
   }
 
   @override
   void dispose() {
     widget.canvasController.removeListener(_onTransformChanged);
+    widget.dragNotifier?.removeListener(_onTransformChanged);
     _pulseController.dispose();
     super.dispose();
   }

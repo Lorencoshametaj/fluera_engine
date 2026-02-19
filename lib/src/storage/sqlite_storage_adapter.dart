@@ -32,7 +32,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 1;
+const int _kSchemaVersion = 2;
 
 /// Database file name.
 const String _kDatabaseName = 'nebula_canvas.db';
@@ -73,6 +73,10 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
 
   /// Whether the adapter has been initialized.
   bool get isInitialized => _db != null;
+
+  /// Expose the raw database for shared services (e.g. RecordingStorageService).
+  /// Throws if not initialized.
+  Database get database => _ensureInitialized();
 
   // ===========================================================================
   // INITIALIZATION
@@ -152,14 +156,46 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       CREATE INDEX idx_layers_canvas ON canvas_layers(canvas_id, layer_index)
     ''');
 
+    // 🎤 v2: Recordings table for audio + synced stroke persistence
+    await _createRecordingsTable(db);
+
     debugPrint('[NebulaStorage] Schema v$version created');
   }
 
   /// Handle schema migrations.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     debugPrint('[NebulaStorage] Migrating schema v$oldVersion → v$newVersion');
-    // Future migrations go here:
-    // if (oldVersion < 2) { ... }
+
+    if (oldVersion < 2) {
+      await _createRecordingsTable(db);
+      debugPrint('[NebulaStorage] Migration v1→v2: recordings table created');
+    }
+  }
+
+  /// Create the recordings table (shared by _onCreate and _onUpgrade).
+  Future<void> _createRecordingsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS recordings (
+        id                TEXT PRIMARY KEY,
+        canvas_id         TEXT NOT NULL,
+        audio_path        TEXT NOT NULL,
+        note_title        TEXT,
+        recording_type    TEXT,
+        total_duration_ms INTEGER NOT NULL,
+        start_time        TEXT NOT NULL,
+        strokes_json      TEXT,
+        created_at        INTEGER NOT NULL,
+        FOREIGN KEY (canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_recordings_canvas ON recordings(canvas_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_recordings_audio_path ON recordings(audio_path)
+    ''');
   }
 
   // ===========================================================================

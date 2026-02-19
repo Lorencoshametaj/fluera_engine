@@ -273,7 +273,11 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
                           (e) => e.id == imageElement.id,
                         );
                         _imageTool.clearSelection();
+                        _imageVersion++;
+                        _rebuildImageSpatialIndex();
                       });
+                      // 🗑️ Prune per-image cache for the deleted image
+                      ImagePainter.invalidateImageCache(imageElement.id);
 
                       // 🔄 Sync: notify delta tracker for synchronization
                       _layerController.removeImage(imageElement.id);

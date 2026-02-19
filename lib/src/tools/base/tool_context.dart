@@ -9,7 +9,7 @@ import '../unified_tool_controller.dart';
 
 /// 🎯 Context provided to all tools
 ///
-/// Abstracts the differences between Infinite Canvas, PDF, and Multiview.
+/// Abstracts the differences between Infinite Canvas and Multiview.
 /// The tool doesn't know which context it's operating in - it only uses this context.
 ///
 /// DESIGN PRINCIPLES:
@@ -17,7 +17,7 @@ import '../unified_tool_controller.dart';
 /// - Provides ALL necessary information to the tool
 /// - Delegates operations to the adapter for context-specific logic
 class ToolContext {
-  /// Context-specific adapter (Canvas, PDF, etc.)
+  /// Context-specific adapter (Canvas, etc.)
   final CanvasAdapter adapter;
 
   /// Layer controller for managing strokes, shapes, etc.
@@ -101,9 +101,39 @@ class ToolContext {
     adapter.addTextElement(element);
   }
 
+  /// Gets all text elements in the current context
+  List<DigitalTextElement> getTextElements() {
+    return adapter.getTextElements();
+  }
+
+  /// Updates a text element (matched by ID)
+  void updateTextElement(DigitalTextElement element) {
+    adapter.updateTextElement(element);
+  }
+
+  /// Removes a text element by ID
+  void removeTextElement(String elementId) {
+    adapter.removeTextElement(elementId);
+  }
+
   /// Adds an image element
   void addImageElement(ImageElement element) {
     adapter.addImageElement(element);
+  }
+
+  /// Gets all image elements in the current context
+  List<ImageElement> getImageElements() {
+    return adapter.getImageElements();
+  }
+
+  /// Updates an image element (matched by ID)
+  void updateImageElement(ImageElement element) {
+    adapter.updateImageElement(element);
+  }
+
+  /// Removes an image element by ID
+  void removeImageElement(String elementId) {
+    adapter.removeImageElement(elementId);
   }
 
   /// Gets all strokes within the specified viewport

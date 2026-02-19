@@ -30,22 +30,12 @@ extension on _NebulaCanvasScreenState {
       // Only if we have a stroke to save
       if (_drawingHandler.hasStroke) {
         // Complete the stroke on the image
-        final finalPoints = _drawingHandler.endStroke();
+        _drawingHandler.endStroke();
 
-        // 🔄 FIX: Use LIVE image element to handle resize/move during edit
-        // _imageInEditMode is a snapshot - we need the current state from _imageElements
-        var activeImage = _imageInEditMode!;
-        try {
-          activeImage = _imageElements.firstWhere(
-            (e) => e.id == _imageInEditMode!.id,
-            orElse: () => _imageInEditMode!,
-          );
-        } catch (_) {}
-
-        // 🔄 Convert coordinates from absolute to image-relative
-        final relativePoints = _convertPointsToImageSpace(
-          finalPoints,
-          activeImage,
+        // 🚀 Fix 1: use pre-accumulated converted points (O(1) instead of O(n))
+        // These are the exact points the user saw during drawing.
+        final relativePoints = List<ProDrawingPoint>.from(
+          _editingConvertedPoints,
         );
 
         final stroke = ProStroke(
@@ -54,14 +44,18 @@ extension on _NebulaCanvasScreenState {
           color: _effectiveColor,
           baseWidth: _effectiveWidth,
           penType: _effectivePenType,
-          createdAt: DateTime.now(),
-          settings: _brushSettings, // 🎛️ Passa settings
+          createdAt: _editingStrokeCreatedAt,
+          settings: _brushSettings,
         );
 
         setState(() {
           _imageEditingStrokes.add(stroke);
+          // 🧠 Fix 7: new stroke invalidates redo history
+          _imageEditingUndoStack.clear();
         });
 
+        // Clean up accumulator
+        _editingConvertedPoints.clear();
         _currentEditingStrokeNotifier.value = null;
 
         // 🎤 NOTIFICA ESTERNA (per Sync Recording)
@@ -81,6 +75,9 @@ extension on _NebulaCanvasScreenState {
       _imageTool.endResize();
       _stopAutoScroll();
       HapticFeedback.lightImpact();
+      // 🧠 Cache coherency: bump version + rebuild R-tree after resize
+      _imageVersion++;
+      _rebuildImageSpatialIndex();
       // 🔄 Sync: notify delta tracker of image update
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
@@ -96,6 +93,9 @@ extension on _NebulaCanvasScreenState {
       _stopAutoScroll();
       _clearSmartGuides();
       HapticFeedback.lightImpact();
+      // 🧠 Cache coherency: bump version + rebuild R-tree after drag
+      _imageVersion++;
+      _rebuildImageSpatialIndex();
       // 🔄 Sync: notify delta tracker of image update
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
@@ -124,17 +124,18 @@ extension on _NebulaCanvasScreenState {
       }
     }
 
-    // Reset position iniziale
+    // Reset initial tap position
     if (_initialTapPosition != null) {
       _initialTapPosition = null;
-    } // 🎯 SEMPRE gestisci fine resize/drag di digital text (indipendentemente dal tool attivo)
+    }
+    // 🎯 Always handle digital text resize/drag end (regardless of active tool)
     if (_digitalTextTool.isResizing) {
       _digitalTextTool.endResize();
       HapticFeedback.lightImpact();
 
-      // 🔄 Sync: notify delta tracker after resize
+      // Sync updated element to list + layer controller
       if (_digitalTextTool.selectedElement != null) {
-        _layerController.updateText(_digitalTextTool.selectedElement!);
+        _syncTextElementFromTool(_digitalTextTool.selectedElement!);
       }
       setState(() {});
 
@@ -146,9 +147,9 @@ extension on _NebulaCanvasScreenState {
       _clearSmartGuides();
       _stopAutoScroll();
 
-      // 🔄 Sync: notify delta tracker after drag
+      // Sync updated element to list + layer controller
       if (_digitalTextTool.selectedElement != null) {
-        _layerController.updateText(_digitalTextTool.selectedElement!);
+        _syncTextElementFromTool(_digitalTextTool.selectedElement!);
       }
       setState(() {});
 
@@ -283,6 +284,62 @@ extension on _NebulaCanvasScreenState {
     // 🎯 NOTE: Point trimming to rendered count disabled.
     // When PointerMoveEvent and PointerUpEvent arrive in the same event batch,
     // the last point(s) may not be visible. Re-enable if needed in the future.
+
+    // 🔷 Shape Recognition: check if freehand stroke matches a geometric shape
+    if (_toolController.shapeRecognitionEnabled) {
+      final positions = finalPoints.map((p) => p.position).toList();
+      final sensitivity = _toolController.shapeRecognitionSensitivity;
+
+      // Try single-stroke recognition first
+      var result = ShapeRecognizer.recognize(
+        positions,
+        sensitivity: sensitivity,
+      );
+
+      // 🔀 Multi-stroke: if single stroke didn't match,
+      // buffer it and try combining with recent strokes
+      if (!result.recognizedAt(sensitivity.threshold)) {
+        _toolController.bufferStroke(positions);
+        final combined = _toolController.getMultiStrokePoints();
+        if (combined != null) {
+          result = ShapeRecognizer.recognize(
+            combined,
+            sensitivity: sensitivity,
+          );
+        }
+      }
+
+      if (result.recognizedAt(sensitivity.threshold)) {
+        final shape = GeometricShape(
+          id: const Uuid().v4(),
+          type: result.type!,
+          startPoint: result.boundingBox.topLeft,
+          endPoint: result.boundingBox.bottomRight,
+          color: _effectiveColor,
+          strokeWidth: _effectiveWidth,
+          filled: false,
+          createdAt: DateTime.now(),
+          rotation: result.rotationAngle,
+        );
+
+        // 👻 Ghost mode: show preview before committing
+        if (_toolController.ghostSuggestionMode) {
+          _currentStrokeNotifier.clear();
+          _showGhostSuggestion(shape, result);
+          return;
+        }
+
+        // Immediate commit
+        _currentStrokeNotifier.clear();
+        _layerController.addShape(shape);
+        _toolController.clearMultiStrokeBuffer();
+        HapticFeedback.mediumImpact();
+        DrawingPainter.invalidateAllTiles();
+        _showShapeRecognitionToast(result);
+        _autoSaveCanvas();
+        return;
+      }
+    }
 
     // 🎤 NOTIFICA ESTERNA (per Sync Recording) - PRE-CREATION
     // Salviamo i tempi prima che vengano persi/resetati

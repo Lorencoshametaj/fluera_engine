@@ -25,8 +25,6 @@ enum CanvasDeltaType {
   layerRemoved,
   layerModified,
   layerCleared,
-  pageAdded, // 📄 PDF page insertion (carries pageIndex + pageSize)
-  pageRemoved, // 🗑️ PDF page deletion (carries pageIndex)
 }
 
 /// 🔄 Single delta — represents an incremental modification to the canvas.
@@ -37,7 +35,7 @@ class CanvasDelta {
   final String id;
   final CanvasDeltaType type;
   final String layerId;
-  final int? pageIndex; // 📄 Page index (for PDF, null for normal canvas)
+  final int? pageIndex;
   final DateTime timestamp;
 
   /// Type-specific data (already serialized for efficiency)
@@ -273,38 +271,6 @@ class CanvasDeltaTracker {
         pageIndex: pageIndex,
         timestamp: DateTime.now(),
         elementId: strokeId,
-      ),
-    );
-  }
-
-  /// 📄 Record PDF page addition
-  void recordPageAdded(int afterPageIndex, double width, double height) {
-    _addDelta(
-      CanvasDelta(
-        id: _generateDeltaId(),
-        type: CanvasDeltaType.pageAdded,
-        layerId: 'pdf',
-        pageIndex: afterPageIndex,
-        timestamp: DateTime.now(),
-        elementData: {
-          'afterPageIndex': afterPageIndex,
-          'width': width,
-          'height': height,
-        },
-      ),
-    );
-  }
-
-  /// 🗑️ Record PDF page removal
-  void recordPageRemoved(int pageIndex) {
-    _addDelta(
-      CanvasDelta(
-        id: _generateDeltaId(),
-        type: CanvasDeltaType.pageRemoved,
-        layerId: 'pdf',
-        pageIndex: pageIndex,
-        timestamp: DateTime.now(),
-        elementData: {'pageIndex': pageIndex},
       ),
     );
   }
@@ -752,12 +718,6 @@ class CanvasDeltaTracker {
                 layer.images.map((i) => i.id == image.id ? image : i).toList();
             layerMap[delta.layerId] = layer.copyWith(images: updatedImages);
           }
-          break;
-
-        case CanvasDeltaType.pageAdded:
-        case CanvasDeltaType.pageRemoved:
-          // 📄 Page-level changes — handled by PDFController in _applyRemoteDelta,
-          // not at layer level. No-op here.
           break;
       }
     }

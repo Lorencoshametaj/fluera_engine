@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
 import 'package:nebula_engine/src/core/nodes/layer_node.dart';

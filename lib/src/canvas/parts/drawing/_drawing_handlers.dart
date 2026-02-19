@@ -45,25 +45,31 @@ extension on _NebulaCanvasScreenState {
           // Start drawing on top of the image
           _drawingHandler.startStroke(
             position: canvasPosition,
-            pressure: pressure, // 🚀 Usa real pressure
-            tiltX: tiltX, // 🖊️ Usa tilt reale
+            pressure: pressure,
+            tiltX: tiltX,
             tiltY: tiltY,
             orientation: 0.0,
           );
 
-          // Update il notifier with ao stroke temporaneo completo (con colore!)
-          final relativePoints = _convertPointsToImageSpace(
-            _drawingHandler.currentStroke,
-            _imageInEditMode!,
-          );
+          // 🚀 Fix 1: incremental conversion — init accumulator with first point
+          _editingConvertedPoints.clear();
+          _editingStrokeCreatedAt = DateTime.now();
+          if (_drawingHandler.currentStroke.isNotEmpty) {
+            _editingConvertedPoints.add(
+              _convertSinglePointToImageSpace(
+                _drawingHandler.currentStroke.last,
+                _imageInEditMode!,
+              ),
+            );
+          }
           _currentEditingStrokeNotifier.value = ProStroke(
             id: 'temp',
-            points: relativePoints,
+            points: _editingConvertedPoints,
             color: _effectiveColor,
             baseWidth: _effectiveWidth,
             penType: _effectivePenType,
-            createdAt: DateTime.now(),
-            settings: _brushSettings, // 🎛️ Passa settings
+            createdAt: _editingStrokeCreatedAt,
+            settings: _brushSettings,
           );
           return;
         } else {
@@ -121,47 +127,44 @@ extension on _NebulaCanvasScreenState {
       // Do not return - continua con gli altri tool
     }
 
-    // 🎯 SEMPRE controlla interazione con text elements (indipendentemente dal tool attivo)
-    // Prima controlla se si tocca un handle di resize (only if c'è una selezione)
+    // 🎯 Always check text element interaction (regardless of active tool)
+    // First check resize handles (only if there's a selection)
     if (_digitalTextTool.hasSelection) {
       final handleIndex = _digitalTextTool.hitTestResizeHandles(
         canvasPosition,
         _digitalTextTool.selectedElement!,
-        context,
       );
 
       if (handleIndex != null) {
         // Start resize
-        _digitalTextTool.startResize(handleIndex, canvasPosition, context);
+        _digitalTextTool.startResize(handleIndex, canvasPosition);
         setState(() {});
         return;
       }
     }
 
-    // 🎯 SEMPRE fa hit test su text elements (even if nessun tool testo attivo)
+    // 🎯 Always hit-test text elements (even if no text tool is active)
     final hitElement = _digitalTextTool.hitTest(
       canvasPosition,
       _digitalTextElements,
-      context,
     );
 
     if (hitElement != null) {
-      // Seleziona l'elemento
+      // Select the element and start drag
       _digitalTextTool.selectElement(hitElement);
-      // Start drag
       _digitalTextTool.startDrag(canvasPosition);
       setState(() {});
       return; // 🛑 Block other tools when touching text
     }
 
-    // If tocco area vuota, deseleziona (se c'era una selezione)
+    // If tapped on empty area, deselect (if there was a selection)
     if (_digitalTextTool.hasSelection) {
       _digitalTextTool.deselectElement();
       setState(() {});
-      // Do not return - continua con gli altri tool
+      // Do not return — continue with other tools
     }
 
-    // If il digital text is active E non ho toccato nessun testo, return (non disegnare)
+    // If digital text mode is active and no text was hit, return (don't draw)
     if (_effectiveIsDigitalText) {
       return;
     }

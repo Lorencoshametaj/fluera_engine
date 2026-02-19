@@ -74,9 +74,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   onBrushSettingsPressed; // 🎛️ Callback impostazioni pennello
   final VoidCallback? onExportPressed; // 📤 Callback export canvas
   final VoidCallback onLayersPressed;
-  final VoidCallback?
-  onDualPagePressed; // 📖 Callback dual page viewer (solo PDF)
-  final bool isDualPageMode; // 📖 Stato mode doppia pagina
+  final VoidCallback? onDualPagePressed;
+  final bool isDualPageMode;
   final VoidCallback onEraserToggle;
   final double eraserRadius;
   final ValueChanged<double>? onEraserRadiusChanged;
@@ -94,7 +93,6 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback onRecordingPressed; // � Callback registrazione
   final VoidCallback
   onViewRecordingsPressed; // 🎧 Callback visualizza registrazioni
-  final VoidCallback onPdfPressed; // 📄 Callback pulsante PDF
   final VoidCallback?
   onMultiViewPressed; // 📋 Callback pulsante multiview (opzionale)
   final ValueChanged<int>?
@@ -102,22 +100,14 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final bool forceLeftAlign; // 🎯 Forza allineamento a sinistra
   // 📐 Layout callbacks
   final VoidCallback? onCanvasLayoutPressed; // Canvas solo
-  final VoidCallback? onPdfLayoutPressed; // PDF solo
   final VoidCallback? onHSplitLayoutPressed; // H-Split
   final VoidCallback? onVSplitLayoutPressed; // V-Split
-  final VoidCallback? onPdfOverlayPressed; // PDF Overlay
   final VoidCallback? onCanvasOverlayPressed; // Canvas Overlay
   // 🔄 Sync callback
   final VoidCallback? onSyncToggle; // Toggle sync
   final bool? isSyncEnabled; // Stato sync
   // 🔧 Advanced Split callback
   final VoidCallback? onAdvancedSplitPressed; // Advanced Split Configuretion
-  // 📄 PDF Navigation
-  final dynamic pdfController; // PDFController per navigazione
-  final VoidCallback? onPdfAddPage; // Add page
-  final VoidCallback? onPdfDeletePage; // 🗑️ Elimina pagina
-  final VoidCallback? onPdfPageTemplate; // Change template pagina
-  final VoidCallback? onPdfPageSelected; // Seleziona pagina
   final VoidCallback? onTimeTravelPressed; // ⏱️ Time Travel
   final VoidCallback? onBranchExplorerPressed; // 🌿 Branch Explorer
   final String? activeBranchName; // 🌿 Currently active branch
@@ -126,6 +116,14 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onToggleRotationLock; // 🌀 Toggle rotation lock
   final bool isCanvasRotated; // 🌀 Whether canvas is currently rotated
   final bool isRotationLocked; // 🌀 Whether rotation is locked
+  final bool shapeRecognitionEnabled; // 🔷 Shape recognition mode
+  final int shapeRecognitionSensitivityIndex; // 🔷 0=low, 1=medium, 2=high
+  final bool ghostSuggestionEnabled; // 👻 Ghost suggestion mode
+  final VoidCallback? onShapeRecognitionToggle; // 🔷 Shape recognition toggle
+  final VoidCallback?
+  onShapeRecognitionSensitivityCycle; // 🔷 Long-press to cycle sensitivity
+  final VoidCallback? onGhostSuggestionToggle; // 👻 Double-tap to toggle ghost
+  final VoidCallback? onPdfImportPressed; // 📄 PDF import
 
   const ProfessionalCanvasToolbar({
     super.key,
@@ -183,28 +181,19 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onExitImageEditMode, // ✅ Esci da edit mode
     required this.onRecordingPressed,
     required this.onViewRecordingsPressed,
-    required this.onPdfPressed,
+
     this.onMultiViewPressed,
     this.onMultiViewModeSelected,
     this.forceLeftAlign = false,
-    // 📐 Layout callbacks
     this.onCanvasLayoutPressed,
-    this.onPdfLayoutPressed,
     this.onHSplitLayoutPressed,
     this.onVSplitLayoutPressed,
-    this.onPdfOverlayPressed,
     this.onCanvasOverlayPressed,
     // 🔄 Sync callback
     this.onSyncToggle,
     this.isSyncEnabled,
     // 🔧 Advanced Split callback
     this.onAdvancedSplitPressed,
-    // 📄 PDF Navigation
-    this.pdfController,
-    this.onPdfAddPage,
-    this.onPdfDeletePage,
-    this.onPdfPageTemplate,
-    this.onPdfPageSelected,
     this.onTimeTravelPressed, // ⏱️ Time Travel
     this.onBranchExplorerPressed, // 🌿 Branch Explorer
     this.activeBranchName, // 🌿 Active branch name
@@ -213,6 +202,13 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onToggleRotationLock, // 🌀 Toggle rotation lock
     this.isCanvasRotated = false, // 🌀 Rotation state
     this.isRotationLocked = false, // 🌀 Rotation lock state
+    this.shapeRecognitionEnabled = false, // 🔷 Shape recognition
+    this.shapeRecognitionSensitivityIndex = 1, // 🔷 Medium
+    this.ghostSuggestionEnabled = false, // 👻 Ghost mode
+    this.onShapeRecognitionToggle, // 🔷 Shape recognition toggle
+    this.onShapeRecognitionSensitivityCycle, // 🔷 Sensitivity cycle
+    this.onGhostSuggestionToggle, // 👻 Ghost toggle
+    this.onPdfImportPressed, // 📄 PDF import
     this.hideRecordingControlWhenActive = false,
     this.isFloating = false, // 🏝️ Floating Island mode
   });
@@ -244,59 +240,6 @@ class _ProfessionalCanvasToolbarState
   void initState() {
     super.initState();
     _loadCustomColors();
-  }
-
-  // 📄 PDF Navigation Helper Methods
-  int _getCurrentPage() {
-    if (widget.pdfController == null) return 0;
-    try {
-      return (widget.pdfController.currentPageIndex as int) + 1;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  int _getTotalPages() {
-    if (widget.pdfController == null) return 0;
-    try {
-      return widget.pdfController.totalPages as int;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  bool _canGoPreviousPage() {
-    if (widget.pdfController == null) return false;
-    try {
-      return widget.pdfController.pdfElement?.canGoPrevious ?? false;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  bool _canGoNextPage() {
-    if (widget.pdfController == null) return false;
-    try {
-      return widget.pdfController.pdfElement?.canGoNext ?? false;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  void _goToFirstPage() {
-    widget.pdfController?.firstPage();
-  }
-
-  void _goToPreviousPage() {
-    widget.pdfController?.previousPage();
-  }
-
-  void _goToNextPage() {
-    widget.pdfController?.nextPage();
-  }
-
-  void _goToLastPage() {
-    widget.pdfController?.lastPage();
   }
 
   // Load colori salvati

@@ -149,11 +149,11 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
                   ),
 
                 // 📄 INDICATORE PAGINA - mostra on which page sta la riproduzione
-                // NON mostrare per registrazioni 'note' (solo per PDF)
+                // NON mostrare per registrazioni 'note'
                 if (showControls &&
                     controller.isPlayingOnDifferentPage &&
                     controller.recording?.recordingType ==
-                        'pdf') // Only per PDF
+                        'note') // Filter by type
                   Positioned(
                     top: 80,
                     left: 0,

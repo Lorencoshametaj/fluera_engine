@@ -1,7 +1,7 @@
 part of 'professional_canvas_toolbar.dart';
 
 // ============================================================================
-// 🔝 TOP ROW — Status bar, PDF nav, layout buttons, quick actions
+// 🔝 TOP ROW — Status bar, layout buttons, quick actions
 // Extracted from professional_canvas_toolbar.dart
 // ============================================================================
 
@@ -29,161 +29,6 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
 
             const SizedBox(width: 8),
 
-            // 📄 PDF NAVIGATION CONTROLS (se disponibili)
-            if (widget.pdfController != null)
-              ListenableBuilder(
-                listenable: widget.pdfController,
-                builder: (context, _) {
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Add page
-                      if (widget.onPdfAddPage != null)
-                        IconButton(
-                          icon: const Icon(Icons.add_box_outlined, size: 20),
-                          tooltip: l10n.proCanvas_addPage,
-                          onPressed: widget.onPdfAddPage,
-                          color: Colors.blue,
-                          padding: const EdgeInsets.all(8),
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
-                        ),
-
-                      // 🗑️ Elimina pagina
-                      if (widget.onPdfDeletePage != null)
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 20),
-                          tooltip: l10n.proCanvas_removePage,
-                          onPressed: widget.onPdfDeletePage,
-                          color: Colors.red,
-                          padding: const EdgeInsets.all(8),
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
-                        ),
-
-                      // Change template pagina
-                      if (widget.onPdfPageTemplate != null)
-                        IconButton(
-                          icon: const Icon(Icons.note_alt_outlined, size: 20),
-                          tooltip:
-                              'Page Template', // TODO: Add l10n.proCanvas_pageTemplate
-                          onPressed: widget.onPdfPageTemplate,
-                          color: Colors.deepPurple,
-                          padding: const EdgeInsets.all(8),
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
-                        ),
-
-                      // Separatore
-                      if (widget.onPdfAddPage != null ||
-                          widget.onPdfDeletePage != null ||
-                          widget.onPdfPageTemplate != null)
-                        Container(
-                          width: 1,
-                          height: 24,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          color: isDark ? Colors.white12 : Colors.black12,
-                        ),
-
-                      // Prima pagina
-                      IconButton(
-                        icon: const Icon(Icons.first_page, size: 18),
-                        tooltip: l10n.proCanvas_firstPage,
-                        onPressed: _canGoPreviousPage() ? _goToFirstPage : null,
-                        padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                      ),
-
-                      // Pagina precedente
-                      IconButton(
-                        icon: const Icon(Icons.chevron_left, size: 18),
-                        tooltip: l10n.proCanvas_previousPage,
-                        onPressed:
-                            _canGoPreviousPage() ? _goToPreviousPage : null,
-                        padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                      ),
-
-                      // Indicatore pagina (cliccabile per aprire selettore)
-                      if (widget.onPdfPageSelected != null)
-                        InkWell(
-                          onTap: widget.onPdfPageSelected,
-                          borderRadius: BorderRadius.circular(4),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isDark ? Colors.white10 : Colors.grey[100],
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: isDark ? Colors.white24 : Colors.black26,
-                                width: 1,
-                              ),
-                            ),
-                            child: Text(
-                              '${_getCurrentPage()} / ${_getTotalPages()}',
-                              style: TextStyle(
-                                color: isDark ? Colors.white : Colors.black87,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      // Pagina successiva
-                      IconButton(
-                        icon: const Icon(Icons.chevron_right, size: 18),
-                        tooltip: l10n.proCanvas_nextPage,
-                        onPressed: _canGoNextPage() ? _goToNextPage : null,
-                        padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                      ),
-
-                      // Last page
-                      IconButton(
-                        icon: const Icon(Icons.last_page, size: 18),
-                        tooltip: l10n.proCanvas_lastPage,
-                        onPressed: _canGoNextPage() ? _goToLastPage : null,
-                        padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                      ),
-
-                      const SizedBox(width: 8),
-
-                      // Separatore verticale
-                      Container(
-                        width: 1,
-                        height: 24,
-                        color: isDark ? Colors.white12 : Colors.black12,
-                      ),
-
-                      const SizedBox(width: 8),
-                    ],
-                  );
-                },
-              ),
-
             // 📐 LAYOUT BUTTONS - The buttons requested by the user
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -199,17 +44,6 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                   ),
                 if (widget.onCanvasLayoutPressed != null)
                   const SizedBox(width: 4),
-
-                // PDF button
-                if (widget.onPdfLayoutPressed != null)
-                  ToolbarLayoutButton(
-                    icon: Icons.picture_as_pdf_rounded,
-                    label: NebulaLocalizations.of(context).proCanvas_pdfMode,
-                    onPressed: widget.onPdfLayoutPressed!,
-                    isDark: isDark,
-                    color: Colors.grey,
-                  ),
-                if (widget.onPdfLayoutPressed != null) const SizedBox(width: 4),
 
                 // H-Split button
                 if (widget.onHSplitLayoutPressed != null)
@@ -235,24 +69,11 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onVSplitLayoutPressed != null)
                   const SizedBox(width: 4),
 
-                // PDF Overlay button
-                if (widget.onPdfOverlayPressed != null)
-                  ToolbarLayoutButton(
-                    icon: Icons.picture_in_picture_rounded,
-                    label: NebulaLocalizations.of(context).proCanvas_pdfOverlay,
-                    onPressed: widget.onPdfOverlayPressed!,
-                    isDark: isDark,
-                    color: Colors.orange,
-                  ),
-                if (widget.onPdfOverlayPressed != null)
-                  const SizedBox(width: 4),
-
                 // Canvas Overlay button
                 if (widget.onCanvasOverlayPressed != null)
                   ToolbarLayoutButton(
                     icon: Icons.picture_in_picture_alt_rounded,
-                    label:
-                        NebulaLocalizations.of(context).proCanvas_canvasOverlay,
+                    label: 'Canvas Overlay',
                     onPressed: widget.onCanvasOverlayPressed!,
                     isDark: isDark,
                     color: Colors.teal,
@@ -551,7 +372,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                   noteTitle: widget.noteTitle, // 🆕 Pass noteTitle
                   onNoteTitleChanged:
                       widget.onNoteTitleChanged, // 🆕 Pass callback
-                  pdfController: widget.pdfController, // 📄 Pass PDF controller
+
                   onPaperTypePressed:
                       widget.onPaperTypePressed, // 📄 Paper type
                 ),

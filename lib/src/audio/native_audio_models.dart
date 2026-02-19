@@ -1,8 +1,8 @@
 /// 🎵 NATIVE AUDIO MODELS
-/// Modelli for the sistema audio nativo
+/// Models for the native audio system
 library;
 
-/// Stati del player
+/// Player states
 enum AudioPlayerState {
   idle,
   loading,
@@ -14,13 +14,13 @@ enum AudioPlayerState {
   error,
 }
 
-/// Stati del recorder
+/// Recorder states
 enum AudioRecorderState { idle, recording, paused, stopped, error }
 
-/// Formati audio supportati
+/// Supported audio formats
 enum AudioFormat { mp3, m4a, aac, wav, opus }
 
-/// Modalità di loop
+/// Loop modes
 enum AudioLoopMode { off, one, all }
 
 /// iOS audio session configuration
@@ -33,7 +33,7 @@ enum AudioSessionCategory {
   multiRoute,
 }
 
-/// Opzioni audio session iOS
+/// iOS audio session category options
 enum AudioSessionCategoryOption {
   mixWithOthers,
   duckOthers,
@@ -43,7 +43,7 @@ enum AudioSessionCategoryOption {
   defaultToSpeaker,
 }
 
-/// Configuretion per recording
+/// Configuration for recording
 class AudioRecordConfig {
   final AudioFormat format;
   final int sampleRate;
@@ -79,7 +79,7 @@ class AudioRecordConfig {
   }
 }
 
-/// Informazioni sulla traccia audio
+/// Audio track information
 class AudioTrackInfo {
   final String? title;
   final String? artist;
@@ -119,7 +119,7 @@ class AudioTrackInfo {
   }
 }
 
-/// Stato del player con tutte le info
+/// Player state with all info
 class AudioPlayerStateInfo {
   final AudioPlayerState state;
   final Duration position;

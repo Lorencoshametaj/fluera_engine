@@ -50,6 +50,10 @@ class LassoTool {
   /// Listeners repaint only the lasso overlay — no full setState rebuild.
   final ValueNotifier<int> lassoPathNotifier = ValueNotifier<int>(0);
 
+  /// 🚀 PERF: Notifier that fires during drag for smooth overlay updates.
+  /// SelectionTransformOverlay listens to this instead of relying on parent setState.
+  final ValueNotifier<int> dragNotifier = ValueNotifier<int>(0);
+
   // Selected element IDs by type
   final Set<String> selectedStrokeIds = {};
   final Set<String> selectedShapeIds = {};
@@ -60,6 +64,17 @@ class LassoTool {
   bool _isDragging = false;
   Offset? _dragStartPosition;
   Rect? _selectionBounds;
+
+  /// 🚀 PERF: Accumulated drag offset not yet applied to stroke data.
+  /// moveSelected() is throttled during drag; this tracks the pending delta.
+  Offset _pendingDragDelta = Offset.zero;
+  int _lastMoveSelectedTime = 0;
+  static const int _moveSelectedThrottleMs = 32; // ~30fps for heavy work
+
+  // 🌊 FLING: Velocity tracking during drag (exponential smoothing)
+  Offset _dragVelocity = Offset.zero;
+  int _lastDragTimestamp = 0;
+  static const double _velocitySmoothing = 0.3; // α for EMA
 
   // Clipboard for copy/paste
   List<ProStroke> _clipboardStrokes = [];
@@ -151,6 +166,10 @@ class LassoTool {
 
   bool get isDragging => _isDragging;
 
+  /// 🌊 FLING: Last computed drag velocity (canvas-space pixels/second).
+  /// Read this after endDrag() to decide whether to fling.
+  Offset get lastDragVelocity => _dragVelocity;
+
   // ===========================================================================
   // Drag Operations
   // ===========================================================================
@@ -164,20 +183,55 @@ class LassoTool {
   void startDrag(Offset position) {
     _isDragging = true;
     _dragStartPosition = position;
+    // 🌊 FLING: Reset velocity tracking
+    _dragVelocity = Offset.zero;
+    _lastDragTimestamp = DateTime.now().millisecondsSinceEpoch;
     // Save undo snapshot before any drag transformation
     saveUndoSnapshot();
   }
 
-  void updateDrag(Offset currentPosition) {
-    if (!_isDragging || _dragStartPosition == null) return;
+  /// Returns true if stroke data was actually updated (moveSelected ran),
+  /// false if the frame was throttled (only bounds shifted).
+  bool updateDrag(Offset currentPosition) {
+    if (!_isDragging || _dragStartPosition == null) return false;
     var delta = currentPosition - _dragStartPosition!;
     // Apply snap-to-grid if enabled
     if (snapEnabled) delta = snapDelta(delta);
-    moveSelected(delta);
-    _dragStartPosition = currentPosition;
+
+    // 🌊 FLING: Track velocity via exponential moving average
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final dtMs = now - _lastDragTimestamp;
+    if (dtMs > 0) {
+      final dtSeconds = dtMs / 1000.0;
+      final instantVelocity = delta / dtSeconds;
+      _dragVelocity = Offset(
+        _dragVelocity.dx * (1 - _velocitySmoothing) +
+            instantVelocity.dx * _velocitySmoothing,
+        _dragVelocity.dy * (1 - _velocitySmoothing) +
+            instantVelocity.dy * _velocitySmoothing,
+      );
+      _lastDragTimestamp = now;
+    }
+
+    // 🚀 PERF: Always update selection bounds (cheap) for smooth overlay positioning
     if (_selectionBounds != null) {
       _selectionBounds = _selectionBounds!.shift(delta);
     }
+    _dragStartPosition = currentPosition;
+
+    // 🚀 PERF: Fire drag notifier every frame for smooth overlay handle updates
+    dragNotifier.value++;
+
+    // 🚀 PERF: Throttle the expensive moveSelected() (copies all stroke points).
+    // Accumulate the delta and flush at ~30fps max.
+    _pendingDragDelta += delta;
+    if (now - _lastMoveSelectedTime >= _moveSelectedThrottleMs) {
+      _lastMoveSelectedTime = now;
+      moveSelected(_pendingDragDelta);
+      _pendingDragDelta = Offset.zero;
+      return true; // Data changed
+    }
+    return false; // Throttled — only bounds shifted
   }
 
   void compensateScroll(Offset scrollDelta) {
@@ -190,9 +244,16 @@ class LassoTool {
   }
 
   void endDrag() {
+    // 🚀 PERF: Flush any remaining pending drag delta
+    if (_pendingDragDelta != Offset.zero) {
+      moveSelected(_pendingDragDelta);
+      _pendingDragDelta = Offset.zero;
+    }
+
     // Set dragging false FIRST so _onLayerChanged can rebuild cluster cache
     _isDragging = false;
     _dragStartPosition = null;
+    _lastMoveSelectedTime = 0;
 
     // 🌊 REFLOW: On drag end, do the full solve and bake displacements
     if (isReflowEnabled && reflowGhostDisplacements.isNotEmpty) {
@@ -378,45 +439,55 @@ class LassoTool {
     if (isSelectionLocked) return; // Lock guard
     final activeLayer = _getActiveLayer();
 
+    // 🚀 PERF: Only rebuild lists for element types that have selections.
+    // If only strokes are selected, reuse shapes/texts/images lists as-is.
     final movedStrokes =
-        activeLayer.strokes.map((stroke) {
-          if (selectedStrokeIds.contains(stroke.id)) {
-            return stroke.copyWith(
-              points:
-                  stroke.points
-                      .map((p) => p.copyWith(position: p.position + delta))
-                      .toList(),
-            );
-          }
-          return stroke;
-        }).toList();
+        selectedStrokeIds.isEmpty
+            ? activeLayer.strokes
+            : activeLayer.strokes.map((stroke) {
+              if (selectedStrokeIds.contains(stroke.id)) {
+                return stroke.copyWith(
+                  points:
+                      stroke.points
+                          .map((p) => p.copyWith(position: p.position + delta))
+                          .toList(),
+                );
+              }
+              return stroke;
+            }).toList();
 
     final movedShapes =
-        activeLayer.shapes.map((shape) {
-          if (selectedShapeIds.contains(shape.id)) {
-            return shape.copyWith(
-              startPoint: shape.startPoint + delta,
-              endPoint: shape.endPoint + delta,
-            );
-          }
-          return shape;
-        }).toList();
+        selectedShapeIds.isEmpty
+            ? activeLayer.shapes
+            : activeLayer.shapes.map((shape) {
+              if (selectedShapeIds.contains(shape.id)) {
+                return shape.copyWith(
+                  startPoint: shape.startPoint + delta,
+                  endPoint: shape.endPoint + delta,
+                );
+              }
+              return shape;
+            }).toList();
 
     final movedTexts =
-        activeLayer.texts.map((text) {
-          if (selectedTextIds.contains(text.id)) {
-            return text.copyWith(position: text.position + delta);
-          }
-          return text;
-        }).toList();
+        selectedTextIds.isEmpty
+            ? activeLayer.texts
+            : activeLayer.texts.map((text) {
+              if (selectedTextIds.contains(text.id)) {
+                return text.copyWith(position: text.position + delta);
+              }
+              return text;
+            }).toList();
 
     final movedImages =
-        activeLayer.images.map((image) {
-          if (selectedImageIds.contains(image.id)) {
-            return image.copyWith(position: image.position + delta);
-          }
-          return image;
-        }).toList();
+        selectedImageIds.isEmpty
+            ? activeLayer.images
+            : activeLayer.images.map((image) {
+              if (selectedImageIds.contains(image.id)) {
+                return image.copyWith(position: image.position + delta);
+              }
+              return image;
+            }).toList();
 
     _updateLayer(
       activeLayer.copyWith(
@@ -460,6 +531,10 @@ class LassoTool {
     }
     return ids;
   }
+
+  /// 🌊 REFLOW: Public API to bake ghost displacements into actual positions.
+  /// Called by [SelectionTransformOverlay] at the end of scale/rotate gestures.
+  void bakeReflowDisplacements() => _bakeReflowDisplacements();
 
   /// 🌊 REFLOW: Bake ghost displacements into actual element positions.
   /// Called once on drag end for atomic undo.

@@ -24,7 +24,6 @@ typedef TimeTravelEventCallback =
       String layerId, {
       String? elementId,
       Map<String, dynamic>? elementData,
-      int? pageIndex,
     });
 
 /// Controller for managing canvas layers.
@@ -47,9 +46,6 @@ class LayerController extends NebulaLayerController {
 
   /// Delta Tracker for incremental sync (singleton).
   final CanvasDeltaTracker _deltaTracker = CanvasDeltaTracker.instance;
-
-  /// Page index (for PDF hybrid storage).
-  final int? pageIndex;
 
   /// Undo/Redo Manager (singleton).
   final UndoRedoManager _undoRedoManager = UndoRedoManager.instance;
@@ -85,11 +81,10 @@ class LayerController extends NebulaLayerController {
       layerId,
       elementId: elementId,
       elementData: elementData,
-      pageIndex: pageIndex,
     );
   }
 
-  LayerController({this.pageIndex}) {
+  LayerController() {
     _createDefaultLayer();
     _undoRedoManager.addListener(_onUndoRedoChanged);
   }
@@ -265,7 +260,6 @@ class LayerController extends NebulaLayerController {
         layerId,
         {'name': newName},
         previousValues: {'name': oldName},
-        pageIndex: pageIndex,
       );
     }
     _emitTT(CanvasDeltaType.layerModified, layerId);
@@ -286,7 +280,6 @@ class LayerController extends NebulaLayerController {
         layerId,
         {'isVisible': newVisibility},
         previousValues: {'isVisible': layer.isVisible},
-        pageIndex: pageIndex,
       );
     }
     _emitTT(CanvasDeltaType.layerModified, layerId);
@@ -310,7 +303,6 @@ class LayerController extends NebulaLayerController {
         layerId,
         {'isLocked': newLock},
         previousValues: {'isLocked': layer.isLocked},
-        pageIndex: pageIndex,
       );
     }
     _emitTT(CanvasDeltaType.layerModified, layerId);
@@ -330,7 +322,6 @@ class LayerController extends NebulaLayerController {
         layerId,
         {'opacity': clampedOpacity},
         previousValues: {'opacity': layer.opacity},
-        pageIndex: pageIndex,
       );
     }
     _emitTT(CanvasDeltaType.layerModified, layerId);
@@ -352,7 +343,6 @@ class LayerController extends NebulaLayerController {
         layerId,
         {'blendMode': blendMode.index},
         previousValues: {'blendMode': layer.blendMode.index},
-        pageIndex: pageIndex,
       );
     }
     _emitTT(CanvasDeltaType.layerModified, layerId);
@@ -375,7 +365,7 @@ class LayerController extends NebulaLayerController {
         'reorder': 'up',
         'from': index,
         'to': index + 1,
-      }, pageIndex: pageIndex);
+      });
     }
     _emitTT(CanvasDeltaType.layerModified, layerId);
     _invalidateSceneGraph();
@@ -395,7 +385,7 @@ class LayerController extends NebulaLayerController {
         'reorder': 'down',
         'from': index,
         'to': index - 1,
-      }, pageIndex: pageIndex);
+      });
     }
     _emitTT(CanvasDeltaType.layerModified, layerId);
     _invalidateSceneGraph();

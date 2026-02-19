@@ -12,7 +12,7 @@ import '../core/nodes/shape_node.dart';
 import '../rendering/scene_graph/scene_graph_renderer.dart';
 
 /// Supported export formats.
-enum ExportFormat { png, svg, pdf }
+enum ExportFormat { png, svg }
 
 /// Export configuration.
 class ExportConfig {
@@ -80,7 +80,7 @@ class ExportConfig {
 
 /// Result of an export operation.
 class ExportResult {
-  /// The exported bytes (PNG, SVG, or PDF data).
+  /// The exported bytes (PNG or SVG data).
   final Uint8List bytes;
 
   /// The format of the export.
@@ -102,8 +102,6 @@ class ExportResult {
         return 'image/png';
       case ExportFormat.svg:
         return 'image/svg+xml';
-      case ExportFormat.pdf:
-        return 'application/pdf';
     }
   }
 
@@ -117,7 +115,7 @@ class ExportResult {
 
 /// Export pipeline for the scene graph.
 ///
-/// Renders the scene graph to various output formats (PNG, SVG, PDF)
+/// Renders the scene graph to various output formats (PNG, SVG)
 /// using the [SceneGraphRenderer].
 ///
 /// ```dart
@@ -156,8 +154,6 @@ class ExportPipeline {
         return _exportPng(sceneGraph, expandedBounds, config);
       case ExportFormat.svg:
         return _exportSvg(sceneGraph, expandedBounds, config);
-      case ExportFormat.pdf:
-        return _exportPdf(sceneGraph, expandedBounds, config);
     }
   }
 
@@ -173,8 +169,6 @@ class ExportPipeline {
         return _exportNodePng(node, expandedBounds, config);
       case ExportFormat.svg:
         return _exportNodeSvg(node, expandedBounds, config);
-      case ExportFormat.pdf:
-        return _exportNodePdf(node, expandedBounds, config);
     }
   }
 
@@ -209,8 +203,6 @@ class ExportPipeline {
         return _exportMultiNodePng(nodes, expandedBounds, config);
       case ExportFormat.svg:
         return _exportNodeSvg(nodes.first, expandedBounds, config);
-      case ExportFormat.pdf:
-        return _exportNodePdf(nodes.first, expandedBounds, config);
     }
   }
 
@@ -507,41 +499,6 @@ class ExportPipeline {
         '${attrs.toString()} />',
       );
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // PDF export
-  // ---------------------------------------------------------------------------
-
-  Future<ExportResult> _exportPdf(
-    SceneGraph sceneGraph,
-    ui.Rect bounds,
-    ExportConfig config,
-  ) async {
-    // PDF export renders to PNG internally and embeds it.
-    // For true vector PDF, integrate the `pdf` package and traverse
-    // the scene graph to PDF elements. This is a solid starting point.
-    final pngResult = await _exportPng(sceneGraph, bounds, config);
-    return ExportResult(
-      bytes: pngResult.bytes,
-      format: ExportFormat.pdf,
-      logicalSize: pngResult.logicalSize,
-      pixelSize: pngResult.pixelSize,
-    );
-  }
-
-  Future<ExportResult> _exportNodePdf(
-    CanvasNode node,
-    ui.Rect bounds,
-    ExportConfig config,
-  ) async {
-    final pngResult = await _exportNodePng(node, bounds, config);
-    return ExportResult(
-      bytes: pngResult.bytes,
-      format: ExportFormat.pdf,
-      logicalSize: pngResult.logicalSize,
-      pixelSize: pngResult.pixelSize,
-    );
   }
 
   // ---------------------------------------------------------------------------

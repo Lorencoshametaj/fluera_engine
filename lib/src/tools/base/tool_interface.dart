@@ -19,10 +19,10 @@ enum ToolOperationState {
 /// 🔧 Base interface for all canvas tools
 ///
 /// Every tool implements this interface and works
-/// on both Infinite Canvas and PDF thanks to ToolContext.
+/// on Infinite Canvas thanks to ToolContext.
 ///
 /// DESIGN PRINCIPLES:
-/// - Tools are STATELESS with respect to context (Canvas vs PDF)
+/// - Tools are STATELESS with respect to context
 /// - All context-specific logic lives in ToolContext/Adapter
 /// - A tool written once works everywhere
 abstract class DrawingTool {

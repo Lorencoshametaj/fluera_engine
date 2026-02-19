@@ -1,6 +1,5 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
 import 'package:nebula_engine/src/core/nodes/group_node.dart';
 import 'package:nebula_engine/src/core/nodes/layer_node.dart';

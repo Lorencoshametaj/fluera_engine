@@ -7,7 +7,7 @@ import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
 
-/// 💾 Binary Storage Format for Professional Canvas & PDF Annotations (v3)
+/// 💾 Binary Storage Format for Professional Canvas (v3)
 ///
 /// Custom binary format for 80% smaller checkpoints and 5x faster loading.
 /// v3 adds:
@@ -20,7 +20,7 @@ class BinaryCanvasFormat {
   static const int version = 3;
   static const int headerSize = 24;
 
-  /// 📦 Encode multiple pages (PDF style) to binary format
+  /// 📦 Encode multiple pages to binary format
   static Uint8List encodePages(Map<int, List<CanvasLayer>> pages) {
     final builder = BytesBuilder();
 

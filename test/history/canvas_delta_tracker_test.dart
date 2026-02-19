@@ -108,18 +108,6 @@ void main() {
       expect(tracker.peekDeltas().first.type, CanvasDeltaType.layerRemoved);
     });
 
-    test('recordPageAdded creates pending delta', () {
-      tracker.recordPageAdded(0, 595, 842);
-      expect(tracker.deltaCount, 1);
-      expect(tracker.peekDeltas().first.type, CanvasDeltaType.pageAdded);
-    });
-
-    test('recordPageRemoved creates pending delta', () {
-      tracker.recordPageRemoved(0);
-      expect(tracker.deltaCount, 1);
-      expect(tracker.peekDeltas().first.type, CanvasDeltaType.pageRemoved);
-    });
-
     test('multiple records accumulate deltas', () {
       tracker.recordStrokeAdded('l', testStroke(id: 's1'));
       tracker.recordStrokeAdded('l', testStroke(id: 's2'));

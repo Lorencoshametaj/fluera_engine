@@ -54,7 +54,7 @@ class NebulaLocalizations {
   String get proCanvas_paperMode => 'Paper Mode';
   String get proCanvas_pageTemplate => 'Page Template';
   String get proCanvas_exportCanvas => 'Export Canvas';
-  String get proCanvas_exportPdf => 'Export PDF';
+
   String get proCanvas_professionalFilters => 'Professional Filters';
   String get proCanvas_ocrConvertWriting => 'OCR — Convert Writing';
   String get proCanvas_ocrTextRecognition => 'Text Recognition';
@@ -71,7 +71,7 @@ class NebulaLocalizations {
   String get proCanvas_renameNote => 'Rename Note';
   String get proCanvas_noteName => 'Note Name';
   String get proCanvas_enterName => 'Enter name...';
-  String get proCanvas_pdfTemplateSettings => 'PDF Template Settings';
+
   String get proCanvas_geometricShapes => 'Geometric Shapes';
   String get proCanvas_singleView => 'Single View';
   String get proCanvas_dualView => 'Dual View';
@@ -133,6 +133,27 @@ class NebulaLocalizations {
   String proCanvas_errorLoadingImage([String? error]) =>
       error != null ? 'Error loading image: $error' : 'Error loading image';
 
+  // Image editor — filter presets
+  String get proCanvas_filters => 'Filters';
+  String get proCanvas_filterNone => 'None';
+  String get proCanvas_filterBW => 'B&W';
+  String get proCanvas_filterSepia => 'Sepia';
+  String get proCanvas_filterVintage => 'Vintage';
+  String get proCanvas_filterCool => 'Cool';
+  String get proCanvas_filterWarm => 'Warm';
+  String get proCanvas_filterDramatic => 'Dramatic';
+
+  // Image editor — crop aspect ratios
+  String get proCanvas_aspectFree => 'Free';
+  String get proCanvas_aspectSquare => '1:1';
+  String get proCanvas_aspect4x3 => '4:3';
+  String get proCanvas_aspect16x9 => '16:9';
+  String get proCanvas_aspect3x2 => '3:2';
+  String get proCanvas_aspectRatio => 'Aspect Ratio';
+
+  // Image editor — before/after
+  String get proCanvas_beforeAfter => 'Before / After';
+
   // ============================================================================
   // BRUSH SETTINGS
   // ============================================================================
@@ -188,8 +209,7 @@ class NebulaLocalizations {
   // ============================================================================
   String get splitPanel_infiniteCanvas => 'Infinite Canvas';
   String get splitPanel_canvasDescription => 'Draw on an infinite canvas';
-  String get splitPanel_pdfViewer => 'PDF Viewer';
-  String get splitPanel_pdfDescription => 'View and annotate PDFs';
+
   String get splitPanel_textEditor => 'Text Editor';
   String get splitPanel_textEditorDescription => 'Write and edit text';
   String get splitPanel_whiteboard => 'Whiteboard';
@@ -222,9 +242,7 @@ class NebulaLocalizations {
   // CANVAS MODES / SPLIT
   // ============================================================================
   String get proCanvas_canvasMode => 'Canvas Mode';
-  String get proCanvas_pdfMode => 'PDF Mode';
-  String get proCanvas_canvasOverlay => 'Canvas Overlay';
-  String get proCanvas_pdfOverlay => 'PDF Overlay';
+
   String get proCanvas_hSplit => 'Horizontal Split';
   String get proCanvas_vSplit => 'Vertical Split';
   String get proCanvas_splitPro => 'Split Pro';
@@ -257,4 +275,27 @@ class NebulaLocalizations {
   String get proCanvas_categoryBasic => 'Basic';
   String get proCanvas_categoryGrid => 'Grid';
   String get proCanvas_categoryTechnical => 'Technical';
+
+  // ============================================================================
+  // PDF VIEWER
+  // ============================================================================
+  String get pdf_importDocument => 'Import PDF';
+  String get pdf_importingDocument => 'Importing PDF...';
+  String get pdf_importFailed => 'Failed to import PDF';
+  String get pdf_importSuccess => 'PDF imported successfully';
+  String pdf_pageCount(int count) => '$count pages';
+  String pdf_pageLabel(int index) => 'Page ${index + 1}';
+  String get pdf_lockPage => 'Lock to Grid';
+  String get pdf_unlockPage => 'Unlock from Grid';
+  String get pdf_lockAll => 'Lock All Pages';
+  String get pdf_unlockAll => 'Unlock All Pages';
+  String get pdf_resetLayout => 'Reset Layout';
+  String get pdf_gridColumns => 'Grid Columns';
+  String get pdf_gridSpacing => 'Grid Spacing';
+  String get pdf_copyText => 'Copy Text';
+  String get pdf_selectText => 'Select Text';
+  String get pdf_noTextFound => 'No text found on this page';
+  String get pdf_textCopied => 'Text copied to clipboard';
+  String get pdf_removePdf => 'Remove PDF';
+  String get pdf_autoFitGrid => 'Auto-fit Grid';
 }

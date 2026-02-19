@@ -55,6 +55,48 @@ class LiquidCanvasConfig {
   /// When false, the canvas behaves like the original (instant stop).
   final bool enabled;
 
+  // ============================================================================
+  // 🎯 NODE DRAG SPRING
+  // ============================================================================
+
+  /// Spring stiffness for node drag snap-to-guide bounce.
+  /// Higher = snappier landing, lower = lazier.
+  final double nodeDragSpringStiffness;
+
+  /// Spring damping for node drag snap-to-guide bounce.
+  /// < critical damping = slight oscillation on landing.
+  final double nodeDragSpringDamping;
+
+  /// Friction for node drag fling (inertia after release).
+  /// Lower = longer glide, higher = stops sooner.
+  final double nodeDragFlingFriction;
+
+  /// Minimum velocity (px/sec) to trigger node drag fling.
+  final double nodeDragFlingThreshold;
+
+  /// Maximum fling velocity (px/sec). Velocities above this are clamped.
+  /// Prevents elements from flying off-screen with extreme flicks.
+  final double nodeDragMaxFlingVelocity;
+
+  /// Extra friction added per selected element (adaptive friction).
+  /// Heavier selections decelerate faster: `friction + factor * count`.
+  final double nodeDragAdaptiveFrictionFactor;
+
+  /// Distance threshold (px) for mid-fling magnetic catch.
+  /// When fling passes within this distance of a snap guide, it catches.
+  final double nodeDragMidFlingSnapDistance;
+
+  // ============================================================================
+  // 🎯 PAN-TO-TARGET SPRING
+  // ============================================================================
+
+  /// Spring stiffness for programmatic pan-to-target animations.
+  /// Used by animateOffsetTo / animateToTransform.
+  final double panSpringStiffness;
+
+  /// Spring damping for programmatic pan-to-target animations.
+  final double panSpringDamping;
+
   /// 🌊 Content reflow configuration.
   /// Controls how surrounding content flows away when elements are moved.
   final ReflowConfig reflow;
@@ -70,6 +112,15 @@ class LiquidCanvasConfig {
     this.elasticZoomOvershoot = 0.35,
     this.elasticResistance = 3.5,
     this.enabled = true,
+    this.nodeDragSpringStiffness = 400.0,
+    this.nodeDragSpringDamping = 28.0,
+    this.nodeDragFlingFriction = 0.02,
+    this.nodeDragFlingThreshold = 150.0,
+    this.nodeDragMaxFlingVelocity = 4000.0,
+    this.nodeDragAdaptiveFrictionFactor = 0.002,
+    this.nodeDragMidFlingSnapDistance = 12.0,
+    this.panSpringStiffness = 200.0,
+    this.panSpringDamping = 22.0,
     this.reflow = const ReflowConfig(),
   });
 

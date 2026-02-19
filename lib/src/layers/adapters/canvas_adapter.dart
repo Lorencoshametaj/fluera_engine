@@ -5,12 +5,11 @@ import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
 import '../nebula_layer_controller.dart';
 
-/// 🔌 Interfaccia adattatore per diversi contesti canvas
+/// 🔌 Adapter interface for different canvas contexts
 ///
-/// Astrae le operazioni comuni tra:
-/// - Canvas infinito (InfiniteCanvasAdapter)
-/// - PDF Page (PDFPageAdapter)
-/// - Multiview sincronizzato (futuro)
+/// Abstracts common operations between:
+/// - Infinite canvas (InfiniteCanvasAdapter)
+/// - Synchronized multiview (future)
 ///
 /// DESIGN PRINCIPLES:
 /// - Each adapter knows how to handle coordinates of its context
@@ -21,13 +20,13 @@ abstract class CanvasAdapter {
   // IDENTITY
   // ============================================================================
 
-  /// Type of contesto (per debug/logging)
+  /// Type of context (for debug/logging)
   String get contextType;
 
-  /// Bounds of the canvas/pagina (null = canvas infinito)
+  /// Bounds of the canvas/page (null = infinite canvas)
   Rect? get bounds;
 
-  /// ID univoco del contesto (es: pageIndex per PDF, canvasId per canvas)
+  /// Unique ID of the context (e.g.: canvasId for canvas)
   String get contextId;
 
   // ============================================================================
@@ -36,22 +35,22 @@ abstract class CanvasAdapter {
 
   /// Converts coordinate screen → canvas
   ///
-  /// [screen] - Position in screen coordinates (es: da PointerEvent.localPosition)
-  /// [scale] - Scala corrente of the viewport
+  /// [screen] - Position in screen coordinates (e.g.: from PointerEvent.localPosition)
+  /// [scale] - Current viewport scale
   /// [viewOffset] - Current viewport offset
   Offset screenToCanvas(Offset screen, double scale, Offset viewOffset);
 
   /// Converts canvas coordinates → screen
   ///
   /// [canvas] - Position in canvas coordinates
-  /// [scale] - Scala corrente of the viewport
+  /// [scale] - Current viewport scale
   /// [viewOffset] - Current viewport offset
   Offset canvasToScreen(Offset canvas, double scale, Offset viewOffset);
 
   /// Checks if a canvas position is within bounds
   ///
   /// For infinite canvas, always returns true.
-  /// For PDF, verifies that it is within the page.
+  /// For bounded contexts, verifies that it is within the bounds.
   bool isPointInBounds(Offset canvasPosition);
 
   // ============================================================================
@@ -61,12 +60,12 @@ abstract class CanvasAdapter {
   /// Adds a stroke to context
   void addStroke(NebulaLayerController controller, ProStroke stroke);
 
-  /// Removes uno stroke per ID
+  /// Removes a stroke by ID
   void removeStroke(NebulaLayerController controller, String strokeId);
 
-  /// Gets strokes visibili in un viewport
+  /// Gets strokes visible in a viewport
   ///
-  /// Use spatial indexing se disponibile for performance O(log n).
+  /// Uses spatial indexing when available for O(log n) performance.
   List<ProStroke> getStrokesInViewport(
     NebulaLayerController controller,
     Rect viewport,
@@ -79,10 +78,10 @@ abstract class CanvasAdapter {
   /// Adds a geometric shape to context
   void addShape(NebulaLayerController controller, GeometricShape shape);
 
-  /// Removes una shape per ID
+  /// Removes a shape by ID
   void removeShape(NebulaLayerController controller, String shapeId);
 
-  /// Gets shapes visibili in un viewport
+  /// Gets shapes visible in a viewport
   List<GeometricShape> getShapesInViewport(
     NebulaLayerController controller,
     Rect viewport,
@@ -95,30 +94,48 @@ abstract class CanvasAdapter {
   /// Adds a text element
   void addTextElement(DigitalTextElement element);
 
+  /// Gets all text elements in the current context
+  List<DigitalTextElement> getTextElements();
+
+  /// Updates a text element (matched by ID)
+  void updateTextElement(DigitalTextElement element);
+
+  /// Removes a text element by ID
+  void removeTextElement(String elementId);
+
   /// Adds an image element
   void addImageElement(ImageElement element);
+
+  /// Gets all image elements in the current context
+  List<ImageElement> getImageElements();
+
+  /// Updates an image element (matched by ID)
+  void updateImageElement(ImageElement element);
+
+  /// Removes an image element by ID
+  void removeImageElement(String elementId);
 
   // ============================================================================
   // UNDO/REDO & PERSISTENCE
   // ============================================================================
 
-  /// Saves lo current state for ado
+  /// Saves the current state for undo
   ///
   /// Called BEFORE destructive operations (erase, delete, etc.)
   void saveUndoState();
 
-  /// Notifies che un'operazione is stata completata
+  /// Notifies that an operation has been completed
   ///
-  /// Trigger per auto-save, sync, etc.
+  /// Trigger for auto-save, sync, etc.
   void notifyOperationComplete();
 
   // ============================================================================
   // OPTIONAL: ADVANCED OPERATIONS
   // ============================================================================
 
-  /// Checks se uno stroke interseca un punto with a raggio
+  /// Checks if a stroke intersects a point within a radius
   ///
-  /// Utile per eraser tool. Default implementation usa distance check.
+  /// Useful for eraser tool. Default implementation uses distance check.
   bool strokeIntersectsPoint(ProStroke stroke, Offset point, double radius) {
     for (final p in stroke.points) {
       if ((p.position - point).distance <= radius) {
@@ -128,7 +145,7 @@ abstract class CanvasAdapter {
     return false;
   }
 
-  /// Checks if a shape interseca un punto with a raggio
+  /// Checks if a shape intersects a point within a radius
   bool shapeIntersectsPoint(GeometricShape shape, Offset point, double radius) {
     final startDist = (shape.startPoint - point).distance;
     final endDist = (shape.endPoint - point).distance;
@@ -139,7 +156,7 @@ abstract class CanvasAdapter {
   }
 }
 
-/// 📊 Info di debug per adapter
+/// 📊 Debug info for adapter
 class AdapterDebugInfo {
   final String contextType;
   final String contextId;

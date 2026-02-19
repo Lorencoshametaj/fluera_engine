@@ -378,7 +378,7 @@ extension on _NebulaCanvasScreenState {
       quality: config.quality,
       pageFormat: config.pageFormat,
     );
-    final needsMultiPage = total > 1 && config.format == ExportFormat.pdf;
+    final needsMultiPage = false;
 
     // Flag per cancellazione
     bool isCancelled = false;
@@ -390,7 +390,7 @@ extension on _NebulaCanvasScreenState {
       builder:
           (dialogContext) => ExportProgressDialog(
             format: config.format,
-            totalPages: needsMultiPage ? total : 1,
+            totalPages: 1,
             progressStream: progressController.progressStream,
             currentPageStream: progressController.pageStream,
             onCancel: () {
@@ -415,50 +415,8 @@ extension on _NebulaCanvasScreenState {
 
       progressController.updateProgress(0.1);
 
-      if (config.format == ExportFormat.pdf && needsMultiPage) {
-        // Export multi-page PDF
-        final file = await exportService.exportAsMultiPagePDF(
-          layerController: _layerController,
-          exportArea: _exportArea,
-          config: config,
-          onProgress: (current, total) {
-            final progress = current / total;
-            progressController.updateProgress(0.1 + progress * 0.8);
-            progressController.updatePage(current);
-          },
-        );
-
-        progressController.updateProgress(0.95);
-
-        // Condividi file
-        if (mounted) {
-          Navigator.pop(context);
-          await Share.shareXFiles([
-            XFile(file.path),
-          ], subject: 'Looponia Canvas Export');
-        }
-      } else if (config.format == ExportFormat.pdf) {
-        // Export single-page PDF
-        final file = await exportService.exportAsPDF(
-          layerController: _layerController,
-          exportArea: _exportArea,
-          config: config,
-          onProgress: (progress) {
-            progressController.updateProgress(0.1 + progress * 0.8);
-          },
-        );
-
-        progressController.updateProgress(0.95);
-
-        // Condividi file
-        if (mounted) {
-          Navigator.pop(context);
-          await Share.shareXFiles([
-            XFile(file.path),
-          ], subject: 'Looponia Canvas Export');
-        }
-      } else {
-        // Export immagine (PNG o JPEG)
+      // Export immagine (PNG o JPEG)
+      {
         final bytes = await exportService.exportAsImage(
           layerController: _layerController,
           exportArea: _exportArea,
@@ -498,9 +456,7 @@ extension on _NebulaCanvasScreenState {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'proCanvas_exportError'(e.toString()),
-            ),
+            content: Text('proCanvas_exportError'(e.toString())),
             backgroundColor: Colors.red,
           ),
         );

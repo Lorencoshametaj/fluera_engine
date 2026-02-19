@@ -8,7 +8,6 @@ part of '../nebula_canvas_screen.dart';
 //   - _collaboration.dart
 //   - _export.dart
 //   - _voice_recording.dart
-//   - _navigation_pdf.dart
 //
 // These will be properly implemented when Phase 2 features are added.
 // ============================================================================
@@ -32,14 +31,6 @@ extension Phase2Stubs on _NebulaCanvasScreenState {
   }
 
   // ─── From _voice_recording.dart ── NOW IN parts/_voice_recording.dart ──
-
-  // ─── From _navigation_pdf.dart ───────────────────────────────────────
-
-  /// Show PDF options dialog.
-  void _showPdfOptionsDialog() {
-    // Phase 2: implement PDF options dialog
-    debugPrint('[Phase2] PDF options not yet available in SDK');
-  }
 
   /// Export timelapse recording.
   void _exportTimelapse() {

@@ -68,7 +68,32 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             _digitalTextTool.deselectElement();
             BrushSettingsService.instance.updateSettings(preset.settings);
           },
-          onUndo: () => _layerController.undo(), // 🔄 Phase 2: New undo system
+          onUndo: () {
+            // 🎤 FIX: If recording with strokes, track stroke removal
+            // to prevent ghost strokes during synced playback.
+            final strokesBefore =
+                _isRecordingAudio && _recordingWithStrokes
+                    ? _layerController.activeLayer?.strokes.length ?? 0
+                    : 0;
+            final lastStrokeId =
+                (_isRecordingAudio &&
+                        _recordingWithStrokes &&
+                        _syncRecordingBuilder != null &&
+                        (strokesBefore > 0))
+                    ? _layerController.activeLayer?.strokes.last.id
+                    : null;
+
+            _layerController.undo(); // 🔄 Phase 2: New undo system
+
+            // If a stroke was removed during undo, remove it from sync builder
+            if (lastStrokeId != null && _syncRecordingBuilder != null) {
+              final strokesAfter =
+                  _layerController.activeLayer?.strokes.length ?? 0;
+              if (strokesAfter < strokesBefore) {
+                _syncRecordingBuilder!.removeStrokeById(lastStrokeId);
+              }
+            }
+          },
           onRedo: () => _layerController.redo(), // 🔄 Phase 2: New redo system
           onClear: _clear,
           onSettings: _showSettings,
@@ -216,10 +241,6 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             // 🎧 Mostra lista saved recordings
             _showSavedRecordingsDialog();
           },
-          onPdfPressed: () {
-            // 📄 Apri dialog per creare o aprire PDF
-            _showPdfOptionsDialog();
-          },
           // ⏱️ Time Travel (solo Pro)
           onTimeTravelPressed:
               (_subscriptionTier == NebulaSubscriptionTier.pro)
@@ -300,6 +321,33 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
                 !_canvasController.rotationLocked;
             setState(() {});
           },
+          // 🔷 Shape Recognition
+          shapeRecognitionEnabled: _toolController.shapeRecognitionEnabled,
+          shapeRecognitionSensitivityIndex:
+              _toolController.shapeRecognitionSensitivity.index,
+          onShapeRecognitionToggle: () {
+            _toolController.toggleShapeRecognition();
+            setState(() {});
+          },
+          onShapeRecognitionSensitivityCycle: () {
+            _toolController.cycleShapeRecognitionSensitivity();
+            setState(() {});
+          },
+          ghostSuggestionEnabled: _toolController.ghostSuggestionMode,
+          onGhostSuggestionToggle: () {
+            _toolController.toggleGhostSuggestionMode();
+            setState(() {});
+          },
+          onPdfImportPressed:
+              widget.config.pdfProvider != null
+                  ? () {
+                    // 📄 PDF import — host app handles file picking,
+                    // then feeds bytes to PdfImportController
+                    debugPrint(
+                      '[PDF] Import pressed — host app should pick file',
+                    );
+                  }
+                  : null,
         );
       },
     );

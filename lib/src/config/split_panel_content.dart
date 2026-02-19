@@ -14,14 +14,6 @@ class SplitPanelContent {
     this.metadata = const {},
   });
 
-  /// Factory to create specific content
-  factory SplitPanelContent.pdf([String? pdfId, String? displayName]) =>
-      SplitPanelContent(
-        type: SplitPanelContentType.pdf,
-        selectedId: pdfId,
-        metadata: {if (displayName != null) 'displayName': displayName},
-      );
-
   factory SplitPanelContent.canvas([String? canvasId]) => SplitPanelContent(
     type: SplitPanelContentType.canvas,
     selectedId: canvasId,
@@ -89,7 +81,6 @@ class SplitPanelContent {
 
 /// Supported content types for panels
 enum SplitPanelContentType {
-  pdf(Icons.picture_as_pdf_rounded, true),
   canvas(Icons.brush_rounded, false),
   note(Icons.note_rounded, true),
   whiteboard(Icons.dashboard_rounded, false),
@@ -98,10 +89,7 @@ enum SplitPanelContentType {
   calculator(Icons.calculate_rounded, false),
   empty(Icons.crop_free_rounded, false);
 
-  const SplitPanelContentType(
-    this.icon,
-    this.requiresSelection,
-  );
+  const SplitPanelContentType(this.icon, this.requiresSelection);
 
   final IconData icon;
   final bool requiresSelection;
@@ -110,8 +98,6 @@ enum SplitPanelContentType {
   String getDisplayName(BuildContext context) {
     final l10n = NebulaLocalizations.of(context);
     switch (this) {
-      case SplitPanelContentType.pdf:
-        return l10n.splitPanel_pdfViewer;
       case SplitPanelContentType.canvas:
         return l10n.splitPanel_infiniteCanvas;
       case SplitPanelContentType.note:
@@ -133,8 +119,6 @@ enum SplitPanelContentType {
   String getDescription(BuildContext context) {
     final l10n = NebulaLocalizations.of(context);
     switch (this) {
-      case SplitPanelContentType.pdf:
-        return l10n.splitPanel_pdfDescription;
       case SplitPanelContentType.canvas:
         return l10n.splitPanel_canvasDescription;
       case SplitPanelContentType.note:
@@ -155,8 +139,6 @@ enum SplitPanelContentType {
   /// Color associated with content type
   Color get color {
     switch (this) {
-      case SplitPanelContentType.pdf:
-        return Colors.red;
       case SplitPanelContentType.canvas:
         return Colors.blue;
       case SplitPanelContentType.note:
@@ -178,22 +160,16 @@ enum SplitPanelContentType {
 /// Common presets for quick configurations
 class SplitContentPresets {
   static const Map<String, List<SplitPanelContentType>> presets = {
-    'Annotazione PDF': [
-      SplitPanelContentType.pdf,
-      SplitPanelContentType.canvas,
-    ],
-    'Studio Completo': [
-      SplitPanelContentType.pdf,
+    'Canvas + Notes': [
       SplitPanelContentType.canvas,
       SplitPanelContentType.note,
     ],
-    'Ricerca Web': [
+    'Web Research': [
       SplitPanelContentType.browser,
       SplitPanelContentType.note,
       SplitPanelContentType.textEditor,
     ],
-    'Workspace Completo': [
-      SplitPanelContentType.pdf,
+    'Full Workspace': [
       SplitPanelContentType.canvas,
       SplitPanelContentType.note,
       SplitPanelContentType.calculator,

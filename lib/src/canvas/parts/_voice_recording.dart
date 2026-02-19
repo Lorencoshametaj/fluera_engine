@@ -4,18 +4,34 @@ part of '../nebula_canvas_screen.dart';
 ///
 /// Delegates all recording, playback, and cloud sync operations to
 /// [NebulaVoiceRecordingProvider] provided via [NebulaCanvasConfig].
-/// The SDK manages state (recording status, duration, playback) while
-/// the host app handles actual audio capture, storage, and cloud sync.
+/// Falls back to [DefaultVoiceRecordingProvider] if no custom provider
+/// is configured, enabling zero-config recording.
 extension VoiceRecordingExtension on _NebulaCanvasScreenState {
+  /// Lazy default provider — created once per canvas state, cleaned up on dispose.
+  static final Map<int, DefaultVoiceRecordingProvider> _defaultProviders = {};
+
+  /// Returns the configured provider or a built-in default.
+  NebulaVoiceRecordingProvider get _voiceRecordingProvider {
+    final custom = _config.voiceRecording;
+    if (custom != null) return custom;
+    return _defaultProviders.putIfAbsent(
+      hashCode,
+      () => DefaultVoiceRecordingProvider(),
+    );
+  }
+
+  /// Dispose the default provider if one was created for this canvas.
+  /// Call this from the canvas state's dispose method.
+  void _disposeDefaultVoiceRecordingProvider() {
+    final provider = _defaultProviders.remove(hashCode);
+    provider?.dispose();
+  }
+
   /// 🎤 Show dialog for choosing recording type.
   ///
-  /// Delegates to [_config.voiceRecording] if available.
+  /// Uses configured provider or built-in default.
   Future<void> _showRecordingChoiceDialog() async {
-    final provider = _config.voiceRecording;
-    if (provider == null) {
-      debugPrint('[VoiceRecording] No voice recording provider configured');
-      return;
-    }
+    final provider = _voiceRecordingProvider;
 
     HapticFeedback.mediumImpact();
 
@@ -116,8 +132,10 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
 
   /// 🎤 Start audio recording via the provider.
   Future<void> _startAudioRecording() async {
-    final provider = _config.voiceRecording;
-    if (provider == null) return;
+    // 🔧 FIX #2: Guard against double-tap
+    if (_isRecordingAudio) return;
+
+    final provider = _voiceRecordingProvider;
 
     try {
       HapticFeedback.mediumImpact();
@@ -125,6 +143,20 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
       await provider.startRecording();
 
       _recordingStartTime = DateTime.now();
+
+      // 🎵 Create sync builder when recording with strokes
+      if (_recordingWithStrokes) {
+        _syncRecordingBuilder = SynchronizedRecordingBuilder(
+          id: const Uuid().v4(),
+          audioPath: '', // Will be updated when recording stops
+          startTime: _recordingStartTime!,
+          canvasId: widget.canvasId,
+        );
+        _syncRecordingBuilder!.setRecordingType('note');
+        debugPrint(
+          '[VoiceRecording] SyncRecordingBuilder created for stroke sync',
+        );
+      }
 
       setState(() {
         _isRecordingAudio = true;
@@ -144,6 +176,7 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
       });
     } catch (e) {
       debugPrint('[VoiceRecording] Start failed: $e');
+      _syncRecordingBuilder = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -158,8 +191,7 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
 
   /// ⏹️ Stop audio recording.
   Future<void> _stopAudioRecording() async {
-    final provider = _config.voiceRecording;
-    if (provider == null) return;
+    final provider = _voiceRecordingProvider;
 
     try {
       HapticFeedback.mediumImpact();
@@ -171,34 +203,149 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
 
       final recordedDuration = _recordingDuration;
 
+      // 🎵 Finalize synchronized recording builder
+      SynchronizedRecording? syncRecording;
+      if (_syncRecordingBuilder != null && audioPath != null) {
+        // Build the synchronized recording, then override with correct audio path
+        // (audioPath was '' at construction time since we didn't know it yet)
+        syncRecording = _syncRecordingBuilder!.build(recordedDuration);
+        // Override with correct audio path
+        syncRecording = SynchronizedRecording(
+          id: syncRecording.id,
+          audioPath: audioPath,
+          totalDuration: recordedDuration,
+          startTime: syncRecording.startTime,
+          syncedStrokes: syncRecording.syncedStrokes,
+          canvasId: syncRecording.canvasId,
+          noteTitle: syncRecording.noteTitle,
+          recordingType: syncRecording.recordingType,
+        );
+
+        debugPrint(
+          '[VoiceRecording] SyncRecording finalized: '
+          '${syncRecording.syncedStrokes.length} strokes captured',
+        );
+      }
+      _syncRecordingBuilder = null;
+
+      // 🔧 FIX #3: Capture recording type BEFORE resetting the flag
+      final wasRecordingWithStrokes = _recordingWithStrokes;
+      // 🔧 Enterprise: Capture start time BEFORE reset (used for audio-only persist)
+      final capturedStartTime = _recordingStartTime ?? DateTime.now();
+
       setState(() {
         _isRecordingAudio = false;
         _recordingDuration = Duration.zero;
+        _recordingWithStrokes = false; // Reset for next session
+        _recordingStartTime = null; // 🔧 FIX #6: Prevent stale value leaking
       });
 
       if (audioPath != null && mounted) {
-        // Show save dialog
-        final result = await _showSaveRecordingDialog(
+        // Show save dialog (pass captured type so label is correct)
+        final saveResult = await _showSaveRecordingDialog(
           audioPath,
           recordedDuration,
+          withStrokes: wasRecordingWithStrokes,
         );
-        if (result == true) {
+        if (saveResult != null && saveResult['action'] == 'save') {
+          final recordingName = saveResult['name'] as String?;
+
+          // Attach recording name to synced recording
+          if (syncRecording != null &&
+              recordingName != null &&
+              recordingName.isNotEmpty) {
+            syncRecording = syncRecording.copyWith(noteTitle: recordingName);
+          }
+
           setState(() {
             _savedRecordings.add(audioPath);
+            // Store synced recording for playback
+            if (syncRecording != null) {
+              _syncedRecordings.add(syncRecording);
+            }
           });
+
+          // 💾 Persist to SQLite (both audio-only and with-strokes)
+          if (RecordingStorageService.instance.isInitialized) {
+            // For audio-only, create a minimal SynchronizedRecording
+            final persistable =
+                syncRecording != null
+                    ? syncRecording.copyWith(canvasId: _canvasId)
+                    : SynchronizedRecording.empty(
+                      id: const Uuid().v4(),
+                      audioPath: audioPath,
+                      startTime: capturedStartTime,
+                      canvasId: _canvasId,
+                      noteTitle: recordingName,
+                      recordingType: 'audio_only',
+                    );
+            try {
+              await RecordingStorageService.instance.saveRecording(persistable);
+            } catch (e) {
+              debugPrint('[VoiceRecording] Failed to persist recording: $e');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '⚠️ Recording saved locally but not persisted: $e',
+                    ),
+                    backgroundColor: Colors.orange,
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              }
+            }
+          }
+
+          // 🔧 Enterprise: Cap recordings at 50 — evict oldest from memory + DB + disk
+          while (_savedRecordings.length > 50) {
+            final evictedPath = _savedRecordings.removeAt(0);
+            _syncedRecordings.removeWhere((r) => r.audioPath == evictedPath);
+            // Cascade: delete from SQLite
+            if (RecordingStorageService.instance.isInitialized) {
+              RecordingStorageService.instance
+                  .deleteByAudioPath(evictedPath)
+                  .catchError((_) => 0);
+            }
+            // Cascade: delete audio file from disk
+            try {
+              final file = File(evictedPath);
+              if (await file.exists()) await file.delete();
+            } catch (_) {}
+          }
           if (mounted) {
+            final strokeInfo =
+                syncRecording != null
+                    ? ' (${syncRecording.syncedStrokes.length} strokes synced)'
+                    : '';
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('✅ Recording saved'),
+              SnackBar(
+                content: Text('✅ Recording saved$strokeInfo'),
                 backgroundColor: Colors.green,
-                duration: Duration(seconds: 2),
+                duration: const Duration(seconds: 2),
               ),
+            );
+          }
+        } else {
+          // User discarded — delete the audio file from disk
+          try {
+            final file = File(audioPath);
+            if (await file.exists()) {
+              await file.delete();
+              debugPrint(
+                '[VoiceRecording] Discarded recording file deleted: $audioPath',
+              );
+            }
+          } catch (e) {
+            debugPrint(
+              '[VoiceRecording] Failed to delete discarded recording: $e',
             );
           }
         }
       }
     } catch (e) {
       debugPrint('[VoiceRecording] Stop failed: $e');
+      _syncRecordingBuilder = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -212,99 +359,107 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
   }
 
   /// 💾 Show dialog to save or discard the recording.
-  Future<bool> _showSaveRecordingDialog(
+  /// Returns the full result map with 'action' and 'name' keys, or null.
+  Future<Map<String, dynamic>?> _showSaveRecordingDialog(
     String audioPath,
-    Duration duration,
-  ) async {
+    Duration duration, {
+    bool withStrokes = false,
+  }) async {
     final nameController = TextEditingController(
       text:
           'Recording ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
     );
 
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      barrierDismissible: false,
-      builder:
-          (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 8),
-                Expanded(child: Text('Recording Complete')),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _recordingWithStrokes
-                      ? 'Audio synced with strokes'
-                      : 'Audio only',
-                  style: const TextStyle(fontSize: 14),
+    // 🔧 FIX #6: Ensure controller is disposed after dialog
+    try {
+      final result = await showDialog<Map<String, dynamic>>(
+        context: context,
+        barrierDismissible: false,
+        builder:
+            (context) => PopScope(
+              // 🔧 FIX #5: Prevent back button from silently dismissing
+              canPop: false,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop) {
+                  // Back button pressed — treat as save with default name
+                  Navigator.pop(context, {
+                    'action': 'save',
+                    'name': nameController.text.trim(),
+                  });
+                }
+              },
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: nameController,
-                  decoration: InputDecoration(
-                    labelText: 'Recording name',
-                    hintText: 'Enter name',
-                    prefixIcon: const Icon(Icons.edit),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                title: const Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.green),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('Recording Complete')),
+                  ],
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 🔧 FIX #3: Use parameter instead of reset flag
+                    Text(
+                      withStrokes ? 'Audio synced with strokes' : 'Audio only',
+                      style: const TextStyle(fontSize: 14),
                     ),
-                    filled: true,
-                    fillColor: Colors.grey[100],
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: nameController,
+                      decoration: InputDecoration(
+                        labelText: 'Recording name',
+                        hintText: 'Enter name',
+                        prefixIcon: const Icon(Icons.edit),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                      ),
+                      autofocus: true,
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Duration: ${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed:
+                        () => Navigator.pop(context, {'action': 'discard'}),
+                    child: const Text(
+                      'Discard',
+                      style: TextStyle(color: Colors.red),
+                    ),
                   ),
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.sentences,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Duration: ${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
+                  ElevatedButton(
+                    onPressed:
+                        () => Navigator.pop(context, {
+                          'action': 'save',
+                          'name': nameController.text.trim(),
+                        }),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, {'action': 'delete'}),
-                child: const Text(
-                  'Discard',
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-              ElevatedButton(
-                onPressed:
-                    () => Navigator.pop(context, {
-                      'action': 'save',
-                      'name': nameController.text.trim(),
-                    }),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Save'),
-              ),
-            ],
-          ),
-    );
+      );
 
-    if (result != null && result['action'] == 'save') {
-      return true;
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Recording discarded'),
-            duration: Duration(seconds: 1),
-          ),
-        );
-      }
-      return false;
+      return result;
+    } finally {
+      nameController.dispose();
     }
   }
 
@@ -320,7 +475,7 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
       return;
     }
 
-    final provider = _config.voiceRecording;
+    final provider = _voiceRecordingProvider;
 
     await showDialog(
       context: context,
@@ -343,11 +498,22 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
                 itemCount: _savedRecordings.length,
                 itemBuilder: (context, index) {
                   final path = _savedRecordings[index];
-                  final fileName = path.split('/').last;
+                  // 🔧 FIX #1: Show noteTitle if available
+                  final synced = _syncedRecordings
+                      .cast<SynchronizedRecording?>()
+                      .firstWhere(
+                        (r) => r?.audioPath == path,
+                        orElse: () => null,
+                      );
+                  final displayName =
+                      (synced?.noteTitle != null &&
+                              synced!.noteTitle!.isNotEmpty)
+                          ? synced.noteTitle!
+                          : path.split('/').last;
                   return ListTile(
                     leading: const Icon(Icons.audiotrack),
                     title: Text(
-                      fileName,
+                      displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -358,15 +524,65 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
                           icon: const Icon(Icons.play_arrow),
                           onPressed: () {
                             Navigator.pop(context);
-                            provider?.playRecording(path);
+                            provider.playRecording(path);
+                            _listenForPlaybackCompletion();
                           },
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () {
+                          onPressed: () async {
+                            // 🔧 FIX #2: Confirm before deleting
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder:
+                                  (ctx) => AlertDialog(
+                                    title: const Text('Delete Recording?'),
+                                    content: const Text(
+                                      'This action cannot be undone.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed:
+                                            () => Navigator.pop(ctx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed:
+                                            () => Navigator.pop(ctx, true),
+                                        child: const Text(
+                                          'Delete',
+                                          style: TextStyle(color: Colors.red),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                            );
+                            if (confirmed != true) return;
+
+                            final deletedPath = _savedRecordings[index];
+
+                            // Remove from all in-memory lists
                             setState(() {
                               _savedRecordings.removeAt(index);
                             });
+                            _syncedRecordings.removeWhere(
+                              (r) => r.audioPath == deletedPath,
+                            );
+
+                            // 🔧 FIX #3: Direct delete by audioPath (O(1))
+                            if (RecordingStorageService
+                                .instance
+                                .isInitialized) {
+                              await RecordingStorageService.instance
+                                  .deleteByAudioPath(deletedPath);
+                            }
+
+                            // Delete audio file from disk
+                            try {
+                              final file = File(deletedPath);
+                              if (await file.exists()) await file.delete();
+                            } catch (_) {}
+
                             Navigator.pop(context);
                             ScaffoldMessenger.of(this.context).showSnackBar(
                               const SnackBar(
@@ -394,17 +610,28 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
 
   /// 🎵 Stop synced playback.
   void _stopSyncedPlayback() {
-    final provider = _config.voiceRecording;
-    provider?.stopPlayback();
+    final provider = _voiceRecordingProvider;
+    provider.stopPlayback();
+    _playbackCompletedSubs[hashCode]?.cancel();
+    _playbackCompletedSubs.remove(hashCode);
     setState(() {
       _isPlayingSyncedRecording = false;
     });
   }
 
-  /// 🔍 Navigate to the current drawing position during playback.
-  void _navigateToCurrentDrawing() {
-    // Navigate viewport to the position where drawing is happening
-    // during synced playback. This is a no-op if not in playback mode.
-    debugPrint('[VoiceRecording] Navigate to current drawing position');
+  /// 🔧 FIX #7: Subscribe to playback completion so UI auto-resets.
+  static final Map<int, StreamSubscription<void>> _playbackCompletedSubs = {};
+
+  void _listenForPlaybackCompletion() {
+    _playbackCompletedSubs[hashCode]?.cancel();
+    _playbackCompletedSubs[hashCode] = _voiceRecordingProvider.playbackCompleted
+        .listen((_) {
+          if (mounted && _isPlayingSyncedRecording) {
+            setState(() {
+              _isPlayingSyncedRecording = false;
+            });
+            debugPrint('[VoiceRecording] Playback completed naturally');
+          }
+        });
   }
 }

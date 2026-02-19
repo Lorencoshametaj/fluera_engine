@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 // TOOLBAR LAYOUT — Layout, Sync, and MultiView buttons
 // ============================================================================
 
-/// Layout button (Canvas, PDF, H-Split, V-Split, etc.)
+/// Layout button (Canvas, H-Split, V-Split, etc.)
 class ToolbarLayoutButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -59,7 +59,7 @@ class ToolbarLayoutButton extends StatelessWidget {
   }
 }
 
-/// Sync toggle button (PDF-Canvas synchronization)
+/// Sync toggle button
 class ToolbarSyncButton extends StatelessWidget {
   final VoidCallback onPressed;
   final bool isEnabled;

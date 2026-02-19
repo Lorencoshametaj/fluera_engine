@@ -130,16 +130,11 @@ extension on _NebulaCanvasScreenState {
         DrawingPainter.invalidateAllTiles();
       }
 
-      // Digital text: compensate + sync list
+      // Digital text: compensate scroll + sync element list
       if (_digitalTextTool.isDragging || _digitalTextTool.isResizing) {
         _digitalTextTool.compensateScroll(compensation);
         if (_digitalTextTool.selectedElement != null) {
-          final index = _digitalTextElements.indexWhere(
-            (e) => e.id == _digitalTextTool.selectedElement!.id,
-          );
-          if (index != -1) {
-            _digitalTextElements[index] = _digitalTextTool.selectedElement!;
-          }
+          _syncTextElementFromTool(_digitalTextTool.selectedElement!);
         }
       }
 

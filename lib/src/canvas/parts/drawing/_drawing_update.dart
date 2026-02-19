@@ -66,25 +66,28 @@ extension on _NebulaCanvasScreenState {
           if (_drawingHandler.hasStroke) {
             _drawingHandler.updateStroke(
               position: canvasPosition,
-              pressure: pressure, // 🚀 Usa real pressure
-              tiltX: tiltX, // 🖊️ Usa tilt reale
+              pressure: pressure,
+              tiltX: tiltX,
               tiltY: tiltY,
               orientation: 0.0,
             );
 
-            // Update il notifier with ao stroke temporaneo completo (con colore!)
-            final relativePoints = _convertPointsToImageSpace(
-              _drawingHandler.currentStroke,
-              _imageInEditMode!,
-            );
+            // 🚀 Fix 1: incremental conversion — only convert the newest point
+            if (_drawingHandler.currentStroke.isNotEmpty) {
+              final latestRaw = _drawingHandler.currentStroke.last;
+              _editingConvertedPoints.add(
+                _convertSinglePointToImageSpace(latestRaw, _imageInEditMode!),
+              );
+            }
+            // Re-notify with same list reference (triggers rebuild via notifier)
             _currentEditingStrokeNotifier.value = ProStroke(
               id: 'temp',
-              points: relativePoints,
+              points: _editingConvertedPoints,
               color: _effectiveColor,
               baseWidth: _effectiveWidth,
               penType: _effectivePenType,
-              createdAt: DateTime.now(),
-              settings: _brushSettings, // 🎛️ Passa settings
+              createdAt: _editingStrokeCreatedAt,
+              settings: _brushSettings,
             );
           }
           return;
@@ -197,20 +200,14 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🎯 SEMPRE gestisci resize/drag di digital text (indipendentemente dal tool attivo)
-    // If sta facendo resize
+    // 🎯 Always handle digital text resize/drag (regardless of active tool)
+    // Handle resize
     if (_digitalTextTool.isResizing) {
-      final updated = _digitalTextTool.updateResize(canvasPosition, context);
+      final updated = _digitalTextTool.updateResize(canvasPosition);
       if (updated != null) {
-        // Update the element in the list
-        final index = _digitalTextElements.indexWhere(
-          (e) => e.id == updated.id,
-        );
-        if (index != -1) {
-          _digitalTextElements[index] = updated;
-        }
+        _syncTextElementFromTool(updated);
 
-        // Auto-scroll ai bordi (come for the drag)
+        // Auto-scroll at edges (same as drag)
         final screenPosition = _canvasController.canvasToScreen(canvasPosition);
         final RenderBox? renderBox =
             _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
@@ -224,9 +221,8 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // If sta draggando
+    // Handle drag
     if (_digitalTextTool.isDragging) {
-      // Update drag - updateDrag moves the position in canvas coordinates
       final rawUpdated = _digitalTextTool.updateDrag(canvasPosition);
       if (rawUpdated != null) {
         var updated = rawUpdated;
@@ -246,15 +242,10 @@ extension on _NebulaCanvasScreenState {
           _digitalTextTool.selectElement(updated);
         }
 
-        // Update the element in the list
-        final index = _digitalTextElements.indexWhere(
-          (e) => e.id == updated.id,
-        );
-        if (index != -1) {
-          _digitalTextElements[index] = updated;
-        }
+        // Update the element via centralized sync
+        _syncTextElementFromTool(updated);
 
-        // Auto-scroll ai bordi
+        // Auto-scroll at edges
         final screenPosition = _canvasController.canvasToScreen(canvasPosition);
         final RenderBox? renderBox =
             _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
@@ -277,22 +268,21 @@ extension on _NebulaCanvasScreenState {
     if (_effectiveIsLasso) {
       // If sta draggando, aggiorna la position e auto-scroll
       if (_lassoTool.isDragging) {
-        _lassoTool.updateDrag(canvasPosition);
+        final dataChanged = _lassoTool.updateDrag(canvasPosition);
 
-        // 📐 Smart Guides for lasso selection
-        final lassoBounds = _lassoTool.getSelectionBounds();
-        if (lassoBounds != null) {
-          final snap = _applySmartGuides(lassoBounds);
-          if (snap != Offset.zero) {
-            _lassoTool.moveSelected(snap);
+        if (dataChanged) {
+          // 📐 Smart Guides — only compute when data actually changed
+          final lassoBounds = _lassoTool.getSelectionBounds();
+          if (lassoBounds != null) {
+            final snap = _applySmartGuides(lassoBounds);
+            if (snap != Offset.zero) {
+              _lassoTool.moveSelected(snap);
+            }
           }
-        }
 
-        // � PERF: Only invalidate layer caches (not tile + stroke caches).
-        // moveSelected() updates the layer data, so layer Pictures must be
-        // rebuilt, but the tile/stroke path caches are unnecessary overhead
-        // during continuous drag.
-        DrawingPainter.invalidateLayerCaches();
+          // 🚀 PERF: Only invalidate layer caches when stroke data changed
+          DrawingPainter.invalidateLayerCaches();
+        }
 
         // Convert canvasPosition in screenPosition per auto-scroll
         final screenPosition = _canvasController.canvasToScreen(canvasPosition);
@@ -305,7 +295,8 @@ extension on _NebulaCanvasScreenState {
           _startAutoScrollIfNeeded(screenPosition, canvasSize);
         }
 
-        setState(() {});
+        // 🚀 PERF: No setState needed — both SelectionTransformOverlay and
+        // LassoSelectionOverlay listen to dragNotifier for smooth repositioning.
         return;
       }
 
@@ -362,7 +353,11 @@ extension on _NebulaCanvasScreenState {
 
       // 🎯 Track trail (max 20 points)
       _eraserTrail.add(_EraserTrailPoint(canvasPosition, now));
-      _eraserTrail.removeWhere((p) => now - p.timestamp > 300);
+      // 🚀 PERF: Front-trim instead of removeWhere (O(1) amortized vs O(n))
+      while (_eraserTrail.isNotEmpty &&
+          now - _eraserTrail.first.timestamp > 300) {
+        _eraserTrail.removeAt(0);
+      }
       if (_eraserTrail.length > 20) {
         _eraserTrail.removeRange(0, _eraserTrail.length - 20);
       }

@@ -43,7 +43,7 @@ Motore 2D professionale costruito in 6 fasi incrementali, 100% retrocompatibile.
 │   ├── animation_timeline.dart  Keyframes, tracks, timeline con interpolazione e 5 curve di easing
 │   ├── command_history.dart     Undo/redo con Command pattern, coalescing, batch
 │   ├── selection_manager.dart   Multi-selezione, aggregate bounds, group transforms, allineamento
-│   ├── export_pipeline.dart     Esportazione PNG (1x/2x/3x), SVG, PDF
+│   ├── export_pipeline.dart     Esportazione PNG (1x/2x/3x), SVG
 │   ├── dirty_tracker.dart       Dirty tracking con propagazione a parent, minimal repaint region
 │   ├── spatial_index.dart       R-tree per viewport culling O(log n) e hit testing
 │   ├── style_system.dart        Design tokens (colori, tipografia, spacing) + stili riutilizzabili con linking
@@ -101,7 +101,7 @@ Motore 2D professionale costruito in 6 fasi incrementali, 100% retrocompatibile.
 - **Multi-Selezione**: `SelectionManager` con aggregate bounds, group transforms (translate/rotate/scale), marquee select, 6 allineamenti, distribuzione H/V, filtri per tipo
 - **Boolean Ops**: Union, subtract, intersect, XOR via `Path.combine`. Path overlap detection, multi-path flatten, Flutter Path → VectorPath conversion
 - **Auto Layout**: `FrameNode extends GroupNode` con `LayoutConstraint` per figlio (fill/fixed/hug, pin, flex-grow). Layout solver 3-pass con main/cross axis alignment e space distribution
-- **Export Pipeline**: PNG (1x/2x/3x DPI), SVG (scene graph → SVG DOM), PDF. Export per nodo singolo, selezione, o intero scene graph
+- **Export Pipeline**: PNG (1x/2x/3x DPI), SVG (scene graph → SVG DOM). Export per nodo singolo, selezione, o intero scene graph
 
 ### Fase 8 — Performance & Design Systems
 - **Dirty Tracking**: `DirtyTracker` con propagazione a parent, old-bounds tracking, dirty region computation (minimal repaint rect), per-layer dirty checking

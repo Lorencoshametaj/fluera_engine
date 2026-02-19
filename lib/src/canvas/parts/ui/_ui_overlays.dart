@@ -88,6 +88,7 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
               layerController: _layerController,
               canvasController: _canvasController,
               isDragging: _lassoTool.isDragging,
+              dragNotifier: _lassoTool.dragNotifier,
             ),
           ),
         ),
@@ -111,6 +112,7 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
           },
           onEdgeAutoScrollEnd: _stopAutoScroll,
           isDark: Theme.of(context).brightness == Brightness.dark,
+          onComputeSnap: _applySmartGuides,
         ),
 
       // ✒️ Pen Tool Overlay — anchors, handles, rubber-band

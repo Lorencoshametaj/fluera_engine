@@ -301,7 +301,15 @@ class CurrentStrokePainter extends CustomPainter {
     ProPenType penType,
     ProBrushSettings settings,
   ) {
-    BrushEngine.renderStroke(canvas, points, color, width, penType, settings);
+    BrushEngine.renderStroke(
+      canvas,
+      points,
+      color,
+      width,
+      penType,
+      settings,
+      isLive: true,
+    );
   }
 
   @override

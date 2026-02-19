@@ -11,6 +11,13 @@ import 'shader_brush_service.dart';
 // TEXTURE OVERLAY RENDERER — GPU texture erosion per-segment rendering
 // ============================================================================
 
+/// 🚀 Pre-allocated buffers for texture overlay rendering (avoids per-frame GC).
+List<Offset> _texOffsetCache = List<Offset>.filled(2048, Offset.zero);
+List<int> _texIndexCache = List<int>.filled(512, 0);
+int _texIndexCacheLen = 0;
+List<double> _texVelCache = List<double>.filled(512, 0.0);
+int _texVelCacheLen = 0;
+
 extension ShaderTextureRenderer on ShaderBrushService {
   /// Render texture erosion overlay using GPU shader.
   ///
@@ -80,25 +87,33 @@ extension ShaderTextureRenderer on ShaderBrushService {
           ..shader = shader
           ..blendMode = ui.BlendMode.dstOut;
 
-    // Pre-cache offsets
-    final offsets = preComputeOffsets(points);
+    // 🚀 PERF: Pre-cache offsets into static buffer (avoids List allocation)
+    final n = points.length;
+    if (_texOffsetCache.length < n) {
+      _texOffsetCache = List<Offset>.filled(n * 2, Offset.zero);
+    }
+    for (int i = 0; i < n; i++) {
+      _texOffsetCache[i] = StrokeOptimizer.getOffset(points[i]);
+    }
 
-    // Velocities only for coalesced indices
-    final indices = coalesceIndices(offsets);
-    final velocities = calculateVelocitiesForIndices(offsets, indices);
+    // 🚀 PERF: Coalesce indices into static buffer
+    _texIndexCacheLen = _coalesceIndicesInto(n);
+
+    // 🚀 PERF: Calculate velocities into static buffer
+    _texVelCacheLen = _calculateVelocitiesInto(n);
 
     // Viewport culling
     final clipBounds = canvas.getLocalClipBounds();
 
-    for (int k = 0; k < indices.length - 1; k++) {
-      final i = indices[k];
-      final j = indices[k + 1];
-      var p1 = offsets[i];
-      var p2 = offsets[j];
+    for (int k = 0; k < _texIndexCacheLen - 1; k++) {
+      final i = _texIndexCache[k];
+      final j = _texIndexCache[k + 1];
+      var p1 = _texOffsetCache[i];
+      var p2 = _texOffsetCache[j];
 
       final press1 = getPressure(points[i]);
       final press2 = getPressure(points[j]);
-      final vel = velocities[k].clamp(0.0, 1.0);
+      final vel = _texVelCache[k].clamp(0.0, 1.0);
 
       // Pressure-based width interpolation (like pencil/fountain pen)
       final w1 = baseWidth * (0.5 + press1 * 0.5);
@@ -160,6 +175,86 @@ extension ShaderTextureRenderer on ShaderBrushService {
       canvas.drawRect(Rect.fromLTWH(0, 0, rect.width, rect.height), paint);
       canvas.translate(-rect.left, -rect.top);
     }
+  }
+
+  /// 🚀 Coalesce near-collinear points into _texIndexCache (no allocation).
+  /// Returns the number of indices written.
+  int _coalesceIndicesInto(int pointCount) {
+    if (pointCount <= 3) {
+      if (_texIndexCache.length < pointCount) {
+        _texIndexCache = List<int>.filled(pointCount * 2, 0);
+      }
+      for (int i = 0; i < pointCount; i++) {
+        _texIndexCache[i] = i;
+      }
+      return pointCount;
+    }
+
+    // Reuse threshold from ShaderBrushService.coalesceIndices
+    const double threshold = 0.15;
+    int writeIdx = 0;
+
+    // Ensure capacity
+    if (_texIndexCache.length < pointCount) {
+      _texIndexCache = List<int>.filled(pointCount * 2, 0);
+    }
+
+    _texIndexCache[writeIdx++] = 0;
+    var prevDir = _segDir(0);
+
+    for (int i = 1; i < pointCount - 1; i++) {
+      final dir = _segDir(i);
+      final cross = (prevDir.dx * dir.dy - prevDir.dy * dir.dx).abs();
+      if (cross > threshold) {
+        _texIndexCache[writeIdx++] = i;
+        prevDir = dir;
+      }
+    }
+
+    _texIndexCache[writeIdx++] = pointCount - 1;
+    return writeIdx;
+  }
+
+  /// Normalized direction between _texOffsetCache[i] and [i+1].
+  Offset _segDir(int i) {
+    final d = _texOffsetCache[i + 1] - _texOffsetCache[i];
+    final len = d.distance;
+    return len > 0.01 ? Offset(d.dx / len, d.dy / len) : const Offset(1, 0);
+  }
+
+  /// 🚀 Calculate velocities into _texVelCache (no allocation).
+  /// Returns the number of velocities written.
+  int _calculateVelocitiesInto(int pointCount) {
+    if (_texIndexCacheLen < 2) {
+      if (_texVelCache.isEmpty) {
+        _texVelCache = List<double>.filled(8, 0.0);
+      }
+      _texVelCache[0] = 0.0;
+      return 1;
+    }
+
+    // Ensure capacity
+    if (_texVelCache.length < _texIndexCacheLen) {
+      _texVelCache = List<double>.filled(_texIndexCacheLen * 2, 0.0);
+    }
+
+    double maxVel = 0.0;
+    for (int k = 0; k < _texIndexCacheLen - 1; k++) {
+      final vel =
+          (_texOffsetCache[_texIndexCache[k + 1]] -
+                  _texOffsetCache[_texIndexCache[k]])
+              .distance;
+      _texVelCache[k] = vel;
+      if (vel > maxVel) maxVel = vel;
+    }
+
+    if (maxVel > 0) {
+      for (int k = 0; k < _texIndexCacheLen; k++) {
+        _texVelCache[k] /= maxVel;
+      }
+    }
+
+    return _texIndexCacheLen;
   }
 
   /// Convert textureType string → TextureType enum.

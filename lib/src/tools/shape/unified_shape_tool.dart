@@ -8,7 +8,6 @@ import '../../core/models/shape_type.dart';
 ///
 /// Strumento per forme geometriche che funziona su:
 /// - Canvas infinito
-/// - PDF Pages
 /// - Multiview
 ///
 /// FEATURES:
