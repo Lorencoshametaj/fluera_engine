@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../core/scene_graph/scene_graph.dart';
+import '../core/scene_graph/scene_graph_transaction.dart';
 import '../core/scene_graph/canvas_node.dart';
 import '../core/nodes/group_node.dart';
 import '../core/nodes/pdf_page_node.dart';
@@ -65,31 +67,277 @@ abstract class Command {
 class CompositeCommand extends Command {
   final List<Command> commands;
 
-  CompositeCommand({required super.label, required this.commands});
+  /// Optional scene graph for transaction-based atomic execution.
+  ///
+  /// When provided, the entire batch is wrapped in a [SceneGraphTransaction].
+  /// If any sub-command throws, all mutations are atomically rolled back.
+  final SceneGraph? sceneGraph;
+
+  CompositeCommand({
+    required super.label,
+    required this.commands,
+    this.sceneGraph,
+  });
 
   @override
   void execute() {
-    for (final cmd in commands) {
-      cmd.execute();
+    final txn = sceneGraph?.beginTransaction();
+    try {
+      for (final cmd in commands) {
+        cmd.execute();
+      }
+      txn?.commit();
+    } catch (e) {
+      txn?.rollback();
+      rethrow;
     }
   }
 
   @override
   void undo() {
-    for (final cmd in commands.reversed) {
-      cmd.undo();
+    final txn = sceneGraph?.beginTransaction();
+    try {
+      for (final cmd in commands.reversed) {
+        cmd.undo();
+      }
+      txn?.commit();
+    } catch (e) {
+      txn?.rollback();
+      rethrow;
     }
   }
 
   @override
   void redo() {
-    for (final cmd in commands) {
-      cmd.redo();
+    final txn = sceneGraph?.beginTransaction();
+    try {
+      for (final cmd in commands) {
+        cmd.redo();
+      }
+      txn?.commit();
+    } catch (e) {
+      txn?.rollback();
+      rethrow;
     }
   }
 }
 
 // ---------------------------------------------------------------------------
+// Compound Command Builder — Fluent API
+// ---------------------------------------------------------------------------
+
+/// Fluent builder for creating multi-step atomic operations.
+///
+/// Unlike [CommandTransaction], the builder does **not** execute commands
+/// immediately — it collects them and produces a [CompositeCommand] on
+/// [build]. The caller then passes the composite to [CommandHistory.execute].
+///
+/// ```dart
+/// final cmd = CompoundCommandBuilder('Align selection')
+///   .add(SetPositionCommand(node: a, newX: 10, newY: 0))
+///   .add(SetPositionCommand(node: b, newX: 10, newY: 50))
+///   .addIf(snapEnabled, SetPositionCommand(node: c, newX: 10, newY: 100))
+///   .build();
+/// history.execute(cmd);
+/// ```
+class CompoundCommandBuilder {
+  final String label;
+  final List<Command> _commands = [];
+
+  CompoundCommandBuilder(this.label);
+
+  /// Add a command to the compound.
+  CompoundCommandBuilder add(Command command) {
+    _commands.add(command);
+    return this;
+  }
+
+  /// Conditionally add a command.
+  CompoundCommandBuilder addIf(bool condition, Command command) {
+    if (condition) _commands.add(command);
+    return this;
+  }
+
+  /// Add all commands from an iterable.
+  CompoundCommandBuilder addAll(Iterable<Command> commands) {
+    _commands.addAll(commands);
+    return this;
+  }
+
+  /// Build the compound. Returns a [CompositeCommand] wrapping all added
+  /// commands. Throws [StateError] if no commands were added.
+  CompositeCommand build() {
+    if (_commands.isEmpty) {
+      throw StateError('CompoundCommandBuilder: no commands to build');
+    }
+    return CompositeCommand(label: label, commands: List.of(_commands));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Conditional Command
+// ---------------------------------------------------------------------------
+
+/// A command that only executes when a runtime [guard] returns `true`.
+///
+/// If the guard fails on [execute], the command is silently skipped.
+/// [undo] also checks the guard to prevent reverting an action that never ran.
+///
+/// ```dart
+/// ConditionalCommand(
+///   label: 'Delete if unlocked',
+///   guard: () => !node.isLocked,
+///   inner: DeleteNodeCommand(parent: layer, child: node),
+/// );
+/// ```
+class ConditionalCommand extends Command {
+  final bool Function() guard;
+  final Command inner;
+  bool _didExecute = false;
+
+  ConditionalCommand({
+    required String label,
+    required this.guard,
+    required this.inner,
+  }) : super(label: label);
+
+  @override
+  void execute() {
+    if (guard()) {
+      inner.execute();
+      _didExecute = true;
+    }
+  }
+
+  @override
+  void undo() {
+    if (_didExecute) {
+      inner.undo();
+      _didExecute = false;
+    }
+  }
+
+  @override
+  void redo() {
+    if (guard()) {
+      inner.redo();
+      _didExecute = true;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Command Middleware
+// ---------------------------------------------------------------------------
+
+/// Intercepts every command execution in [CommandHistory].
+///
+/// Middlewares are called in order on `beforeXxx` and in reverse order on
+/// `afterXxx`, forming a middleware stack (onion model).
+///
+/// Return `false` from [beforeExecute] to **veto** a command — it will not
+/// be executed, and no `afterExecute` callbacks will fire.
+///
+/// ```dart
+/// class LoggingMiddleware extends CommandMiddleware {
+///   @override
+///   bool beforeExecute(Command cmd) {
+///     print('Executing: ${cmd.label}');
+///     return true;
+///   }
+/// }
+/// ```
+abstract class CommandMiddleware {
+  /// Called before a command is executed. Return `false` to veto.
+  bool beforeExecute(Command cmd) => true;
+
+  /// Called after a command has been successfully executed.
+  void afterExecute(Command cmd) {}
+
+  /// Called when command execution throws. Use for cleanup (e.g. journal rollback).
+  void onExecuteError(Command cmd, Object error, StackTrace stack) {}
+
+  /// Called before a command is undone.
+  void beforeUndo(Command cmd) {}
+
+  /// Called after a command has been undone.
+  void afterUndo(Command cmd) {}
+
+  /// Called when undo throws.
+  void onUndoError(Command cmd, Object error, StackTrace stack) {}
+
+  /// Called before a command is redone.
+  void beforeRedo(Command cmd) {}
+
+  /// Called after a command has been redone.
+  void afterRedo(Command cmd) {}
+
+  /// Called when redo throws.
+  void onRedoError(Command cmd, Object error, StackTrace stack) {}
+}
+
+// ---------------------------------------------------------------------------
+// Command Transaction
+// ---------------------------------------------------------------------------
+
+/// Groups multiple commands into a single atomic operation.
+///
+/// Use [add] to execute and record commands. Then either [commit] to
+/// produce a single [CompositeCommand] for the undo stack, or [rollback]
+/// to undo all recorded commands and discard.
+///
+/// ```dart
+/// final txn = CommandTransaction(label: 'Move all vertices');
+/// txn.add(MoveVertexCommand(node: n, vertexIndex: 0, newPosition: p1));
+/// txn.add(MoveVertexCommand(node: n, vertexIndex: 1, newPosition: p2));
+/// final composite = txn.commit(); // single undo entry
+/// ```
+class CommandTransaction {
+  final String label;
+  final List<Command> _commands = [];
+  bool _committed = false;
+  bool _rolledBack = false;
+
+  CommandTransaction({required this.label});
+
+  /// Whether this transaction has been committed or rolled back.
+  bool get isFinished => _committed || _rolledBack;
+
+  /// Number of commands in this transaction.
+  int get length => _commands.length;
+
+  /// Execute and record a command within this transaction.
+  ///
+  /// Throws if the transaction has already been committed or rolled back.
+  void add(Command command) {
+    if (_committed) throw StateError('Transaction already committed');
+    if (_rolledBack) throw StateError('Transaction already rolled back');
+    command.execute();
+    _commands.add(command);
+  }
+
+  /// Commit the transaction, returning a [CompositeCommand] that wraps
+  /// all recorded commands as a single undo entry.
+  ///
+  /// Throws if the transaction has already been committed or rolled back.
+  CompositeCommand commit() {
+    if (_committed) throw StateError('Transaction already committed');
+    if (_rolledBack) throw StateError('Transaction already rolled back');
+    _committed = true;
+    return CompositeCommand(label: label, commands: List.of(_commands));
+  }
+
+  /// Roll back all recorded commands in reverse order and discard.
+  void rollback() {
+    if (_committed) throw StateError('Transaction already committed');
+    if (_rolledBack) throw StateError('Transaction already rolled back');
+    _rolledBack = true;
+    for (int i = _commands.length - 1; i >= 0; i--) {
+      _commands[i].undo();
+    }
+    _commands.clear();
+  }
+}
 // Concrete Commands
 // ---------------------------------------------------------------------------
 
@@ -485,6 +733,8 @@ class ReorderPageCommand extends Command {
 /// - **Reactive UI**: [revision] notifier increments on every state change,
 ///   so widgets can rebuild when undo/redo availability changes.
 /// - **Max stack size**: prevents unbounded memory growth (default 100).
+/// - **Middleware pipeline**: [CommandMiddleware] instances intercept every
+///   execute/undo/redo call for validation, telemetry, and event bridging.
 class CommandHistory {
   final List<Command> _undoStack = [];
   final List<Command> _redoStack = [];
@@ -492,10 +742,19 @@ class CommandHistory {
   /// Maximum number of commands to keep in the undo stack.
   final int maxSize;
 
+  /// Middleware pipeline — processed in order for `before`, reverse for `after`.
+  final List<CommandMiddleware> middlewares;
+
   /// Incremented on every execute/undo/redo/clear — listen to rebuild UI.
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
-  CommandHistory({this.maxSize = 100});
+  CommandHistory({this.maxSize = 100, List<CommandMiddleware>? middlewares})
+    : middlewares = middlewares ?? [];
+
+  /// Add a middleware to the pipeline.
+  void addMiddleware(CommandMiddleware middleware) {
+    middlewares.add(middleware);
+  }
 
   /// Whether there are commands to undo.
   bool get canUndo => _undoStack.isNotEmpty;
@@ -513,8 +772,24 @@ class CommandHistory {
   ///
   /// If the top of the undo stack can merge with [cmd], the merge happens
   /// instead of pushing a new entry (useful for drag coalescing).
-  void execute(Command cmd) {
-    cmd.execute();
+  ///
+  /// Returns `true` if the command was executed, `false` if vetoed by
+  /// middleware.
+  bool execute(Command cmd) {
+    // Middleware: beforeExecute (veto if any returns false)
+    for (final mw in middlewares) {
+      if (!mw.beforeExecute(cmd)) return false;
+    }
+
+    try {
+      cmd.execute();
+    } catch (e, s) {
+      // Notify middleware of failure (e.g. journal rollback)
+      for (final mw in middlewares.reversed) {
+        mw.onExecuteError(cmd, e, s);
+      }
+      rethrow;
+    }
     _redoStack.clear();
 
     // Attempt merge with top of undo stack
@@ -529,24 +804,65 @@ class CommandHistory {
     }
 
     revision.value++;
+
+    // Middleware: afterExecute (reverse order)
+    for (final mw in middlewares.reversed) {
+      mw.afterExecute(cmd);
+    }
+
+    return true;
   }
 
   /// Undo the most recent command.
   void undo() {
     if (!canUndo) return;
     final cmd = _undoStack.removeLast();
-    cmd.undo();
+
+    for (final mw in middlewares) {
+      mw.beforeUndo(cmd);
+    }
+
+    try {
+      cmd.undo();
+    } catch (e, s) {
+      _undoStack.add(cmd); // restore to undo stack
+      for (final mw in middlewares.reversed) {
+        mw.onUndoError(cmd, e, s);
+      }
+      rethrow;
+    }
     _redoStack.add(cmd);
     revision.value++;
+
+    for (final mw in middlewares.reversed) {
+      mw.afterUndo(cmd);
+    }
   }
 
   /// Redo the most recently undone command.
   void redo() {
     if (!canRedo) return;
     final cmd = _redoStack.removeLast();
-    cmd.redo();
+
+    for (final mw in middlewares) {
+      mw.beforeRedo(cmd);
+    }
+
+    try {
+      cmd.redo();
+    } catch (e, s) {
+      _redoStack.add(cmd); // restore to redo stack
+      for (final mw in middlewares.reversed) {
+        mw.onRedoError(cmd, e, s);
+      }
+      rethrow;
+    }
     _undoStack.add(cmd);
     revision.value++;
+
+    for (final mw in middlewares.reversed) {
+      mw.afterRedo(cmd);
+    }
   }
 
   /// Clear all undo/redo history.

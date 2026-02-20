@@ -4,7 +4,9 @@ import '../../utils/uid.dart';
 import '../effects/node_effect.dart';
 import '../../systems/accessibility_tree.dart';
 import './canvas_node_factory.dart';
+import './node_id.dart';
 import './node_visitor.dart';
+import './transform_bridge.dart';
 
 /// Base class for all elements in the scene graph.
 ///
@@ -17,7 +19,7 @@ import './node_visitor.dart';
 /// represent concrete content, while [GroupNode] subclasses contain children.
 abstract class CanvasNode {
   /// Unique identifier for this node.
-  final String id;
+  final NodeId id;
 
   /// Human-readable name (shown in layer panel, etc.).
   String name;
@@ -63,12 +65,30 @@ abstract class CanvasNode {
   /// with the specified role, label, and other semantic properties.
   AccessibilityInfo? accessibilityInfo;
 
+  /// Baseline offset for text alignment (distance from top of bounds to baseline).
+  ///
+  /// When non-null, this value is used by [FrameNode] to align children
+  /// along their text baseline when [CrossAxisAlignment.baseline] is set.
+  /// Only meaningful for nodes that render text (e.g., [TextNode]).
+  double? baselineOffset;
+
   // ---------------------------------------------------------------------------
   // Hierarchy
   // ---------------------------------------------------------------------------
 
   /// Parent node in the scene graph (null for root).
   CanvasNode? parent;
+
+  /// Back-reference to the owning [SceneGraph], if registered.
+  ///
+  /// Set by `SceneGraph._registerSubtree()`, cleared by
+  /// `SceneGraph._unregisterSubtree()`. Used to bridge transform
+  /// invalidation into the invalidation graph and spatial index.
+  ///
+  /// Uses the [TransformBridge] interface to avoid a circular import
+  /// between `canvas_node.dart` and `scene_graph.dart` while keeping
+  /// full type safety.
+  TransformBridge? ownerGraph;
 
   // ---------------------------------------------------------------------------
   // Constructor
@@ -90,6 +110,20 @@ abstract class CanvasNode {
        effects = effects ?? [];
 
   // ---------------------------------------------------------------------------
+  // Content fingerprint
+  // ---------------------------------------------------------------------------
+
+  /// A hash that captures node-type-specific content.
+  ///
+  /// Used by [SceneGraphSnapshot] to detect in-place property changes
+  /// (e.g. fill color, text content, stroke data) that the base hash
+  /// would miss. Subclasses should override to include their specific data.
+  ///
+  /// The default returns `runtimeType.hashCode` — enough to detect
+  /// type changes but not property-level mutations.
+  int get contentFingerprint => runtimeType.hashCode;
+
+  // ---------------------------------------------------------------------------
   // Bounds
   // ---------------------------------------------------------------------------
 
@@ -97,9 +131,18 @@ abstract class CanvasNode {
   Rect get localBounds;
 
   /// Bounding box in **world** coordinates (with accumulated transforms).
+  ///
+  /// Cached and invalidated alongside the transform cache to avoid
+  /// redundant `MatrixUtils.transformRect` calls (O(1) for static nodes).
+  Rect _cachedWorldBounds = Rect.zero;
+  bool _worldBoundsDirty = true;
+
   Rect get worldBounds {
+    if (!_worldBoundsDirty) return _cachedWorldBounds;
     final wt = worldTransform;
-    return MatrixUtils.transformRect(wt, localBounds);
+    _cachedWorldBounds = MatrixUtils.transformRect(wt, localBounds);
+    _worldBoundsDirty = false;
+    return _cachedWorldBounds;
   }
 
   // ---------------------------------------------------------------------------
@@ -124,9 +167,26 @@ abstract class CanvasNode {
     return _cachedWorldTransform;
   }
 
-  /// Invalidate the cached world transform for this node and all descendants.
+  /// Invalidate the cached world transform for this node.
+  ///
+  /// Also notifies the owning [SceneGraph] (if registered) so that
+  /// the invalidation graph and spatial index stay in sync.
+  ///
+  /// When [propagatingTransform_] is `true`, the call is part of a recursive
+  /// parent→child propagation and the [SceneGraph] bridge is skipped
+  /// to avoid O(n²) cascade storms.
+  ///
+  /// **Package-internal** — do not set outside `GroupNode.invalidateTransformCache()`.
+  bool propagatingTransform_ = false;
+
   void invalidateTransformCache() {
     _worldTransformDirty = true;
+    _worldBoundsDirty = true;
+    // Bridge to SceneGraph only for the TOP-LEVEL invalidation,
+    // not during recursive child propagation.
+    if (!propagatingTransform_ && ownerGraph != null) {
+      ownerGraph!.onNodeTransformInvalidated(this);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -140,6 +200,7 @@ abstract class CanvasNode {
   /// more precise hit testing (e.g. path-based).
   bool hitTest(Offset worldPoint) {
     if (!isVisible) return false;
+    if (isLocked) return false;
 
     final inverse = Matrix4.tryInvert(worldTransform);
     if (inverse == null) return false;
@@ -152,10 +213,12 @@ abstract class CanvasNode {
   // Transform helpers
   // ---------------------------------------------------------------------------
 
-  /// Translate this node by [dx], [dy] (modifies [localTransform]).
+  /// Translate this node by [dx], [dy] (modifies [localTransform] in-place).
+  ///
+  /// Uses direct storage access — no matrix allocation, no multiply.
   void translate(double dx, double dy) {
-    localTransform = Matrix4.translationValues(dx, dy, 0.0)
-      ..multiply(localTransform);
+    localTransform[12] += dx;
+    localTransform[13] += dy;
   }
 
   /// Set absolute position (replaces translation component).
@@ -185,13 +248,34 @@ abstract class CanvasNode {
 
   /// Create a deep copy of this node with a new unique ID.
   ///
-  /// Uses the JSON serialization roundtrip to ensure all subclass
-  /// properties are fully copied. The new node gets a fresh ID
-  /// composed of the original + '_copy' suffix.
-  CanvasNode clone() {
+  /// Delegates to [cloneInternal] which subclasses can override for
+  /// zero-serialization cloning. Falls back to JSON roundtrip.
+  CanvasNode clone() => cloneInternal();
+
+  /// Subclass-overridable clone implementation.
+  ///
+  /// The default uses JSON roundtrip. Override in performance-critical
+  /// node types for direct field copy.
+  CanvasNode cloneInternal() {
     final json = toJson();
     json['id'] = generateUid();
     return CanvasNodeFactory.fromJson(json);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
+  /// Release resources held by this node.
+  ///
+  /// Clears effects, accessibility info, and the owner graph reference.
+  /// Called when the node is permanently removed from the tree.
+  @mustCallSuper
+  void dispose() {
+    effects.clear();
+    accessibilityInfo = null;
+    ownerGraph = null;
+    parent = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -248,10 +332,8 @@ abstract class CanvasNode {
       node.opacity = (json['opacity'] as num).toDouble();
     }
     if (json['blendMode'] != null) {
-      node.blendMode = ui.BlendMode.values.firstWhere(
-        (m) => m.name == json['blendMode'],
-        orElse: () => ui.BlendMode.srcOver,
-      );
+      node.blendMode =
+          _blendModeByName[json['blendMode']] ?? ui.BlendMode.srcOver;
     }
     if (json['isVisible'] != null) {
       node.isVisible = json['isVisible'] as bool;
@@ -288,8 +370,13 @@ abstract class CanvasNode {
   String toString() => '$runtimeType(id: $id, name: "$name")';
 
   // ---------------------------------------------------------------------------
-  // Private helpers
+  // Private helpers & static caches
   // ---------------------------------------------------------------------------
+
+  /// O(1) BlendMode lookup by name (avoids O(n) `firstWhere` per node).
+  static final Map<String, ui.BlendMode> _blendModeByName = {
+    for (final m in ui.BlendMode.values) m.name: m,
+  };
 
   static bool _isIdentity(Matrix4 m) {
     final s = m.storage;

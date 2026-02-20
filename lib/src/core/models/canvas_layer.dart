@@ -4,6 +4,7 @@ import './shape_type.dart';
 import './digital_text_element.dart';
 import './image_element.dart';
 import '../nodes/layer_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/canvas_node_factory.dart';
 
 /// Canvas layer — thin adapter around [LayerNode].
@@ -32,7 +33,7 @@ class CanvasLayer {
     double opacity = 1.0,
     ui.BlendMode blendMode = ui.BlendMode.srcOver,
   }) : node = LayerNode(
-         id: id,
+         id: NodeId(id),
          name: name,
          isVisible: isVisible,
          isLocked: isLocked,

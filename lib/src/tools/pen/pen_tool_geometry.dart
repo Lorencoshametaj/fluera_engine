@@ -17,7 +17,7 @@ extension _PenToolGeometry on PenTool {
     final vectorPath = AnchorPoint.toVectorPath(_anchors, closed: closed);
 
     final pathNode = PathNode(
-      id: _isEditingExisting ? _editingNodeId! : generateUid(),
+      id: NodeId(_isEditingExisting ? _editingNodeId! : generateUid()),
       path: vectorPath,
       name: 'Path',
       fillColor: fillColor,
@@ -394,7 +394,7 @@ extension _PenToolGeometry on PenTool {
       context.saveUndoState();
       final vectorPath = AnchorPoint.toVectorPath(firstHalf);
       final pathNode = PathNode(
-        id: generateUid(),
+        id: NodeId(generateUid()),
         path: vectorPath,
         name: 'Path',
         fillColor: fillColor,

@@ -158,33 +158,47 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
         return ListenableBuilder(
           listenable: _layerController,
           builder: (context, _) {
-            return RepaintBoundary(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: DrawingPainter(
-                    sceneGraph: _layerController.sceneGraph,
-                    completedShapes: _cachedAllShapes,
-                    currentShape: currentShape,
-                    canvasOffset: _canvasController.offset,
-                    canvasScale: _canvasController.scale,
-                    viewportSize: Size.zero, // unused in viewport mode
-                    enableClipping: _isImageEditFromInfiniteCanvas,
-                    canvasSize: _canvasSize,
-                    spatialIndex: _layerController.spatialIndex,
-                    devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
-                    adaptiveConfig: _renderingConfig,
-                    layers: _layerController.layers,
-                    eraserPreviewIds: _eraserPreviewIds,
-                    controller: _canvasController, // 🚀 viewport-level mode
-                    pdfPainters: _pdfPainters,
-                    onPdfRepaint: () {
-                      if (mounted) setState(() {});
-                    },
+            // Wrap in another builder so search controller changes trigger repaint
+            Widget buildPainter(BuildContext context, Widget? _) {
+              return RepaintBoundary(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: DrawingPainter(
+                      sceneGraph: _layerController.sceneGraph,
+                      completedShapes: _cachedAllShapes,
+                      currentShape: currentShape,
+                      canvasOffset: _canvasController.offset,
+                      canvasScale: _canvasController.scale,
+                      viewportSize: Size.zero, // unused in viewport mode
+                      enableClipping: _isImageEditFromInfiniteCanvas,
+                      canvasSize: _canvasSize,
+                      spatialIndex: _layerController.spatialIndex,
+                      devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
+                      adaptiveConfig: _renderingConfig,
+                      layers: _layerController.layers,
+                      eraserPreviewIds: _eraserPreviewIds,
+                      controller: _canvasController, // 🚀 viewport-level mode
+                      pdfPainters: _pdfPainters,
+                      onPdfRepaint: () {
+                        if (mounted) setState(() {});
+                      },
+                      pdfSearchController:
+                          _pdfSearchController, // 🔍 Search highlights
+                    ),
+                    size: Size.infinite,
                   ),
-                  size: Size.infinite,
                 ),
-              ),
-            );
+              );
+            }
+
+            // If search controller exists, listen for match changes → repaint
+            if (_pdfSearchController != null) {
+              return ListenableBuilder(
+                listenable: _pdfSearchController!,
+                builder: buildPainter,
+              );
+            }
+            return buildPainter(context, null);
           },
         );
       },

@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import '../models/pdf_page_model.dart';
 import '../models/pdf_text_rect.dart';
@@ -95,10 +96,16 @@ class PdfPageNode extends CanvasNode {
   bool get hasTextGeometry => textRects != null;
 
   /// Find the text rect at [localPoint], or null if none.
+  ///
+  /// Converts [localPoint] from page-local pixels to normalized 0.0–1.0
+  /// space before comparison against normalized text rects.
   PdfTextRect? hitTestText(Offset localPoint) {
     if (textRects == null) return null;
+    final nx = localPoint.dx / pageModel.originalSize.width;
+    final ny = localPoint.dy / pageModel.originalSize.height;
+    final normalizedPoint = Offset(nx, ny);
     for (final rect in textRects!) {
-      if (rect.containsPoint(localPoint)) return rect;
+      if (rect.containsPoint(normalizedPoint)) return rect;
     }
     return null;
   }
@@ -133,18 +140,31 @@ class PdfPageNode extends CanvasNode {
     }
 
     final node = PdfPageNode(
-      id: json['id'] as String? ?? 'unknown',
+      id: NodeId((json['id'] as String?) ?? 'unknown'),
       pageModel: pageModel,
     );
     CanvasNode.applyBaseFromJson(node, json);
 
-    // Restore cached text geometry if present
+    // Restore cached text geometry if present.
+    // Backward compat: old data has absolute PDF-point coords (values > 1.0).
+    // Detect and discard — re-extraction will normalize.
     if (json['textRects'] is List<dynamic>) {
-      node.textRects =
+      final parsed =
           (json['textRects'] as List<dynamic>)
               .whereType<Map<String, dynamic>>()
               .map((r) => PdfTextRect.fromJson(r))
               .toList();
+      // If any rect has coords > 1.0, it's pre-normalization data
+      final isNormalized =
+          parsed.isEmpty ||
+          parsed.every(
+            (r) =>
+                r.rect.left <= 1.0 &&
+                r.rect.right <= 1.0 &&
+                r.rect.top <= 1.0 &&
+                r.rect.bottom <= 1.0,
+          );
+      node.textRects = isNormalized ? parsed : null;
     }
 
     return node;

@@ -1,5 +1,6 @@
 import 'dart:ui';
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import '../models/digital_text_element.dart';
 
@@ -72,7 +73,7 @@ class TextNode extends CanvasNode {
 
   factory TextNode.fromJson(Map<String, dynamic> json) {
     final node = TextNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       textElement: DigitalTextElement.fromJson(
         json['text'] as Map<String, dynamic>,
       ),

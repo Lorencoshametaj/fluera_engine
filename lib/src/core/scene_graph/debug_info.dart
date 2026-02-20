@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import './canvas_node.dart';
 import './scene_graph.dart';
 import '../nodes/group_node.dart';
@@ -44,7 +46,12 @@ class SceneGraphDebugInfo {
   });
 
   /// Collect debug info from a live scene graph.
-  factory SceneGraphDebugInfo.collect(SceneGraph graph) {
+  ///
+  /// Returns `null` in release builds — the full tree-walk is
+  /// tree-shaken by the compiler when [kDebugMode] is false.
+  static SceneGraphDebugInfo? collect(SceneGraph graph) {
+    if (!kDebugMode) return null;
+
     int totalNodes = 0;
     int maxDepth = 0;
     int nodesWithEffects = 0;

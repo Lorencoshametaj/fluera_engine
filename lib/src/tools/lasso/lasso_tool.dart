@@ -1,13 +1,18 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../../drawing/models/pro_drawing_point.dart';
-import '../../core/models/shape_type.dart';
+import '../../core/scene_graph/canvas_node.dart';
+import '../../core/nodes/group_node.dart';
+import '../../core/scene_graph/node_id.dart';
+import '../../core/nodes/layer_node.dart';
+import '../../core/nodes/stroke_node.dart';
+import '../../core/nodes/shape_node.dart';
+import '../../core/nodes/text_node.dart';
+import '../../core/nodes/image_node.dart';
 import '../../core/models/canvas_layer.dart';
-import '../../core/models/digital_text_element.dart';
-import '../../core/models/image_element.dart';
 import '../../layers/nebula_layer_controller.dart';
 import '../../reflow/content_cluster.dart';
 import '../../reflow/reflow_physics_engine.dart';
+import '../../systems/selection_manager.dart';
 
 part '_lasso_transforms.dart';
 part '_lasso_clipboard.dart';
@@ -30,35 +35,46 @@ const double _kDefaultTextHeight = 40.0;
 /// Padding added to selection bounds for comfortable drag hit-testing.
 const double _kSelectionBoundsPadding = 20.0;
 
-/// 🎨 LASSO TOOL — Professional selection tool
+/// 🎨 LASSO TOOL — Professional selection tool (scene graph backed)
 ///
-/// Features:
-/// - Freehand lasso selection
-/// - All element types: strokes, shapes, text, images
-/// - Bounding-box pre-filter for fast hit-testing
-/// - Move, delete, copy, duplicate, rotate, scale, flip
-/// - Alignment, distribution, z-ordering, grouping
-/// - Lock, opacity, color, snap-to-grid, undo
-/// - Multi-layer + export selection
+/// All selection state is managed through [SelectionManager].
+/// Transforms, alignment, clipboard, and z-ordering all delegate
+/// to [CanvasNode] APIs — no flat-layer duplication.
 class LassoTool {
   final NebulaLayerController layerController;
+
+  /// The single source of truth for selection state.
+  final SelectionManager selectionManager;
 
   // Lasso path being drawn
   List<Offset> lassoPath = [];
 
   /// 🚀 PERF: Notifier that fires when lassoPath changes.
-  /// Listeners repaint only the lasso overlay — no full setState rebuild.
   final ValueNotifier<int> lassoPathNotifier = ValueNotifier<int>(0);
 
   /// 🚀 PERF: Notifier that fires during drag for smooth overlay updates.
-  /// SelectionTransformOverlay listens to this instead of relying on parent setState.
   final ValueNotifier<int> dragNotifier = ValueNotifier<int>(0);
 
-  // Selected element IDs by type
-  final Set<String> selectedStrokeIds = {};
-  final Set<String> selectedShapeIds = {};
-  final Set<String> selectedTextIds = {};
-  final Set<String> selectedImageIds = {};
+  /// All currently selected element IDs (unified set).
+  Set<String> get selectedIds => selectionManager.selectedIds;
+
+  /// Restore selection from a set of IDs (used for undo-on-cancel).
+  ///
+  /// Resolves each ID back to a CanvasNode in the active layer
+  /// and re-selects them through the SelectionManager.
+  void restoreSelectionFromIds(Set<String> ids) {
+    if (ids.isEmpty) return;
+    final layerNode = _getActiveLayerNode();
+    final nodes = <CanvasNode>[];
+    for (final id in ids) {
+      final node = layerNode.findChild(id);
+      if (node != null) nodes.add(node);
+    }
+    if (nodes.isNotEmpty) {
+      selectionManager.selectAll(nodes);
+      _calculateSelectionBounds();
+    }
+  }
 
   // Drag state
   bool _isDragging = false;
@@ -66,7 +82,6 @@ class LassoTool {
   Rect? _selectionBounds;
 
   /// 🚀 PERF: Accumulated drag offset not yet applied to stroke data.
-  /// moveSelected() is throttled during drag; this tracks the pending delta.
   Offset _pendingDragDelta = Offset.zero;
   int _lastMoveSelectedTime = 0;
   static const int _moveSelectedThrottleMs = 32; // ~30fps for heavy work
@@ -76,24 +91,12 @@ class LassoTool {
   int _lastDragTimestamp = 0;
   static const double _velocitySmoothing = 0.3; // α for EMA
 
-  // Clipboard for copy/paste
-  List<ProStroke> _clipboardStrokes = [];
-  List<GeometricShape> _clipboardShapes = [];
-  List<DigitalTextElement> _clipboardTexts = [];
-  List<ImageElement> _clipboardImages = [];
-
-  // Group tracking (in-session, lightweight)
-  final Map<String, Set<String>> _groups = {};
-
   // Snap-to-grid configuration
   bool snapEnabled = false;
   double gridSpacing = _kDefaultGridSpacing;
 
   // Undo snapshot (last layer state before a transform batch)
   CanvasLayer? _undoSnapshot;
-
-  // Locked element IDs (cannot be moved/transformed while locked)
-  final Set<String> _lockedIds = {};
 
   // Multi-layer selection mode
   bool multiLayerMode = false;
@@ -122,7 +125,8 @@ class LassoTool {
   bool get isReflowEnabled =>
       _reflowEngine != null && _reflowEngine!.config.enabled;
 
-  LassoTool({required this.layerController});
+  LassoTool({required this.layerController, SelectionManager? selectionManager})
+    : selectionManager = selectionManager ?? SelectionManager();
 
   /// 🌊 REFLOW: Attach the reflow physics engine and initial cluster cache.
   void attachReflow(ReflowPhysicsEngine engine, List<ContentCluster> clusters) {
@@ -146,28 +150,13 @@ class LassoTool {
   // Selection Query
   // ===========================================================================
 
-  bool get hasSelection =>
-      selectedStrokeIds.isNotEmpty ||
-      selectedShapeIds.isNotEmpty ||
-      selectedTextIds.isNotEmpty ||
-      selectedImageIds.isNotEmpty;
+  bool get hasSelection => selectionManager.isNotEmpty;
 
-  int get selectionCount =>
-      selectedStrokeIds.length +
-      selectedShapeIds.length +
-      selectedTextIds.length +
-      selectedImageIds.length;
-
-  bool get hasClipboard =>
-      _clipboardStrokes.isNotEmpty ||
-      _clipboardShapes.isNotEmpty ||
-      _clipboardTexts.isNotEmpty ||
-      _clipboardImages.isNotEmpty;
+  int get selectionCount => selectionManager.count;
 
   bool get isDragging => _isDragging;
 
   /// 🌊 FLING: Last computed drag velocity (canvas-space pixels/second).
-  /// Read this after endDrag() to decide whether to fling.
   Offset get lastDragVelocity => _dragVelocity;
 
   // ===========================================================================
@@ -183,19 +172,16 @@ class LassoTool {
   void startDrag(Offset position) {
     _isDragging = true;
     _dragStartPosition = position;
-    // 🌊 FLING: Reset velocity tracking
     _dragVelocity = Offset.zero;
     _lastDragTimestamp = DateTime.now().millisecondsSinceEpoch;
-    // Save undo snapshot before any drag transformation
     saveUndoSnapshot();
   }
 
-  /// Returns true if stroke data was actually updated (moveSelected ran),
+  /// Returns true if data was actually updated (moveSelected ran),
   /// false if the frame was throttled (only bounds shifted).
   bool updateDrag(Offset currentPosition) {
     if (!_isDragging || _dragStartPosition == null) return false;
     var delta = currentPosition - _dragStartPosition!;
-    // Apply snap-to-grid if enabled
     if (snapEnabled) delta = snapDelta(delta);
 
     // 🌊 FLING: Track velocity via exponential moving average
@@ -213,30 +199,27 @@ class LassoTool {
       _lastDragTimestamp = now;
     }
 
-    // 🚀 PERF: Always update selection bounds (cheap) for smooth overlay positioning
+    // 🚀 PERF: Always update selection bounds (cheap) for smooth overlay
     if (_selectionBounds != null) {
       _selectionBounds = _selectionBounds!.shift(delta);
     }
     _dragStartPosition = currentPosition;
-
-    // 🚀 PERF: Fire drag notifier every frame for smooth overlay handle updates
     dragNotifier.value++;
 
-    // 🚀 PERF: Throttle the expensive moveSelected() (copies all stroke points).
-    // Accumulate the delta and flush at ~30fps max.
+    // 🚀 PERF: Throttle the expensive translateAll.
     _pendingDragDelta += delta;
     if (now - _lastMoveSelectedTime >= _moveSelectedThrottleMs) {
       _lastMoveSelectedTime = now;
-      moveSelected(_pendingDragDelta);
+      selectionManager.translateAll(_pendingDragDelta.dx, _pendingDragDelta.dy);
       _pendingDragDelta = Offset.zero;
-      return true; // Data changed
+      return true;
     }
-    return false; // Throttled — only bounds shifted
+    return false;
   }
 
   void compensateScroll(Offset scrollDelta) {
     if (!_isDragging || _dragStartPosition == null) return;
-    moveSelected(scrollDelta);
+    selectionManager.translateAll(scrollDelta.dx, scrollDelta.dy);
     _dragStartPosition = _dragStartPosition! + scrollDelta;
     if (_selectionBounds != null) {
       _selectionBounds = _selectionBounds!.shift(scrollDelta);
@@ -246,11 +229,10 @@ class LassoTool {
   void endDrag() {
     // 🚀 PERF: Flush any remaining pending drag delta
     if (_pendingDragDelta != Offset.zero) {
-      moveSelected(_pendingDragDelta);
+      selectionManager.translateAll(_pendingDragDelta.dx, _pendingDragDelta.dy);
       _pendingDragDelta = Offset.zero;
     }
 
-    // Set dragging false FIRST so _onLayerChanged can rebuild cluster cache
     _isDragging = false;
     _dragStartPosition = null;
     _lastMoveSelectedTime = 0;
@@ -279,7 +261,6 @@ class LassoTool {
   }
 
   void completeLasso() {
-    // In additive mode, delegate to the additive completion
     if (_additiveMode) {
       _completeLassoAdditive();
       return;
@@ -301,7 +282,6 @@ class LassoTool {
     }
     path.close();
 
-    // Select from active layer or all layers based on mode
     if (multiLayerMode) {
       selectFromAllLayers(path);
     } else {
@@ -313,96 +293,39 @@ class LassoTool {
       return;
     }
 
-    // If any selected element belongs to a group, select the whole group
-    expandSelectionToGroups();
     _calculateSelectionBounds();
     lassoPath.clear();
   }
 
   // ===========================================================================
-  // Hit-Testing — With Bounding-Box Pre-Filter
+  // Hit-Testing — Scene Graph
   // ===========================================================================
 
   void _selectElementsInPath(Path lassoPath) {
-    final activeLayer = _getActiveLayer();
+    final layerNode = _getActiveLayerNode();
     final lassoBounds = lassoPath.getBounds();
+    final hits = <CanvasNode>[];
 
-    // Strokes — bounding-box pre-filter + point-in-path test
-    for (final stroke in activeLayer.strokes) {
-      if (!stroke.bounds.overlaps(lassoBounds)) continue;
-      if (_strokeIntersectsPath(stroke, lassoPath)) {
-        selectedStrokeIds.add(stroke.id);
+    for (final child in layerNode.children) {
+      if (!child.isVisible || child.isLocked) continue;
+
+      final bounds = child.worldBounds;
+      if (!bounds.isFinite || bounds.isEmpty) continue;
+      if (!bounds.overlaps(lassoBounds)) continue;
+
+      // Multi-point test: center + corners
+      if (lassoPath.contains(bounds.center) ||
+          lassoPath.contains(bounds.topLeft) ||
+          lassoPath.contains(bounds.topRight) ||
+          lassoPath.contains(bounds.bottomLeft) ||
+          lassoPath.contains(bounds.bottomRight)) {
+        hits.add(child);
       }
     }
 
-    // Shapes — bounding-box pre-filter + multi-point test
-    for (final shape in activeLayer.shapes) {
-      final shapeBounds = Rect.fromPoints(shape.startPoint, shape.endPoint);
-      if (!shapeBounds.overlaps(lassoBounds)) continue;
-      if (_shapeIntersectsPath(shape, lassoPath)) {
-        selectedShapeIds.add(shape.id);
-      }
+    if (hits.isNotEmpty) {
+      selectionManager.selectAll(hits);
     }
-
-    // Text elements
-    for (final text in activeLayer.texts) {
-      final textBounds = _estimateTextBounds(text);
-      if (!textBounds.overlaps(lassoBounds)) continue;
-      if (_textIntersectsPath(text, lassoPath)) {
-        selectedTextIds.add(text.id);
-      }
-    }
-
-    // Image elements
-    for (final image in activeLayer.images) {
-      final imageBounds = _estimateImageBounds(image);
-      if (!imageBounds.overlaps(lassoBounds)) continue;
-      if (_imageIntersectsPath(image, lassoPath)) {
-        selectedImageIds.add(image.id);
-      }
-    }
-  }
-
-  bool _strokeIntersectsPath(ProStroke stroke, Path lassoPath) {
-    for (final point in stroke.points) {
-      if (lassoPath.contains(point.position)) return true;
-    }
-    return false;
-  }
-
-  /// Tests all 4 corners, edge midpoints, and center (9-point check).
-  bool _shapeIntersectsPath(GeometricShape shape, Path lassoPath) {
-    final rect = Rect.fromPoints(shape.startPoint, shape.endPoint);
-    if (lassoPath.contains(rect.topLeft)) return true;
-    if (lassoPath.contains(rect.topRight)) return true;
-    if (lassoPath.contains(rect.bottomLeft)) return true;
-    if (lassoPath.contains(rect.bottomRight)) return true;
-    if (lassoPath.contains(rect.topCenter)) return true;
-    if (lassoPath.contains(rect.bottomCenter)) return true;
-    if (lassoPath.contains(rect.centerLeft)) return true;
-    if (lassoPath.contains(rect.centerRight)) return true;
-    if (lassoPath.contains(rect.center)) return true;
-    return false;
-  }
-
-  bool _textIntersectsPath(DigitalTextElement text, Path lassoPath) {
-    final bounds = _estimateTextBounds(text);
-    if (lassoPath.contains(bounds.topLeft)) return true;
-    if (lassoPath.contains(bounds.topRight)) return true;
-    if (lassoPath.contains(bounds.bottomLeft)) return true;
-    if (lassoPath.contains(bounds.bottomRight)) return true;
-    if (lassoPath.contains(bounds.center)) return true;
-    return false;
-  }
-
-  bool _imageIntersectsPath(ImageElement image, Path lassoPath) {
-    final bounds = _estimateImageBounds(image);
-    if (lassoPath.contains(bounds.topLeft)) return true;
-    if (lassoPath.contains(bounds.topRight)) return true;
-    if (lassoPath.contains(bounds.bottomLeft)) return true;
-    if (lassoPath.contains(bounds.bottomRight)) return true;
-    if (lassoPath.contains(bounds.center)) return true;
-    return false;
   }
 
   // ===========================================================================
@@ -410,95 +333,15 @@ class LassoTool {
   // ===========================================================================
 
   void deleteSelected() {
-    if (!hasSelection) return;
-    final activeLayer = _getActiveLayer();
-    final updatedLayer = activeLayer.copyWith(
-      strokes:
-          activeLayer.strokes
-              .where((s) => !selectedStrokeIds.contains(s.id))
-              .toList(),
-      shapes:
-          activeLayer.shapes
-              .where((s) => !selectedShapeIds.contains(s.id))
-              .toList(),
-      texts:
-          activeLayer.texts
-              .where((t) => !selectedTextIds.contains(t.id))
-              .toList(),
-      images:
-          activeLayer.images
-              .where((i) => !selectedImageIds.contains(i.id))
-              .toList(),
-    );
-    _updateLayer(updatedLayer);
-    clearSelection();
+    selectionManager.deleteAll();
   }
 
   void moveSelected(Offset delta) {
     if (!hasSelection) return;
-    if (isSelectionLocked) return; // Lock guard
-    final activeLayer = _getActiveLayer();
+    if (isSelectionLocked) return;
+    selectionManager.translateAll(delta.dx, delta.dy);
 
-    // 🚀 PERF: Only rebuild lists for element types that have selections.
-    // If only strokes are selected, reuse shapes/texts/images lists as-is.
-    final movedStrokes =
-        selectedStrokeIds.isEmpty
-            ? activeLayer.strokes
-            : activeLayer.strokes.map((stroke) {
-              if (selectedStrokeIds.contains(stroke.id)) {
-                return stroke.copyWith(
-                  points:
-                      stroke.points
-                          .map((p) => p.copyWith(position: p.position + delta))
-                          .toList(),
-                );
-              }
-              return stroke;
-            }).toList();
-
-    final movedShapes =
-        selectedShapeIds.isEmpty
-            ? activeLayer.shapes
-            : activeLayer.shapes.map((shape) {
-              if (selectedShapeIds.contains(shape.id)) {
-                return shape.copyWith(
-                  startPoint: shape.startPoint + delta,
-                  endPoint: shape.endPoint + delta,
-                );
-              }
-              return shape;
-            }).toList();
-
-    final movedTexts =
-        selectedTextIds.isEmpty
-            ? activeLayer.texts
-            : activeLayer.texts.map((text) {
-              if (selectedTextIds.contains(text.id)) {
-                return text.copyWith(position: text.position + delta);
-              }
-              return text;
-            }).toList();
-
-    final movedImages =
-        selectedImageIds.isEmpty
-            ? activeLayer.images
-            : activeLayer.images.map((image) {
-              if (selectedImageIds.contains(image.id)) {
-                return image.copyWith(position: image.position + delta);
-              }
-              return image;
-            }).toList();
-
-    _updateLayer(
-      activeLayer.copyWith(
-        strokes: movedStrokes,
-        shapes: movedShapes,
-        texts: movedTexts,
-        images: movedImages,
-      ),
-    );
-
-    // 🌊 REFLOW: Estimate ghost displacements for surrounding content
+    // 🌊 REFLOW: Estimate ghost displacements
     if (isReflowEnabled) {
       _calculateSelectionBounds();
       if (_selectionBounds != null) {
@@ -514,13 +357,8 @@ class LassoTool {
 
   /// 🌊 REFLOW: Get cluster IDs that contain any selected element.
   Set<String> _getSelectedClusterIds() {
+    final allSelectedIds = selectionManager.selectedIds;
     final ids = <String>{};
-    final allSelectedIds = {
-      ...selectedStrokeIds,
-      ...selectedShapeIds,
-      ...selectedTextIds,
-      ...selectedImageIds,
-    };
     for (final cluster in _clusterCache) {
       for (final elementId in allSelectedIds) {
         if (cluster.containsElement(elementId)) {
@@ -533,15 +371,12 @@ class LassoTool {
   }
 
   /// 🌊 REFLOW: Public API to bake ghost displacements into actual positions.
-  /// Called by [SelectionTransformOverlay] at the end of scale/rotate gestures.
   void bakeReflowDisplacements() => _bakeReflowDisplacements();
 
   /// 🌊 REFLOW: Bake ghost displacements into actual element positions.
-  /// Called once on drag end for atomic undo.
   void _bakeReflowDisplacements() {
     if (reflowGhostDisplacements.isEmpty) return;
 
-    // Full solve (iterative collision resolution)
     _calculateSelectionBounds();
     if (_selectionBounds == null) return;
 
@@ -584,67 +419,28 @@ class LassoTool {
 
     if (affectedElementIds.isEmpty) return;
 
-    // Apply displacements to actual element positions
-    final activeLayer = _getActiveLayer();
-
-    final updatedStrokes =
-        activeLayer.strokes.map((stroke) {
-          final disp = affectedElementIds[stroke.id];
-          if (disp == null) return stroke;
-          return stroke.copyWith(
-            points:
-                stroke.points
-                    .map((p) => p.copyWith(position: p.position + disp))
-                    .toList(),
-          );
-        }).toList();
-
-    final updatedShapes =
-        activeLayer.shapes.map((shape) {
-          final disp = affectedElementIds[shape.id];
-          if (disp == null) return shape;
-          return shape.copyWith(
-            startPoint: shape.startPoint + disp,
-            endPoint: shape.endPoint + disp,
-          );
-        }).toList();
-
-    final updatedTexts =
-        activeLayer.texts.map((text) {
-          final disp = affectedElementIds[text.id];
-          if (disp == null) return text;
-          return text.copyWith(position: text.position + disp);
-        }).toList();
-
-    final updatedImages =
-        activeLayer.images.map((image) {
-          final disp = affectedElementIds[image.id];
-          if (disp == null) return image;
-          return image.copyWith(position: image.position + disp);
-        }).toList();
-
-    _updateLayer(
-      activeLayer.copyWith(
-        strokes: updatedStrokes,
-        shapes: updatedShapes,
-        texts: updatedTexts,
-        images: updatedImages,
-      ),
-    );
+    // Apply displacements via scene graph
+    final layerNode = _getActiveLayerNode();
+    for (final entry in affectedElementIds.entries) {
+      final node = layerNode.findChild(entry.key);
+      if (node != null && !node.isLocked) {
+        node.translate(entry.value.dx, entry.value.dy);
+      }
+    }
   }
 
   // ===========================================================================
-  // Public API — Delegates to Part Files
+  // Public API — Delegates
   // ===========================================================================
 
   // Transforms
-  void rotateSelected() => _rotateSelected90();
+  void rotateSelected() => selectionManager.rotateAll(pi / 2);
   void rotateSelectedByAngle(double radians, {Offset? center}) =>
-      _rotateSelectedByAngle(radians, center: center);
+      selectionManager.rotateAll(radians);
   void scaleSelected(double factor, {Offset? center}) =>
-      _scaleSelected(factor, center: center);
-  void flipHorizontal() => _flipHorizontal();
-  void flipVertical() => _flipVertical();
+      selectionManager.scaleAll(factor, factor);
+  void flipHorizontal() => selectionManager.flipHorizontal();
+  void flipVertical() => selectionManager.flipVertical();
 
   // Clipboard
   void copySelected() => _copySelected();
@@ -663,9 +459,6 @@ class LassoTool {
   // Grouping
   String? groupSelected() => _groupSelected();
   int ungroupSelected() => _ungroupSelected();
-  void expandSelectionToGroups() => _expandSelectionToGroups();
-  bool get hasGroups => _groups.isNotEmpty;
-  int get groupCount => _groups.length;
 
   // Snap-to-grid
   Offset snapDelta(Offset delta) =>
@@ -684,14 +477,14 @@ class LassoTool {
   bool get hasUndoSnapshot => _undoSnapshot != null;
 
   // Alignment
-  void alignLeft() => _alignLeft();
-  void alignRight() => _alignRight();
-  void alignCenterH() => _alignCenterH();
-  void alignTop() => _alignTop();
-  void alignBottom() => _alignBottom();
-  void alignCenterV() => _alignCenterV();
-  void distributeHorizontal() => _distributeHorizontal();
-  void distributeVertical() => _distributeVertical();
+  void alignLeft() => selectionManager.alignLeft();
+  void alignRight() => selectionManager.alignRight();
+  void alignCenterH() => selectionManager.alignCenterH();
+  void alignTop() => selectionManager.alignTop();
+  void alignBottom() => selectionManager.alignBottom();
+  void alignCenterV() => selectionManager.alignCenterV();
+  void distributeHorizontal() => selectionManager.distributeHorizontally();
+  void distributeVertical() => selectionManager.distributeVertically();
 
   // Lock / Unlock
   void lockSelected() => _lockSelected();
@@ -707,7 +500,7 @@ class LassoTool {
 
   // Proportional Scaling
   void scaleProportional(double factor, {Offset? center}) =>
-      _scaleProportional(factor, center: center);
+      scaleSelected(factor, center: center);
 
   // Selection Statistics
   SelectionStats get selectionStats => _getSelectionStats();
@@ -745,10 +538,7 @@ class LassoTool {
   // ===========================================================================
 
   void clearSelection() {
-    selectedStrokeIds.clear();
-    selectedShapeIds.clear();
-    selectedTextIds.clear();
-    selectedImageIds.clear();
+    selectionManager.clearSelection();
     _selectionBounds = null;
     lassoPath.clear();
     _isDragging = false;
@@ -764,33 +554,11 @@ class LassoTool {
     return _selectionBounds;
   }
 
-  List<ProStroke> getSelectedStrokes() {
-    if (selectedStrokeIds.isEmpty) return [];
-    return _getActiveLayer().strokes
-        .where((s) => selectedStrokeIds.contains(s.id))
-        .toList();
-  }
+  // ===========================================================================
+  // Clipboard compatibility (hasClipboard)
+  // ===========================================================================
 
-  List<GeometricShape> getSelectedShapes() {
-    if (selectedShapeIds.isEmpty) return [];
-    return _getActiveLayer().shapes
-        .where((s) => selectedShapeIds.contains(s.id))
-        .toList();
-  }
-
-  List<DigitalTextElement> getSelectedTexts() {
-    if (selectedTextIds.isEmpty) return [];
-    return _getActiveLayer().texts
-        .where((t) => selectedTextIds.contains(t.id))
-        .toList();
-  }
-
-  List<ImageElement> getSelectedImages() {
-    if (selectedImageIds.isEmpty) return [];
-    return _getActiveLayer().images
-        .where((i) => selectedImageIds.contains(i.id))
-        .toList();
-  }
+  bool get hasClipboard => LassoClipboard._clipboardNodes.isNotEmpty;
 
   // ===========================================================================
   // Private Helpers
@@ -803,6 +571,8 @@ class LassoTool {
     );
   }
 
+  LayerNode _getActiveLayerNode() => _getActiveLayer().node;
+
   void _updateLayer(CanvasLayer updatedLayer) {
     layerController.updateLayer(updatedLayer);
   }
@@ -813,61 +583,16 @@ class LassoTool {
       return;
     }
 
-    final activeLayer = _getActiveLayer();
-    Rect? bounds;
-
-    for (final stroke in activeLayer.strokes) {
-      if (selectedStrokeIds.contains(stroke.id)) {
-        bounds = bounds?.expandToInclude(stroke.bounds) ?? stroke.bounds;
-      }
+    final bounds = selectionManager.aggregateBounds;
+    if (bounds == Rect.zero) {
+      _selectionBounds = null;
+      return;
     }
-    for (final shape in activeLayer.shapes) {
-      if (selectedShapeIds.contains(shape.id)) {
-        final r = Rect.fromPoints(shape.startPoint, shape.endPoint);
-        bounds = bounds?.expandToInclude(r) ?? r;
-      }
-    }
-    for (final text in activeLayer.texts) {
-      if (selectedTextIds.contains(text.id)) {
-        final r = _estimateTextBounds(text);
-        bounds = bounds?.expandToInclude(r) ?? r;
-      }
-    }
-    for (final image in activeLayer.images) {
-      if (selectedImageIds.contains(image.id)) {
-        final r = _estimateImageBounds(image);
-        bounds = bounds?.expandToInclude(r) ?? r;
-      }
-    }
-
-    if (bounds != null) {
-      _selectionBounds = bounds.inflate(_kSelectionBoundsPadding);
-    }
+    _selectionBounds = bounds.inflate(_kSelectionBoundsPadding);
   }
 
-  Rect _estimateTextBounds(DigitalTextElement text) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text.text,
-        style: TextStyle(
-          fontSize: text.fontSize * text.scale,
-          fontWeight: text.fontWeight,
-          fontFamily: text.fontFamily,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-
-    return Rect.fromLTWH(
-      text.position.dx,
-      text.position.dy,
-      max(tp.width, _kDefaultTextWidth),
-      max(tp.height, _kDefaultTextHeight),
-    );
-  }
-
-  Rect _estimateImageBounds(ImageElement image) {
-    final size = _kDefaultImageSize * image.scale;
-    return Rect.fromLTWH(image.position.dx, image.position.dy, size, size);
+  /// Resolve an element ID to its CanvasNode in the active layer.
+  CanvasNode? _resolveNode(String id) {
+    return _getActiveLayerNode().findChild(id);
   }
 }

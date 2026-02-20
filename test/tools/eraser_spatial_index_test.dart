@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/tools/eraser/eraser_spatial_index.dart';
 import 'package:nebula_engine/src/tools/eraser/eraser_hit_tester.dart';
@@ -40,7 +41,7 @@ void main() {
     });
 
     test('finds stroke after rebuild', () {
-      final stroke = testStroke(id: 'nearby', pointCount: 5); // (0,0)→(40,40)
+      final stroke = testStroke(id: NodeId('nearby'), pointCount: 5); // (0,0)→(40,40)
       index.rebuild([stroke]);
 
       final result = index.getNearbyStrokeIds(
@@ -52,7 +53,7 @@ void main() {
     });
 
     test('does not find distant stroke', () {
-      final stroke = testStroke(id: 'far', pointCount: 3);
+      final stroke = testStroke(id: NodeId('far'), pointCount: 3);
       index.rebuild([stroke]);
 
       final result = index.getNearbyStrokeIds(
@@ -64,8 +65,8 @@ void main() {
     });
 
     test('multiple strokes in same area', () {
-      final s1 = testStroke(id: 's1', pointCount: 3);
-      final s2 = testStroke(id: 's2', pointCount: 3);
+      final s1 = testStroke(id: NodeId('s1'), pointCount: 3);
+      final s2 = testStroke(id: NodeId('s2'), pointCount: 3);
       index.rebuild([s1, s2]);
 
       final result = index.getNearbyStrokeIds(
@@ -84,7 +85,7 @@ void main() {
   group('incrementalAdd', () {
     test('adds stroke to existing index', () {
       index.rebuild([]); // clean index
-      final stroke = testStroke(id: 'added', pointCount: 3);
+      final stroke = testStroke(id: NodeId('added'), pointCount: 3);
       index.incrementalAdd(stroke);
 
       final result = index.getNearbyStrokeIds(
@@ -97,7 +98,7 @@ void main() {
 
     test('no-op when index is dirty', () {
       // Don't rebuild → stays dirty
-      final stroke = testStroke(id: 'ignored', pointCount: 3);
+      final stroke = testStroke(id: NodeId('ignored'), pointCount: 3);
       index.incrementalAdd(stroke); // should be no-op
 
       // After rebuild with empty list, stroke should not be there
@@ -113,7 +114,7 @@ void main() {
 
   group('incrementalRemove', () {
     test('removes stroke from index', () {
-      final stroke = testStroke(id: 'removable', pointCount: 3);
+      final stroke = testStroke(id: NodeId('removable'), pointCount: 3);
       index.rebuild([stroke]);
       index.incrementalRemove(stroke);
 
@@ -145,7 +146,7 @@ void main() {
 
   group('clear', () {
     test('removes all entries and sets dirty', () {
-      final stroke = testStroke(id: 'cleared', pointCount: 3);
+      final stroke = testStroke(id: NodeId('cleared'), pointCount: 3);
       index.rebuild([stroke]);
       expect(index.isDirty, isFalse);
 
@@ -169,7 +170,7 @@ void main() {
 
   group('shape-aware queries', () {
     test('rectangle query finds strokes', () {
-      final stroke = testStroke(id: 'rect-q', pointCount: 5);
+      final stroke = testStroke(id: NodeId('rect-q'), pointCount: 5);
       index.rebuild([stroke]);
 
       final result = index.getNearbyStrokeIds(
@@ -183,7 +184,7 @@ void main() {
     });
 
     test('line query finds strokes along line direction', () {
-      final stroke = testStroke(id: 'line-q', pointCount: 5);
+      final stroke = testStroke(id: NodeId('line-q'), pointCount: 5);
       index.rebuild([stroke]);
 
       final result = index.getNearbyStrokeIds(

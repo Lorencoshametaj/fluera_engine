@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/nodes/group_node.dart';
@@ -46,7 +47,7 @@ void main() {
 
     group('registration', () {
       test('registerNode makes node available for lookup', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         tracker.registerNode(node);
         // Mark it dirty to verify registration worked
         tracker.markDirty(node);
@@ -54,7 +55,7 @@ void main() {
       });
 
       test('unregisterNode removes node and clears dirty flag', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         tracker.registerNode(node);
         tracker.markDirty(node);
         tracker.unregisterNode('n1');
@@ -62,8 +63,8 @@ void main() {
       });
 
       test('registerSubtree registers parent and all descendants', () {
-        final parent = GroupNode(id: 'g1');
-        final child = _TestNode(id: 'c1');
+        final parent = GroupNode(id: NodeId('g1'));
+        final child = _TestNode(id: NodeId('c1'));
         parent.add(child);
         tracker.registerSubtree(parent);
 
@@ -78,7 +79,7 @@ void main() {
 
     group('markDirty', () {
       test('marks node as dirty', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         tracker.registerNode(node);
         tracker.markDirty(node);
         expect(tracker.hasDirty, isTrue);
@@ -87,8 +88,8 @@ void main() {
       });
 
       test('propagates dirty flag to ancestors', () {
-        final parent = GroupNode(id: 'g1');
-        final child = _TestNode(id: 'c1');
+        final parent = GroupNode(id: NodeId('g1'));
+        final child = _TestNode(id: NodeId('c1'));
         parent.add(child);
         tracker.registerSubtree(parent);
 
@@ -98,7 +99,7 @@ void main() {
       });
 
       test('markDirtyById finds registered node and marks it', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         tracker.registerNode(node);
         tracker.markDirtyById('n1');
         expect(tracker.isDirty('n1'), isTrue);
@@ -114,15 +115,15 @@ void main() {
 
     group('isDirtyLayer', () {
       test('returns true when layer itself is dirty', () {
-        final layer = GroupNode(id: 'layer');
+        final layer = GroupNode(id: NodeId('layer'));
         tracker.registerNode(layer);
         tracker.markDirty(layer);
         expect(tracker.isDirtyLayer('layer'), isTrue);
       });
 
       test('returns true when descendant is dirty', () {
-        final layer = GroupNode(id: 'layer');
-        final child = _TestNode(id: 'c1');
+        final layer = GroupNode(id: NodeId('layer'));
+        final child = _TestNode(id: NodeId('c1'));
         layer.add(child);
         tracker.registerSubtree(layer);
 
@@ -131,7 +132,7 @@ void main() {
       });
 
       test('returns false when nothing is dirty', () {
-        final layer = GroupNode(id: 'layer');
+        final layer = GroupNode(id: NodeId('layer'));
         tracker.registerNode(layer);
         expect(tracker.isDirtyLayer('layer'), isFalse);
       });
@@ -146,7 +147,7 @@ void main() {
 
       test('returns bounds of single dirty leaf node', () {
         final node = _TestNode(
-          id: 'n1',
+          id: NodeId('n1'),
           bounds: const Rect.fromLTWH(10, 20, 100, 100),
         );
         tracker.registerNode(node);
@@ -157,7 +158,7 @@ void main() {
 
       test('includes old bounds when provided', () {
         final node = _TestNode(
-          id: 'n1',
+          id: NodeId('n1'),
           bounds: const Rect.fromLTWH(100, 100, 50, 50),
         );
         tracker.registerNode(node);
@@ -171,7 +172,7 @@ void main() {
       });
 
       test('caches region on second call', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         tracker.registerNode(node);
         tracker.markDirty(node);
         final r1 = tracker.collectDirtyRegion();
@@ -184,8 +185,8 @@ void main() {
 
     group('dirtyLeafIds', () {
       test('excludes group nodes', () {
-        final parent = GroupNode(id: 'g1');
-        final child = _TestNode(id: 'c1');
+        final parent = GroupNode(id: NodeId('g1'));
+        final child = _TestNode(id: NodeId('c1'));
         parent.add(child);
         tracker.registerSubtree(parent);
         tracker.markDirty(child); // Also marks parent dirty via propagation
@@ -200,7 +201,7 @@ void main() {
 
     group('clear', () {
       test('clearAll resets all dirty flags', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         tracker.registerNode(node);
         tracker.markDirty(node);
         tracker.clearAll();
@@ -209,8 +210,8 @@ void main() {
       });
 
       test('clearNode only clears one node', () {
-        final n1 = _TestNode(id: 'n1');
-        final n2 = _TestNode(id: 'n2');
+        final n1 = _TestNode(id: NodeId('n1'));
+        final n2 = _TestNode(id: NodeId('n2'));
         tracker.registerNode(n1);
         tracker.registerNode(n2);
         tracker.markDirty(n1);
@@ -225,7 +226,7 @@ void main() {
 
     group('dispose', () {
       test('clears everything', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         tracker.registerNode(node);
         tracker.markDirty(node);
         tracker.dispose();

@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
@@ -302,7 +303,7 @@ void main() {
 
       test('includes custom settings in JSON', () {
         final stroke = ProStroke(
-          id: 'custom',
+          id: NodeId('custom'),
           points: testPoints,
           color: Colors.red,
           baseWidth: 3.0,
@@ -345,7 +346,7 @@ void main() {
       test('overrides specified fields', () {
         final original = createStroke();
         final copy = original.copyWith(
-          id: 'new-id',
+          id: NodeId('new-id'),
           color: Colors.blue,
           baseWidth: 5.0,
         );

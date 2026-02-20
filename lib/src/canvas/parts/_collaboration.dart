@@ -163,11 +163,8 @@ extension CollaborationExtension on _NebulaCanvasScreenState {
 
   /// 🔒 Get the currently-active element ID for locking broadcast.
   String? _getActiveElementId() {
-    if (_lassoTool.selectedStrokeIds.isNotEmpty) {
-      return _lassoTool.selectedStrokeIds.first;
-    }
-    if (_lassoTool.selectedShapeIds.isNotEmpty) {
-      return _lassoTool.selectedShapeIds.first;
+    if (_lassoTool.hasSelection) {
+      return _lassoTool.selectedIds.first;
     }
     if (_digitalTextTool.hasSelection) {
       return _digitalTextTool.selectedElement?.id;

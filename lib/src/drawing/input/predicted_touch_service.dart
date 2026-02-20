@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
 
 /// 🚀 PredictedTouchService - Native Predicted Touches for Low-Latency Drawing
 ///
@@ -85,7 +86,16 @@ class PredictedTouchService {
       } else {}
 
       _isInitialized = true;
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.platform,
+          source: 'PredictedTouchService.initialize',
+          original: e,
+          stack: stack,
+        ),
+      );
       _isSupported = false;
       _isInitialized = true;
     }
@@ -97,7 +107,17 @@ class PredictedTouchService {
 
     try {
       await _methodChannel.invokeMethod('enable');
-    } catch (e) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.platform,
+          source: 'PredictedTouchService.enable',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Disable predicted touch capture
@@ -106,7 +126,17 @@ class PredictedTouchService {
 
     try {
       await _methodChannel.invokeMethod('disable');
-    } catch (e) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.platform,
+          source: 'PredictedTouchService.disable',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Handle native events from iOS
@@ -132,7 +162,16 @@ class PredictedTouchService {
   }
 
   /// Handle errors from native
-  void _handleError(dynamic error) {}
+  void _handleError(dynamic error) {
+    EngineScope.current.errorRecovery.reportError(
+      EngineError(
+        severity: ErrorSeverity.transient,
+        domain: ErrorDomain.platform,
+        source: 'PredictedTouchService.nativeStream',
+        original: error ?? 'unknown native error',
+      ),
+    );
+  }
 
   /// Dispose the service
   void dispose() {

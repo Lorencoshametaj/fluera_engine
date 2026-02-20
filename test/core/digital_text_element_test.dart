@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/models/digital_text_element.dart';
@@ -156,7 +157,7 @@ void main() {
   group('DigitalTextElement serialization', () {
     test('toJson/fromJson round-trip preserves all fields', () {
       final original = _createElement(
-        id: 'ser-1',
+        id: NodeId('ser-1'),
         text: 'Serialize me',
         position: const Offset(11.5, 22.5),
         fontSize: 18.0,
@@ -175,9 +176,9 @@ void main() {
     });
 
     test('equality is based on id only', () {
-      final a = _createElement(id: 'same-id', text: 'A');
-      final b = _createElement(id: 'same-id', text: 'B');
-      final c = _createElement(id: 'diff-id', text: 'A');
+      final a = _createElement(id: NodeId('same-id'), text: 'A');
+      final b = _createElement(id: NodeId('same-id'), text: 'B');
+      final c = _createElement(id: NodeId('diff-id'), text: 'A');
 
       expect(a, equals(b));
       expect(a, isNot(equals(c)));

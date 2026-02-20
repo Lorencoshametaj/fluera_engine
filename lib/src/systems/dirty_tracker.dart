@@ -56,6 +56,9 @@ class DirtyTracker {
     _dirtyIds.remove(nodeId);
   }
 
+  /// Whether a node is registered in the tracker (for integrity checks).
+  bool isRegistered(String nodeId) => _nodeRegistry.containsKey(nodeId);
+
   /// Register all nodes in a subtree.
   void registerSubtree(CanvasNode root) {
     registerNode(root);

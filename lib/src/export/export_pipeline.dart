@@ -443,11 +443,15 @@ class ExportPipeline {
       // Vector path → SVG <path>.
       final d = node.path.toSvgPathData();
       final fill =
+          // ignore: deprecated_member_use_from_same_package
           node.fillColor != null
+              // ignore: deprecated_member_use_from_same_package
               ? 'fill="${_colorToSvg(node.fillColor!)}"'
               : 'fill="none"';
       final stroke =
+          // ignore: deprecated_member_use_from_same_package
           node.strokeColor != null
+              // ignore: deprecated_member_use_from_same_package
               ? 'stroke="${_colorToSvg(node.strokeColor!)}" stroke-width="${node.strokeWidth}"'
               : '';
       svg.writeln(

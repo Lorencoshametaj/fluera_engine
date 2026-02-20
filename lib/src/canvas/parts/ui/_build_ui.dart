@@ -154,4 +154,25 @@ extension on _NebulaCanvasScreenState {
     }
     return null;
   }
+
+  /// Find all [PdfDocumentNode]s in the layer tree.
+  List<PdfDocumentNode> _findAllPdfDocuments() {
+    final docs = <PdfDocumentNode>[];
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode) docs.add(child);
+      }
+    }
+    return docs;
+  }
+
+  /// Find a specific [PdfDocumentNode] by its document ID.
+  PdfDocumentNode? _findPdfDocumentById(String documentId) {
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode && child.id == documentId) return child;
+      }
+    }
+    return null;
+  }
 }

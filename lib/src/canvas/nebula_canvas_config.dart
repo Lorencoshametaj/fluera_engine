@@ -6,6 +6,7 @@ import '../collaboration/nebula_sync_interfaces.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/pdf_text_rect.dart';
+import '../core/models/ocr_result.dart';
 import '../export/export_preset.dart';
 import '../core/models/image_element.dart';
 import '../config/multi_page_config.dart';
@@ -250,6 +251,75 @@ class NebulaCanvasConfig {
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';
+
+  // =========================================================================
+  // VALIDATION
+  // =========================================================================
+
+  /// Validate this configuration for logical consistency.
+  ///
+  /// Returns a list of warnings/errors. An empty list means the config
+  /// is valid. Call this at startup to fail fast on misconfiguration
+  /// instead of hitting a runtime crash deep in the engine.
+  ///
+  /// ```dart
+  /// final issues = config.validate();
+  /// if (issues.isNotEmpty) {
+  ///   for (final issue in issues) debugPrint('⚠️ Config: $issue');
+  /// }
+  /// ```
+  List<String> validate() {
+    final issues = <String>[];
+
+    // Cloud sync needs at least one sync callback
+    if (cloudSyncEnabled &&
+        onCloudSync == null &&
+        onDeltaSync == null &&
+        realtimeSync == null) {
+      issues.add(
+        'cloudSyncEnabled is true but no sync callback is provided '
+        '(onCloudSync, onDeltaSync, or realtimeSync).',
+      );
+    }
+
+    // Storage: need either storageAdapter or legacy callbacks
+    if (storageAdapter == null &&
+        onSaveCanvas == null &&
+        onLoadCanvas == null) {
+      issues.add(
+        'No persistence configured. Provide a storageAdapter or '
+        'onSaveCanvas/onLoadCanvas callbacks to enable saving.',
+      );
+    }
+
+    // PDF provider without picker
+    if (pdfProvider != null && onPickPdfFile == null) {
+      issues.add(
+        'pdfProvider is set but onPickPdfFile is null. '
+        'Users will not be able to import PDF files.',
+      );
+    }
+
+    // Collaboration features without permissions
+    if (presence != null && permissions == null) {
+      issues.add(
+        'presence is set but permissions is null. '
+        'Collaborative sessions need a NebulaPermissionProvider.',
+      );
+    }
+
+    // Realtime sync without storage
+    if (realtimeSync != null &&
+        storageAdapter == null &&
+        onSaveCanvas == null) {
+      issues.add(
+        'realtimeSync is set but no storage is configured. '
+        'Incoming deltas cannot be persisted.',
+      );
+    }
+
+    return issues;
+  }
 }
 
 // =============================================================================
@@ -458,6 +528,16 @@ abstract class NebulaPdfProvider {
 
   /// Get the full plain text content of a page (for search).
   Future<String> getPageText(int pageIndex);
+
+  /// Run OCR on a page to extract text from scanned/image-based PDFs.
+  ///
+  /// Returns an [OcrPageResult] with recognized text and bounding boxes,
+  /// or `null` if OCR is unavailable or fails. This is only called as a
+  /// fallback when both [getPageText] and the Dart-side text extractor
+  /// return empty text — indicating the page is likely image-based.
+  ///
+  /// Default implementation returns `null` (OCR unavailable).
+  Future<OcrPageResult?> ocrPage(int pageIndex) async => null;
 
   /// Release all resources associated with the loaded document.
   void dispose();

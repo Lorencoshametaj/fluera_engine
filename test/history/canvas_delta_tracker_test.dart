@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/history/canvas_delta_tracker.dart';
 import 'package:nebula_engine/src/core/models/canvas_layer.dart';
@@ -96,7 +97,7 @@ void main() {
     });
 
     test('recordLayerAdded creates pending delta', () {
-      final layer = CanvasLayer(id: 'new-layer', name: 'Test Layer');
+      final layer = CanvasLayer(id: NodeId('new-layer'), name: 'Test Layer');
       tracker.recordLayerAdded(layer);
       expect(tracker.deltaCount, 1);
       expect(tracker.peekDeltas().first.type, CanvasDeltaType.layerAdded);
@@ -109,8 +110,8 @@ void main() {
     });
 
     test('multiple records accumulate deltas', () {
-      tracker.recordStrokeAdded('l', testStroke(id: 's1'));
-      tracker.recordStrokeAdded('l', testStroke(id: 's2'));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s1')));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s2')));
       tracker.recordStrokeRemoved('l', 's1');
       expect(tracker.deltaCount, 3);
     });
@@ -125,9 +126,9 @@ void main() {
     });
 
     test('removeDeltas removes only the first N', () {
-      tracker.recordStrokeAdded('l', testStroke(id: 's1'));
-      tracker.recordStrokeAdded('l', testStroke(id: 's2'));
-      tracker.recordStrokeAdded('l', testStroke(id: 's3'));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s1')));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s2')));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s3')));
 
       tracker.removeDeltas(count: 2);
       expect(tracker.deltaCount, 1);
@@ -144,8 +145,8 @@ void main() {
     });
 
     test('markCheckpointCompleted clears all deltas', () {
-      tracker.recordStrokeAdded('l', testStroke(id: 's1'));
-      tracker.recordStrokeAdded('l', testStroke(id: 's2'));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s1')));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s2')));
       tracker.markCheckpointCompleted();
 
       expect(tracker.deltaCount, 0);
@@ -161,7 +162,7 @@ void main() {
 
     test('needsFullCheckpoint true at threshold', () {
       for (int i = 0; i < CanvasDeltaTracker.checkpointThreshold; i++) {
-        tracker.recordStrokeAdded('l', testStroke(id: 'stroke-$i'));
+        tracker.recordStrokeAdded('l', testStroke(id: NodeId('stroke-$i')));
       }
       expect(tracker.needsFullCheckpoint, isTrue);
     });
@@ -170,7 +171,7 @@ void main() {
   group('CanvasDeltaTracker — serialization', () {
     test('CanvasDelta roundtrip via JSON', () {
       final original = CanvasDelta(
-        id: 'delta-1',
+        id: NodeId('delta-1'),
         type: CanvasDeltaType.strokeAdded,
         layerId: 'layer-1',
         pageIndex: 2,
@@ -193,8 +194,8 @@ void main() {
     });
 
     test('serializeDeltasToJsonl produces one line per delta', () {
-      tracker.recordStrokeAdded('l', testStroke(id: 's1'));
-      tracker.recordStrokeAdded('l', testStroke(id: 's2'));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s1')));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s2')));
 
       final jsonl = tracker.serializeDeltasToJsonl();
       final lines =
@@ -203,8 +204,8 @@ void main() {
     });
 
     test('deserializeDeltasFromJsonl restores deltas', () {
-      tracker.recordStrokeAdded('l', testStroke(id: 's1'));
-      tracker.recordShapeAdded('l', testShape(id: 'sh1'));
+      tracker.recordStrokeAdded('l', testStroke(id: NodeId('s1')));
+      tracker.recordShapeAdded('l', testShape(id: NodeId('sh1')));
 
       final jsonl = tracker.serializeDeltasToJsonl();
       final restored = CanvasDeltaTracker.deserializeDeltasFromJsonl(jsonl);
@@ -222,11 +223,11 @@ void main() {
 
   group('CanvasDeltaTracker — applyDeltas', () {
     test('strokeAdded adds stroke to layer', () {
-      final layer = CanvasLayer(id: 'l1', name: 'Layer 1');
-      final stroke = testStroke(id: 's1');
+      final layer = CanvasLayer(id: NodeId('l1'), name: 'Layer 1');
+      final stroke = testStroke(id: NodeId('s1'));
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.strokeAdded,
         layerId: 'l1',
         timestamp: DateTime.now(),
@@ -240,11 +241,11 @@ void main() {
     });
 
     test('strokeRemoved removes stroke from layer', () {
-      final stroke = testStroke(id: 's1');
-      final layer = CanvasLayer(id: 'l1', name: 'Layer 1', strokes: [stroke]);
+      final stroke = testStroke(id: NodeId('s1'));
+      final layer = CanvasLayer(id: NodeId('l1'), name: 'Layer 1', strokes: [stroke]);
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.strokeRemoved,
         layerId: 'l1',
         timestamp: DateTime.now(),
@@ -256,10 +257,10 @@ void main() {
     });
 
     test('layerModified updates layer properties', () {
-      final layer = CanvasLayer(id: 'l1', name: 'Old', opacity: 1.0);
+      final layer = CanvasLayer(id: NodeId('l1'), name: 'Old', opacity: 1.0);
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.layerModified,
         layerId: 'l1',
         timestamp: DateTime.now(),
@@ -272,10 +273,10 @@ void main() {
     });
 
     test('layerAdded creates new layer', () {
-      final newLayer = CanvasLayer(id: 'l2', name: 'Added');
+      final newLayer = CanvasLayer(id: NodeId('l2'), name: 'Added');
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.layerAdded,
         layerId: 'l2',
         timestamp: DateTime.now(),
@@ -288,10 +289,10 @@ void main() {
     });
 
     test('layerRemoved removes layer', () {
-      final layer = CanvasLayer(id: 'l1', name: 'Layer 1');
+      final layer = CanvasLayer(id: NodeId('l1'), name: 'Layer 1');
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.layerRemoved,
         layerId: 'l1',
         timestamp: DateTime.now(),
@@ -303,14 +304,14 @@ void main() {
 
     test('layerCleared removes all elements from layer', () {
       final layer = CanvasLayer(
-        id: 'l1',
+        id: NodeId('l1'),
         name: 'Layer 1',
         strokes: [testStroke()],
         shapes: [testShape()],
       );
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.layerCleared,
         layerId: 'l1',
         timestamp: DateTime.now(),
@@ -322,10 +323,10 @@ void main() {
     });
 
     test('delta for missing layer auto-creates it', () {
-      final stroke = testStroke(id: 's1');
+      final stroke = testStroke(id: NodeId('s1'));
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.strokeAdded,
         layerId: 'auto-created',
         timestamp: DateTime.now(),
@@ -340,11 +341,11 @@ void main() {
     });
 
     test('preserves original layer order', () {
-      final l1 = CanvasLayer(id: 'l1', name: 'First');
-      final l2 = CanvasLayer(id: 'l2', name: 'Second');
+      final l1 = CanvasLayer(id: NodeId('l1'), name: 'First');
+      final l2 = CanvasLayer(id: NodeId('l2'), name: 'Second');
 
       final delta = CanvasDelta(
-        id: 'd1',
+        id: NodeId('d1'),
         type: CanvasDeltaType.layerModified,
         layerId: 'l2',
         timestamp: DateTime.now(),

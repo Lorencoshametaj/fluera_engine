@@ -3,213 +3,123 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 ---
 
 # 🎨 NEBULA ENGINE — Regole di Sviluppo
-
 ## 1. ARCHITETTURA — Non violare mai
-
 ### Scene Graph (core/)
 - **Base class**: `CanvasNode` — tutti gli elementi estendono questa. NON creare gerarchie parallele.
-- **13 tipi di nodo** (stroke, shape, text, image, group, layer, path, rich_text, clip_group, frame, symbol_instance, advanced_mask, shader). Per aggiungerne uno: sottoclasse di `CanvasNode`, registra in `CanvasNodeFactory.fromJson()`, aggiungi case in `SceneGraphRenderer`, aggiungi case nel `NodeVisitor`.
-- **Serializzazione**: ogni nodo implementa `toJson()` e usa `baseToJson()` + `applyBaseFromJson()`. MAI rompere la retrocompatibilità JSON. Aggiungere campi opzionali con fallback.
-- **Transforms**: sempre `Matrix4` gerarchico. `worldTransform` è cachato — chiamare `invalidateTransformCache()` quando modifichi `localTransform`.
-- **Observer pattern**: `SceneGraphObserver` per notifiche di modifica al scene graph. Usalo, non reinventare.
-
+- **13 tipi di nodo** (stroke, shape, text, image, group, layer, path, rich_text, clip_group, frame, symbol_instance, advanced_mask, shader). Per aggiungerne uno: sottoclasse di `CanvasNode`, registra in `CanvasNodeFactory.fromJson()`, case in `SceneGraphRenderer` e `NodeVisitor`.
+- **Serializzazione**: `toJson()` + `baseToJson()` + `applyBaseFromJson()`. MAI rompere retrocompatibilità JSON.
+- **Transforms**: `Matrix4` gerarchico. `worldTransform` cachato — `invalidateTransformCache()` su modifica.
+- **Observer**: `SceneGraphObserver` per notifiche. Usalo, non reinventare.
+- **Integrity** (`scene_graph_integrity.dart`): 7 checks (duplicate IDs, parent pointers, root types, spatial index bidirectional, dirty tracker, depth, cycles), 3 auto-repairs (deduplicated). `validate()` è **puro**. `validateAndRepair()` → `ErrorRecoveryService`. `IntegrityMetrics` singleton + `IntegrityWatchdog` timer (debug only). `fromJson()` asserts `violations.isEmpty`.
+- **Concurrency Safety**: `_guardedMutation()` wraps all mutations (throws on re-entrancy, resets in `finally`). `List.of(_observers)` snapshot in notify. `snapshotVersion()` + `assertUnchanged(v)` for async gaps. `toJson()` throws during mutation.
 ### Dependency Inversion (SDK ↔ App)
-- **MAI** importare direttamente Firebase, auth, o servizi dell'app Looponia dentro `nebula_engine`.
-- Tutte le dipendenze esterne passano via `NebulaCanvasConfig` (auth, storage, sync, voice, permissions, subscription tier).
-- Interfacce astratte in `collaboration/nebula_sync_interfaces.dart`: `NebulaTimeTravelStorage`, `NebulaBranchCloudSync`, `NebulaRealtimeDeltaSync`.
-- Provider astratti in `nebula_canvas_config.dart`: `NebulaVoiceRecordingProvider`, `NebulaRealtimeSyncProvider`, `NebulaTimeTravelProvider`, `NebulaPermissionProvider`, `NebulaPresenceProvider`.
-
+- **MAI** importare Firebase/auth/servizi app dentro `nebula_engine`.
+- Dipendenze esterne via `NebulaCanvasConfig` (auth, storage, sync, voice, permissions, tier).
+- Interfacce: `nebula_sync_interfaces.dart` (`NebulaTimeTravelStorage`, `NebulaBranchCloudSync`, `NebulaRealtimeDeltaSync`).
+- Provider: `nebula_canvas_config.dart` (`NebulaVoiceRecordingProvider`, `NebulaRealtimeSyncProvider`, `NebulaTimeTravelProvider`, `NebulaPermissionProvider`, `NebulaPresenceProvider`).
 ### Tool System (tools/)
-- Tutti i tool implementano `DrawingTool` (abstract class in `tool_interface.dart`).
-- Tool sono **STATELESS rispetto al contesto** — tutta la logica context-specific vive in `ToolContext` / `CanvasAdapter`.
-- `ToolContext` è immutabile (const constructor). Operazioni delegate all'adapter.
-- Per aggiungere un tool: implementa `DrawingTool`, registra in `ToolRegistry`, crea la versione "unified" se serve.
-- Mixin disponibili: `SelectionToolMixin`, `ContinuousDrawingMixin`.
-
+- Implementa `DrawingTool` (`tool_interface.dart`). Tool sono **stateless** — logica in `ToolContext`/`CanvasAdapter`.
+- Aggiungi tool: implementa `DrawingTool`, registra in `ToolRegistry`. Mixin: `SelectionToolMixin`, `ContinuousDrawingMixin`.
+### Selection System (systems/selection_manager.dart)
+- **Single source of truth**: `SelectionManager` gestisce TUTTO lo stato di selezione. Nessun set tipizzato (`selectedStrokeIds`, etc.) fuori dal manager.
+- **LassoTool** delega a `SelectionManager` per select, deselect, transforms (translate/rotate/scale/flip), alignment, distribution, delete, duplicate.
+- **API**: `select()`, `selectAll()`, `clearSelection()`, `marqueeSelect()`, `translateAll()`, `rotateAll()`, `scaleAll()`, `flipHorizontal/Vertical()`, `alignLeft/Right/Top/Bottom/CenterH/CenterV()`, `distributeH/V()`, `deleteAll()`, `duplicateAll()`.
+- **MAI** creare set di selezione paralleli nei tool. Usa `selectionManager.selectedIds` e `selectionManager.selectedNodes`.
 ### Drawing Pipeline (drawing/)
-- `DrawingInputHandler` → gestisce input con 1€ Filter, predicted touches (iOS), pressure normalization.
-- `BrushEngine` è l'**UNICO** dispatch point per pen type → brush. MAI duplicare la logica switch(penType).
-- Brush concreti: `BallpointBrush`, `FountainPenBrush`, `PencilBrush`, `HighlighterBrush`. Per aggiungerne uno: crea classe, aggiungi case in `ProPenType` enum, aggiungi case in `BrushEngine.renderStroke()`.
-- `ProDrawingPoint` è il modello base — contiene position, pressure, tiltX, tiltY, orientation, timestamp, velocity.
-- `ProBrushSettings` contiene tutti i parametri del brush — NON creare settings separate.
-
+- `DrawingInputHandler` → 1€ Filter, predicted touches, pressure normalization.
+- `BrushEngine` è l'**UNICO** dispatch point pen→brush. MAI duplicare switch(penType).
+- Brush: `BallpointBrush`, `FountainPenBrush`, `PencilBrush`, `HighlighterBrush`. Aggiungere: crea classe + case in `ProPenType` + `BrushEngine.renderStroke()`.
+- Modelli: `ProDrawingPoint` (position, pressure, tilt, orientation, timestamp, velocity), `ProBrushSettings` (unico settings).
 ### Rendering (rendering/)
-- **Canvas painters** (CustomPainter): `DrawingPainter`, `CurrentStrokePainter`, `BackgroundPainter`, `ShapePainter`, etc.
-- **Optimization layer**: `SpatialIndex` (R-tree), `TileCacheManager`, `ViewportCuller`, `LODManager`, `PaintPool`, `FrameBudgetManager`, `DirtyRegionTracker`.
-- `DrawingPainter` renderizza a livello viewport (non canvas). Trasformazioni applicate direttamente nel painter.
-- **Performance è critica**: ogni modifica al rendering deve considerare frame budget (16ms), evitare allocazioni in paint(), usare il `PaintPool`.
-
-### Enterprise File Organization Standards
-
-#### Max File Size
-- **Soft limit: 500 LOC**. Preferred size for maintainability.
-- **Hard limit: 1000 LOC**. If a file exceeds 1000 lines, it MUST be decomposed.
-- **Preferred: 200–400 LOC**. Each file should have a single, clear responsibility.
-- When decomposing, use Dart `part`/`part of` with extension methods on the State class, or extract into standalone classes/helpers.
-
-#### Decomposition Patterns
-- **`part` + extension**: for methods that need access to `State` private members (e.g., `_buildUI`, `_onDrawStart`).
-  - Extensions access `setState()` — lint `invalid_use_of_protected_member` is ignored intentionally.
-  - `part of` uses relative path: `part of '../parent.dart'` or `part of '../../parent.dart'`.
-- **`library` + `part` + extension on State**: for standalone widgets with private State (e.g., `professional_canvas_toolbar.dart`).
-- **Standalone files**: for pure logic, models, utilities — no `part` needed.
-- MAI creare nuovi `part` files senza necessità. Prefer composition and extraction into separate classes.
-
-#### Directory Grouping for `part` Files
-When a file has many `part` files (>6), group them into **logical subdirectories** with descriptive names:
-```
-parts/
-├── lifecycle/          # Init, dispose, time travel, branching
-│   ├── _lifecycle.dart
-│   ├── _lifecycle_time_travel.dart
-│   └── _lifecycle_branching.dart
-├── drawing/            # Pointer handlers, stroke update, finalization
-│   ├── _drawing_handlers.dart
-│   ├── _drawing_update.dart
-│   ├── _drawing_end.dart
-│   └── _drawing_aux.dart
-├── ui/                 # Widget build methods
-│   ├── _build_ui.dart
-│   ├── _ui_toolbar.dart
-│   ├── _ui_canvas_layer.dart
-│   ├── _ui_eraser.dart
-│   ├── _ui_overlays.dart
-│   └── _ui_menus.dart
-├── eraser/             # Eraser painting/rendering
-│   ├── _eraser_painters.dart
-│   ├── _eraser_painters_v6.dart
-│   └── _eraser_painters_v7.dart
-├── _collaboration.dart # Feature files stay at root
-├── _export.dart
-├── _cloud_sync.dart
-└── ...
-```
-- `part of` paths must match depth: root files → `'../nebula_canvas_screen.dart'`, subdirectory files → `'../../nebula_canvas_screen.dart'`.
-- Group `part` directives in the parent file with section comments (🔄 Lifecycle, ✏️ Drawing, 🎨 UI, 🧹 Eraser).
-
-#### Toolbar Decomposition (library pattern)
-```
-toolbar/
-├── professional_canvas_toolbar.dart   # library declaration + imports + build()
-├── _toolbar_top_row.dart              # part: extension with _buildTopRow
-├── _toolbar_tools_area.dart           # part: extension with _buildToolsArea
-├── menus/                             # Standalone widgets
-│   ├── more_menu.dart
-│   └── ...
-├── toolbar_brush_strip.dart           # Standalone components
-└── ...
-```
-
+- Painters: `DrawingPainter`, `CurrentStrokePainter`, `BackgroundPainter`, `ShapePainter`.
+- Optimization: `SpatialIndex`, `TileCacheManager`, `ViewportCuller`, `LODManager`, `PaintPool`, `FrameBudgetManager`, `DirtyRegionTracker`.
+- Renderizza a viewport level. **Performance critica**: 16ms budget, zero allocazioni in paint(), usa `PaintPool`.
+### File Organization
+- **Limiti**: soft 500 LOC, hard 1000 LOC, preferred 200–400 LOC.
+- **Decomposition**: `part`+extension per accesso a State privati, standalone per logica pura. `part of` con path relativo.
+- **Directory grouping** (>6 parts): subdirectories logiche (`lifecycle/`, `drawing/`, `ui/`, `eraser/`). `part of` depth match.
+- **Toolbar pattern**: `library` + `part` + extensions. Menus come standalone widgets.
+- Lint: `invalid_use_of_protected_member: ignore` per extensions su State.
 ---
-
 ## 2. CONVENZIONI DI CODICE
-
 ### Naming
-- File: `snake_case.dart` — prefisso `nebula_` per API publiche SDK, `pro_` per modelli professionali.
-- Classi: `PascalCase` con prefisso `Nebula` per API pubbliche (es. `NebulaCanvasConfig`, `NebulaLayerController`).
-- Privati nelle part files: prefisso `_` (es. `_initTimeTravelRecorder`, `_loadCanvasData`).
-
+- File: `snake_case.dart` — prefisso `nebula_` (API SDK), `pro_` (modelli professionali).
+- Classi: `PascalCase` con prefisso `Nebula` per API pubbliche. Privati: `_prefix`.
 ### Language — EVERYTHING in English
-- **ALL code MUST be in English**: variable names, function names, class names, comments, docstrings, commit messages, TODOs, error messages.
-- No Italian in new code. When modifying existing code with Italian comments, convert them to English.
-- Emoji section markers: 🎨 Drawing, 🚀 Performance, 💾 Storage, ⏱️ Time Travel, 🔄 Sync, 🖼️ Image, 🎛️ Settings, 🔧 Utils, 🎯 Core, 🔮 Recovery, ✨ Effects, 🎬 Export.
-- Code sections delimited by `// ============================================================================`.
-- Design principles documented in docstrings with bullet points (`/// DESIGN PRINCIPLES:`).
-
-### Serializzazione
-- Tutti i modelli: `toJson()` → `Map<String, dynamic>`, factory `fromJson(Map<String, dynamic>)`.
-- Campi opzionali sempre con fallback: `json['field'] ?? defaultValue`.
-- `toDouble()` per valori numerici da JSON per safety.
-- Schema version in `SceneGraph.toJson()` con `version: 1`.
-- Clone via JSON roundtrip: `CanvasNode.clone()`.
-
+- **ALL code in English**: names, comments, docstrings, TODOs, error messages. No Italian in new code.
+- Emoji markers: 🎨 Drawing, 🚀 Performance, 💾 Storage, ⏱️ Time Travel, 🔄 Sync, 🖼️ Image, 🎛️ Settings, 🔧 Utils, 🎯 Core, 🔮 Recovery.
+- Sections: `// ============================================================================`. Principles: `/// DESIGN PRINCIPLES:`.
+### Serialization & Schema Versioning
+- `toJson()` → `Map<String, dynamic>`, factory `fromJson()`. Campi opzionali con fallback. `toDouble()` per numeri.
+- **Schema Versioning** (`schema_version.dart`): `kCurrentSchemaVersion`, `migrateDocument(json)` in `fromJson()`, `SchemaVersionException` per versioni future.
+- **Nuova migrazione**: incrementa `kCurrentSchemaVersion`, aggiungi funzione in `_migrations` map con `walkNodes()`.
+- SQLite: colonna `schema_version` in `canvases`, scritta ad ogni save.
 ### State Management
-- `ValueNotifier` per performance real-time (tratti correnti) — NO Riverpod per hot path.
-- `ChangeNotifier` per controller (es. `UnifiedToolController`, `LayerController`).
-- `flutter_riverpod` per stato applicativo (non nel hot path di rendering).
-
-### Error Handling
-- Mai crash silenziosamente nel rendering — catch + debugPrint.
-- Operazioni async nel lifecycle: `try/catch` con fallback graceful.
-- `mounted` check prima di `setState()` in callback async.
-
+- `ValueNotifier` per real-time (hot path). `ChangeNotifier` per controller. `flutter_riverpod` per stato app (non hot path).
+### Error Handling — Enterprise Error Recovery
+- **MAI** `catch (_) {}` o `catchError((_))`. Ogni errore DEVE essere osservabile.
+- Usa `ErrorRecoveryService`: `EngineScope.current.errorRecovery.reportError(EngineError(...))`.
+- `EngineError`: `severity` (.transient/.degraded/.critical), `domain` (.rendering/.storage/.platform/.input/.network/.sceneGraph), `source`, `original`, `stack`.
+- **Severity**: transient = retry-safe, degraded = partial loss, critical = subsystem down.
+- Eccezione: `compute()` isolate → `debugPrint` fallback. UI-only catches (color parsing) → `debugPrint` accettabile.
+- `mounted` check prima di `setState()` in async callbacks.
 ### Analysis Options
-- `invalid_use_of_protected_member: ignore` — necessario per extensions su State.
-- `unused_element/field/variable/import: ignore` — Phase 2 stubs intenzionali.
-- Directory `_phase2_disabled/` esclusa dall'analisi.
-
+- `invalid_use_of_protected_member: ignore`, `unused_element/field/variable/import: ignore` (Phase 2 stubs).
+- `_phase2_disabled/` esclusa dall'analisi.
 ---
-
 ## 3. PERFORMANCE — Regole ferree
-
-- **MAI allocare oggetti in `paint()`** — usa `PaintPool` o cache pre-allocate.
-- **Frame budget**: 16ms per frame (60fps). Misura con `FrameBudgetManager`.
-- **Viewport culling**: usa `ViewportCuller` + `SpatialIndex` — NON iterare tutti gli strokes.
-- **Path reuse**: `PathPool` per riciclare Path objects. `StrokePointPool` per punti.
-- **Dirty regions**: usa `DirtyRegionTracker` per repaint minimale.
-- **LOD**: `LODManager` per ridurre dettaglio a zoom bassi.
-- **Isolates**: operazioni pesanti (compressione Time Travel, export) → Isolate. Mai bloccare il main thread.
-- **Image loading**: cap a 2048px con `_decodeImageCapped()`. Progressive loading (thumbnail → full-res).
-- **Input latency**: `RawInputProcessor120Hz` per massima responsività. Predicted touches su iOS.
-
+- **MAI allocare in `paint()`** — usa `PaintPool` / cache pre-allocate.
+- **16ms budget** (60fps). `FrameBudgetManager` per misurare.
+- **Viewport culling**: `ViewportCuller` + `SpatialIndex`. MAI iterare tutti gli strokes.
+- **Object pooling**: `PathPool`, `StrokePointPool`, `PaintPool`.
+- **Dirty regions**: `DirtyRegionTracker` per repaint minimale. `LODManager` a zoom bassi.
+- **Isolates**: operazioni pesanti (Time Travel, export) → Isolate. Mai bloccare main thread.
+- **Images**: cap 2048px con `_decodeImageCapped()`. Progressive loading.
+- **Input**: `RawInputProcessor120Hz`. Predicted touches su iOS.
 ---
-
-## 4. PATTERN DI INTEGRAZIONE
-
-### Come l'app Looponia usa l'SDK
+## 4. INTEGRAZIONE
+### SDK Usage
 ```dart
-NebulaCanvasScreen(
-  config: NebulaCanvasConfig(
-    layerController: myLayerController,
-    auth: MyAuthProvider(),          // implements callbacks
-    storage: MyStorageProvider(),     // implements callbacks
-    sync: MyNebulaSyncInterfaces(),  // implements abstract classes
-  ),
-)
+NebulaCanvasScreen(config: NebulaCanvasConfig(
+  layerController: ctrl, auth: MyAuth(), storage: MyStorage(), sync: MySync(),
+))
 ```
-
-### Come aggiungere una feature
-1. Se tocca il core: modifica in `nebula_engine/lib/src/`
-2. Se ha dipendenze Firebase/app: crea interfaccia astratta, implementa nell'app.
-3. Aggiungi l'export in `nebula_engine.dart` (barrel file).
-4. Aggiorna `ARCHITECTURE.md` se architetturalmente significativo.
-
+### Aggiungere una feature
+1. Core: modifica in `nebula_engine/lib/src/`
+2. Dipendenze Firebase/app: interfaccia astratta, implementa nell'app
+3. Export nel barrel `nebula_engine.dart`
+4. Aggiorna `ARCHITECTURE.md` se significativo
 ### Localizzazione
-- `NebulaLocalizations` in `l10n/nebula_localizations.dart` — tutte le stringhe dell'SDK.
-- MAI hardcodare stringhe UI. Usa `NebulaLocalizations.of(context).myString`.
-
+- `NebulaLocalizations` in `l10n/`. MAI hardcodare stringhe. Usa `NebulaLocalizations.of(context).x`.
 ---
-
-## 5. CRITICAL FILES — Always consult before modifying
-
-| File | LOC | Role |
-|------|-----|------|
-| `nebula_canvas_screen.dart` | ~885 | Canvas entry point + part directives |
-| `parts/ui/_build_ui.dart` | ~50 | Widget tree orchestrator |
-| `parts/ui/_ui_canvas_layer.dart` | ~300 | Canvas layer with painters |
-| `parts/lifecycle/_lifecycle.dart` | ~600 | Init, load, dispose |
-| `parts/lifecycle/_lifecycle_time_travel.dart` | ~340 | Time Travel recorder |
-| `parts/drawing/_drawing_handlers.dart` | ~400 | Pointer-down/start handlers |
-| `parts/drawing/_drawing_update.dart` | ~500 | Continuous draw update |
-| `parts/drawing/_drawing_end.dart` | ~400 | Stroke finalization |
-| `canvas_node.dart` | 344 | Base class scene graph |
-| `brush_engine.dart` | 512 | Unified brush dispatch |
-| `drawing_input_handler.dart` | 342 | 120Hz input pipeline |
-| `nebula_canvas_config.dart` | 355 | Dependency injection config |
-| `tool_interface.dart` | 135 | Base tool interface |
-| `tool_context.dart` | 233 | Tool context |
-| `layer_controller.dart` | ~800 | Layer management |
-| `nebula_engine.dart` | 255 | Barrel export |
-| `toolbar/professional_canvas_toolbar.dart` | ~430 | Toolbar (library + 2 parts) |
-
+## 5. CRITICAL FILES
+| File | Role |
+|------|------|
+| `nebula_canvas_screen.dart` | Canvas entry point + parts |
+| `parts/lifecycle/_lifecycle.dart` | Init, load, dispose |
+| `parts/drawing/_drawing_handlers.dart` | Pointer-down/start |
+| `parts/drawing/_drawing_update.dart` | Continuous draw update |
+| `parts/drawing/_drawing_end.dart` | Stroke finalization |
+| `canvas_node.dart` | Base class scene graph |
+| `brush_engine.dart` | Unified brush dispatch |
+| `drawing_input_handler.dart` | 120Hz input pipeline |
+| `nebula_canvas_config.dart` | DI config |
+| `layer_controller.dart` | Layer management |
+| `nebula_engine.dart` | Barrel export |
 ---
-
 ## 6. CHECKLIST PRE-COMMIT
-
-- [ ] `flutter analyze` clean (no nuovi warning)
-- [ ] Nessun import diretto di Firebase/app in nebula_engine
-- [ ] Nuovi file esportati nel barrel `nebula_engine.dart`
-- [ ] Serializzazione JSON retrocompatibile (campi opzionali con fallback)
-- [ ] Nessuna allocazione nel hot path di rendering
+- [ ] `flutter analyze` clean
+- [ ] No import Firebase/app in nebula_engine
+- [ ] Nuovi file esportati nel barrel
+- [ ] JSON retrocompatibile (campi opzionali con fallback)
+- [ ] Zero allocazioni nel hot path
 - [ ] Docstrings per API pubbliche
 - [ ] `ARCHITECTURE.md` aggiornato se necessario
+---
+## 7. AUDIT — Regola singola passata
+- Quando l'utente chiede un audit/analisi, fai **UNA sola passata completa** a 4 livelli:
+  1. **API surface** — metodi mancanti, firma incompleta, naming inconsistente
+  2. **Integrazione** — renderer, registry, factory, visitor tutti collegati
+  3. **Edge case** — `const` safety, `null` handling, serializzazione roundtrip, error paths
+  4. **Test coverage** — test per ogni feature, inclusi roundtrip e edge case
+- **MAI** fare audit incrementali ("round 1, round 2..."). Un audit = un documento completo.

@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
@@ -20,7 +21,7 @@ import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
 PenTool _toolWithAnchors(List<AnchorPoint> anchors) {
   final tool = PenTool();
   final path = AnchorPoint.toVectorPath(anchors);
-  final node = PathNode(id: 'test-helper', path: path, strokeWidth: 2.0);
+  final node = PathNode(id: NodeId('test-helper'), path: path, strokeWidth: 2.0);
   tool.editPathNode(node);
   return tool;
 }
@@ -278,7 +279,7 @@ void main() {
 
       final vectorPath = AnchorPoint.toVectorPath(originalAnchors);
       final pathNode = PathNode(
-        id: 'test-node-1',
+        id: NodeId('test-node-1'),
         path: vectorPath,
         strokeColor: const Color(0xFFFF0000),
         strokeWidth: 3.0,
@@ -312,7 +313,7 @@ void main() {
         AnchorPoint(position: const Offset(100, 0)),
       ]);
       final pathNode = PathNode(
-        id: 'test-edit-42',
+        id: NodeId('test-edit-42'),
         path: vectorPath,
         strokeWidth: 2.0,
       );
@@ -452,7 +453,7 @@ void main() {
         AnchorPoint(position: const Offset(0, 0)),
         AnchorPoint(position: const Offset(100, 0)),
       ]);
-      tool.editPathNode(PathNode(id: 'test', path: path, strokeWidth: 2.0));
+      tool.editPathNode(PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0));
 
       tool.splitPathAtSegment(0, _mockContext());
 
@@ -470,7 +471,7 @@ void main() {
         AnchorPoint(position: const Offset(100, 0)),
         AnchorPoint(position: const Offset(200, 0)),
       ]);
-      tool.editPathNode(PathNode(id: 'test', path: path, strokeWidth: 2.0));
+      tool.editPathNode(PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0));
 
       // Delete segment between anchor 0 and 1.
       tool.splitPathAtSegment(0, _mockContext());
@@ -493,7 +494,7 @@ void main() {
         AnchorPoint(position: const Offset(200, 0)),
         AnchorPoint(position: const Offset(300, 0)),
       ]);
-      tool.editPathNode(PathNode(id: 'test', path: path, strokeWidth: 2.0));
+      tool.editPathNode(PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0));
 
       // Delete segment between anchor 1 and 2.
       tool.splitPathAtSegment(1, _mockContext());

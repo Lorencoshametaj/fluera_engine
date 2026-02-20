@@ -1,4 +1,10 @@
+import 'dart:async';
+import 'dart:ui';
 import '../core/scene_graph/canvas_node.dart';
+import '../core/nodes/group_node.dart';
+import '../core/engine_event.dart';
+import '../core/engine_event_bus.dart';
+import '../history/command_history.dart';
 
 /// Capability that a plugin can request access to.
 enum PluginCapability {
@@ -37,6 +43,12 @@ enum PluginCapability {
 
   /// Network access (for cloud integrations).
   network,
+
+  /// Listen to and emit events on the centralized event bus.
+  listenEvents,
+
+  /// Execute undoable commands through CommandHistory.
+  executeCommands,
 }
 
 /// Permission level for a plugin.
@@ -195,6 +207,96 @@ class PluginContext {
     _bridge.removeNode(nodeId);
   }
 
+  // ---- Command execution ----
+
+  /// Active transaction, if any.
+  CommandTransaction? _activeTransaction;
+
+  /// Execute an undoable command (requires executeCommands).
+  ///
+  /// The command is pushed to the engine's [CommandHistory] and can be
+  /// undone/redone by the user.
+  bool executeCommand(Command command) {
+    _requireCapability(PluginCapability.executeCommands);
+    return _bridge.commandHistory.execute(command);
+  }
+
+  /// Begin a command transaction (requires executeCommands).
+  ///
+  /// All commands added via [addToTransaction] will be grouped as a single
+  /// undo entry when [commitTransaction] is called.
+  void beginTransaction(String label) {
+    _requireCapability(PluginCapability.executeCommands);
+    if (_activeTransaction != null && !_activeTransaction!.isFinished) {
+      throw StateError(
+        'Plugin "${manifest.name}" already has an active transaction.',
+      );
+    }
+    _activeTransaction = CommandTransaction(label: label);
+  }
+
+  /// Add a command to the active transaction (requires executeCommands).
+  void addToTransaction(Command command) {
+    _requireCapability(PluginCapability.executeCommands);
+    if (_activeTransaction == null || _activeTransaction!.isFinished) {
+      throw StateError('No active transaction.');
+    }
+    _activeTransaction!.add(command);
+  }
+
+  /// Commit the active transaction as a single undo entry.
+  void commitTransaction() {
+    _requireCapability(PluginCapability.executeCommands);
+    if (_activeTransaction == null || _activeTransaction!.isFinished) {
+      throw StateError('No active transaction to commit.');
+    }
+    final composite = _activeTransaction!.commit();
+    _bridge.commandHistory.pushWithoutExecute(composite);
+    _activeTransaction = null;
+  }
+
+  /// Roll back the active transaction, undoing all commands.
+  void rollbackTransaction() {
+    _requireCapability(PluginCapability.executeCommands);
+    if (_activeTransaction == null || _activeTransaction!.isFinished) {
+      throw StateError('No active transaction to roll back.');
+    }
+    _activeTransaction!.rollback();
+    _activeTransaction = null;
+  }
+
+  // ---- Scene graph mutation ----
+
+  /// Add a node to a parent group (requires modifySceneGraph).
+  void addNode(GroupNode parent, CanvasNode child) {
+    _requireCapability(PluginCapability.modifySceneGraph);
+    _bridge.addNode(parent, child);
+  }
+
+  /// Deep-clone a node by ID (requires modifySceneGraph).
+  CanvasNode? cloneNode(String nodeId) {
+    _requireCapability(PluginCapability.modifySceneGraph);
+    return _bridge.cloneNode(nodeId);
+  }
+
+  /// Set a node's position (requires writeNodeProperties).
+  void setNodePosition(String nodeId, Offset position) {
+    _requireCapability(PluginCapability.writeNodeProperties);
+    _bridge.setNodePosition(nodeId, position);
+  }
+
+  /// Apply a function to multiple nodes as a single undo step
+  /// (requires writeNodeProperties + executeCommands).
+  void batchModify(
+    List<String> nodeIds,
+    void Function(CanvasNode node) modifier, {
+    String label = 'Batch modify',
+  }) {
+    _requireCapability(PluginCapability.writeNodeProperties);
+    _requireCapability(PluginCapability.executeCommands);
+    _bridge.batchModify(nodeIds, modifier, label: label);
+  }
+
   // ---- Guard ----
 
   void _requireCapability(PluginCapability cap) {
@@ -204,6 +306,36 @@ class PluginContext {
         '${cap.name} but it was not declared in the manifest.',
       );
     }
+  }
+
+  // ---- Event Bus ----
+
+  /// Subscribe to typed engine events (requires listenEvents).
+  ///
+  /// Returns a stream of events matching [T]. The subscription is
+  /// **not** automatically cancelled — plugins should cancel it
+  /// in [PluginEntryPoint.onDeactivate].
+  ///
+  /// ```dart
+  /// final sub = ctx.onEvent<NodeAddedEngineEvent>().listen((e) {
+  ///   print('Node ${e.node.id} added');
+  /// });
+  /// ```
+  Stream<T> onEvent<T extends EngineEvent>() {
+    _requireCapability(PluginCapability.listenEvents);
+    return _bridge.eventBus.on<T>();
+  }
+
+  /// Emit a custom plugin event (requires listenEvents).
+  ///
+  /// ```dart
+  /// ctx.emitEvent('my-event', data: {'key': 'value'});
+  /// ```
+  void emitEvent(String name, {Map<String, dynamic>? data}) {
+    _requireCapability(PluginCapability.listenEvents);
+    _bridge.eventBus.emit(
+      CustomPluginEngineEvent(pluginId: manifest.id, name: name, data: data),
+    );
   }
 }
 
@@ -229,6 +361,31 @@ abstract class PluginBridge {
   void setNodeVisibility(String nodeId, bool visible);
   void setNodeName(String nodeId, String name);
   void removeNode(String nodeId);
+
+  /// Access to the centralized event bus.
+  EngineEventBus get eventBus;
+
+  /// Access to the command history for undoable operations.
+  CommandHistory get commandHistory;
+
+  /// Add a child node to a parent group.
+  void addNode(GroupNode parent, CanvasNode child);
+
+  /// Deep-clone a node by ID.
+  CanvasNode? cloneNode(String nodeId);
+
+  /// Find the parent group of a node.
+  GroupNode? findParent(String nodeId);
+
+  /// Set a node's position.
+  void setNodePosition(String nodeId, Offset position);
+
+  /// Apply a modifier to multiple nodes as a single undo step.
+  void batchModify(
+    List<String> nodeIds,
+    void Function(CanvasNode node) modifier, {
+    String label = 'Batch modify',
+  });
 }
 
 /// Interface that plugins implement.
@@ -249,19 +406,45 @@ abstract class PluginEntryPoint {
 /// Registry managing all installed plugins.
 ///
 /// Handles plugin lifecycle (install → activate → deactivate → uninstall)
-/// and provides the engine-side implementation of [_PluginBridge].
+/// and provides the engine-side implementation of [PluginBridge].
+///
+/// Enterprise features:
+/// - **Lifecycle events**: emits [PluginLifecycleEvent] on install/activate/deactivate
+/// - **Hot-reload**: [reloadPlugin] deactivates, re-installs, and re-activates
+/// - **Version check**: validates plugin against minimum engine version
 class PluginRegistry {
   final Map<String, _PluginEntry> _plugins = {};
 
+  /// Optional event bus for lifecycle event emission.
+  final EngineEventBus? _eventBus;
+
+  /// Current engine version (semver string).
+  final String engineVersion;
+
+  PluginRegistry({EngineEventBus? eventBus, this.engineVersion = '1.0.0'})
+    : _eventBus = eventBus;
+
   /// Install a plugin.
+  ///
+  /// Validates version compatibility if the manifest specifies
+  /// [PluginManifest.minimumEngineVersion].
   void install(PluginManifest manifest, PluginEntryPoint entryPoint) {
     if (_plugins.containsKey(manifest.id)) {
       throw ArgumentError('Plugin "${manifest.id}" is already installed.');
+    }
+    // Version check.
+    if (manifest.minimumEngineVersion != null &&
+        !_isVersionCompatible(manifest.minimumEngineVersion!)) {
+      throw ArgumentError(
+        'Plugin "${manifest.id}" requires engine >= '
+        '${manifest.minimumEngineVersion}, current: $engineVersion',
+      );
     }
     _plugins[manifest.id] = _PluginEntry(
       manifest: manifest,
       entryPoint: entryPoint,
     );
+    _emitLifecycle(manifest.id, PluginLifecycleAction.installed);
   }
 
   /// Uninstall a plugin (deactivates first if active).
@@ -284,6 +467,7 @@ class PluginRegistry {
     entry.context = context;
     entry.isActive = true;
     entry.entryPoint.onActivate(context);
+    _emitLifecycle(pluginId, PluginLifecycleAction.activated);
   }
 
   /// Deactivate a plugin.
@@ -294,6 +478,7 @@ class PluginRegistry {
     entry.entryPoint.onDeactivate();
     entry.isActive = false;
     entry.context = null;
+    _emitLifecycle(pluginId, PluginLifecycleAction.deactivated);
   }
 
   /// Get all installed plugin manifests.
@@ -338,6 +523,62 @@ class PluginRegistry {
       uninstall(id);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Hot-reload
+  // ---------------------------------------------------------------------------
+
+  /// Hot-reload a plugin: deactivate → uninstall → install → activate.
+  ///
+  /// The [bridge] is required to re-activate. The new entry point replaces
+  /// the old one.
+  void reloadPlugin(
+    String pluginId,
+    PluginEntryPoint newEntryPoint,
+    PluginBridge bridge,
+  ) {
+    final entry = _plugins[pluginId];
+    if (entry == null) {
+      throw ArgumentError('Plugin "$pluginId" is not installed.');
+    }
+    final manifest = entry.manifest;
+    final wasActive = entry.isActive;
+
+    if (wasActive) deactivate(pluginId);
+    uninstall(pluginId);
+    install(manifest, newEntryPoint);
+    if (wasActive) activate(pluginId, bridge);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Version compatibility
+  // ---------------------------------------------------------------------------
+
+  /// Simple semver major.minor check.
+  bool _isVersionCompatible(String minimumVersion) {
+    final current = _parseSemver(engineVersion);
+    final required = _parseSemver(minimumVersion);
+    if (current[0] != required[0]) return current[0] > required[0];
+    if (current[1] != required[1]) return current[1] >= required[1];
+    return current[2] >= required[2];
+  }
+
+  static List<int> _parseSemver(String version) {
+    final parts = version.split('.');
+    return [
+      int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? 0,
+      int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
+      int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0,
+    ];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle events
+  // ---------------------------------------------------------------------------
+
+  void _emitLifecycle(String pluginId, PluginLifecycleAction action) {
+    _eventBus?.emit(PluginLifecycleEvent(pluginId: pluginId, action: action));
+  }
 }
 
 class _PluginEntry {
@@ -347,4 +588,20 @@ class _PluginEntry {
   bool isActive = false;
 
   _PluginEntry({required this.manifest, required this.entryPoint});
+}
+
+// =============================================================================
+// Plugin Lifecycle Events
+// =============================================================================
+
+/// Action type for plugin lifecycle events.
+enum PluginLifecycleAction { installed, activated, deactivated, uninstalled }
+
+/// Emitted on the event bus when a plugin lifecycle state changes.
+class PluginLifecycleEvent extends EngineEvent {
+  final String pluginId;
+  final PluginLifecycleAction action;
+
+  PluginLifecycleEvent({required this.pluginId, required this.action})
+    : super(source: 'PluginRegistry', domain: EventDomain.custom);
 }

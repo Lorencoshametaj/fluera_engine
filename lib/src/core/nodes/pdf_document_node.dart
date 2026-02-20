@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:math' as math;
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import './group_node.dart';
 import './pdf_page_node.dart';
@@ -370,7 +371,7 @@ class PdfDocumentNode extends GroupNode {
 
     // E7: Set descriptive name for layer panel identification
     final blankPage = PdfPageNode(
-      id: 'blank_${now}_$insertIdx',
+      id: NodeId('blank_${now}_$insertIdx'),
       name: 'Blank Page ${insertIdx + 1}',
       pageModel: PdfPageModel(
         pageIndex: insertIdx,
@@ -479,7 +480,7 @@ class PdfDocumentNode extends GroupNode {
     }
 
     final node = PdfDocumentNode(
-      id: json['id'] as String? ?? 'unknown',
+      id: NodeId((json['id'] as String?) ?? 'unknown'),
       documentModel: docModel,
     );
     CanvasNode.applyBaseFromJson(node, json);

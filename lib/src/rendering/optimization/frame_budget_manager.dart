@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/scheduler.dart';
 import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
 
 /// 🚀 FRAME BUDGET MANAGER - Maintains 60 FPS even with 500k strokes
 ///
@@ -268,7 +269,17 @@ class MemoryPressureHandler {
     for (final callback in _pressureCallbacks) {
       try {
         callback(level);
-      } catch (e) {}
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.rendering,
+            source: 'FrameBudgetManager.notifyPressure',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     }
   }
 

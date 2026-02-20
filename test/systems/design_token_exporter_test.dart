@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/systems/design_variables.dart';
@@ -11,15 +12,15 @@ void main() {
   group('exportAllModes', () {
     test('exports all modes in one document', () {
       final collection = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
         variables: [
           DesignVariable(
-            id: 'bg',
+            id: NodeId('bg'),
             name: 'BG',
             type: DesignVariableType.color,
             values: {'light': 0xFFFFFFFF, 'dark': 0xFF000000},
@@ -43,12 +44,12 @@ void main() {
 
     test('exportAllModesToJson returns valid JSON string', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'v1',
+            id: NodeId('v1'),
             name: 'V1',
             type: DesignVariableType.number,
             values: {'default': 42.0},

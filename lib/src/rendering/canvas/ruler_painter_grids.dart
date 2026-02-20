@@ -12,8 +12,11 @@ extension RulerPainterGrids on RulerPainter {
 
   void drawGrid(Canvas canvas, Size size) {
     final step = guideSystem.gridStep(zoom);
-    final gridColor =
-        isDark ? const Color(0x0DFFFFFF) : const Color(0x0D000000);
+    final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
+    final gridColor = (isDark
+            ? const Color(0x0DFFFFFF)
+            : const Color(0x0D000000))
+        .withAlpha(((isDark ? 0x0D : 0x0D) * opacity).round());
 
     // 🎯 Grid LOD: at very low zoom, show only major gridlines (every 10th)
     final effectiveStep = zoom < 0.3 ? step * 10 : step;
@@ -47,10 +50,13 @@ extension RulerPainterGrids on RulerPainter {
         break;
 
       case GridStyle.dots:
+        final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
         final dotPaint =
             Paint()
-              ..color =
-                  isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)
+              ..color = (isDark
+                      ? const Color(0x33FFFFFF)
+                      : const Color(0x22000000))
+                  .withAlpha(((isDark ? 0x33 : 0x22) * opacity).round())
               ..isAntiAlias = true;
         final dotR = (0.8 + zoom * 0.2).clamp(0.5, 2.0);
         for (double x = startX; x <= endX; x += effectiveStep) {
@@ -65,10 +71,13 @@ extension RulerPainterGrids on RulerPainter {
         break;
 
       case GridStyle.crosses:
+        final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
         final crossPaint =
             Paint()
-              ..color =
-                  isDark ? const Color(0x22FFFFFF) : const Color(0x18000000)
+              ..color = (isDark
+                      ? const Color(0x22FFFFFF)
+                      : const Color(0x18000000))
+                  .withAlpha(((isDark ? 0x22 : 0x18) * opacity).round())
               ..strokeWidth = 0.5
               ..isAntiAlias = true;
         final armLen = (2.0 + zoom * 1.0).clamp(1.5, 4.0);
@@ -99,8 +108,11 @@ extension RulerPainterGrids on RulerPainter {
   void drawPixelGrid(Canvas canvas, Size size) {
     if (zoom <= 8.0) return;
 
-    final pixelColor =
-        isDark ? const Color(0x08FFFFFF) : const Color(0x08000000);
+    final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
+    final pixelColor = (isDark
+            ? const Color(0x08FFFFFF)
+            : const Color(0x08000000))
+        .withAlpha(((0x08) * opacity).round());
     final pixelPaint =
         Paint()
           ..color = pixelColor
@@ -135,7 +147,11 @@ extension RulerPainterGrids on RulerPainter {
   // ─── Isometric Grid ──────────────────────────────────────────────────
 
   void drawIsometricGrid(Canvas canvas, Size size) {
-    final isoColor = isDark ? const Color(0x1A42A5F5) : const Color(0x151565C0);
+    final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
+    final isoColor = (isDark
+            ? const Color(0x1A42A5F5)
+            : const Color(0x151565C0))
+        .withAlpha(((isDark ? 0x1A : 0x15) * opacity).round());
     final isoPaint =
         Paint()
           ..color = isoColor
@@ -186,8 +202,11 @@ extension RulerPainterGrids on RulerPainter {
   // ─── Perspective Grid ────────────────────────────────────────────────
 
   void drawPerspectiveGrid(Canvas canvas, Size size) {
-    final perspColor =
-        isDark ? const Color(0x1AFFA726) : const Color(0x15E65100);
+    final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
+    final perspColor = (isDark
+            ? const Color(0x1AFFA726)
+            : const Color(0x15E65100))
+        .withAlpha(((isDark ? 0x1A : 0x15) * opacity).round());
     final perspPaint =
         Paint()
           ..color = perspColor
@@ -280,8 +299,11 @@ extension RulerPainterGrids on RulerPainter {
       guideSystem.radialCenter.dy * zoom + canvasOffset.dy,
     );
 
-    final radialColor =
-        isDark ? const Color(0x1A69F0AE) : const Color(0x152E7D32);
+    final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
+    final radialColor = (isDark
+            ? const Color(0x1A69F0AE)
+            : const Color(0x152E7D32))
+        .withAlpha(((isDark ? 0x1A : 0x15) * opacity).round());
     final radialPaint =
         Paint()
           ..color = radialColor
@@ -327,8 +349,11 @@ extension RulerPainterGrids on RulerPainter {
   // ─── Golden Spiral ───────────────────────────────────────────────────
 
   void drawGoldenSpiral(Canvas canvas, Size size) {
-    final spiralColor =
-        isDark ? const Color(0x55FFD700) : const Color(0x44B8860B);
+    final opacity = guideSystem.gridOpacity.clamp(0.0, 1.0);
+    final spiralColor = (isDark
+            ? const Color(0x55FFD700)
+            : const Color(0x44B8860B))
+        .withAlpha(((isDark ? 0x55 : 0x44) * opacity).round());
     final spiralPaint =
         Paint()
           ..color = spiralColor

@@ -128,7 +128,9 @@ extension _RulerOverlayActions on _RulerInteractiveOverlayState {
                   ),
                 );
               }
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('[RulerOverlay] importGuides parse error: $e');
+            }
           }
         });
       // Color theme actions

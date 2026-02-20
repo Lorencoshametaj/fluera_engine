@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import PDFKit
+import Vision
 
 /// 📄 PdfRendererPlugin — Native iOS PDF Rendering via PDFKit
 ///
@@ -44,6 +45,8 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
             handleExtractText(call, result: result)
         case "getPageText":
             handleGetPageText(call, result: result)
+        case "ocrPage":
+            handleOcrPage(call, result: result)
         case "dispose":
             handleDispose(call, result: result)
         case "disposeAll":
@@ -304,5 +307,118 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
     private func handleDisposeAll(result: @escaping FlutterResult) {
         documents.removeAll()
         result(nil)
+    }
+    
+    // MARK: - OCR — Vision Framework Text Recognition for scanned PDFs
+    
+    private func handleOcrPage(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let documentId = args["documentId"] as? String,
+              let pageIndex = args["pageIndex"] as? Int else {
+            result(FlutterError(code: "INVALID_ARGS", message: "Missing arguments", details: nil))
+            return
+        }
+        
+        guard let document = documents[documentId],
+              pageIndex >= 0 && pageIndex < document.pageCount,
+              let page = document.page(at: pageIndex) else {
+            result(nil)
+            return
+        }
+        
+        // Render page to CGImage on background queue, then run Vision OCR
+        DispatchQueue.global(qos: .userInitiated).async {
+            let pageBounds = page.bounds(for: .mediaBox)
+            
+            // Render at reasonable resolution for OCR (~1200px wide)
+            let scale = 1200.0 / max(pageBounds.width, 1.0)
+            let width = Int(pageBounds.width * scale)
+            let height = Int(pageBounds.height * scale)
+            
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            
+            guard let context = CGContext(
+                data: nil,
+                width: max(1, width),
+                height: max(1, height),
+                bitsPerComponent: 8,
+                bytesPerRow: max(1, width) * 4,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                DispatchQueue.main.async { result(nil) }
+                return
+            }
+            
+            // White background
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            
+            // Scale and draw PDF page
+            let scaleX = CGFloat(width) / pageBounds.width
+            let scaleY = CGFloat(height) / pageBounds.height
+            context.saveGState()
+            context.scaleBy(x: scaleX, y: scaleY)
+            if let cgPage = page.pageRef {
+                context.drawPDFPage(cgPage)
+            }
+            context.restoreGState()
+            
+            guard let cgImage = context.makeImage() else {
+                DispatchQueue.main.async { result(nil) }
+                return
+            }
+            
+            // Run Vision text recognition
+            let request = VNRecognizeTextRequest { (request, error) in
+                guard error == nil,
+                      let observations = request.results as? [VNRecognizedTextObservation] else {
+                    DispatchQueue.main.async { result(nil) }
+                    return
+                }
+                
+                var blocks: [[String: Any]] = []
+                var fullTextParts: [String] = []
+                
+                for observation in observations {
+                    guard let topCandidate = observation.topCandidates(1).first else { continue }
+                    let text = topCandidate.string
+                    let boundingBox = observation.boundingBox
+                    
+                    fullTextParts.append(text)
+                    
+                    // Vision coordinates: origin bottom-left, normalized 0–1.
+                    // Flip Y to top-left origin for consistency.
+                    blocks.append([
+                        "text": text,
+                        "x": Double(boundingBox.origin.x),
+                        "y": Double(1.0 - boundingBox.origin.y - boundingBox.height),
+                        "width": Double(boundingBox.width),
+                        "height": Double(boundingBox.height),
+                        "confidence": Double(observation.confidence)
+                    ])
+                }
+                
+                let response: [String: Any] = [
+                    "text": fullTextParts.joined(separator: "\n"),
+                    "blocks": blocks
+                ]
+                
+                DispatchQueue.main.async {
+                    result(response)
+                }
+            }
+            
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+            
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                DispatchQueue.main.async { result(nil) }
+            }
+        }
     }
 }

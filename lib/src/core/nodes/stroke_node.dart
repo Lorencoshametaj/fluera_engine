@@ -1,5 +1,6 @@
 import 'dart:ui';
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 
@@ -45,7 +46,7 @@ class StrokeNode extends CanvasNode {
 
   factory StrokeNode.fromJson(Map<String, dynamic> json) {
     final node = StrokeNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       stroke: ProStroke.fromJson(json['stroke'] as Map<String, dynamic>),
     );
     CanvasNode.applyBaseFromJson(node, json);

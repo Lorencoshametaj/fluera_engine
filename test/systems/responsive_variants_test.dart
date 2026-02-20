@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart'
     hide CrossAxisAlignment, MainAxisAlignment;
 import 'package:flutter_test/flutter_test.dart';
@@ -193,12 +194,12 @@ void main() {
   // ===========================================================================
   group('FrameNode responsive variants', () {
     test('hasResponsiveVariants starts false', () {
-      final frame = FrameNode(id: 'f', direction: LayoutDirection.horizontal);
+      final frame = FrameNode(id: NodeId('f'), direction: LayoutDirection.horizontal);
       expect(frame.hasResponsiveVariants, isFalse);
     });
 
     test('add/remove/query variants', () {
-      final frame = FrameNode(id: 'f', direction: LayoutDirection.horizontal);
+      final frame = FrameNode(id: NodeId('f'), direction: LayoutDirection.horizontal);
 
       const mobileVariant = ResponsiveVariant(
         breakpointName: 'mobile',
@@ -225,7 +226,7 @@ void main() {
 
     test('variant overrides only non-null fields', () {
       final frame = FrameNode(
-        id: 'f',
+        id: NodeId('f'),
         direction: LayoutDirection.horizontal,
         spacing: 10,
         padding: const EdgeInsets.all(16),
@@ -256,15 +257,15 @@ void main() {
 
     test('constraint overrides per child per breakpoint', () {
       final frame = FrameNode(
-        id: 'f',
+        id: NodeId('f'),
         direction: LayoutDirection.horizontal,
         spacing: 0,
         padding: EdgeInsets.zero,
         frameSize: const Size(400, 100),
       );
 
-      final childA = _Box(id: 'a', width: 50, height: 30);
-      final childB = _Box(id: 'b', width: 50, height: 30);
+      final childA = _Box(id: NodeId('a'), width: 50, height: 30);
+      final childB = _Box(id: NodeId('b'), width: 50, height: 30);
 
       frame.addWithConstraint(
         childA,
@@ -303,15 +304,15 @@ void main() {
   // ===========================================================================
   test('frame without variants behaves identically to original', () {
     final frame = FrameNode(
-      id: 'f',
+      id: NodeId('f'),
       direction: LayoutDirection.horizontal,
       spacing: 10,
       padding: const EdgeInsets.all(8),
       frameSize: const Size(300, 100),
     );
 
-    final a = _Box(id: 'a', width: 40, height: 30);
-    final b = _Box(id: 'b', width: 60, height: 30);
+    final a = _Box(id: NodeId('a'), width: 40, height: 30);
+    final b = _Box(id: NodeId('b'), width: 60, height: 30);
 
     frame.addWithConstraint(
       a,
@@ -333,7 +334,7 @@ void main() {
   // ===========================================================================
   test('FrameNode JSON roundtrip preserves responsive variants', () {
     final frame = FrameNode(
-      id: 'responsive-frame',
+      id: NodeId('responsive-frame'),
       direction: LayoutDirection.horizontal,
       spacing: 12,
       padding: const EdgeInsets.all(16),
@@ -370,15 +371,15 @@ void main() {
   // ===========================================================================
   test('layout changes direction and spacing per breakpoint', () {
     final frame = FrameNode(
-      id: 'f',
+      id: NodeId('f'),
       direction: LayoutDirection.horizontal,
       spacing: 10,
       padding: EdgeInsets.zero,
       frameSize: const Size(400, 400),
     );
 
-    final a = _Box(id: 'a', width: 50, height: 30);
-    final b = _Box(id: 'b', width: 50, height: 30);
+    final a = _Box(id: NodeId('a'), width: 50, height: 30);
+    final b = _Box(id: NodeId('b'), width: 50, height: 30);
 
     frame.addWithConstraint(
       a,
@@ -426,7 +427,7 @@ void main() {
   // ===========================================================================
   test('nested responsive frames each resolve their own breakpoint', () {
     final outer = FrameNode(
-      id: 'outer',
+      id: NodeId('outer'),
       direction: LayoutDirection.horizontal,
       spacing: 0,
       padding: EdgeInsets.zero,
@@ -434,14 +435,14 @@ void main() {
     );
 
     final inner = FrameNode(
-      id: 'inner',
+      id: NodeId('inner'),
       direction: LayoutDirection.horizontal,
       spacing: 10,
       padding: EdgeInsets.zero,
     );
 
-    final leaf1 = _Box(id: 'l1', width: 40, height: 20);
-    final leaf2 = _Box(id: 'l2', width: 40, height: 20);
+    final leaf1 = _Box(id: NodeId('l1'), width: 40, height: 20);
+    final leaf2 = _Box(id: NodeId('l2'), width: 40, height: 20);
 
     inner.addWithConstraint(leaf1, LayoutConstraint());
     inner.addWithConstraint(leaf2, LayoutConstraint());
@@ -477,14 +478,14 @@ void main() {
   // ===========================================================================
   test('resolveResponsiveLayout applies variants across the entire tree', () {
     final root = FrameNode(
-      id: 'root',
+      id: NodeId('root'),
       direction: LayoutDirection.vertical,
       spacing: 0,
       padding: EdgeInsets.zero,
       frameSize: const Size(300, 600),
     );
 
-    final child = _Box(id: 'c1', width: 100, height: 50);
+    final child = _Box(id: NodeId('c1'), width: 100, height: 50);
     root.addWithConstraint(
       child,
       LayoutConstraint(primarySizing: SizingMode.fixed, fixedWidth: 100),
@@ -514,7 +515,7 @@ void main() {
   // ===========================================================================
   test('no matching breakpoint leaves frame unchanged', () {
     final frame = FrameNode(
-      id: 'f',
+      id: NodeId('f'),
       direction: LayoutDirection.horizontal,
       spacing: 10,
       padding: EdgeInsets.zero,
@@ -547,7 +548,7 @@ void main() {
   // ===========================================================================
   test('custom breakpoints on frame override default presets', () {
     final frame = FrameNode(
-      id: 'f',
+      id: NodeId('f'),
       direction: LayoutDirection.horizontal,
       spacing: 10,
       padding: EdgeInsets.zero,

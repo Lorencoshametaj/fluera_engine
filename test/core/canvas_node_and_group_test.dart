@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/nodes/group_node.dart';
@@ -39,7 +40,7 @@ void main() {
 
     group('construction', () {
       test('creates with required fields', () {
-        final node = _TestNode(id: 'n1', name: 'Test');
+        final node = _TestNode(id: NodeId('n1'), name: 'Test');
         expect(node.id, 'n1');
         expect(node.name, 'Test');
         expect(node.opacity, 1.0);
@@ -49,15 +50,15 @@ void main() {
       });
 
       test('clamps opacity to 0-1', () {
-        final over = _TestNode(id: 'n', opacity: 2.0);
+        final over = _TestNode(id: NodeId('n'), opacity: 2.0);
         expect(over.opacity, 1.0);
 
-        final under = _TestNode(id: 'n2', opacity: -0.5);
+        final under = _TestNode(id: NodeId('n2'), opacity: -0.5);
         expect(under.opacity, 0.0);
       });
 
       test('opacity setter clamps', () {
-        final node = _TestNode(id: 'n');
+        final node = _TestNode(id: NodeId('n'));
         node.opacity = 1.5;
         expect(node.opacity, 1.0);
         node.opacity = -1.0;
@@ -65,7 +66,7 @@ void main() {
       });
 
       test('identity check fails for empty id', () {
-        expect(() => _TestNode(id: ''), throwsA(isA<AssertionError>()));
+        expect(() => _TestNode(id: NodeId('')), throwsA(isA<AssertionError>()));
       });
     });
 
@@ -73,14 +74,14 @@ void main() {
 
     group('transform', () {
       test('initial localTransform is identity', () {
-        final node = _TestNode(id: 'n');
+        final node = _TestNode(id: NodeId('n'));
         final t = node.localTransform;
         expect(t.getTranslation().x, 0.0);
         expect(t.getTranslation().y, 0.0);
       });
 
       test('translate modifies position', () {
-        final node = _TestNode(id: 'n');
+        final node = _TestNode(id: NodeId('n'));
         node.translate(10.0, 20.0);
         final pos = node.position;
         expect(pos.dx, closeTo(10.0, 0.01));
@@ -88,7 +89,7 @@ void main() {
       });
 
       test('setPosition sets absolute position', () {
-        final node = _TestNode(id: 'n');
+        final node = _TestNode(id: NodeId('n'));
         node.translate(5.0, 5.0);
         node.setPosition(100.0, 200.0);
         final pos = node.position;
@@ -97,7 +98,7 @@ void main() {
       });
 
       test('worldTransform without parent equals localTransform', () {
-        final node = _TestNode(id: 'n');
+        final node = _TestNode(id: NodeId('n'));
         node.translate(10, 20);
         final wt = node.worldTransform;
         expect(wt.getTranslation().x, closeTo(10.0, 0.01));
@@ -110,7 +111,7 @@ void main() {
     group('hitTest', () {
       test('returns true for point inside bounds', () {
         final node = _TestNode(
-          id: 'n',
+          id: NodeId('n'),
           bounds: const Rect.fromLTWH(0, 0, 100, 100),
         );
         expect(node.hitTest(const Offset(50, 50)), isTrue);
@@ -118,7 +119,7 @@ void main() {
 
       test('returns false for point outside bounds', () {
         final node = _TestNode(
-          id: 'n',
+          id: NodeId('n'),
           bounds: const Rect.fromLTWH(0, 0, 100, 100),
         );
         expect(node.hitTest(const Offset(150, 150)), isFalse);
@@ -126,7 +127,7 @@ void main() {
 
       test('returns false when not visible', () {
         final node = _TestNode(
-          id: 'n',
+          id: NodeId('n'),
           bounds: const Rect.fromLTWH(0, 0, 100, 100),
           isVisible: false,
         );
@@ -138,7 +139,7 @@ void main() {
 
     group('toString', () {
       test('includes node id', () {
-        final node = _TestNode(id: 'my-node');
+        final node = _TestNode(id: NodeId('my-node'));
         final str = node.toString();
         expect(str, contains('my-node'));
       });
@@ -153,7 +154,7 @@ void main() {
     late GroupNode groupNode;
 
     setUp(() {
-      groupNode = GroupNode(id: 'g1', name: 'Group');
+      groupNode = GroupNode(id: NodeId('g1'), name: 'Group');
     });
 
     // ── Initial State ──────────────────────────────────────────────────
@@ -170,26 +171,26 @@ void main() {
 
     group('add / remove', () {
       test('add increases child count', () {
-        groupNode.add(_TestNode(id: 'c1'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
         expect(groupNode.childCount, 1);
         expect(groupNode.isEmpty, isFalse);
       });
 
       test('add sets parent on child', () {
-        final child = _TestNode(id: 'c1');
+        final child = _TestNode(id: NodeId('c1'));
         groupNode.add(child);
         expect(child.parent, same(groupNode));
       });
 
       test('insertAt places child at correct index', () {
-        groupNode.add(_TestNode(id: 'c1'));
-        groupNode.add(_TestNode(id: 'c3'));
-        groupNode.insertAt(1, _TestNode(id: 'c2'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
+        groupNode.add(_TestNode(id: NodeId('c3')));
+        groupNode.insertAt(1, _TestNode(id: NodeId('c2')));
         expect(groupNode.children[1].id, 'c2');
       });
 
       test('remove removes child and clears parent', () {
-        final child = _TestNode(id: 'c1');
+        final child = _TestNode(id: NodeId('c1'));
         groupNode.add(child);
         final removed = groupNode.remove(child);
         expect(removed, isTrue);
@@ -198,12 +199,12 @@ void main() {
       });
 
       test('remove returns false for unknown child', () {
-        final unknown = _TestNode(id: 'unknown');
+        final unknown = _TestNode(id: NodeId('unknown'));
         expect(groupNode.remove(unknown), isFalse);
       });
 
       test('removeById finds and removes child', () {
-        groupNode.add(_TestNode(id: 'c1'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
         final removed = groupNode.removeById('c1');
         expect(removed, isNotNull);
         expect(removed!.id, 'c1');
@@ -215,24 +216,24 @@ void main() {
       });
 
       test('removeAt removes correct child', () {
-        groupNode.add(_TestNode(id: 'c1'));
-        groupNode.add(_TestNode(id: 'c2'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
+        groupNode.add(_TestNode(id: NodeId('c2')));
         final removed = groupNode.removeAt(0);
         expect(removed.id, 'c1');
         expect(groupNode.childCount, 1);
       });
 
       test('clear removes all children', () {
-        groupNode.add(_TestNode(id: 'c1'));
-        groupNode.add(_TestNode(id: 'c2'));
-        groupNode.add(_TestNode(id: 'c3'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
+        groupNode.add(_TestNode(id: NodeId('c2')));
+        groupNode.add(_TestNode(id: NodeId('c3')));
         groupNode.clear();
         expect(groupNode.childCount, 0);
       });
 
       test('clear nullifies parent on all children', () {
-        final c1 = _TestNode(id: 'c1');
-        final c2 = _TestNode(id: 'c2');
+        final c1 = _TestNode(id: NodeId('c1'));
+        final c2 = _TestNode(id: NodeId('c2'));
         groupNode.add(c1);
         groupNode.add(c2);
         groupNode.clear();
@@ -245,16 +246,16 @@ void main() {
 
     group('reorder', () {
       test('moves child from old to new index', () {
-        groupNode.add(_TestNode(id: 'a'));
-        groupNode.add(_TestNode(id: 'b'));
-        groupNode.add(_TestNode(id: 'c'));
+        groupNode.add(_TestNode(id: NodeId('a')));
+        groupNode.add(_TestNode(id: NodeId('b')));
+        groupNode.add(_TestNode(id: NodeId('c')));
         groupNode.reorder(0, 3); // move 'a' to end
         expect(groupNode.children[2].id, 'a');
       });
 
       test('no-op when oldIndex == newIndex', () {
-        groupNode.add(_TestNode(id: 'a'));
-        groupNode.add(_TestNode(id: 'b'));
+        groupNode.add(_TestNode(id: NodeId('a')));
+        groupNode.add(_TestNode(id: NodeId('b')));
         groupNode.reorder(0, 0);
         expect(groupNode.children[0].id, 'a');
       });
@@ -264,14 +265,14 @@ void main() {
 
     group('query', () {
       test('findChild returns direct child by id', () {
-        groupNode.add(_TestNode(id: 'c1'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
         expect(groupNode.findChild('c1'), isNotNull);
         expect(groupNode.findChild('unknown'), isNull);
       });
 
       test('findDescendant finds nested child', () {
-        final subGroup = GroupNode(id: 'sub');
-        subGroup.add(_TestNode(id: 'deep'));
+        final subGroup = GroupNode(id: NodeId('sub'));
+        subGroup.add(_TestNode(id: NodeId('deep')));
         groupNode.add(subGroup);
         expect(groupNode.findDescendant('deep'), isNotNull);
       });
@@ -281,25 +282,25 @@ void main() {
       });
 
       test('indexOf returns correct index', () {
-        final child = _TestNode(id: 'c1');
+        final child = _TestNode(id: NodeId('c1'));
         groupNode.add(child);
         expect(groupNode.indexOf(child), 0);
       });
 
       test('indexOf returns -1 for unknown child', () {
-        expect(groupNode.indexOf(_TestNode(id: 'unknown')), -1);
+        expect(groupNode.indexOf(_TestNode(id: NodeId('unknown'))), -1);
       });
 
       test('indexOfById returns correct index', () {
-        groupNode.add(_TestNode(id: 'c1'));
-        groupNode.add(_TestNode(id: 'c2'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
+        groupNode.add(_TestNode(id: NodeId('c2')));
         expect(groupNode.indexOfById('c2'), 1);
       });
 
       test('childrenOfType filters by type', () {
-        groupNode.add(_TestNode(id: 't1'));
-        groupNode.add(GroupNode(id: 'g2'));
-        groupNode.add(_TestNode(id: 't2'));
+        groupNode.add(_TestNode(id: NodeId('t1')));
+        groupNode.add(GroupNode(id: NodeId('g2')));
+        groupNode.add(_TestNode(id: NodeId('t2')));
         final testNodes = groupNode.childrenOfType<_TestNode>();
         expect(testNodes.length, 2);
       });
@@ -313,7 +314,7 @@ void main() {
       });
 
       test('cannot add ancestor as child', () {
-        final parent = GroupNode(id: 'parent');
+        final parent = GroupNode(id: NodeId('parent'));
         parent.add(groupNode);
         expect(() => groupNode.add(parent), throwsStateError);
       });
@@ -331,9 +332,9 @@ void main() {
 
     group('iteration', () {
       test('allDescendants returns all nodes depth-first', () {
-        final subGroup = GroupNode(id: 'sub');
-        subGroup.add(_TestNode(id: 'deep'));
-        groupNode.add(_TestNode(id: 'c1'));
+        final subGroup = GroupNode(id: NodeId('sub'));
+        subGroup.add(_TestNode(id: NodeId('deep')));
+        groupNode.add(_TestNode(id: NodeId('c1')));
         groupNode.add(subGroup);
         final all = groupNode.allDescendants.toList();
         expect(all.length, 3); // c1, sub, deep
@@ -344,7 +345,7 @@ void main() {
 
     group('serialization', () {
       test('toJson includes nodeType and children', () {
-        groupNode.add(_TestNode(id: 'c1'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
         final json = groupNode.toJson();
         expect(json['nodeType'], 'group');
         expect((json['children'] as List).length, 1);
@@ -355,9 +356,9 @@ void main() {
 
     group('unmodifiable children', () {
       test('children list is unmodifiable', () {
-        groupNode.add(_TestNode(id: 'c1'));
+        groupNode.add(_TestNode(id: NodeId('c1')));
         expect(
-          () => groupNode.children.add(_TestNode(id: 'hack')),
+          () => groupNode.children.add(_TestNode(id: NodeId('hack'))),
           throwsUnsupportedError,
         );
       });
@@ -372,7 +373,7 @@ void main() {
     late LayerNode layer;
 
     setUp(() {
-      layer = LayerNode(id: 'layer-1', name: 'Layer 1');
+      layer = LayerNode(id: NodeId('layer-1'), name: 'Layer 1');
     });
 
     group('typed element access', () {

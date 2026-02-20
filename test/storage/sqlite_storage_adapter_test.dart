@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/storage/nebula_storage_adapter.dart';
 import 'package:nebula_engine/src/storage/sqlite_storage_adapter.dart';
@@ -141,7 +142,7 @@ void main() {
   group('Canvas data serialization for storage', () {
     test('CanvasLayer with strokes survives toJson/fromJson roundtrip', () {
       final stroke = ProStroke(
-        id: 'stroke-1',
+        id: NodeId('stroke-1'),
         points: [
           ProDrawingPoint(
             position: const Offset(10, 20),
@@ -161,7 +162,7 @@ void main() {
       );
 
       final layer = CanvasLayer(
-        id: 'layer-1',
+        id: NodeId('layer-1'),
         name: 'Layer 1',
         strokes: [stroke],
         isVisible: true,
@@ -183,7 +184,7 @@ void main() {
     });
 
     test('empty CanvasLayer survives roundtrip', () {
-      final layer = CanvasLayer(id: 'layer-empty', name: 'Empty');
+      final layer = CanvasLayer(id: NodeId('layer-empty'), name: 'Empty');
 
       final json = layer.toJson();
       final restored = CanvasLayer.fromJson(json);

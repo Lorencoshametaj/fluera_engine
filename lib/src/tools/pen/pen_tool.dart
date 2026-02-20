@@ -8,6 +8,7 @@ import '../base/tool_interface.dart';
 import '../../core/vector/anchor_point.dart';
 import '../../core/vector/vector_path.dart';
 import '../../core/nodes/path_node.dart';
+import '../../core/scene_graph/node_id.dart';
 import '../../core/effects/gradient_fill.dart';
 import './pen_tool_painter.dart';
 
@@ -452,11 +453,17 @@ class PenTool extends BaseTool {
     _anchors.addAll(extracted);
 
     // Copy visual properties.
+    // ignore: deprecated_member_use_from_same_package
     fillColor = node.fillColor;
+    // ignore: deprecated_member_use_from_same_package
     fillGradient = node.fillGradient;
+    // ignore: deprecated_member_use_from_same_package
     strokeColor = node.strokeColor ?? Colors.black;
+    // ignore: deprecated_member_use_from_same_package
     strokeWidth = node.strokeWidth;
+    // ignore: deprecated_member_use_from_same_package
     strokeCap = node.strokeCap;
+    // ignore: deprecated_member_use_from_same_package
     strokeJoin = node.strokeJoin;
 
     // Mark as editing existing.

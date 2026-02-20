@@ -10,12 +10,11 @@ import '../../canvas/infinite_canvas_controller.dart';
 
 /// Widget overlay showing elements selected by lasso (with animation).
 ///
-/// Supports highlighting strokes, shapes, text, and image elements.
+/// Uses a single [selectedIds] set and determines element type by
+/// checking the active layer's typed lists.
 class LassoSelectionOverlay extends StatefulWidget {
-  final Set<String> selectedStrokeIds;
-  final Set<String> selectedShapeIds;
-  final Set<String> selectedTextIds;
-  final Set<String> selectedImageIds;
+  /// Unified set of all selected element IDs.
+  final Set<String> selectedIds;
   final NebulaLayerController layerController;
   final InfiniteCanvasController canvasController;
   final bool isDragging;
@@ -25,10 +24,7 @@ class LassoSelectionOverlay extends StatefulWidget {
 
   const LassoSelectionOverlay({
     super.key,
-    required this.selectedStrokeIds,
-    required this.selectedShapeIds,
-    this.selectedTextIds = const {},
-    this.selectedImageIds = const {},
+    required this.selectedIds,
     required this.layerController,
     required this.canvasController,
     this.isDragging = false,
@@ -76,13 +72,7 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final hasNoSelection =
-        widget.selectedStrokeIds.isEmpty &&
-        widget.selectedShapeIds.isEmpty &&
-        widget.selectedTextIds.isEmpty &&
-        widget.selectedImageIds.isEmpty;
-
-    if (hasNoSelection) {
+    if (widget.selectedIds.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -91,10 +81,7 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
       builder: (context, child) {
         return CustomPaint(
           painter: _SelectionHighlightPainter(
-            selectedStrokeIds: widget.selectedStrokeIds,
-            selectedShapeIds: widget.selectedShapeIds,
-            selectedTextIds: widget.selectedTextIds,
-            selectedImageIds: widget.selectedImageIds,
+            selectedIds: widget.selectedIds,
             layerController: widget.layerController,
             animationValue: _pulseAnimation.value,
             canvasController: widget.canvasController,
@@ -108,21 +95,17 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
 }
 
 /// Painter that highlights all selected elements with professional effects.
+///
+/// Determines element type dynamically from the active layer's typed lists.
 class _SelectionHighlightPainter extends CustomPainter {
-  final Set<String> selectedStrokeIds;
-  final Set<String> selectedShapeIds;
-  final Set<String> selectedTextIds;
-  final Set<String> selectedImageIds;
+  final Set<String> selectedIds;
   final NebulaLayerController layerController;
   final double animationValue;
   final InfiniteCanvasController canvasController;
   final bool isDragging;
 
   _SelectionHighlightPainter({
-    required this.selectedStrokeIds,
-    required this.selectedShapeIds,
-    required this.selectedTextIds,
-    required this.selectedImageIds,
+    required this.selectedIds,
     required this.layerController,
     required this.animationValue,
     required this.canvasController,
@@ -138,28 +121,28 @@ class _SelectionHighlightPainter extends CustomPainter {
 
     // Highlight selected strokes
     for (final stroke in activeLayer.strokes) {
-      if (selectedStrokeIds.contains(stroke.id)) {
+      if (selectedIds.contains(stroke.id)) {
         _drawStrokeHighlight(canvas, stroke);
       }
     }
 
     // Highlight selected shapes
     for (final shape in activeLayer.shapes) {
-      if (selectedShapeIds.contains(shape.id)) {
+      if (selectedIds.contains(shape.id)) {
         _drawShapeHighlight(canvas, shape);
       }
     }
 
     // Highlight selected text elements
     for (final text in activeLayer.texts) {
-      if (selectedTextIds.contains(text.id)) {
+      if (selectedIds.contains(text.id)) {
         _drawTextHighlight(canvas, text);
       }
     }
 
     // Highlight selected image elements
     for (final image in activeLayer.images) {
-      if (selectedImageIds.contains(image.id)) {
+      if (selectedIds.contains(image.id)) {
         _drawImageHighlight(canvas, image);
       }
     }
@@ -391,10 +374,7 @@ class _SelectionHighlightPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SelectionHighlightPainter oldDelegate) {
-    return selectedStrokeIds != oldDelegate.selectedStrokeIds ||
-        selectedShapeIds != oldDelegate.selectedShapeIds ||
-        selectedTextIds != oldDelegate.selectedTextIds ||
-        selectedImageIds != oldDelegate.selectedImageIds ||
+    return selectedIds != oldDelegate.selectedIds ||
         animationValue != oldDelegate.animationValue;
   }
 }

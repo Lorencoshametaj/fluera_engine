@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 import '../utils/key_value_store.dart';
 import '../core/engine_scope.dart';
+import '../core/engine_error.dart';
+import '../rendering/optimization/memory_managed_cache.dart';
 
 /// 🖼️ IMAGE CACHE SERVICE v2.0
 /// Handles il caricamento e caching of images for the canvas
@@ -13,7 +15,9 @@ import '../core/engine_scope.dart';
 /// - Cache to disk persistente (sopravvive a restart app)
 /// - LRU eviction automatica
 /// - Decode ottimizzato
-class ImageCacheService {
+class ImageCacheService
+    with MemoryManagedCacheMixin
+    implements MemoryManagedCache {
   /// Legacy singleton accessor — delegates to [EngineScope.current].
   static ImageCacheService get instance =>
       EngineScope.current.imageCacheService;
@@ -61,7 +65,17 @@ class ImageCacheService {
       await _loadLruMetadata();
 
       _initialized = true;
-    } catch (e) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.storage,
+          source: 'ImageCacheService.initialize',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Get immagine da cache o caricala
@@ -139,7 +153,16 @@ class ImageCacheService {
       final codec = await ui.instantiateImageCodec(bytes);
       final frame = await codec.getNextFrame();
       return frame.image;
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'ImageCacheService._loadFromDiskCache',
+          original: e,
+          stack: stack,
+        ),
+      );
       return null;
     }
   }
@@ -169,7 +192,17 @@ class ImageCacheService {
         lastAccess: DateTime.now(),
       );
       await _saveLruMetadata();
-    } catch (e) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'ImageCacheService._saveToDiskCache',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Loads immagine da file originale
@@ -187,13 +220,25 @@ class ImageCacheService {
       );
       final frame = await codec.getNextFrame();
       return frame.image;
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'ImageCacheService._loadImageFromFile',
+          original: e,
+          stack: stack,
+        ),
+      );
       return null;
     }
   }
 
   /// Adds image to memory cache with LRU eviction
   Future<void> _addToMemoryCache(String imagePath, ui.Image image) async {
+    // Skip caching when hysteresis refill-lock is active
+    if (!isRefillAllowed) return;
+
     // Eviction se cache piena
     if (_imageCache.length >= _maxMemoryCacheCount) {
       await _performMemoryCacheEviction();
@@ -259,7 +304,17 @@ class ImageCacheService {
         }
         totalSize -= entry.value.sizeBytes;
         _diskLruMetadata.remove(entry.key);
-      } catch (e) {}
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.storage,
+            source: 'ImageCacheService._performDiskCacheEviction',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     }
 
     await _saveLruMetadata();
@@ -296,7 +351,16 @@ class ImageCacheService {
           (k, v) => MapEntry(k, _DiskCacheEntry.fromJson(v)),
         );
       }
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.storage,
+          source: 'ImageCacheService._loadLruMetadata',
+          original: e,
+          stack: stack,
+        ),
+      );
       _diskLruMetadata = {};
     }
   }
@@ -307,7 +371,17 @@ class ImageCacheService {
       final prefs = await KeyValueStore.getInstance();
       final data = _diskLruMetadata.map((k, v) => MapEntry(k, v.toJson()));
       await prefs.setString(_lruMetadataKey, jsonEncode(data));
-    } catch (e) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'ImageCacheService._saveLruMetadata',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Pre-carica una list of immagini
@@ -336,7 +410,17 @@ class ImageCacheService {
       }
       _diskLruMetadata.clear();
       await _saveLruMetadata();
-    } catch (e) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'ImageCacheService.clearDiskCache',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Clears the entire cache (memoria + disco)
@@ -362,7 +446,17 @@ class ImageCacheService {
         }
         _diskLruMetadata.remove(hash);
         await _saveLruMetadata();
-      } catch (e) {}
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.storage,
+            source: 'ImageCacheService.removeFromCache',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     }
   }
 
@@ -388,6 +482,54 @@ class ImageCacheService {
 
   // Legacy getter per retrocompatibility
   int get cacheSize => memoryCacheSize;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🧠 MEMORY MANAGED CACHE INTERFACE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  String get cacheName => 'ImageCache';
+
+  @override
+  int get estimatedMemoryBytes {
+    int total = 0;
+    for (final image in _imageCache.values) {
+      total += image.width * image.height * 4; // 4 bytes per pixel (RGBA)
+    }
+    return total;
+  }
+
+  @override
+  int get cacheEntryCount => memoryCacheSize;
+
+  /// Medium cost: can reload from disk/network.
+  @override
+  int get evictionPriority => 30;
+
+  @override
+  void evictFraction(double fraction) {
+    if (_imageCache.isEmpty || fraction <= 0) return;
+
+    final toEvict = (memoryCacheSize * fraction).ceil().clamp(
+      1,
+      memoryCacheSize,
+    );
+
+    // Sort by access time (oldest first)
+    final entries =
+        _memoryAccessTime.entries.toList()
+          ..sort((a, b) => a.value.compareTo(b.value));
+
+    for (int i = 0; i < toEvict && i < entries.length; i++) {
+      final path = entries[i].key;
+      final image = _imageCache.remove(path);
+      _memoryAccessTime.remove(path);
+      image?.dispose();
+    }
+  }
+
+  @override
+  void evictAll() => clearMemoryCache();
 
   /// Reset singleton state for testing. Clears all caches without disk I/O.
   @visibleForTesting

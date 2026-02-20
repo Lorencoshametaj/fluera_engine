@@ -29,11 +29,14 @@ import 'package:path/path.dart' as p;
 import 'nebula_storage_adapter.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
+import '../core/engine_scope.dart';
+import '../core/engine_error.dart';
+import '../core/schema_version.dart';
 import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 3;
+const int _kSchemaVersion = 4;
 
 /// Database file name.
 const String _kDatabaseName = 'nebula_canvas.db';
@@ -136,6 +139,7 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         guides_json   TEXT,
         pdf_documents_json TEXT,
         variables_json TEXT,
+        schema_version INTEGER NOT NULL DEFAULT 1,
         layer_count   INTEGER NOT NULL DEFAULT 0,
         stroke_count  INTEGER NOT NULL DEFAULT 0,
         created_at    INTEGER NOT NULL,
@@ -177,6 +181,14 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       await db.execute('ALTER TABLE canvases ADD COLUMN variables_json TEXT');
       debugPrint(
         '[NebulaStorage] Migration v2→v3: variables_json column added',
+      );
+    }
+    if (oldVersion < 4) {
+      await db.execute(
+        'ALTER TABLE canvases ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1',
+      );
+      debugPrint(
+        '[NebulaStorage] Migration v3→v4: schema_version column added',
       );
     }
   }
@@ -333,9 +345,9 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         INSERT OR REPLACE INTO canvases (
           canvas_id, title, paper_type, background_color,
           active_layer_id, infinite_canvas_id, node_id, guides_json,
-          pdf_documents_json, variables_json,
+          pdf_documents_json, variables_json, schema_version,
           layer_count, stroke_count, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
         [
           canvasId,
@@ -348,6 +360,7 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
           guidesJson,
           pdfJson,
           variablesJson,
+          kCurrentSchemaVersion,
           layers.length,
           totalStrokes,
           now,
@@ -443,9 +456,16 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         if (decodedLayers.isNotEmpty) {
           layersJson.add(decodedLayers.first.toJson());
         }
-      } catch (e) {
-        debugPrint(
-          '[NebulaStorage] Warning: failed to decode layer ${row['layer_id']}: $e',
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.decodeLayer',
+            original: e,
+            stack: stack,
+            context: {'layerId': row['layer_id']},
+          ),
         );
       }
     }
@@ -469,7 +489,17 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     if (guidesStr != null) {
       try {
         result['guides'] = jsonDecode(guidesStr);
-      } catch (_) {}
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.guidesJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     }
 
     // Parse PDF documents JSON if present
@@ -477,7 +507,17 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     if (pdfStr != null) {
       try {
         result['pdfDocuments'] = jsonDecode(pdfStr);
-      } catch (_) {}
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.pdfJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     }
 
     // 🎛️ Parse design variables JSON if present
@@ -494,7 +534,17 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         if (varsData['activeModes'] != null) {
           result['variableActiveModes'] = varsData['activeModes'];
         }
-      } catch (_) {}
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.variablesJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     }
 
     return result;

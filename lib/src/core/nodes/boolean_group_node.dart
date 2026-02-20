@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import '../vector/vector_path.dart';
 import '../vector/boolean_ops.dart';
@@ -164,7 +165,7 @@ class BooleanGroupNode extends GroupNode {
 
   factory BooleanGroupNode.fromJson(Map<String, dynamic> json) {
     final node = BooleanGroupNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       operation: BooleanOpType.values.firstWhere(
         (e) => e.name == json['operation'],
         orElse: () => BooleanOpType.union,

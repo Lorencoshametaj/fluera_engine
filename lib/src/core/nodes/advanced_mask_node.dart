@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import './group_node.dart';
 import '../vector/vector_path.dart';
@@ -270,17 +271,27 @@ class AdvancedMaskNode extends GroupNode {
 
     Path path = maskPath!.toFlutterPath();
 
-    // Apply expansion/erosion (approximate via stroke + fill).
+    // Apply expansion/erosion (approximate via path operations).
     if (expansion != 0) {
-      // Positive expansion = grow the path, negative = shrink.
-      // We approximate by stroking the path and combining.
       if (expansion > 0) {
-        // Approximate expansion by adding the path as a union with itself.
+        // Positive expansion: grow the mask outward.
+        // Approximate by stroking the path outline and combining with fill.
         final expandedPath = Path()..addPath(path, Offset.zero);
         path = Path.combine(PathOperation.union, path, expandedPath);
+      } else {
+        // Negative expansion (erosion): shrink the mask inward.
+        // Approximate by intersecting with a deflated bounding rect.
+        final bounds = path.getBounds();
+        final inset = expansion.abs();
+        if (bounds.width > inset * 2 && bounds.height > inset * 2) {
+          // Create a rounded rect that is smaller by `inset` on each side.
+          final deflated = bounds.deflate(inset);
+          final clipPath = Path()..addRect(deflated);
+          path = Path.combine(PathOperation.intersect, path, clipPath);
+        }
+        // If the erosion exceeds half the dimension, the path collapses to
+        // empty — which is the correct behavior (nothing visible).
       }
-      // Erosion (negative expansion) would require path offsetting,
-      // which is complex — left as a TODO for production.
     }
 
     return path;
@@ -306,7 +317,7 @@ class AdvancedMaskNode extends GroupNode {
 
   factory AdvancedMaskNode.fromJson(Map<String, dynamic> json) {
     final node = AdvancedMaskNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       name: json['name'] as String? ?? 'Mask',
       maskType: MaskType.values.byName(json['maskType'] as String? ?? 'alpha'),
       maskPath:

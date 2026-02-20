@@ -288,7 +288,9 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
     if (branch.color != null) {
       try {
         return Color(int.parse(branch.color!, radix: 16) | 0xFF000000);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[BranchExplorer] Color parse error: $e');
+      }
     }
     // Default: generate color from hash
     final colors = [

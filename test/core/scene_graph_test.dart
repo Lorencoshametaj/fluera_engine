@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
 import 'package:nebula_engine/src/core/nodes/layer_node.dart';
@@ -13,7 +14,7 @@ void main() {
 
     test('addLayer appends a new layer', () {
       final sg = SceneGraph();
-      final layer = testLayerNode(id: 'L1');
+      final layer = testLayerNode(id: NodeId('L1'));
       sg.addLayer(layer);
 
       expect(sg.layers.length, 1);
@@ -22,7 +23,7 @@ void main() {
 
     test('removeLayer removes the layer', () {
       final sg = SceneGraph();
-      final layer = testLayerNode(id: 'L1');
+      final layer = testLayerNode(id: NodeId('L1'));
       sg.addLayer(layer);
       sg.removeLayer('L1');
 
@@ -31,9 +32,9 @@ void main() {
 
     test('reorderLayers changes z-order', () {
       final sg = SceneGraph();
-      sg.addLayer(testLayerNode(id: 'A'));
-      sg.addLayer(testLayerNode(id: 'B'));
-      sg.addLayer(testLayerNode(id: 'C'));
+      sg.addLayer(testLayerNode(id: NodeId('A')));
+      sg.addLayer(testLayerNode(id: NodeId('B')));
+      sg.addLayer(testLayerNode(id: NodeId('C')));
 
       sg.reorderLayers(0, 2);
 
@@ -45,8 +46,8 @@ void main() {
   group('SceneGraph node lookup', () {
     test('findNodeById finds node in any layer', () {
       final sg = SceneGraph();
-      final layer = testLayerNode(id: 'L1');
-      layer.add(testStrokeNode(id: 'target'));
+      final layer = testLayerNode(id: NodeId('L1'));
+      layer.add(testStrokeNode(id: NodeId('target')));
       sg.addLayer(layer);
 
       final found = sg.findNodeById('target');
@@ -62,9 +63,9 @@ void main() {
 
     test('findNodeById finds deeply nested nodes', () {
       final sg = SceneGraph();
-      final layer = testLayerNode(id: 'L');
-      final group = testGroupNode(id: 'G');
-      group.add(testStrokeNode(id: 'deep'));
+      final layer = testLayerNode(id: NodeId('L'));
+      final group = testGroupNode(id: NodeId('G'));
+      group.add(testStrokeNode(id: NodeId('deep')));
       layer.add(group);
       sg.addLayer(layer);
 
@@ -75,9 +76,9 @@ void main() {
   group('SceneGraph serialization', () {
     test('toJson roundtrip preserves structure', () {
       final sg = SceneGraph();
-      final layer = testLayerNode(id: 'L1');
-      layer.add(testStrokeNode(id: 'S1'));
-      layer.add(testShapeNode(id: 'SH1'));
+      final layer = testLayerNode(id: NodeId('L1'));
+      layer.add(testStrokeNode(id: NodeId('S1')));
+      layer.add(testShapeNode(id: NodeId('SH1')));
       sg.addLayer(layer);
 
       final json = sg.toJson();
@@ -91,7 +92,7 @@ void main() {
 
     test('toJson/fromJson preserves layer names', () {
       final sg = SceneGraph();
-      final layer = testLayerNode(id: 'L1');
+      final layer = testLayerNode(id: NodeId('L1'));
       layer.name = 'Background';
       sg.addLayer(layer);
 
@@ -105,12 +106,12 @@ void main() {
   group('SceneGraph hit testing', () {
     test('hitTestAt returns topmost hit across layers', () {
       final sg = SceneGraph();
-      final layer1 = testLayerNode(id: 'L1');
-      layer1.add(testShapeNode(id: 'bottom'));
+      final layer1 = testLayerNode(id: NodeId('L1'));
+      layer1.add(testShapeNode(id: NodeId('bottom')));
       sg.addLayer(layer1);
 
-      final layer2 = testLayerNode(id: 'L2');
-      layer2.add(testShapeNode(id: 'top'));
+      final layer2 = testLayerNode(id: NodeId('L2'));
+      layer2.add(testShapeNode(id: NodeId('top')));
       sg.addLayer(layer2);
 
       final hit = sg.hitTestAt(const Offset(50, 50));
@@ -130,8 +131,8 @@ void main() {
 
     test('hitTestAt does not skip invisible layers (known limitation)', () {
       final sg = SceneGraph();
-      final layer = testLayerNode(id: 'hidden');
-      layer.add(testShapeNode(id: 'invisible-shape'));
+      final layer = testLayerNode(id: NodeId('hidden'));
+      layer.add(testShapeNode(id: NodeId('invisible-shape')));
       layer.isVisible = false;
       sg.addLayer(layer);
 

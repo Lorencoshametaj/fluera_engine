@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/systems/design_variables.dart';
 
@@ -22,25 +23,25 @@ void main() {
 
   group('VariableMode', () {
     test('constructs with id and name', () {
-      final mode = VariableMode(id: 'dark', name: 'Dark Mode');
+      final mode = VariableMode(id: NodeId('dark'), name: 'Dark Mode');
       expect(mode.id, 'dark');
       expect(mode.name, 'Dark Mode');
     });
 
     test('equality by id', () {
-      final a = VariableMode(id: 'light', name: 'Light');
-      final b = VariableMode(id: 'light', name: 'Light Theme');
+      final a = VariableMode(id: NodeId('light'), name: 'Light');
+      final b = VariableMode(id: NodeId('light'), name: 'Light Theme');
       expect(a, equals(b));
     });
 
     test('inequality for different ids', () {
-      final a = VariableMode(id: 'light', name: 'Light');
-      final b = VariableMode(id: 'dark', name: 'Dark');
+      final a = VariableMode(id: NodeId('light'), name: 'Light');
+      final b = VariableMode(id: NodeId('dark'), name: 'Dark');
       expect(a, isNot(equals(b)));
     });
 
     test('toJson / fromJson round-trip', () {
-      final original = VariableMode(id: 'mobile', name: 'Mobile');
+      final original = VariableMode(id: NodeId('mobile'), name: 'Mobile');
       final json = original.toJson();
       final restored = VariableMode.fromJson(json);
       expect(restored.id, 'mobile');
@@ -57,7 +58,7 @@ void main() {
 
     test('constructs with type and values', () {
       final v = DesignVariable(
-        id: 'bg',
+        id: NodeId('bg'),
         name: 'Background',
         type: DesignVariableType.color,
         values: {'light': 0xFFFFFFFF, 'dark': 0xFF000000},
@@ -70,7 +71,7 @@ void main() {
 
     test('constructs with empty values', () {
       final v = DesignVariable(
-        id: 'x',
+        id: NodeId('x'),
         name: 'Test',
         type: DesignVariableType.number,
       );
@@ -81,7 +82,7 @@ void main() {
 
     test('validates color type (int)', () {
       final v = DesignVariable(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Color',
         type: DesignVariableType.color,
       );
@@ -96,7 +97,7 @@ void main() {
 
     test('validates number type', () {
       final v = DesignVariable(
-        id: 'n1',
+        id: NodeId('n1'),
         name: 'Spacing',
         type: DesignVariableType.number,
       );
@@ -114,7 +115,7 @@ void main() {
 
     test('validates string type', () {
       final v = DesignVariable(
-        id: 's1',
+        id: NodeId('s1'),
         name: 'Label',
         type: DesignVariableType.string,
       );
@@ -126,7 +127,7 @@ void main() {
 
     test('validates boolean type', () {
       final v = DesignVariable(
-        id: 'b1',
+        id: NodeId('b1'),
         name: 'Visible',
         type: DesignVariableType.boolean,
       );
@@ -140,7 +141,7 @@ void main() {
 
     test('resolve returns value for active mode', () {
       final v = DesignVariable(
-        id: 'bg',
+        id: NodeId('bg'),
         name: 'BG',
         type: DesignVariableType.color,
         values: {'light': 0xFFFFFFFF, 'dark': 0xFF000000},
@@ -150,7 +151,7 @@ void main() {
 
     test('resolve falls back to first mode value', () {
       final v = DesignVariable(
-        id: 'bg',
+        id: NodeId('bg'),
         name: 'BG',
         type: DesignVariableType.color,
         values: {'light': 0xFFFFFFFF},
@@ -160,7 +161,7 @@ void main() {
 
     test('resolve returns null when no values', () {
       final v = DesignVariable(
-        id: 'bg',
+        id: NodeId('bg'),
         name: 'BG',
         type: DesignVariableType.color,
       );
@@ -171,7 +172,7 @@ void main() {
 
     test('toJson / fromJson round-trip for color variable', () {
       final original = DesignVariable(
-        id: 'primary',
+        id: NodeId('primary'),
         name: 'Primary Color',
         type: DesignVariableType.color,
         description: 'Main brand color',
@@ -190,7 +191,7 @@ void main() {
 
     test('toJson / fromJson round-trip for number variable', () {
       final original = DesignVariable(
-        id: 'spacing',
+        id: NodeId('spacing'),
         name: 'Large Spacing',
         type: DesignVariableType.number,
         values: {'mobile': 8.0, 'desktop': 24.0},
@@ -205,7 +206,7 @@ void main() {
 
     test('toJson / fromJson round-trip for boolean variable', () {
       final original = DesignVariable(
-        id: 'showBadge',
+        id: NodeId('showBadge'),
         name: 'Show Badge',
         type: DesignVariableType.boolean,
         values: {'default': true, 'compact': false},
@@ -222,7 +223,7 @@ void main() {
 
     test('removeValue removes value for mode', () {
       final v = DesignVariable(
-        id: 'x',
+        id: NodeId('x'),
         name: 'X',
         type: DesignVariableType.number,
         values: {'a': 1.0, 'b': 2.0},
@@ -241,18 +242,18 @@ void main() {
     // ── Construction ────────────────────────────────────────────────────
 
     test('creates default mode when none provided', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
       expect(c.modeCount, 1);
       expect(c.defaultModeId, 'default');
     });
 
     test('uses provided modes', () {
       final c = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
       );
       expect(c.modeCount, 2);
@@ -262,28 +263,28 @@ void main() {
     // ── Mode CRUD ───────────────────────────────────────────────────────
 
     test('addMode adds a mode', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
-      c.addMode(VariableMode(id: 'dark', name: 'Dark'));
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
+      c.addMode(VariableMode(id: NodeId('dark'), name: 'Dark'));
       expect(c.modeCount, 2);
     });
 
     test('addMode skips duplicates', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
-      c.addMode(VariableMode(id: 'default', name: 'Default Again'));
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
+      c.addMode(VariableMode(id: NodeId('default'), name: 'Default Again'));
       expect(c.modeCount, 1);
     });
 
     test('removeMode removes and cleans up variable values', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         modes: [
-          VariableMode(id: 'a', name: 'A'),
-          VariableMode(id: 'b', name: 'B'),
+          VariableMode(id: NodeId('a'), name: 'A'),
+          VariableMode(id: NodeId('b'), name: 'B'),
         ],
       );
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'Var1',
         type: DesignVariableType.number,
         values: {'a': 10.0, 'b': 20.0},
@@ -297,7 +298,7 @@ void main() {
     });
 
     test('removeMode refuses to remove last mode', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
       final removed = c.removeMode('default');
       expect(removed, isFalse);
       expect(c.modeCount, 1);
@@ -305,9 +306,9 @@ void main() {
 
     test('findMode finds by id', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'dark', name: 'Dark')],
+        modes: [VariableMode(id: NodeId('dark'), name: 'Dark')],
       );
       expect(c.findMode('dark'), isNotNull);
       expect(c.findMode('nonexistent'), isNull);
@@ -316,9 +317,9 @@ void main() {
     // ── Variable CRUD ───────────────────────────────────────────────────
 
     test('addVariable and findVariable', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'Var',
         type: DesignVariableType.string,
       );
@@ -328,9 +329,9 @@ void main() {
     });
 
     test('addVariable skips duplicates', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'Var',
         type: DesignVariableType.string,
       );
@@ -340,9 +341,9 @@ void main() {
     });
 
     test('removeVariable removes by id', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
       c.addVariable(
-        DesignVariable(id: 'v1', name: 'Var', type: DesignVariableType.boolean),
+        DesignVariable(id: NodeId('v1'), name: 'Var', type: DesignVariableType.boolean),
       );
       final removed = c.removeVariable('v1');
       expect(removed, isTrue);
@@ -350,7 +351,7 @@ void main() {
     });
 
     test('removeVariable returns false for unknown id', () {
-      final c = VariableCollection(id: 'c1', name: 'Test');
+      final c = VariableCollection(id: NodeId('c1'), name: 'Test');
       expect(c.removeVariable('nope'), isFalse);
     });
 
@@ -358,21 +359,21 @@ void main() {
 
     test('toJson / fromJson round-trip', () {
       final original = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Color Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
         variables: [
           DesignVariable(
-            id: 'bg',
+            id: NodeId('bg'),
             name: 'Background',
             type: DesignVariableType.color,
             values: {'light': 0xFFFFFFFF, 'dark': 0xFF1A1A1A},
           ),
           DesignVariable(
-            id: 'radius',
+            id: NodeId('radius'),
             name: 'Corner Radius',
             type: DesignVariableType.number,
             values: {'light': 8.0, 'dark': 12.0},
@@ -403,28 +404,28 @@ void main() {
 
     test('variablesByGroup groups variables', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         variables: [
           DesignVariable(
-            id: 'v1',
+            id: NodeId('v1'),
             name: 'A',
             type: DesignVariableType.color,
             group: 'colors/primary',
           ),
           DesignVariable(
-            id: 'v2',
+            id: NodeId('v2'),
             name: 'B',
             type: DesignVariableType.color,
             group: 'colors/primary',
           ),
           DesignVariable(
-            id: 'v3',
+            id: NodeId('v3'),
             name: 'C',
             type: DesignVariableType.number,
             group: 'spacing',
           ),
-          DesignVariable(id: 'v4', name: 'D', type: DesignVariableType.boolean),
+          DesignVariable(id: NodeId('v4'), name: 'D', type: DesignVariableType.boolean),
         ],
       );
 
@@ -494,7 +495,7 @@ void main() {
 
     test('DesignVariable enforces constraints on setValue', () {
       final v = DesignVariable(
-        id: 'opacity',
+        id: NodeId('opacity'),
         name: 'Opacity',
         type: DesignVariableType.number,
         constraints: const VariableConstraints(min: 0, max: 1),
@@ -509,7 +510,7 @@ void main() {
 
     test('DesignVariable enforces string allowedValues', () {
       final v = DesignVariable(
-        id: 'align',
+        id: NodeId('align'),
         name: 'Alignment',
         type: DesignVariableType.string,
         constraints: const VariableConstraints(
@@ -526,7 +527,7 @@ void main() {
 
     test('DesignVariable serializes constraints and group', () {
       final original = DesignVariable(
-        id: 'x',
+        id: NodeId('x'),
         name: 'X',
         type: DesignVariableType.number,
         group: 'spacing/large',
@@ -551,7 +552,7 @@ void main() {
   group('Mode inheritance', () {
     test('VariableMode serializes inheritsFrom', () {
       final mode = VariableMode(
-        id: 'dark-hc',
+        id: NodeId('dark-hc'),
         name: 'Dark High Contrast',
         inheritsFrom: 'dark',
       );
@@ -564,12 +565,12 @@ void main() {
 
     test('modeInheritanceChain walks parents', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         modes: [
-          VariableMode(id: 'base', name: 'Base'),
-          VariableMode(id: 'dark', name: 'Dark', inheritsFrom: 'base'),
-          VariableMode(id: 'dark-hc', name: 'Dark HC', inheritsFrom: 'dark'),
+          VariableMode(id: NodeId('base'), name: 'Base'),
+          VariableMode(id: NodeId('dark'), name: 'Dark', inheritsFrom: 'base'),
+          VariableMode(id: NodeId('dark-hc'), name: 'Dark HC', inheritsFrom: 'dark'),
         ],
       );
 
@@ -579,11 +580,11 @@ void main() {
 
     test('modeInheritanceChain detects cycles', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         modes: [
-          VariableMode(id: 'a', name: 'A', inheritsFrom: 'b'),
-          VariableMode(id: 'b', name: 'B', inheritsFrom: 'a'),
+          VariableMode(id: NodeId('a'), name: 'A', inheritsFrom: 'b'),
+          VariableMode(id: NodeId('b'), name: 'B', inheritsFrom: 'a'),
         ],
       );
 
@@ -593,9 +594,9 @@ void main() {
 
     test('modeInheritanceChain returns single element for root mode', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
       );
 
       expect(c.modeInheritanceChain('default'), ['default']);
@@ -609,21 +610,21 @@ void main() {
   group('Mode completeness', () {
     test('incompleteVariables returns variables missing values', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
         variables: [
           DesignVariable(
-            id: 'v1',
+            id: NodeId('v1'),
             name: 'Complete',
             type: DesignVariableType.color,
             values: {'light': 0xFFFFFFFF, 'dark': 0xFF000000},
           ),
           DesignVariable(
-            id: 'v2',
+            id: NodeId('v2'),
             name: 'Missing Dark',
             type: DesignVariableType.color,
             values: {'light': 0xFFFFFFFF}, // no dark value
@@ -637,18 +638,18 @@ void main() {
 
     test('incompleteVariables skips aliases', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'alias',
+            id: NodeId('alias'),
             name: 'Alias',
             type: DesignVariableType.color,
             aliasVariableId: 'target', // aliases don't need own values
           ),
           DesignVariable(
-            id: 'no-value',
+            id: NodeId('no-value'),
             name: 'No Value',
             type: DesignVariableType.number,
           ),
@@ -667,7 +668,7 @@ void main() {
   group('Variable scoping', () {
     test('scopeNodeId serializes round-trip', () {
       final v = DesignVariable(
-        id: 'scoped',
+        id: NodeId('scoped'),
         name: 'Scoped',
         type: DesignVariableType.number,
         scopeNodeId: 'frame-1',
@@ -683,12 +684,12 @@ void main() {
 
     test('copyWith preserves scopeNodeId', () {
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
         scopeNodeId: 'frame-1',
       );
-      final copy = v.copyWith(id: 'v2');
+      final copy = v.copyWith(id: NodeId('v2'));
       expect(copy.scopeNodeId, 'frame-1');
     });
   });
@@ -700,18 +701,18 @@ void main() {
   group('Alias validation (brokenAliases)', () {
     test('returns empty list when all aliases are valid', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'target',
+            id: NodeId('target'),
             name: 'Target',
             type: DesignVariableType.color,
             values: {'default': 0xFFFF0000},
           ),
           DesignVariable(
-            id: 'alias',
+            id: NodeId('alias'),
             name: 'Alias',
             type: DesignVariableType.color,
             aliasVariableId: 'target',
@@ -724,11 +725,11 @@ void main() {
 
     test('reports alias with missing target', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         variables: [
           DesignVariable(
-            id: 'broken-alias',
+            id: NodeId('broken-alias'),
             name: 'Broken',
             type: DesignVariableType.color,
             aliasVariableId: 'nonexistent',
@@ -744,11 +745,11 @@ void main() {
 
     test('ignores non-alias variables', () {
       final c = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         variables: [
           DesignVariable(
-            id: 'normal',
+            id: NodeId('normal'),
             name: 'Normal',
             type: DesignVariableType.number,
           ),

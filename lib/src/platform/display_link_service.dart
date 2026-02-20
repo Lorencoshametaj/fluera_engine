@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import '../core/engine_scope.dart';
+import '../core/engine_error.dart';
 
 /// 🖥️ DisplayLinkService - CADisplayLink Sync for Ultra-Low Latency Rendering
 ///
@@ -83,7 +84,16 @@ class DisplayLinkService {
           await _methodChannel.invokeMethod<int>('getMaxFrameRate') ?? 60;
 
       _isInitialized = true;
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.platform,
+          source: 'DisplayLinkService.initialize',
+          original: e,
+          stack: stack,
+        ),
+      );
       _isInitialized = true;
     }
   }
@@ -97,7 +107,17 @@ class DisplayLinkService {
         _handleFrameEvent,
         onError: _handleError,
       );
-    } catch (_) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.platform,
+          source: 'DisplayLinkService.start',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Stop frame sync
@@ -123,7 +143,14 @@ class DisplayLinkService {
 
   /// Handle errors
   void _handleError(dynamic error) {
-    // Silently ignore
+    EngineScope.current.errorRecovery.reportError(
+      EngineError(
+        severity: ErrorSeverity.transient,
+        domain: ErrorDomain.platform,
+        source: 'DisplayLinkService.nativeStream',
+        original: error ?? 'unknown display link error',
+      ),
+    );
   }
 
   /// Dispose the service

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart'
     hide CrossAxisAlignment, MainAxisAlignment;
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import './group_node.dart';
 import '../../systems/responsive_breakpoint.dart';
@@ -51,7 +52,17 @@ enum LayoutWrap {
 }
 
 /// Alignment of children along the cross axis.
-enum CrossAxisAlignment { start, center, end, stretch }
+enum CrossAxisAlignment {
+  start,
+  center,
+  end,
+  stretch,
+
+  /// Align children by their reported [CanvasNode.baselineOffset].
+  ///
+  /// Nodes without a baseline fall back to [start] alignment.
+  baseline,
+}
 
 /// Alignment of children along the main axis.
 enum MainAxisAlignment {
@@ -61,6 +72,67 @@ enum MainAxisAlignment {
   spaceBetween,
   spaceAround,
   spaceEvenly,
+}
+
+/// How a frame handles content that exceeds its bounds.
+enum OverflowBehavior {
+  /// Content is visible beyond the frame bounds.
+  visible,
+
+  /// Content is clipped at the frame bounds.
+  hidden,
+
+  /// Content is scrollable when exceeding bounds.
+  scroll,
+}
+
+/// Whether children are arranged in a flow or stacked on top of each other.
+enum LayoutMode {
+  /// Standard auto-layout flow (horizontal or vertical).
+  flow,
+
+  /// Children overlap at their anchor position (like CSS position: relative).
+  stack,
+}
+
+/// Anchor position for children in [LayoutMode.stack].
+enum StackAnchor {
+  topLeft,
+  topCenter,
+  topRight,
+  centerLeft,
+  center,
+  centerRight,
+  bottomLeft,
+  bottomCenter,
+  bottomRight,
+}
+
+// ---------------------------------------------------------------------------
+// Layout Input
+// ---------------------------------------------------------------------------
+
+/// Constraints passed from a parent frame to its children during layout.
+///
+/// Enables children with [SizingMode.fill] to know the available space
+/// provided by their parent, solving the key architectural gap where
+/// nested frames couldn't resolve fill sizing.
+///
+/// ```dart
+/// final input = LayoutInput(availableWidth: 400, availableHeight: 300);
+/// childFrame.performLayout(input: input);
+/// ```
+class LayoutInput {
+  /// Available width from the parent (null = unconstrained).
+  final double? availableWidth;
+
+  /// Available height from the parent (null = unconstrained).
+  final double? availableHeight;
+
+  const LayoutInput({this.availableWidth, this.availableHeight});
+
+  @override
+  String toString() => 'LayoutInput(w: $availableWidth, h: $availableHeight)';
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +200,12 @@ class LayoutConstraint {
   /// for this specific child only.
   CrossAxisAlignment? alignSelf;
 
+  /// Anchor position when parent uses [LayoutMode.stack].
+  ///
+  /// Determines where this child is placed relative to the parent frame.
+  /// Defaults to [StackAnchor.topLeft].
+  StackAnchor stackAnchor;
+
   LayoutConstraint({
     this.primarySizing = SizingMode.hug,
     this.crossSizing = SizingMode.hug,
@@ -147,6 +225,7 @@ class LayoutConstraint {
     this.absoluteY,
     this.aspectRatio,
     this.alignSelf,
+    this.stackAnchor = StackAnchor.topLeft,
   });
 
   Map<String, dynamic> toJson() => {
@@ -168,6 +247,7 @@ class LayoutConstraint {
     if (absoluteY != null) 'absoluteY': absoluteY,
     if (aspectRatio != null) 'aspectRatio': aspectRatio,
     if (alignSelf != null) 'alignSelf': alignSelf!.name,
+    if (stackAnchor != StackAnchor.topLeft) 'stackAnchor': stackAnchor.name,
   };
 
   factory LayoutConstraint.fromJson(Map<String, dynamic> json) {
@@ -199,6 +279,9 @@ class LayoutConstraint {
           json['alignSelf'] != null
               ? CrossAxisAlignment.values.byName(json['alignSelf'] as String)
               : null,
+      stackAnchor: StackAnchor.values.byName(
+        json['stackAnchor'] as String? ?? 'topLeft',
+      ),
     );
   }
 }
@@ -244,6 +327,7 @@ class FrameNode extends GroupNode {
   EdgeInsets padding;
 
   /// Spacing between children along the primary axis.
+  /// Can be negative for overlapping children.
   double spacing;
 
   /// Main axis alignment.
@@ -255,8 +339,15 @@ class FrameNode extends GroupNode {
   /// Whether children wrap to new lines on overflow.
   LayoutWrap wrap;
 
-  /// Whether the frame clips children that overflow.
-  bool clipContent;
+  /// How overflow content is handled.
+  OverflowBehavior overflow;
+
+  /// Whether children are laid out in flow or stacked.
+  LayoutMode layoutMode;
+
+  /// Deprecated — use [overflow] instead.
+  @Deprecated('Use overflow instead')
+  bool get clipContent => overflow == OverflowBehavior.hidden;
 
   /// Frame background color (optional).
   Color? fillColor;
@@ -282,6 +373,13 @@ class FrameNode extends GroupNode {
 
   /// Whether layout needs to be recalculated.
   bool _layoutDirty = true;
+
+  /// Cached child sizes from the measure pass (two-pass optimization).
+  /// Cleared on [markLayoutDirty].
+  final Map<String, Size> _cachedChildSizes = {};
+
+  /// Previous frame size — used by pin-edge calculations.
+  Size? _lastFrameSize;
 
   // ---------------------------------------------------------------------------
   // Responsive variants
@@ -314,7 +412,8 @@ class FrameNode extends GroupNode {
     this.mainAxisAlignment = MainAxisAlignment.start,
     this.crossAxisAlignment = CrossAxisAlignment.start,
     this.wrap = LayoutWrap.noWrap,
-    this.clipContent = true,
+    this.overflow = OverflowBehavior.hidden,
+    this.layoutMode = LayoutMode.flow,
     this.fillColor,
     this.borderRadius = 0,
     this.strokeColor,
@@ -335,6 +434,7 @@ class FrameNode extends GroupNode {
   /// Mark this frame (and parent frames) as needing layout.
   void markLayoutDirty() {
     _layoutDirty = true;
+    _cachedChildSizes.clear();
     // Propagate up — parent frames may need to re-measure.
     if (parent is FrameNode) {
       (parent as FrameNode).markLayoutDirty();
@@ -501,22 +601,51 @@ class FrameNode extends GroupNode {
   ///
   /// Handles:
   /// 1. Absolute positioning (excluded from flow)
-  /// 2. Nested frames (recursive bottom-up layout)
-  /// 3. Wrap layout (multi-line)
-  /// 4. Flex-grow distribution
-  /// 5. Aspect ratio enforcement
-  /// 6. alignSelf per-child overrides
-  void performLayout() {
+  /// 2. Nested frames (recursive bottom-up layout with [LayoutInput])
+  /// 3. Stack layout (children overlap at anchored positions)
+  /// 4. Wrap layout (multi-line)
+  /// 5. Flex-grow distribution
+  /// 6. Aspect ratio enforcement
+  /// 7. alignSelf per-child overrides
+  /// 8. Baseline alignment
+  ///
+  /// [input] provides available dimensions from the parent frame,
+  /// enabling children with [SizingMode.fill] to resolve correctly.
+  void performLayout({LayoutInput? input}) {
     final allVisible = children.where((c) => c.isVisible).toList();
     if (allVisible.isEmpty) {
       _layoutDirty = false;
       return;
     }
 
+    // Store previous frame size for pin-edge calculations.
+    _lastFrameSize = frameSize;
+
+    // Use LayoutInput to resolve fill sizing for this frame.
+    if (input != null) {
+      if (widthSizing == SizingMode.fill && input.availableWidth != null) {
+        frameSize = Size(input.availableWidth!, frameSize?.height ?? 0);
+      }
+      if (heightSizing == SizingMode.fill && input.availableHeight != null) {
+        frameSize = Size(frameSize?.width ?? 0, input.availableHeight!);
+      }
+    }
+
     // ---- Step 0: Recursively layout nested FrameNodes (bottom-up) ----
+    // Compute available space for children before recursing.
+    final resolvedWidth = _resolveFrameWidth(allVisible);
+    final resolvedHeight = _resolveFrameHeight(allVisible);
+    final childAvailWidth = resolvedWidth - padding.left - padding.right;
+    final childAvailHeight = resolvedHeight - padding.top - padding.bottom;
+
     for (final child in allVisible) {
       if (child is FrameNode) {
-        child.performLayout();
+        child.performLayout(
+          input: LayoutInput(
+            availableWidth: childAvailWidth,
+            availableHeight: childAvailHeight,
+          ),
+        );
       }
     }
 
@@ -539,13 +668,15 @@ class FrameNode extends GroupNode {
       child.setPosition(constraint.absoluteX ?? 0, constraint.absoluteY ?? 0);
     }
 
-    // ---- Step 2: Layout flow children ----
+    // ---- Step 2: Route to layout mode ----
     if (flowChildren.isEmpty) {
       _layoutDirty = false;
       return;
     }
 
-    if (wrap == LayoutWrap.wrap) {
+    if (layoutMode == LayoutMode.stack) {
+      _performStackLayout(flowChildren);
+    } else if (wrap == LayoutWrap.wrap) {
       _performWrapLayout(flowChildren);
     } else {
       _performSingleLineLayout(flowChildren);
@@ -655,6 +786,17 @@ class FrameNode extends GroupNode {
     }
 
     // ---- Pass 3: Position children ----
+    // Pre-compute max baseline for baseline alignment.
+    double? maxBaseline;
+    if (crossAxisAlignment == CrossAxisAlignment.baseline) {
+      for (final child in visibleChildren) {
+        final bl = child.baselineOffset;
+        if (bl != null && (maxBaseline == null || bl > maxBaseline)) {
+          maxBaseline = bl;
+        }
+      }
+    }
+
     double mainOffset = _mainAxisStartOffset(
       mainAxisAlignment,
       availableMain,
@@ -675,6 +817,8 @@ class FrameNode extends GroupNode {
         effectiveCrossAlign,
         availableCross,
         childCross,
+        baselineOffset: child.baselineOffset,
+        maxBaseline: maxBaseline,
       );
 
       // Set position.
@@ -684,6 +828,7 @@ class FrameNode extends GroupNode {
           isHorizontal ? padding.top + crossOffset : padding.top + mainOffset;
 
       child.setPosition(x, y);
+      _cachedChildSizes[child.id] = size;
 
       // Advance along main axis.
       mainOffset +=
@@ -938,8 +1083,10 @@ class FrameNode extends GroupNode {
   double _crossAxisOffset(
     CrossAxisAlignment alignment,
     double available,
-    double childSize,
-  ) {
+    double childSize, {
+    double? baselineOffset,
+    double? maxBaseline,
+  }) {
     switch (alignment) {
       case CrossAxisAlignment.start:
         return 0;
@@ -949,6 +1096,139 @@ class FrameNode extends GroupNode {
         return available - childSize;
       case CrossAxisAlignment.stretch:
         return 0;
+      case CrossAxisAlignment.baseline:
+        // Align by baseline if available, otherwise fall back to start.
+        if (baselineOffset != null && maxBaseline != null) {
+          return maxBaseline - baselineOffset;
+        }
+        return 0;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stack layout
+  // ---------------------------------------------------------------------------
+
+  /// Position children at their anchor positions within the frame.
+  ///
+  /// All children overlap. Each child's position is determined by its
+  /// [StackAnchor] constraint relative to the frame's content area.
+  void _performStackLayout(List<CanvasNode> visibleChildren) {
+    final contentWidth =
+        _resolveFrameWidth(visibleChildren) - padding.left - padding.right;
+    final contentHeight =
+        _resolveFrameHeight(visibleChildren) - padding.top - padding.bottom;
+
+    for (final child in visibleChildren) {
+      final constraint = constraintFor(child.id);
+      final childBounds = child.localBounds;
+      double childW = childBounds.width;
+      double childH = childBounds.height;
+
+      // Apply sizing.
+      if (constraint.primarySizing == SizingMode.fixed) {
+        childW = constraint.fixedWidth ?? childW;
+        childH = constraint.fixedHeight ?? childH;
+      } else if (constraint.primarySizing == SizingMode.fill) {
+        childW = contentWidth;
+        childH = contentHeight;
+      }
+
+      // Apply aspect ratio.
+      if (constraint.aspectRatio != null && constraint.aspectRatio! > 0) {
+        childH = childW / constraint.aspectRatio!;
+      }
+
+      // Apply min/max.
+      childW = childW.clamp(constraint.minWidth, constraint.maxWidth);
+      childH = childH.clamp(constraint.minHeight, constraint.maxHeight);
+
+      // Compute anchor offset.
+      double x = padding.left;
+      double y = padding.top;
+
+      switch (constraint.stackAnchor) {
+        case StackAnchor.topLeft:
+          break; // default
+        case StackAnchor.topCenter:
+          x += (contentWidth - childW) / 2;
+        case StackAnchor.topRight:
+          x += contentWidth - childW;
+        case StackAnchor.centerLeft:
+          y += (contentHeight - childH) / 2;
+        case StackAnchor.center:
+          x += (contentWidth - childW) / 2;
+          y += (contentHeight - childH) / 2;
+        case StackAnchor.centerRight:
+          x += contentWidth - childW;
+          y += (contentHeight - childH) / 2;
+        case StackAnchor.bottomLeft:
+          y += contentHeight - childH;
+        case StackAnchor.bottomCenter:
+          x += (contentWidth - childW) / 2;
+          y += contentHeight - childH;
+        case StackAnchor.bottomRight:
+          x += contentWidth - childW;
+          y += contentHeight - childH;
+      }
+
+      child.setPosition(x, y);
+      _cachedChildSizes[child.id] = Size(childW, childH);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pin-edge resize behavior
+  // ---------------------------------------------------------------------------
+
+  /// Reposition and resize pinned children after the frame is resized.
+  ///
+  /// Call this after changing [frameSize] to apply pin-edge constraints.
+  /// Children with `pinLeft + pinRight` stretch horizontally;
+  /// children with `pinTop + pinBottom` stretch vertically.
+  /// Single-edge pins maintain their distance to that edge.
+  void applyPinConstraints(Size oldSize, Size newSize) {
+    final dw = newSize.width - oldSize.width;
+    final dh = newSize.height - oldSize.height;
+
+    for (final child in children) {
+      final constraint = constraintFor(child.id);
+      if (constraint.positionMode == PositionMode.absolute) continue;
+
+      final pos = child.position;
+      final bounds = child.localBounds;
+      double x = pos.dx;
+      double y = pos.dy;
+      double w = bounds.width;
+      double h = bounds.height;
+
+      // Horizontal pin logic.
+      if (constraint.pinLeft && constraint.pinRight) {
+        // Stretch: maintain left offset, expand width by delta.
+        w += dw;
+      } else if (constraint.pinRight) {
+        // Move right: maintain distance to right edge.
+        x += dw;
+      }
+      // pinLeft only: do nothing (left offset stays the same).
+      // Neither: child stays at its current position.
+
+      // Vertical pin logic.
+      if (constraint.pinTop && constraint.pinBottom) {
+        // Stretch: maintain top offset, expand height by delta.
+        h += dh;
+      } else if (constraint.pinBottom) {
+        // Move down: maintain distance to bottom edge.
+        y += dh;
+      }
+      // pinTop only: do nothing (top offset stays the same).
+      // Neither: child stays at its current position.
+
+      // Apply clamped size.
+      w = w.clamp(constraint.minWidth, constraint.maxWidth);
+      h = h.clamp(constraint.minHeight, constraint.maxHeight);
+
+      child.setPosition(x, y);
     }
   }
 
@@ -983,7 +1263,8 @@ class FrameNode extends GroupNode {
     json['mainAxisAlignment'] = mainAxisAlignment.name;
     json['crossAxisAlignment'] = crossAxisAlignment.name;
     if (wrap != LayoutWrap.noWrap) json['wrap'] = wrap.name;
-    json['clipContent'] = clipContent;
+    json['overflow'] = overflow.name;
+    if (layoutMode != LayoutMode.flow) json['layoutMode'] = layoutMode.name;
     if (fillColor != null) json['fillColor'] = fillColor!.toARGB32();
     json['borderRadius'] = borderRadius;
     if (strokeColor != null) json['strokeColor'] = strokeColor!.toARGB32();
@@ -1019,7 +1300,7 @@ class FrameNode extends GroupNode {
     final frameSizeJson = json['frameSize'] as Map<String, dynamic>?;
 
     final node = FrameNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       name: json['name'] as String? ?? 'Frame',
       direction: LayoutDirection.values.byName(
         json['direction'] as String? ?? 'vertical',
@@ -1038,7 +1319,16 @@ class FrameNode extends GroupNode {
         json['crossAxisAlignment'] as String? ?? 'start',
       ),
       wrap: LayoutWrap.values.byName(json['wrap'] as String? ?? 'noWrap'),
-      clipContent: json['clipContent'] as bool? ?? true,
+      // Backward compat: read 'overflow' first, fall back to 'clipContent'.
+      overflow:
+          json['overflow'] != null
+              ? OverflowBehavior.values.byName(json['overflow'] as String)
+              : (json['clipContent'] as bool? ?? true)
+              ? OverflowBehavior.hidden
+              : OverflowBehavior.visible,
+      layoutMode: LayoutMode.values.byName(
+        json['layoutMode'] as String? ?? 'flow',
+      ),
       fillColor:
           json['fillColor'] != null ? Color(json['fillColor'] as int) : null,
       borderRadius: (json['borderRadius'] as num?)?.toDouble() ?? 0,

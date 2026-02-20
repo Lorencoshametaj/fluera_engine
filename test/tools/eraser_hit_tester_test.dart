@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/tools/eraser/eraser_hit_tester.dart';
 import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
@@ -189,7 +190,7 @@ void main() {
 
   group('strokeIntersectsEraser', () {
     test('circle — stroke passing through eraser center', () {
-      final stroke = testStroke(id: 'crossing', pointCount: 3);
+      final stroke = testStroke(id: NodeId('crossing'), pointCount: 3);
       // Stroke goes from (0,0) to (20,20) — passing through the eraser center
       expect(
         EraserHitTester.strokeIntersectsEraser(
@@ -203,7 +204,7 @@ void main() {
     });
 
     test('circle — stroke far from eraser', () {
-      final stroke = testStroke(id: 'far', pointCount: 3);
+      final stroke = testStroke(id: NodeId('far'), pointCount: 3);
       expect(
         EraserHitTester.strokeIntersectsEraser(
           stroke,
@@ -216,7 +217,7 @@ void main() {
     });
 
     test('single point stroke at eraser center', () {
-      final stroke = testStroke(id: 'single', pointCount: 1);
+      final stroke = testStroke(id: NodeId('single'), pointCount: 1);
       expect(
         EraserHitTester.strokeIntersectsEraser(
           stroke,
@@ -229,7 +230,7 @@ void main() {
     });
 
     test('rectangle — stroke intersecting', () {
-      final stroke = testStroke(id: 'rect-cross', pointCount: 5);
+      final stroke = testStroke(id: NodeId('rect-cross'), pointCount: 5);
       expect(
         EraserHitTester.strokeIntersectsEraser(
           stroke,
@@ -251,7 +252,7 @@ void main() {
   group('shapeIntersectsEraser', () {
     test('shape overlapping eraser', () {
       final shape = testShape(
-        id: 'overlap',
+        id: NodeId('overlap'),
         start: const Offset(0, 0),
         end: const Offset(50, 50),
       );
@@ -267,7 +268,7 @@ void main() {
 
     test('shape far from eraser', () {
       final shape = testShape(
-        id: 'far',
+        id: NodeId('far'),
         start: const Offset(0, 0),
         end: const Offset(10, 10),
       );
@@ -288,7 +289,7 @@ void main() {
 
   group('strokeBBox', () {
     test('returns correct bounding rect', () {
-      final stroke = testStroke(id: 'bbox', pointCount: 5);
+      final stroke = testStroke(id: NodeId('bbox'), pointCount: 5);
       // Points go from (0,0) to (40,40) in steps of 10
       final bbox = EraserHitTester.strokeBBox(stroke);
       expect(bbox, isNotNull);
@@ -299,7 +300,7 @@ void main() {
     });
 
     test('single point stroke has non-null bbox', () {
-      final stroke = testStroke(id: 'single-bbox', pointCount: 1);
+      final stroke = testStroke(id: NodeId('single-bbox'), pointCount: 1);
       final bbox = EraserHitTester.strokeBBox(stroke);
       expect(bbox, isNotNull);
     });

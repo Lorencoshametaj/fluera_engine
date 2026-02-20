@@ -1,4 +1,5 @@
 import './group_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import './stroke_node.dart';
 import './shape_node.dart';
@@ -63,28 +64,28 @@ class LayerNode extends GroupNode {
 
   /// Add a stroke to this layer. Returns the created StrokeNode.
   StrokeNode addStroke(ProStroke stroke) {
-    final node = StrokeNode(id: stroke.id, stroke: stroke);
+    final node = StrokeNode(id: NodeId(stroke.id), stroke: stroke);
     add(node);
     return node;
   }
 
   /// Add a shape to this layer. Returns the created ShapeNode.
   ShapeNode addShape(GeometricShape shape) {
-    final node = ShapeNode(id: shape.id, shape: shape);
+    final node = ShapeNode(id: NodeId(shape.id), shape: shape);
     add(node);
     return node;
   }
 
   /// Add a text element to this layer. Returns the created TextNode.
   TextNode addText(DigitalTextElement text) {
-    final node = TextNode(id: text.id, textElement: text);
+    final node = TextNode(id: NodeId(text.id), textElement: text);
     add(node);
     return node;
   }
 
   /// Add an image element to this layer. Returns the created ImageNode.
   ImageNode addImage(ImageElement image) {
-    final node = ImageNode(id: image.id, imageElement: image);
+    final node = ImageNode(id: NodeId(image.id), imageElement: image);
     add(node);
     return node;
   }

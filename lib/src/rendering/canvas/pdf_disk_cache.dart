@@ -3,6 +3,8 @@ import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
 
 /// 💾 Persistent disk cache for rendered PDF bitmaps.
 ///
@@ -53,7 +55,17 @@ class PdfDiskCache {
           }
         }
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'PdfDiskCache._ensureInit',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Key for a specific page/resolution.
@@ -167,7 +179,17 @@ class PdfDiskCache {
           await f.delete();
           totalBytes -= size;
         }
-      } catch (_) {}
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.storage,
+            source: 'PdfDiskCache._enforceDiskBudget',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     });
   }
 
@@ -190,7 +212,17 @@ class PdfDiskCache {
       }
       // 🗂️ Clear manifest entries for this document
       _manifest.removeWhere((key) => key.contains(documentId));
-    } catch (_) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'PdfDiskCache.clear',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 }
 

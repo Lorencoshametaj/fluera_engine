@@ -1,4 +1,7 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
 import '../../core/scene_graph/canvas_node.dart';
 import '../../core/nodes/group_node.dart';
 import '../../core/nodes/layer_node.dart';
@@ -18,6 +21,8 @@ import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../core/nodes/vector_network_node.dart';
 import '../../core/effects/shader_effect.dart';
+import '../../core/effects/paint_stack.dart';
+import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
 import '../../drawing/brushes/brushes.dart';
 import './vector_network_renderer.dart';
@@ -25,6 +30,7 @@ import '../../systems/layout_engine.dart';
 import '../canvas/shape_painter.dart';
 import './path_renderer.dart';
 import './rich_text_renderer.dart';
+import './render_interceptor.dart';
 
 /// Renders a [SceneGraph] by recursively traversing the node tree.
 ///
@@ -41,13 +47,51 @@ import './rich_text_renderer.dart';
 /// renderer.render(canvas, sceneGraph, viewport);
 /// ```
 class SceneGraphRenderer {
+  // ---------------------------------------------------------------------------
+  // Render Interceptors
+  // ---------------------------------------------------------------------------
+
+  final List<RenderInterceptor> _interceptors = [];
+
+  /// Symbol registry for resolving [SymbolInstanceNode]s.
+  SymbolRegistry? _symbolRegistry;
+
+  /// Set the symbol registry used to resolve component instances.
+  set symbolRegistry(SymbolRegistry? registry) => _symbolRegistry = registry;
+
+  /// Register an interceptor to the render chain.
+  void addInterceptor(RenderInterceptor interceptor) =>
+      _interceptors.add(interceptor);
+
+  /// Remove a previously registered interceptor.
+  void removeInterceptor(RenderInterceptor interceptor) =>
+      _interceptors.remove(interceptor);
+
+  /// Remove all interceptors.
+  void clearInterceptors() => _interceptors.clear();
+
+  /// Currently registered interceptors (read-only view).
+  List<RenderInterceptor> get interceptors => List.unmodifiable(_interceptors);
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
   /// Render the entire scene graph.
   ///
   /// Only nodes whose world bounds intersect [viewport] are rendered.
   void render(Canvas canvas, SceneGraph sceneGraph, Rect viewport) {
+    for (final i in _interceptors) {
+      i.onFrameStart();
+    }
+
     for (final layer in sceneGraph.layers) {
       if (!layer.isVisible) continue;
       renderNode(canvas, layer, viewport);
+    }
+
+    for (final i in _interceptors) {
+      i.onFrameEnd();
     }
   }
 
@@ -60,6 +104,57 @@ class SceneGraphRenderer {
   /// 4. Clip masks
   /// 5. Type-specific rendering
   void renderNode(Canvas canvas, CanvasNode node, Rect viewport) {
+    // Interceptor chain — zero overhead when empty.
+    if (_interceptors.isNotEmpty) {
+      _runInterceptorChain(canvas, node, viewport);
+      return;
+    }
+    _renderNodeDirect(canvas, node, viewport);
+  }
+
+  /// Run the interceptor chain for a single node.
+  ///
+  /// Uses an iterative approach instead of recursive closures to avoid
+  /// per-node-per-interceptor closure allocations (GC pressure in paint()).
+  /// Each interceptor is wrapped in try/catch so a failing interceptor
+  /// cannot crash the entire frame.
+  void _runInterceptorChain(Canvas canvas, CanvasNode node, Rect viewport) {
+    // Build a RenderNext that walks the chain iteratively.
+    // We build from the end backwards so each step wraps the next.
+    RenderNext tail = _renderNodeDirect;
+    for (int i = _interceptors.length - 1; i >= 0; i--) {
+      final interceptor = _interceptors[i];
+      final nextInChain = tail;
+      tail = (Canvas c, CanvasNode n, Rect v) {
+        try {
+          interceptor.intercept(c, n, v, nextInChain);
+        } catch (e, stack) {
+          // Never let a single interceptor crash the frame.
+          if (EngineScope.hasScope) {
+            EngineScope.current.errorRecovery.reportError(
+              EngineError(
+                original: e,
+                stack: stack,
+                source: 'RenderInterceptor:${interceptor.runtimeType}',
+                domain: ErrorDomain.rendering,
+                severity: ErrorSeverity.transient,
+              ),
+            );
+          } else {
+            debugPrint(
+              '[RenderInterceptor] ${interceptor.runtimeType} error: $e',
+            );
+          }
+          // Skip this interceptor, continue with next in chain.
+          nextInChain(c, n, v);
+        }
+      };
+    }
+    tail(canvas, node, viewport);
+  }
+
+  /// The actual node rendering logic (no interceptors).
+  void _renderNodeDirect(Canvas canvas, CanvasNode node, Rect viewport) {
     if (!node.isVisible) return;
 
     // Viewport culling — skip nodes entirely outside the viewport.
@@ -189,10 +284,269 @@ class SceneGraphRenderer {
     }
   }
 
-  /// Render a shape via ShapePainter.
+  /// Render a shape via the paint stack, or legacy ShapePainter.
   void _renderShape(Canvas canvas, ShapeNode node) {
-    ShapePainter.drawShape(canvas, node.shape);
+    if (node.fills.isEmpty && node.strokes.isEmpty) {
+      // Legacy path — delegate to ShapePainter which reads GeometricShape.
+      ShapePainter.drawShape(canvas, node.shape);
+      return;
+    }
+
+    // Stack-based rendering: build the shape path, then draw fills + strokes.
+    final shapePath = _buildShapePath(node.shape);
+    if (shapePath == null) {
+      // Unsupported shape type — fall back to legacy.
+      ShapePainter.drawShape(canvas, node.shape);
+      return;
+    }
+
+    final bounds = node.localBounds;
+
+    // Draw fill stack.
+    for (final fill in node.fills) {
+      if (!fill.isVisible) continue;
+      // Gradient + opacity < 1 needs a saveLayer for correct compositing.
+      if (fill.type == FillType.gradient &&
+          fill.gradient != null &&
+          fill.opacity < 1.0) {
+        canvas.saveLayer(
+          null,
+          Paint()
+            ..color = Color.fromARGB(
+              (fill.opacity * 255).round(),
+              255,
+              255,
+              255,
+            ),
+        );
+        final paint =
+            Paint()
+              ..style = PaintingStyle.fill
+              ..isAntiAlias = true
+              ..shader = fill.gradient!.toShader(bounds)
+              ..blendMode = fill.blendMode;
+        canvas.drawPath(shapePath, paint);
+        canvas.restore();
+      } else {
+        final paint = fill.toPaint(bounds);
+        if (paint != null) {
+          canvas.drawPath(shapePath, paint);
+        }
+      }
+    }
+
+    // Draw stroke stack.
+    for (final stroke in node.strokes) {
+      if (!stroke.isVisible) continue;
+      if (stroke.color == null && stroke.gradient == null) continue;
+
+      final paint =
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = stroke.width
+            ..strokeCap = stroke.cap
+            ..strokeJoin = stroke.join
+            ..strokeMiterLimit = 4.0
+            ..isAntiAlias = true
+            ..blendMode = stroke.blendMode;
+
+      final needsOpacityLayer = stroke.opacity < 1.0 && stroke.gradient != null;
+      if (stroke.gradient != null && bounds.isFinite && !bounds.isEmpty) {
+        paint.shader = stroke.gradient!.toShader(bounds);
+      } else if (stroke.color != null) {
+        paint.color = stroke.color!.withValues(
+          alpha: stroke.color!.a * stroke.opacity,
+        );
+      } else {
+        continue;
+      }
+
+      // Apply dash pattern.
+      final drawPath =
+          stroke.dashPattern != null && stroke.dashPattern!.isNotEmpty
+              ? PathRenderer.applyDashPattern(shapePath, stroke.dashPattern!)
+              : shapePath;
+
+      if (needsOpacityLayer) {
+        canvas.saveLayer(
+          null,
+          Paint()
+            ..color = Color.fromARGB(
+              (stroke.opacity * 255).round(),
+              255,
+              255,
+              255,
+            ),
+        );
+      }
+
+      switch (stroke.position) {
+        case StrokePosition.center:
+          canvas.drawPath(drawPath, paint);
+          break;
+        case StrokePosition.inside:
+          canvas.save();
+          canvas.clipPath(shapePath);
+          paint.strokeWidth = stroke.width * 2;
+          canvas.drawPath(drawPath, paint);
+          canvas.restore();
+          break;
+        case StrokePosition.outside:
+          canvas.saveLayer(null, Paint());
+          paint.strokeWidth = stroke.width * 2;
+          canvas.drawPath(drawPath, paint);
+          canvas.drawPath(
+            shapePath,
+            Paint()
+              ..style = PaintingStyle.fill
+              ..blendMode = BlendMode.dstOut,
+          );
+          canvas.restore();
+          break;
+      }
+
+      if (needsOpacityLayer) {
+        canvas.restore();
+      }
+    }
   }
+
+  /// Build a Flutter [Path] from a [GeometricShape].
+  ///
+  /// Returns null only for freehand (which has no geometric definition).
+  Path? _buildShapePath(GeometricShape shape) {
+    final s = shape.startPoint;
+    final e = shape.endPoint;
+    final left = s.dx < e.dx ? s.dx : e.dx;
+    final right = s.dx > e.dx ? s.dx : e.dx;
+    final top = s.dy < e.dy ? s.dy : e.dy;
+    final bottom = s.dy > e.dy ? s.dy : e.dy;
+    final cx = (left + right) / 2;
+    final cy = (top + bottom) / 2;
+    final w = (right - left) / 2;
+    final h = (bottom - top) / 2;
+
+    switch (shape.type) {
+      case ShapeType.line:
+        return Path()
+          ..moveTo(s.dx, s.dy)
+          ..lineTo(e.dx, e.dy);
+
+      case ShapeType.rectangle:
+        return Path()..addRect(Rect.fromPoints(s, e));
+
+      case ShapeType.circle:
+        return Path()..addOval(
+          Rect.fromCenter(center: Offset(cx, cy), width: w * 2, height: h * 2),
+        );
+
+      case ShapeType.triangle:
+        return Path()
+          ..moveTo(cx, top)
+          ..lineTo(right, bottom)
+          ..lineTo(left, bottom)
+          ..close();
+
+      case ShapeType.diamond:
+        return Path()
+          ..moveTo(cx, cy - h)
+          ..lineTo(cx + w, cy)
+          ..lineTo(cx, cy + h)
+          ..lineTo(cx - w, cy)
+          ..close();
+
+      case ShapeType.pentagon:
+        return _buildRegularPolygon(cx, cy, w < h ? w : h, 5);
+
+      case ShapeType.hexagon:
+        return _buildRegularPolygon(cx, cy, w < h ? w : h, 6);
+
+      case ShapeType.star:
+        return _buildStar(cx, cy, w < h ? w : h, 5);
+
+      case ShapeType.heart:
+        return _buildHeart(cx, cy, w, h);
+
+      case ShapeType.arrow:
+        return _buildArrow(left, top, right, bottom);
+
+      case ShapeType.freehand:
+        // Freehand doesn't have a geometric path definition.
+        return null;
+    }
+  }
+
+  /// Build a regular polygon path with [sides] vertices.
+  Path _buildRegularPolygon(double cx, double cy, double r, int sides) {
+    final path = Path();
+    for (int i = 0; i < sides; i++) {
+      final angle = -3.14159265358979 / 2 + (2 * 3.14159265358979 * i / sides);
+      final x = cx + r * _cos(angle);
+      final y = cy + r * _sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  /// Build a 5-pointed star path.
+  Path _buildStar(double cx, double cy, double outerR, int points) {
+    final innerR = outerR * 0.4;
+    final path = Path();
+    for (int i = 0; i < points * 2; i++) {
+      final angle = -3.14159265358979 / 2 + (3.14159265358979 * i / points);
+      final r = i.isEven ? outerR : innerR;
+      final x = cx + r * _cos(angle);
+      final y = cy + r * _sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  /// Build a heart shape using cubic Bézier curves.
+  Path _buildHeart(double cx, double cy, double w, double h) {
+    final path = Path();
+    path.moveTo(cx, cy + h * 0.3);
+    // Left side
+    path.cubicTo(cx - w, cy - h * 0.3, cx - w, cy - h, cx, cy - h * 0.4);
+    // Right side
+    path.cubicTo(cx + w, cy - h, cx + w, cy - h * 0.3, cx, cy + h * 0.3);
+    path.close();
+    return path;
+  }
+
+  /// Build a right-pointing arrow shape.
+  Path _buildArrow(double left, double top, double right, double bottom) {
+    final w = right - left;
+    final h = bottom - top;
+    final cy = (top + bottom) / 2;
+    final shaftTop = top + h * 0.3;
+    final shaftBottom = bottom - h * 0.3;
+    final headStart = left + w * 0.6;
+
+    return Path()
+      ..moveTo(left, shaftTop)
+      ..lineTo(headStart, shaftTop)
+      ..lineTo(headStart, top)
+      ..lineTo(right, cy)
+      ..lineTo(headStart, bottom)
+      ..lineTo(headStart, shaftBottom)
+      ..lineTo(left, shaftBottom)
+      ..close();
+  }
+
+  // Trig helpers using dart:math.
+  static double _cos(double rad) => math.cos(rad);
+  static double _sin(double rad) => math.sin(rad);
 
   /// Render a vector path via PathRenderer.
   void _renderPath(Canvas canvas, PathNode node) {
@@ -206,19 +560,24 @@ class SceneGraphRenderer {
 
   /// Render a symbol instance by looking up its definition.
   ///
-  /// When a [SymbolRegistry] is integrated into the renderer,
-  /// this method resolves the definition and renders its content
-  /// tree with instance overrides applied. Currently a no-op
-  /// placeholder since the registry is not yet wired.
+  /// When a [SymbolRegistry] is set on the renderer, this method
+  /// resolves the definition, applies variant selections, and renders
+  /// the resolved [GroupNode] subtree.
   void _renderSymbolInstance(
     Canvas canvas,
     SymbolInstanceNode node,
     Rect viewport,
   ) {
-    // TODO: Resolve symbolDefinitionId via SymbolRegistry,
-    // apply overrides, and render the definition's GroupNode content.
-    // For now, this is a no-op — symbol instances are registered
-    // but not yet rendered until the registry is wired into the renderer.
+    if (_symbolRegistry == null) return;
+
+    final resolvedContent = _symbolRegistry!.resolveInstance(node);
+    if (resolvedContent == null) return;
+
+    // Cache bounds for hit testing and viewport culling.
+    node.resolvedBounds = resolvedContent.worldBounds;
+
+    // Render the resolved GroupNode subtree.
+    _renderChildren(canvas, resolvedContent, viewport);
   }
 
   /// Render a text element.
@@ -483,7 +842,7 @@ class SceneGraphRenderer {
     }
 
     // Clip children to frame bounds if enabled.
-    if (node.clipContent) {
+    if (node.overflow == OverflowBehavior.hidden) {
       canvas.save();
       if (node.borderRadius > 0) {
         canvas.clipRRect(
@@ -498,7 +857,7 @@ class SceneGraphRenderer {
     _renderChildren(canvas, node, viewport);
 
     // Pop clip.
-    if (node.clipContent) {
+    if (node.overflow == OverflowBehavior.hidden) {
       canvas.restore();
     }
 

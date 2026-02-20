@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'dart:math' as math;
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
+import '../../core/models/digital_text_element.dart';
 
 // ============================================================================
 // Generic R-tree — Industry-standard spatial index
@@ -514,14 +515,21 @@ class SpatialIndexManager {
   /// R-tree for shapes.
   RTree<GeometricShape>? _shapeTree;
 
-  /// 🏗️ Build the index from lists of strokes and shapes.
+  /// R-tree for text elements.
+  RTree<DigitalTextElement>? _textTree;
+
   void build({
     required List<ProStroke> strokes,
     required List<GeometricShape> shapes,
+    List<DigitalTextElement> texts = const [],
     Rect canvasBounds = const Rect.fromLTWH(0, 0, 100000, 100000),
   }) {
     _strokeTree = RTree<ProStroke>.fromItems(strokes, (s) => s.bounds);
     _shapeTree = RTree<GeometricShape>.fromItems(shapes, _getShapeBounds);
+    _textTree = RTree<DigitalTextElement>.fromItems(
+      texts,
+      (t) => t.getBounds(),
+    );
   }
 
   /// ➕ Add a stroke to the index.
@@ -544,6 +552,16 @@ class SpatialIndexManager {
     _shapeTree?.remove(shape);
   }
 
+  /// ➕ Add a text element to the index.
+  void addText(DigitalTextElement text) {
+    _textTree?.insert(text);
+  }
+
+  /// ➖ Remove a text element from the index.
+  void removeText(DigitalTextElement text) {
+    _textTree?.remove(text);
+  }
+
   /// 🔍 Query visible strokes in the viewport.
   List<ProStroke> queryVisibleStrokes(Rect viewport, {double margin = 1000.0}) {
     return _strokeTree?.queryVisible(viewport, margin: margin) ?? const [];
@@ -557,6 +575,14 @@ class SpatialIndexManager {
     return _shapeTree?.queryVisible(viewport, margin: margin) ?? const [];
   }
 
+  /// 🔍 Query visible text elements in the viewport.
+  List<DigitalTextElement> queryVisibleTexts(
+    Rect viewport, {
+    double margin = 1000.0,
+  }) {
+    return _textTree?.queryVisible(viewport, margin: margin) ?? const [];
+  }
+
   /// 📊 Statistics for debugging.
   Map<String, dynamic> get stats => {
     'strokes': _strokeTree?.stats ?? {},
@@ -567,8 +593,10 @@ class SpatialIndexManager {
   void clear() {
     _strokeTree?.clear();
     _shapeTree?.clear();
+    _textTree?.clear();
     _strokeTree = null;
     _shapeTree = null;
+    _textTree = null;
   }
 
   /// Whether the index has been built.

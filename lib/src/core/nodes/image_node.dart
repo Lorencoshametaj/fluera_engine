@@ -1,5 +1,6 @@
 import 'dart:ui';
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import '../models/image_element.dart';
 
@@ -62,7 +63,7 @@ class ImageNode extends CanvasNode {
 
   factory ImageNode.fromJson(Map<String, dynamic> json) {
     final node = ImageNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       imageElement: ImageElement.fromJson(
         json['image'] as Map<String, dynamic>,
       ),

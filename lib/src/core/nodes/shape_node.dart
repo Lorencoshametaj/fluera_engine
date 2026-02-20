@@ -1,14 +1,18 @@
 import 'dart:ui';
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
+import '../scene_graph/paint_stack_mixin.dart';
 import '../models/shape_type.dart';
 import '../effects/mesh_gradient.dart';
+import '../effects/paint_stack.dart';
 
 /// Scene graph node that wraps a [GeometricShape].
 ///
+/// Supports stacked fills and strokes via [PaintStackMixin].
 /// The shape's geometry (startPoint/endPoint) is stored in local coordinates.
 /// The [localTransform] positions/rotates/scales the shape in parent space.
-class ShapeNode extends CanvasNode {
+class ShapeNode extends CanvasNode with PaintStackMixin {
   /// The actual shape data.
   GeometricShape shape;
 
@@ -25,7 +29,12 @@ class ShapeNode extends CanvasNode {
     super.blendMode,
     super.isVisible,
     super.isLocked,
-  });
+    List<FillLayer>? fills,
+    List<StrokeLayer>? strokes,
+  }) {
+    if (fills != null) this.fills = fills;
+    if (strokes != null) this.strokes = strokes;
+  }
 
   // ---------------------------------------------------------------------------
   // Bounds
@@ -50,8 +59,9 @@ class ShapeNode extends CanvasNode {
             ? shape.startPoint.dy
             : shape.endPoint.dy;
 
-    // Add padding for stroke width
-    final padding = shape.strokeWidth;
+    // Use stroke stack inflation or legacy strokeWidth.
+    final padding =
+        strokes.isNotEmpty ? maxStrokeBoundsInflation : shape.strokeWidth;
     return Rect.fromLTRB(
       left - padding,
       top - padding,
@@ -72,13 +82,18 @@ class ShapeNode extends CanvasNode {
     if (meshGradient != null) {
       json['meshGradient'] = meshGradient!.toJson();
     }
+    // Paint stack (new format).
+    json.addAll(paintStackToJson());
     return json;
   }
 
   factory ShapeNode.fromJson(Map<String, dynamic> json) {
+    final shape = GeometricShape.fromJson(
+      json['shape'] as Map<String, dynamic>,
+    );
     final node = ShapeNode(
-      id: json['id'] as String,
-      shape: GeometricShape.fromJson(json['shape'] as Map<String, dynamic>),
+      id: NodeId(json['id'] as String),
+      shape: shape,
       meshGradient:
           json['meshGradient'] != null
               ? MeshGradient.fromJson(
@@ -87,7 +102,35 @@ class ShapeNode extends CanvasNode {
               : null,
     );
     CanvasNode.applyBaseFromJson(node, json);
+
+    // Paint stack — new format has priority.
+    if (json.containsKey('fills') || json.containsKey('strokes')) {
+      PaintStackMixin.applyPaintStackFromJson(node, json);
+    } else {
+      // Auto-migrate from GeometricShape's legacy fields.
+      _migrateLegacyPaintStack(node);
+    }
+
     return node;
+  }
+
+  /// Migrate legacy GeometricShape fill/stroke into the paint stack.
+  static void _migrateLegacyPaintStack(ShapeNode node) {
+    final shape = node.shape;
+    if (shape.fillGradient != null) {
+      node.fills.add(FillLayer.fromGradient(gradient: shape.fillGradient!));
+    } else if (shape.filled) {
+      node.fills.add(FillLayer.solid(color: shape.color));
+    }
+    if (shape.strokeGradient != null) {
+      node.strokes.add(
+        StrokeLayer(gradient: shape.strokeGradient, width: shape.strokeWidth),
+      );
+    } else {
+      node.strokes.add(
+        StrokeLayer(color: shape.color, width: shape.strokeWidth),
+      );
+    }
   }
 
   @override

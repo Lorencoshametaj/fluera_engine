@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,48 +34,48 @@ void main() {
 
   group('NodePropertySetter', () {
     test('applies opacity', () {
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final result = NodePropertySetter.apply(node, 'opacity', 0.5);
       expect(result, isTrue);
       expect(node.opacity, 0.5);
     });
 
     test('applies isVisible', () {
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final result = NodePropertySetter.apply(node, 'isVisible', false);
       expect(result, isTrue);
       expect(node.isVisible, false);
     });
 
     test('applies isLocked', () {
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final result = NodePropertySetter.apply(node, 'isLocked', true);
       expect(result, isTrue);
       expect(node.isLocked, true);
     });
 
     test('applies blendMode from string', () {
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final result = NodePropertySetter.apply(node, 'blendMode', 'multiply');
       expect(result, isTrue);
       expect(node.blendMode, ui.BlendMode.multiply);
     });
 
     test('applies name', () {
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final result = NodePropertySetter.apply(node, 'name', 'New Name');
       expect(result, isTrue);
       expect(node.name, 'New Name');
     });
 
     test('returns false for unknown property', () {
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final result = NodePropertySetter.apply(node, 'fillColor', 0xFF0000FF);
       expect(result, isFalse);
     });
 
     test('returns false for wrong value type', () {
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final result = NodePropertySetter.apply(node, 'opacity', 'not-a-number');
       expect(result, isFalse);
     });
@@ -90,21 +91,21 @@ void main() {
 
     setUp(() {
       collection = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
         variables: [
           DesignVariable(
-            id: 'bg-opacity',
+            id: NodeId('bg-opacity'),
             name: 'BG Opacity',
             type: DesignVariableType.number,
             values: {'light': 1.0, 'dark': 0.8},
           ),
           DesignVariable(
-            id: 'is-visible',
+            id: NodeId('is-visible'),
             name: 'Is Visible',
             type: DesignVariableType.boolean,
             values: {'light': true, 'dark': false},
@@ -216,7 +217,7 @@ void main() {
         ),
       );
 
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final resolver = VariableResolver(
         collections: [collection],
         bindings: bindings,
@@ -254,12 +255,12 @@ void main() {
 
     test('customPropertyApplier handles subclass properties', () {
       final colorCollection = VariableCollection(
-        id: 'colors',
+        id: NodeId('colors'),
         name: 'Colors',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'fill',
+            id: NodeId('fill'),
             name: 'Fill Color',
             type: DesignVariableType.color,
             values: {'default': 0xFF00FF00},
@@ -275,7 +276,7 @@ void main() {
         ),
       );
 
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       final resolver = VariableResolver(
         collections: [colorCollection],
         bindings: bindings,
@@ -296,12 +297,12 @@ void main() {
 
     test('resolveAndApplyForCollection only applies for that collection', () {
       final otherCollection = VariableCollection(
-        id: 'spacing',
+        id: NodeId('spacing'),
         name: 'Spacing',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'space-1',
+            id: NodeId('space-1'),
             name: 'Spacing 1',
             type: DesignVariableType.number,
             values: {'default': 0.5},
@@ -324,8 +325,8 @@ void main() {
         ),
       );
 
-      final n1 = _TestNode(id: 'n1');
-      final n2 = _TestNode(id: 'n2');
+      final n1 = _TestNode(id: NodeId('n1'));
+      final n2 = _TestNode(id: NodeId('n2'));
       n1.opacity = 0.0;
       n2.opacity = 0.0;
 
@@ -371,15 +372,15 @@ void main() {
       // Add a collection with variables.
       sg.variableCollections.add(
         VariableCollection(
-          id: 'themes',
+          id: NodeId('themes'),
           name: 'Themes',
           modes: [
-            VariableMode(id: 'light', name: 'Light'),
-            VariableMode(id: 'dark', name: 'Dark'),
+            VariableMode(id: NodeId('light'), name: 'Light'),
+            VariableMode(id: NodeId('dark'), name: 'Dark'),
           ],
           variables: [
             DesignVariable(
-              id: 'opacity-var',
+              id: NodeId('opacity-var'),
               name: 'Opacity',
               type: DesignVariableType.number,
               values: {'light': 1.0, 'dark': 0.7},
@@ -428,7 +429,7 @@ void main() {
 
     test('dispose cleans up variable resources', () {
       final sg = SceneGraph();
-      sg.variableCollections.add(VariableCollection(id: 'c1', name: 'Test'));
+      sg.variableCollections.add(VariableCollection(id: NodeId('c1'), name: 'Test'));
       sg.variableBindings.addBinding(
         const VariableBinding(
           variableId: 'v1',
@@ -450,18 +451,18 @@ void main() {
   group('Alias resolution', () {
     test('resolveVariable follows alias chain', () {
       final collection = VariableCollection(
-        id: 'tokens',
+        id: NodeId('tokens'),
         name: 'Tokens',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'brand-blue',
+            id: NodeId('brand-blue'),
             name: 'Brand Blue',
             type: DesignVariableType.color,
             values: {'default': 0xFF0000FF},
           ),
           DesignVariable(
-            id: 'primary',
+            id: NodeId('primary'),
             name: 'Primary',
             type: DesignVariableType.color,
             aliasVariableId: 'brand-blue', // → brand-blue
@@ -475,24 +476,24 @@ void main() {
 
     test('resolveVariable handles multi-level alias', () {
       final collection = VariableCollection(
-        id: 'tokens',
+        id: NodeId('tokens'),
         name: 'Tokens',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'blue-500',
+            id: NodeId('blue-500'),
             name: 'Blue 500',
             type: DesignVariableType.color,
             values: {'default': 0xFF0000FF},
           ),
           DesignVariable(
-            id: 'brand-primary',
+            id: NodeId('brand-primary'),
             name: 'Brand Primary',
             type: DesignVariableType.color,
             aliasVariableId: 'blue-500',
           ),
           DesignVariable(
-            id: 'button-bg',
+            id: NodeId('button-bg'),
             name: 'Button BG',
             type: DesignVariableType.color,
             aliasVariableId: 'brand-primary', // → brand-primary → blue-500
@@ -506,18 +507,18 @@ void main() {
 
     test('resolveVariable detects circular aliases and returns null', () {
       final collection = VariableCollection(
-        id: 'tokens',
+        id: NodeId('tokens'),
         name: 'Tokens',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'a',
+            id: NodeId('a'),
             name: 'A',
             type: DesignVariableType.color,
             aliasVariableId: 'b',
           ),
           DesignVariable(
-            id: 'b',
+            id: NodeId('b'),
             name: 'B',
             type: DesignVariableType.color,
             aliasVariableId: 'a', // circular: a → b → a
@@ -531,12 +532,12 @@ void main() {
 
     test('resolveVariable returns null for alias to missing variable', () {
       final collection = VariableCollection(
-        id: 'tokens',
+        id: NodeId('tokens'),
         name: 'Tokens',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'orphan',
+            id: NodeId('orphan'),
             name: 'Orphan',
             type: DesignVariableType.color,
             aliasVariableId: 'nonexistent',
@@ -550,12 +551,12 @@ void main() {
 
     test('resolveVariable follows alias across collections', () {
       final primitives = VariableCollection(
-        id: 'primitives',
+        id: NodeId('primitives'),
         name: 'Primitives',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'blue-500',
+            id: NodeId('blue-500'),
             name: 'Blue 500',
             type: DesignVariableType.color,
             values: {'default': 0xFF0000FF},
@@ -564,12 +565,12 @@ void main() {
       );
 
       final semantic = VariableCollection(
-        id: 'semantic',
+        id: NodeId('semantic'),
         name: 'Semantic',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'primary',
+            id: NodeId('primary'),
             name: 'Primary',
             type: DesignVariableType.color,
             aliasVariableId: 'blue-500', // alias to primitive collection
@@ -589,18 +590,18 @@ void main() {
   group('resolveAs<T>', () {
     test('returns typed value when matching', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'opacity',
+            id: NodeId('opacity'),
             name: 'Opacity',
             type: DesignVariableType.number,
             values: {'default': 0.75},
           ),
           DesignVariable(
-            id: 'color',
+            id: NodeId('color'),
             name: 'Color',
             type: DesignVariableType.color,
             values: {'default': 0xFF00FF00},
@@ -615,12 +616,12 @@ void main() {
 
     test('returns null for type mismatch', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'color',
+            id: NodeId('color'),
             name: 'Color',
             type: DesignVariableType.color,
             values: {'default': 0xFF0000FF},
@@ -646,19 +647,19 @@ void main() {
   group('Batch mode switching', () {
     test('beginBatch / endBatch fires single notification', () {
       final collection1 = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
       );
       final collection2 = VariableCollection(
-        id: 'breakpoints',
+        id: NodeId('breakpoints'),
         name: 'Breakpoints',
         modes: [
-          VariableMode(id: 'desktop', name: 'Desktop'),
-          VariableMode(id: 'mobile', name: 'Mobile'),
+          VariableMode(id: NodeId('desktop'), name: 'Desktop'),
+          VariableMode(id: NodeId('mobile'), name: 'Mobile'),
         ],
       );
 
@@ -680,11 +681,11 @@ void main() {
 
     test('endBatch without changes does not notify', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         modes: [
-          VariableMode(id: 'a', name: 'A'),
-          VariableMode(id: 'b', name: 'B'),
+          VariableMode(id: NodeId('a'), name: 'A'),
+          VariableMode(id: NodeId('b'), name: 'B'),
         ],
       );
 
@@ -700,11 +701,11 @@ void main() {
 
     test('nested batches only fire on outermost endBatch', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         modes: [
-          VariableMode(id: 'a', name: 'A'),
-          VariableMode(id: 'b', name: 'B'),
+          VariableMode(id: NodeId('a'), name: 'A'),
+          VariableMode(id: NodeId('b'), name: 'B'),
         ],
       );
 
@@ -737,15 +738,15 @@ void main() {
   group('Mode inheritance resolution', () {
     test('falls back to parent mode value', () {
       final collection = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark', inheritsFrom: 'light'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark', inheritsFrom: 'light'),
         ],
         variables: [
           DesignVariable(
-            id: 'color',
+            id: NodeId('color'),
             name: 'Color',
             type: DesignVariableType.color,
             values: {'light': 0xFFFFFFFF}, // only light has a value
@@ -762,15 +763,15 @@ void main() {
 
     test('child mode value overrides parent', () {
       final collection = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark', inheritsFrom: 'light'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark', inheritsFrom: 'light'),
         ],
         variables: [
           DesignVariable(
-            id: 'color',
+            id: NodeId('color'),
             name: 'Color',
             type: DesignVariableType.color,
             values: {'light': 0xFFFFFFFF, 'dark': 0xFF000000},
@@ -787,16 +788,16 @@ void main() {
 
     test('multi-level inheritance: grandchild → child → parent', () {
       final collection = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'base', name: 'Base'),
-          VariableMode(id: 'dark', name: 'Dark', inheritsFrom: 'base'),
-          VariableMode(id: 'dark-hc', name: 'Dark HC', inheritsFrom: 'dark'),
+          VariableMode(id: NodeId('base'), name: 'Base'),
+          VariableMode(id: NodeId('dark'), name: 'Dark', inheritsFrom: 'base'),
+          VariableMode(id: NodeId('dark-hc'), name: 'Dark HC', inheritsFrom: 'dark'),
         ],
         variables: [
           DesignVariable(
-            id: 'bg',
+            id: NodeId('bg'),
             name: 'BG',
             type: DesignVariableType.color,
             values: {'base': 0xFFFFFFFF}, // only base has value
@@ -821,12 +822,12 @@ void main() {
       final resolver = VariableResolver(
         collections: [
           VariableCollection(
-            id: 'c1',
+            id: NodeId('c1'),
             name: 'Test',
-            modes: [VariableMode(id: 'default', name: 'Default')],
+            modes: [VariableMode(id: NodeId('default'), name: 'Default')],
             variables: [
               DesignVariable(
-                id: 'v1',
+                id: NodeId('v1'),
                 name: 'V1',
                 type: DesignVariableType.number,
                 values: {'default': 1.0},
@@ -851,12 +852,12 @@ void main() {
   group('Scope-aware resolveAndApply', () {
     test('skips scoped variables when node is not a descendant', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'scoped-opacity',
+            id: NodeId('scoped-opacity'),
             name: 'Scoped Opacity',
             type: DesignVariableType.number,
             scopeNodeId: 'frame-A',
@@ -874,7 +875,7 @@ void main() {
         ),
       );
 
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       node.opacity = 1.0;
 
       final resolver = VariableResolver(
@@ -894,12 +895,12 @@ void main() {
 
     test('applies scoped variables when node IS a descendant', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'scoped-opacity',
+            id: NodeId('scoped-opacity'),
             name: 'Scoped Opacity',
             type: DesignVariableType.number,
             scopeNodeId: 'frame-A',
@@ -917,7 +918,7 @@ void main() {
         ),
       );
 
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       node.opacity = 1.0;
 
       final resolver = VariableResolver(
@@ -936,12 +937,12 @@ void main() {
 
     test('global variables apply regardless of scope checker', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'global-opacity',
+            id: NodeId('global-opacity'),
             name: 'Global Opacity',
             type: DesignVariableType.number,
             // no scopeNodeId — global
@@ -959,7 +960,7 @@ void main() {
         ),
       );
 
-      final node = _TestNode(id: 'n1');
+      final node = _TestNode(id: NodeId('n1'));
       node.opacity = 1.0;
 
       final resolver = VariableResolver(
@@ -984,12 +985,12 @@ void main() {
   group('Resolution cache', () {
     test('cached value is returned on second call', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'v1',
+            id: NodeId('v1'),
             name: 'V1',
             type: DesignVariableType.number,
             values: {'default': 42.0},
@@ -1007,15 +1008,15 @@ void main() {
 
     test('cache is invalidated on mode change', () {
       final collection = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
         variables: [
           DesignVariable(
-            id: 'bg',
+            id: NodeId('bg'),
             name: 'BG',
             type: DesignVariableType.color,
             values: {'light': 0xFFFFFFFF, 'dark': 0xFF000000},
@@ -1035,12 +1036,12 @@ void main() {
 
     test('invalidateCache() forces re-resolve', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
-        modes: [VariableMode(id: 'default', name: 'Default')],
+        modes: [VariableMode(id: NodeId('default'), name: 'Default')],
         variables: [
           DesignVariable(
-            id: 'v1',
+            id: NodeId('v1'),
             name: 'V1',
             type: DesignVariableType.number,
             values: {'default': 1.0},

@@ -212,12 +212,7 @@ extension on _NebulaCanvasScreenState {
       // 🔒 Backup selection before starting new lasso — if a zoom gesture
       // interrupts (2nd finger → _onDrawCancel), we restore the selection.
       if (_lassoTool.hasSelection) {
-        _lassoSelectionBackup = (
-          strokeIds: Set<String>.from(_lassoTool.selectedStrokeIds),
-          shapeIds: Set<String>.from(_lassoTool.selectedShapeIds),
-          textIds: Set<String>.from(_lassoTool.selectedTextIds),
-          imageIds: Set<String>.from(_lassoTool.selectedImageIds),
-        );
+        _lassoSelectionBackup = Set<String>.from(_lassoTool.selectedIds);
       } else {
         _lassoSelectionBackup = null;
       }
@@ -424,10 +419,7 @@ extension on _NebulaCanvasScreenState {
     // 🔒 Restore lasso selection if a zoom gesture interrupted a new lasso
     if (_effectiveIsLasso && _lassoSelectionBackup != null) {
       _lassoTool.clearLassoPath();
-      _lassoTool.selectedStrokeIds.addAll(_lassoSelectionBackup!.strokeIds);
-      _lassoTool.selectedShapeIds.addAll(_lassoSelectionBackup!.shapeIds);
-      _lassoTool.selectedTextIds.addAll(_lassoSelectionBackup!.textIds);
-      _lassoTool.selectedImageIds.addAll(_lassoSelectionBackup!.imageIds);
+      _lassoTool.restoreSelectionFromIds(_lassoSelectionBackup!);
       _lassoSelectionBackup = null;
       setState(() {});
       return;

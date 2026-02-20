@@ -681,7 +681,7 @@ class DrawingPainter extends CustomPainter {
       for (final child in node.children) {
         if (child is PdfPageNode && child.isVisible) {
           docPages.add(child);
-          _paintPdfPage(canvas, child, viewport, painter);
+          _paintPdfPage(canvas, child, viewport, painter, node.id);
         }
       }
     } else if (node is GroupNode) {
@@ -705,12 +705,6 @@ class DrawingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.5;
 
-  // 🔍 Search highlight paints
-  static final Paint _searchHighlightPaint =
-      Paint()..color = const Color(0x40FFEB3B); // Yellow 25%
-  static final Paint _searchCurrentPaint =
-      Paint()..color = const Color(0x80FF9800); // Orange 50%
-
   // 🏷️ Structured annotation render paints
   static final Paint _annotHighlightPaint = Paint(); // I6: reuse for highlights
   static final Paint _underlinePaint =
@@ -732,8 +726,9 @@ class DrawingPainter extends CustomPainter {
     Canvas canvas,
     PdfPageNode pageNode,
     Rect viewport,
-    PdfPagePainter? painter,
-  ) {
+    PdfPagePainter? painter, [
+    String? documentId,
+  ]) {
     final pos = pageNode.position;
     final size = pageNode.pageModel.originalSize;
     final pageRect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
@@ -832,7 +827,7 @@ class DrawingPainter extends CustomPainter {
 
     // 🔍 Search highlights
     if (pdfSearchController != null && pdfSearchController!.hasMatches) {
-      _paintSearchHighlights(canvas, pageNode, pageRect);
+      _paintSearchHighlights(canvas, pageNode, pageRect, documentId);
     }
 
     // Thin border
@@ -1158,34 +1153,104 @@ class DrawingPainter extends CustomPainter {
 
   /// Paint search match highlights on a PDF page.
   ///
-  /// Shows yellow rectangles for all matches and an orange rectangle
-  /// for the currently focused match.
+  /// Uses a realistic highlighter-marker effect: the rects are padded
+  /// slightly (to absorb minor positioning imprecision) and drawn with
+  /// soft, rounded edges that mimic a physical marker pen.
   void _paintSearchHighlights(
     Canvas canvas,
     PdfPageNode pageNode,
-    Rect pageRect,
-  ) {
+    Rect pageRect, [
+    String? documentId,
+  ]) {
     if (pdfSearchController == null || !pdfSearchController!.hasMatches) return;
+
+    if (pageNode.textRects == null || pageNode.textRects!.isEmpty) {
+      return;
+    }
 
     final pageOffset = Offset(pageRect.left, pageRect.top);
 
     canvas.save();
     canvas.clipRect(pageRect);
 
-    // All matches on this page (yellow)
-    final allRects = pdfSearchController!.highlightRectsForPage(pageNode);
+    // All matches on this page (yellow marker)
+    final allRects = pdfSearchController!.highlightRectsForPage(
+      pageNode,
+      documentId: documentId,
+    );
     for (final r in allRects) {
-      canvas.drawRect(r.shift(pageOffset), _searchHighlightPaint);
+      _drawMarkerHighlight(
+        canvas,
+        r.shift(pageOffset),
+        _markerYellow,
+        _markerYellowEdge,
+      );
     }
 
-    // Current match (orange)
-    final currentRect = pdfSearchController!.currentMatchRectForPage(pageNode);
+    // Current match (orange marker + pulse)
+    final currentRect = pdfSearchController!.currentMatchRectForPage(
+      pageNode,
+      documentId: documentId,
+    );
     if (currentRect != null) {
-      canvas.drawRect(currentRect.shift(pageOffset), _searchCurrentPaint);
+      final ms = DateTime.now().millisecondsSinceEpoch;
+      final phase = (ms % 1200) / 1200.0;
+      final sinVal = math.sin(phase * 3.14159265 * 2);
+      final alpha = (0.6 + 0.2 * sinVal).clamp(0.4, 0.8);
+      final pulseFill =
+          Paint()..color = Color.fromRGBO(255, 152, 0, alpha * 0.45);
+      final pulseEdge =
+          Paint()
+            ..color = Color.fromRGBO(255, 130, 0, alpha * 0.25)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.8;
+      _drawMarkerHighlight(
+        canvas,
+        currentRect.shift(pageOffset),
+        pulseFill,
+        pulseEdge,
+      );
     }
 
     canvas.restore();
   }
+
+  /// Draw a single highlight with realistic marker-pen styling.
+  ///
+  /// Applies smart padding (H: ±4%, V: ±20% of line height) so the
+  /// highlight comfortably covers the text even with small alignment
+  /// imprecision. Uses generous corner radius (40% of height) for the
+  /// soft, rounded look of a real marker stroke.
+  void _drawMarkerHighlight(Canvas canvas, Rect r, Paint fill, Paint edge) {
+    // Smart padding: absorb ~2-3% positioning imprecision
+    final h = r.height;
+    final w = r.width;
+    final padH = w * 0.04; // 4% horizontal expansion
+    final padV = h * 0.20; // 20% vertical expansion (markers are thick)
+    final padded = Rect.fromLTRB(
+      r.left - padH,
+      r.top - padV,
+      r.right + padH,
+      r.bottom + padV,
+    );
+
+    // Generous corner radius (40% of padded height) → capsule-like ends
+    final radius = Radius.circular(padded.height * 0.40);
+    final rrect = RRect.fromRectAndRadius(padded, radius);
+
+    // Fill + soft edge stroke (simulates marker ink-bleed)
+    canvas.drawRRect(rrect, fill);
+    canvas.drawRRect(rrect, edge);
+  }
+
+  // Pre-built paints for marker-style highlights
+  static final Paint _markerYellow =
+      Paint()..color = const Color(0x38FFEB3B); // Yellow ~22% opacity
+  static final Paint _markerYellowEdge =
+      Paint()
+        ..color = const Color(0x18FBC02D) // Darker yellow ~10% opacity
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8;
 
   // ===========================================================================
   // 🏷️ PDF Structured Annotations

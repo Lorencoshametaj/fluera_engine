@@ -305,13 +305,33 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
             if (RecordingStorageService.instance.isInitialized) {
               RecordingStorageService.instance
                   .deleteByAudioPath(evictedPath)
-                  .catchError((_) => 0);
+                  .catchError((e) {
+                    EngineScope.current.errorRecovery.reportError(
+                      EngineError(
+                        severity: ErrorSeverity.transient,
+                        domain: ErrorDomain.storage,
+                        source: 'VoiceRecording.evictOldRecording.db',
+                        original: e,
+                      ),
+                    );
+                    return 0;
+                  });
             }
             // Cascade: delete audio file from disk
             try {
               final file = File(evictedPath);
               if (await file.exists()) await file.delete();
-            } catch (_) {}
+            } catch (e, stack) {
+              EngineScope.current.errorRecovery.reportError(
+                EngineError(
+                  severity: ErrorSeverity.transient,
+                  domain: ErrorDomain.storage,
+                  source: 'VoiceRecording.evictOldRecording.file',
+                  original: e,
+                  stack: stack,
+                ),
+              );
+            }
           }
           if (mounted) {
             final strokeInfo =
@@ -581,7 +601,17 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
                             try {
                               final file = File(deletedPath);
                               if (await file.exists()) await file.delete();
-                            } catch (_) {}
+                            } catch (e, stack) {
+                              EngineScope.current.errorRecovery.reportError(
+                                EngineError(
+                                  severity: ErrorSeverity.transient,
+                                  domain: ErrorDomain.storage,
+                                  source: 'VoiceRecording.deleteRecording.file',
+                                  original: e,
+                                  stack: stack,
+                                ),
+                              );
+                            }
 
                             Navigator.pop(context);
                             ScaffoldMessenger.of(this.context).showSnackBar(

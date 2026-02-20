@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/models/pdf_annotation_model.dart';
@@ -67,10 +68,10 @@ void showPdfPagePopup({
 void showPdfSearchPopup({
   required BuildContext context,
   required Rect anchor,
-  required PdfDocumentNode doc,
+  required List<PdfDocumentNode> docs,
   required PdfSearchController searchController,
   VoidCallback? onLayoutChanged,
-  void Function(int pageIndex)? onGoToPage,
+  void Function(String documentId, int pageIndex)? onGoToPage,
 }) {
   showDialog(
     context: context,
@@ -78,7 +79,7 @@ void showPdfSearchPopup({
     builder:
         (ctx) => _PdfSearchPanel(
           anchor: anchor,
-          doc: doc,
+          docs: docs,
           searchController: searchController,
           onLayoutChanged: onLayoutChanged,
           onGoToPage: onGoToPage,
@@ -498,14 +499,14 @@ class _PdfExportItemState extends State<_PdfExportItem> {
 
 class _PdfSearchPanel extends StatefulWidget {
   final Rect anchor;
-  final PdfDocumentNode doc;
+  final List<PdfDocumentNode> docs;
   final PdfSearchController searchController;
   final VoidCallback? onLayoutChanged;
-  final void Function(int pageIndex)? onGoToPage;
+  final void Function(String documentId, int pageIndex)? onGoToPage;
 
   const _PdfSearchPanel({
     required this.anchor,
-    required this.doc,
+    required this.docs,
     required this.searchController,
     this.onLayoutChanged,
     this.onGoToPage,
@@ -518,6 +519,7 @@ class _PdfSearchPanel extends StatefulWidget {
 class _PdfSearchPanelState extends State<_PdfSearchPanel> {
   final _textController = TextEditingController();
   final _focusNode = FocusNode();
+  Timer? _debounce; // (O) Debounced auto-search
 
   @override
   void initState() {
@@ -530,9 +532,49 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _textController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// (N) Navigate to next match and scroll to it.
+  void _goToNext() {
+    final sc = widget.searchController;
+    sc.nextMatch();
+    widget.onLayoutChanged?.call();
+    if (sc.currentMatch != null) {
+      widget.onGoToPage?.call(
+        sc.currentMatch!.documentId,
+        sc.currentMatch!.pageIndex,
+      );
+    }
+  }
+
+  /// (N) Navigate to previous match and scroll to it.
+  void _goToPrevious() {
+    final sc = widget.searchController;
+    sc.previousMatch();
+    widget.onLayoutChanged?.call();
+    if (sc.currentMatch != null) {
+      widget.onGoToPage?.call(
+        sc.currentMatch!.documentId,
+        sc.currentMatch!.pageIndex,
+      );
+    }
+  }
+
+  /// (O) Trigger debounced search.
+  void _onQueryChanged(String query) {
+    setState(() {});
+    _debounce?.cancel();
+    if (query.isEmpty) {
+      widget.searchController.clearSearch();
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      widget.searchController.searchDocuments(widget.docs, query);
+    });
   }
 
   @override
@@ -564,65 +606,113 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Search field
+                      // Search field with keyboard shortcuts (N)
                       SizedBox(
                         height: 38,
-                        child: TextField(
-                          controller: _textController,
-                          focusNode: _focusNode,
-                          style: TextStyle(fontSize: 13, color: cs.onSurface),
-                          decoration: InputDecoration(
-                            hintText: 'Search in PDF...',
-                            hintStyle: TextStyle(
-                              fontSize: 13,
-                              color: cs.onSurfaceVariant.withValues(alpha: 0.6),
-                            ),
-                            prefixIcon: Icon(
-                              Icons.search_rounded,
-                              size: 18,
-                              color: cs.onSurfaceVariant,
-                            ),
-                            suffixIcon:
-                                _textController.text.isNotEmpty
-                                    ? IconButton(
-                                      icon: Icon(
-                                        Icons.clear_rounded,
-                                        size: 16,
-                                        color: cs.onSurfaceVariant,
-                                      ),
-                                      onPressed: () {
-                                        _textController.clear();
-                                        sc.clearSearch();
-                                        setState(() {});
-                                      },
-                                      visualDensity: VisualDensity.compact,
-                                    )
-                                    : null,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
-                            ),
-                            filled: true,
-                            fillColor:
-                                isDark
-                                    ? cs.surfaceContainerHighest
-                                    : cs.surfaceContainerHigh,
-                          ),
-                          textInputAction: TextInputAction.search,
-                          onSubmitted: (query) {
-                            if (query.isNotEmpty) {
-                              sc.search(widget.doc, query);
+                        child: KeyboardListener(
+                          focusNode: FocusNode(), // passthrough
+                          onKeyEvent: (event) {
+                            if (event is KeyDownEvent &&
+                                event.logicalKey == LogicalKeyboardKey.enter) {
+                              if (sc.hasMatches) {
+                                if (HardwareKeyboard.instance.isShiftPressed) {
+                                  _goToPrevious(); // Shift+Enter → prev
+                                } else {
+                                  _goToNext(); // Enter → next
+                                }
+                              } else if (_textController.text.isNotEmpty) {
+                                // First Enter triggers search
+                                sc.searchDocuments(
+                                  widget.docs,
+                                  _textController.text,
+                                );
+                              }
                             }
                           },
-                          onChanged: (query) {
-                            setState(() {});
-                            if (query.isEmpty) sc.clearSearch();
-                          },
+                          child: TextField(
+                            controller: _textController,
+                            focusNode: _focusNode,
+                            style: TextStyle(fontSize: 13, color: cs.onSurface),
+                            decoration: InputDecoration(
+                              hintText:
+                                  widget.docs.length >= 2
+                                      ? 'Search in ${widget.docs.length} PDFs…'
+                                      : 'Search in PDF…',
+                              hintStyle: TextStyle(
+                                fontSize: 13,
+                                color: cs.onSurfaceVariant.withValues(
+                                  alpha: 0.6,
+                                ),
+                              ),
+                              prefixIcon: Icon(
+                                Icons.search_rounded,
+                                size: 18,
+                                color: cs.onSurfaceVariant,
+                              ),
+                              suffixIcon:
+                                  _textController.text.isNotEmpty
+                                      ? IconButton(
+                                        icon: Icon(
+                                          Icons.clear_rounded,
+                                          size: 16,
+                                          color: cs.onSurfaceVariant,
+                                        ),
+                                        onPressed: () {
+                                          _textController.clear();
+                                          sc.clearSearch();
+                                          setState(() {});
+                                        },
+                                        visualDensity: VisualDensity.compact,
+                                      )
+                                      : null,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                              filled: true,
+                              fillColor:
+                                  isDark
+                                      ? cs.surfaceContainerHighest
+                                      : cs.surfaceContainerHigh,
+                            ),
+                            textInputAction: TextInputAction.search,
+                            onSubmitted:
+                                (_) {}, // (N) Handled by KeyboardListener
+                            onChanged: _onQueryChanged, // (O) Debounced
+                          ),
                         ),
                       ),
+
+                      // (M) Progress indicator during search
+                      if (sc.isSearching) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value:
+                                sc.searchProgress > 0
+                                    ? sc.searchProgress
+                                    : null,
+                            minHeight: 3,
+                            backgroundColor: cs.surfaceContainerHighest,
+                            valueColor: AlwaysStoppedAnimation(
+                              cs.primary.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Searching page ${sc.pagesSearched}'
+                          ' / ${sc.totalPagesToSearch}…',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
 
                       // Results nav
                       if (sc.hasMatches) ...[
@@ -631,19 +721,12 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             IconButton.filledTonal(
-                              onPressed: () {
-                                sc.previousMatch();
-                                widget.onLayoutChanged?.call();
-                                if (sc.currentMatch != null) {
-                                  widget.onGoToPage?.call(
-                                    sc.currentMatch!.pageIndex,
-                                  );
-                                }
-                              },
+                              onPressed: _goToPrevious,
                               icon: const Icon(
                                 Icons.keyboard_arrow_up_rounded,
                                 size: 18,
                               ),
+                              tooltip: 'Previous (Shift+Enter)',
                               visualDensity: VisualDensity.compact,
                             ),
                             const SizedBox(width: 8),
@@ -669,23 +752,74 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                             ),
                             const SizedBox(width: 8),
                             IconButton.filledTonal(
-                              onPressed: () {
-                                sc.nextMatch();
-                                widget.onLayoutChanged?.call();
-                                if (sc.currentMatch != null) {
-                                  widget.onGoToPage?.call(
-                                    sc.currentMatch!.pageIndex,
-                                  );
-                                }
-                              },
+                              onPressed: _goToNext,
                               icon: const Icon(
                                 Icons.keyboard_arrow_down_rounded,
                                 size: 18,
                               ),
+                              tooltip: 'Next (Enter)',
                               visualDensity: VisualDensity.compact,
                             ),
                           ],
                         ),
+
+                        // 📄 Per-document match breakdown (multi-doc)
+                        if (widget.docs.length >= 2) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            alignment: WrapAlignment.center,
+                            children:
+                                widget.docs.asMap().entries.map((entry) {
+                                  final idx = entry.key;
+                                  final doc = entry.value;
+                                  final docMatches = sc.matchCountForDocument(
+                                    doc.id,
+                                  );
+                                  final isCurrent =
+                                      sc.currentMatch?.documentId == doc.id;
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          isCurrent
+                                              ? cs.primaryContainer.withValues(
+                                                alpha: 0.7,
+                                              )
+                                              : cs.surfaceContainerHighest
+                                                  .withValues(alpha: 0.6),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border:
+                                          isCurrent
+                                              ? Border.all(
+                                                color: cs.primary.withValues(
+                                                  alpha: 0.4,
+                                                ),
+                                              )
+                                              : null,
+                                    ),
+                                    child: Text(
+                                      'PDF ${idx + 1}: $docMatches',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight:
+                                            isCurrent
+                                                ? FontWeight.w600
+                                                : FontWeight.w400,
+                                        color:
+                                            isCurrent
+                                                ? cs.primary
+                                                : cs.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                          ),
+                        ],
                       ],
 
                       // No results
@@ -701,17 +835,6 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                               color: cs.onSurfaceVariant.withValues(alpha: 0.7),
                               fontStyle: FontStyle.italic,
                             ),
-                          ),
-                        ),
-
-                      // Loading
-                      if (sc.isSearching)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ),
                     ],

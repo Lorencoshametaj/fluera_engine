@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/vector/boolean_ops.dart';
@@ -170,7 +171,7 @@ void main() {
   // ===========================================================================
   test('BooleanGroupNode JSON roundtrip preserves all fields', () {
     final group = BooleanGroupNode(
-      id: 'bg1',
+      id: NodeId('bg1'),
       operation: BooleanOpType.subtract,
       fillColor: const Color(0xFFFF0000),
       strokeColor: const Color(0xFF0000FF),
@@ -191,10 +192,10 @@ void main() {
   // 9. BooleanGroupNode dirty caching
   // ===========================================================================
   test('BooleanGroupNode caches computed path until invalidated', () {
-    final group = BooleanGroupNode(id: 'bg2', operation: BooleanOpType.union);
+    final group = BooleanGroupNode(id: NodeId('bg2'), operation: BooleanOpType.union);
 
-    final childA = PathNode(id: 'pa', path: _rect(0, 0, 50, 50));
-    final childB = PathNode(id: 'pb', path: _rect(25, 0, 50, 50));
+    final childA = PathNode(id: NodeId('pa'), path: _rect(0, 0, 50, 50));
+    final childB = PathNode(id: NodeId('pb'), path: _rect(25, 0, 50, 50));
 
     group.add(childA);
     group.add(childB);
@@ -222,7 +223,7 @@ void main() {
   // ===========================================================================
   test('nodeToVectorPath converts a ShapeNode rectangle', () {
     final shape = GeometricShape(
-      id: 's1',
+      id: NodeId('s1'),
       type: ShapeType.rectangle,
       startPoint: const Offset(0, 0),
       endPoint: const Offset(80, 60),
@@ -231,7 +232,7 @@ void main() {
       createdAt: DateTime.now(),
     );
 
-    final node = ShapeNode(id: 's1', shape: shape);
+    final node = ShapeNode(id: NodeId('s1'), shape: shape);
     final vp = BooleanOps.nodeToVectorPath(node);
 
     expect(vp, isNotNull);

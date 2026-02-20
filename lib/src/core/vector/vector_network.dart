@@ -2,6 +2,8 @@ import 'dart:ui';
 import 'dart:typed_data';
 import 'dart:math' as math;
 import './vector_path.dart';
+import './spatial_index.dart';
+import './constraints.dart';
 
 // =============================================================================
 // 🕸️ VECTOR NETWORK — Graph-based path model
@@ -361,6 +363,9 @@ class VectorNetwork {
   /// Filled regions (closed loops).
   final List<NetworkRegion> regions;
 
+  /// Geometric constraints.
+  final List<GeometricConstraint> constraints;
+
   /// Monotonically increasing revision counter.
   ///
   /// Incremented on every structural mutation. Consumers (e.g. renderers)
@@ -371,19 +376,40 @@ class VectorNetwork {
   /// Cached adjacency map: vertex index → list of segment indices.
   Map<int, List<int>>? _adjacencyMap;
 
+  /// Cached spatial index for fast hit testing.
+  NetworkSpatialIndex? _spatialIndex;
+
   VectorNetwork({
     List<NetworkVertex>? vertices,
     List<NetworkSegment>? segments,
     List<NetworkRegion>? regions,
+    List<GeometricConstraint>? constraints,
   }) : vertices = vertices ?? [],
        segments = segments ?? [],
-       regions = regions ?? [];
+       regions = regions ?? [],
+       constraints = constraints ?? [];
+
+  /// Add a geometric constraint.
+  void addConstraint(GeometricConstraint constraint) {
+    constraints.add(constraint);
+    _invalidate();
+  }
+
+  /// Remove a geometric constraint by index.
+  void removeConstraint(int index) {
+    constraints.removeAt(index);
+    _invalidate();
+  }
 
   /// Invalidate caches after any structural mutation.
   void _invalidate() {
     _revision++;
     _adjacencyMap = null;
+    _spatialIndex = null;
   }
+
+  /// Public cache invalidation for external command classes.
+  void invalidate() => _invalidate();
 
   /// Build or return the cached adjacency map.
   Map<int, List<int>> _getAdjacencyMap() {
@@ -771,10 +797,23 @@ class VectorNetwork {
   // Hit Testing
   // -------------------------------------------------------------------------
 
+  /// Returns the spatial index, building it lazily if needed.
+  NetworkSpatialIndex get spatialIndex {
+    if (_spatialIndex == null || _spatialIndex!.isStale) {
+      _spatialIndex = NetworkSpatialIndex.build(this);
+    }
+    return _spatialIndex!;
+  }
+
   /// Find the nearest vertex within [radius] of [point].
   ///
+  /// Uses spatial index for O(1) average lookup on networks >50 vertices.
   /// Returns the vertex index, or null if none found.
   int? hitTestVertex(Offset point, double radius) {
+    // Use spatial index for large networks.
+    if (vertices.length > 50) {
+      return spatialIndex.nearestVertex(point, radius);
+    }
     int? bestIdx;
     double bestDist = radius;
     for (int i = 0; i < vertices.length; i++) {
@@ -789,9 +828,13 @@ class VectorNetwork {
 
   /// Find the nearest segment within [tolerance] of [point].
   ///
+  /// Uses spatial index for O(1) average lookup on networks >50 segments.
   /// Returns the segment index, or null if none found.
-  /// Uses sampling along the curve at 20 subdivisions.
   int? hitTestSegment(Offset point, double tolerance) {
+    // Use spatial index for large networks.
+    if (segments.length > 50) {
+      return spatialIndex.nearestSegment(point, tolerance);
+    }
     int? bestIdx;
     double bestDist = tolerance;
     for (int i = 0; i < segments.length; i++) {
@@ -1126,6 +1169,157 @@ class VectorNetwork {
     return paths;
   }
 
+  /// Convert the entire network to a single Flutter [Path].
+  ///
+  /// Traces connected chains of segments, producing proper closed contours.
+  /// Useful for boolean operations and hit testing.
+  Path toFlutterPath() {
+    final path = Path();
+    if (segments.isEmpty) return path;
+
+    final usedSegments = <int>{};
+
+    void addChain(int startVertex, int firstSegIdx) {
+      final chain = _traceChain(startVertex, firstSegIdx, usedSegments);
+      if (chain.isEmpty) return;
+
+      // MoveTo the start vertex.
+      path.moveTo(
+        vertices[startVertex].position.dx,
+        vertices[startVertex].position.dy,
+      );
+
+      int currentVertex = startVertex;
+      for (final (segIdx, reversed) in chain) {
+        final seg = segments[segIdx];
+        final nextVertex = reversed ? seg.start : seg.end;
+        final endPos = vertices[nextVertex].position;
+
+        if (seg.isStraight) {
+          path.lineTo(endPos.dx, endPos.dy);
+        } else if (seg.tangentStart != null && seg.tangentEnd != null) {
+          if (!reversed) {
+            path.cubicTo(
+              seg.tangentStart!.dx,
+              seg.tangentStart!.dy,
+              seg.tangentEnd!.dx,
+              seg.tangentEnd!.dy,
+              endPos.dx,
+              endPos.dy,
+            );
+          } else {
+            path.cubicTo(
+              seg.tangentEnd!.dx,
+              seg.tangentEnd!.dy,
+              seg.tangentStart!.dx,
+              seg.tangentStart!.dy,
+              endPos.dx,
+              endPos.dy,
+            );
+          }
+        } else {
+          final cp = seg.tangentStart ?? seg.tangentEnd ?? endPos;
+          path.quadraticBezierTo(cp.dx, cp.dy, endPos.dx, endPos.dy);
+        }
+
+        currentVertex = nextVertex;
+      }
+
+      // Close if the chain returns to the start vertex.
+      if (currentVertex == startVertex && chain.length > 1) {
+        path.close();
+      }
+    }
+
+    // Trace from dead-ends and junctions first.
+    for (int v = 0; v < vertices.length; v++) {
+      if (isDeadEnd(v) || isJunction(v)) {
+        for (final segIdx in adjacentSegments(v)) {
+          if (!usedSegments.contains(segIdx)) {
+            addChain(v, segIdx);
+          }
+        }
+      }
+    }
+
+    // Handle remaining isolated cycles.
+    for (int i = 0; i < segments.length; i++) {
+      if (!usedSegments.contains(i)) {
+        addChain(segments[i].start, i);
+      }
+    }
+
+    return path;
+  }
+
+  /// Create a [VectorNetwork] from a Flutter [Path].
+  ///
+  /// Uses [Path.computeMetrics] to sample each contour and builds
+  /// vertices and straight-line segments. Applies collinear merging
+  /// to reduce vertex count on straight edges.
+  static VectorNetwork fromFlutterPath(Path flutterPath) {
+    final network = VectorNetwork();
+
+    for (final metric in flutterPath.computeMetrics()) {
+      final length = metric.length;
+      if (length == 0) continue;
+
+      final sampleCount = math.max(12, (length / 2).ceil());
+      final points = <Offset>[];
+
+      for (int i = 0; i <= sampleCount; i++) {
+        final dist = (i / sampleCount) * length;
+        final tangent = metric.getTangentForOffset(dist);
+        if (tangent == null) continue;
+        points.add(tangent.position);
+      }
+
+      if (points.isEmpty) continue;
+
+      // Merge collinear points.
+      final merged = <Offset>[points.first];
+      for (int i = 1; i < points.length; i++) {
+        if (i >= 2) {
+          final a = merged[merged.length - 1];
+          final b = points[i];
+          final prev = merged.length >= 2 ? merged[merged.length - 2] : a;
+          final cross =
+              (a.dx - prev.dx) * (b.dy - prev.dy) -
+              (a.dy - prev.dy) * (b.dx - prev.dx);
+          if (cross.abs() < 0.8) {
+            merged[merged.length - 1] = b;
+            continue;
+          }
+        }
+        merged.add(points[i]);
+      }
+
+      // Build vertices and segments.
+      final firstIdx = network.vertices.length;
+      for (final p in merged) {
+        network.addVertex(NetworkVertex(position: p));
+      }
+      for (int i = 0; i < merged.length - 1; i++) {
+        network.addSegment(
+          NetworkSegment(start: firstIdx + i, end: firstIdx + i + 1),
+        );
+      }
+
+      // Close if contour is closed.
+      if (metric.isClosed && merged.length > 1) {
+        final first = merged.first;
+        final last = merged.last;
+        if ((last - first).distance > 0.5) {
+          network.addSegment(
+            NetworkSegment(start: firstIdx + merged.length - 1, end: firstIdx),
+          );
+        }
+      }
+    }
+
+    return network;
+  }
+
   /// Convert a single region to a Flutter [Path] for filling.
   Path regionToFlutterPath(int regionIndex) {
     assert(regionIndex >= 0 && regionIndex < regions.length);
@@ -1322,6 +1516,8 @@ class VectorNetwork {
     'vertices': vertices.map((v) => v.toJson()).toList(),
     'segments': segments.map((s) => s.toJson()).toList(),
     if (regions.isNotEmpty) 'regions': regions.map((r) => r.toJson()).toList(),
+    if (constraints.isNotEmpty)
+      'constraints': constraints.map((c) => c.toJson()).toList(),
   };
 
   factory VectorNetwork.fromJson(Map<String, dynamic> json) {
@@ -1340,6 +1536,15 @@ class VectorNetwork {
                   .map((r) => NetworkRegion.fromJson(r as Map<String, dynamic>))
                   .toList()
               : [],
+      constraints:
+          json['constraints'] != null
+              ? (json['constraints'] as List)
+                  .map(
+                    (c) =>
+                        GeometricConstraint.fromJson(c as Map<String, dynamic>),
+                  )
+                  .toList()
+              : [],
     );
   }
 
@@ -1348,6 +1553,17 @@ class VectorNetwork {
     vertices: vertices.map((v) => v.clone()).toList(),
     segments: segments.map((s) => s.clone()).toList(),
     regions: regions.map((r) => r.clone()).toList(),
+    constraints:
+        constraints
+            .map(
+              (c) => GeometricConstraint(
+                type: c.type,
+                vertexIndices: List.of(c.vertexIndices),
+                segmentIndices: List.of(c.segmentIndices),
+                value: c.value,
+              ),
+            )
+            .toList(),
   );
 
   /// Create a transformed copy with a 4x4 matrix.

@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/models/digital_text_element.dart';
@@ -115,10 +116,10 @@ void main() {
 
     test('hit-test returns topmost element when overlapping', () {
       final bottom = _makeElement(
-        id: 'bottom',
+        id: NodeId('bottom'),
         position: const Offset(100, 100),
       );
-      final top = _makeElement(id: 'top', position: const Offset(100, 100));
+      final top = _makeElement(id: NodeId('top'), position: const Offset(100, 100));
       elements.addAll([bottom, top]);
       final ctx = _makeContext();
 

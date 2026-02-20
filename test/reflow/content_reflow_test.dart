@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/reflow/content_cluster.dart';
@@ -45,7 +46,7 @@ void main() {
   group('ContentCluster', () {
     test('calculates mass from bounds area', () {
       final cluster = ContentCluster(
-        id: 'c1',
+        id: NodeId('c1'),
         strokeIds: ['s1'],
         bounds: const Rect.fromLTWH(0, 0, 100, 50),
         centroid: const Offset(50, 25),
@@ -55,7 +56,7 @@ void main() {
 
     test('displacedBounds applies displacement', () {
       final cluster = ContentCluster(
-        id: 'c1',
+        id: NodeId('c1'),
         strokeIds: ['s1'],
         bounds: const Rect.fromLTWH(10, 10, 50, 50),
         centroid: const Offset(35, 35),
@@ -66,7 +67,7 @@ void main() {
 
     test('containsElement checks all ID lists', () {
       final cluster = ContentCluster(
-        id: 'c1',
+        id: NodeId('c1'),
         strokeIds: ['s1', 's2'],
         shapeIds: ['sh1'],
         textIds: ['t1'],
@@ -83,13 +84,13 @@ void main() {
 
     test('equality based on id', () {
       final a = ContentCluster(
-        id: 'c1',
+        id: NodeId('c1'),
         strokeIds: ['s1'],
         bounds: Rect.zero,
         centroid: Offset.zero,
       );
       final b = ContentCluster(
-        id: 'c1',
+        id: NodeId('c1'),
         strokeIds: ['s2'],
         bounds: const Rect.fromLTWH(1, 1, 1, 1),
         centroid: Offset.zero,
@@ -109,7 +110,7 @@ void main() {
 
     test('single stroke creates single cluster', () {
       final strokes = [
-        _stroke(id: 's1', bounds: const Rect.fromLTWH(0, 0, 100, 30)),
+        _stroke(id: NodeId('s1'), bounds: const Rect.fromLTWH(0, 0, 100, 30)),
       ];
 
       final clusters = detector.detect(
@@ -127,22 +128,22 @@ void main() {
       final base = DateTime(2025, 1, 1);
       final strokes = [
         _stroke(
-          id: 'c',
+          id: NodeId('c'),
           bounds: const Rect.fromLTWH(0, 0, 30, 40),
           createdAt: base,
         ),
         _stroke(
-          id: 'i',
+          id: NodeId('i'),
           bounds: const Rect.fromLTWH(35, 0, 15, 40),
           createdAt: base.add(const Duration(milliseconds: 500)),
         ),
         _stroke(
-          id: 'a',
+          id: NodeId('a'),
           bounds: const Rect.fromLTWH(55, 0, 30, 40),
           createdAt: base.add(const Duration(milliseconds: 900)),
         ),
         _stroke(
-          id: 'o',
+          id: NodeId('o'),
           bounds: const Rect.fromLTWH(90, 0, 30, 40),
           createdAt: base.add(const Duration(milliseconds: 1200)),
         ),
@@ -164,12 +165,12 @@ void main() {
       final base = DateTime(2025, 1, 1);
       final strokes = [
         _stroke(
-          id: 'word1',
+          id: NodeId('word1'),
           bounds: const Rect.fromLTWH(0, 0, 80, 40),
           createdAt: base,
         ),
         _stroke(
-          id: 'word2',
+          id: NodeId('word2'),
           bounds: const Rect.fromLTWH(10, 10, 80, 40),
           createdAt: base.add(const Duration(seconds: 10)), // 10s later
         ),
@@ -189,12 +190,12 @@ void main() {
       final base = DateTime(2025, 1, 1);
       final strokes = [
         _stroke(
-          id: 'left',
+          id: NodeId('left'),
           bounds: const Rect.fromLTWH(0, 0, 40, 40),
           createdAt: base,
         ),
         _stroke(
-          id: 'right',
+          id: NodeId('right'),
           bounds: const Rect.fromLTWH(200, 0, 40, 40), // 160px away
           createdAt: base.add(const Duration(milliseconds: 500)),
         ),
@@ -212,7 +213,7 @@ void main() {
 
     test('shapes always form individual clusters', () {
       final shape1 = GeometricShape(
-        id: 'sh1',
+        id: NodeId('sh1'),
         type: ShapeType.rectangle,
         startPoint: const Offset(0, 0),
         endPoint: const Offset(100, 100),
@@ -221,7 +222,7 @@ void main() {
         createdAt: DateTime(2025, 1, 1),
       );
       final shape2 = GeometricShape(
-        id: 'sh2',
+        id: NodeId('sh2'),
         type: ShapeType.circle,
         startPoint: const Offset(10, 10),
         endPoint: const Offset(50, 50),
@@ -244,7 +245,7 @@ void main() {
 
     test('texts always form individual clusters', () {
       final text = DigitalTextElement(
-        id: 't1',
+        id: NodeId('t1'),
         text: 'Hello World',
         position: const Offset(100, 100),
         color: const Color(0xFF000000),
@@ -270,7 +271,7 @@ void main() {
       final base = DateTime(2025, 1, 1);
       final existingStrokes = [
         _stroke(
-          id: 's1',
+          id: NodeId('s1'),
           bounds: const Rect.fromLTWH(0, 0, 40, 40),
           createdAt: base,
         ),
@@ -286,7 +287,7 @@ void main() {
 
       // Add a temporally + spatially close stroke
       final newStroke = _stroke(
-        id: 's2',
+        id: NodeId('s2'),
         bounds: const Rect.fromLTWH(45, 0, 40, 40), // 5px gap
         createdAt: base.add(const Duration(milliseconds: 400)),
       );
@@ -303,7 +304,7 @@ void main() {
       final base = DateTime(2025, 1, 1);
       final existingStrokes = [
         _stroke(
-          id: 's1',
+          id: NodeId('s1'),
           bounds: const Rect.fromLTWH(0, 0, 40, 40),
           createdAt: base,
         ),
@@ -317,7 +318,7 @@ void main() {
       );
 
       final newStroke = _stroke(
-        id: 's2',
+        id: NodeId('s2'),
         bounds: const Rect.fromLTWH(300, 300, 40, 40), // Far away
         createdAt: base.add(const Duration(seconds: 30)), // Far in time
       );
@@ -346,7 +347,7 @@ void main() {
     test('no displacement when clusters do not overlap disturbance', () {
       final clusters = [
         ContentCluster(
-          id: 'c1',
+          id: NodeId('c1'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(500, 500, 100, 100),
           centroid: const Offset(550, 550),
@@ -365,7 +366,7 @@ void main() {
     test('clusters overlapping disturbance are displaced', () {
       final clusters = [
         ContentCluster(
-          id: 'c1',
+          id: NodeId('c1'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(90, 0, 50, 50),
           centroid: const Offset(115, 25),
@@ -386,7 +387,7 @@ void main() {
     test('excluded clusters are never displaced', () {
       final clusters = [
         ContentCluster(
-          id: 'c1',
+          id: NodeId('c1'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(50, 0, 50, 50),
           centroid: const Offset(75, 25),
@@ -405,7 +406,7 @@ void main() {
     test('pinned clusters are never displaced', () {
       final clusters = [
         ContentCluster(
-          id: 'c1',
+          id: NodeId('c1'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(50, 0, 50, 50),
           centroid: const Offset(75, 25),
@@ -427,7 +428,7 @@ void main() {
 
       final clusters = [
         ContentCluster(
-          id: 'c1',
+          id: NodeId('c1'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(50, 0, 50, 50),
           centroid: const Offset(75, 25),
@@ -447,13 +448,13 @@ void main() {
       // Two clusters adjacent — pushing one should cascade to the other
       final clusters = [
         ContentCluster(
-          id: 'c1',
+          id: NodeId('c1'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(80, 0, 50, 50),
           centroid: const Offset(105, 25),
         ),
         ContentCluster(
-          id: 'c2',
+          id: NodeId('c2'),
           strokeIds: ['s2'],
           bounds: const Rect.fromLTWH(130, 0, 50, 50),
           centroid: const Offset(155, 25),
@@ -474,7 +475,7 @@ void main() {
     test('applyDisplacements mutates cluster fields', () {
       final clusters = [
         ContentCluster(
-          id: 'c1',
+          id: NodeId('c1'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(0, 0, 50, 50),
           centroid: const Offset(25, 25),
@@ -491,7 +492,7 @@ void main() {
     test('clusters beyond maxAffectRadius are ignored', () {
       final clusters = [
         ContentCluster(
-          id: 'far',
+          id: NodeId('far'),
           strokeIds: ['s1'],
           bounds: const Rect.fromLTWH(2000, 2000, 50, 50),
           centroid: const Offset(2025, 2025),

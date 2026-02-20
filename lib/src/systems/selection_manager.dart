@@ -1,12 +1,65 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/scene_graph/canvas_node.dart';
 import '../core/nodes/group_node.dart';
+import '../core/engine_scope.dart';
+import '../core/engine_event.dart';
+
+// =============================================================================
+// SELECTION EVENTS — Reactive change notifications.
+// =============================================================================
+
+/// Kind of selection change.
+enum SelectionChangeType {
+  /// One or more nodes were added to the selection.
+  selected,
+
+  /// One or more nodes were removed from the selection.
+  deselected,
+
+  /// The entire selection was cleared.
+  cleared,
+
+  /// The selection was fully replaced (e.g. selectAll, marquee).
+  replaced,
+}
+
+/// A single, immutable selection change event.
+class SelectionEvent {
+  /// What kind of change happened.
+  final SelectionChangeType type;
+
+  /// IDs of the nodes affected by this change.
+  final List<String> affectedIds;
+
+  /// Total number of selected nodes after this change.
+  final int totalSelected;
+
+  /// When the change occurred.
+  final DateTime timestamp;
+
+  const SelectionEvent({
+    required this.type,
+    required this.affectedIds,
+    required this.totalSelected,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() =>
+      'SelectionEvent(${type.name}, affected=${affectedIds.length}, '
+      'total=$totalSelected)';
+}
+
+// =============================================================================
+// SELECTION MANAGER
+// =============================================================================
 
 /// Manages the set of currently selected nodes and provides
 /// aggregate operations (bounding box, group transforms, marquee).
 ///
 /// This is the core selection state manager. UI controllers should
-/// listen to [onSelectionChanged] to update visual handles.
+/// listen to [selectionEvents] for reactive updates.
 ///
 /// ```dart
 /// final selection = SelectionManager();
@@ -19,8 +72,63 @@ class SelectionManager {
   final Set<String> _selectedIds = {};
   final Map<String, CanvasNode> _nodeCache = {};
 
-  /// Callback fired whenever the selection changes.
+  /// Legacy callback fired whenever the selection changes.
   void Function()? onSelectionChanged;
+
+  // ---------------------------------------------------------------------------
+  // Event stream
+  // ---------------------------------------------------------------------------
+
+  final StreamController<SelectionEvent> _eventController =
+      StreamController<SelectionEvent>.broadcast();
+
+  /// Reactive stream of selection change events.
+  ///
+  /// Use this instead of [onSelectionChanged] for fine-grained updates.
+  Stream<SelectionEvent> get selectionEvents => _eventController.stream;
+
+  // ---------------------------------------------------------------------------
+  // Selection history
+  // ---------------------------------------------------------------------------
+
+  /// Max selection states to remember.
+  static const int _maxHistory = 10;
+  final List<Set<String>> _selectionHistory = [];
+
+  /// Re-select the previous selection.
+  ///
+  /// Pops the most recent history entry and restores it.
+  /// Returns true if history was available and applied.
+  bool reselectPrevious() {
+    if (_selectionHistory.isEmpty) return false;
+
+    final previous = _selectionHistory.removeLast();
+    final oldIds = _selectedIds.toList();
+
+    _selectedIds.clear();
+    _nodeCache.removeWhere((id, _) => !previous.contains(id));
+
+    for (final id in previous) {
+      _selectedIds.add(id);
+      // Node cache may be stale if nodes were removed; keep what we have.
+    }
+
+    _emit(SelectionChangeType.replaced, oldIds);
+    return true;
+  }
+
+  /// Available history depth.
+  int get historyDepth => _selectionHistory.length;
+
+  /// Push current selection to history before changing it.
+  void _pushHistory() {
+    if (_selectedIds.isEmpty && _selectionHistory.isEmpty) return;
+
+    _selectionHistory.add(Set<String>.from(_selectedIds));
+    if (_selectionHistory.length > _maxHistory) {
+      _selectionHistory.removeAt(0);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // State queries
@@ -59,56 +167,66 @@ class SelectionManager {
 
   /// Select a single node, clearing previous selection.
   void select(CanvasNode node) {
+    _pushHistory();
+    final oldIds = _selectedIds.toList();
     _selectedIds.clear();
     _nodeCache.clear();
     _selectedIds.add(node.id);
     _nodeCache[node.id] = node;
-    _notify();
+    _emit(SelectionChangeType.replaced, [...oldIds, node.id]);
   }
 
   /// Add a node to the selection (Shift+click behavior).
   void addToSelection(CanvasNode node) {
+    _pushHistory();
     _selectedIds.add(node.id);
     _nodeCache[node.id] = node;
-    _notify();
+    _emit(SelectionChangeType.selected, [node.id]);
   }
 
   /// Toggle a node in/out of the selection.
   void toggleSelect(CanvasNode node) {
+    _pushHistory();
     if (_selectedIds.contains(node.id)) {
       _selectedIds.remove(node.id);
       _nodeCache.remove(node.id);
+      _emit(SelectionChangeType.deselected, [node.id]);
     } else {
       _selectedIds.add(node.id);
       _nodeCache[node.id] = node;
+      _emit(SelectionChangeType.selected, [node.id]);
     }
-    _notify();
   }
 
   /// Remove a specific node from the selection.
   void deselect(String nodeId) {
+    _pushHistory();
     _selectedIds.remove(nodeId);
     _nodeCache.remove(nodeId);
-    _notify();
+    _emit(SelectionChangeType.deselected, [nodeId]);
   }
 
   /// Clear the entire selection.
   void clearSelection() {
     if (_selectedIds.isEmpty) return;
+    _pushHistory();
+    final oldIds = _selectedIds.toList();
     _selectedIds.clear();
     _nodeCache.clear();
-    _notify();
+    _emit(SelectionChangeType.cleared, oldIds);
   }
 
   /// Select multiple nodes at once.
   void selectAll(List<CanvasNode> nodes) {
+    _pushHistory();
+    final oldIds = _selectedIds.toList();
     _selectedIds.clear();
     _nodeCache.clear();
     for (final node in nodes) {
       _selectedIds.add(node.id);
       _nodeCache[node.id] = node;
     }
-    _notify();
+    _emit(SelectionChangeType.replaced, [...oldIds, ...nodes.map((n) => n.id)]);
   }
 
   // ---------------------------------------------------------------------------
@@ -124,13 +242,19 @@ class SelectionManager {
     Rect marqueeRect, {
     bool additive = false,
   }) {
+    _pushHistory();
     if (!additive) {
       _selectedIds.clear();
       _nodeCache.clear();
     }
 
+    final before = _selectedIds.length;
     _marqueeCollect(root, marqueeRect);
-    _notify();
+    final newIds = _selectedIds.skip(before).toList();
+    _emit(
+      additive ? SelectionChangeType.selected : SelectionChangeType.replaced,
+      newIds,
+    );
   }
 
   void _marqueeCollect(GroupNode group, Rect marquee) {
@@ -167,7 +291,9 @@ class SelectionManager {
       _selectedIds.remove(id);
       _nodeCache.remove(id);
     }
-    if (lockedIds.isNotEmpty) _notify();
+    if (lockedIds.isNotEmpty) {
+      _emit(SelectionChangeType.deselected, lockedIds);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -352,6 +478,85 @@ class SelectionManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Flip
+  // ---------------------------------------------------------------------------
+
+  /// Flip all selected nodes horizontally around the selection center.
+  void flipHorizontal() {
+    final anchor = aggregateCenter;
+    for (final node in selectedNodes) {
+      if (node.isLocked) continue;
+      node.scaleFrom(-1, 1, anchor);
+    }
+  }
+
+  /// Flip all selected nodes vertically around the selection center.
+  void flipVertical() {
+    final anchor = aggregateCenter;
+    for (final node in selectedNodes) {
+      if (node.isLocked) continue;
+      node.scaleFrom(1, -1, anchor);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Destructive operations
+  // ---------------------------------------------------------------------------
+
+  /// Delete all selected nodes from the scene graph.
+  ///
+  /// Each node is removed from its parent [GroupNode]. Returns the number
+  /// of nodes removed.
+  int deleteAll() {
+    if (_selectedIds.isEmpty) return 0;
+    _pushHistory();
+
+    int removed = 0;
+    for (final node in selectedNodes.toList()) {
+      final parent = node.parent;
+      if (parent is GroupNode) {
+        parent.remove(node);
+        removed++;
+      }
+    }
+
+    final oldIds = _selectedIds.toList();
+    _selectedIds.clear();
+    _nodeCache.clear();
+    _emit(SelectionChangeType.cleared, oldIds);
+    return removed;
+  }
+
+  /// Duplicate all selected nodes with an offset.
+  ///
+  /// Each node is cloned (deep copy via JSON round-trip), translated
+  /// by [offset], and added to its original parent. The duplicated
+  /// nodes become the new selection.
+  ///
+  /// Returns the list of newly created nodes.
+  List<CanvasNode> duplicateAll({Offset offset = const Offset(20, 20)}) {
+    if (_selectedIds.isEmpty) return const [];
+
+    final newNodes = <CanvasNode>[];
+    for (final node in selectedNodes.toList()) {
+      final parent = node.parent;
+      if (parent is! GroupNode) continue;
+
+      final clone = node.clone();
+      clone.translate(offset.dx, offset.dy);
+      parent.add(clone);
+      newNodes.add(clone);
+    }
+
+    // Auto-select the duplicated nodes.
+    if (newNodes.isNotEmpty) {
+      selectAll(newNodes);
+    }
+
+    return newNodes;
+  }
+
+  // ---------------------------------------------------------------------------
   // Serialization
   // ---------------------------------------------------------------------------
 
@@ -375,14 +580,45 @@ class SelectionManager {
         _nodeCache[node.id] = node;
       }
     }
-    _notify();
+    _emit(SelectionChangeType.replaced, _selectedIds.toList());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dispose
+  // ---------------------------------------------------------------------------
+
+  /// Close the event stream. Call when the manager is no longer needed.
+  void dispose() {
+    _eventController.close();
+    _selectionHistory.clear();
   }
 
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
 
-  void _notify() {
+  /// Emit a selection event and fire the legacy callback.
+  void _emit(SelectionChangeType type, List<String> affectedIds) {
+    if (!_eventController.isClosed) {
+      _eventController.add(
+        SelectionEvent(
+          type: type,
+          affectedIds: affectedIds,
+          totalSelected: _selectedIds.length,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
+    // Bridge to centralized event bus
+    if (EngineScope.hasScope) {
+      EngineScope.current.eventBus.emit(
+        SelectionChangedEngineEvent(
+          changeType: type.name,
+          affectedIds: affectedIds,
+          totalSelected: _selectedIds.length,
+        ),
+      );
+    }
     onSelectionChanged?.call();
   }
 }

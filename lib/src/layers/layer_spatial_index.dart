@@ -9,8 +9,12 @@ extension _LayerSpatialIdx on LayerController {
   void _rebuildSpatialIndexImpl() {
     final allStrokes = _getAllVisibleStrokesImpl();
     final allShapes = _getAllVisibleShapesImpl();
-    // TODO: Add text elements to spatial index for hit testing
-    _spatialIndex.build(strokes: allStrokes, shapes: allShapes);
+    final allTexts = _getAllVisibleTextsImpl();
+    _spatialIndex.build(
+      strokes: allStrokes,
+      shapes: allShapes,
+      texts: allTexts,
+    );
     _spatialIndexDirty = false;
   }
 

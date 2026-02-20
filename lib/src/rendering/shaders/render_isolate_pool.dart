@@ -3,6 +3,9 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:collection';
 
+import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
+
 /// Describes a tile rendering task to be dispatched to an isolate.
 ///
 /// This is the message format sent to worker isolates for
@@ -304,9 +307,16 @@ class RenderIsolatePool {
       try {
         final worker = await _spawnWorker(i);
         _workers.add(worker);
-      } catch (e) {
+      } catch (e, stack) {
         // If spawning fails, continue with fewer workers
         // (graceful degradation — main thread handles all work)
+        try {
+          // Note: EngineScope may not be available during pool init.
+          // Use a guarded import to avoid coupling issues.
+          _reportSpawnError(e, stack, i);
+        } catch (_) {
+          // If reporting fails too, just degrade silently
+        }
       }
     }
 
@@ -523,6 +533,20 @@ class RenderIsolatePool {
     final results = List<RenderResult>.from(_completedResults);
     _completedResults.clear();
     return results;
+  }
+
+  /// Report an isolate spawn failure to error recovery.
+  void _reportSpawnError(Object error, StackTrace stack, int workerIndex) {
+    EngineScope.current.errorRecovery.reportError(
+      EngineError(
+        severity: ErrorSeverity.degraded,
+        domain: ErrorDomain.rendering,
+        source: 'RenderIsolatePool._spawnWorker',
+        original: error,
+        stack: stack,
+        context: {'workerIndex': workerIndex},
+      ),
+    );
   }
 
   /// Statistics for monitoring.

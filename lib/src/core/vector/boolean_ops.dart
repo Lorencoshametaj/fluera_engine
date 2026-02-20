@@ -3,9 +3,12 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:vector_math/vector_math_64.dart' show Matrix4;
 import './vector_path.dart';
+import './vector_network.dart';
+import './exact_boolean_ops.dart';
 import '../scene_graph/canvas_node.dart';
 import '../nodes/path_node.dart';
 import '../nodes/shape_node.dart';
+import '../nodes/vector_network_node.dart';
 import '../vector/shape_presets.dart';
 import '../models/shape_type.dart';
 
@@ -232,7 +235,7 @@ class BooleanOps {
   /// Convert any supported [CanvasNode] to a [VectorPath].
   ///
   /// Applies the node's world transform so the path is in scene coordinates.
-  /// Supports [PathNode] and [ShapeNode].
+  /// Supports [PathNode], [ShapeNode], and [VectorNetworkNode].
   ///
   /// Returns `null` for unsupported node types.
   static VectorPath? nodeToVectorPath(CanvasNode node) {
@@ -242,6 +245,8 @@ class BooleanOps {
       local = node.path;
     } else if (node is ShapeNode) {
       local = _shapeToVectorPath(node.shape);
+    } else if (node is VectorNetworkNode) {
+      local = flutterPathToVectorPath(node.network.toFlutterPath());
     }
 
     if (local == null) return null;
@@ -251,6 +256,18 @@ class BooleanOps {
     final identity = Matrix4.identity();
     if (worldMatrix == identity) return local;
     return local.transformed(Float64List.fromList(worldMatrix.storage));
+  }
+
+  /// Execute a boolean operation on two [VectorNetwork]s.
+  ///
+  /// Uses [ExactBooleanOps] to preserve original Bézier curves where possible,
+  /// falling back to sampling-based [Path.combine] for degenerate cases.
+  static VectorNetwork executeOnNetworks(
+    BooleanOpType operation,
+    VectorNetwork a,
+    VectorNetwork b,
+  ) {
+    return ExactBooleanOps.execute(operation, a, b);
   }
 
   /// Convert a [GeometricShape] to a [VectorPath] using [ShapePresets].

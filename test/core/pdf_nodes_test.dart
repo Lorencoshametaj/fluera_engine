@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/models/pdf_page_model.dart';
@@ -185,7 +186,7 @@ void main() {
   group('PdfPageNode', () {
     test('serialization roundtrip via factory', () {
       final node = PdfPageNode(
-        id: 'pdf-page-1',
+        id: NodeId('pdf-page-1'),
         pageModel: const PdfPageModel(
           pageIndex: 2,
           originalSize: Size(612, 792),
@@ -209,7 +210,7 @@ void main() {
 
     test('localBounds uses page original size', () {
       final node = PdfPageNode(
-        id: 'bounds-test',
+        id: NodeId('bounds-test'),
         pageModel: const PdfPageModel(
           pageIndex: 0,
           originalSize: Size(100, 200),
@@ -223,7 +224,7 @@ void main() {
 
     test('text rect hit testing', () {
       final node = PdfPageNode(
-        id: 'text-test',
+        id: NodeId('text-test'),
         pageModel: const PdfPageModel(
           pageIndex: 0,
           originalSize: Size(612, 792),
@@ -234,29 +235,32 @@ void main() {
       expect(node.hasTextGeometry, false);
       expect(node.hitTestText(const Offset(50, 50)), isNull);
 
-      // Load text rects
+      // Load text rects (normalized 0.0–1.0 coords)
       node.textRects = const [
         PdfTextRect(
-          rect: Rect.fromLTRB(10, 10, 100, 30),
+          rect: Rect.fromLTRB(0.02, 0.02, 0.16, 0.04),
           text: 'Hello',
           charOffset: 0,
         ),
         PdfTextRect(
-          rect: Rect.fromLTRB(10, 40, 80, 60),
+          rect: Rect.fromLTRB(0.02, 0.06, 0.13, 0.08),
           text: 'World',
           charOffset: 6,
         ),
       ];
 
       expect(node.hasTextGeometry, true);
+      // hitTestText normalizes the point by dividing by originalSize
+      // Offset(50, 20) / Size(612, 792) ≈ (0.082, 0.025) — inside 'Hello'
       expect(node.hitTestText(const Offset(50, 20))?.text, 'Hello');
+      // Offset(50, 50) / Size(612, 792) ≈ (0.082, 0.063) — inside 'World'
       expect(node.hitTestText(const Offset(50, 50))?.text, 'World');
       expect(node.hitTestText(const Offset(200, 200)), isNull);
     });
 
     test('text rects survive serialization roundtrip', () {
       final node = PdfPageNode(
-        id: 'text-serial',
+        id: NodeId('text-serial'),
         pageModel: const PdfPageModel(
           pageIndex: 0,
           originalSize: Size(612, 792),
@@ -264,7 +268,7 @@ void main() {
       );
       node.textRects = const [
         PdfTextRect(
-          rect: Rect.fromLTRB(10, 10, 100, 30),
+          rect: Rect.fromLTRB(0.02, 0.02, 0.16, 0.04),
           text: 'Hello',
           charOffset: 0,
         ),
@@ -280,7 +284,7 @@ void main() {
 
     test('hasCacheAtScale tolerance', () {
       final node = PdfPageNode(
-        id: 'cache-test',
+        id: NodeId('cache-test'),
         pageModel: const PdfPageModel(
           pageIndex: 0,
           originalSize: Size(612, 792),
@@ -298,7 +302,7 @@ void main() {
 
     test('estimatedMemoryBytes is 0 without cache', () {
       final node = PdfPageNode(
-        id: 'mem-test',
+        id: NodeId('mem-test'),
         pageModel: const PdfPageModel(
           pageIndex: 0,
           originalSize: Size(612, 792),
@@ -315,7 +319,7 @@ void main() {
   group('PdfDocumentNode', () {
     test('serialization roundtrip via factory', () {
       final doc = PdfDocumentNode(
-        id: 'pdf-doc-1',
+        id: NodeId('pdf-doc-1'),
         documentModel: const PdfDocumentModel(
           sourceHash: 'abc123',
           totalPages: 2,
@@ -329,7 +333,7 @@ void main() {
       // Add child pages
       doc.add(
         PdfPageNode(
-          id: 'p-0',
+          id: NodeId('p-0'),
           pageModel: const PdfPageModel(
             pageIndex: 0,
             originalSize: Size(595, 842),
@@ -338,7 +342,7 @@ void main() {
       );
       doc.add(
         PdfPageNode(
-          id: 'p-1',
+          id: NodeId('p-1'),
           pageModel: const PdfPageModel(
             pageIndex: 1,
             originalSize: Size(595, 842),
@@ -362,7 +366,7 @@ void main() {
 
     test('performGridLayout positions locked pages', () {
       final doc = PdfDocumentNode(
-        id: 'grid-test',
+        id: NodeId('grid-test'),
         documentModel: const PdfDocumentModel(
           sourceHash: 'hash',
           totalPages: 4,
@@ -377,7 +381,7 @@ void main() {
       for (int i = 0; i < 4; i++) {
         doc.add(
           PdfPageNode(
-            id: 'page-$i',
+            id: NodeId('page-$i'),
             pageModel: PdfPageModel(
               pageIndex: i,
               originalSize: const Size(100, 100),
@@ -401,7 +405,7 @@ void main() {
 
     test('unlocked page keeps customOffset', () {
       final doc = PdfDocumentNode(
-        id: 'unlock-test',
+        id: NodeId('unlock-test'),
         documentModel: const PdfDocumentModel(
           sourceHash: 'hash',
           totalPages: 2,
@@ -414,7 +418,7 @@ void main() {
       // Locked page
       doc.add(
         PdfPageNode(
-          id: 'locked-page',
+          id: NodeId('locked-page'),
           pageModel: const PdfPageModel(
             pageIndex: 0,
             originalSize: Size(100, 100),
@@ -425,7 +429,7 @@ void main() {
       // Unlocked page with custom position
       doc.add(
         PdfPageNode(
-          id: 'unlocked-page',
+          id: NodeId('unlocked-page'),
           pageModel: const PdfPageModel(
             pageIndex: 1,
             originalSize: Size(100, 100),
@@ -445,7 +449,7 @@ void main() {
 
     test('togglePageLock switches state and re-layouts', () {
       final doc = PdfDocumentNode(
-        id: 'toggle-test',
+        id: NodeId('toggle-test'),
         documentModel: const PdfDocumentModel(
           sourceHash: 'hash',
           totalPages: 1,
@@ -456,7 +460,7 @@ void main() {
 
       doc.add(
         PdfPageNode(
-          id: 'toggle-page',
+          id: NodeId('toggle-page'),
           pageModel: const PdfPageModel(
             pageIndex: 0,
             originalSize: Size(100, 100),
@@ -481,7 +485,7 @@ void main() {
 
     test('totalCachedMemoryBytes is 0 without cached images', () {
       final doc = PdfDocumentNode(
-        id: 'mem-test',
+        id: NodeId('mem-test'),
         documentModel: const PdfDocumentModel(
           sourceHash: 'hash',
           totalPages: 2,
@@ -490,7 +494,7 @@ void main() {
       );
       doc.add(
         PdfPageNode(
-          id: 'p0',
+          id: NodeId('p0'),
           pageModel: const PdfPageModel(
             pageIndex: 0,
             originalSize: Size(100, 100),
@@ -503,7 +507,7 @@ void main() {
 
     test('pageAt finds correct page', () {
       final doc = PdfDocumentNode(
-        id: 'find-test',
+        id: NodeId('find-test'),
         documentModel: const PdfDocumentModel(
           sourceHash: 'hash',
           totalPages: 3,
@@ -513,7 +517,7 @@ void main() {
       for (int i = 0; i < 3; i++) {
         doc.add(
           PdfPageNode(
-            id: 'page-$i',
+            id: NodeId('page-$i'),
             pageModel: PdfPageModel(
               pageIndex: i,
               originalSize: const Size(100, 100),

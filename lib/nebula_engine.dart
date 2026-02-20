@@ -30,6 +30,7 @@ export 'src/core/scene_graph/scene_graph.dart';
 export 'src/core/scene_graph/node_visitor.dart';
 export 'src/core/scene_graph/debug_info.dart';
 export 'src/core/scene_graph/scene_graph_observer.dart';
+export 'src/core/scene_graph/scene_graph_transaction.dart';
 
 // Nodes
 export 'src/core/nodes/group_node.dart';
@@ -42,6 +43,7 @@ export 'src/core/nodes/clip_group_node.dart';
 export 'src/core/nodes/path_node.dart';
 export 'src/core/nodes/rich_text_node.dart';
 export 'src/core/nodes/symbol_system.dart';
+export 'src/core/nodes/variant_property.dart';
 export 'src/core/nodes/frame_node.dart';
 export 'src/core/nodes/advanced_mask_node.dart';
 export 'src/core/nodes/boolean_group_node.dart';
@@ -58,6 +60,11 @@ export 'src/core/vector/boolean_ops.dart';
 export 'src/core/vector/vector_network.dart';
 export 'src/core/nodes/vector_network_node.dart';
 export 'src/core/vector/vector_network_svg.dart';
+export 'src/core/vector/spatial_index.dart';
+export 'src/core/vector/bezier_clipping.dart';
+export 'src/core/vector/exact_boolean_ops.dart';
+export 'src/core/vector/constraints.dart';
+export 'src/rendering/scene_graph/network_lod.dart';
 
 // Effects
 export 'src/core/effects/node_effect.dart';
@@ -65,6 +72,8 @@ export 'src/core/effects/gradient_fill.dart';
 export 'src/core/effects/mesh_gradient.dart';
 export 'src/core/effects/shader_effect.dart';
 export 'src/core/effects/shader_effect_wrapper.dart';
+export 'src/core/effects/paint_stack.dart';
+export 'src/core/scene_graph/paint_stack_mixin.dart';
 
 // Core Models
 export 'src/core/models/canvas_layer.dart';
@@ -74,11 +83,27 @@ export 'src/core/models/shape_type.dart';
 export 'src/core/models/pdf_page_model.dart';
 export 'src/core/models/pdf_document_model.dart';
 export 'src/core/models/pdf_text_rect.dart';
+export 'src/core/models/ocr_result.dart';
 export 'src/tools/shape/shape_recognizer.dart';
 
 // Utilities
 export 'src/core/engine_logger.dart';
 export 'src/core/engine_scope.dart';
+export 'src/core/engine_error.dart';
+export 'src/core/engine_event.dart';
+export 'src/core/engine_event_bus.dart';
+export 'src/core/engine_telemetry.dart';
+export 'src/systems/engine_theme.dart';
+export 'src/core/assets/asset_handle.dart';
+export 'src/core/assets/asset_registry.dart';
+export 'src/core/error_recovery_service.dart';
+export 'src/core/schema_version.dart';
+export 'src/core/scene_graph/scene_graph_integrity.dart';
+export 'src/core/scene_graph/invalidation_graph.dart';
+export 'src/core/scene_graph/node_constraint.dart';
+export 'src/core/scene_graph/scene_graph_snapshot.dart';
+export 'src/core/scene_graph/scene_graph_interceptor.dart';
+export 'src/history/node_constraint_commands.dart';
 
 // ────────────────────────── DRAWING ──────────────────────────
 
@@ -165,6 +190,7 @@ export 'src/canvas/toolbar/pdf_thumbnail_sidebar.dart';
 
 // Scene Graph Rendering
 export 'src/rendering/scene_graph/scene_graph_renderer.dart';
+export 'src/rendering/scene_graph/render_interceptor.dart';
 export 'src/rendering/scene_graph/path_renderer.dart';
 export 'src/rendering/scene_graph/rich_text_renderer.dart';
 
@@ -215,6 +241,10 @@ export 'src/rendering/optimization/paint_pool.dart';
 export 'src/rendering/optimization/optimization.dart';
 export 'src/rendering/optimization/dirty_region_tracker.dart';
 export 'src/rendering/optimization/snapshot_cache_manager.dart';
+export 'src/rendering/render_profiler.dart';
+export 'src/rendering/optimization/memory_managed_cache.dart';
+export 'src/rendering/optimization/memory_budget_controller.dart';
+export 'src/rendering/optimization/memory_event.dart';
 
 // ────────────────────────── TIME TRAVEL ──────────────────────────
 export 'src/time_travel/models/time_travel_session.dart';
@@ -229,11 +259,20 @@ export 'src/time_travel/widgets/synchronized_playback_overlay.dart';
 
 // ────────────────────────── HISTORY ──────────────────────────
 export 'src/history/command_history.dart';
+export 'src/history/command_journal.dart';
+export 'src/history/journal_recovery_middleware.dart';
+export 'src/history/command_middlewares.dart';
+export 'src/history/guide_commands.dart';
+export 'src/history/vector_network_commands.dart';
+export 'src/history/constraint_commands.dart';
+export 'src/history/variant_commands.dart';
+export 'src/history/variant_transactions.dart';
 export 'src/history/undo_redo_manager.dart';
 export 'src/history/canvas_delta_tracker.dart';
 export 'src/history/models/canvas_branch.dart';
 export 'src/history/branching_manager.dart';
 export 'src/history/background_checkpoint_service.dart';
+export 'src/history/async_command.dart';
 export 'src/history/widgets/branch_explorer_sheet.dart';
 
 // ────────────────────────── LAYERS ──────────────────────────
@@ -270,12 +309,17 @@ export 'src/systems/smart_snap_engine.dart';
 export 'src/systems/layout_engine.dart';
 export 'src/systems/animation_timeline.dart';
 export 'src/systems/selection_manager.dart';
+export 'src/systems/selection_query.dart';
 export 'src/systems/dirty_tracker.dart';
 export 'src/systems/spatial_index.dart';
 export 'src/systems/style_system.dart';
 export 'src/systems/prototype_flow.dart';
 export 'src/systems/plugin_api.dart';
 export 'src/systems/accessibility_tree.dart';
+export 'src/systems/accessibility_bridge.dart';
+export 'src/systems/animation_player.dart';
+export 'src/systems/animation_commands.dart';
+export 'src/systems/design_linter.dart';
 export 'src/systems/responsive_breakpoint.dart';
 export 'src/systems/responsive_variant.dart';
 export 'src/systems/design_variables.dart';

@@ -7,28 +7,17 @@ part of 'lasso_tool.dart';
 /// Default grid spacing for snap-to-grid (in canvas units).
 const double _kDefaultGridSpacing = 20.0;
 
-extension _LassoAdvanced on LassoTool {
+extension LassoAdvanced on LassoTool {
   // ===========================================================================
   // Select All
   // ===========================================================================
 
   /// Select all elements in the active layer.
   void _selectAll() {
-    final activeLayer = _getActiveLayer();
-
-    for (final stroke in activeLayer.strokes) {
-      selectedStrokeIds.add(stroke.id);
-    }
-    for (final shape in activeLayer.shapes) {
-      selectedShapeIds.add(shape.id);
-    }
-    for (final text in activeLayer.texts) {
-      selectedTextIds.add(text.id);
-    }
-    for (final image in activeLayer.images) {
-      selectedImageIds.add(image.id);
-    }
-
+    final layerNode = _getActiveLayerNode();
+    final allChildren =
+        layerNode.children.where((c) => c.isVisible && !c.isLocked).toList();
+    selectionManager.selectAll(allChildren);
     _calculateSelectionBounds();
   }
 
@@ -36,176 +25,145 @@ extension _LassoAdvanced on LassoTool {
   // Z-Ordering — Bring to Front / Send to Back
   // ===========================================================================
 
-  /// Bring selected elements to the front of their respective lists.
-  ///
-  /// Moves selected strokes/shapes/texts/images to the end of their
-  /// lists so they render on top.
+  /// Bring selected elements to the front (end of children list).
   void _bringToFront() {
     if (!hasSelection) return;
-    final activeLayer = _getActiveLayer();
+    final layerNode = _getActiveLayerNode();
 
-    final (selectedStrokes, otherStrokes) = _partition(
-      activeLayer.strokes,
-      (s) => selectedStrokeIds.contains(s.id),
-    );
-    final (selectedShapes, otherShapes) = _partition(
-      activeLayer.shapes,
-      (s) => selectedShapeIds.contains(s.id),
-    );
-    final (selectedTexts, otherTexts) = _partition(
-      activeLayer.texts,
-      (t) => selectedTextIds.contains(t.id),
-    );
-    final (selectedImages, otherImages) = _partition(
-      activeLayer.images,
-      (i) => selectedImageIds.contains(i.id),
-    );
-
-    _updateLayer(
-      activeLayer.copyWith(
-        strokes: [...otherStrokes, ...selectedStrokes],
-        shapes: [...otherShapes, ...selectedShapes],
-        texts: [...otherTexts, ...selectedTexts],
-        images: [...otherImages, ...selectedImages],
-      ),
-    );
-  }
-
-  /// Send selected elements to the back of their respective lists.
-  ///
-  /// Moves selected strokes/shapes/texts/images to the start of their
-  /// lists so they render behind everything.
-  void _sendToBack() {
-    if (!hasSelection) return;
-    final activeLayer = _getActiveLayer();
-
-    final (selectedStrokes, otherStrokes) = _partition(
-      activeLayer.strokes,
-      (s) => selectedStrokeIds.contains(s.id),
-    );
-    final (selectedShapes, otherShapes) = _partition(
-      activeLayer.shapes,
-      (s) => selectedShapeIds.contains(s.id),
-    );
-    final (selectedTexts, otherTexts) = _partition(
-      activeLayer.texts,
-      (t) => selectedTextIds.contains(t.id),
-    );
-    final (selectedImages, otherImages) = _partition(
-      activeLayer.images,
-      (i) => selectedImageIds.contains(i.id),
-    );
-
-    _updateLayer(
-      activeLayer.copyWith(
-        strokes: [...selectedStrokes, ...otherStrokes],
-        shapes: [...selectedShapes, ...otherShapes],
-        texts: [...selectedTexts, ...otherTexts],
-        images: [...selectedImages, ...otherImages],
-      ),
-    );
-  }
-
-  /// Partition a list into two: elements matching [test] and those that don't.
-  (List<T>, List<T>) _partition<T>(List<T> items, bool Function(T) test) {
-    final matched = <T>[];
-    final rest = <T>[];
-    for (final item in items) {
-      if (test(item)) {
-        matched.add(item);
-      } else {
-        rest.add(item);
+    // Collect selected children, remove them, then re-add at end
+    final selected = <CanvasNode>[];
+    for (final node in selectionManager.selectedNodes) {
+      if (layerNode.children.contains(node)) {
+        selected.add(node);
       }
     }
-    return (matched, rest);
+
+    for (final node in selected) {
+      layerNode.remove(node);
+    }
+    for (final node in selected) {
+      layerNode.add(node);
+    }
+  }
+
+  /// Send selected elements to the back (start of children list).
+  void _sendToBack() {
+    if (!hasSelection) return;
+    final layerNode = _getActiveLayerNode();
+
+    // Collect non-selected and selected children in the right order
+    final selected = <CanvasNode>[];
+    final others = <CanvasNode>[];
+    for (final child in layerNode.children) {
+      if (selectionManager.isSelected(child.id)) {
+        selected.add(child);
+      } else {
+        others.add(child);
+      }
+    }
+
+    // Remove all, then re-add selected first, then others
+    layerNode.clear();
+    for (final node in selected) {
+      layerNode.add(node);
+    }
+    for (final node in others) {
+      layerNode.add(node);
+    }
   }
 
   // ===========================================================================
   // Grouping — Lightweight In-Session Groups
   // ===========================================================================
 
-  /// Group currently selected elements under a shared group ID.
+  /// Group currently selected elements under a new GroupNode.
   ///
-  /// Returns the generated group ID, or null if nothing is selected.
+  /// Returns the group node ID, or null if nothing is selected.
   String? _groupSelected() {
     if (!hasSelection) return null;
 
+    final layerNode = _getActiveLayerNode();
     final groupId = 'grp_${DateTime.now().microsecondsSinceEpoch}';
-    final allIds = {
-      ...selectedStrokeIds,
-      ...selectedShapeIds,
-      ...selectedTextIds,
-      ...selectedImageIds,
-    };
-    _groups[groupId] = allIds;
+    final group = GroupNode(id: NodeId(groupId), name: 'Group');
+
+    // Move selected nodes into the group
+    final selected =
+        selectionManager.selectedNodes
+            .where((n) => layerNode.children.contains(n))
+            .toList();
+
+    for (final node in selected) {
+      layerNode.remove(node);
+      group.add(node);
+    }
+
+    layerNode.add(group);
+
+    // Select the group itself
+    selectionManager.select(group);
+    _calculateSelectionBounds();
+
     return groupId;
   }
 
-  /// Ungroup: if any selected element belongs to a group, dissolve that group.
+  /// Ungroup: if any selected element is a GroupNode, dissolve it.
   ///
   /// Returns the number of groups dissolved.
   int _ungroupSelected() {
     if (!hasSelection) return 0;
 
-    final allSelectedIds = {
-      ...selectedStrokeIds,
-      ...selectedShapeIds,
-      ...selectedTextIds,
-      ...selectedImageIds,
-    };
-
+    final layerNode = _getActiveLayerNode();
     int dissolved = 0;
-    final groupsToRemove = <String>[];
-    for (final entry in _groups.entries) {
-      if (entry.value.intersection(allSelectedIds).isNotEmpty) {
-        groupsToRemove.add(entry.key);
+    final ungroupedChildren = <CanvasNode>[];
+
+    for (final node in selectionManager.selectedNodes.toList()) {
+      if (node is GroupNode && node.parent == layerNode) {
+        // Move children out of the group
+        final children = node.children.toList();
+        for (final child in children) {
+          node.remove(child);
+          layerNode.add(child);
+          ungroupedChildren.add(child);
+        }
+        layerNode.remove(node);
         dissolved++;
       }
     }
-    for (final key in groupsToRemove) {
-      _groups.remove(key);
+
+    if (ungroupedChildren.isNotEmpty) {
+      selectionManager.selectAll(ungroupedChildren);
+      _calculateSelectionBounds();
     }
+
     return dissolved;
   }
 
   /// Expand the current selection to include all elements that share a
-  /// group with any currently selected element.
-  void _expandSelectionToGroups() {
-    if (_groups.isEmpty) return;
+  /// GroupNode parent with any currently selected element.
+  void expandSelectionToGroups() {
+    // For each selected node, if its parent is a GroupNode (not the layer),
+    // select all siblings in that group.
+    final layerNode = _getActiveLayerNode();
+    final toAdd = <CanvasNode>[];
 
-    final allSelectedIds = {
-      ...selectedStrokeIds,
-      ...selectedShapeIds,
-      ...selectedTextIds,
-      ...selectedImageIds,
-    };
-
-    // Find all group IDs that overlap with the current selection
-    final expandedIds = <String>{};
-    for (final entry in _groups.entries) {
-      if (entry.value.intersection(allSelectedIds).isNotEmpty) {
-        expandedIds.addAll(entry.value);
+    for (final node in selectionManager.selectedNodes) {
+      final parent = node.parent;
+      if (parent is GroupNode && parent != layerNode) {
+        for (final sibling in parent.children) {
+          if (!selectionManager.isSelected(sibling.id)) {
+            toAdd.add(sibling);
+          }
+        }
       }
     }
 
-    if (expandedIds.isEmpty) return;
-
-    // Map expanded IDs back to their element types
-    final activeLayer = _getActiveLayer();
-    for (final stroke in activeLayer.strokes) {
-      if (expandedIds.contains(stroke.id)) selectedStrokeIds.add(stroke.id);
-    }
-    for (final shape in activeLayer.shapes) {
-      if (expandedIds.contains(shape.id)) selectedShapeIds.add(shape.id);
-    }
-    for (final text in activeLayer.texts) {
-      if (expandedIds.contains(text.id)) selectedTextIds.add(text.id);
-    }
-    for (final image in activeLayer.images) {
-      if (expandedIds.contains(image.id)) selectedImageIds.add(image.id);
+    for (final node in toAdd) {
+      selectionManager.addToSelection(node);
     }
 
-    _calculateSelectionBounds();
+    if (toAdd.isNotEmpty) {
+      _calculateSelectionBounds();
+    }
   }
 
   // ===========================================================================
@@ -224,8 +182,6 @@ extension _LassoAdvanced on LassoTool {
   }
 
   /// Snap a delta so the selection bounds' top-left aligns to the grid.
-  ///
-  /// Returns the adjusted delta.
   Offset _snapDeltaToGrid(
     Offset delta, {
     double gridSpacing = _kDefaultGridSpacing,
@@ -242,9 +198,6 @@ extension _LassoAdvanced on LassoTool {
   // ===========================================================================
 
   /// Take a snapshot of the current active layer state.
-  ///
-  /// Call this before performing destructive operations. The returned
-  /// snapshot can be passed to [restoreSnapshot] to revert.
   CanvasLayer _takeSnapshot() {
     return _getActiveLayer();
   }

@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
 import 'package:nebula_engine/src/core/scene_graph/node_visitor.dart';
@@ -42,22 +43,22 @@ void main() {
     });
 
     test('dispatches StrokeNode correctly', () {
-      final node = testStrokeNode(id: 's1');
+      final node = testStrokeNode(id: NodeId('s1'));
       expect(node.accept(visitor), 'stroke:s1');
     });
 
     test('dispatches ShapeNode correctly', () {
-      final node = testShapeNode(id: 'sh1');
+      final node = testShapeNode(id: NodeId('sh1'));
       expect(node.accept(visitor), 'shape:sh1');
     });
 
     test('dispatches GroupNode correctly', () {
-      final node = testGroupNode(id: 'g1');
+      final node = testGroupNode(id: NodeId('g1'));
       expect(node.accept(visitor), 'group:g1');
     });
 
     test('dispatches LayerNode correctly', () {
-      final node = testLayerNode(id: 'l1');
+      final node = testLayerNode(id: NodeId('l1'));
       expect(node.accept(visitor), 'layer:l1');
     });
   });

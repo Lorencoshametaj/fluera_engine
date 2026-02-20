@@ -51,7 +51,17 @@ extension on _NebulaCanvasScreenState {
           }
         });
       }
-    } catch (e) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.network,
+          source: '_NebulaCanvasScreenState._loadBackgroundImage',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// 🎛️ Load brush settings persistenti dal servizio
@@ -763,7 +773,17 @@ extension on _NebulaCanvasScreenState {
           if (RecordingStorageService.instance.isInitialized) {
             RecordingStorageService.instance
                 .deleteRecording(recording.id)
-                .catchError((_) => 0);
+                .catchError((e) {
+                  EngineScope.current.errorRecovery.reportError(
+                    EngineError(
+                      severity: ErrorSeverity.transient,
+                      domain: ErrorDomain.storage,
+                      source: '_lifecycle.loadSavedRecordings.deleteStale',
+                      original: e,
+                    ),
+                  );
+                  return 0;
+                });
           }
           continue;
         }

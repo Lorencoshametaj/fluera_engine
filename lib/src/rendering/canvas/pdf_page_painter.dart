@@ -3,6 +3,8 @@ import 'dart:collection';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../canvas/nebula_canvas_config.dart';
 import '../../platform/native_performance_monitor.dart';
@@ -470,8 +472,16 @@ class PdfPagePainter {
           // re-increment so the native render path can decrement correctly.
           _activeRenders++;
         }
-      } catch (_) {
-        // Disk cache error — fall through to native render
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.storage,
+            source: 'PdfPagePainter.diskCacheLoad',
+            original: e,
+            stack: stack,
+          ),
+        );
       }
     }
 
@@ -529,7 +539,16 @@ class PdfPagePainter {
                 );
               }
             })
-            .catchError((_) {});
+            .catchError((e) {
+              EngineScope.current.errorRecovery.reportError(
+                EngineError(
+                  severity: ErrorSeverity.transient,
+                  domain: ErrorDomain.storage,
+                  source: 'PdfPagePainter.diskCacheSave',
+                  original: e,
+                ),
+              );
+            });
       }
     } catch (_) {
       stats.recordRenderError();
@@ -699,10 +718,27 @@ class PdfPagePainter {
                 }
               }
             })
-            .catchError((_) {});
+            .catchError((e) {
+              EngineScope.current.errorRecovery.reportError(
+                EngineError(
+                  severity: ErrorSeverity.transient,
+                  domain: ErrorDomain.rendering,
+                  source: 'PdfPagePainter.budgetRefresh',
+                  original: e,
+                ),
+              );
+            });
       }
-    } catch (_) {
-      // Monitor not available — keep current budget
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.rendering,
+          source: 'PdfPagePainter._maybeRefreshBudget',
+          original: e,
+          stack: stack,
+        ),
+      );
     }
   }
 

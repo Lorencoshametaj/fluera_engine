@@ -121,10 +121,7 @@ extension _LayerElementOps on LayerController {
       final strokeIndex = layer.strokes.indexWhere((s) => s.id == strokeId);
       if (strokeIndex != -1) {
         if (enableDeltaTracking) {
-          _deltaTracker.recordStrokeRemoved(
-            layer.id,
-            strokeId,
-          );
+          _deltaTracker.recordStrokeRemoved(layer.id, strokeId);
         }
         _emitTT(CanvasDeltaType.strokeRemoved, layer.id, elementId: strokeId);
 
@@ -195,10 +192,7 @@ extension _LayerElementOps on LayerController {
       final shapeIndex = layer.shapes.indexWhere((s) => s.id == shapeId);
       if (shapeIndex != -1) {
         if (enableDeltaTracking) {
-          _deltaTracker.recordShapeRemoved(
-            layer.id,
-            shapeId,
-          );
+          _deltaTracker.recordShapeRemoved(layer.id, shapeId);
         }
         _emitTT(CanvasDeltaType.shapeRemoved, layer.id, elementId: shapeId);
 
@@ -232,9 +226,15 @@ extension _LayerElementOps on LayerController {
     _layers[index] = layer.copyWith(texts: updatedTexts);
     _dirtyLayerIds.add(layer.id);
 
-    // TODO: Spatial index for text elements
-    _spatialIndexDirty = true;
-    _invalidateSceneGraph();
+    if (_spatialIndex.isBuilt) {
+      _spatialIndex.addText(text);
+    } else {
+      _spatialIndexDirty = true;
+    }
+
+    if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
+    }
 
     if (enableDeltaTracking) {
       _deltaTracker.recordTextAdded(layer.id, text);
@@ -339,10 +339,7 @@ extension _LayerElementOps on LayerController {
       final index = layer.images.indexWhere((img) => img.id == imageId);
       if (index != -1) {
         if (enableDeltaTracking) {
-          _deltaTracker.recordImageRemoved(
-            layer.id,
-            imageId,
-          );
+          _deltaTracker.recordImageRemoved(layer.id, imageId);
         }
         _emitTT(CanvasDeltaType.imageRemoved, layer.id, elementId: imageId);
 
@@ -404,10 +401,7 @@ extension _LayerElementOps on LayerController {
         _dirtyLayerIds.add(layer.id);
 
         if (enableDeltaTracking) {
-          _deltaTracker.recordImageAdded(
-            layer.id,
-            updatedImage,
-          );
+          _deltaTracker.recordImageAdded(layer.id, updatedImage);
         }
         _emitTT(
           CanvasDeltaType.imageAdded,
@@ -436,10 +430,7 @@ extension _LayerElementOps on LayerController {
     if (layer.shapes.isNotEmpty) {
       final shapeToRemove = layer.shapes.last;
       if (enableDeltaTracking) {
-        _deltaTracker.recordShapeRemoved(
-          layer.id,
-          shapeToRemove.id,
-        );
+        _deltaTracker.recordShapeRemoved(layer.id, shapeToRemove.id);
       }
       final updatedShapes = List<GeometricShape>.from(layer.shapes)
         ..removeLast();
@@ -450,10 +441,7 @@ extension _LayerElementOps on LayerController {
     } else if (layer.strokes.isNotEmpty) {
       final strokeToRemove = layer.strokes.last;
       if (enableDeltaTracking) {
-        _deltaTracker.recordStrokeRemoved(
-          layer.id,
-          strokeToRemove.id,
-        );
+        _deltaTracker.recordStrokeRemoved(layer.id, strokeToRemove.id);
       }
       final updatedStrokes = List<ProStroke>.from(layer.strokes)..removeLast();
       _layers[index] = layer.copyWith(strokes: updatedStrokes);
@@ -471,10 +459,7 @@ extension _LayerElementOps on LayerController {
     if (index == -1) return;
 
     if (enableDeltaTracking) {
-      _deltaTracker.recordLayerCleared(
-        layer.id,
-        layerSnapshot: layer.toJson(),
-      );
+      _deltaTracker.recordLayerCleared(layer.id, layerSnapshot: layer.toJson());
     }
     _emitTT(CanvasDeltaType.layerCleared, layer.id);
 

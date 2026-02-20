@@ -91,7 +91,24 @@ class RulerPainter extends CustomPainter {
       );
     }
 
-    // Background grids (below guides)
+    // Background grids (below guides) — apply gridOpacity
+    final hasGridContent =
+        guideSystem.gridVisible ||
+        guideSystem.isometricGridVisible ||
+        guideSystem.perspectiveType != PerspectiveType.none ||
+        guideSystem.radialGridVisible;
+    if (hasGridContent && guideSystem.gridOpacity < 1.0) {
+      canvas.saveLayer(
+        Offset.zero & size,
+        Paint()
+          ..color = Color.fromARGB(
+            (guideSystem.gridOpacity * 255).round(),
+            255,
+            255,
+            255,
+          ),
+      );
+    }
     if (guideSystem.gridVisible) {
       drawGrid(canvas, size);
       if (zoom > 8.0) drawPixelGrid(canvas, size);
@@ -101,6 +118,9 @@ class RulerPainter extends CustomPainter {
       drawPerspectiveGrid(canvas, size);
     }
     if (guideSystem.radialGridVisible) drawRadialGrid(canvas, size);
+    if (hasGridContent && guideSystem.gridOpacity < 1.0) {
+      canvas.restore();
+    }
 
     // Smart guides (transient alignment lines)
     if (guideSystem.smartGuidesEnabled) drawSmartGuides(canvas, size);
@@ -401,6 +421,30 @@ class RulerPainter extends CustomPainter {
         guideSystem.protractorCenter !=
             oldDelegate.guideSystem.protractorCenter ||
         guideSystem.protractorSnapStep !=
-            oldDelegate.guideSystem.protractorSnapStep;
+            oldDelegate.guideSystem.protractorSnapStep ||
+        guideSystem.frameGuides.length !=
+            oldDelegate.guideSystem.frameGuides.length ||
+        guideSystem.constraintGuides.length !=
+            oldDelegate.guideSystem.constraintGuides.length ||
+        guideSystem.gridOpacity != oldDelegate.guideSystem.gridOpacity ||
+        guideSystem.guideOpacity != oldDelegate.guideSystem.guideOpacity ||
+        guideSystem.bookmarkMarks.length !=
+            oldDelegate.guideSystem.bookmarkMarks.length ||
+        guideSystem.spacingLocks.length !=
+            oldDelegate.guideSystem.spacingLocks.length ||
+        guideSystem.namedGuideGroups.length !=
+            oldDelegate.guideSystem.namedGuideGroups.length ||
+        guideSystem.radialDivisions !=
+            oldDelegate.guideSystem.radialDivisions ||
+        guideSystem.radialRings != oldDelegate.guideSystem.radialRings ||
+        guideSystem.radialMaxRadius !=
+            oldDelegate.guideSystem.radialMaxRadius ||
+        guideSystem.perspectiveLineDensity !=
+            oldDelegate.guideSystem.perspectiveLineDensity ||
+        guideSystem.snapStrength != oldDelegate.guideSystem.snapStrength ||
+        guideSystem.guideColorTheme !=
+            oldDelegate.guideSystem.guideColorTheme ||
+        guideSystem.ghostSnapPosition !=
+            oldDelegate.guideSystem.ghostSnapPosition;
   }
 }

@@ -344,6 +344,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           // 📄 PDF active state — contextual tools
           isPdfActive: _pdfPainters.isNotEmpty,
           pdfDocument: _findFirstPdfDocument(),
+          pdfDocuments: _findAllPdfDocuments(),
           pdfAnnotationController: _pdfAnnotationController,
           pdfSearchController: _pdfSearchController,
           pdfSelectedPageIndex: 0,
@@ -367,6 +368,26 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               setState(() {});
               _autoSaveCanvas();
             }
+          },
+          onPdfGoToPage: (documentId, pageIndex) {
+            final doc =
+                _findPdfDocumentById(documentId) ?? _findFirstPdfDocument();
+            if (doc == null) return;
+            // Find the page node for this index
+            final pageNode = doc.pageAt(pageIndex);
+            if (pageNode == null) return;
+            // Get the canvas-space rect for the page
+            final pageRect = doc.pageRectFor(pageNode);
+            final pageCenter = pageRect.center;
+            // Compute viewport size from context
+            final viewportSize = MediaQuery.of(context).size;
+            // Target offset: center the page in the viewport
+            final scale = _canvasController.scale;
+            final targetOffset = Offset(
+              viewportSize.width / 2 - pageCenter.dx * scale,
+              viewportSize.height / 2 - pageCenter.dy * scale,
+            );
+            _canvasController.animateOffsetTo(targetOffset);
           },
           onPdfExport: null, // TODO: wire to export annotated PDF
         );

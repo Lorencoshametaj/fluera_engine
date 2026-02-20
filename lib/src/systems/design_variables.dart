@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import '../core/engine_scope.dart';
+import '../core/engine_event.dart';
 
 // =============================================================================
 // 🎨 DESIGN VARIABLES / TOKENS RUNTIME
@@ -358,6 +360,18 @@ class DesignVariable {
         newValue: value,
       ),
     );
+    // Bridge to centralized event bus
+    if (EngineScope.hasScope) {
+      EngineScope.current.eventBus.emit(
+        VariableChangedEngineEvent(
+          variableId: id,
+          modeId: modeId,
+          property: 'value',
+          oldValue: old,
+          newValue: value,
+        ),
+      );
+    }
   }
 
   /// Get the value for a specific mode, or `null` if unset.

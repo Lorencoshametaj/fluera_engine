@@ -1,8 +1,10 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../core/scene_graph/canvas_node.dart';
+import '../core/scene_graph/paint_stack_mixin.dart';
 import '../core/effects/node_effect.dart';
 import '../core/effects/gradient_fill.dart';
+import '../core/effects/paint_stack.dart';
 
 // ---------------------------------------------------------------------------
 // Design Tokens
@@ -137,6 +139,10 @@ class StyleDefinition {
   double? opacity;
   ui.BlendMode? blendMode;
 
+  // Paint stack (multi-fill/multi-stroke).
+  List<FillLayer>? fills;
+  List<StrokeLayer>? strokes;
+
   StyleDefinition({
     required this.id,
     this.name = '',
@@ -151,6 +157,8 @@ class StyleDefinition {
     this.cornerRadius,
     this.opacity,
     this.blendMode,
+    this.fills,
+    this.strokes,
   });
 
   /// Apply this style's properties to a node.
@@ -163,6 +171,16 @@ class StyleDefinition {
     if (effects != null && effects!.isNotEmpty) {
       node.effects =
           effects!.map((e) => NodeEffect.fromJson(e.toJson())).toList();
+    }
+    // Apply paint stack if the node supports it.
+    if (node is PaintStackMixin) {
+      if (fills != null) {
+        node.fills = fills!.map((f) => FillLayer.fromJson(f.toJson())).toList();
+      }
+      if (strokes != null) {
+        node.strokes =
+            strokes!.map((s) => StrokeLayer.fromJson(s.toJson())).toList();
+      }
     }
   }
 
@@ -181,6 +199,8 @@ class StyleDefinition {
     cornerRadius: cornerRadius,
     opacity: opacity,
     blendMode: blendMode,
+    fills: fills?.map((f) => FillLayer.fromJson(f.toJson())).toList(),
+    strokes: strokes?.map((s) => StrokeLayer.fromJson(s.toJson())).toList(),
   );
 
   Map<String, dynamic> toJson() {
@@ -198,6 +218,12 @@ class StyleDefinition {
     if (cornerRadius != null) json['cornerRadius'] = cornerRadius;
     if (opacity != null) json['opacity'] = opacity;
     if (blendMode != null) json['blendMode'] = blendMode!.name;
+    if (fills != null && fills!.isNotEmpty) {
+      json['fills'] = fills!.map((f) => f.toJson()).toList();
+    }
+    if (strokes != null && strokes!.isNotEmpty) {
+      json['strokes'] = strokes!.map((s) => s.toJson()).toList();
+    }
     return json;
   }
 
@@ -224,6 +250,18 @@ class StyleDefinition {
           json['effects'] != null
               ? (json['effects'] as List<dynamic>)
                   .map((e) => NodeEffect.fromJson(e as Map<String, dynamic>))
+                  .toList()
+              : null,
+      fills:
+          json['fills'] != null
+              ? (json['fills'] as List<dynamic>)
+                  .map((f) => FillLayer.fromJson(f as Map<String, dynamic>))
+                  .toList()
+              : null,
+      strokes:
+          json['strokes'] != null
+              ? (json['strokes'] as List<dynamic>)
+                  .map((s) => StrokeLayer.fromJson(s as Map<String, dynamic>))
                   .toList()
               : null,
     );

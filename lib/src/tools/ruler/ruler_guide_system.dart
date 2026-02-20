@@ -1,9 +1,14 @@
 import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 
 export './ruler_guide_models.dart';
 import './ruler_guide_models.dart';
 export './ruler_guide_presets.dart';
+export './canvas_guide.dart';
+import './canvas_guide.dart';
+export './constraint_guide.dart';
+import './constraint_guide.dart';
 
 /// 📏 Sistema righelli e guide for the canvas professionale
 ///
@@ -21,6 +26,17 @@ export './ruler_guide_presets.dart';
 /// - Multi-selezione guide
 /// - Undo/redo for guide operations
 class RulerGuideSystem {
+  // ─── Change Notification ─────────────────────────────────────────
+
+  /// Optional callback fired after any mutation. Allows reactive UI updates
+  /// without tight coupling to ChangeNotifier.
+  VoidCallback? onChanged;
+
+  void _notify() => onChanged?.call();
+
+  /// Public notification for use by external Command objects.
+  void notifyListeners() => _notify();
+
   // ─── Guide Data ────────────────────────────────────────────────────
 
   final List<double> horizontalGuides = [];
@@ -84,6 +100,22 @@ class RulerGuideSystem {
 
   GridStyle gridStyle = GridStyle.lines;
 
+  /// Grid overlay opacity (0.0 transparent → 1.0 full).
+  double gridOpacity = 1.0;
+
+  // ─── Frame-Scoped Guides ───────────────────────────────────────────
+
+  /// Guides scoped to a specific FrameNode (artboard-local).
+  final List<CanvasGuide> frameGuides = [];
+
+  // ─── Constraint Guides ─────────────────────────────────────────────
+
+  /// Guides that follow frame edges dynamically.
+  final List<ConstraintGuide> constraintGuides = [];
+
+  /// Resolved positions of constraint guides (updated by resolveConstraintGuides).
+  final Map<String, double> _resolvedConstraintGuides = {};
+
   // ─── Isometric Grid ────────────────────────────────────────────────
 
   bool isometricGridVisible = false;
@@ -126,56 +158,70 @@ class RulerGuideSystem {
   void cycleUnit() {
     final values = RulerUnit.values;
     currentUnit = values[(currentUnit.index + 1) % values.length];
+    _notify();
   }
 
   /// Cicla stile griglia: lines → dots → crosses
   void cycleGridStyle() {
     final values = GridStyle.values;
     gridStyle = values[(gridStyle.index + 1) % values.length];
+    _notify();
   }
 
   // ─── Batch Operations ─────────────────────────────────────────────
 
   void lockAllGuides() {
+    saveSnapshot();
     horizontalLocked
       ..clear()
       ..addAll(List.generate(horizontalGuides.length, (_) => true));
     verticalLocked
       ..clear()
       ..addAll(List.generate(verticalGuides.length, (_) => true));
+    _notify();
   }
 
   void unlockAllGuides() {
+    saveSnapshot();
     horizontalLocked
       ..clear()
       ..addAll(List.generate(horizontalGuides.length, (_) => false));
     verticalLocked
       ..clear()
       ..addAll(List.generate(verticalGuides.length, (_) => false));
+    _notify();
   }
 
   void mirrorGuidesH(Rect viewport) {
+    saveSnapshot();
     final center = (viewport.top + viewport.bottom) / 2;
     final mirrored = horizontalGuides.map((g) => center * 2 - g).toList();
     for (final m in mirrored) {
       if (!horizontalGuides.contains(m) &&
           horizontalGuides.length < maxGuidesPerAxis) {
         horizontalGuides.add(m);
+        horizontalLocked.add(false);
         horizontalColors.add(null);
+        horizontalLabels.add(null);
       }
     }
+    _notify();
   }
 
   void mirrorGuidesV(Rect viewport) {
+    saveSnapshot();
     final center = (viewport.left + viewport.right) / 2;
     final mirrored = verticalGuides.map((g) => center * 2 - g).toList();
     for (final m in mirrored) {
       if (!verticalGuides.contains(m) &&
           verticalGuides.length < maxGuidesPerAxis) {
         verticalGuides.add(m);
+        verticalLocked.add(false);
         verticalColors.add(null);
+        verticalLabels.add(null);
       }
     }
+    _notify();
   }
 
   // ─── Animated Guide Creation ────────────────────────────────────────
@@ -240,6 +286,7 @@ class RulerGuideSystem {
   void clearSmartGuides() {
     smartHGuides.clear();
     smartVGuides.clear();
+    _notify();
   }
 
   // ─── Symmetry Mode ────────────────────────────────────────────────
@@ -303,6 +350,7 @@ class RulerGuideSystem {
     const options = [2, 4, 6, 8];
     final idx = options.indexOf(symmetrySegments);
     symmetrySegments = options[(idx + 1) % options.length];
+    _notify();
   }
 
   /// Sets l'asse di simmetria
@@ -310,12 +358,14 @@ class RulerGuideSystem {
     symmetryAxisIsHorizontal = isHorizontal;
     symmetryAxisIndex = index;
     symmetryEnabled = true;
+    _notify();
   }
 
   void clearSymmetry() {
     symmetryEnabled = false;
     symmetryAxisIndex = null;
     symmetrySegments = 2;
+    _notify();
   }
 
   // ─── Angular Guides ────────────────────────────────────────────────
@@ -325,19 +375,25 @@ class RulerGuideSystem {
 
   void addAngularGuide(Offset origin, double angleDeg, {Color? color}) {
     if (angularGuides.length >= maxAngularGuides) return;
+    saveSnapshot();
     angularGuides.add(
       AngularGuide(origin: origin, angleDeg: angleDeg, color: color),
     );
+    _notify();
   }
 
   void removeAngularGuideAt(int index) {
     if (index >= 0 && index < angularGuides.length) {
+      saveSnapshot();
       angularGuides.removeAt(index);
+      _notify();
     }
   }
 
   void clearAngularGuides() {
+    saveSnapshot();
     angularGuides.clear();
+    _notify();
   }
 
   // ─── Guide Labels ──────────────────────────────────────────────────
@@ -366,6 +422,7 @@ class RulerGuideSystem {
 
   void resetRulerOrigin() {
     rulerOrigin = Offset.zero;
+    _notify();
   }
 
   // ─── Protractor Mode ───────────────────────────────────────────────
@@ -398,6 +455,7 @@ class RulerGuideSystem {
     protractorCenter = null;
     protractorArm1 = null;
     protractorArm2 = null;
+    _notify();
   }
 
   // ─── Guide Distribution ────────────────────────────────────────────
@@ -409,12 +467,15 @@ class RulerGuideSystem {
     final guides = isH ? horizontalGuides : verticalGuides;
     final locked = isH ? horizontalLocked : verticalLocked;
     final colors = isH ? horizontalColors : verticalColors;
+    final labels = isH ? horizontalLabels : verticalLabels;
     for (int i = 0; i < count; i++) {
       if (guides.length >= maxGuidesPerAxis) break;
       guides.add(start + step * i);
       locked.add(false);
       colors.add(null);
+      labels.add(null);
     }
+    _notify();
   }
 
   // ─── Export/Import Guide Presets ────────────────────────────────────
@@ -447,6 +508,7 @@ class RulerGuideSystem {
     if (selectedHorizontalGuides.isEmpty && selectedVerticalGuides.isEmpty) {
       return -1;
     }
+    saveSnapshot();
     final groupId = _nextGroupId++;
     final members = <({bool isH, int index})>[];
     for (final idx in selectedHorizontalGuides) {
@@ -458,12 +520,15 @@ class RulerGuideSystem {
     guideGroups[groupId] = members;
     selectedHorizontalGuides.clear();
     selectedVerticalGuides.clear();
+    _notify();
     return groupId;
   }
 
   /// Ungroup a group by id
   void ungroupGuides(int groupId) {
+    saveSnapshot();
     guideGroups.remove(groupId);
+    _notify();
   }
 
   /// Move all guides in a group by delta
@@ -476,6 +541,7 @@ class RulerGuideSystem {
         guides[m.index] += m.isH ? delta.dy : delta.dx;
       }
     }
+    _notify();
   }
 
   // ─── Perspective Grid ──────────────────────────────────────────────
@@ -514,6 +580,7 @@ class RulerGuideSystem {
         vp3 = Offset(cx, cy - h * 0.6);
         break;
     }
+    _notify();
   }
 
   // ─── Radial Grid ───────────────────────────────────────────────────
@@ -527,6 +594,7 @@ class RulerGuideSystem {
   void initRadialGrid(Rect viewport) {
     radialCenter = viewport.center;
     radialMaxRadius = min(viewport.width, viewport.height) * 0.4;
+    _notify();
   }
 
   // ─── Snap Feedback ─────────────────────────────────────────────────
@@ -570,6 +638,7 @@ class RulerGuideSystem {
     measureStart = null;
     measureEnd = null;
     isMeasuring = false;
+    _notify();
   }
 
   // ─── Guide Undo/Redo ──────────────────────────────────────────────
@@ -595,12 +664,14 @@ class RulerGuideSystem {
     // Save current state per redo
     _redoStack.add(_GuideSnapshot.from(this));
     _undoStack.removeLast().restoreTo(this);
+    _notify();
   }
 
   void redo() {
     if (!canRedo) return;
     _undoStack.add(_GuideSnapshot.from(this));
     _redoStack.removeLast().restoreTo(this);
+    _notify();
   }
 
   // ─── Guide Management ──────────────────────────────────────────────
@@ -638,7 +709,9 @@ class RulerGuideSystem {
   void setGuideLabel(bool isHorizontal, int index, String? label) {
     final labels = isHorizontal ? horizontalLabels : verticalLabels;
     if (index >= 0 && index < labels.length) {
+      saveSnapshot();
       labels[index] = (label != null && label.trim().isEmpty) ? null : label;
+      _notify();
     }
   }
 
@@ -659,6 +732,7 @@ class RulerGuideSystem {
     horizontalColors.add(color);
     horizontalLabels.add(null);
     lastGuideCreatedAt = DateTime.now();
+    _notify();
   }
 
   void addVerticalGuide(double x, {Color? color}) {
@@ -671,6 +745,7 @@ class RulerGuideSystem {
     verticalColors.add(color);
     verticalLabels.add(null);
     lastGuideCreatedAt = DateTime.now();
+    _notify();
   }
 
   void removeHorizontalGuideAt(int index) {
@@ -700,6 +775,7 @@ class RulerGuideSystem {
         symmetryAxisIndex = symmetryAxisIndex! - 1;
       }
     }
+    _notify();
   }
 
   void removeVerticalGuideAt(int index) {
@@ -728,6 +804,7 @@ class RulerGuideSystem {
         symmetryAxisIndex = symmetryAxisIndex! - 1;
       }
     }
+    _notify();
   }
 
   void removeHorizontalGuideNear(double y, double threshold) {
@@ -754,9 +831,22 @@ class RulerGuideSystem {
     verticalLocked.clear();
     horizontalColors.clear();
     verticalColors.clear();
+    horizontalLabels.clear();
+    verticalLabels.clear();
     selectedHorizontalGuides.clear();
     selectedVerticalGuides.clear();
+    frameGuides.clear();
+    constraintGuides.clear();
+    _resolvedConstraintGuides.clear();
+    angularGuides.clear();
+    namedGuideGroups.clear();
+    guideGroups.clear();
+    horizontalPercentGuides.clear();
+    verticalPercentGuides.clear();
+    bookmarkMarks.clear();
+    spacingLocks.clear();
     clearSymmetry();
+    _notify();
   }
 
   // Phase 9D: Distribute selected guides evenly
@@ -786,10 +876,12 @@ class RulerGuideSystem {
         guides[sorted[i].key] = first + spacing * i;
       }
     }
+    _notify();
   }
 
   // Phase 9G: Bookmark marks on ruler
   void addBookmark(double position, bool isHorizontal, Color color) {
+    saveSnapshot();
     bookmarkMarks.add(
       BookmarkMark(
         position: position,
@@ -797,16 +889,21 @@ class RulerGuideSystem {
         color: color,
       ),
     );
+    _notify();
   }
 
   void removeBookmark(int index) {
     if (index >= 0 && index < bookmarkMarks.length) {
+      saveSnapshot();
       bookmarkMarks.removeAt(index);
+      _notify();
     }
   }
 
   void clearBookmarks() {
+    saveSnapshot();
     bookmarkMarks.clear();
+    _notify();
   }
 
   // Phase 9E: Get coordinate string for clipboard
@@ -839,6 +936,7 @@ class RulerGuideSystem {
   void addSpacingLock(bool isH, int idx1, int idx2) {
     final guides = isH ? horizontalGuides : verticalGuides;
     if (idx1 >= guides.length || idx2 >= guides.length) return;
+    saveSnapshot();
     final dist = (guides[idx1] - guides[idx2]).abs();
     spacingLocks.add(
       SpacingLock(
@@ -848,11 +946,14 @@ class RulerGuideSystem {
         distance: dist,
       ),
     );
+    _notify();
   }
 
   void removeSpacingLock(int index) {
     if (index >= 0 && index < spacingLocks.length) {
+      saveSnapshot();
       spacingLocks.removeAt(index);
+      _notify();
     }
   }
 
@@ -875,6 +976,7 @@ class RulerGuideSystem {
 
   // Phase 11A: Guide group management
   void createGroup(String name, Set<int> hIndices, Set<int> vIndices) {
+    saveSnapshot();
     namedGuideGroups.add(
       GuideGroup(
         name: name,
@@ -882,22 +984,28 @@ class RulerGuideSystem {
         verticalIndices: vIndices.toList(),
       ),
     );
+    _notify();
   }
 
   void removeNamedGroup(int index) {
     if (index >= 0 && index < namedGuideGroups.length) {
+      saveSnapshot();
       namedGuideGroups.removeAt(index);
+      _notify();
     }
   }
 
   void toggleGroupVisibility(int index) {
     if (index >= 0 && index < namedGuideGroups.length) {
+      saveSnapshot();
       namedGuideGroups[index].visible = !namedGuideGroups[index].visible;
+      _notify();
     }
   }
 
   void toggleGroupLock(int index) {
     if (index >= 0 && index < namedGuideGroups.length) {
+      saveSnapshot();
       final g = namedGuideGroups[index];
       g.locked = !g.locked;
       for (final i in g.horizontalIndices) {
@@ -906,11 +1014,13 @@ class RulerGuideSystem {
       for (final i in g.verticalIndices) {
         if (i < verticalLocked.length) verticalLocked[i] = g.locked;
       }
+      _notify();
     }
   }
 
   // Phase 11B: Add percentage-based guide
   void addPercentGuide(bool isH, double percent, double canvasSize) {
+    saveSnapshot();
     final pos = canvasSize * percent / 100.0;
     final idx = isH ? horizontalGuides.length : verticalGuides.length;
     if (isH) {
@@ -934,6 +1044,7 @@ class RulerGuideSystem {
         verticalGuides[entry.key] = canvasWidth * entry.value / 100.0;
       }
     }
+    _notify();
   }
 
   // Phase 11C: Apply color theme
@@ -968,7 +1079,9 @@ class RulerGuideSystem {
   void toggleLock(bool isHorizontal, int index) {
     final lockedList = isHorizontal ? horizontalLocked : verticalLocked;
     if (index < lockedList.length) {
+      saveSnapshot();
       lockedList[index] = !lockedList[index];
+      _notify();
     }
   }
 
@@ -992,7 +1105,9 @@ class RulerGuideSystem {
   void setGuideColor(bool isHorizontal, int index, Color? color) {
     final colorList = isHorizontal ? horizontalColors : verticalColors;
     if (index < colorList.length) {
+      saveSnapshot();
       colorList[index] = color;
+      _notify();
     }
   }
 
@@ -1048,14 +1163,75 @@ class RulerGuideSystem {
       removeVerticalGuideAt(i);
     }
     clearSelection();
+    _notify();
   }
 
   int get selectedCount =>
       selectedHorizontalGuides.length + selectedVerticalGuides.length;
 
+  // ─── Frame-Scoped Guide Management ─────────────────────────────────
+
+  /// Add a guide scoped to a specific frame.
+  void addFrameGuide(CanvasGuide guide) {
+    saveSnapshot();
+    frameGuides.add(guide);
+    _notify();
+  }
+
+  /// Remove a frame-scoped guide by ID.
+  void removeFrameGuide(String guideId) {
+    saveSnapshot();
+    frameGuides.removeWhere((g) => g.id == guideId);
+    _notify();
+  }
+
+  /// Get all guides for a specific frame.
+  List<CanvasGuide> guidesForFrame(String frameId) {
+    return frameGuides.where((g) => g.frameId == frameId).toList();
+  }
+
+  /// Get all global frame guides (no frame scope).
+  List<CanvasGuide> get globalFrameGuides {
+    return frameGuides.where((g) => g.frameId == null).toList();
+  }
+
+  // ─── Constraint Guide Management ──────────────────────────────────
+
+  /// Add a constraint guide that follows a frame edge.
+  void addConstraintGuide(ConstraintGuide guide) {
+    saveSnapshot();
+    constraintGuides.add(guide);
+    _notify();
+  }
+
+  /// Remove a constraint guide by ID.
+  void removeConstraintGuide(String guideId) {
+    saveSnapshot();
+    constraintGuides.removeWhere((g) => g.id == guideId);
+    _resolvedConstraintGuides.remove(guideId);
+    _notify();
+  }
+
+  /// Resolve all constraint guide positions from current frame bounds.
+  ///
+  /// Call this whenever frames move or resize.
+  void resolveConstraintGuides(Map<String, Rect> frameBounds) {
+    _resolvedConstraintGuides.clear();
+    for (final cg in constraintGuides) {
+      final bounds = frameBounds[cg.frameId];
+      if (bounds != null) {
+        _resolvedConstraintGuides[cg.id] = cg.resolve(bounds);
+      }
+    }
+  }
+
+  /// Get resolved constraint guide positions (read-only).
+  Map<String, double> get resolvedConstraintPositions =>
+      Map.unmodifiable(_resolvedConstraintGuides);
+
   // ─── Snapping ──────────────────────────────────────────────────────
 
-  Offset snapPoint(Offset canvasPoint, double zoomLevel) {
+  Offset snapPoint(Offset canvasPoint, double zoomLevel, {String? frameId}) {
     if (!snapEnabled) return canvasPoint;
 
     double x = canvasPoint.dx;
@@ -1065,8 +1241,9 @@ class RulerGuideSystem {
     int? snappedVIndex;
     String? snapType;
 
-    // Snap to vertical guides → X
+    // Snap to vertical guides → X (skip locked)
     for (int i = 0; i < verticalGuides.length; i++) {
+      if (isLocked(false, i)) continue;
       if ((x - verticalGuides[i]).abs() < adjustedSnap) {
         x = verticalGuides[i];
         snappedVIndex = i;
@@ -1075,8 +1252,9 @@ class RulerGuideSystem {
       }
     }
 
-    // Snap to horizontal guides → Y
+    // Snap to horizontal guides → Y (skip locked)
     for (int i = 0; i < horizontalGuides.length; i++) {
+      if (isLocked(true, i)) continue;
       if ((y - horizontalGuides[i]).abs() < adjustedSnap) {
         y = horizontalGuides[i];
         snappedHIndex = i;
@@ -1147,6 +1325,88 @@ class RulerGuideSystem {
       }
     }
 
+    // Isometric grid snapping
+    if (isometricGridVisible && snapType == null) {
+      final step = gridStep(zoomLevel);
+      final isoRad = isometricAngle * pi / 180;
+      // Snap to nearest isometric intersection
+      final nearestX = (x / step).round() * step;
+      final isoY1 = (nearestX - x) * tan(isoRad) + y;
+      final nearestIsoY = (isoY1 / step).round() * step;
+      if ((x - nearestX.toDouble()).abs() < adjustedSnap &&
+          (y - nearestIsoY.toDouble()).abs() < adjustedSnap) {
+        x = nearestX.toDouble();
+        y = nearestIsoY.toDouble();
+        snapType = 'isometric';
+      }
+    }
+
+    // Radial grid snapping
+    if (radialGridVisible && snapType == null) {
+      final dx0 = x - radialCenter.dx;
+      final dy0 = y - radialCenter.dy;
+      final dist = sqrt(dx0 * dx0 + dy0 * dy0);
+      final ringSpacing = radialMaxRadius / radialRings;
+      final nearestRing = (dist / ringSpacing).round() * ringSpacing;
+      final angle = atan2(dy0, dx0);
+      final sectorAngle = 2 * pi / radialDivisions;
+      final nearestAngle = (angle / sectorAngle).round() * sectorAngle;
+      // Snap to nearest radial intersection
+      final snapX = radialCenter.dx + nearestRing * cos(nearestAngle);
+      final snapY = radialCenter.dy + nearestRing * sin(nearestAngle);
+      if ((x - snapX).abs() < adjustedSnap &&
+          (y - snapY).abs() < adjustedSnap) {
+        x = snapX;
+        y = snapY;
+        snapType = 'radial';
+      }
+    }
+
+    // Frame-scoped guide snapping
+    if (snapType == null) {
+      for (final fg in frameGuides) {
+        if (fg.locked) continue;
+        // Skip guides not matching the active frame context
+        if (frameId != null && fg.frameId != null && fg.frameId != frameId) {
+          continue;
+        }
+        if (fg.isHorizontal) {
+          if ((y - fg.position).abs() < adjustedSnap) {
+            y = fg.position;
+            snapType = 'frame_guide';
+            break;
+          }
+        } else {
+          if ((x - fg.position).abs() < adjustedSnap) {
+            x = fg.position;
+            snapType = 'frame_guide';
+            break;
+          }
+        }
+      }
+    }
+
+    // Constraint guide snapping
+    if (snapType == null) {
+      for (final cg in constraintGuides) {
+        final pos = _resolvedConstraintGuides[cg.id];
+        if (pos == null) continue;
+        if (cg.isHorizontal) {
+          if ((y - pos).abs() < adjustedSnap) {
+            y = pos;
+            snapType = 'constraint_guide';
+            break;
+          }
+        } else {
+          if ((x - pos).abs() < adjustedSnap) {
+            x = pos;
+            snapType = 'constraint_guide';
+            break;
+          }
+        }
+      }
+    }
+
     // Record feedback glow + snap metadata
     if (snappedHIndex != null || snappedVIndex != null || snapType != null) {
       _lastSnapHGuideIndex = snappedHIndex;
@@ -1184,6 +1444,30 @@ class RulerGuideSystem {
       }
     }
 
+    // Also check frame-scoped guides
+    if (!nearH || !nearV) {
+      for (final fg in frameGuides) {
+        if (fg.isHorizontal && !nearH) {
+          if ((canvasPoint.dy - fg.position).abs() < adjustedSnap) nearH = true;
+        } else if (!fg.isHorizontal && !nearV) {
+          if ((canvasPoint.dx - fg.position).abs() < adjustedSnap) nearV = true;
+        }
+      }
+    }
+
+    // Also check constraint guides
+    if (!nearH || !nearV) {
+      for (final cg in constraintGuides) {
+        final pos = _resolvedConstraintGuides[cg.id];
+        if (pos == null) continue;
+        if (cg.isHorizontal && !nearH) {
+          if ((canvasPoint.dy - pos).abs() < adjustedSnap) nearH = true;
+        } else if (!cg.isHorizontal && !nearV) {
+          if ((canvasPoint.dx - pos).abs() < adjustedSnap) nearV = true;
+        }
+      }
+    }
+
     return (horizontal: nearH, vertical: nearV);
   }
 
@@ -1195,6 +1479,14 @@ class RulerGuideSystem {
           : _calculateNiceStep(zoom);
 
   double _calculateNiceStep(double zoom) {
+    // Sub-pixel steps at high zoom for pixel-art precision
+    if (zoom >= 4.0) {
+      const subPixelSteps = [0.125, 0.25, 0.5, 1.0, 2.0, 5.0];
+      const targetSpacing = 40.0;
+      for (final step in subPixelSteps) {
+        if (step * zoom >= targetSpacing) return step;
+      }
+    }
     const steps = [1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0];
     const targetSpacing = 40.0;
     for (final step in steps) {
@@ -1206,12 +1498,14 @@ class RulerGuideSystem {
   // ─── Serialization ─────────────────────────────────────────────────
 
   Map<String, dynamic> toJson() => {
-    'hGuides': horizontalGuides,
-    'vGuides': verticalGuides,
-    'hLocked': horizontalLocked,
-    'vLocked': verticalLocked,
+    'hGuides': List<double>.from(horizontalGuides),
+    'vGuides': List<double>.from(verticalGuides),
+    'hLocked': List<bool>.from(horizontalLocked),
+    'vLocked': List<bool>.from(verticalLocked),
     'hColors': horizontalColors.map((c) => c?.toARGB32()).toList(),
     'vColors': verticalColors.map((c) => c?.toARGB32()).toList(),
+    'hLabels': List<String?>.from(horizontalLabels),
+    'vLabels': List<String?>.from(verticalLabels),
     'snapDist': snapDistance,
     'snapOn': snapEnabled,
     'gridOn': gridVisible,
@@ -1247,6 +1541,59 @@ class RulerGuideSystem {
     'originX': rulerOrigin.dx,
     'originY': rulerOrigin.dy,
     'presets': savedPresets.map((p) => p.toJson()).toList(),
+    // Enterprise v2 — previously missing fields
+    'guideOpacity': guideOpacity,
+    'snapStrength': snapStrength,
+    'guideTheme': guideColorTheme.index,
+    'goldenSpiral': showGoldenSpiral,
+    'protractorStep': protractorSnapStep,
+    'crosshairOn': crosshairEnabled,
+    'rulersOn': rulersVisible,
+    'guidesOn': guidesVisible,
+    'bookmarks':
+        bookmarkMarks
+            .map(
+              (b) => {
+                'pos': b.position,
+                'isH': b.isHorizontal,
+                'color': b.color.toARGB32(),
+              },
+            )
+            .toList(),
+    'spacingLocks':
+        spacingLocks
+            .map(
+              (s) => {
+                'isH': s.isHorizontal,
+                'i1': s.index1,
+                'i2': s.index2,
+                'dist': s.distance,
+              },
+            )
+            .toList(),
+    'namedGroups':
+        namedGuideGroups
+            .map(
+              (g) => {
+                'name': g.name,
+                'hIdx': List<int>.from(g.horizontalIndices),
+                'vIdx': List<int>.from(g.verticalIndices),
+                'visible': g.visible,
+                'locked': g.locked,
+                'color': g.color.toARGB32(),
+              },
+            )
+            .toList(),
+    'hPercentGuides': horizontalPercentGuides.map(
+      (k, v) => MapEntry(k.toString(), v),
+    ),
+    'vPercentGuides': verticalPercentGuides.map(
+      (k, v) => MapEntry(k.toString(), v),
+    ),
+    // Enterprise v3 — frame-scoped, constraint, grid opacity
+    'gridOpacity': gridOpacity,
+    'frameGuides': frameGuides.map((g) => g.toJson()).toList(),
+    'constraintGuides': constraintGuides.map((g) => g.toJson()).toList(),
   };
 
   void loadFromJson(Map<String, dynamic>? json) {
@@ -1395,6 +1742,135 @@ class RulerGuideSystem {
         }
       }
     }
+
+    // Enterprise v2 — previously missing fields
+    guideOpacity = (json['guideOpacity'] as num?)?.toDouble() ?? 1.0;
+    snapStrength = (json['snapStrength'] as num?)?.toDouble() ?? 0.5;
+    final gtIdx = json['guideTheme'] as int?;
+    guideColorTheme =
+        gtIdx != null && gtIdx < GuideColorTheme.values.length
+            ? GuideColorTheme.values[gtIdx]
+            : GuideColorTheme.defaultTheme;
+    showGoldenSpiral = (json['goldenSpiral'] as bool?) ?? false;
+    protractorSnapStep = (json['protractorStep'] as num?)?.toDouble() ?? 15.0;
+    crosshairEnabled = (json['crosshairOn'] as bool?) ?? false;
+    rulersVisible = (json['rulersOn'] as bool?) ?? true;
+    guidesVisible = (json['guidesOn'] as bool?) ?? true;
+
+    // Labels
+    horizontalLabels.clear();
+    verticalLabels.clear();
+    final hlList = json['hLabels'] as List<dynamic>?;
+    if (hlList != null) {
+      horizontalLabels.addAll(hlList.map((e) => e as String?));
+    }
+    while (horizontalLabels.length < horizontalGuides.length) {
+      horizontalLabels.add(null);
+    }
+    final vlList = json['vLabels'] as List<dynamic>?;
+    if (vlList != null) {
+      verticalLabels.addAll(vlList.map((e) => e as String?));
+    }
+    while (verticalLabels.length < verticalGuides.length) {
+      verticalLabels.add(null);
+    }
+
+    // Bookmarks
+    bookmarkMarks.clear();
+    final bmList = json['bookmarks'] as List<dynamic>?;
+    if (bmList != null) {
+      for (final bm in bmList) {
+        if (bm is Map<String, dynamic>) {
+          bookmarkMarks.add(
+            BookmarkMark(
+              position: (bm['pos'] as num?)?.toDouble() ?? 0,
+              isHorizontal: (bm['isH'] as bool?) ?? true,
+              color: Color((bm['color'] as int?) ?? 0xFF42A5F5),
+            ),
+          );
+        }
+      }
+    }
+
+    // Spacing locks
+    spacingLocks.clear();
+    final slList = json['spacingLocks'] as List<dynamic>?;
+    if (slList != null) {
+      for (final sl in slList) {
+        if (sl is Map<String, dynamic>) {
+          spacingLocks.add(
+            SpacingLock(
+              isHorizontal: (sl['isH'] as bool?) ?? true,
+              index1: (sl['i1'] as int?) ?? 0,
+              index2: (sl['i2'] as int?) ?? 0,
+              distance: (sl['dist'] as num?)?.toDouble() ?? 0,
+            ),
+          );
+        }
+      }
+    }
+
+    // Named groups
+    namedGuideGroups.clear();
+    final ngList = json['namedGroups'] as List<dynamic>?;
+    if (ngList != null) {
+      for (final ng in ngList) {
+        if (ng is Map<String, dynamic>) {
+          namedGuideGroups.add(
+            GuideGroup(
+              name: ng['name'] as String? ?? 'Group',
+              horizontalIndices:
+                  (ng['hIdx'] as List<dynamic>?)?.map((e) => e as int).toList(),
+              verticalIndices:
+                  (ng['vIdx'] as List<dynamic>?)?.map((e) => e as int).toList(),
+              visible: (ng['visible'] as bool?) ?? true,
+              locked: (ng['locked'] as bool?) ?? false,
+              color: Color((ng['color'] as int?) ?? 0xFF42A5F5),
+            ),
+          );
+        }
+      }
+    }
+
+    // Percent guides
+    horizontalPercentGuides.clear();
+    final hpMap = json['hPercentGuides'] as Map<String, dynamic>?;
+    if (hpMap != null) {
+      for (final e in hpMap.entries) {
+        horizontalPercentGuides[int.parse(e.key)] = (e.value as num).toDouble();
+      }
+    }
+    verticalPercentGuides.clear();
+    final vpMap = json['vPercentGuides'] as Map<String, dynamic>?;
+    if (vpMap != null) {
+      for (final e in vpMap.entries) {
+        verticalPercentGuides[int.parse(e.key)] = (e.value as num).toDouble();
+      }
+    }
+
+    // Enterprise v3 — frame-scoped, constraint, grid opacity
+    gridOpacity = (json['gridOpacity'] as num?)?.toDouble() ?? 1.0;
+
+    frameGuides.clear();
+    final fgList = json['frameGuides'] as List<dynamic>?;
+    if (fgList != null) {
+      for (final fg in fgList) {
+        if (fg is Map<String, dynamic>) {
+          frameGuides.add(CanvasGuide.fromJson(fg));
+        }
+      }
+    }
+
+    constraintGuides.clear();
+    _resolvedConstraintGuides.clear();
+    final cgList = json['constraintGuides'] as List<dynamic>?;
+    if (cgList != null) {
+      for (final cg in cgList) {
+        if (cg is Map<String, dynamic>) {
+          constraintGuides.add(ConstraintGuide.fromJson(cg));
+        }
+      }
+    }
   }
 }
 
@@ -1407,7 +1883,26 @@ class _GuideSnapshot {
   final List<bool> vLocked;
   final List<Color?> hColors;
   final List<Color?> vColors;
+  final List<String?> hLabels;
+  final List<String?> vLabels;
   final List<AngularGuide> angularGuides;
+  final List<BookmarkMark> bookmarks;
+  final List<SpacingLock> spacingLocks;
+  final double guideOpacity;
+  final double gridOpacity;
+  final double snapStrength;
+  final bool showGoldenSpiral;
+  final List<CanvasGuide> frameGuides;
+  final List<ConstraintGuide> constraintGuides;
+  final List<GuideGroup> namedGuideGroups;
+  final Map<int, double> horizontalPercentGuides;
+  final Map<int, double> verticalPercentGuides;
+  final GuideColorTheme guideColorTheme;
+  final double protractorSnapStep;
+  final bool symmetryEnabled;
+  final int? symmetryAxisIndex;
+  final bool symmetryAxisIsHorizontal;
+  final int symmetrySegments;
 
   _GuideSnapshot({
     required this.hGuides,
@@ -1416,7 +1911,26 @@ class _GuideSnapshot {
     required this.vLocked,
     required this.hColors,
     required this.vColors,
+    required this.hLabels,
+    required this.vLabels,
     required this.angularGuides,
+    required this.bookmarks,
+    required this.spacingLocks,
+    required this.guideOpacity,
+    required this.gridOpacity,
+    required this.snapStrength,
+    required this.showGoldenSpiral,
+    required this.frameGuides,
+    required this.constraintGuides,
+    required this.namedGuideGroups,
+    required this.horizontalPercentGuides,
+    required this.verticalPercentGuides,
+    required this.guideColorTheme,
+    required this.protractorSnapStep,
+    required this.symmetryEnabled,
+    required this.symmetryAxisIndex,
+    required this.symmetryAxisIsHorizontal,
+    required this.symmetrySegments,
   });
 
   factory _GuideSnapshot.from(RulerGuideSystem sys) {
@@ -1427,7 +1941,40 @@ class _GuideSnapshot {
       vLocked: List<bool>.from(sys.verticalLocked),
       hColors: List<Color?>.from(sys.horizontalColors),
       vColors: List<Color?>.from(sys.verticalColors),
+      hLabels: List<String?>.from(sys.horizontalLabels),
+      vLabels: List<String?>.from(sys.verticalLabels),
       angularGuides: sys.angularGuides.map((g) => g.copyWith()).toList(),
+      bookmarks: List<BookmarkMark>.from(sys.bookmarkMarks),
+      spacingLocks: List<SpacingLock>.from(sys.spacingLocks),
+      guideOpacity: sys.guideOpacity,
+      gridOpacity: sys.gridOpacity,
+      snapStrength: sys.snapStrength,
+      showGoldenSpiral: sys.showGoldenSpiral,
+      frameGuides: sys.frameGuides.map((g) => g.copyWith()).toList(),
+      constraintGuides: sys.constraintGuides.map((g) => g.copyWith()).toList(),
+      namedGuideGroups:
+          sys.namedGuideGroups
+              .map(
+                (g) => GuideGroup(
+                  name: g.name,
+                  horizontalIndices: List<int>.from(g.horizontalIndices),
+                  verticalIndices: List<int>.from(g.verticalIndices),
+                  visible: g.visible,
+                  locked: g.locked,
+                  color: g.color,
+                ),
+              )
+              .toList(),
+      horizontalPercentGuides: Map<int, double>.from(
+        sys.horizontalPercentGuides,
+      ),
+      verticalPercentGuides: Map<int, double>.from(sys.verticalPercentGuides),
+      guideColorTheme: sys.guideColorTheme,
+      protractorSnapStep: sys.protractorSnapStep,
+      symmetryEnabled: sys.symmetryEnabled,
+      symmetryAxisIndex: sys.symmetryAxisIndex,
+      symmetryAxisIsHorizontal: sys.symmetryAxisIsHorizontal,
+      symmetrySegments: sys.symmetrySegments,
     );
   }
 
@@ -1450,9 +1997,46 @@ class _GuideSnapshot {
     sys.verticalColors
       ..clear()
       ..addAll(vColors);
+    sys.horizontalLabels
+      ..clear()
+      ..addAll(hLabels);
+    sys.verticalLabels
+      ..clear()
+      ..addAll(vLabels);
     sys.angularGuides
       ..clear()
       ..addAll(angularGuides);
+    sys.bookmarkMarks
+      ..clear()
+      ..addAll(bookmarks);
+    sys.spacingLocks
+      ..clear()
+      ..addAll(spacingLocks);
+    sys.frameGuides
+      ..clear()
+      ..addAll(frameGuides);
+    sys.constraintGuides
+      ..clear()
+      ..addAll(constraintGuides);
+    sys.namedGuideGroups
+      ..clear()
+      ..addAll(namedGuideGroups);
+    sys.horizontalPercentGuides
+      ..clear()
+      ..addAll(horizontalPercentGuides);
+    sys.verticalPercentGuides
+      ..clear()
+      ..addAll(verticalPercentGuides);
+    sys.guideOpacity = guideOpacity;
+    sys.gridOpacity = gridOpacity;
+    sys.snapStrength = snapStrength;
+    sys.showGoldenSpiral = showGoldenSpiral;
+    sys.guideColorTheme = guideColorTheme;
+    sys.protractorSnapStep = protractorSnapStep;
+    sys.symmetryEnabled = symmetryEnabled;
+    sys.symmetryAxisIndex = symmetryAxisIndex;
+    sys.symmetryAxisIsHorizontal = symmetryAxisIsHorizontal;
+    sys.symmetrySegments = symmetrySegments;
     sys.selectedHorizontalGuides.clear();
     sys.selectedVerticalGuides.clear();
   }

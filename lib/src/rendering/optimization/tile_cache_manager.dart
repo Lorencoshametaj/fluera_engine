@@ -6,6 +6,7 @@ import '../../drawing/brushes/brushes.dart';
 
 import './stroke_data_manager.dart';
 import './advanced_tile_optimizer.dart';
+import './memory_managed_cache.dart';
 import '../../core/engine_scope.dart';
 
 /// 🚀 TILE CACHE MANAGER - Scalable tile caching for 100k+ strokes
@@ -25,7 +26,9 @@ import '../../core/engine_scope.dart';
 /// ARCHITECTURE PREPARED FOR:
 /// - Phase 2: LOD (Level of Detail) for zoom
 /// - Phase 3: Disk-backed tiles for 10M+ strokes
-class TileCacheManager {
+class TileCacheManager
+    with MemoryManagedCacheMixin
+    implements MemoryManagedCache {
   // ═══════════════════════════════════════════════════════════════════════════
   // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
@@ -197,10 +200,15 @@ class TileCacheManager {
     picture.dispose();
     _totalPicturesDisposed++;
 
-    // Add to cache (now space is guaranteed)
-    _tileCache[key] = image;
-    _tileStrokeCounts[key] = strokesInTile.length;
-    _dirtyTiles.remove(key);
+    // Add to cache (skip if hysteresis refill-lock is active)
+    if (isRefillAllowed) {
+      _tileCache[key] = image;
+      _tileStrokeCounts[key] = strokesInTile.length;
+      _dirtyTiles.remove(key);
+    } else {
+      // Draw direct without caching — image will be GC'd
+      _totalImagesDisposed++;
+    }
 
     _logMemoryStats('rasterizeTile-end');
   }
@@ -498,6 +506,50 @@ class TileCacheManager {
     }
     return total;
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🧠 MEMORY MANAGED CACHE INTERFACE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  String get cacheName => 'TileCache';
+
+  @override
+  int get estimatedMemoryBytes => estimatedMemoryUsage;
+
+  @override
+  int get cacheEntryCount => cachedTileCount;
+
+  /// Expensive: full GPU re-rasterization needed to rebuild.
+  @override
+  int get evictionPriority => 70;
+
+  @override
+  void evictFraction(double fraction) {
+    if (_tileCache.isEmpty || fraction <= 0) return;
+
+    final toEvict = (cachedTileCount * fraction).ceil().clamp(
+      1,
+      cachedTileCount,
+    );
+    int evicted = 0;
+
+    while (evicted < toEvict && _tileCache.isNotEmpty) {
+      final oldestKey = _tileCache.keys.first;
+      final oldImage = _tileCache[oldestKey];
+      if (oldImage != null) {
+        oldImage.dispose();
+        _totalImagesDisposed++;
+      }
+      _tileCache.remove(oldestKey);
+      _tileStrokeCounts.remove(oldestKey);
+      _dirtyTiles.remove(oldestKey);
+      evicted++;
+    }
+  }
+
+  @override
+  void evictAll() => clear();
 
   /// Statistics for debugging
   Map<String, dynamic> get stats => {

@@ -288,28 +288,29 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               ),
             ],
             // 📄 PDF CONTEXTUAL BUTTONS — appear when a PDF is active
-            if (widget.isPdfActive && widget.pdfDocument != null) ...[
+            if (widget.pdfDocuments.isNotEmpty) ...[
               const SizedBox(width: 8),
               // Pages
-              _PdfToolbarButton(
-                icon: Icons.file_copy_rounded,
-                tooltip: 'Pages',
-                badge: '${widget.pdfDocument!.documentModel.totalPages}',
-                isDark: isDark,
-                onTap: (anchor) {
-                  showPdfPagePopup(
-                    context: context,
-                    anchor: anchor,
-                    doc: widget.pdfDocument!,
-                    selectedPageIndex: widget.pdfSelectedPageIndex,
-                    onPageChanged: (_) {},
-                    onInsertBlankPage: widget.onPdfInsertBlankPage,
-                    onDeletePage: widget.onPdfDeletePage,
-                    onLayoutChanged: null,
-                    onExport: widget.onPdfExport,
-                  );
-                },
-              ),
+              if (widget.pdfDocument != null)
+                _PdfToolbarButton(
+                  icon: Icons.file_copy_rounded,
+                  tooltip: 'Pages',
+                  badge: '${widget.pdfDocument!.documentModel.totalPages}',
+                  isDark: isDark,
+                  onTap: (anchor) {
+                    showPdfPagePopup(
+                      context: context,
+                      anchor: anchor,
+                      doc: widget.pdfDocument!,
+                      selectedPageIndex: widget.pdfSelectedPageIndex,
+                      onPageChanged: (_) {},
+                      onInsertBlankPage: widget.onPdfInsertBlankPage,
+                      onDeletePage: widget.onPdfDeletePage,
+                      onLayoutChanged: null,
+                      onExport: widget.onPdfExport,
+                    );
+                  },
+                ),
               const SizedBox(width: 4),
               // Search
               if (widget.pdfSearchController != null)
@@ -325,8 +326,9 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     showPdfSearchPopup(
                       context: context,
                       anchor: anchor,
-                      doc: widget.pdfDocument!,
+                      docs: widget.pdfDocuments,
                       searchController: widget.pdfSearchController!,
+                      onGoToPage: widget.onPdfGoToPage,
                     );
                   },
                 ),

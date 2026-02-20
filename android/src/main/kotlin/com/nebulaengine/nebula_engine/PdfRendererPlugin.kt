@@ -6,6 +6,9 @@ import android.graphics.pdf.PdfRenderer
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -75,6 +78,7 @@ class PdfRendererPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "renderPage" -> handleRenderPage(call, result)
             "extractText" -> handleExtractText(call, result)
             "getPageText" -> handleGetPageText(call, result)
+            "ocrPage" -> handleOcrPage(call, result)
             "dispose" -> handleDispose(call, result)
             "disposeAll" -> handleDisposeAll(result)
             else -> result.notImplemented()
@@ -286,6 +290,104 @@ class PdfRendererPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private fun handleGetPageText(call: MethodCall, result: MethodChannel.Result) {
         result.success("")
+    }
+
+    // =========================================================================
+    // OCR — ML Kit Text Recognition for scanned/image-based PDFs
+    // =========================================================================
+
+    private fun handleOcrPage(call: MethodCall, result: MethodChannel.Result) {
+        val documentId = call.argument<String>("documentId")
+        val pageIndex = call.argument<Int>("pageIndex")
+
+        if (documentId == null || pageIndex == null) {
+            result.error("INVALID_ARGS", "Missing arguments", null)
+            return
+        }
+
+        val handle = documents[documentId]
+        if (handle == null || pageIndex < 0 || pageIndex >= handle.renderer.pageCount) {
+            result.success(null)
+            return
+        }
+
+        // Render page to bitmap on background thread, then run ML Kit OCR
+        renderExecutor.execute {
+            try {
+                // Render at reasonable resolution for OCR (1200px wide)
+                val pageWidth: Int
+                val pageHeight: Int
+                synchronized(handle.renderer) {
+                    val page = handle.renderer.openPage(pageIndex)
+                    val scale = 1200.0 / page.width.coerceAtLeast(1)
+                    pageWidth = (page.width * scale).toInt().coerceAtLeast(1)
+                    pageHeight = (page.height * scale).toInt().coerceAtLeast(1)
+                    page.close()
+                }
+
+                val bitmap = Bitmap.createBitmap(pageWidth, pageHeight, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(Color.WHITE)
+
+                synchronized(handle.renderer) {
+                    val page = handle.renderer.openPage(pageIndex)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+                }
+
+                // Run ML Kit text recognition
+                val inputImage = InputImage.fromBitmap(bitmap, 0)
+                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+                recognizer.process(inputImage)
+                    .addOnSuccessListener { visionText ->
+                        val blocks = ArrayList<HashMap<String, Any>>()
+                        val fullTextBuilder = StringBuilder()
+
+                        for (block in visionText.textBlocks) {
+                            for (line in block.lines) {
+                                val boundingBox = line.boundingBox ?: continue
+                                val lineText = line.text
+
+                                if (fullTextBuilder.isNotEmpty()) {
+                                    fullTextBuilder.append("\n")
+                                }
+                                fullTextBuilder.append(lineText)
+
+                                // Normalize bounding box to 0.0–1.0
+                                val blockMap = HashMap<String, Any>()
+                                blockMap["text"] = lineText
+                                blockMap["x"] = boundingBox.left.toDouble() / pageWidth
+                                blockMap["y"] = boundingBox.top.toDouble() / pageHeight
+                                blockMap["width"] = boundingBox.width().toDouble() / pageWidth
+                                blockMap["height"] = boundingBox.height().toDouble() / pageHeight
+                                blockMap["confidence"] = line.confidence.toDouble()
+                                blocks.add(blockMap)
+                            }
+                        }
+
+                        bitmap.recycle()
+
+                        val response = HashMap<String, Any>()
+                        response["text"] = fullTextBuilder.toString()
+                        response["blocks"] = blocks
+
+                        mainHandler.post {
+                            result.success(response)
+                        }
+                    }
+                    .addOnFailureListener { _ ->
+                        bitmap.recycle()
+                        mainHandler.post {
+                            result.success(null)
+                        }
+                    }
+
+            } catch (e: Exception) {
+                mainHandler.post {
+                    result.success(null)
+                }
+            }
+        }
     }
 
     // =========================================================================

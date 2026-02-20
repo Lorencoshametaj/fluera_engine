@@ -19,6 +19,8 @@ import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
 import '../core/models/canvas_layer.dart';
+import '../core/engine_scope.dart';
+import '../core/engine_error.dart';
 import '../export/export_preset.dart';
 import '../export/saved_export_area.dart';
 import '../config/multi_page_config.dart';
@@ -470,13 +472,7 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   /// 🔒 Backup of lasso selection IDs before starting a new lasso.
   /// Restored in _onDrawCancel if a zoom gesture interrupts the new lasso.
-  ({
-    Set<String> strokeIds,
-    Set<String> shapeIds,
-    Set<String> textIds,
-    Set<String> imageIds,
-  })?
-  _lassoSelectionBackup;
+  Set<String>? _lassoSelectionBackup;
 
   // 🌊 REFLOW: Cluster detector and cache
   ClusterDetector? _clusterDetector;
@@ -1028,7 +1024,17 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
       _syncRecordingBuilder = null;
       _isRecordingAudio = false;
       // Fire-and-forget — provider.stopRecording() will stop the native recorder
-      _voiceRecordingProvider.stopRecording().catchError((_) => null);
+      _voiceRecordingProvider.stopRecording().catchError((e) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.platform,
+            source: 'NebulaCanvasScreen.dispose.stopRecording',
+            original: e,
+          ),
+        );
+        return null;
+      });
     }
 
     // 🔧 FIX #1: Stop any active synced playback to prevent setState on disposed state

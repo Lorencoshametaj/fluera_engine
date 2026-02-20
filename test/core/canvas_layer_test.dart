@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -95,7 +96,7 @@ void main() {
     group('copyWith', () {
       test('copies all fields when nothing overridden', () {
         final original = createLayer(
-          id: 'original',
+          id: NodeId('original'),
           name: 'Original',
           isVisible: true,
           isLocked: false,
@@ -149,7 +150,7 @@ void main() {
 
     group('fromNode', () {
       test('wraps an existing LayerNode', () {
-        final layer = createLayer(id: 'from-node');
+        final layer = createLayer(id: NodeId('from-node'));
         final wrapped = CanvasLayer.fromNode(layer.node);
         expect(wrapped.id, 'from-node');
         expect(wrapped.name, layer.name);

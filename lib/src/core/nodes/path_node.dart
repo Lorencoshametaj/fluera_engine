@@ -1,36 +1,53 @@
 import 'dart:ui' as ui;
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
+import '../scene_graph/paint_stack_mixin.dart';
 import '../vector/vector_path.dart';
 import '../effects/gradient_fill.dart';
+import '../effects/paint_stack.dart';
 
 /// Scene graph node that wraps a [VectorPath] for rendering.
 ///
-/// Supports independent fill and stroke with optional gradients.
-/// This is the vector-editing equivalent of [ShapeNode], but with
-/// full Bézier path control instead of fixed shape types.
+/// Supports stacked fills and strokes via [PaintStackMixin].
+/// Legacy single fill/stroke fields are preserved for backward
+/// compatibility and auto-migrated into the stack on deserialization.
 ///
 /// ```
 /// PathNode (star)
 ///   path: VectorPath (5-point star Bézier)
-///   fillColor: Colors.gold
-///   strokeColor: Colors.black
-///   strokeWidth: 2.0
+///   fills: [FillLayer.solid(color: Colors.gold)]
+///   strokes: [StrokeLayer(color: Colors.black, width: 2.0)]
 /// ```
-class PathNode extends CanvasNode {
+class PathNode extends CanvasNode with PaintStackMixin {
   VectorPath path;
 
-  /// Fill properties (null = no fill).
+  /// Fill color — **deprecated**, use [fills] instead.
+  @Deprecated('Use fills list from PaintStackMixin instead')
   ui.Color? fillColor;
+
+  /// Fill gradient — **deprecated**, use [fills] instead.
+  @Deprecated('Use fills list from PaintStackMixin instead')
   GradientFill? fillGradient;
 
-  /// Stroke properties (null strokeColor = no stroke).
+  /// Stroke color — **deprecated**, use [strokes] instead.
+  @Deprecated('Use strokes list from PaintStackMixin instead')
   ui.Color? strokeColor;
+
+  /// Stroke gradient — **deprecated**, use [strokes] instead.
+  @Deprecated('Use strokes list from PaintStackMixin instead')
   GradientFill? strokeGradient;
+
+  /// Stroke width — **deprecated**, use [strokes] instead.
+  @Deprecated('Use strokes list from PaintStackMixin instead')
   double strokeWidth;
 
-  /// Stroke cap and join styles.
+  /// Stroke cap — **deprecated**, use [strokes] instead.
+  @Deprecated('Use strokes list from PaintStackMixin instead')
   ui.StrokeCap strokeCap;
+
+  /// Stroke join — **deprecated**, use [strokes] instead.
+  @Deprecated('Use strokes list from PaintStackMixin instead')
   ui.StrokeJoin strokeJoin;
 
   PathNode({
@@ -49,14 +66,23 @@ class PathNode extends CanvasNode {
     this.strokeWidth = 2.0,
     this.strokeCap = ui.StrokeCap.round,
     this.strokeJoin = ui.StrokeJoin.round,
-  });
+    List<FillLayer>? fills,
+    List<StrokeLayer>? strokes,
+  }) {
+    if (fills != null) this.fills = fills;
+    if (strokes != null) this.strokes = strokes;
+  }
 
   @override
   ui.Rect get localBounds {
     final pathBounds = path.computeBounds();
     if (pathBounds.isEmpty) return ui.Rect.zero;
-    // Inflate by half stroke width so the stroke doesn't clip.
-    return pathBounds.inflate(strokeWidth / 2);
+    // Use the maximum inflation from the stroke stack, or fall back
+    // to the legacy strokeWidth for backward compat.
+    final inflation =
+        // ignore: deprecated_member_use_from_same_package
+        strokes.isNotEmpty ? maxStrokeBoundsInflation : strokeWidth / 2;
+    return pathBounds.inflate(inflation);
   }
 
   @override
@@ -64,15 +90,29 @@ class PathNode extends CanvasNode {
     final json = baseToJson();
     json['nodeType'] = 'path';
     json['path'] = path.toJson();
-    json['strokeWidth'] = strokeWidth;
-    json['strokeCap'] = strokeCap.index;
-    json['strokeJoin'] = strokeJoin.index;
 
-    if (fillColor != null) json['fillColor'] = fillColor!.toARGB32();
-    if (fillGradient != null) json['fillGradient'] = fillGradient!.toJson();
-    if (strokeColor != null) json['strokeColor'] = strokeColor!.toARGB32();
-    if (strokeGradient != null) {
-      json['strokeGradient'] = strokeGradient!.toJson();
+    // Serialize paint stack (new format).
+    json.addAll(paintStackToJson());
+
+    // Legacy fields — only serialize if stack is empty (backward compat).
+    if (fills.isEmpty) {
+      // ignore: deprecated_member_use_from_same_package
+      json['strokeWidth'] = strokeWidth;
+      // ignore: deprecated_member_use_from_same_package
+      json['strokeCap'] = strokeCap.index;
+      // ignore: deprecated_member_use_from_same_package
+      json['strokeJoin'] = strokeJoin.index;
+      // ignore: deprecated_member_use_from_same_package
+      if (fillColor != null) json['fillColor'] = fillColor!.toARGB32();
+      // ignore: deprecated_member_use_from_same_package
+      if (fillGradient != null) json['fillGradient'] = fillGradient!.toJson();
+      // ignore: deprecated_member_use_from_same_package
+      if (strokeColor != null) json['strokeColor'] = strokeColor!.toARGB32();
+      // ignore: deprecated_member_use_from_same_package
+      if (strokeGradient != null) {
+        // ignore: deprecated_member_use_from_same_package
+        json['strokeGradient'] = strokeGradient!.toJson();
+      }
     }
 
     return json;
@@ -80,7 +120,7 @@ class PathNode extends CanvasNode {
 
   factory PathNode.fromJson(Map<String, dynamic> json) {
     final node = PathNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       path: VectorPath.fromJson(json['path'] as Map<String, dynamic>),
       strokeWidth: (json['strokeWidth'] as num?)?.toDouble() ?? 2.0,
       strokeCap:
@@ -113,7 +153,51 @@ class PathNode extends CanvasNode {
               : null,
     );
     CanvasNode.applyBaseFromJson(node, json);
+
+    // Paint stack deserialization — new format has priority.
+    if (json.containsKey('fills') || json.containsKey('strokes')) {
+      PaintStackMixin.applyPaintStackFromJson(node, json);
+    } else {
+      // Auto-migrate legacy single fill/stroke into the stack.
+      _migrateLegacyPaintStack(node, json);
+    }
+
     return node;
+  }
+
+  /// Migrate legacy single fill/stroke fields into the paint stack.
+  static void _migrateLegacyPaintStack(
+    PathNode node,
+    Map<String, dynamic> json,
+  ) {
+    // Migrate fill.
+    // ignore: deprecated_member_use_from_same_package
+    if (node.fillGradient != null) {
+      // ignore: deprecated_member_use_from_same_package
+      node.fills.add(FillLayer.fromGradient(gradient: node.fillGradient!));
+      // ignore: deprecated_member_use_from_same_package
+    } else if (node.fillColor != null) {
+      // ignore: deprecated_member_use_from_same_package
+      node.fills.add(FillLayer.solid(color: node.fillColor!));
+    }
+    // Migrate stroke.
+    // ignore: deprecated_member_use_from_same_package
+    if (node.strokeColor != null || node.strokeGradient != null) {
+      node.strokes.add(
+        StrokeLayer(
+          // ignore: deprecated_member_use_from_same_package
+          color: node.strokeColor,
+          // ignore: deprecated_member_use_from_same_package
+          gradient: node.strokeGradient,
+          // ignore: deprecated_member_use_from_same_package
+          width: node.strokeWidth,
+          // ignore: deprecated_member_use_from_same_package
+          cap: node.strokeCap,
+          // ignore: deprecated_member_use_from_same_package
+          join: node.strokeJoin,
+        ),
+      );
+    }
   }
 
   @override

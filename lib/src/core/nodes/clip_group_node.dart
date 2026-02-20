@@ -1,4 +1,5 @@
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import './group_node.dart';
 import '../scene_graph/canvas_node_factory.dart';
@@ -54,7 +55,7 @@ class ClipGroupNode extends GroupNode {
 
   factory ClipGroupNode.fromJson(Map<String, dynamic> json) {
     final node = ClipGroupNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       name: (json['name'] as String?) ?? '',
       clipMode: ClipMode.values.firstWhere(
         (m) => m.name == json['clipMode'],

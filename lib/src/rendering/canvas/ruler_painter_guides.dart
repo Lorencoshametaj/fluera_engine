@@ -60,8 +60,205 @@ extension RulerPainterGuides on RulerPainter {
       );
     }
 
+    // Frame-scoped guides
+    _drawFrameGuides(canvas, size);
+
+    // Constraint guides
+    _drawConstraintGuides(canvas, size);
+
     if (activeGuideIndex != null && activeGuideIsHorizontal != null) {
       drawDragCrosshairs(canvas, size);
+    }
+  }
+
+  // ─── Frame-Scoped Guide Rendering ───────────────────────────────────
+
+  void _drawFrameGuides(Canvas canvas, Size size) {
+    final opacity = guideSystem.guideOpacity;
+    for (final fg in guideSystem.frameGuides) {
+      final screenPos =
+          fg.isHorizontal
+              ? fg.position * zoom + canvasOffset.dy
+              : fg.position * zoom + canvasOffset.dx;
+
+      // Cull off-screen
+      if (fg.isHorizontal && (screenPos < 0 || screenPos > size.height)) {
+        continue;
+      }
+      if (!fg.isHorizontal && (screenPos < 0 || screenPos > size.width)) {
+        continue;
+      }
+
+      final baseColor =
+          fg.color ??
+          (isDark ? const Color(0xFF81D4FA) : const Color(0xFF0277BD));
+      final alpha = (fg.locked ? 0.25 : 0.55) * opacity;
+      final paint =
+          Paint()
+            ..color = baseColor.withValues(alpha: alpha)
+            ..strokeWidth = 1.0
+            ..isAntiAlias = true;
+
+      // Draw dotted line to distinguish from global guides
+      const dashLen = 4.0;
+      const gapLen = 3.0;
+      if (fg.isHorizontal) {
+        double x = 0;
+        while (x < size.width) {
+          final end = (x + dashLen).clamp(0.0, size.width);
+          canvas.drawLine(Offset(x, screenPos), Offset(end, screenPos), paint);
+          x += dashLen + gapLen;
+        }
+      } else {
+        double y = 0;
+        while (y < size.height) {
+          final end = (y + dashLen).clamp(0.0, size.height);
+          canvas.drawLine(Offset(screenPos, y), Offset(screenPos, end), paint);
+          y += dashLen + gapLen;
+        }
+      }
+
+      // Label badge (frameId or custom label)
+      final labelText = fg.label ?? fg.frameId ?? '';
+      if (labelText.isNotEmpty) {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: labelText,
+            style: TextStyle(
+              color: baseColor.withValues(alpha: 0.9 * opacity),
+              fontSize: 7,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        final bgColor = baseColor.withValues(alpha: 0.12 * opacity);
+        if (fg.isHorizontal) {
+          final bgRect = RRect.fromRectAndRadius(
+            Rect.fromLTWH(
+              4,
+              screenPos - tp.height - 3,
+              tp.width + 6,
+              tp.height + 2,
+            ),
+            const Radius.circular(2),
+          );
+          canvas.drawRRect(bgRect, Paint()..color = bgColor);
+          tp.paint(canvas, Offset(7, screenPos - tp.height - 2));
+        } else {
+          final bgRect = RRect.fromRectAndRadius(
+            Rect.fromLTWH(screenPos + 3, 4, tp.width + 6, tp.height + 2),
+            const Radius.circular(2),
+          );
+          canvas.drawRRect(bgRect, Paint()..color = bgColor);
+          tp.paint(canvas, Offset(screenPos + 6, 5));
+        }
+      }
+    }
+  }
+
+  // ─── Constraint Guide Rendering ─────────────────────────────────────
+
+  void _drawConstraintGuides(Canvas canvas, Size size) {
+    final opacity = guideSystem.guideOpacity;
+    final resolved = guideSystem.resolvedConstraintPositions;
+
+    for (final cg in guideSystem.constraintGuides) {
+      final pos = resolved[cg.id];
+      if (pos == null) continue;
+
+      final screenPos =
+          cg.isHorizontal
+              ? pos * zoom + canvasOffset.dy
+              : pos * zoom + canvasOffset.dx;
+
+      // Cull off-screen
+      if (cg.isHorizontal && (screenPos < 0 || screenPos > size.height)) {
+        continue;
+      }
+      if (!cg.isHorizontal && (screenPos < 0 || screenPos > size.width)) {
+        continue;
+      }
+
+      final baseColor =
+          cg.color ??
+          (isDark ? const Color(0xFFFFAB40) : const Color(0xFFE65100));
+      final alpha = 0.5 * opacity;
+      final paint =
+          Paint()
+            ..color = baseColor.withValues(alpha: alpha)
+            ..strokeWidth = 1.0
+            ..isAntiAlias = true;
+
+      // Double-line style for constraint guides
+      const offset2 = 1.5; // pixel offset for second line
+      if (cg.isHorizontal) {
+        canvas.drawLine(
+          Offset(0, screenPos - offset2),
+          Offset(size.width, screenPos - offset2),
+          paint,
+        );
+        canvas.drawLine(
+          Offset(0, screenPos + offset2),
+          Offset(size.width, screenPos + offset2),
+          paint,
+        );
+      } else {
+        canvas.drawLine(
+          Offset(screenPos - offset2, 0),
+          Offset(screenPos - offset2, size.height),
+          paint,
+        );
+        canvas.drawLine(
+          Offset(screenPos + offset2, 0),
+          Offset(screenPos + offset2, size.height),
+          paint,
+        );
+      }
+
+      // Edge type + label badge
+      final edgeName = cg.edge.name;
+      final labelText = cg.label != null ? '${cg.label} ($edgeName)' : edgeName;
+      final tp = TextPainter(
+        text: TextSpan(
+          text: labelText,
+          style: TextStyle(
+            color: baseColor.withValues(alpha: 0.85 * opacity),
+            fontSize: 7,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final bgColor = baseColor.withValues(alpha: 0.12 * opacity);
+      if (cg.isHorizontal) {
+        final bgRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            size.width - tp.width - 10,
+            screenPos - tp.height - 3,
+            tp.width + 6,
+            tp.height + 2,
+          ),
+          const Radius.circular(2),
+        );
+        canvas.drawRRect(bgRect, Paint()..color = bgColor);
+        tp.paint(
+          canvas,
+          Offset(size.width - tp.width - 7, screenPos - tp.height - 2),
+        );
+      } else {
+        final bgRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            screenPos + 3,
+            size.height - tp.height - 10,
+            tp.width + 6,
+            tp.height + 2,
+          ),
+          const Radius.circular(2),
+        );
+        canvas.drawRRect(bgRect, Paint()..color = bgColor);
+        tp.paint(canvas, Offset(screenPos + 6, size.height - tp.height - 9));
+      }
     }
   }
 

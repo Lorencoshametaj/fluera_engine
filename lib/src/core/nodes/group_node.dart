@@ -10,6 +10,10 @@ import '../scene_graph/node_visitor.dart';
 class GroupNode extends CanvasNode {
   final List<CanvasNode> _children = [];
 
+  /// Cached bounds — invalidated when children change.
+  Rect? _cachedLocalBounds;
+  bool _boundsDirty = true;
+
   GroupNode({
     required super.id,
     super.name,
@@ -42,8 +46,37 @@ class GroupNode extends CanvasNode {
   /// Throws [StateError] if adding [child] would create a cycle.
   void add(CanvasNode child) {
     _assertNoCycle(child);
+    assert(
+      !_children.any((c) => c.id == child.id),
+      'Duplicate child ID "${child.id}" in ${this.id}',
+    );
     child.parent = this;
     _children.add(child);
+    _expandBoundsIncremental(child);
+  }
+
+  /// Expand the cached bounds to include [child]'s world bounds
+  /// without recomputing the entire subtree.
+  void _expandBoundsIncremental(CanvasNode child) {
+    if (_boundsDirty) return; // already dirty, nothing to expand
+    final childBounds = child.worldBounds;
+    if (childBounds.isEmpty) return;
+
+    final inverse = Matrix4.tryInvert(worldTransform);
+    final localChildBounds =
+        inverse != null
+            ? MatrixUtils.transformRect(inverse, childBounds)
+            : childBounds;
+
+    final current = _cachedLocalBounds ?? Rect.zero;
+    _cachedLocalBounds =
+        current.isEmpty
+            ? localChildBounds
+            : current.expandToInclude(localChildBounds);
+    // Propagate upward — parent group's bounds depend on ours.
+    if (parent is GroupNode) {
+      (parent as GroupNode).invalidateBoundsCache();
+    }
   }
 
   /// Insert a child at a specific z-index.
@@ -51,14 +84,22 @@ class GroupNode extends CanvasNode {
   /// Throws [StateError] if adding [child] would create a cycle.
   void insertAt(int index, CanvasNode child) {
     _assertNoCycle(child);
+    assert(
+      !_children.any((c) => c.id == child.id),
+      'Duplicate child ID "${child.id}" in ${this.id}',
+    );
     child.parent = this;
     _children.insert(index, child);
+    invalidateBoundsCache();
   }
 
   /// Remove a child by reference.
   bool remove(CanvasNode child) {
     final removed = _children.remove(child);
-    if (removed) child.parent = null;
+    if (removed) {
+      child.parent = null;
+      invalidateBoundsCache();
+    }
     return removed;
   }
 
@@ -68,6 +109,7 @@ class GroupNode extends CanvasNode {
     if (index == -1) return null;
     final child = _children.removeAt(index);
     child.parent = null;
+    invalidateBoundsCache();
     return child;
   }
 
@@ -75,6 +117,7 @@ class GroupNode extends CanvasNode {
   CanvasNode removeAt(int index) {
     final child = _children.removeAt(index);
     child.parent = null;
+    invalidateBoundsCache();
     return child;
   }
 
@@ -85,6 +128,7 @@ class GroupNode extends CanvasNode {
     // Adjust index after removal
     final adjustedIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
     _children.insert(adjustedIndex, child);
+    invalidateBoundsCache();
   }
 
   /// Remove all children.
@@ -93,6 +137,7 @@ class GroupNode extends CanvasNode {
       child.parent = null;
     }
     _children.clear();
+    invalidateBoundsCache();
   }
 
   // ---------------------------------------------------------------------------
@@ -139,7 +184,18 @@ class GroupNode extends CanvasNode {
 
   @override
   Rect get localBounds {
-    if (_children.isEmpty) return Rect.zero;
+    if (!_boundsDirty && _cachedLocalBounds != null) {
+      return _cachedLocalBounds!;
+    }
+
+    if (_children.isEmpty) {
+      _cachedLocalBounds = Rect.zero;
+      _boundsDirty = false;
+      return Rect.zero;
+    }
+
+    // Compute the inverse ONCE — it doesn't change across children.
+    final inverse = Matrix4.tryInvert(worldTransform);
 
     Rect? result;
     for (final child in _children) {
@@ -148,7 +204,6 @@ class GroupNode extends CanvasNode {
       if (childBounds.isEmpty) continue;
 
       // Transform child world bounds back to our local space
-      final inverse = Matrix4.tryInvert(worldTransform);
       final localChildBounds =
           inverse != null
               ? MatrixUtils.transformRect(inverse, childBounds)
@@ -160,7 +215,22 @@ class GroupNode extends CanvasNode {
               : result.expandToInclude(localChildBounds);
     }
 
-    return result ?? Rect.zero;
+    _cachedLocalBounds = result ?? Rect.zero;
+    _boundsDirty = false;
+    return _cachedLocalBounds!;
+  }
+
+  /// Invalidate the cached bounds for this group and propagate upward.
+  ///
+  /// Called when children are added, removed, reordered, or when
+  /// a child's transform changes.
+  void invalidateBoundsCache() {
+    _boundsDirty = true;
+    _cachedLocalBounds = null;
+    // Propagate upward — parent group's bounds depend on ours.
+    if (parent is GroupNode) {
+      (parent as GroupNode).invalidateBoundsCache();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -230,6 +300,7 @@ class GroupNode extends CanvasNode {
       child.parent = this;
       _children.add(child);
     }
+    invalidateBoundsCache();
   }
 
   // ---------------------------------------------------------------------------
@@ -242,8 +313,13 @@ class GroupNode extends CanvasNode {
   @override
   void invalidateTransformCache() {
     super.invalidateTransformCache();
+    invalidateBoundsCache();
     for (final child in _children) {
+      // Mark children as "propagating" so they don't individually
+      // fire onNodeTransformInvalidated → avoids O(n²) cascade.
+      child.propagatingTransform_ = true;
       child.invalidateTransformCache();
+      child.propagatingTransform_ = false;
     }
   }
 

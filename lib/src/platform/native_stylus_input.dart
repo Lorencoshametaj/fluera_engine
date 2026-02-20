@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import '../core/engine_scope.dart';
+import '../core/engine_error.dart';
 
 /// 🖊️ NativeStylusInput — Cross-Platform Stylus Metadata Service
 ///
@@ -111,7 +112,16 @@ class NativeStylusInput {
       }
 
       _isInitialized = true;
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.platform,
+          source: 'NativeStylusInput.initialize',
+          original: e,
+          stack: stack,
+        ),
+      );
       _isStylusSupported = false;
       _isInitialized = true;
     }
@@ -134,7 +144,16 @@ class NativeStylusInput {
     // Subscribe to iOS event channel (shared with PredictedTouchPlugin)
     _eventSubscription = _iosEventChannel.receiveBroadcastStream().listen(
       _handleIOSEvent,
-      onError: (_) {},
+      onError: (e) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.platform,
+            source: 'NativeStylusInput.iOSStream',
+            original: e,
+          ),
+        );
+      },
     );
   }
 
@@ -167,9 +186,30 @@ class NativeStylusInput {
         // Subscribe to Android stylus events
         _eventSubscription = _androidEventChannel
             .receiveBroadcastStream()
-            .listen(_handleAndroidEvent, onError: (_) {});
+            .listen(
+              _handleAndroidEvent,
+              onError: (e) {
+                EngineScope.current.errorRecovery.reportError(
+                  EngineError(
+                    severity: ErrorSeverity.transient,
+                    domain: ErrorDomain.platform,
+                    source: 'NativeStylusInput.androidStream',
+                    original: e,
+                  ),
+                );
+              },
+            );
       }
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.platform,
+          source: 'NativeStylusInput._initializeAndroid',
+          original: e,
+          stack: stack,
+        ),
+      );
       _isStylusSupported = false;
     }
   }

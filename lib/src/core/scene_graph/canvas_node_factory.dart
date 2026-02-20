@@ -1,4 +1,5 @@
 import './canvas_node.dart';
+import './node_id.dart';
 import '../nodes/group_node.dart';
 import '../nodes/layer_node.dart';
 import '../nodes/stroke_node.dart';
@@ -44,7 +45,7 @@ class CanvasNodeFactory {
         return ImageNode.fromJson(json);
 
       case 'group':
-        final group = GroupNode(id: json['id'] as String);
+        final group = GroupNode(id: NodeId(json['id'] as String));
         CanvasNode.applyBaseFromJson(group, json);
         if (json['children'] != null) {
           group.loadChildrenFromJson(
@@ -108,7 +109,7 @@ class CanvasNodeFactory {
 
   /// Create a [LayerNode] from JSON.
   static LayerNode layerFromJson(Map<String, dynamic> json) {
-    final layer = LayerNode(id: json['id'] as String);
+    final layer = LayerNode(id: NodeId(json['id'] as String));
     CanvasNode.applyBaseFromJson(layer, json);
     if (json['children'] != null) {
       layer.loadChildrenFromJson(json['children'] as List<dynamic>, fromJson);

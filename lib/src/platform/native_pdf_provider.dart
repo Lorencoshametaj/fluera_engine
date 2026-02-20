@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import '../canvas/nebula_canvas_config.dart';
+import '../core/models/ocr_result.dart';
 import '../core/models/pdf_text_rect.dart';
 
 /// 📄 Native PDF rendering provider — zero third-party dependencies.
@@ -224,6 +225,29 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
     } catch (e) {
       debugPrint('[NativePdfProvider] getPageText error: $e');
       return '';
+    }
+  }
+
+  // ===========================================================================
+  // OCR — Native text recognition for scanned/image-based PDFs
+  // ===========================================================================
+
+  @override
+  Future<OcrPageResult?> ocrPage(int pageIndex) async {
+    if (_isDisposed || pageIndex < 0 || pageIndex >= _pageCount) return null;
+
+    try {
+      final result = await _channel.invokeMethod<Map>('ocrPage', {
+        'documentId': documentId,
+        'pageIndex': pageIndex,
+      });
+
+      if (result == null) return null;
+
+      return OcrPageResult.fromMap(Map<String, dynamic>.from(result));
+    } catch (e) {
+      debugPrint('[NativePdfProvider] ocrPage error: $e');
+      return null;
     }
   }
 

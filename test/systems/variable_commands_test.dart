@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/history/command_history.dart';
 import 'package:nebula_engine/src/systems/design_variables.dart';
@@ -13,7 +14,7 @@ void main() {
   group('SetVariableValueCommand', () {
     test('execute sets value, undo restores old value', () {
       final v = DesignVariable(
-        id: 'opacity',
+        id: NodeId('opacity'),
         name: 'Opacity',
         type: DesignVariableType.number,
         values: {'default': 0.5},
@@ -34,7 +35,7 @@ void main() {
 
     test('undo removes value if it was previously null', () {
       final v = DesignVariable(
-        id: 'color',
+        id: NodeId('color'),
         name: 'Color',
         type: DesignVariableType.color,
       );
@@ -54,7 +55,7 @@ void main() {
 
     test('redo re-applies the value', () {
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
         values: {'default': 10.0},
@@ -80,11 +81,11 @@ void main() {
   group('SetActiveModeCommand', () {
     test('execute switches mode, undo restores', () {
       final collection = VariableCollection(
-        id: 'themes',
+        id: NodeId('themes'),
         name: 'Themes',
         modes: [
-          VariableMode(id: 'light', name: 'Light'),
-          VariableMode(id: 'dark', name: 'Dark'),
+          VariableMode(id: NodeId('light'), name: 'Light'),
+          VariableMode(id: NodeId('dark'), name: 'Dark'),
         ],
       );
       final resolver = VariableResolver(collections: [collection]);
@@ -109,9 +110,9 @@ void main() {
 
   group('AddVariableCommand', () {
     test('execute adds, undo removes', () {
-      final collection = VariableCollection(id: 'c1', name: 'Test');
+      final collection = VariableCollection(id: NodeId('c1'), name: 'Test');
       final variable = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
       );
@@ -133,11 +134,11 @@ void main() {
   group('RemoveVariableCommand', () {
     test('execute removes variable and bindings, undo restores both', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         variables: [
           DesignVariable(
-            id: 'v1',
+            id: NodeId('v1'),
             name: 'V1',
             type: DesignVariableType.number,
             values: {'default': 42.0},
@@ -227,11 +228,11 @@ void main() {
   group('RenameVariableCommand', () {
     test('execute renames variable and bindings, undo restores', () {
       final collection = VariableCollection(
-        id: 'c1',
+        id: NodeId('c1'),
         name: 'Test',
         variables: [
           DesignVariable(
-            id: 'old-id',
+            id: NodeId('old-id'),
             name: 'My Var',
             type: DesignVariableType.number,
             values: {'default': 10.0},
@@ -275,14 +276,14 @@ void main() {
 
   group('CompositeCommand', () {
     test('execute runs all sub-commands in order', () {
-      final collection = VariableCollection(id: 'c1', name: 'Test');
+      final collection = VariableCollection(id: NodeId('c1'), name: 'Test');
       final v1 = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
       );
       final v2 = DesignVariable(
-        id: 'v2',
+        id: NodeId('v2'),
         name: 'V2',
         type: DesignVariableType.number,
       );
@@ -300,14 +301,14 @@ void main() {
     });
 
     test('undo reverses all sub-commands in reverse order', () {
-      final collection = VariableCollection(id: 'c1', name: 'Test');
+      final collection = VariableCollection(id: NodeId('c1'), name: 'Test');
       final v1 = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
       );
       final v2 = DesignVariable(
-        id: 'v2',
+        id: NodeId('v2'),
         name: 'V2',
         type: DesignVariableType.number,
       );
@@ -326,9 +327,9 @@ void main() {
     });
 
     test('redo re-applies all sub-commands', () {
-      final collection = VariableCollection(id: 'c1', name: 'Test');
+      final collection = VariableCollection(id: NodeId('c1'), name: 'Test');
       final v1 = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
       );
@@ -352,7 +353,7 @@ void main() {
   group('Variable locking (isLocked)', () {
     test('locked variable throws StateError on setValue', () {
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
         values: {'default': 1.0},
@@ -365,7 +366,7 @@ void main() {
 
     test('unlocked variable allows setValue', () {
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
         values: {'default': 1.0},
@@ -377,7 +378,7 @@ void main() {
 
     test('isLocked round-trips through serialization', () {
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
         isLocked: true,
@@ -392,7 +393,7 @@ void main() {
 
     test('isLocked defaults to false', () {
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
       );
@@ -401,7 +402,7 @@ void main() {
 
     test('unlock then edit works', () {
       final v = DesignVariable(
-        id: 'v1',
+        id: NodeId('v1'),
         name: 'V1',
         type: DesignVariableType.number,
         values: {'default': 1.0},

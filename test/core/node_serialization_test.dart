@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
@@ -16,7 +17,7 @@ import '../helpers/test_helpers.dart';
 void main() {
   group('StrokeNode serialization roundtrip', () {
     test('toJson → fromJson preserves data', () {
-      final original = testStrokeNode(id: 'stroke-rt');
+      final original = testStrokeNode(id: NodeId('stroke-rt'));
       final json = original.toJson();
       final restored = StrokeNode.fromJson(json);
 
@@ -30,7 +31,7 @@ void main() {
 
   group('ShapeNode serialization roundtrip', () {
     test('toJson → fromJson preserves data', () {
-      final original = testShapeNode(id: 'shape-rt');
+      final original = testShapeNode(id: NodeId('shape-rt'));
       final json = original.toJson();
       final restored = ShapeNode.fromJson(json);
 
@@ -46,9 +47,9 @@ void main() {
   group('TextNode serialization roundtrip', () {
     test('toJson → fromJson preserves data', () {
       final original = TextNode(
-        id: 'text-rt',
+        id: NodeId('text-rt'),
         textElement: DigitalTextElement(
-          id: 'te-1',
+          id: NodeId('te-1'),
           text: 'Hello World',
           position: const Offset(10, 20),
           color: Colors.blue,
@@ -72,9 +73,9 @@ void main() {
   group('ImageNode serialization roundtrip', () {
     test('toJson → fromJson preserves data', () {
       final original = ImageNode(
-        id: 'img-rt',
+        id: NodeId('img-rt'),
         imageElement: ImageElement(
-          id: 'ie-1',
+          id: NodeId('ie-1'),
           imagePath: '/path/to/image.png',
           position: const Offset(100, 200),
           scale: 1.5,
@@ -95,9 +96,9 @@ void main() {
 
   group('GroupNode serialization roundtrip', () {
     test('toJson → fromJson preserves children', () {
-      final group = testGroupNode(id: 'grp-rt');
-      group.add(testStrokeNode(id: 'child-s'));
-      group.add(testShapeNode(id: 'child-sh'));
+      final group = testGroupNode(id: NodeId('grp-rt'));
+      group.add(testStrokeNode(id: NodeId('child-s')));
+      group.add(testShapeNode(id: NodeId('child-sh')));
 
       final json = group.toJson();
       final restored = CanvasNodeFactory.fromJson(json) as GroupNode;
@@ -111,10 +112,10 @@ void main() {
 
   group('LayerNode serialization roundtrip', () {
     test('toJson → fromJson preserves children and properties', () {
-      final layer = testLayerNode(id: 'layer-rt');
+      final layer = testLayerNode(id: NodeId('layer-rt'));
       layer.name = 'Background Layer';
       layer.opacity = 0.8;
-      layer.add(testStrokeNode(id: 'ls'));
+      layer.add(testStrokeNode(id: NodeId('ls')));
 
       final json = layer.toJson();
       final restored = CanvasNodeFactory.layerFromJson(json);
@@ -128,8 +129,8 @@ void main() {
 
   group('CanvasNodeFactory', () {
     test('fromJson dispatches to correct type', () {
-      final strokeJson = testStrokeNode(id: 'f-s').toJson();
-      final shapeJson = testShapeNode(id: 'f-sh').toJson();
+      final strokeJson = testStrokeNode(id: NodeId('f-s')).toJson();
+      final shapeJson = testShapeNode(id: NodeId('f-sh')).toJson();
 
       expect(CanvasNodeFactory.fromJson(strokeJson), isA<StrokeNode>());
       expect(CanvasNodeFactory.fromJson(shapeJson), isA<ShapeNode>());
@@ -145,7 +146,7 @@ void main() {
 
   group('Base properties serialization', () {
     test('non-default opacity is preserved', () {
-      final node = testStrokeNode(id: 'opacity-test');
+      final node = testStrokeNode(id: NodeId('opacity-test'));
       node.opacity = 0.42;
       final json = node.toJson();
       final restored = StrokeNode.fromJson(json);
@@ -153,7 +154,7 @@ void main() {
     });
 
     test('visibility and lock state are preserved', () {
-      final node = testStrokeNode(id: 'vis-lock');
+      final node = testStrokeNode(id: NodeId('vis-lock'));
       node.isVisible = false;
       node.isLocked = true;
       final json = node.toJson();
@@ -164,7 +165,7 @@ void main() {
 
     test('custom name is preserved', () {
       final node = StrokeNode(
-        id: 'named',
+        id: NodeId('named'),
         stroke: testStroke(),
         name: 'My Stroke',
       );

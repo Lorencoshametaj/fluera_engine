@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import '../core/engine_scope.dart';

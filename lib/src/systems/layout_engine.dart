@@ -1,3 +1,4 @@
+import 'dart:ui';
 import '../core/scene_graph/canvas_node.dart';
 import '../core/nodes/group_node.dart';
 import '../core/nodes/frame_node.dart';
@@ -34,7 +35,11 @@ class LayoutEngine {
   ///
   /// Performs a depth-first traversal, collecting all dirty FrameNodes
   /// and resolving them bottom-up (deepest first, then parents).
-  static void resolveLayout(CanvasNode root) {
+  ///
+  /// [input] provides available dimensions from the containing context
+  /// (e.g. viewport size). Passed down to root-level frames so children
+  /// with [SizingMode.fill] can resolve correctly.
+  static void resolveLayout(CanvasNode root, {LayoutInput? input}) {
     // Collect all FrameNodes that need layout, deepest first.
     final dirtyFrames = <FrameNode>[];
     _collectDirtyFrames(root, dirtyFrames);
@@ -42,7 +47,9 @@ class LayoutEngine {
     // Layout in reverse order (deepest first = bottom-up).
     for (final frame in dirtyFrames.reversed) {
       if (frame.needsLayout) {
-        frame.performLayout();
+        // Only pass input to root-level frames (no parent frame).
+        final isRootFrame = frame.parent is! FrameNode;
+        frame.performLayout(input: isRootFrame ? input : null);
       }
     }
   }
@@ -51,12 +58,30 @@ class LayoutEngine {
   ///
   /// This is the most common entry point — called by the renderer
   /// when it encounters a frame with [needsLayout] == true.
-  static void resolveFrame(FrameNode frame) {
+  ///
+  /// [input] provides available dimensions from the parent context.
+  static void resolveFrame(FrameNode frame, {LayoutInput? input}) {
     // performLayout() already handles recursive bottom-up layout
     // for nested FrameNodes internally.
     if (frame.needsLayout) {
-      frame.performLayout();
+      frame.performLayout(input: input);
     }
+  }
+
+  /// Resize a [FrameNode] and apply pin-edge constraints to its children.
+  ///
+  /// This is the correct way to programmatically resize a frame when
+  /// you want pinned children to respond (stretch, move, or maintain
+  /// their edge distances).
+  ///
+  /// ```dart
+  /// LayoutEngine.resizeFrame(myFrame, const Size(600, 400));
+  /// ```
+  static void resizeFrame(FrameNode frame, Size newSize) {
+    final oldSize = frame.frameSize ?? Size.zero;
+    frame.frameSize = newSize;
+    frame.applyPinConstraints(oldSize, newSize);
+    frame.markLayoutDirty();
   }
 
   /// Resolve layout for all [FrameNode]s with responsive variant support.

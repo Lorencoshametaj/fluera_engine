@@ -13,7 +13,7 @@ enum SelectionMode {
   marquee,
 }
 
-extension _LassoVisual on LassoTool {
+extension LassoVisual on LassoTool {
   // ===========================================================================
   // Rubber Band / Marquee Selection
   // ===========================================================================
@@ -29,8 +29,7 @@ extension _LassoVisual on LassoTool {
     _marqueeEnd = position;
   }
 
-  /// Complete the marquee selection — creates a rectangular path
-  /// and selects elements within it using existing hit-testing.
+  /// Complete the marquee selection — uses SelectionManager.marqueeSelect.
   void _completeMarquee() {
     if (_marqueeStart == null || _marqueeEnd == null) return;
 
@@ -41,15 +40,8 @@ extension _LassoVisual on LassoTool {
       return;
     }
 
-    final path = Path()..addRect(rect);
-
-    if (_additiveMode) {
-      // Keep existing selection, add new elements
-      _selectElementsInPath(path);
-    } else {
-      clearSelection();
-      _selectElementsInPath(path);
-    }
+    final layerNode = _getActiveLayerNode();
+    selectionManager.marqueeSelect(layerNode, rect, additive: _additiveMode);
 
     expandSelectionToGroups();
     _calculateSelectionBounds();
@@ -86,8 +78,23 @@ extension _LassoVisual on LassoTool {
     }
     path.close();
 
-    // Don't clear — just add to existing selection
-    _selectElementsInPath(path);
+    // Hit test: add new nodes to existing selection
+    final layerNode = _getActiveLayerNode();
+    final lassoBounds = path.getBounds();
+
+    for (final child in layerNode.children) {
+      if (!child.isVisible || child.isLocked) continue;
+      if (selectionManager.isSelected(child.id)) continue;
+
+      final bounds = child.worldBounds;
+      if (!bounds.isFinite || bounds.isEmpty) continue;
+      if (!bounds.overlaps(lassoBounds)) continue;
+
+      if (path.contains(bounds.center)) {
+        selectionManager.addToSelection(child);
+      }
+    }
+
     expandSelectionToGroups();
     _calculateSelectionBounds();
     lassoPath.clear();
@@ -99,27 +106,14 @@ extension _LassoVisual on LassoTool {
 
   /// Collect bounds of all non-selected elements for guide detection.
   List<Rect> _getNonSelectedElementBounds() {
-    final activeLayer = _getActiveLayer();
+    final layerNode = _getActiveLayerNode();
     final bounds = <Rect>[];
 
-    for (final stroke in activeLayer.strokes) {
-      if (!selectedStrokeIds.contains(stroke.id)) {
-        bounds.add(stroke.bounds);
-      }
-    }
-    for (final shape in activeLayer.shapes) {
-      if (!selectedShapeIds.contains(shape.id)) {
-        bounds.add(Rect.fromPoints(shape.startPoint, shape.endPoint));
-      }
-    }
-    for (final text in activeLayer.texts) {
-      if (!selectedTextIds.contains(text.id)) {
-        bounds.add(_estimateTextBounds(text));
-      }
-    }
-    for (final image in activeLayer.images) {
-      if (!selectedImageIds.contains(image.id)) {
-        bounds.add(_estimateImageBounds(image));
+    for (final child in layerNode.children) {
+      if (selectionManager.isSelected(child.id)) continue;
+      final b = child.worldBounds;
+      if (b.isFinite && !b.isEmpty) {
+        bounds.add(b);
       }
     }
     return bounds;
@@ -132,12 +126,7 @@ extension _LassoVisual on LassoTool {
   /// Serialize the current selection state to a JSON-compatible map.
   Map<String, dynamic> _serializeSelection() {
     return {
-      'strokeIds': selectedStrokeIds.toList(),
-      'shapeIds': selectedShapeIds.toList(),
-      'textIds': selectedTextIds.toList(),
-      'imageIds': selectedImageIds.toList(),
-      'lockedIds': _lockedIds.toList(),
-      'groups': _groups.map((k, v) => MapEntry(k, v.toList())),
+      'selectedIds': selectionManager.selectedIds.toList(),
       'snapEnabled': snapEnabled,
       'gridSpacing': gridSpacing,
       'multiLayerMode': multiLayerMode,
@@ -149,34 +138,16 @@ extension _LassoVisual on LassoTool {
   void _deserializeSelection(Map<String, dynamic> data) {
     clearSelection();
 
-    final strokeIds = data['strokeIds'] as List<dynamic>?;
-    if (strokeIds != null) {
-      selectedStrokeIds.addAll(strokeIds.cast<String>());
-    }
-    final shapeIds = data['shapeIds'] as List<dynamic>?;
-    if (shapeIds != null) {
-      selectedShapeIds.addAll(shapeIds.cast<String>());
-    }
-    final textIds = data['textIds'] as List<dynamic>?;
-    if (textIds != null) {
-      selectedTextIds.addAll(textIds.cast<String>());
-    }
-    final imageIds = data['imageIds'] as List<dynamic>?;
-    if (imageIds != null) {
-      selectedImageIds.addAll(imageIds.cast<String>());
-    }
-
-    final lockedIds = data['lockedIds'] as List<dynamic>?;
-    if (lockedIds != null) {
-      _lockedIds.addAll(lockedIds.cast<String>());
-    }
-
-    final groups = data['groups'] as Map<String, dynamic>?;
-    if (groups != null) {
-      _groups.clear();
-      for (final entry in groups.entries) {
-        _groups[entry.key] =
-            (entry.value as List<dynamic>).cast<String>().toSet();
+    final ids = data['selectedIds'] as List<dynamic>?;
+    if (ids != null) {
+      final layerNode = _getActiveLayerNode();
+      final nodes = <CanvasNode>[];
+      for (final id in ids) {
+        final node = layerNode.findChild(id as String);
+        if (node != null) nodes.add(node);
+      }
+      if (nodes.isNotEmpty) {
+        selectionManager.selectAll(nodes);
       }
     }
 

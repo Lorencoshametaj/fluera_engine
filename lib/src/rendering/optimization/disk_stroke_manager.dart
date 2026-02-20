@@ -3,8 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
+import '../../core/error_recovery_service.dart';
+import './memory_managed_cache.dart';
 
 /// 🚀 DISK STROKE MANAGER - Storage to disk per 10M+ strokes
 ///
@@ -35,7 +39,9 @@ import '../../core/engine_scope.dart';
 /// - Metadata: ~640 MB (10M × 64 bytes bounds)
 /// - Chunks cache: ~40 MB (50 chunks × 800 KB avg)
 /// - TOTALE: ~800 MB (invece di 40 GB!)
-class DiskStrokeManager {
+class DiskStrokeManager
+    with MemoryManagedCacheMixin
+    implements MemoryManagedCache {
   // ═══════════════════════════════════════════════════════════════════════════
   // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
@@ -79,7 +85,8 @@ class DiskStrokeManager {
   // 🔧 SINGLETON
   // ═══════════════════════════════════════════════════════════════════════════
   /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static DiskStrokeManager get instance => EngineScope.current.diskStrokeManager;
+  static DiskStrokeManager get instance =>
+      EngineScope.current.diskStrokeManager;
 
   /// Creates a new instance (used by [EngineScope]).
   DiskStrokeManager.create();
@@ -106,7 +113,18 @@ class DiskStrokeManager {
       await _loadIndex();
 
       _initialized = true;
-    } catch (e) {
+    } catch (e, stack) {
+      // Report but still mark as initialized to avoid blocking the engine
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.storage,
+          source: 'DiskStrokeManager.initialize',
+          original: e,
+          stack: stack,
+        ),
+      );
+      _initialized = true;
     }
   }
 
@@ -129,7 +147,16 @@ class DiskStrokeManager {
 
         // Load bounds
         await _loadBounds();
-      } catch (e) {
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'DiskStrokeManager._loadIndex',
+            original: e,
+            stack: stack,
+          ),
+        );
       }
     }
   }
@@ -145,7 +172,16 @@ class DiskStrokeManager {
         for (final entry in bounds.entries) {
           _strokeBounds[entry.key] = StrokeBounds.fromJson(entry.value);
         }
-      } catch (e) {
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'DiskStrokeManager._loadBounds',
+            original: e,
+            stack: stack,
+          ),
+        );
       }
     }
   }
@@ -333,8 +369,16 @@ class DiskStrokeManager {
 
       _chunkCache[chunkId] = chunkData;
       _touchChunk(chunkId);
-
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.storage,
+          source: 'DiskStrokeManager._ensureChunkInCache',
+          original: e,
+          stack: stack,
+        ),
+      );
     }
   }
 
@@ -481,6 +525,52 @@ class DiskStrokeManager {
     _strokesInCurrentChunk = 0;
     _initialized = false;
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🧠 MEMORY MANAGED CACHE INTERFACE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  String get cacheName => 'DiskStrokeChunks';
+
+  @override
+  int get estimatedMemoryBytes {
+    // Approximate: each cached chunk holds ~1000 strokes × ~100 points × 40 bytes
+    // Average ~800 KB per chunk
+    const avgChunkBytes = 800 * 1024;
+    return _chunkCache.length * avgChunkBytes;
+  }
+
+  @override
+  int get cacheEntryCount => _chunkCache.length;
+
+  /// Cheapest to rebuild: data is on disk, just needs JSON reload.
+  @override
+  int get evictionPriority => 10;
+
+  @override
+  void evictFraction(double fraction) {
+    if (_chunkCache.isEmpty || fraction <= 0) return;
+
+    final toEvict = (_chunkCache.length * fraction).ceil().clamp(
+      1,
+      _chunkCache.length,
+    );
+    int evicted = 0;
+
+    while (evicted < toEvict && _chunkAccessOrder.isNotEmpty) {
+      final oldestChunkId = _chunkAccessOrder.removeAt(0);
+
+      // Never evict the current write chunk
+      if (oldestChunkId == _currentChunkId) continue;
+
+      _chunkCache.remove(oldestChunkId);
+      evicted++;
+    }
+  }
+
+  @override
+  void evictAll() => clearCache();
 }
 
 /// Bounds semplificato per storage efficiente

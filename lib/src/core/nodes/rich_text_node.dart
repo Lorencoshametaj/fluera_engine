@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 import '../effects/gradient_fill.dart';
 import '../vector/vector_path.dart';
@@ -268,7 +269,7 @@ class RichTextNode extends CanvasNode {
             .toList();
 
     final node = RichTextNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       spans: spanList,
       textAlign: TextAlign.values.firstWhere(
         (a) => a.name == json['textAlign'],

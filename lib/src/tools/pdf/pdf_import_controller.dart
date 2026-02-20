@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../core/nodes/pdf_page_node.dart';
@@ -66,7 +67,7 @@ class PdfImportController {
       pageModels.add(pageModel);
 
       final pageNode = PdfPageNode(
-        id: '${documentId}_page_$i',
+        id: NodeId('${documentId}_page_$i'),
         pageModel: pageModel,
         name: 'Page ${i + 1}',
       );
@@ -90,7 +91,7 @@ class PdfImportController {
 
     // Create document node
     final docNode = PdfDocumentNode(
-      id: documentId,
+      id: NodeId(documentId),
       documentModel: documentModel,
       name: 'PDF ($pageCount pages)',
     );

@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/nodes/group_node.dart';
@@ -481,7 +482,7 @@ void main() {
       );
 
       final observer = VariableBindingObserver(registry);
-      final node = _SimpleNode(id: 'n1');
+      final node = _SimpleNode(id: NodeId('n1'));
       observer.onNodeRemoved(node, 'parent');
 
       expect(registry.hasBindings('n1'), isFalse);
@@ -514,10 +515,10 @@ void main() {
       );
 
       // Build group hierarchy.
-      final grandchild = _SimpleNode(id: 'grandchild-1');
-      final childGroup = GroupNode(id: 'child-1', name: 'Child');
+      final grandchild = _SimpleNode(id: NodeId('grandchild-1'));
+      final childGroup = GroupNode(id: NodeId('child-1'), name: 'Child');
       childGroup.add(grandchild);
-      final parentGroup = GroupNode(id: 'group-1', name: 'Parent');
+      final parentGroup = GroupNode(id: NodeId('group-1'), name: 'Parent');
       parentGroup.add(childGroup);
 
       final observer = VariableBindingObserver(registry);
@@ -528,11 +529,11 @@ void main() {
 
     test('SceneGraph auto-cleans bindings on node removal', () {
       final sg = SceneGraph();
-      final layer = LayerNode(id: 'layer-1', name: 'L1');
+      final layer = LayerNode(id: NodeId('layer-1'), name: 'L1');
       sg.addLayer(layer);
 
       // Add a node with bindings.
-      final node = _SimpleNode(id: 'test-node');
+      final node = _SimpleNode(id: NodeId('test-node'));
       layer.add(node);
       sg.variableBindings.addBinding(
         const VariableBinding(

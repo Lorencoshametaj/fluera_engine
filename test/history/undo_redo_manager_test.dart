@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/history/undo_redo_manager.dart';
 import 'package:nebula_engine/src/history/canvas_delta_tracker.dart';
@@ -73,18 +74,18 @@ void main() {
     });
 
     test('pushing new delta clears redo stack', () {
-      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: 'a'));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: NodeId('a')));
       manager.undo();
       expect(manager.canRedo, isTrue);
 
-      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: 'b'));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: NodeId('b')));
       expect(manager.canRedo, isFalse);
     });
 
     test('multiple undo/redo maintain LIFO order', () {
-      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: 'first'));
-      manager.pushDelta(_makeDelta(CanvasDeltaType.shapeAdded, id: 'second'));
-      manager.pushDelta(_makeDelta(CanvasDeltaType.textAdded, id: 'third'));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: NodeId('first')));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.shapeAdded, id: NodeId('second')));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.textAdded, id: NodeId('third')));
 
       expect(manager.undo()!.id, 'third');
       expect(manager.undo()!.id, 'second');
@@ -99,9 +100,9 @@ void main() {
   group('UndoRedoManager — batching', () {
     test('beginBatch/endBatch pushes deltas contiguously to undo stack', () {
       manager.beginBatch();
-      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: 'b1'));
-      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: 'b2'));
-      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: 'b3'));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: NodeId('b1')));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: NodeId('b2')));
+      manager.pushDelta(_makeDelta(CanvasDeltaType.strokeAdded, id: NodeId('b3')));
       manager.endBatch();
 
       // Each batched delta is pushed individually to the stack
@@ -130,7 +131,7 @@ void main() {
       // Push more than the limit (default 100)
       for (int i = 0; i < 120; i++) {
         manager.pushDelta(
-          _makeDelta(CanvasDeltaType.strokeAdded, id: 'delta-$i'),
+          _makeDelta(CanvasDeltaType.strokeAdded, id: NodeId('delta-$i')),
         );
       }
 

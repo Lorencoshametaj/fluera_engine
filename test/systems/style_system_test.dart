@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
@@ -114,20 +115,20 @@ void main() {
 
   group('StyleDefinition', () {
     test('constructs with id and name', () {
-      final style = StyleDefinition(id: 's1', name: 'Card Style');
+      final style = StyleDefinition(id: NodeId('s1'), name: 'Card Style');
       expect(style.id, 's1');
       expect(style.name, 'Card Style');
     });
 
     test('fillColor and strokeColor are optional', () {
-      final style = StyleDefinition(id: 's1', name: 'Minimal');
+      final style = StyleDefinition(id: NodeId('s1'), name: 'Minimal');
       expect(style.fillColor, isNull);
       expect(style.strokeColor, isNull);
     });
 
     test('clone creates independent copy', () {
       final style = StyleDefinition(
-        id: 's1',
+        id: NodeId('s1'),
         name: 'Original',
         fillColor: Colors.red,
         strokeWidth: 3.0,
@@ -143,7 +144,7 @@ void main() {
 
     test('toJson serializes correctly', () {
       final style = StyleDefinition(
-        id: 's1',
+        id: NodeId('s1'),
         name: 'Card',
         fillColor: Colors.blue,
         cornerRadius: 12,
@@ -157,7 +158,7 @@ void main() {
 
     test('fromJson round-trips', () {
       final original = StyleDefinition(
-        id: 's1',
+        id: NodeId('s1'),
         name: 'Card',
         fillColor: Colors.blue,
         strokeWidth: 2.0,
@@ -172,8 +173,8 @@ void main() {
     });
 
     test('applyTo sets opacity on node', () {
-      final style = StyleDefinition(id: 's1', opacity: 0.5);
-      final node = _TestNode(id: 'n1');
+      final style = StyleDefinition(id: NodeId('s1'), opacity: 0.5);
+      final node = _TestNode(id: NodeId('n1'));
       style.applyTo(node);
       expect(node.opacity, 0.5);
     });
@@ -194,7 +195,7 @@ void main() {
 
     group('register / get', () {
       test('registers and retrieves a style', () {
-        registry.register(StyleDefinition(id: 's1', name: 'Style 1'));
+        registry.register(StyleDefinition(id: NodeId('s1'), name: 'Style 1'));
         final retrieved = registry.getStyle('s1');
         expect(retrieved, isNotNull);
         expect(retrieved!.name, 'Style 1');
@@ -205,7 +206,7 @@ void main() {
       });
 
       test('removeStyle removes by id', () {
-        registry.register(StyleDefinition(id: 's1', name: 'Style 1'));
+        registry.register(StyleDefinition(id: NodeId('s1'), name: 'Style 1'));
         registry.removeStyle('s1');
         expect(registry.getStyle('s1'), isNull);
       });
@@ -216,12 +217,12 @@ void main() {
     group('apply / link', () {
       test('applyStyle links node to style', () {
         final style = StyleDefinition(
-          id: 's1',
+          id: NodeId('s1'),
           name: 'Highlight',
           fillColor: Colors.yellow,
         );
         registry.register(style);
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         registry.applyStyle('s1', node);
 
         expect(registry.hasStyle('n1'), isTrue);
@@ -229,9 +230,9 @@ void main() {
       });
 
       test('styleForNode returns linked style', () {
-        final style = StyleDefinition(id: 's1', name: 'Test');
+        final style = StyleDefinition(id: NodeId('s1'), name: 'Test');
         registry.register(style);
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         registry.applyStyle('s1', node);
 
         final linked = registry.styleForNode('n1');
@@ -240,9 +241,9 @@ void main() {
       });
 
       test('detachNode removes link', () {
-        final style = StyleDefinition(id: 's1', name: 'Test');
+        final style = StyleDefinition(id: NodeId('s1'), name: 'Test');
         registry.register(style);
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         registry.applyStyle('s1', node);
         registry.detachNode('n1');
 
@@ -251,10 +252,10 @@ void main() {
       });
 
       test('removeStyle detaches all linked nodes', () {
-        final style = StyleDefinition(id: 's1', name: 'Test');
+        final style = StyleDefinition(id: NodeId('s1'), name: 'Test');
         registry.register(style);
-        registry.applyStyle('s1', _TestNode(id: 'n1'));
-        registry.applyStyle('s1', _TestNode(id: 'n2'));
+        registry.applyStyle('s1', _TestNode(id: NodeId('n1')));
+        registry.applyStyle('s1', _TestNode(id: NodeId('n2')));
         expect(registry.usageCount('s1'), 2);
 
         registry.removeStyle('s1');
@@ -267,9 +268,9 @@ void main() {
 
     group('updateStyle', () {
       test('updates style and re-applies to linked nodes', () {
-        final style = StyleDefinition(id: 's1', name: 'Test', opacity: 1.0);
+        final style = StyleDefinition(id: NodeId('s1'), name: 'Test', opacity: 1.0);
         registry.register(style);
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         registry.applyStyle('s1', node);
 
         registry.updateStyle('s1', (s) {
@@ -284,8 +285,8 @@ void main() {
 
     group('serialization', () {
       test('toJson / loadFromJson round-trips', () {
-        registry.register(StyleDefinition(id: 's1', name: 'Card'));
-        registry.register(StyleDefinition(id: 's2', name: 'Heading'));
+        registry.register(StyleDefinition(id: NodeId('s1'), name: 'Card'));
+        registry.register(StyleDefinition(id: NodeId('s2'), name: 'Heading'));
 
         final json = registry.toJson();
         final restored = StyleRegistry();

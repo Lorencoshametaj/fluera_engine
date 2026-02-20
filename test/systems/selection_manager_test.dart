@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/nodes/group_node.dart';
@@ -52,7 +53,7 @@ void main() {
 
     group('select / deselect', () {
       test('select a single node', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         manager.select(node);
         expect(manager.isNotEmpty, isTrue);
         expect(manager.count, 1);
@@ -61,16 +62,16 @@ void main() {
       });
 
       test('select clears previous selection', () {
-        manager.select(_TestNode(id: 'n1'));
-        manager.select(_TestNode(id: 'n2'));
+        manager.select(_TestNode(id: NodeId('n1')));
+        manager.select(_TestNode(id: NodeId('n2')));
         expect(manager.count, 1);
         expect(manager.isSelected('n1'), isFalse);
         expect(manager.isSelected('n2'), isTrue);
       });
 
       test('addToSelection adds without clearing', () {
-        final n1 = _TestNode(id: 'n1');
-        final n2 = _TestNode(id: 'n2');
+        final n1 = _TestNode(id: NodeId('n1'));
+        final n2 = _TestNode(id: NodeId('n2'));
         manager.select(n1);
         manager.addToSelection(n2);
         expect(manager.count, 2);
@@ -78,7 +79,7 @@ void main() {
       });
 
       test('toggleSelect adds then removes', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         manager.toggleSelect(node);
         expect(manager.isSelected('n1'), isTrue);
         manager.toggleSelect(node);
@@ -86,8 +87,8 @@ void main() {
       });
 
       test('deselect removes specific node', () {
-        final n1 = _TestNode(id: 'n1');
-        final n2 = _TestNode(id: 'n2');
+        final n1 = _TestNode(id: NodeId('n1'));
+        final n2 = _TestNode(id: NodeId('n2'));
         manager.select(n1);
         manager.addToSelection(n2);
         manager.deselect('n1');
@@ -96,21 +97,21 @@ void main() {
       });
 
       test('clearSelection removes all', () {
-        manager.select(_TestNode(id: 'n1'));
-        manager.addToSelection(_TestNode(id: 'n2'));
+        manager.select(_TestNode(id: NodeId('n1')));
+        manager.addToSelection(_TestNode(id: NodeId('n2')));
         manager.clearSelection();
         expect(manager.isEmpty, isTrue);
         expect(manager.count, 0);
       });
 
       test('singleSelected returns the node when one selected', () {
-        final node = _TestNode(id: 'n1');
+        final node = _TestNode(id: NodeId('n1'));
         manager.select(node);
         expect(manager.singleSelected, same(node));
       });
 
       test('singleSelected returns null when multiple selected', () {
-        manager.selectAll([_TestNode(id: 'a'), _TestNode(id: 'b')]);
+        manager.selectAll([_TestNode(id: NodeId('a')), _TestNode(id: NodeId('b'))]);
         expect(manager.singleSelected, isNull);
       });
     });
@@ -120,9 +121,9 @@ void main() {
     group('selectAll', () {
       test('selects multiple nodes at once', () {
         final nodes = [
-          _TestNode(id: 'a'),
-          _TestNode(id: 'b'),
-          _TestNode(id: 'c'),
+          _TestNode(id: NodeId('a')),
+          _TestNode(id: NodeId('b')),
+          _TestNode(id: NodeId('c')),
         ];
         manager.selectAll(nodes);
         expect(manager.count, 3);
@@ -130,8 +131,8 @@ void main() {
       });
 
       test('replaces previous selection', () {
-        manager.select(_TestNode(id: 'old'));
-        manager.selectAll([_TestNode(id: 'a'), _TestNode(id: 'b')]);
+        manager.select(_TestNode(id: NodeId('old')));
+        manager.selectAll([_TestNode(id: NodeId('a')), _TestNode(id: NodeId('b'))]);
         expect(manager.count, 2);
         expect(manager.isSelected('old'), isFalse);
       });
@@ -141,13 +142,13 @@ void main() {
 
     group('marqueeSelect', () {
       test('selects nodes inside marquee rect', () {
-        final root = GroupNode(id: 'root');
+        final root = GroupNode(id: NodeId('root'));
         root.add(
-          _TestNode(id: 'inside', bounds: const Rect.fromLTWH(10, 10, 30, 30)),
+          _TestNode(id: NodeId('inside'), bounds: const Rect.fromLTWH(10, 10, 30, 30)),
         );
         root.add(
           _TestNode(
-            id: 'outside',
+            id: NodeId('outside'),
             bounds: const Rect.fromLTWH(200, 200, 30, 30),
           ),
         );
@@ -158,10 +159,10 @@ void main() {
       });
 
       test('skips locked nodes', () {
-        final root = GroupNode(id: 'root');
+        final root = GroupNode(id: NodeId('root'));
         root.add(
           _TestNode(
-            id: 'locked',
+            id: NodeId('locked'),
             bounds: const Rect.fromLTWH(10, 10, 30, 30),
             isLocked: true,
           ),
@@ -172,10 +173,10 @@ void main() {
       });
 
       test('skips invisible nodes', () {
-        final root = GroupNode(id: 'root');
+        final root = GroupNode(id: NodeId('root'));
         root.add(
           _TestNode(
-            id: 'hidden',
+            id: NodeId('hidden'),
             bounds: const Rect.fromLTWH(10, 10, 30, 30),
             isVisible: false,
           ),
@@ -186,13 +187,13 @@ void main() {
       });
 
       test('additive mode preserves existing selection', () {
-        final root = GroupNode(id: 'root');
+        final root = GroupNode(id: NodeId('root'));
         final first = _TestNode(
-          id: 'first',
+          id: NodeId('first'),
           bounds: const Rect.fromLTWH(0, 0, 10, 10),
         );
         final second = _TestNode(
-          id: 'second',
+          id: NodeId('second'),
           bounds: const Rect.fromLTWH(50, 50, 10, 10),
         );
         root.add(first);
@@ -212,8 +213,8 @@ void main() {
 
     group('typed filtering', () {
       test('selectedOfType filters by runtime type', () {
-        final t1 = _TestNode(id: 't1');
-        final g1 = GroupNode(id: 'g1');
+        final t1 = _TestNode(id: NodeId('t1'));
+        final g1 = GroupNode(id: NodeId('g1'));
         manager.select(t1);
         manager.addToSelection(g1);
         final testOnly = manager.selectedOfType<_TestNode>();
@@ -222,8 +223,8 @@ void main() {
       });
 
       test('removeLockedFromSelection removes locked nodes', () {
-        final unlocked = _TestNode(id: 'u');
-        final locked = _TestNode(id: 'l', isLocked: true);
+        final unlocked = _TestNode(id: NodeId('u'));
+        final locked = _TestNode(id: NodeId('l'), isLocked: true);
         manager.select(unlocked);
         manager.addToSelection(locked);
         manager.removeLockedFromSelection();
@@ -236,8 +237,8 @@ void main() {
 
     group('transforms', () {
       test('translateAll moves all selected nodes', () {
-        final n1 = _TestNode(id: 'n1');
-        final n2 = _TestNode(id: 'n2');
+        final n1 = _TestNode(id: NodeId('n1'));
+        final n2 = _TestNode(id: NodeId('n2'));
         manager.selectAll([n1, n2]);
         manager.translateAll(10, 20);
         expect(n1.position.dx, closeTo(10, 0.01));
@@ -247,7 +248,7 @@ void main() {
       });
 
       test('translateAll skips locked nodes', () {
-        final locked = _TestNode(id: 'l', isLocked: true);
+        final locked = _TestNode(id: NodeId('l'), isLocked: true);
         manager.select(locked);
         manager.translateAll(10, 20);
         expect(locked.position.dx, closeTo(0, 0.01));
@@ -266,16 +267,16 @@ void main() {
 
     group('serialization', () {
       test('toJson returns selected node IDs', () {
-        manager.select(_TestNode(id: 'n1'));
-        manager.addToSelection(_TestNode(id: 'n2'));
+        manager.select(_TestNode(id: NodeId('n1')));
+        manager.addToSelection(_TestNode(id: NodeId('n2')));
         final json = manager.toJson();
         expect(json['selectedIds'], isA<List>());
         expect((json['selectedIds'] as List).length, 2);
       });
 
       test('loadFromJson restores selection', () {
-        final n1 = _TestNode(id: 'n1');
-        final n2 = _TestNode(id: 'n2');
+        final n1 = _TestNode(id: NodeId('n1'));
+        final n2 = _TestNode(id: NodeId('n2'));
         manager.selectAll([n1, n2]);
         final json = manager.toJson();
 
@@ -297,13 +298,13 @@ void main() {
       test('fires callback on selection change', () {
         int callCount = 0;
         manager.onSelectionChanged = () => callCount++;
-        manager.select(_TestNode(id: 'n1'));
+        manager.select(_TestNode(id: NodeId('n1')));
         expect(callCount, 1);
       });
 
       test('fires on clearSelection', () {
         int callCount = 0;
-        manager.select(_TestNode(id: 'n1'));
+        manager.select(_TestNode(id: NodeId('n1')));
         manager.onSelectionChanged = () => callCount++;
         manager.clearSelection();
         expect(callCount, 1);

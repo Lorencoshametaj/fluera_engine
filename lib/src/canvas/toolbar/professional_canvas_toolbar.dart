@@ -131,11 +131,13 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   // 📄 PDF active state — contextual tools appear when a PDF is loaded
   final bool isPdfActive;
   final PdfDocumentNode? pdfDocument;
+  final List<PdfDocumentNode> pdfDocuments; // 📄 All PDFs for multi-doc search
   final PdfAnnotationController? pdfAnnotationController;
   final PdfSearchController? pdfSearchController;
   final CommandHistory? pdfCommandHistory;
   final VoidCallback? onPdfInsertBlankPage;
   final void Function(int)? onPdfDeletePage;
+  final void Function(String, int)? onPdfGoToPage; // 🔍 Scroll to PDF page
   final VoidCallback? onPdfExport;
   final int pdfSelectedPageIndex;
 
@@ -225,11 +227,13 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onPdfImportPressed, // 📄 PDF import
     this.isPdfActive = false,
     this.pdfDocument,
+    this.pdfDocuments = const [],
     this.pdfAnnotationController,
     this.pdfSearchController,
     this.pdfCommandHistory,
     this.onPdfInsertBlankPage,
     this.onPdfDeletePage,
+    this.onPdfGoToPage, // 🔍 Scroll to page
     this.onPdfExport,
     this.pdfSelectedPageIndex = 0,
     this.hideRecordingControlWhenActive = false,

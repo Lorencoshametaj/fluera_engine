@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 import '../scene_graph/canvas_node.dart';
+import '../scene_graph/node_id.dart';
 import '../scene_graph/node_visitor.dart';
 
 /// A uniform value that can be passed to a fragment shader.
@@ -307,7 +308,7 @@ class ShaderNode extends CanvasNode {
 
   factory ShaderNode.fromJson(Map<String, dynamic> json) {
     final node = ShaderNode(
-      id: json['id'] as String,
+      id: NodeId(json['id'] as String),
       name: json['name'] as String? ?? 'Shader',
       effect: ShaderEffect.fromJson(json['effect'] as Map<String, dynamic>),
       width: (json['width'] as num?)?.toDouble() ?? 100,

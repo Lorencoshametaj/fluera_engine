@@ -1,3 +1,4 @@
+import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
@@ -21,12 +22,12 @@ void main() {
     });
 
     test('id is set correctly', () {
-      final node = testStrokeNode(id: 'my-id');
+      final node = testStrokeNode(id: NodeId('my-id'));
       expect(node.id, 'my-id');
     });
 
     test('name is set correctly', () {
-      final node = StrokeNode(id: 'n', stroke: testStroke(), name: 'My Node');
+      final node = StrokeNode(id: NodeId('n'), stroke: testStroke(), name: 'My Node');
       expect(node.name, 'My Node');
     });
 
@@ -51,7 +52,7 @@ void main() {
 
     test('worldTransform combines parent and local transforms', () {
       final parent = testGroupNode();
-      final child = testStrokeNode(id: 'child');
+      final child = testStrokeNode(id: NodeId('child'));
       parent.add(child);
 
       parent.localTransform = Matrix4.translationValues(100, 0, 0);
@@ -79,7 +80,7 @@ void main() {
 
   group('CanvasNode serialization', () {
     test('baseToJson contains all common fields', () {
-      final node = testStrokeNode(id: 'test-ser');
+      final node = testStrokeNode(id: NodeId('test-ser'));
       node.name = 'Test';
       node.opacity = 0.8;
       node.isVisible = false;
@@ -108,7 +109,7 @@ void main() {
 
   group('CanvasNode clone', () {
     test('clone produces a different node with different id', () {
-      final original = testStrokeNode(id: 'original');
+      final original = testStrokeNode(id: NodeId('original'));
       original.name = 'My Stroke';
       final cloned = original.clone();
 
@@ -117,7 +118,7 @@ void main() {
     });
 
     test('clone preserves properties', () {
-      final original = testStrokeNode(id: 'orig');
+      final original = testStrokeNode(id: NodeId('orig'));
       original.name = 'Test Stroke';
       original.opacity = 0.7;
       final cloned = original.clone();

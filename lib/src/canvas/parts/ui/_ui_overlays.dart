@@ -83,8 +83,7 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
         Positioned.fill(
           child: IgnorePointer(
             child: LassoSelectionOverlay(
-              selectedStrokeIds: _lassoTool.selectedStrokeIds,
-              selectedShapeIds: _lassoTool.selectedShapeIds,
+              selectedIds: _lassoTool.selectedIds,
               layerController: _layerController,
               canvasController: _canvasController,
               isDragging: _lassoTool.isDragging,

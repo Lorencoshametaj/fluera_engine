@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import '../core/engine_scope.dart';
+import '../core/engine_error.dart';
 
 /// 📊 NativePerformanceMonitor — Cross-Platform Performance Metrics
 ///
@@ -108,11 +109,29 @@ class NativePerformanceMonitor {
       // Subscribe to event channel
       _eventSubscription = _eventChannel.receiveBroadcastStream().listen(
         _handleEvent,
-        onError: (_) {},
+        onError: (e) {
+          EngineScope.current.errorRecovery.reportError(
+            EngineError(
+              severity: ErrorSeverity.transient,
+              domain: ErrorDomain.platform,
+              source: 'NativePerformanceMonitor.eventStream',
+              original: e,
+            ),
+          );
+        },
       );
 
       _isInitialized = true;
-    } catch (e) {
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.degraded,
+          domain: ErrorDomain.platform,
+          source: 'NativePerformanceMonitor.initialize',
+          original: e,
+          stack: stack,
+        ),
+      );
       _isInitialized = true;
     }
   }
@@ -131,7 +150,17 @@ class NativePerformanceMonitor {
         'intervalMs': intervalMs,
       });
       _isMonitoring = true;
-    } catch (_) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.platform,
+          source: 'NativePerformanceMonitor.startMonitoring',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Stop continuous metric sampling.
@@ -141,7 +170,17 @@ class NativePerformanceMonitor {
     try {
       await _methodChannel.invokeMethod('stopMonitoring');
       _isMonitoring = false;
-    } catch (_) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.platform,
+          source: 'NativePerformanceMonitor.stopMonitoring',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
   }
 
   /// Get a single performance snapshot.
@@ -153,7 +192,17 @@ class NativePerformanceMonitor {
       if (data != null) {
         return _parseMetrics(data);
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      EngineScope.current.errorRecovery.reportError(
+        EngineError(
+          severity: ErrorSeverity.transient,
+          domain: ErrorDomain.platform,
+          source: 'NativePerformanceMonitor.getSnapshot',
+          original: e,
+          stack: stack,
+        ),
+      );
+    }
     return null;
   }
 
