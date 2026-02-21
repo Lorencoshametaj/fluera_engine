@@ -154,6 +154,19 @@ class LatexParser {
       case 'textrm':
         return _parseTextCommand();
 
+      // Font style commands
+      case 'mathbf':
+      case 'boldsymbol':
+      case 'textbf':
+        return _parseFontCommand(bold: true);
+      case 'mathit':
+      case 'textit':
+        return _parseFontCommand(italic: true);
+      case 'mathbb':
+        return _parseMathbb();
+      case 'mathcal':
+        return _parseMathcal();
+
       // Accents
       case 'hat':
         return _parseAccent('hat');
@@ -349,6 +362,68 @@ class LatexParser {
       case 'ddots':
         return const LatexSymbol('⋱');
 
+      // ── Standard math function operators (upright/roman font) ──
+      case 'log':
+        return const LatexText('log');
+      case 'ln':
+        return const LatexText('ln');
+      case 'lg':
+        return const LatexText('lg');
+      case 'exp':
+        return const LatexText('exp');
+      case 'sin':
+        return const LatexText('sin');
+      case 'cos':
+        return const LatexText('cos');
+      case 'tan':
+        return const LatexText('tan');
+      case 'cot':
+        return const LatexText('cot');
+      case 'sec':
+        return const LatexText('sec');
+      case 'csc':
+        return const LatexText('csc');
+      case 'arcsin':
+        return const LatexText('arcsin');
+      case 'arccos':
+        return const LatexText('arccos');
+      case 'arctan':
+        return const LatexText('arctan');
+      case 'sinh':
+        return const LatexText('sinh');
+      case 'cosh':
+        return const LatexText('cosh');
+      case 'tanh':
+        return const LatexText('tanh');
+      case 'coth':
+        return const LatexText('coth');
+      case 'min':
+        return const LatexText('min');
+      case 'max':
+        return const LatexText('max');
+      case 'sup':
+        return const LatexText('sup');
+      case 'inf':
+        return const LatexText('inf');
+      case 'arg':
+        return const LatexText('arg');
+      case 'det':
+        return const LatexText('det');
+      case 'gcd':
+        return const LatexText('gcd');
+      case 'deg':
+        return const LatexText('deg');
+      case 'dim':
+        return const LatexText('dim');
+      case 'hom':
+        return const LatexText('hom');
+      case 'ker':
+        return const LatexText('ker');
+      case 'Pr':
+        return const LatexText('Pr');
+      case 'mod':
+        return const LatexText('mod');
+
       default:
         // Unknown command — return as error node.
         return LatexErrorNode('\\$cmdName', 'Unknown command: \\$cmdName');
@@ -408,6 +483,110 @@ class LatexParser {
     }
     if (_pos < _source.length) _pos++; // skip }
     return LatexText(buf.toString());
+  }
+
+  /// Parse a font command like `\mathbf{x}` or `\mathit{y}`
+  LatexAstNode _parseFontCommand({bool bold = false, bool italic = false}) {
+    final arg = _parseRequiredArg();
+    // Wrap the content — for simple symbols, apply the bold/italic flag
+    if (arg is LatexSymbol) {
+      return LatexSymbol(arg.value, italic: italic);
+    }
+    // For complex content, return as-is (bold not supported in AST yet)
+    return arg;
+  }
+
+  /// Parse `\mathbb{R}` — blackboard bold (double-struck)
+  LatexAstNode _parseMathbb() {
+    _skipWhitespace();
+    if (_pos >= _source.length) {
+      return const LatexErrorNode('\\mathbb', 'Expected argument');
+    }
+    // Read a single character or braced group
+    String letter;
+    if (_source[_pos] == '{') {
+      _pos++;
+      letter = '';
+      if (_pos < _source.length && _source[_pos] != '}') {
+        letter = _source[_pos];
+        _pos++;
+      }
+      if (_pos < _source.length && _source[_pos] == '}') _pos++;
+    } else {
+      letter = _source[_pos];
+      _pos++;
+    }
+
+    // Map common letters to Unicode double-struck
+    const bbMap = {
+      'A': '𝔸',
+      'B': '𝔹',
+      'C': 'ℂ',
+      'D': '𝔻',
+      'E': '𝔼',
+      'F': '𝔽',
+      'G': '𝔾',
+      'H': 'ℍ',
+      'I': '𝕀',
+      'J': '𝕁',
+      'K': '𝕂',
+      'L': '𝕃',
+      'M': '𝕄',
+      'N': 'ℕ',
+      'O': '𝕆',
+      'P': 'ℙ',
+      'Q': 'ℚ',
+      'R': 'ℝ',
+      'S': '𝕊',
+      'T': '𝕋',
+      'U': '𝕌',
+      'V': '𝕍',
+      'W': '𝕎',
+      'X': '𝕏',
+      'Y': '𝕐',
+      'Z': 'ℤ',
+      '0': '𝟘',
+      '1': '𝟙',
+      '2': '𝟚',
+      '3': '𝟛',
+      '4': '𝟜',
+      '5': '𝟝',
+      '6': '𝟞',
+      '7': '𝟟',
+      '8': '𝟠',
+      '9': '𝟡',
+    };
+    return LatexSymbol(bbMap[letter] ?? letter);
+  }
+
+  /// Parse `\mathcal{A}` — calligraphic font
+  LatexAstNode _parseMathcal() {
+    _skipWhitespace();
+    if (_pos >= _source.length) {
+      return const LatexErrorNode('\\mathcal', 'Expected argument');
+    }
+    String letter;
+    if (_source[_pos] == '{') {
+      _pos++;
+      letter = '';
+      if (_pos < _source.length && _source[_pos] != '}') {
+        letter = _source[_pos];
+        _pos++;
+      }
+      if (_pos < _source.length && _source[_pos] == '}') _pos++;
+    } else {
+      letter = _source[_pos];
+      _pos++;
+    }
+
+    // Map uppercase to Unicode Script Mathematical Alphanumeric Symbols
+    final code = letter.codeUnitAt(0);
+    if (code >= 65 && code <= 90) {
+      // U+1D49C (𝒜) offset = 0x1D49C - 0x41
+      final calChar = String.fromCharCode(0x1D49C + (code - 65));
+      return LatexSymbol(calChar);
+    }
+    return LatexSymbol(letter);
   }
 
   /// Parse an accent command: `\hat{base}`

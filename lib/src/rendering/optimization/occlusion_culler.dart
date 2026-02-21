@@ -1,6 +1,7 @@
 import 'dart:ui';
 import '../scene_graph/render_plan.dart';
 import '../../core/scene_graph/canvas_node.dart';
+import '../../core/nodes/stroke_node.dart';
 
 /// Occlusion culling pass for a compiled [RenderPlan].
 ///
@@ -21,6 +22,12 @@ import '../../core/scene_graph/canvas_node.dart';
 /// Only nodes with `opacity == 1.0` AND `blendMode == BlendMode.srcOver`
 /// are considered opaque. Transparent, masked, or blended nodes are
 /// never used for occlusion and are never culled.
+///
+/// ## Subtree-level skip (GAP B fix)
+///
+/// When a `drawNode` is culled, the optimizer also replaces the
+/// surrounding save/transform/…/restore block with skips, avoiding
+/// wasted canvas state machine operations.
 ///
 /// Usage:
 /// ```dart
@@ -44,8 +51,9 @@ class OcclusionCuller {
   /// Run the occlusion culling pass on a command list.
   ///
   /// Returns a new list with occluded [RenderCommand.drawNode]s
-  /// replaced by [RenderCommand.skip]. If no occlusion is found,
-  /// returns the original list unchanged (zero allocation).
+  /// AND their surrounding save/restore blocks replaced by
+  /// [RenderCommand.skip]. If no occlusion is found, returns the
+  /// original list unchanged (zero allocation).
   static List<RenderCommand> optimize(List<RenderCommand> commands) {
     // Collect drawNode commands with their indices and bounds.
     final draws = <_DrawEntry>[];
@@ -86,16 +94,89 @@ class OcclusionCuller {
 
     if (occludedIndices.isEmpty) return commands; // no optimization possible
 
-    // Build optimized command list.
+    // Build optimized command list — skip drawNode AND its save/restore block.
     final optimized = List<RenderCommand>.from(commands);
-    for (final idx in occludedIndices) {
-      optimized[idx] = const RenderCommand.skip();
+
+    for (final drawIdx in occludedIndices) {
+      // Replace the drawNode itself.
+      optimized[drawIdx] = const RenderCommand.skip();
+
+      // Walk backward from drawIdx to find the nearest save (the block start).
+      // This eliminates orphaned save → transform → … → restore chains.
+      _skipSurroundingBlock(optimized, drawIdx);
     }
+
     return optimized;
   }
 
-  /// Whether a node is fully opaque (no transparency, standard blend).
+  /// Skip the save/restore block surrounding a culled drawNode at [drawIdx].
+  ///
+  /// Walks backward to find the matching `save`, then forward to find the
+  /// matching `restore`, replacing them and any transform/saveLayer/clip
+  /// commands in between with `skip`.
+  static void _skipSurroundingBlock(List<RenderCommand> commands, int drawIdx) {
+    // Find the save that opens the block containing this drawNode.
+    // We track save/restore depth to handle nested groups correctly.
+    int depth = 0;
+    int blockStart = drawIdx;
+
+    for (int i = drawIdx - 1; i >= 0; i--) {
+      final type = commands[i].type;
+      if (type == RenderCommandType.restore) {
+        depth++;
+      } else if (type == RenderCommandType.save) {
+        if (depth == 0) {
+          blockStart = i;
+          break;
+        }
+        depth--;
+      }
+    }
+
+    // Find the matching restore after drawIdx.
+    depth = 0;
+    int blockEnd = drawIdx;
+
+    for (int i = drawIdx + 1; i < commands.length; i++) {
+      final type = commands[i].type;
+      if (type == RenderCommandType.save) {
+        depth++;
+      } else if (type == RenderCommandType.restore) {
+        if (depth == 0) {
+          blockEnd = i;
+          break;
+        }
+        depth--;
+      }
+    }
+
+    // Only skip the block if it's a simple leaf block (no other drawNodes
+    // inside it). Complex blocks with multiple draws should be left alone.
+    bool hasOtherDraw = false;
+    for (int i = blockStart; i <= blockEnd; i++) {
+      if (i != drawIdx && commands[i].type == RenderCommandType.drawNode) {
+        hasOtherDraw = true;
+        break;
+      }
+    }
+
+    if (!hasOtherDraw) {
+      // Safe to skip the entire block.
+      for (int i = blockStart; i <= blockEnd; i++) {
+        commands[i] = const RenderCommand.skip();
+      }
+    }
+  }
+
+  /// Whether a node is fully opaque (no transparency, standard blend)
+  /// AND has area-filling geometry (not a thin stroke/curve).
+  ///
+  /// StrokeNodes are explicitly excluded: they have opacity=1.0 and
+  /// blendMode=srcOver, but their bounding box contains mostly empty
+  /// space (a thin line doesn't fill its bounds). Treating them as
+  /// opaque occluders incorrectly hides overlapping strokes.
   static bool _isOpaque(CanvasNode node) {
+    if (node is StrokeNode) return false; // strokes are NOT area-filling
     return node.opacity >= 1.0 && node.blendMode == BlendMode.srcOver;
   }
 

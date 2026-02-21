@@ -1,4 +1,8 @@
 import 'assets/asset_registry.dart';
+import 'audit/audit_event_bridge.dart';
+import 'audit/audit_log_service.dart';
+import 'rbac/permission_interceptor.dart';
+import 'rbac/permission_service.dart';
 import 'scene_graph/invalidation_graph.dart';
 import 'scene_graph/scene_graph_interceptor.dart';
 import 'engine_error.dart';
@@ -308,7 +312,9 @@ class EngineScope {
 
   /// Pre-mutation interceptor chain for scene graph validation.
   late final InterceptorChain interceptorChain =
-      InterceptorChain()..add(LockInterceptor());
+      InterceptorChain()
+        ..add(LockInterceptor())
+        ..add(PermissionInterceptor(permissionService: permissionService));
 
   /// Async command runner for long-running operations.
   late final AsyncCommandRunner asyncCommandRunner = AsyncCommandRunner(
@@ -325,6 +331,18 @@ class EngineScope {
 
   /// Per-scope rendering cache state (replaces static caches).
   late final RenderCacheScope renderCacheScope = RenderCacheScope();
+
+  /// Immutable, queryable audit trail for compliance & forensics.
+  late final AuditLogService auditLog = AuditLogService();
+
+  /// Automatic bridge: EngineEventBus → AuditLogService.
+  late final AuditEventBridge auditBridge = AuditEventBridge(
+    eventBus: eventBus,
+    auditLog: auditLog,
+  )..start();
+
+  /// RBAC/ABAC permission service.
+  late final PermissionService permissionService = PermissionService();
 
   // ---------------------------------------------------------------------------
   // Health Check
@@ -379,6 +397,22 @@ class EngineScope {
 
     services.add(ServiceHealth(name: 'AssetRegistry', healthy: true));
 
+    services.add(
+      ServiceHealth(
+        name: 'AuditLog',
+        healthy: !auditLog.isDisposed,
+        detail: 'entries=${auditLog.stats.totalEntries}',
+      ),
+    );
+
+    services.add(
+      ServiceHealth(
+        name: 'PermissionService',
+        healthy: !permissionService.isDisposed,
+        detail: 'role=${permissionService.currentRole.id}',
+      ),
+    );
+
     return HealthReport(services: services);
   }
 
@@ -415,6 +449,9 @@ class EngineScope {
     renderCacheScope.dispose();
 
     // ── 2. Mid-tier (depend on infra, depended on by leaves) ──
+    auditBridge.dispose();
+    auditLog.dispose();
+    permissionService.dispose();
     asyncCommandRunner.dispose();
     undoRedoManager.dispose();
     commandHistory.dispose();

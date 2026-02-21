@@ -17,6 +17,7 @@ import '../nodes/pdf_document_node.dart';
 import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
+import '../nodes/tabular_node.dart';
 
 /// Double-dispatch visitor for type-safe scene graph traversal.
 ///
@@ -52,6 +53,7 @@ abstract class NodeVisitor<R> {
   R visitPdfDocument(PdfDocumentNode node);
   R visitVectorNetwork(VectorNetworkNode node);
   R visitLatex(LatexNode node);
+  R visitTabular(TabularNode node);
 }
 
 /// Default implementation that returns a fallback value for every node type.
@@ -109,4 +111,6 @@ class DefaultNodeVisitor<R> implements NodeVisitor<R> {
   R visitVectorNetwork(VectorNetworkNode node) => defaultValue;
   @override
   R visitLatex(LatexNode node) => defaultValue;
+  @override
+  R visitTabular(TabularNode node) => defaultValue;
 }

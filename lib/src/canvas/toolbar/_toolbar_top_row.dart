@@ -187,10 +187,9 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                       ),
                     ),
                     // ☁️ Cloud sync status indicator
-                    if (NebulaSyncStateProvider.instance != null)
+                    if (widget.cloudSyncState != null)
                       ValueListenableBuilder<NebulaSyncState>(
-                        valueListenable:
-                            NebulaSyncStateProvider.instance!.state,
+                        valueListenable: widget.cloudSyncState!,
                         builder: (context, state, _) {
                           if (state == NebulaSyncState.idle) {
                             return const SizedBox.shrink();

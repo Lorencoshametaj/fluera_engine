@@ -5,14 +5,31 @@ part of '../nebula_canvas_screen.dart';
 /// Shows [LatexEditorSheet] as a bottom sheet, handles node creation
 /// via the command history system, and wires up the ML recognizer warm-up.
 extension NebulaCanvasLatexHandler on _NebulaCanvasScreenState {
+  /// Lazily-initialized OCR recognizer for camera mode.
+  static Pix2TexRecognizer? _latexRecognizer;
+
+  /// Get or create the Pix2TexRecognizer (singleton per session).
+  Future<Pix2TexRecognizer> _getLatexRecognizer() async {
+    if (_latexRecognizer == null) {
+      _latexRecognizer = Pix2TexRecognizer();
+      await _latexRecognizer!.initialize();
+    }
+    return _latexRecognizer!;
+  }
+
   /// Show the LaTeX editor bottom sheet.
   ///
   /// When confirmed, creates a [LatexNode] at the current viewport center
   /// using [AddLatexNodeCommand] for undo/redo support.
-  void _showLatexEditorSheet({LatexNode? existingNode}) {
+  void _showLatexEditorSheet({LatexNode? existingNode}) async {
     final initialSource = existingNode?.latexSource ?? '';
     final initialFontSize = existingNode?.fontSize ?? 24.0;
     final initialColor = existingNode?.color ?? _effectiveSelectedColor;
+
+    // Initialize recognizer in background (non-blocking)
+    final recognizer = await _getLatexRecognizer();
+
+    if (!mounted) return;
 
     showModalBottomSheet<void>(
       context: context,
@@ -42,6 +59,7 @@ extension NebulaCanvasLatexHandler on _NebulaCanvasScreenState {
                   initialLatex: initialSource,
                   initialFontSize: initialFontSize,
                   initialColor: initialColor,
+                  recognizer: recognizer,
                   onConfirm: (latexSource, fontSize, color) {
                     Navigator.of(sheetContext).pop();
 

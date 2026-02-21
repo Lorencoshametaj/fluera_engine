@@ -49,16 +49,26 @@ extension on _NebulaCanvasScreenState {
       // Clamp to sane range
       initialScale = initialScale.clamp(0.05, 3.0);
 
-      // 🌐 Upload to Storage if on a shared canvas (so remote users can access it)
+      // 🌐 Upload to Cloud Storage (cross-device access)
       String? storageUrl;
       String? thumbnailUrl;
       final imageId = generateUid();
-      // Phase 2: upload to cloud storage for shared canvases
-      // if (_isSharedCanvas) {
-      //   final syncId = widget.infiniteCanvasId ?? _canvasId;
-      //   final imageBytes = await File(imagePath).readAsBytes();
-      //   ...
-      // }
+
+      if (_syncEngine != null) {
+        try {
+          final imageBytes = await File(imagePath).readAsBytes();
+          storageUrl = await _syncEngine!.adapter.uploadAsset(
+            _canvasId,
+            imageId,
+            imageBytes,
+            mimeType: 'image/png',
+          );
+          debugPrint('☁️ Image uploaded to cloud: $imageId');
+        } catch (e) {
+          debugPrint('☁️ Image cloud upload failed (local only): $e');
+          // Non-fatal: image works locally, just won't sync cross-device
+        }
+      }
 
       // Create image element
       final newImage = ImageElement(
@@ -83,6 +93,9 @@ extension on _NebulaCanvasScreenState {
 
       // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addImage(newImage);
+
+      // 🔴 RT: Broadcast new image to collaborators
+      _broadcastImageUpdate(newImage, isNew: true);
 
       // 💾 Auto-save after adding image
       _autoSaveCanvas();
@@ -387,7 +400,6 @@ extension on _NebulaCanvasScreenState {
 
               // 🔄 Sync: notify delta tracker for synchronization
               _layerController.removeImage(imageElement.id);
-              if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
 
               // 💾 Auto-save after image deletion
               _autoSaveCanvas();

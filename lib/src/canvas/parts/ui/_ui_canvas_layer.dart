@@ -128,6 +128,10 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                   ),
                 ),
             ],
+
+            // 🧮 Convert-to-LaTeX FAB — Z-top, sopra TUTTI gli overlay
+            if (_lassoTool.hasSelection && !_lassoTool.isDragging)
+              _buildConvertToLatexFab(),
           ],
         ),
       ),
@@ -280,6 +284,8 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                 _imageTool.isResizing ||
                 _imageTool.isDragging ||
                 _imageTool.isRotating ||
+                _tabularTool.isDragging ||
+                _tabularTool.isResizing ||
                 _imageTool.selectedImage !=
                     null, // 🌀 Block canvas zoom when image selected → 2 fingers rotate image
             // 🌀 IMAGE ROTATION: Two-finger rotate + scale on selected image

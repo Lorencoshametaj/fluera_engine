@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import '../collaboration/nebula_sync_interfaces.dart';
+import '../storage/nebula_cloud_adapter.dart';
+import '../collaboration/nebula_realtime_adapter.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/pdf_text_rect.dart';
@@ -89,22 +90,20 @@ class NebulaCanvasConfig {
   // CLOUD SYNC
   // ===========================================================================
 
-  /// Whether cloud sync is enabled
-  final bool cloudSyncEnabled;
-
-  /// Trigger cloud sync for a canvas
-  final Future<void> Function(String canvasId, Map<String, dynamic> data)?
-  onCloudSync;
-
-  /// Trigger delta sync
-  final Future<void> Function(
-    String canvasId,
-    List<Map<String, dynamic>> deltas,
-  )?
-  onDeltaSync;
-
-  /// Real-time delta sync provider (for collaboration)
-  final NebulaRealtimeDeltaSync? realtimeSync;
+  /// Cloud storage adapter for online persistence.
+  ///
+  /// When provided, the SDK automatically saves canvas state to the cloud
+  /// after every local save (debounced, 3s). No manual "save" button needed.
+  ///
+  /// Implement [NebulaCloudStorageAdapter] with your backend:
+  /// ```dart
+  /// class MyFirebaseAdapter implements NebulaCloudStorageAdapter {
+  ///   Future<void> saveCanvas(String id, Map<String, dynamic> data) { ... }
+  ///   Future<Map<String, dynamic>?> loadCanvas(String id) { ... }
+  ///   Future<void> deleteCanvas(String id) { ... }
+  /// }
+  /// ```
+  final NebulaCloudStorageAdapter? cloudAdapter;
 
   // ===========================================================================
   // VOICE RECORDING
@@ -155,6 +154,12 @@ class NebulaCanvasConfig {
 
   /// Canvas presence (who's viewing this canvas)
   final NebulaPresenceProvider? presence;
+
+  /// Real-time collaboration adapter (Supabase Realtime, Firebase RTDB, etc).
+  ///
+  /// When provided, enables live multi-user canvas editing with remote cursors,
+  /// stroke broadcasting, element locking, and presence indicators.
+  final NebulaRealtimeAdapter? realtimeAdapter;
 
   /// Show canvas share dialog
   final void Function(BuildContext context, String canvasId)? onShareCanvas;
@@ -227,10 +232,7 @@ class NebulaCanvasConfig {
     this.onLoadCanvas,
     this.onDeleteCanvas,
     this.onFlushPendingSave,
-    this.cloudSyncEnabled = false,
-    this.onCloudSync,
-    this.onDeltaSync,
-    this.realtimeSync,
+    this.cloudAdapter,
     this.voiceRecording,
     this.onStoreImage,
     this.onLoadImage,
@@ -239,6 +241,7 @@ class NebulaCanvasConfig {
     this.timeTravel,
     this.permissions,
     this.presence,
+    this.realtimeAdapter,
     this.onShareCanvas,
     this.onShowExportDialog,
     this.onOpenMultiview,
@@ -271,17 +274,6 @@ class NebulaCanvasConfig {
   List<String> validate() {
     final issues = <String>[];
 
-    // Cloud sync needs at least one sync callback
-    if (cloudSyncEnabled &&
-        onCloudSync == null &&
-        onDeltaSync == null &&
-        realtimeSync == null) {
-      issues.add(
-        'cloudSyncEnabled is true but no sync callback is provided '
-        '(onCloudSync, onDeltaSync, or realtimeSync).',
-      );
-    }
-
     // Storage: need either storageAdapter or legacy callbacks
     if (storageAdapter == null &&
         onSaveCanvas == null &&
@@ -305,16 +297,6 @@ class NebulaCanvasConfig {
       issues.add(
         'presence is set but permissions is null. '
         'Collaborative sessions need a NebulaPermissionProvider.',
-      );
-    }
-
-    // Realtime sync without storage
-    if (realtimeSync != null &&
-        storageAdapter == null &&
-        onSaveCanvas == null) {
-      issues.add(
-        'realtimeSync is set but no storage is configured. '
-        'Incoming deltas cannot be persisted.',
       );
     }
 
@@ -395,6 +377,12 @@ class NebulaCanvasSaveData {
     if (variableBindingsJson != null) 'variableBindings': variableBindingsJson,
     if (variableActiveModesJson != null)
       'variableActiveModes': variableActiveModesJson,
+    // 📝 Text elements (digital text on canvas)
+    if (textElements.isNotEmpty)
+      'textElements': textElements.map((t) => t.toJson()).toList(),
+    // 🖼️ Image elements (positioned images with transforms)
+    if (imageElements.isNotEmpty)
+      'imageElements': imageElements.map((i) => i.toJson()).toList(),
     'updatedAt': DateTime.now().millisecondsSinceEpoch,
   };
 }
@@ -436,15 +424,6 @@ abstract class NebulaVoiceRecordingProvider {
   /// Stream that emits when audio playback completes naturally.
   /// Default implementation returns an empty stream (never completes).
   Stream<void> get playbackCompleted => const Stream.empty();
-}
-
-/// Abstract real-time sync provider
-abstract class NebulaRealtimeSyncProvider {
-  void connect(String canvasId);
-  void disconnect();
-  Stream<Map<String, dynamic>> get incomingDeltas;
-  void sendDelta(Map<String, dynamic> delta);
-  bool get isConnected;
 }
 
 /// Abstract time travel provider

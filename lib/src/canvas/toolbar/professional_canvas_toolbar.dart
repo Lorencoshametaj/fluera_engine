@@ -1,16 +1,19 @@
 library professional_canvas_toolbar;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import '../../utils/key_value_store.dart';
+import '../../core/tabular/cell_node.dart';
+import './formula_reference_sheet.dart';
 import './hsv_color_picker.dart';
 import '../../l10n/nebula_localizations.dart';
 import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../../testing/brush_testing.dart';
-import '../../collaboration/sync_state_provider.dart';
+import '../../storage/nebula_cloud_adapter.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../tools/pdf/pdf_annotation_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
@@ -27,6 +30,7 @@ import 'toolbar_sliders.dart';
 import 'toolbar_settings_dropdown.dart';
 import 'toolbar_recording.dart';
 import 'toolbar_layout.dart';
+import 'toolbar_tab_bar.dart';
 
 part '_toolbar_top_row.dart';
 part '_toolbar_tools_area.dart';
@@ -57,6 +61,40 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final bool isRulerActive; // 📏 Ruler/guide overlay
   final bool isPenToolActive; // ✏️ Vector Pen Tool
   final bool isLatexActive; // 🧮 LaTeX editor
+  final bool isTabularActive; // 📊 Tabular spreadsheet
+  final bool hasTabularSelection; // 📊 A table is selected
+  final String? selectedCellRef; // 📊 e.g. "A1" — null if no cell selected
+  final String? selectedCellValue; // 📊 current cell display value
+  final void Function(int columns, int rows)?
+  onTabularCreate; // 📊 Create table
+  final void Function(String value)?
+  onCellValueSubmit; // 📊 Save cell + navigate down (Enter)
+  final void Function(String value)?
+  onCellTabSubmit; // 📊 Save cell + navigate right (Tab)
+  final VoidCallback? onTabularDelete; // 📊 Delete selected table
+  final VoidCallback? onInsertRow; // 📊 Insert row
+  final VoidCallback? onDeleteRow; // 📊 Delete row
+  final VoidCallback? onInsertColumn; // 📊 Insert column
+  final VoidCallback? onDeleteColumn; // 📊 Delete column
+  final VoidCallback? onCopySelection; // 📊 Copy cells
+  final VoidCallback? onCutSelection; // 📊 Cut cells
+  final VoidCallback? onPasteSelection; // 📊 Paste cells
+  final void Function(bool ascending)? onSortColumn; // 📊 Sort
+  final VoidCallback? onAutoFill; // 📊 Auto-fill down
+  // 🎨 Cell formatting
+  final CellFormat? selectedCellFormat; // Current cell format state
+  final bool hasRangeSelection; // Multi-cell range selected
+  final VoidCallback? onToggleBold;
+  final VoidCallback? onToggleItalic;
+  final void Function(CellAlignment)? onSetAlignment;
+  final void Function(Color)? onSetTextColor;
+  final void Function(Color)? onSetBackgroundColor;
+  final VoidCallback? onClearFormatting;
+  final VoidCallback? onClearCells;
+  final void Function(String csvText)? onImportCsv;
+  final VoidCallback? onExportCsv;
+  final bool hasFrozenRow; // Whether header row is frozen
+  final VoidCallback? onToggleFreezeRow;
   final Duration recordingDuration;
   final String? noteTitle;
   // 🎨 Preset-based brush selection
@@ -93,6 +131,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onRulerToggle; // 📏 Callback Ruler toggle
   final VoidCallback? onPenToolToggle; // ✏️ Callback Pen Tool toggle
   final VoidCallback? onLatexToggle; // 🧮 Callback LaTeX toggle
+  final VoidCallback? onTabularToggle; // 📊 Callback Tabular toggle (compat)
+  // (onTabularCreate is the preferred callback for the Excel tab)
   final VoidCallback onImagePickerPressed; // 🖼️ Callback immagini
   final VoidCallback? onImageEditorPressed;
   final VoidCallback? onExitImageEditMode; // ✅ Esci da edit mode
@@ -147,6 +187,9 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onPdfExport;
   final int pdfSelectedPageIndex;
 
+  /// ☁️ Cloud sync state notifier — drives the toolbar sync indicator.
+  final ValueListenable<NebulaSyncState>? cloudSyncState;
+
   const ProfessionalCanvasToolbar({
     super.key,
     required this.selectedPenType,
@@ -167,6 +210,36 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.isRulerActive = false,
     this.isPenToolActive = false,
     this.isLatexActive = false,
+    this.isTabularActive = false,
+    this.hasTabularSelection = false,
+    this.selectedCellRef,
+    this.selectedCellValue,
+    this.onTabularCreate,
+    this.onCellValueSubmit,
+    this.onCellTabSubmit,
+    this.onTabularDelete,
+    this.onInsertRow,
+    this.onDeleteRow,
+    this.onInsertColumn,
+    this.onDeleteColumn,
+    this.onCopySelection,
+    this.onCutSelection,
+    this.onPasteSelection,
+    this.onSortColumn,
+    this.onAutoFill,
+    this.selectedCellFormat,
+    this.hasRangeSelection = false,
+    this.onToggleBold,
+    this.onToggleItalic,
+    this.onSetAlignment,
+    this.onSetTextColor,
+    this.onSetBackgroundColor,
+    this.onClearFormatting,
+    this.onClearCells,
+    this.onImportCsv,
+    this.onExportCsv,
+    this.hasFrozenRow = false,
+    this.onToggleFreezeRow,
     required this.recordingDuration,
     this.isImageEditingMode = false,
     this.noteTitle,
@@ -200,6 +273,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onRulerToggle,
     this.onPenToolToggle,
     this.onLatexToggle,
+    this.onTabularToggle,
     required this.onImagePickerPressed,
     this.onImageEditorPressed,
     this.onExitImageEditMode, // ✅ Esci da edit mode
@@ -246,6 +320,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onPdfLayoutChanged, // 📄 Layout mutation callback
     this.onPdfExport,
     this.pdfSelectedPageIndex = 0,
+    this.cloudSyncState,
     this.hideRecordingControlWhenActive = false,
     this.isFloating = false, // 🏝️ Floating Island mode
   });
@@ -262,6 +337,18 @@ class _ProfessionalCanvasToolbarState
     extends ConsumerState<ProfessionalCanvasToolbar> {
   bool _isToolsExpanded = true;
   bool _isShapesExpanded = false;
+  ToolbarTab _activeToolbarTab = ToolbarTab.main;
+
+  /// Tabs currently available based on canvas state.
+  List<ToolbarTab> get _availableTabs {
+    final tabs = [ToolbarTab.main];
+    // Always show PDF tab — even without documents, the import button is there
+    tabs.add(ToolbarTab.pdf);
+    tabs.add(ToolbarTab.scientific);
+    tabs.add(ToolbarTab.excel);
+    tabs.add(ToolbarTab.media);
+    return tabs;
+  }
 
   // Customizable colors (6 slots)
   List<Color> _customColors = [
@@ -343,6 +430,19 @@ class _ProfessionalCanvasToolbarState
   }
 
   @override
+  void didUpdateWidget(covariant ProfessionalCanvasToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Auto-switch to PDF tab when first PDF is loaded
+    if (widget.pdfDocuments.isNotEmpty && oldWidget.pdfDocuments.isEmpty) {
+      setState(() => _activeToolbarTab = ToolbarTab.pdf);
+    }
+    // Auto-switch away from PDF tab when last PDF is removed
+    if (widget.pdfDocuments.isEmpty && _activeToolbarTab == ToolbarTab.pdf) {
+      setState(() => _activeToolbarTab = ToolbarTab.main);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -374,13 +474,23 @@ class _ProfessionalCanvasToolbarState
                 // Top Row: Status Bar + Quick Actions
                 _buildTopRow(context, isDark),
 
-                // Tools Area (collapsabile)
+                // 🗂️ Tab Bar — switch between toolbar contexts
+                if (_isToolsExpanded)
+                  ToolbarTabBar(
+                    activeTab: _activeToolbarTab,
+                    availableTabs: _availableTabs,
+                    onTabChanged:
+                        (tab) => setState(() => _activeToolbarTab = tab),
+                    isDark: isDark,
+                  ),
+
+                // Tools Area (collapsible) — dispatched by active tab
                 AnimatedSize(
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeInOut,
                   child:
                       _isToolsExpanded
-                          ? _buildToolsArea(context, isDark)
+                          ? _buildActiveToolbar(context, isDark)
                           : const SizedBox.shrink(),
                 ),
               ],
@@ -399,13 +509,23 @@ class _ProfessionalCanvasToolbarState
               // Top Row: Status Bar + Quick Actions
               _buildTopRow(context, isDark),
 
-              // Tools Area (collapsabile)
+              // 🗂️ Tab Bar — switch between toolbar contexts
+              if (_isToolsExpanded)
+                ToolbarTabBar(
+                  activeTab: _activeToolbarTab,
+                  availableTabs: _availableTabs,
+                  onTabChanged:
+                      (tab) => setState(() => _activeToolbarTab = tab),
+                  isDark: isDark,
+                ),
+
+              // Tools Area (collapsible) — dispatched by active tab
               AnimatedSize(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
                 child:
                     _isToolsExpanded
-                        ? _buildToolsArea(context, isDark)
+                        ? _buildActiveToolbar(context, isDark)
                         : const SizedBox.shrink(),
               ),
             ],

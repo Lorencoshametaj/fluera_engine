@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../collaboration/sync_state_provider.dart';
+import '../../storage/nebula_cloud_adapter.dart';
 
 // ============================================================================
 // TOOLBAR STATUS WIDGETS — Compact actions, tool sections, time travel, cloud
@@ -192,8 +192,7 @@ class _ToolbarCloudSyncIndicatorState extends State<ToolbarCloudSyncIndicator>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final iconData = switch (widget.state) {
-      NebulaSyncState.uploading => Icons.cloud_upload_rounded,
-      NebulaSyncState.downloading => Icons.cloud_download_rounded,
+      NebulaSyncState.syncing => Icons.cloud_upload_rounded,
       NebulaSyncState.error => Icons.cloud_off_rounded,
       NebulaSyncState.idle => Icons.cloud_done_rounded,
     };
@@ -201,9 +200,7 @@ class _ToolbarCloudSyncIndicatorState extends State<ToolbarCloudSyncIndicator>
     final color =
         widget.state == NebulaSyncState.error ? Colors.amber : cs.primary;
 
-    final isActive =
-        widget.state == NebulaSyncState.uploading ||
-        widget.state == NebulaSyncState.downloading;
+    final isActive = widget.state == NebulaSyncState.syncing;
 
     return SizedBox(
       width: 20,

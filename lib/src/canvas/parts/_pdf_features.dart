@@ -57,6 +57,21 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
     final pdfFile = File('${cacheDir.path}/$documentId.pdf');
     await pdfFile.writeAsBytes(bytes);
 
+    // ☁️ Upload PDF to cloud storage for cross-device access
+    if (_syncEngine != null) {
+      try {
+        await _syncEngine!.adapter.uploadAsset(
+          _canvasId,
+          documentId,
+          bytes,
+          mimeType: 'application/pdf',
+        );
+        debugPrint('☁️ PDF uploaded to cloud: $documentId');
+      } catch (e) {
+        debugPrint('☁️ PDF cloud upload failed (local only): $e');
+      }
+    }
+
     // Create a native provider for this document
     final provider = NativeNebulaPdfProvider(documentId: documentId);
 
@@ -197,8 +212,29 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
         // Check if the PDF file still exists on disk
         final pdfFile = File(filePath);
         if (!await pdfFile.exists()) {
-          debugPrint('[PDF] Skipping restore — file missing: $filePath');
-          continue;
+          // ☁️ Try downloading from cloud
+          if (_syncEngine != null) {
+            try {
+              final cloudBytes = await _syncEngine!.adapter.downloadAsset(
+                _canvasId,
+                docNode.id,
+              );
+              if (cloudBytes != null) {
+                await pdfFile.parent.create(recursive: true);
+                await pdfFile.writeAsBytes(cloudBytes);
+                debugPrint('☁️ Downloaded PDF from cloud: ${docNode.id}');
+              } else {
+                debugPrint('[PDF] Skipping restore — not in cloud: $filePath');
+                continue;
+              }
+            } catch (e) {
+              debugPrint('[PDF] Cloud download failed: $e');
+              continue;
+            }
+          } else {
+            debugPrint('[PDF] Skipping restore — file missing: $filePath');
+            continue;
+          }
         }
 
         // Create a new native provider and load the PDF bytes

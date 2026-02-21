@@ -281,6 +281,22 @@ extension VoiceRecordingExtension on _NebulaCanvasScreenState {
                     );
             try {
               await RecordingStorageService.instance.saveRecording(persistable);
+
+              // ☁️ Upload audio file to cloud for cross-device access
+              if (_syncEngine != null) {
+                try {
+                  final audioBytes = await File(audioPath).readAsBytes();
+                  await _syncEngine!.adapter.uploadAsset(
+                    _canvasId,
+                    'recording_${persistable.id}',
+                    audioBytes,
+                    mimeType: 'audio/m4a',
+                  );
+                  debugPrint('☁️ Audio recording uploaded: ${persistable.id}');
+                } catch (e) {
+                  debugPrint('☁️ Audio cloud upload failed (local only): $e');
+                }
+              }
             } catch (e) {
               debugPrint('[VoiceRecording] Failed to persist recording: $e');
               if (mounted) {

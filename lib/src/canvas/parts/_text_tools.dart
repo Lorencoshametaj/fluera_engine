@@ -96,6 +96,9 @@ extension on _NebulaCanvasScreenState {
       // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addText(newElement);
 
+      // 🔴 RT: Broadcast new text to collaborators
+      _broadcastTextChange(newElement);
+
       // 💾 Auto-save after adding digital text
       _autoSaveCanvas();
     }
@@ -128,6 +131,9 @@ extension on _NebulaCanvasScreenState {
           // Re-select the updated element
           _digitalTextTool.selectElement(_digitalTextElements[index]);
         });
+
+        // 🔴 RT: Broadcast text change to collaborators
+        _broadcastTextChange(_digitalTextElements[index]);
 
         // 💾 Auto-save after modifying digital text
         _autoSaveCanvas();
@@ -164,5 +170,8 @@ extension on _NebulaCanvasScreenState {
       _digitalTextElements[idx] = updated;
     }
     _layerController.updateText(updated);
+
+    // 🔴 RT: Broadcast text update to collaborators
+    _broadcastTextChange(updated);
   }
 }

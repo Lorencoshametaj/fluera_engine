@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'package:flutter/painting.dart';
 import 'latex_ast.dart';
 import 'latex_draw_command.dart';
 
@@ -36,6 +36,9 @@ class LatexLayoutEngine {
   LatexLayoutEngine._();
 
   final List<LatexDrawCommand> _commands = [];
+
+  // Measurement cache — avoids redundant TextPainter.layout() calls.
+  final Map<String, double> _widthCache = {};
 
   // ---------------------------------------------------------------------------
   // TeX-Inspired Constants (proportional to fontSize)
@@ -342,19 +345,27 @@ class LatexLayoutEngine {
   }
 
   _LayoutBox _layoutSqrt(LatexSqrt node, double fs, Color color) {
+    final cmdStart = _commands.length;
     final radBox = _layout(node.radicand, fs, color);
     final overhang = fs * _radicalOverhang;
     final barThickness = fs * _fractionBarThickness;
     final symbolWidth = fs * 0.5;
+    final tailWidth = symbolWidth * 0.25;
+    final veeWidth = symbolWidth * 0.25;
 
-    // Radical symbol path (simplified √ shape)
     final symHeight = radBox.height + overhang + barThickness;
+
+    // √ shape as a clean multi-segment path:
+    //   small horizontal tail → short downstroke → deep V → up to bar
     _commands.add(
       PathDrawCommand(
         points: [
-          Offset(0, symHeight * 0.6),
-          Offset(symbolWidth * 0.3, symHeight * 0.6),
-          Offset(symbolWidth * 0.5, symHeight),
+          // Tail
+          Offset(0, symHeight * 0.55),
+          Offset(tailWidth, symHeight * 0.55),
+          // Down to V bottom
+          Offset(tailWidth + veeWidth, symHeight),
+          // Up to bar start
           Offset(symbolWidth, 0),
         ],
         strokeWidth: barThickness * 1.5,
@@ -362,10 +373,10 @@ class LatexLayoutEngine {
       ),
     );
 
-    // Horizontal bar over radicand
+    // Horizontal bar (vinculum) over radicand
     _commands.add(
       LineDrawCommand(
-        x1: symbolWidth,
+        x1: symbolWidth - barThickness * 0.5,
         y1: barThickness / 2,
         x2: symbolWidth + radBox.width + overhang,
         y2: barThickness / 2,
@@ -374,7 +385,7 @@ class LatexLayoutEngine {
       ),
     );
 
-    // Offset radicand content
+    // Offset radicand content to sit under the bar
     _offsetCommands(
       radBox.commandStart,
       radBox.commandEnd,
@@ -385,29 +396,33 @@ class LatexLayoutEngine {
     final totalWidth = symbolWidth + radBox.width + overhang;
     final totalHeight = symHeight;
 
-    // Layout optional degree
+    // Optional degree label (e.g. ³√)
     if (node.degree != null) {
       final degBox = _layout(node.degree!, fs * _scriptScriptScale, color);
-      _offsetCommands(degBox.commandStart, degBox.commandEnd, 0, 0);
+      // Position degree above and to the left of the radical symbol
+      _offsetCommands(
+        degBox.commandStart,
+        degBox.commandEnd,
+        tailWidth * 0.5,
+        symHeight * 0.55 - degBox.height - fs * 0.05,
+      );
     }
 
     return _LayoutBox(
       width: totalWidth,
       height: totalHeight,
       baseline: totalHeight * _baselineFraction,
-      commandStart:
-          _commands.length -
-          2 -
-          (radBox.commandEnd - radBox.commandStart) -
-          (node.degree != null ? 1 : 0),
+      commandStart: cmdStart,
       commandEnd: _commands.length,
     );
   }
 
   _LayoutBox _layoutBigOperator(LatexBigOperator node, double fs, Color color) {
+    final cmdStart = _commands.length;
     final opSize = fs * 1.5;
-    final charWidth = _measureCharWidth(node.operator, opSize);
+    final opWidth = _measureTextWidth(node.operator, opSize);
 
+    // Render operator symbol
     _commands.add(
       GlyphDrawCommand(
         text: node.operator,
@@ -418,11 +433,107 @@ class LatexLayoutEngine {
       ),
     );
 
+    // If no limits, return simple box
+    if (node.lower == null && node.upper == null) {
+      return _LayoutBox(
+        width: opWidth + fs * _operatorSpacing,
+        height: opSize,
+        baseline: opSize * _baselineFraction,
+        commandStart: cmdStart,
+        commandEnd: _commands.length,
+      );
+    }
+
+    // For ∑, ∏ — display limits ABOVE/BELOW (display style)
+    // For ∫ — display limits as sub/superscript (inline style)
+    final isInlineStyle =
+        node.operator == '∫' ||
+        node.operator == '∬' ||
+        node.operator == '∭' ||
+        node.operator == '∮';
+
+    if (isInlineStyle) {
+      // Inline: limits as sub/superscript next to operator
+      double totalWidth = opWidth;
+      double totalHeight = opSize;
+      double baseline = opSize * _baselineFraction;
+
+      if (node.upper != null) {
+        final supBox = _layout(node.upper!, fs * _scriptScale, color);
+        final supY = -(fs * _superscriptShift * 0.8);
+        _offsetCommands(supBox.commandStart, supBox.commandEnd, opWidth, supY);
+        totalWidth = opWidth + supBox.width;
+        if (-supY > 0) baseline = opSize * _baselineFraction + (-supY);
+        totalHeight = baseline + (opSize - opSize * _baselineFraction);
+      }
+
+      if (node.lower != null) {
+        final subBox = _layout(node.lower!, fs * _scriptScale, color);
+        final subY = fs * _subscriptShift * 0.8;
+        _offsetCommands(subBox.commandStart, subBox.commandEnd, opWidth, subY);
+        final scriptW =
+            node.upper != null ? (totalWidth - opWidth) : subBox.width;
+        totalWidth =
+            opWidth + (scriptW > subBox.width ? scriptW : subBox.width);
+        final bottom = subY + subBox.height;
+        if (bottom > totalHeight) totalHeight = bottom;
+      }
+
+      return _LayoutBox(
+        width: totalWidth + fs * _operatorSpacing,
+        height: totalHeight,
+        baseline: baseline,
+        commandStart: cmdStart,
+        commandEnd: _commands.length,
+      );
+    }
+
+    // Display style: limits centered above/below operator
+    double upperHeight = 0;
+    double lowerHeight = 0;
+    double maxWidth = opWidth;
+    final gap = fs * 0.1;
+
+    _LayoutBox? upperBox;
+    _LayoutBox? lowerBox;
+
+    if (node.upper != null) {
+      upperBox = _layout(node.upper!, fs * _scriptScale, color);
+      upperHeight = upperBox.height + gap;
+      if (upperBox.width > maxWidth) maxWidth = upperBox.width;
+    }
+
+    if (node.lower != null) {
+      lowerBox = _layout(node.lower!, fs * _scriptScale, color);
+      lowerHeight = lowerBox.height + gap;
+      if (lowerBox.width > maxWidth) maxWidth = lowerBox.width;
+    }
+
+    final totalHeight = upperHeight + opSize + lowerHeight;
+    final baseline = upperHeight + opSize * _baselineFraction;
+
+    // Center operator horizontally
+    final opX = (maxWidth - opWidth) / 2;
+    _offsetCommands(cmdStart, cmdStart + 1, opX, upperHeight);
+
+    // Position upper limit centered above
+    if (upperBox != null) {
+      final ux = (maxWidth - upperBox.width) / 2;
+      _offsetCommands(upperBox.commandStart, upperBox.commandEnd, ux, 0);
+    }
+
+    // Position lower limit centered below
+    if (lowerBox != null) {
+      final lx = (maxWidth - lowerBox.width) / 2;
+      final ly = upperHeight + opSize + gap;
+      _offsetCommands(lowerBox.commandStart, lowerBox.commandEnd, lx, ly);
+    }
+
     return _LayoutBox(
-      width: charWidth + fs * _operatorSpacing,
-      height: opSize,
-      baseline: opSize * _baselineFraction,
-      commandStart: _commands.length - 1,
+      width: maxWidth + fs * _operatorSpacing,
+      height: totalHeight,
+      baseline: baseline,
+      commandStart: cmdStart,
       commandEnd: _commands.length,
     );
   }
@@ -432,9 +543,11 @@ class LatexLayoutEngine {
       return _LayoutBox(width: 0, height: fs, baseline: fs * _baselineFraction);
     }
 
+    final cmdStart = _commands.length;
     final cellFs = fs * _scriptScale;
     final cellGap = fs * 0.3;
     final rowGap = fs * 0.2;
+    final delimPadding = fs * 0.15;
 
     // Layout all cells
     final cellBoxes = <List<_LayoutBox>>[];
@@ -469,13 +582,18 @@ class LatexLayoutEngine {
           return maxH;
         }).toList();
 
+    // Determine delimiter offset (leave space for delimiters)
+    final hasDelims = node.style != MatrixStyle.plain;
+    final delimW = hasDelims ? fs * 0.25 : 0.0;
+    final contentOffsetX = delimW + delimPadding;
+
     // Position all cells
     double y = 0;
     for (int r = 0; r < cellBoxes.length; r++) {
       double x = 0;
       for (int c = 0; c < cellBoxes[r].length; c++) {
         final box = cellBoxes[r][c];
-        final dx = x + (colWidths[c] - box.width) / 2;
+        final dx = contentOffsetX + x + (colWidths[c] - box.width) / 2;
         final dy = y + (rowHeights[r] - box.height) / 2;
         _offsetCommands(box.commandStart, box.commandEnd, dx, dy);
         x += colWidths[c] + cellGap;
@@ -483,17 +601,66 @@ class LatexLayoutEngine {
       y += rowHeights[r] + rowGap;
     }
 
-    final totalWidth =
+    final contentWidth =
         colWidths.fold(0.0, (s, w) => s + w) + cellGap * (maxCols - 1);
     final totalHeight =
         rowHeights.fold(0.0, (s, h) => s + h) + rowGap * (cellBoxes.length - 1);
+    final totalWidth = contentWidth + (contentOffsetX + delimW + delimPadding);
+
+    // Draw matrix delimiters
+    if (hasDelims) {
+      final String openDelim;
+      final String closeDelim;
+      switch (node.style) {
+        case MatrixStyle.parenthesized:
+          openDelim = '(';
+          closeDelim = ')';
+        case MatrixStyle.bracketed:
+          openDelim = '[';
+          closeDelim = ']';
+        case MatrixStyle.braced:
+          openDelim = '{';
+          closeDelim = '}';
+        case MatrixStyle.verticalBar:
+          openDelim = '|';
+          closeDelim = '|';
+        case MatrixStyle.doubleVerticalBar:
+          openDelim = '‖';
+          closeDelim = '‖';
+        case MatrixStyle.plain:
+          openDelim = '';
+          closeDelim = '';
+      }
+
+      if (openDelim.isNotEmpty) {
+        _commands.add(
+          GlyphDrawCommand(
+            text: openDelim,
+            x: 0,
+            y: 0,
+            fontSize: totalHeight,
+            color: color,
+          ),
+        );
+      }
+      if (closeDelim.isNotEmpty) {
+        _commands.add(
+          GlyphDrawCommand(
+            text: closeDelim,
+            x: totalWidth - delimW,
+            y: 0,
+            fontSize: totalHeight,
+            color: color,
+          ),
+        );
+      }
+    }
 
     return _LayoutBox(
       width: totalWidth,
       height: totalHeight,
       baseline: totalHeight / 2,
-      commandStart:
-          cellBoxes.first.isNotEmpty ? cellBoxes.first.first.commandStart : 0,
+      commandStart: cmdStart,
       commandEnd: _commands.length,
     );
   }
@@ -554,8 +721,8 @@ class LatexLayoutEngine {
   }
 
   _LayoutBox _layoutText(LatexText node, double fs, Color color) {
-    final charWidth = fs * _charWidthFraction;
-    final width = node.text.length * charWidth;
+    // Use real TextPainter measurement for accurate text width
+    final width = _measureTextWidth(node.text, fs, italic: false);
 
     _commands.add(
       GlyphDrawCommand(
@@ -587,6 +754,9 @@ class LatexLayoutEngine {
   }
 
   _LayoutBox _layoutLimit(LatexLimit node, double fs, Color color) {
+    final cmdStart = _commands.length;
+    final limWidth = _measureTextWidth('lim', fs, italic: false);
+
     _commands.add(
       GlyphDrawCommand(
         text: 'lim',
@@ -598,12 +768,38 @@ class LatexLayoutEngine {
       ),
     );
 
-    final width = fs * _charWidthFraction * 3;
+    // If no subscript, simple return
+    if (node.subscript == null) {
+      return _LayoutBox(
+        width: limWidth + fs * _operatorSpacing,
+        height: fs,
+        baseline: fs * _baselineFraction,
+        commandStart: cmdStart,
+        commandEnd: _commands.length,
+      );
+    }
+
+    // Layout subscript below "lim", centered
+    final subBox = _layout(node.subscript!, fs * _scriptScale, color);
+    final gap = fs * 0.08;
+    final maxWidth = limWidth > subBox.width ? limWidth : subBox.width;
+
+    // Center "lim" text
+    final limX = (maxWidth - limWidth) / 2;
+    _offsetCommands(cmdStart, cmdStart + 1, limX, 0);
+
+    // Center subscript below
+    final subX = (maxWidth - subBox.width) / 2;
+    final subY = fs + gap;
+    _offsetCommands(subBox.commandStart, subBox.commandEnd, subX, subY);
+
+    final totalHeight = fs + gap + subBox.height;
+
     return _LayoutBox(
-      width: width + fs * _operatorSpacing,
-      height: fs,
+      width: maxWidth + fs * _operatorSpacing,
+      height: totalHeight,
       baseline: fs * _baselineFraction,
-      commandStart: _commands.length - 1,
+      commandStart: cmdStart,
       commandEnd: _commands.length,
     );
   }
@@ -611,15 +807,19 @@ class LatexLayoutEngine {
   _LayoutBox _layoutAccent(LatexAccent node, double fs, Color color) {
     final baseBox = _layout(node.base, fs, color);
     final accentChar = _accentSymbol(node.accentType);
+    final accentFs = fs * 0.8;
+    final accentWidth = _measureTextWidth(accentChar, accentFs);
     final accentHeight = fs * 0.25;
 
-    // Draw accent above base
+    // Center accent above base
+    final accentX = (baseBox.width - accentWidth) / 2;
+
     _commands.add(
       GlyphDrawCommand(
         text: accentChar,
-        x: baseBox.width * 0.3,
+        x: accentX > 0 ? accentX : 0,
         y: -accentHeight,
-        fontSize: fs * 0.8,
+        fontSize: accentFs,
         color: color,
       ),
     );
@@ -627,8 +827,11 @@ class LatexLayoutEngine {
     // Offset base down to make room for accent
     _offsetCommands(baseBox.commandStart, baseBox.commandEnd, 0, accentHeight);
 
+    final totalWidth =
+        baseBox.width > accentWidth ? baseBox.width : accentWidth;
+
     return _LayoutBox(
-      width: baseBox.width,
+      width: totalWidth,
       height: baseBox.height + accentHeight,
       baseline: baseBox.baseline + accentHeight,
       commandStart: baseBox.commandStart,
@@ -704,15 +907,43 @@ class LatexLayoutEngine {
     }
   }
 
-  /// Approximate character width measurement.
+  /// Measure text width using TextPainter for accurate results.
+  /// Results are cached by (text, fontSize, italic) key.
+  double _measureTextWidth(
+    String text,
+    double fontSize, {
+    bool italic = false,
+  }) {
+    final key = '$text|$fontSize|$italic';
+    final cached = _widthCache[key];
+    if (cached != null) return cached;
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final width = tp.width;
+    _widthCache[key] = width;
+    return width;
+  }
+
+  /// Approximate character width — used for single chars where speed matters.
+  /// Falls back to TextPainter for multi-char or Unicode math symbols.
   double _measureCharWidth(String char, double fontSize) {
-    // Wide characters
-    if ('∫∑∏∬∭∮'.contains(char)) return fontSize * 0.7;
+    if (char.length > 1) return _measureTextWidth(char, fontSize);
+    // Use TextPainter for Unicode math symbols
+    if (char.codeUnitAt(0) > 127) return _measureTextWidth(char, fontSize);
+    // Fast path for ASCII with reasonable heuristics
     if ('WMwm'.contains(char)) return fontSize * 0.75;
-    // Narrow characters
     if ('iIlj1|!.,;:'.contains(char)) return fontSize * 0.3;
     if ('ft'.contains(char)) return fontSize * 0.35;
-    // Standard
     return fontSize * _charWidthFraction;
   }
 

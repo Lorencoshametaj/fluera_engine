@@ -33,6 +33,86 @@ extension on _NebulaCanvasScreenState {
             return KeyEventResult.handled;
           }
         }
+
+        // 📊 Tabular keyboard shortcuts (only on key down)
+        if (event is KeyDownEvent &&
+            _tabularTool.hasSelection &&
+            _tabularTool.hasCellSelection) {
+          final isCtrl =
+              HardwareKeyboard.instance.isControlPressed ||
+              HardwareKeyboard.instance.isMetaPressed;
+
+          // Ctrl+C → Copy
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyC) {
+            _copySelection();
+            return KeyEventResult.handled;
+          }
+          // Ctrl+V → Paste
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyV) {
+            _pasteAtSelection();
+            return KeyEventResult.handled;
+          }
+          // Ctrl+X → Cut
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyX) {
+            _cutSelection();
+            return KeyEventResult.handled;
+          }
+          // Ctrl+B → Bold
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyB) {
+            _toggleBold();
+            return KeyEventResult.handled;
+          }
+          // Ctrl+I → Italic
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyI) {
+            _toggleItalic();
+            return KeyEventResult.handled;
+          }
+
+          // Delete / Backspace → Clear cells
+          if (event.logicalKey == LogicalKeyboardKey.delete ||
+              event.logicalKey == LogicalKeyboardKey.backspace) {
+            _clearSelectedCells();
+            return KeyEventResult.handled;
+          }
+
+          // Arrow keys → Navigate
+          if (!isCtrl) {
+            if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+              _moveUp();
+              return KeyEventResult.handled;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+              _moveDownNav();
+              return KeyEventResult.handled;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+              _moveLeft();
+              return KeyEventResult.handled;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+              _moveRightNav();
+              return KeyEventResult.handled;
+            }
+          }
+
+          // Escape → Deselect cell
+          if (event.logicalKey == LogicalKeyboardKey.escape) {
+            _tabularTool.deselectCell();
+            setState(() {});
+            return KeyEventResult.handled;
+          }
+        }
+
+        // 📊 Escape to deselect table
+        if (event is KeyDownEvent &&
+            _tabularTool.hasSelection &&
+            !_tabularTool.hasCellSelection &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          _tabularTool.deselectTabular();
+          setState(() {});
+          return KeyEventResult.handled;
+        }
+
         return KeyEventResult.ignored;
       },
       child: Scaffold(

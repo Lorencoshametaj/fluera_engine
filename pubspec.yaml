@@ -23,6 +23,8 @@ dependencies:
   file_picker: ^8.0.0
   # Utilities
   crypto: ^3.0.6
+  # On-device ML inference (ONNX Runtime)
+  onnxruntime_v2: ^1.23.2
 
 
 dev_dependencies:
@@ -52,3 +54,7 @@ flutter:
   assets:
     - assets/textures/
     - assets/textures/images/
+    # TODO(prod): Replace bundled ONNX models (~88MB) with on-demand download
+    # from CDN/Firebase Storage at first launch to reduce APK/IPA size.
+    # See OnnxLatexRecognizer for the loading logic to update.
+    - assets/models/comer/

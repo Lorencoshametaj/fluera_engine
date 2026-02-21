@@ -18,6 +18,7 @@ import '../nodes/pdf_document_node.dart';
 import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
+import '../nodes/tabular_node.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
 ///
@@ -105,6 +106,9 @@ class CanvasNodeFactory {
 
       case 'latex':
         return LatexNode.fromJson(json);
+
+      case 'tabular':
+        return TabularNode.fromJson(json);
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

@@ -147,21 +147,35 @@ extension on _NebulaCanvasScreenState {
         );
       }
 
-      // 2. Phase 2: cloud sync fallback (not yet implemented in SDK)
-      if (data == null) {
-        if (_hasCloudSync) {
-          print(
-            '🎨 [ProCanvasScreen] No local data & cloud sync enabled — cloud load not yet implemented in SDK',
-          );
-        } else {
-          print('🎨 [ProCanvasScreen] No local data & no cloud sync');
+      // 2. ☁️ Cloud fallback: load from cloud when no local data
+      if (data == null && _hasCloudSync && _syncEngine != null) {
+        try {
+          data = await _syncEngine!.loadCanvas(_canvasId);
+          if (data != null) {
+            debugPrint(
+              '☁️ No local data — loaded from cloud '
+              '(${data.keys.length} keys)',
+            );
+          } else {
+            debugPrint('☁️ No local data & no cloud data — fresh canvas');
+          }
+        } catch (e) {
+          debugPrint('☁️ Cloud load failed: $e');
         }
-      } else {
+      } else if (data == null) {
+        debugPrint('🎨 No local data & no cloud sync — fresh canvas');
+      }
+
+      if (data != null) {
         loadedFromLocal = true;
       }
 
       if (data != null && mounted) {
         _applyCanvasData(data);
+
+        // ☁️ Download images/PDFs that are in cloud but missing locally
+        // (runs in background — non-blocking)
+        downloadMissingAssets();
       }
     } catch (e) {
     } finally {
@@ -182,21 +196,42 @@ extension on _NebulaCanvasScreenState {
     }
   }
 
-  /// 🔄 Synchronize Firebase in background after local loading
+  /// 🔄 Synchronize cloud data in background after local loading.
   ///
-  /// 🔄 Sincronizzazione Firebase in background
-  /// Loads dati da Firebase e li applica SOLO se more recenti del locale.
-  /// Do not blocca la UI — l'utente can already disegnare.
+  /// Loads data from cloud and applies it ONLY if more recent than local.
+  /// Does not block the UI — the user can already draw.
   Future<void> _syncFirebaseInBackground() async {
     // 💎 TIER GATE: Only Plus/Pro users sync canvas from the cloud
     if (!_hasCloudSync) return;
+    if (_syncEngine == null) return;
 
-    // Phase 2: cloud sync background refresh
-    // Currently no cloud-load callback in NebulaCanvasConfig.
-    // When available, load remote data and compare timestamps.
-    debugPrint(
-      '🔄 [ProCanvasScreen] Background sync: cloud sync not yet implemented in SDK',
-    );
+    try {
+      final cloudData = await _syncEngine!.loadCanvas(_canvasId);
+      if (cloudData == null) return;
+
+      // 🔒 Conflict detection: compare timestamps
+      final cloudUpdatedAt = cloudData['updatedAt'] as int?;
+      final localUpdatedAt = _lastLocalSaveTimestamp;
+
+      if (cloudUpdatedAt != null && localUpdatedAt != null) {
+        if (cloudUpdatedAt <= localUpdatedAt) {
+          debugPrint(
+            '☁️ Background sync: local is up-to-date '
+            '(local=$localUpdatedAt, cloud=$cloudUpdatedAt)',
+          );
+          return; // Local is newer or same — nothing to do
+        }
+      }
+
+      // Cloud data is newer — apply it
+      if (mounted) {
+        debugPrint('☁️ Background sync: applying newer cloud data');
+        _applyCanvasData(cloudData);
+        downloadMissingAssets();
+      }
+    } catch (e) {
+      debugPrint('☁️ Background sync failed: $e');
+    }
   }
 
   /// 🛠️ Applica dati canvas alla UI (estratto per riuso)

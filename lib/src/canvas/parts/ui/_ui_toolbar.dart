@@ -54,7 +54,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               null, // 🎨 Modalità editing interno (non da infinite canvas)
           noteTitle: _noteTitle, // 🆕 Pass note title
           // 🎨 Preset-based brush selection
-          brushPresets: _brushPresetManager.allPresets,
+          brushPresets: BrushPreset.defaultPresets,
           selectedPresetId: _selectedPresetId,
           onPresetSelected: (preset) {
             setState(() {
@@ -226,6 +226,72 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             }
             setState(() {}); // Trigger rebuild
           },
+          // 📊 Tabular (Spreadsheet) — Excel tab uses onTabularCreate
+          isTabularActive: _toolController.isTabularMode,
+          onTabularToggle: () {
+            _toolController.toggleTabularMode();
+            if (_toolController.isTabularMode) {
+              _digitalTextTool.deselectElement();
+              _lassoTool.clearSelection();
+              _eraserCursorPosition = null;
+              _addTabularNode();
+            }
+            setState(() {});
+          },
+          onTabularCreate: (columns, rows) {
+            _digitalTextTool.deselectElement();
+            _lassoTool.clearSelection();
+            _eraserCursorPosition = null;
+            _addTabularNode(columns: columns, rows: rows);
+          },
+          hasTabularSelection: _tabularTool.hasSelection,
+          selectedCellRef:
+              _tabularTool.cellRefLabel.isEmpty
+                  ? null
+                  : _tabularTool.cellRefLabel,
+          selectedCellValue: _getSelectedCellDisplayValue(),
+          onCellValueSubmit: _onFormulaBarSubmit,
+          onCellTabSubmit: _onFormulaBarTab,
+          onTabularDelete: _deleteSelectedTabular,
+          onInsertRow: _insertRow,
+          onDeleteRow: _deleteRow,
+          onInsertColumn: _insertColumn,
+          onDeleteColumn: _deleteColumn,
+          onCopySelection: _copySelection,
+          onCutSelection: _cutSelection,
+          onPasteSelection: _pasteAtSelection,
+          onSortColumn: (ascending) {
+            final col = _tabularTool.selectedCol;
+            if (col != null) {
+              _sortByColumn(column: col, ascending: ascending);
+            }
+          },
+          onAutoFill: _autoFillDown,
+          selectedCellFormat: _getSelectedCellFormat(),
+          hasRangeSelection: _tabularTool.hasRangeSelection,
+          onToggleBold: _toggleBold,
+          onToggleItalic: _toggleItalic,
+          onSetAlignment: _setAlignment,
+          onSetTextColor: _setTextColor,
+          onSetBackgroundColor: _setBackgroundColor,
+          onClearFormatting: _clearFormatting,
+          onClearCells: _clearSelectedCells,
+          onImportCsv: _importCsv,
+          onExportCsv: () {
+            final csv = _exportCsv();
+            if (csv.isNotEmpty) {
+              Clipboard.setData(ClipboardData(text: csv));
+              HapticFeedback.lightImpact();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('CSV copied to clipboard'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+          hasFrozenRow: _hasFrozenRow(),
+          onToggleFreezeRow: _toggleFreezeRow,
           onImagePickerPressed: () {
             // 🖼️ Open gallery and add image
             pickAndAddImage();
@@ -454,6 +520,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             _autoSaveCanvas();
           },
           onPdfExport: null, // TODO: wire to export annotated PDF
+          cloudSyncState: _syncEngine?.state,
         );
       },
     );

@@ -13,6 +13,7 @@ import '../drawing/models/pro_drawing_point.dart';
 import '../drawing/models/pro_brush_settings.dart';
 import '../drawing/models/pro_brush_settings_dialog.dart';
 import '../drawing/services/brush_preset_manager.dart';
+import '../drawing/models/brush_preset.dart';
 
 import '../drawing/services/brush_settings_service.dart';
 import '../core/models/shape_type.dart';
@@ -51,6 +52,11 @@ import '../tools/ruler/ruler_guide_system.dart';
 import '../tools/flood_fill/flood_fill_tool.dart';
 import '../tools/pen/pen_tool.dart';
 import '../tools/shape/shape_recognizer.dart';
+import '../platform/pix2tex_recognizer.dart';
+import '../platform/ink_rasterizer.dart';
+import '../platform/latex_recognition_bridge.dart';
+import '../core/latex/ink_stroke_data.dart';
+import '../canvas/widgets/latex_preview_card.dart';
 import '../tools/base/tool_context.dart';
 import '../layers/adapters/infinite_canvas_adapter.dart';
 
@@ -63,13 +69,16 @@ import '../services/adaptive_debouncer_service.dart';
 import '../drawing/input/raw_input_processor_120hz.dart';
 import '../history/canvas_delta_tracker.dart';
 import '../history/background_checkpoint_service.dart';
-import '../collaboration/canvas_realtime_sync_manager.dart';
+import '../storage/nebula_cloud_adapter.dart';
 import '../drawing/input/stroke_point_pool.dart';
 import '../drawing/input/path_pool.dart';
 import '../time_travel/models/synchronized_recording.dart';
 import '../time_travel/controllers/synchronized_playback_controller.dart';
 import '../time_travel/widgets/synchronized_playback_overlay.dart';
 import '../collaboration/widgets/canvas_presence_overlay.dart';
+import '../collaboration/nebula_realtime_adapter.dart';
+import '../collaboration/conflict_resolution.dart';
+import '../collaboration/widgets/conflict_resolution_dialog.dart';
 import './overlays/canvas_viewport_overlay.dart';
 import '../time_travel/services/time_travel_recorder.dart';
 import '../services/phase2_service_stubs.dart'; // Stub implementations for Phase 2 services
@@ -123,6 +132,14 @@ import '../core/nodes/latex_node.dart';
 import '../core/scene_graph/node_id.dart';
 import './widgets/latex_editor_sheet.dart';
 import '../history/latex_commands.dart';
+import '../core/nodes/tabular_node.dart';
+import '../history/tabular_commands.dart';
+import '../tools/tabular_interaction_tool.dart';
+import '../core/tabular/cell_address.dart';
+import '../core/tabular/cell_node.dart';
+import '../core/tabular/cell_value.dart';
+import '../core/tabular/tabular_clipboard.dart';
+import '../core/tabular/tabular_csv.dart';
 
 // ============================================================================
 // PART FILES
@@ -145,6 +162,8 @@ part './parts/_cloud_sync.dart';
 part './parts/_phase2_stubs.dart';
 part './parts/_design_variables.dart';
 part './parts/_latex_handler.dart';
+part './parts/_latex_recognition_handler.dart';
+part './parts/_tabular_handler.dart';
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -285,11 +304,15 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   String? _noteTitle;
 
   // ============================================================================
-  // 🔄 REAL-TIME COLLABORATION STATE
+  // 🔄 COLLABORATION & SYNC STATE
   // ============================================================================
 
-  /// 🔄 Real-time sync manager (inbound deltas from collaborators)
-  CanvasRealtimeSyncManager? _realtimeSyncManager;
+  /// ☁️ Cloud sync engine (initialized from config.cloudAdapter)
+  NebulaSyncEngine? _syncEngine;
+
+  /// 🔴 Real-time collaboration engine (manages subscriptions, cursors, locks)
+  NebulaRealtimeEngine? _realtimeEngine;
+  StreamSubscription<CanvasRealtimeEvent>? _realtimeEventSub;
 
   /// 🤝 Is this canvas shared with other users?
   bool _isSharedCanvas = false;
@@ -301,16 +324,11 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   NebulaSubscriptionTier get _subscriptionTier => _config.subscriptionTier;
 
   /// 💎 Convenience: has cloud sync
-  bool get _hasCloudSync => _subscriptionTier.canUseCloudSync;
+  bool get _hasCloudSync => _config.cloudAdapter != null;
 
   /// 💎 Convenience: has real-time collaboration
-  bool get _hasRealtimeCollab => _subscriptionTier.canCollaborate;
-
-  /// ⚡ Throttle cursor feed (200ms)
-  int _lastCursorFeedTime = 0;
-
-  /// 👁️ Follow mode: track which user we're following
-  String? _followingUserId;
+  bool get _hasRealtimeCollab =>
+      _subscriptionTier.canCollaborate && _config.realtimeAdapter != null;
 
   // ============================================================================
   // 🖥️ DISPLAY CAPABILITIES & ADAPTIVE RENDERING (120Hz Support)
@@ -333,6 +351,10 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   /// Whether the loading overlay has fully faded out and can be removed from tree
   bool _loadingOverlayDismissed = false;
+
+  /// ☁️ Timestamp of last successful local save (millis since epoch).
+  /// Used for conflict detection with cloud data.
+  int? _lastLocalSaveTimestamp;
 
   /// Layer controller per gestire i layer
   late final LayerController _layerController;
@@ -517,6 +539,10 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   late final ImageTool _imageTool;
   final List<ImageElement> _imageElements = [];
   final Map<String, ui.Image> _loadedImages = {};
+
+  /// 📊 Tabular interaction tool
+  late final TabularInteractionTool _tabularTool;
+  bool _editingInCell = false;
 
   /// 🧠 Version counter: incremented on every image content mutation
   /// Used by ImagePainter for fast shouldRepaint + Picture cache invalidation
@@ -832,6 +858,7 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
     // Initialize image tool
     _imageTool = ImageTool();
+    _tabularTool = TabularInteractionTool();
 
     // ✒️ Initialize pen tool
     _penToolAdapter = InfiniteCanvasAdapter(
@@ -952,12 +979,12 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
         state == AppLifecycleState.detached) {
       BackgroundSaveService.instance.flush();
 
-      if (_isSharedCanvas && _realtimeSyncManager != null) {
-        _realtimeSyncManager!.pause();
-      }
-    } else if (state == AppLifecycleState.resumed) {
-      if (_isSharedCanvas && _realtimeSyncManager != null) {
-        _realtimeSyncManager!.resume();
+      // ☁️ Flush pending cloud save on app background
+      if (_syncEngine != null) {
+        final saveData = _buildSaveData();
+        final cloudData = saveData.toJson();
+        cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
+        _syncEngine!.flush(_canvasId, cloudData);
       }
     }
   }
@@ -985,8 +1012,9 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     _timeTravelEngine = null;
     _timeTravelRecorder = null;
 
-    // 🔄 REAL-TIME COLLABORATION
-    _realtimeSyncManager?.dispose();
+    // ☁️ CLOUD SYNC
+    _disposeRealtimeCollaboration();
+    _syncEngine?.dispose();
 
     // 🚀 ADAPTIVE DEBOUNCER
     AdaptiveDebouncerService.instance.flush();

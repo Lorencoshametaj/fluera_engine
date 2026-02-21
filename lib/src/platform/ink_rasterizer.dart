@@ -45,25 +45,32 @@ class InkRasterizer {
 
   /// Rasterize ink data into a PNG-encoded byte buffer.
   ///
-  /// Returns the raw PNG bytes of a [size]×[size] image with black strokes
+  /// Returns the raw PNG bytes of a [width]×[height] image with black strokes
   /// on a white background. Returns `null` if the ink data is empty.
   ///
+  /// For square output, use [size] (legacy). For rectangular output (e.g. to
+  /// match an ML model's expected dimensions), use [width] and [height].
+  ///
   /// The [preserveAspectRatio] flag (default: true) ensures mathematical
-  /// expressions maintain their original proportions. Set to `false` for
-  /// legacy stretch-to-fill behavior.
+  /// expressions maintain their original proportions.
   static Future<Uint8List?> rasterize(
     InkData inkData, {
     int size = defaultSize,
+    int? width,
+    int? height,
     bool preserveAspectRatio = true,
   }) async {
     if (inkData.isEmpty) return null;
+
+    final w = width ?? size;
+    final h = height ?? size;
 
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
     // White background
     canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.toDouble(), size.toDouble()),
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
       Paint()..color = const Color(0xFFFFFFFF),
     );
 
@@ -78,7 +85,6 @@ class InkRasterizer {
     if (preserveAspectRatio) {
       final aspectRatio =
           bbox.width > 0 && bbox.height > 0 ? (bbox.width / bbox.height) : 1.0;
-      // Very wide or very tall content gets more padding on the short axis
       if (aspectRatio > _aspectRatioThreshold ||
           aspectRatio < 1.0 / _aspectRatioThreshold) {
         paddingRatio = maxPaddingRatio;
@@ -89,9 +95,10 @@ class InkRasterizer {
       paddingRatio = minPaddingRatio;
     }
 
-    final padding = size * paddingRatio;
-    final availableWidth = size - padding * 2;
-    final availableHeight = size - padding * 2;
+    final paddingX = w * paddingRatio;
+    final paddingY = h * paddingRatio;
+    final availableWidth = w - paddingX * 2;
+    final availableHeight = h - paddingY * 2;
 
     // Uniform scaling — pick the smaller scale to fit within the canvas
     final scaleX = bbox.width > 0 ? availableWidth / bbox.width : 1.0;
@@ -104,8 +111,8 @@ class InkRasterizer {
     // Center the content (whitespace on the shorter axis)
     final contentWidth = bbox.width * scale;
     final contentHeight = bbox.height * scale;
-    final offsetX = (size - contentWidth) / 2 - bbox.left * scale;
-    final offsetY = (size - contentHeight) / 2 - bbox.top * scale;
+    final offsetX = (w - contentWidth) / 2 - bbox.left * scale;
+    final offsetY = (h - contentHeight) / 2 - bbox.top * scale;
 
     // Draw strokes
     for (final stroke in inkData.strokes) {
@@ -115,7 +122,7 @@ class InkRasterizer {
 
     // Encode to image
     final picture = recorder.endRecording();
-    final image = await picture.toImage(size, size);
+    final image = await picture.toImage(w, h);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     picture.dispose();
     image.dispose();

@@ -8,7 +8,7 @@ import '../../core/models/canvas_layer.dart';
 import '../models/time_travel_session.dart';
 import '../../history/canvas_delta_tracker.dart';
 import '../../history/undo_redo_manager.dart';
-import '../../collaboration/nebula_sync_interfaces.dart';
+import '../../services/phase2_service_stubs.dart';
 import './time_travel_compressor.dart';
 import '../../history/branching_manager.dart';
 

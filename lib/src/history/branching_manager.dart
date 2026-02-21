@@ -5,9 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import './models/canvas_branch.dart';
+import './models/branch_merge_result.dart';
 import '../core/models/canvas_layer.dart';
 import '../time_travel/models/time_travel_session.dart';
-import '../collaboration/nebula_sync_interfaces.dart';
+import '../services/phase2_service_stubs.dart';
 
 /// 🌿 Branching Manager — Git-like branch operations for Creative Branching
 ///
@@ -368,6 +369,194 @@ class BranchingManager {
     }
 
     return sourceLayers;
+  }
+
+  /// 🔀 3-Way Merge — per-layer diff against common ancestor (fork snapshot)
+  ///
+  /// **Strategy**:
+  /// 1. Load the fork snapshot as common ancestor (base)
+  /// 2. Load source and target's latest working states
+  /// 3. For each layer:
+  ///    - If only source changed → take source's version
+  ///    - If only target changed → keep target's version
+  ///    - If both changed → mark as conflict (caller decides)
+  ///    - If neither changed → keep as-is
+  /// 4. New layers from either branch are auto-included
+  ///
+  /// Returns a [BranchMergeResult] with merged layers + any conflicts.
+  Future<BranchMergeResult> mergeBranchThreeWay({
+    required String canvasId,
+    required String sourceBranchId,
+    String targetBranchId = 'br_main',
+    bool deleteAfterMerge = false,
+  }) async {
+    if (sourceBranchId == targetBranchId) {
+      return BranchMergeResult(
+        mergedLayers: null,
+        conflicts: [],
+        strategy: 'rejected: self-merge',
+      );
+    }
+
+    // Validate branches exist
+    _branches.firstWhere(
+      (b) => b.id == sourceBranchId,
+      orElse: () => throw Exception('Source branch $sourceBranchId not found'),
+    );
+    _branches.firstWhere(
+      (b) => b.id == targetBranchId,
+      orElse: () => throw Exception('Target branch $targetBranchId not found'),
+    );
+
+    // 1. Load common ancestor (fork snapshot of the source branch)
+    final baseLayers = await _loadBranchSnapshot(canvasId, sourceBranchId);
+
+    // 2. Load source and target latest states
+    final sourceLayers =
+        await _loadBranchWorkingState(canvasId, sourceBranchId) ??
+        await _loadBranchSnapshot(canvasId, sourceBranchId);
+
+    final targetLayers =
+        await _loadBranchWorkingState(canvasId, targetBranchId) ??
+        await _loadBranchSnapshot(canvasId, targetBranchId);
+
+    // If no base or source → fall back to simple merge
+    if (baseLayers == null || sourceLayers == null) {
+      final fallback = await mergeBranch(
+        canvasId: canvasId,
+        sourceBranchId: sourceBranchId,
+        targetBranchId: targetBranchId,
+        deleteAfterMerge: deleteAfterMerge,
+      );
+      return BranchMergeResult(
+        mergedLayers: fallback,
+        conflicts: [],
+        strategy: 'fallback: theirs-wins (no common ancestor)',
+      );
+    }
+
+    // 3. Build layer maps by ID
+    final baseMap = {for (final l in baseLayers) l.id: l};
+    final sourceMap = {for (final l in sourceLayers) l.id: l};
+    final targetMap = {
+      for (final l in (targetLayers ?? <CanvasLayer>[])) l.id: l,
+    };
+
+    // 4. Collect all unique layer IDs
+    final allIds = <String>{
+      ...baseMap.keys,
+      ...sourceMap.keys,
+      ...targetMap.keys,
+    };
+
+    final merged = <CanvasLayer>[];
+    final conflicts = <LayerMergeConflict>[];
+
+    for (final layerId in allIds) {
+      final base = baseMap[layerId];
+      final source = sourceMap[layerId];
+      final target = targetMap[layerId];
+
+      if (base == null) {
+        // New layer — added by source, target, or both
+        if (source != null && target == null) {
+          merged.add(source); // New in source only
+        } else if (target != null && source == null) {
+          merged.add(target); // New in target only
+        } else if (source != null && target != null) {
+          // Both added a layer with same ID — conflict
+          conflicts.add(
+            LayerMergeConflict(
+              layerId: layerId,
+              sourceLayer: source,
+              targetLayer: target,
+            ),
+          );
+          merged.add(target); // Default: keep target's version
+        }
+        continue;
+      }
+
+      // Base exists — check modifications
+      final sourceChanged = source != null && _layerDiffers(base, source);
+      final targetChanged = target != null && _layerDiffers(base, target);
+
+      if (!sourceChanged && !targetChanged) {
+        // Neither changed → keep base (or target if available)
+        merged.add(target ?? base);
+      } else if (sourceChanged && !targetChanged && source != null) {
+        // Only source changed → take source's version
+        merged.add(source);
+      } else if (!sourceChanged && targetChanged && target != null) {
+        // Only target changed → keep target's version
+        merged.add(target);
+      } else if (source != null && target != null) {
+        // Both changed → CONFLICT
+        conflicts.add(
+          LayerMergeConflict(
+            layerId: layerId,
+            sourceLayer: source,
+            targetLayer: target,
+            baseLayer: base,
+          ),
+        );
+        // Default resolution: take source (feature branch wins)
+        merged.add(source);
+      }
+    }
+
+    // 5. Save merged result
+    await saveBranchWorkingState(canvasId, targetBranchId, merged);
+
+    // 6. Update metadata
+    final targetIdx = _branches.indexWhere((b) => b.id == targetBranchId);
+    if (targetIdx != -1) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      _branches[targetIdx] = _branches[targetIdx].copyWith(lastModifiedMs: now);
+      await _saveBranchesMetadata(canvasId);
+
+      if (_cloudSyncEnabled) {
+        await _cloudSync.syncBranchMetadata(canvasId, _branches[targetIdx]);
+      }
+    }
+
+    // 7. Optionally delete source
+    if (deleteAfterMerge && conflicts.isEmpty) {
+      await deleteBranch(canvasId, sourceBranchId);
+    }
+
+    final strategy =
+        conflicts.isEmpty
+            ? '3-way merge: clean'
+            : '3-way merge: ${conflicts.length} conflict(s)';
+
+    debugPrint(
+      '🔀 [BranchingManager] $strategy — '
+      '${merged.length} layers merged',
+    );
+
+    return BranchMergeResult(
+      mergedLayers: merged,
+      conflicts: conflicts,
+      strategy: strategy,
+    );
+  }
+
+  /// Compare two layers to determine if they differ.
+  ///
+  /// Uses element counts and structural comparison rather than deep equality
+  /// to keep the check fast (O(1) for simple cases, O(n) for element lists).
+  bool _layerDiffers(CanvasLayer a, CanvasLayer b) {
+    if (a.name != b.name) return true;
+    if (a.isVisible != b.isVisible) return true;
+    if (a.isLocked != b.isLocked) return true;
+    if (a.opacity != b.opacity) return true;
+    if (a.blendMode != b.blendMode) return true;
+    if (a.strokes.length != b.strokes.length) return true;
+    if (a.shapes.length != b.shapes.length) return true;
+    if (a.texts.length != b.texts.length) return true;
+    if (a.images.length != b.images.length) return true;
+    return false;
   }
 
   /// �🗑️ Delete a branch and all its data

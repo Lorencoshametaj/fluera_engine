@@ -45,8 +45,9 @@ abstract final class FountainPenPathBuilder {
     );
     if (smoothedPos.length >= 4) {
       const double posAlpha = 0.3;
-      // 2 bidirectional passes: eliminates digitizer noise thoroughly
-      for (int pass = 0; pass < 2; pass++) {
+      // 🚀 LIVE PERF: 1 pass for live strokes, 2 for finalized
+      final smoothPasses = liveStroke ? 1 : 2;
+      for (int pass = 0; pass < smoothPasses; pass++) {
         // Forward — preserve first point
         for (int i = 1; i < smoothedPos.length - 1; i++) {
           smoothedPos[i] = Offset(
@@ -90,7 +91,9 @@ abstract final class FountainPenPathBuilder {
     // Fast movements → sparse points (visible corners).
     // Slow movements → dense points (over-smoothing).
     // Re-sample at uniform arc-length for consistent quality.
-    if (smoothedPos.length >= 4) {
+    // 🚀 LIVE PERF: Skip for live strokes — O(n) allocations, minimal
+    // visual impact during drawing. Applied on finalization.
+    if (!liveStroke && smoothedPos.length >= 4) {
       // 1. Compute cumulative arc length
       final arcLens = List<double>.filled(smoothedPos.length, 0.0);
       for (int i = 1; i < smoothedPos.length; i++) {
@@ -187,11 +190,13 @@ abstract final class FountainPenPathBuilder {
     smoothOutlinePoints(rightBuf, avgWidth);
 
     // ─── Pass 1c: Chaikin corner-cutting ──────────────────────
+    // 🚀 LIVE PERF: 1 pass for live strokes (halves outline density),
+    // 2 passes for finalized quality.
     if (leftBuf.length >= 4) {
       applyChaikinSubdivision(leftBuf);
-      applyChaikinSubdivision(leftBuf); // 2nd iteration
+      if (!liveStroke) applyChaikinSubdivision(leftBuf); // 2nd iteration
       applyChaikinSubdivision(rightBuf);
-      applyChaikinSubdivision(rightBuf); // 2nd iteration
+      if (!liveStroke) applyChaikinSubdivision(rightBuf); // 2nd iteration
     }
 
     // ─── Pass 1c: Fix crossed outlines ───────────────────────────
@@ -299,7 +304,9 @@ abstract final class FountainPenPathBuilder {
     // ─── Edge feathering: semi-transparent fringe for AA ──────
     // For each edge vertex, add a fringe vertex 0.75px outward
     // with alpha=0. GPU interpolates → smooth anti-aliased edge.
-    {
+    // 🚀 LIVE PERF: Skip for live strokes — saves ~33% vertex count.
+    // Applied on finalization for full anti-aliased quality.
+    if (!liveStroke) {
       const double fringeWidth = 0.75; // px outward
       final fringeAlpha = Color.fromARGB(0, cR, cG, cB); // transparent
 

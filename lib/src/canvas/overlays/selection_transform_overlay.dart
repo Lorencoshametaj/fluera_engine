@@ -50,7 +50,7 @@ class SelectionTransformOverlay extends StatefulWidget {
 }
 
 class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // Handle attualmente trascinato
   _HandleType? _activeHandle;
   Offset? _dragStart;

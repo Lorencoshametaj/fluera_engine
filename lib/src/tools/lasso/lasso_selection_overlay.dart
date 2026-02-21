@@ -22,6 +22,9 @@ class LassoSelectionOverlay extends StatefulWidget {
   /// 🚀 PERF: Optional notifier for smooth repositioning during drag.
   final ValueNotifier<int>? dragNotifier;
 
+  /// 🧮 Called when user taps "Convert to LaTeX" action.
+  final VoidCallback? onConvertToLatex;
+
   const LassoSelectionOverlay({
     super.key,
     required this.selectedIds,
@@ -29,6 +32,7 @@ class LassoSelectionOverlay extends StatefulWidget {
     required this.canvasController,
     this.isDragging = false,
     this.dragNotifier,
+    this.onConvertToLatex,
   });
 
   @override
@@ -79,17 +83,99 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
     return AnimatedBuilder(
       animation: _pulseAnimation,
       builder: (context, child) {
-        return CustomPaint(
-          painter: _SelectionHighlightPainter(
-            selectedIds: widget.selectedIds,
-            layerController: widget.layerController,
-            animationValue: _pulseAnimation.value,
-            canvasController: widget.canvasController,
-            isDragging: widget.isDragging,
-          ),
-          child: const SizedBox.expand(),
+        return Stack(
+          children: [
+            IgnorePointer(
+              child: CustomPaint(
+                painter: _SelectionHighlightPainter(
+                  selectedIds: widget.selectedIds,
+                  layerController: widget.layerController,
+                  animationValue: _pulseAnimation.value,
+                  canvasController: widget.canvasController,
+                  isDragging: widget.isDragging,
+                ),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            // 🧮 Convert-to-LaTeX FAB
+            if (widget.onConvertToLatex != null &&
+                !widget.isDragging &&
+                _hasSelectedStrokes())
+              _buildConvertToLatexFab(),
+          ],
         );
       },
+    );
+  }
+
+  /// Check if the selection contains any strokes (not shapes/text/images).
+  bool _hasSelectedStrokes() {
+    final layers = widget.layerController.layers;
+    if (layers.isEmpty) return false;
+    final layer = layers.firstWhere(
+      (l) => l.id == widget.layerController.activeLayerId,
+      orElse: () => layers.first,
+    );
+    return layer.strokes.any((s) => widget.selectedIds.contains(s.id));
+  }
+
+  /// Build the floating "Convert to LaTeX" button above the selection.
+  Widget _buildConvertToLatexFab() {
+    // Calculate selection bounding rect in screen coordinates
+    final layers = widget.layerController.layers;
+    if (layers.isEmpty) return const SizedBox.shrink();
+    final layer = layers.firstWhere(
+      (l) => l.id == widget.layerController.activeLayerId,
+      orElse: () => layers.first,
+    );
+
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity;
+    for (final stroke in layer.strokes) {
+      if (!widget.selectedIds.contains(stroke.id)) continue;
+      for (final p in stroke.points) {
+        final sp = widget.canvasController.canvasToScreen(p.position);
+        if (sp.dx < minX) minX = sp.dx;
+        if (sp.dy < minY) minY = sp.dy;
+        if (sp.dx > maxX) maxX = sp.dx;
+      }
+    }
+
+    if (!minX.isFinite || !minY.isFinite) return const SizedBox.shrink();
+
+    final centerX = (minX + maxX) / 2;
+    final fabTop = minY - 52; // Above the selection
+
+    return Positioned(
+      left: centerX - 20,
+      top: fabTop.clamp(8, double.infinity),
+      child: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.teal,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: widget.onConvertToLatex,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.functions_rounded, color: Colors.white, size: 20),
+                SizedBox(width: 4),
+                Text(
+                  'LaTeX',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

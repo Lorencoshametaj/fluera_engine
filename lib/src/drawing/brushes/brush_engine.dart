@@ -242,6 +242,31 @@ class BrushEngine {
                 : null,
       );
     } else {
+      // 🚀 LIVE PERF: For GPU shader pens, decimate points to bound
+      // per-frame cost. NOT applied to fountain pen — its velocity-based
+      // width calculation depends on original point spacing (decimation
+      // alters spacing → stroke shrinks). Fountain pen performance is
+      // handled by live optimizations in FountainPenPathBuilder instead
+      // (1 Chaikin pass, no feathering, no arc-length reparameterization).
+      const int _liveMaxPoints = 250;
+      const int _finalizedMaxPoints = 400;
+      final bool _isGpuShaderPen = switch (penType) {
+        ProPenType.watercolor ||
+        ProPenType.marker ||
+        ProPenType.charcoal ||
+        ProPenType.oilPaint ||
+        ProPenType.sprayPaint ||
+        ProPenType.neonGlow ||
+        ProPenType.inkWash => true,
+        _ => false,
+      };
+
+      final maxPts = isLive ? _liveMaxPoints : _finalizedMaxPoints;
+      List<dynamic> renderPoints = effectivePoints;
+      if (_isGpuShaderPen && effectivePoints.length > maxPts) {
+        renderPoints = _decimatePoints(effectivePoints, maxPts);
+      }
+
       switch (penType) {
         case ProPenType.ballpoint:
           BallpointBrush.drawStrokeWithSettings(
@@ -256,7 +281,7 @@ class BrushEngine {
         case ProPenType.fountain:
           FountainPenBrush.drawStrokeWithSettings(
             canvas,
-            effectivePoints,
+            renderPoints,
             color,
             baseWidth,
             minPressure: settings.fountainMinPressure,
@@ -276,7 +301,10 @@ class BrushEngine {
             pressureRate: settings.fountainPressureRate,
             nibAngleRad: settings.fountainNibAngleDeg * 3.14159265 / 180.0,
             nibStrength: settings.fountainNibStrength,
-            liveStroke: isLive,
+            // 🚀 Always use live-quality rendering: eliminates the visual
+            // "jump" on pointer-up. 1 Chaikin + no feathering is visually
+            // indistinguishable on-screen and ensures consistency.
+            liveStroke: true,
             textureImage: textureImg,
             textureScale: texScale,
           );
@@ -309,53 +337,48 @@ class BrushEngine {
           if (wSvc.isAvailable && wSvc.watercolorShader != null) {
             wSvc.renderWatercolorPro(
               canvas,
-              effectivePoints,
+              renderPoints,
               color,
               baseWidth,
               spread: settings.watercolorSpread,
             );
           } else {
-            WatercolorBrush.drawStroke(
-              canvas,
-              effectivePoints,
-              color,
-              baseWidth,
-            );
+            WatercolorBrush.drawStroke(canvas, renderPoints, color, baseWidth);
           }
         case ProPenType.marker:
           final mSvc = ShaderBrushService.instance;
           if (mSvc.isAvailable && mSvc.markerShader != null) {
             mSvc.renderMarkerPro(
               canvas,
-              effectivePoints,
+              renderPoints,
               color,
               baseWidth,
               flatness: settings.markerFlatness,
             );
           } else {
-            MarkerBrush.drawStroke(canvas, effectivePoints, color, baseWidth);
+            MarkerBrush.drawStroke(canvas, renderPoints, color, baseWidth);
           }
         case ProPenType.charcoal:
           final cSvc = ShaderBrushService.instance;
           if (cSvc.isAvailable && cSvc.charcoalShader != null) {
             cSvc.renderCharcoalPro(
               canvas,
-              effectivePoints,
+              renderPoints,
               color,
               baseWidth,
               grain: settings.charcoalGrain,
             );
           } else {
-            CharcoalBrush.drawStroke(canvas, effectivePoints, color, baseWidth);
+            CharcoalBrush.drawStroke(canvas, renderPoints, color, baseWidth);
           }
         case ProPenType.oilPaint:
           final oSvc = ShaderBrushService.instance;
           if (oSvc.isAvailable && oSvc.oilPaintShader != null) {
-            oSvc.renderOilPaintPro(canvas, effectivePoints, color, baseWidth);
+            oSvc.renderOilPaintPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(
               canvas,
-              effectivePoints,
+              renderPoints,
               color,
               baseWidth,
               minPressure: settings.ballpointMinPressure,
@@ -365,11 +388,11 @@ class BrushEngine {
         case ProPenType.sprayPaint:
           final sSvc = ShaderBrushService.instance;
           if (sSvc.isAvailable && sSvc.sprayPaintShader != null) {
-            sSvc.renderSprayPaintPro(canvas, effectivePoints, color, baseWidth);
+            sSvc.renderSprayPaintPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(
               canvas,
-              effectivePoints,
+              renderPoints,
               color,
               baseWidth,
               minPressure: settings.ballpointMinPressure,
@@ -379,11 +402,11 @@ class BrushEngine {
         case ProPenType.neonGlow:
           final nSvc = ShaderBrushService.instance;
           if (nSvc.isAvailable && nSvc.neonGlowShader != null) {
-            nSvc.renderNeonGlowPro(canvas, effectivePoints, color, baseWidth);
+            nSvc.renderNeonGlowPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(
               canvas,
-              effectivePoints,
+              renderPoints,
               color,
               baseWidth,
               minPressure: settings.ballpointMinPressure,
@@ -393,11 +416,11 @@ class BrushEngine {
         case ProPenType.inkWash:
           final iSvc = ShaderBrushService.instance;
           if (iSvc.isAvailable && iSvc.inkWashShader != null) {
-            iSvc.renderInkWashPro(canvas, effectivePoints, color, baseWidth);
+            iSvc.renderInkWashPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(
               canvas,
-              effectivePoints,
+              renderPoints,
               color,
               baseWidth,
               minPressure: settings.ballpointMinPressure,
@@ -872,6 +895,38 @@ class BrushEngine {
       default:
         return ui.BlendMode.srcOver;
     }
+  }
+
+  /// 🚀 Decimate a point list for bounded rendering cost.
+  ///
+  /// Sub-samples the body (older points) while preserving full density
+  /// at the tail (last ~40% of [maxCount]). This keeps the same visual
+  /// quality near the pen tip while reducing total work.
+  ///
+  /// The stroke shape is preserved because key points (first, last,
+  /// and uniformly spaced body samples) are kept.
+  static List<dynamic> _decimatePoints(List<dynamic> points, int maxCount) {
+    if (points.length <= maxCount) return points;
+
+    // Tail: last 40% of budget at full density (where user is looking)
+    final tailSize = (maxCount * 0.4).round().clamp(40, maxCount - 10);
+    final bodyBudget = maxCount - tailSize;
+    final bodyEnd = points.length - tailSize;
+
+    // Sub-sample body uniformly
+    final step = bodyEnd / bodyBudget;
+    final result = <dynamic>[];
+
+    for (int i = 0; i < bodyBudget; i++) {
+      result.add(points[(i * step).floor()]);
+    }
+
+    // Full-density tail
+    for (int i = bodyEnd; i < points.length; i++) {
+      result.add(points[i]);
+    }
+
+    return result;
   }
 }
 

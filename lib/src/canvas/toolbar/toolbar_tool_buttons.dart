@@ -264,6 +264,31 @@ class ToolbarLatexButton extends StatelessWidget {
   }
 }
 
+/// 📊 Tabular (spreadsheet) button
+class ToolbarTabularButton extends StatelessWidget {
+  final bool isActive;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const ToolbarTabularButton({
+    super.key,
+    required this.isActive,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ToolToggleButton(
+      isActive: isActive,
+      onTap: onTap,
+      isDark: isDark,
+      icon: Icons.grid_on_rounded,
+      activeColor: Colors.indigo,
+    );
+  }
+}
+
 /// Shape Recognition toggle button.
 /// Shows a colored dot indicating sensitivity level (green=high, yellow=medium, red=low).
 /// Shows a 👻 indicator when ghost suggestion mode is active.

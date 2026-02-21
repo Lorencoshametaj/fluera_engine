@@ -11,18 +11,13 @@ extension on _NebulaCanvasScreenState {
     // 🔒 VIEWER GUARD: Prevent all editing on shared canvas if viewer
     if (_checkViewerGuard()) return;
 
-    // 👁️ Stop follow mode on manual interaction
-    if (_followingUserId != null) {
-      setState(() => _followingUserId = null);
-    }
-
     // Indica che l'utente sta disegnando (per opacity layer panel)
     _isDrawingNotifier.value = true;
 
-    // ✏️ PRESENCE: Phase 2 — real-time collaboration
-    // if (_isSharedCanvas) {
-    //   _presenceService.updateDrawingState(true);
-    // }
+    // ☁️ PRESENCE: Broadcast drawing state to collaborators
+    if (_isSharedCanvas && _realtimeEngine != null) {
+      _broadcastCursorPosition(canvasPosition, isDrawing: true);
+    }
 
     // 🎤 Traccia tempo inizio (per recording esterno)
     _lastStrokeStartTime = DateTime.now();
@@ -101,10 +96,6 @@ extension on _NebulaCanvasScreenState {
       final handle = _imageTool.hitTestResizeHandle(canvasPosition, imageSize);
       if (handle != null) {
         _imageTool.startResize(handle, canvasPosition);
-        // 🔒 SYNC: Lock this image for remote collaborators
-        if (_isSharedCanvas && _imageTool.selectedImage != null) {
-          _realtimeSyncManager?.setActiveElement(_imageTool.selectedImage!.id);
-        }
         setState(() {});
         return;
       }
@@ -189,6 +180,54 @@ extension on _NebulaCanvasScreenState {
       _digitalTextTool.deselectElement();
       setState(() {});
       // Do not return — continue with other tools
+    }
+
+    // 📊 TabularNode hit-test (after text, before lasso)
+    final hitTabular = _tabularTool.hitTest(
+      canvasPosition,
+      _layerController.sceneGraph,
+    );
+    if (hitTabular != null) {
+      if (_tabularTool.selectedTabular == hitTabular) {
+        // Already selected — check border resize FIRST
+        final border = _tabularTool.hitTestBorder(canvasPosition);
+        if (border != null) {
+          _tabularTool.startResize(
+            border.isColumn,
+            border.index,
+            canvasPosition,
+          );
+          setState(() {});
+          return;
+        }
+        // No border — detect which cell was tapped
+        final cell = _tabularTool.hitTestCell(canvasPosition);
+        if (cell != null) {
+          // If tapping the SAME cell again, enter in-cell editing
+          if (cell.$1 == _tabularTool.selectedCol &&
+              cell.$2 == _tabularTool.selectedRow) {
+            _editingInCell = true;
+          } else {
+            _editingInCell = false;
+            _tabularTool.selectCell(cell.$1, cell.$2);
+          }
+        } else {
+          _editingInCell = false;
+          _tabularTool.deselectCell();
+        }
+        setState(() {});
+        return;
+      }
+      // New table selected
+      _tabularTool.selectTabular(hitTabular);
+      _tabularTool.startDrag(canvasPosition);
+      setState(() {});
+      return;
+    }
+    // Deselect tabular if tapped empty area
+    if (_tabularTool.hasSelection) {
+      _tabularTool.deselectTabular();
+      setState(() {});
     }
 
     // If digital text mode is active and no text was hit, return (don't draw)

@@ -117,6 +117,7 @@ class UnifiedToolController extends ChangeNotifier {
   bool get isPanMode => _activeToolId == 'pan';
   bool get isPenToolMode => _activeToolId == 'pen_tool';
   bool get isLatexMode => _activeToolId == 'latex';
+  bool get isTabularMode => _activeToolId == 'tabular';
   bool get isShapeMode =>
       _shapeType != ShapeType.freehand && _activeToolId == 'shape';
 
@@ -316,6 +317,11 @@ class UnifiedToolController extends ChangeNotifier {
   /// 🧮 Toggle LaTeX editor mode
   void toggleLatexMode() {
     selectTool(_activeToolId == 'latex' ? null : 'latex');
+  }
+
+  /// 📊 Toggle Tabular (spreadsheet) mode
+  void toggleTabularMode() {
+    selectTool(_activeToolId == 'tabular' ? null : 'tabular');
   }
 
   /// Toggle stylus mode

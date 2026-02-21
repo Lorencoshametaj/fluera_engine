@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'asset_metadata.dart';
+
 // =============================================================================
 // ASSET HANDLE — Content-addressable identifier for managed assets.
 // =============================================================================
@@ -98,6 +100,12 @@ class AssetEntry {
   /// Last access timestamp (microseconds since epoch).
   int lastAccessedUs;
 
+  /// Rich metadata (tags, license, dimensions, etc.).
+  AssetMetadata? metadata;
+
+  /// Version history for this asset (newest first).
+  final List<AssetVersion> versions;
+
   /// State change broadcast controller (lazy).
   StreamController<AssetState>? _stateController;
 
@@ -109,8 +117,11 @@ class AssetEntry {
     this.data,
     this.error,
     this.errorStack,
+    this.metadata,
+    List<AssetVersion>? versions,
     int? lastAccessedUs,
-  }) : lastAccessedUs = lastAccessedUs ?? DateTime.now().microsecondsSinceEpoch;
+  }) : versions = versions ?? [],
+       lastAccessedUs = lastAccessedUs ?? DateTime.now().microsecondsSinceEpoch;
 
   /// Stream of state changes for this asset.
   Stream<AssetState> get stateChanges {
@@ -147,5 +158,8 @@ class AssetEntry {
     'memoryBytes': memoryBytes,
     'sourcePath': handle.sourcePath,
     if (error != null) 'error': error.toString(),
+    if (metadata != null) 'metadata': metadata!.toJson(),
+    if (versions.isNotEmpty)
+      'versions': versions.map((v) => v.toJson()).toList(),
   };
 }

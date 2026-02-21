@@ -47,11 +47,12 @@ class CurrentStrokePainter extends CustomPainter {
   );
 
   // ─── INCREMENTAL CACHE ──────────────────────────────────────────
-  // Disabled: the overlap zone between cached body and tail produces
-  // a visible double-rendering artifact (thin trailing line) with GPU
-  // vertex tessellation brushes. Full re-render per frame is fast
-  // enough thanks to drawVertices().
-  static const bool _enableIncrementalCache = false;
+  // Enabled: fountain pen now always renders with liveStroke=true (1 Chaikin,
+  // no feathering), so the overlap zone between cached body and tail has
+  // only opaque core vertices — no semi-transparent fringe that would cause
+  // visible alpha accumulation. This bounds per-frame cost to O(overlap + new)
+  // instead of O(total_stroke_length).
+  static const bool _enableIncrementalCache = true;
   static const int _cacheThreshold = 20;
 
   /// How many new points to accumulate before refreshing the cache.

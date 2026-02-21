@@ -281,7 +281,6 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
 
                       // 🔄 Sync: notify delta tracker for synchronization
                       _layerController.removeImage(imageElement.id);
-                      if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
 
                       _autoSaveCanvas();
                       HapticFeedback.mediumImpact();

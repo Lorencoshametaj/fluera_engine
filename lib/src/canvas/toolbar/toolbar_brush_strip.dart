@@ -31,7 +31,7 @@ class ToolbarBrushStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final displayPresets =
-        presets.isNotEmpty ? presets : BrushPreset.builtInPresets;
+        presets.isNotEmpty ? presets : BrushPreset.defaultPresets;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),

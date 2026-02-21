@@ -18,17 +18,17 @@ class LatexPreviewCard extends StatefulWidget {
   /// The LaTeX source string to preview.
   final String latexSource;
 
-  /// Font size for rendering.
+  /// Base font size for the expression.
   final double fontSize;
 
-  /// Color for rendering.
+  /// Text color for the expression.
   final Color color;
 
-  /// Minimum height of the preview area.
+  /// Optional minimum height for the preview area.
   final double minHeight;
 
-  /// Callback when the user taps the preview.
-  final VoidCallback? onTap;
+  /// Optional background color override.
+  final Color? backgroundColor;
 
   const LatexPreviewCard({
     super.key,
@@ -36,7 +36,7 @@ class LatexPreviewCard extends StatefulWidget {
     this.fontSize = 24.0,
     this.color = Colors.white,
     this.minHeight = 80,
-    this.onTap,
+    this.backgroundColor,
   });
 
   @override
@@ -44,27 +44,17 @@ class LatexPreviewCard extends StatefulWidget {
 }
 
 class _LatexPreviewCardState extends State<LatexPreviewCard> {
-  // T8: Dark/light preview background toggle
-  bool _darkPreview = true;
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    // T8: Dynamic background based on toggle
-    final bgColor =
-        _darkPreview
-            ? cs.surfaceContainerLow
-            : const Color(0xFFF5F5F5); // light gray for light mode
-
     return GestureDetector(
-      onTap: widget.onTap,
-      // E11: Copy-to-clipboard on long-press
+      // E11: Copy to clipboard on long-press
       onLongPress:
           widget.latexSource.isNotEmpty
               ? () {
-                HapticFeedback.mediumImpact();
                 Clipboard.setData(ClipboardData(text: widget.latexSource));
+                HapticFeedback.mediumImpact();
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text('LaTeX copiato negli appunti'),
@@ -77,82 +67,25 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
                 );
               }
               : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
+      child: Container(
         constraints: BoxConstraints(minHeight: widget.minHeight),
         decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: cs.outlineVariant, width: 1),
+          color:
+              widget.backgroundColor ??
+              cs.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: cs.outlineVariant.withValues(alpha: 0.3),
+            width: 0.5,
+          ),
         ),
-        padding: const EdgeInsets.all(16),
-        child: Stack(
-          children: [
+        child:
             widget.latexSource.isEmpty
                 ? _buildEmptyState(cs)
-                : _buildPreview(cs, context),
-            // T8: Background toggle button
-            Positioned(
-              top: 0,
-              left: 0,
-              child: GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() => _darkPreview = !_darkPreview);
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceContainerHigh.withValues(alpha: 0.8),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Icon(
-                    _darkPreview
-                        ? Icons.dark_mode_rounded
-                        : Icons.light_mode_rounded,
-                    size: 14,
-                    color: cs.onSurfaceVariant,
-                  ),
+                : ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: _buildPreview(cs, context),
                 ),
-              ),
-            ),
-            // U6: Export/copy button
-            if (widget.latexSource.isNotEmpty)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    Clipboard.setData(ClipboardData(text: widget.latexSource));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('LaTeX copiato \u2714'),
-                        behavior: SnackBarBehavior.floating,
-                        duration: const Duration(seconds: 1),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHigh.withValues(alpha: 0.8),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Icon(
-                      Icons.copy_rounded,
-                      size: 14,
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }
@@ -172,11 +105,9 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
     } catch (e) {
       parseError = e.toString();
 
-      // E12: Attempt partial render — try rendering the first half
-      // of the expression as a best-effort recovery
+      // E12: Attempt partial render
       if (widget.latexSource.length > 4) {
         try {
-          // Find the last valid position (before a backslash or brace)
           var cutoff = widget.latexSource.length;
           for (int i = widget.latexSource.length - 1; i > 0; i--) {
             if (widget.latexSource[i] == '{' ||

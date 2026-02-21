@@ -6,10 +6,10 @@ extension on _NebulaCanvasScreenState {
     // Indica che l'utente ha finito di disegnare
     _isDrawingNotifier.value = false;
 
-    // ✏️ PRESENCE: Phase 2 — real-time collaboration
-    // if (_isSharedCanvas) {
-    //   _presenceService.updateDrawingState(false);
-    // }
+    // ☁️ PRESENCE: Clear drawing state for collaborators
+    if (_isSharedCanvas && _realtimeEngine != null) {
+      _broadcastCursorPosition(canvasPosition, isDrawing: false);
+    }
 
     // 📄 PDF PAGE DRAG: End drag and save position
     // Strokes were already translated in real-time during _onDrawUpdate,
@@ -92,7 +92,8 @@ extension on _NebulaCanvasScreenState {
       _rebuildImageSpatialIndex();
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
-        if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
+        // 🔴 RT: Broadcast image rotation to collaborators
+        _broadcastImageUpdate(_imageTool.selectedImage!);
       }
       setState(() {});
       return;
@@ -109,10 +110,9 @@ extension on _NebulaCanvasScreenState {
       // 🔄 Sync: notify delta tracker of image update
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
-        if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
+        // 🔴 RT: Broadcast image resize to collaborators
+        _broadcastImageUpdate(_imageTool.selectedImage!);
       }
-      // 🔓 SYNC: Unlock element for remote collaborators
-      if (_isSharedCanvas) _realtimeSyncManager?.setActiveElement(null);
       setState(() {});
       _autoSaveCanvas();
       return;
@@ -127,10 +127,9 @@ extension on _NebulaCanvasScreenState {
       // 🔄 Sync: notify delta tracker of image update
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
-        if (_isSharedCanvas) _snapshotAndPushCloudDeltas();
+        // 🔴 RT: Broadcast image drag to collaborators
+        _broadcastImageUpdate(_imageTool.selectedImage!);
       }
-      // 🔓 SYNC: Unlock element for remote collaborators
-      if (_isSharedCanvas) _realtimeSyncManager?.setActiveElement(null);
       setState(() {});
       _autoSaveCanvas();
       return;
@@ -182,6 +181,48 @@ extension on _NebulaCanvasScreenState {
       setState(() {});
 
       // 💾 Auto-save after dragging digital text
+      _autoSaveCanvas();
+      return;
+    }
+
+    // 📊 TabularNode drag end
+    if (_tabularTool.isDragging) {
+      _tabularTool.endDrag();
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      HapticFeedback.lightImpact();
+      setState(() {});
+      _autoSaveCanvas();
+      return;
+    }
+
+    // 📊 TabularNode resize end
+    if (_tabularTool.isResizing) {
+      final result = _tabularTool.endResize();
+      if (result != null && _tabularTool.selectedTabular != null) {
+        final node = _tabularTool.selectedTabular!;
+        if (result.isColumn) {
+          _commandHistory.execute(
+            SetColumnWidthCommand(
+              node: node,
+              column: result.index,
+              newWidth: result.newSize,
+            ),
+          );
+        } else {
+          _commandHistory.execute(
+            SetRowHeightCommand(
+              node: node,
+              row: result.index,
+              newHeight: result.newSize,
+            ),
+          );
+        }
+      }
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      HapticFeedback.lightImpact();
+      setState(() {});
       _autoSaveCanvas();
       return;
     }
@@ -396,6 +437,9 @@ extension on _NebulaCanvasScreenState {
     // and completed strokes rendered simultaneously → visual "pop" on release.
     _currentStrokeNotifier.clear();
     _layerController.addStroke(stroke);
+
+    // 🔴 RT: Broadcast completed stroke to collaborators
+    _broadcastStrokeAdded(stroke);
 
     // 📄 PDF Annotation Linking: if stroke overlaps a PDF page, link it
     _linkStrokeToPdfPage(stroke);

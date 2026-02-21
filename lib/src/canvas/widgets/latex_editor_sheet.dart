@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/latex/ink_stroke_data.dart';
 import '../../core/latex/latex_fuzzy_corrector.dart';
 import '../../core/latex/latex_validator.dart';
 import '../../core/latex/latex_confidence_annotator.dart';
 import '../../platform/latex_recognition_bridge.dart';
+import 'latex_command_reference.dart';
 import 'latex_preview_card.dart';
 import 'latex_ink_overlay.dart';
 import 'latex_symbol_palette.dart';
@@ -94,6 +96,12 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   // ── E5: Template expanded flag ──
   bool _showTemplates = false;
 
+  // ── Camera OCR state ──
+  Uint8List? _cameraImageBytes;
+  bool _isCameraRecognizing = false;
+  double _cameraConfidence = 0.0;
+  List<LatexAlternative> _cameraAlternatives = [];
+
   // ── T2: Autocomplete state ──
   List<LatexCommandEntry> _autocompleteSuggestions = [];
   String _autocompletePrefix = '';
@@ -106,7 +114,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     _sourceController = LatexHighlightingController(text: widget.initialLatex);
     _fontSize = widget.initialFontSize;
     _color = widget.initialColor;
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       HapticFeedback.selectionClick(); // E6
       setState(() {
@@ -435,6 +443,37 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     widget.onConfirm?.call(source, _fontSize, _color);
   }
 
+  /// Insert text at cursor position, preserving focus.
+  void _insertAtCursor(String text) {
+    final sel = _sourceController.selection;
+    final src = _sourceController.text;
+    final pos = sel.isValid ? sel.baseOffset : src.length;
+    final newText = src.substring(0, pos) + text + src.substring(pos);
+    _sourceController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: pos + text.length),
+    );
+  }
+
+  /// Move cursor left or right by [delta] characters.
+  void _moveCursor(int delta) {
+    final sel = _sourceController.selection;
+    if (!sel.isValid) return;
+    final newPos = (sel.baseOffset + delta).clamp(
+      0,
+      _sourceController.text.length,
+    );
+    _sourceController.selection = TextSelection.collapsed(offset: newPos);
+  }
+
+  /// Open the command reference screen with insert-at-cursor callback.
+  void _openCommandReference() {
+    LatexCommandReference.show(
+      context,
+      onCommandSelected: (cmd) => _insertAtCursor(cmd),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -570,6 +609,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     _buildKeyboardMode(cs),
                     _buildHandwritingMode(cs),
                     _buildSymbolsMode(),
+                    _buildCameraMode(cs),
                   ],
                 ),
               ),
@@ -625,6 +665,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
               _buildKeyboardMode(cs),
               _buildHandwritingMode(cs),
               _buildSymbolsMode(),
+              _buildCameraMode(cs),
             ],
           ),
         ),
@@ -848,6 +889,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         Tab(icon: Icon(Icons.keyboard_rounded, size: 18), text: 'Tastiera'),
         Tab(icon: Icon(Icons.draw_rounded, size: 18), text: 'Scrittura'),
         Tab(icon: Icon(Icons.grid_view_rounded, size: 18), text: 'Simboli'),
+        Tab(icon: Icon(Icons.camera_alt_rounded, size: 18), text: 'Camera'),
       ],
     );
   }
@@ -988,8 +1030,11 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
             const SizedBox(height: 8),
           ],
 
-          // E4: Expanded quick-insert — 3 rows
-          _buildQuickInsertRows(cs),
+          // E4: Expanded quick-insert — compact when keyboard visible
+          _buildQuickInsertRows(
+            cs,
+            compact: MediaQuery.of(context).viewInsets.bottom > 80,
+          ),
 
           const SizedBox(height: 12),
 
@@ -1179,7 +1224,105 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   }
 
   // ── E4: Three rows of quick-insert chips ──
-  Widget _buildQuickInsertRows(ColorScheme cs) {
+  Widget _buildQuickInsertRows(ColorScheme cs, {bool compact = false}) {
+    if (compact) {
+      // ── Keyboard visible: 2 compact rows ──
+      return Column(
+        children: [
+          // Row 1: Most-used structures
+          SizedBox(
+            height: 32,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              children: [
+                _QuickInsertChip(
+                  label: 'frac',
+                  onTap: () => _insertSymbol(r'\frac{}{}'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: '√',
+                  onTap: () => _insertSymbol(r'\sqrt{}'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: 'x²',
+                  onTap: () => _insertSymbol('^{}'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: 'xᵢ',
+                  onTap: () => _insertSymbol('_{}'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: '∫',
+                  onTap: () => _insertSymbol(r'\int'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: '∑',
+                  onTap: () => _insertSymbol(r'\sum'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: 'lim',
+                  onTap: () => _insertSymbol(r'\lim'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 3),
+          // Row 2: Brackets + common functions
+          SizedBox(
+            height: 32,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              children: [
+                _QuickInsertChip(
+                  label: '(  )',
+                  onTap: () => _insertSymbol(r'\left( \right)'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: '[  ]',
+                  onTap: () => _insertSymbol(r'\left[ \right]'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: 'sin',
+                  onTap: () => _insertSymbol(r'\sin'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: 'cos',
+                  onTap: () => _insertSymbol(r'\cos'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: 'log',
+                  onTap: () => _insertSymbol(r'\log'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: '∂',
+                  onTap: () => _insertSymbol(r'\partial'),
+                ),
+                const SizedBox(width: 4),
+                _QuickInsertChip(
+                  label: '∞',
+                  onTap: () => _insertSymbol(r'\infty'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    // ── Normal: 3 full rows ──
     return Column(
       children: [
         // Row 1: Structures
@@ -1395,6 +1538,238 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   }
 
   // ---------------------------------------------------------------------------
+  // Camera OCR mode
+  // ---------------------------------------------------------------------------
+
+  /// Pick an image from camera or gallery and run OCR recognition.
+  Future<void> _pickAndRecognize(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 90,
+      );
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      setState(() {
+        _cameraImageBytes = bytes;
+        _isCameraRecognizing = true;
+        _cameraAlternatives = <LatexAlternative>[];
+        _cameraConfidence = 0.0;
+      });
+
+      HapticFeedback.mediumImpact();
+
+      final recognizer = widget.recognizer;
+      if (recognizer == null) {
+        setState(() => _isCameraRecognizing = false);
+        return;
+      }
+
+      final result = await recognizer.recognizeImage(bytes);
+
+      if (!mounted) return;
+
+      setState(() {
+        _isCameraRecognizing = false;
+        _cameraConfidence = result.confidence;
+        _cameraAlternatives = result.alternatives;
+      });
+
+      if (result.latexString.isNotEmpty) {
+        _pushUndoSnapshot();
+        _sourceController.text = result.latexString;
+        _sourceController.selection = TextSelection.collapsed(
+          offset: result.latexString.length,
+        );
+        HapticFeedback.heavyImpact();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCameraRecognizing = false);
+      }
+    }
+  }
+
+  Widget _buildCameraMode(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          // Image preview or placeholder
+          Expanded(
+            child:
+                _cameraImageBytes != null
+                    ? ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.memory(_cameraImageBytes!, fit: BoxFit.contain),
+                          if (_isCameraRecognizing)
+                            Container(
+                              color: Colors.black54,
+                              child: const Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(height: 12),
+                                    Text(
+                                      'Riconoscimento in corso...',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          // Confidence badge
+                          if (!_isCameraRecognizing && _cameraConfidence > 0)
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color:
+                                      _cameraConfidence > 0.8
+                                          ? Colors.green
+                                          : _cameraConfidence > 0.5
+                                          ? Colors.orange
+                                          : Colors.red,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${(_cameraConfidence * 100).toStringAsFixed(0)}%',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    )
+                    : Container(
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHighest.withValues(
+                          alpha: 0.3,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: cs.outlineVariant, width: 1),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.camera_alt_rounded,
+                              size: 48,
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Fotografa un\'equazione matematica',
+                              style: TextStyle(
+                                color: cs.onSurfaceVariant,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Action buttons
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed:
+                      _isCameraRecognizing
+                          ? null
+                          : () => _pickAndRecognize(ImageSource.camera),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.camera_alt_rounded, size: 18),
+                      SizedBox(width: 8),
+                      Text('Scatta'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed:
+                      _isCameraRecognizing
+                          ? null
+                          : () => _pickAndRecognize(ImageSource.gallery),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.photo_library_rounded, size: 18),
+                      SizedBox(width: 8),
+                      Text('Galleria'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Alternative results
+          if (_cameraAlternatives.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 32,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _cameraAlternatives.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (context, index) {
+                  final alt = _cameraAlternatives[index];
+                  return ActionChip(
+                    label: Text(
+                      alt.latexString,
+                      style: const TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onPressed: () {
+                      _pushUndoSnapshot();
+                      _sourceController.text = alt.latexString;
+                      HapticFeedback.selectionClick();
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // E8: Bottom Toolbar with font size slider
   // ---------------------------------------------------------------------------
 
@@ -1413,98 +1788,212 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // E8: Font size slider row
-          Row(
-            children: [
-              Icon(
-                Icons.format_size_rounded,
-                size: 18,
-                color: cs.onSurfaceVariant,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '${_fontSize.toInt()}',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+          // E8: Font size slider — hide when keyboard is up
+          if (MediaQuery.of(context).viewInsets.bottom < 80)
+            Row(
+              children: [
+                Icon(
+                  Icons.format_size_rounded,
+                  size: 18,
+                  color: cs.onSurfaceVariant,
                 ),
-              ),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderThemeData(
-                    trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 7,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 14,
-                    ),
-                    activeTrackColor: cs.primary,
-                    inactiveTrackColor: cs.primaryContainer,
-                    thumbColor: cs.primary,
+                const SizedBox(width: 8),
+                Text(
+                  '${_fontSize.toInt()}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                  child: Slider(
-                    value: _fontSize,
-                    min: 10,
-                    max: 96,
-                    divisions: 43,
-                    onChanged: (v) {
-                      setState(() => _fontSize = v);
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 7,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 14,
+                      ),
+                      activeTrackColor: cs.primary,
+                      inactiveTrackColor: cs.primaryContainer,
+                      thumbColor: cs.primary,
+                    ),
+                    child: Slider(
+                      value: _fontSize,
+                      min: 10,
+                      max: 96,
+                      divisions: 43,
+                      onChanged: (v) {
+                        setState(() => _fontSize = v);
+                      },
+                      onChangeEnd: (_) => HapticFeedback.selectionClick(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          if (MediaQuery.of(context).viewInsets.bottom < 80)
+            const SizedBox(height: 4),
+          // Action buttons row — compact when keyboard is visible
+          Builder(
+            builder: (context) {
+              final kbOpen = MediaQuery.of(context).viewInsets.bottom > 80;
+
+              if (kbOpen) {
+                // ─── Compact keyboard toolbar ───
+                return Row(
+                  children: [
+                    // Backslash key
+                    _CompactKey(
+                      label: '\\',
+                      onTap: () => _insertAtCursor('\\'),
+                      cs: cs,
+                    ),
+                    const SizedBox(width: 3),
+                    // Opening brace
+                    _CompactKey(
+                      label: '{',
+                      onTap: () => _insertAtCursor('{'),
+                      cs: cs,
+                    ),
+                    const SizedBox(width: 3),
+                    // Closing brace
+                    _CompactKey(
+                      label: '}',
+                      onTap: () => _insertAtCursor('}'),
+                      cs: cs,
+                    ),
+                    const SizedBox(width: 3),
+                    // Caret
+                    _CompactKey(
+                      label: '^',
+                      onTap: () => _insertAtCursor('^'),
+                      cs: cs,
+                    ),
+                    const SizedBox(width: 3),
+                    // Underscore
+                    _CompactKey(
+                      label: '_',
+                      onTap: () => _insertAtCursor('_'),
+                      cs: cs,
+                    ),
+
+                    const SizedBox(width: 6),
+
+                    // Cursor left
+                    _CompactIconKey(
+                      icon: Icons.chevron_left_rounded,
+                      onTap: () => _moveCursor(-1),
+                      cs: cs,
+                    ),
+                    const SizedBox(width: 3),
+                    // Cursor right
+                    _CompactIconKey(
+                      icon: Icons.chevron_right_rounded,
+                      onTap: () => _moveCursor(1),
+                      cs: cs,
+                    ),
+
+                    const Spacer(),
+
+                    // Color (icon only)
+                    _ToolbarIconButton(
+                      icon: Icons.palette_rounded,
+                      tooltip: 'Color',
+                      onTap: () => _showColorPicker(cs),
+                      dotColor: _color,
+                      size: 32,
+                    ),
+                    // Reference (icon only)
+                    _ToolbarIconButton(
+                      icon: Icons.menu_book_rounded,
+                      tooltip: 'Commands',
+                      onTap: () => _openCommandReference(),
+                      size: 32,
+                    ),
+
+                    const SizedBox(width: 4),
+
+                    // Confirm (compact)
+                    SizedBox(
+                      height: 32,
+                      child: FilledButton(
+                        onPressed:
+                            _sourceController.text.isNotEmpty ? _confirm : null,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          textStyle: const TextStyle(fontSize: 13),
+                        ),
+                        child: const Icon(Icons.check_rounded, size: 18),
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              // ─── Full toolbar (keyboard closed) ───
+              return Row(
+                children: [
+                  // Color picker
+                  _ToolbarIconButton(
+                    icon: Icons.palette_rounded,
+                    tooltip: 'Color',
+                    onTap: () => _showColorPicker(cs),
+                    dotColor: _color,
+                  ),
+
+                  const SizedBox(width: 4),
+
+                  // Command reference
+                  _ToolbarIconButton(
+                    icon: Icons.menu_book_rounded,
+                    tooltip: 'LaTeX Commands',
+                    onTap: () => _openCommandReference(),
+                  ),
+
+                  const Spacer(),
+
+                  // Clear
+                  TextButton.icon(
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      _pushUndoSnapshot();
+                      setState(() {
+                        _sourceController.clear();
+                        _confidenceAnnotations.clear();
+                        _validationErrors.clear();
+                      });
                     },
-                    onChangeEnd: (_) => HapticFeedback.selectionClick(),
+                    icon: const Icon(Icons.clear_all_rounded, size: 18),
+                    label: const Text('Clear'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: cs.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          // Action buttons row
-          Row(
-            children: [
-              // Color picker
-              _ToolbarIconButton(
-                icon: Icons.palette_rounded,
-                tooltip: 'Colore',
-                onTap: () => _showColorPicker(cs),
-                dotColor: _color,
-              ),
 
-              const Spacer(),
+                  const SizedBox(width: 8),
 
-              // Clear
-              TextButton.icon(
-                onPressed: () {
-                  HapticFeedback.lightImpact(); // E6
-                  _pushUndoSnapshot();
-                  setState(() {
-                    _sourceController.clear();
-                    _confidenceAnnotations.clear();
-                    _validationErrors.clear();
-                  });
-                },
-                icon: const Icon(Icons.clear_all_rounded, size: 18),
-                label: const Text('Pulisci'),
-                style: TextButton.styleFrom(
-                  foregroundColor: cs.onSurfaceVariant,
-                ),
-              ),
-
-              const SizedBox(width: 8),
-
-              // Confirm
-              FilledButton.icon(
-                onPressed: _sourceController.text.isNotEmpty ? _confirm : null,
-                icon: const Icon(Icons.check_rounded, size: 18),
-                label: const Text('Conferma'),
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                  // Confirm
+                  FilledButton.icon(
+                    onPressed:
+                        _sourceController.text.isNotEmpty ? _confirm : null,
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text('Confirm'),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1792,6 +2281,9 @@ enum LatexEditorMode {
 
   /// Symbol palette insertion.
   symbols,
+
+  /// Camera/photo OCR recognition.
+  camera,
 }
 
 // =============================================================================
@@ -1991,12 +2483,14 @@ class _ToolbarIconButton extends StatelessWidget {
   final String tooltip;
   final VoidCallback onTap;
   final Color? dotColor;
+  final double? size;
 
   const _ToolbarIconButton({
     required this.icon,
     required this.tooltip,
     required this.onTap,
     this.dotColor,
+    this.size,
   });
 
   @override
@@ -2010,28 +2504,112 @@ class _ToolbarIconButton extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Stack(
-              children: [
-                Icon(icon, size: 20, color: cs.onSurfaceVariant),
-                if (dotColor != null)
-                  Positioned(
-                    right: -2,
-                    bottom: -2,
-                    child: Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: dotColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: cs.surface, width: 1.5),
+          child: SizedBox(
+            width: size ?? 36,
+            height: size ?? 36,
+            child: Center(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    icon,
+                    size: size != null ? 18 : 20,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  if (dotColor != null)
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: dotColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: cs.surface, width: 1.5),
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact text key for the keyboard toolbar (e.g. '\\', '{', '}').
+class _CompactKey extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  final ColorScheme cs;
+
+  const _CompactKey({
+    required this.label,
+    required this.onTap,
+    required this.cs,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: cs.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 34,
+          height: 32,
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'monospace',
+                color: cs.onSurface,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact icon key for the keyboard toolbar (e.g. arrow keys).
+class _CompactIconKey extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final ColorScheme cs;
+
+  const _CompactIconKey({
+    required this.icon,
+    required this.onTap,
+    required this.cs,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: cs.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 34,
+          height: 32,
+          child: Center(child: Icon(icon, size: 18, color: cs.onSurface)),
         ),
       ),
     );

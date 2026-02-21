@@ -32,6 +32,8 @@ import '../scene_graph/scene_graph_renderer.dart'; // 🚀 Added for GAP 3
 import '../../tools/pdf/pdf_text_selection_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
 import '../../export/pdf_annotation_exporter.dart';
+import '../../core/nodes/tabular_node.dart';
+import '../scene_graph/tabular_renderer.dart';
 
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
 import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
@@ -140,6 +142,14 @@ class DrawingPainter extends CustomPainter {
   List<ProStroke>? _materializedCache;
   int _materializedVersion = -1;
 
+  /// Scene graph version captured at construction time.
+  ///
+  /// `shouldRepaint` must compare THIS value (not `sceneGraph.version`)
+  /// because both old and new delegates share the SAME SceneGraph object
+  /// reference — by the time `shouldRepaint` runs, `bumpVersion()` has
+  /// already mutated the shared instance, making live comparison useless.
+  final int _sceneGraphVersion;
+
   DrawingPainter({
     required this.completedShapes,
     this.currentShape,
@@ -161,7 +171,8 @@ class DrawingPainter extends CustomPainter {
     this.pdfTextSelection, // 📝 Text selection overlay
     this.pdfSearchController, // 🔍 Full-text search highlights
     this.pdfLayoutVersion = 0, // 📄 PDF layout mutation counter
-  }) : super(repaint: controller); // repaint on pan/zoom when controller set
+  }) : _sceneGraphVersion = sceneGraph.version,
+       super(repaint: controller); // repaint on pan/zoom when controller set
 
   /// 🌲 Effective strokes: materialized from the scene graph tree.
   /// Cached per scene graph version — O(1) on cache hit.
@@ -236,7 +247,36 @@ class DrawingPainter extends CustomPainter {
     if (useTileCaching) {
       _paintWithTileCaching(canvas, viewport, effectiveScale);
     } else {
-      _paintDirect(canvas, viewport);
+      // GAP D: Clip to dirty bounds for incremental rendering.
+      // When the dirty tracker has accumulated regions (e.g., a single
+      // stroke was added), clip the canvas to the dirty bounding box
+      // so _paintDirect() only re-renders the affected area.
+      //
+      // 🛡️ SAFETY: Dirty-clip is ONLY used when a valid vectorial cache
+      // already exists. Otherwise the first full render would be recorded
+      // inside the clip → the cache Picture would contain only the dirty
+      // rect's content, and all elements outside it would permanently
+      // disappear on subsequent cache-hit frames.
+      final tracker = dirtyRegionTracker;
+      final hasDirty = tracker != null && tracker.hasDirtyRegions;
+      final totalStrokes = _effectiveStrokes.length;
+      if (hasDirty) {
+        final dirtyBounds = tracker.dirtyBounds;
+        if (dirtyBounds != null && _strokeCache.isCacheValid(totalStrokes)) {
+          // Cache is valid: safe to clip — _paintDirect will replay the
+          // full cache and only draw new content inside the clip.
+          canvas.save();
+          canvas.clipRect(dirtyBounds);
+          _paintDirect(canvas, viewport, isDirtyClipped: true);
+          canvas.restore();
+        } else {
+          // No valid cache: render everything without clip so the cache
+          // is built with ALL content visible.
+          _paintDirect(canvas, viewport);
+        }
+      } else {
+        _paintDirect(canvas, viewport);
+      }
     }
 
     // Draw the current shape in preview (not yet in scene graph)
@@ -246,6 +286,9 @@ class DrawingPainter extends CustomPainter {
 
     // 📄 Draw PDF documents
     _paintPdfDocuments(canvas, viewport);
+
+    // 📊 Draw Tabular (spreadsheet) nodes
+    _paintTabularNodes(canvas, viewport);
 
     // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
     dirtyRegionTracker?.clearDirty();
@@ -373,7 +416,11 @@ class DrawingPainter extends CustomPainter {
   /// - < 20 strokes: draw all (culling overhead > rendering them all)
   /// - ≥ 20 strokes: filter only visible in the viewport (with 1000px prefetch)
   /// - zoom < 50%: simplify points via Douglas-Peucker (up to 20x less work)
-  void _paintDirect(Canvas canvas, Rect viewport) {
+  void _paintDirect(
+    Canvas canvas,
+    Rect viewport, {
+    bool isDirtyClipped = false,
+  }) {
     // 🎨 PER-LAYER BLEND MODE: if any scene graph layer has non-default
     // compositing, render each layer inside its own saveLayer() group.
     final hasLayerCompositing = sceneGraph.layers.any(
@@ -460,11 +507,17 @@ class DrawingPainter extends CustomPainter {
     final effectiveScale = controller?.scale ?? canvasScale;
     final hasEraserPreviewActive = eraserPreviewIds.isNotEmpty;
 
+    // 🛡️ Use infinite viewport for the canvas render to prevent
+    // strokes outside the current viewport from being culled during
+    // rapid drawing (when the cache is invalidated every frame).
+    // The parent ClipRect widget already clips to the screen bounds.
+    const fullViewport = Rect.fromLTWH(-1e6, -1e6, 2e6, 2e6);
+
     // Render the scene graph via unified pipeline
     _delegateRenderer.render(
       canvas,
       sceneGraph,
-      viewport,
+      fullViewport,
       scale: effectiveScale,
     );
 
@@ -473,16 +526,15 @@ class DrawingPainter extends CustomPainter {
 
     // 🚀 RECORD-ONCE CACHE: record a full render into a Picture for future
     // O(1) replay. Only when enough strokes and no eraser preview.
-    if (!hasEraserPreviewActive && _effectiveStrokes.length >= 5) {
+    // 🛡️ SAFETY: Skip cache adoption when inside a dirty-region clip —
+    // the recorded Picture would only contain clipped content, causing
+    // all elements outside the dirty rect to permanently disappear.
+    if (!hasEraserPreviewActive &&
+        !isDirtyClipped &&
+        _effectiveStrokes.length >= 5) {
       final recorder = ui.PictureRecorder();
       final recCanvas = Canvas(recorder);
-      _delegateRenderer.render(
-        recCanvas,
-        sceneGraph,
-        // Use infinite viewport for cache (include all content)
-        const Rect.fromLTWH(-1e6, -1e6, 2e6, 2e6),
-        scale: 1.0,
-      );
+      _delegateRenderer.render(recCanvas, sceneGraph, fullViewport, scale: 1.0);
       _strokeCache.adoptPicture(
         recorder.endRecording(),
         _effectiveStrokes.length,
@@ -678,6 +730,46 @@ class DrawingPainter extends CustomPainter {
       for (final child in node.children) {
         if (child.isVisible) {
           _collectAndPaintPdfNodes(canvas, child, viewport, pagesPerDocument);
+        }
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 📊 TABULAR NODE RENDERING
+  // --------------------------------------------------------------------------
+
+  /// Paint all TabularNode instances found in the scene graph.
+  void _paintTabularNodes(Canvas canvas, Rect viewport) {
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      _collectAndPaintTabularNodes(canvas, layer, viewport);
+    }
+    // Also check rootNode children (nodes added directly to root)
+    for (final child in sceneGraph.rootNode.children) {
+      if (child.isVisible) {
+        _collectAndPaintTabularNodes(canvas, child, viewport);
+      }
+    }
+  }
+
+  /// Recursively find and paint TabularNodes in a subtree.
+  void _collectAndPaintTabularNodes(
+    Canvas canvas,
+    CanvasNode node,
+    Rect viewport,
+  ) {
+    if (node is TabularNode) {
+      // Apply the node's local transform (position on canvas)
+      canvas.save();
+      final tx = node.localTransform.getTranslation();
+      canvas.translate(tx.x, tx.y);
+      TabularRenderer.drawTabularNode(canvas, node);
+      canvas.restore();
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) {
+          _collectAndPaintTabularNodes(canvas, child, viewport);
         }
       }
     }
@@ -1085,7 +1177,7 @@ class DrawingPainter extends CustomPainter {
     // NO repaint for offset/scale/viewportSize, at any
     // number of strokes. Cached tiles are GPU-scaled bitmaps.
     // 🌲 Scene graph version-based change detection
-    return oldDelegate.sceneGraph.version != sceneGraph.version ||
+    return oldDelegate._sceneGraphVersion != _sceneGraphVersion ||
         oldDelegate.completedShapes != completedShapes ||
         oldDelegate.currentShape != currentShape ||
         oldDelegate.layers != layers ||

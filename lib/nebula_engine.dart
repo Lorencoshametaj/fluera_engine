@@ -55,9 +55,11 @@ export 'src/core/nodes/pdf_document_node.dart';
 export 'src/core/models/pdf_layout_preset.dart';
 export 'src/canvas/toolbar/pdf_contextual_toolbar.dart';
 export 'src/core/nodes/latex_node.dart';
+export 'src/core/nodes/tabular_node.dart';
 
 // LaTeX Widgets
 export 'src/canvas/widgets/latex_preview_card.dart';
+export 'src/canvas/widgets/latex_command_reference.dart';
 export 'src/canvas/widgets/latex_ink_overlay.dart';
 export 'src/canvas/widgets/latex_symbol_palette.dart';
 export 'src/canvas/widgets/latex_confidence_chips.dart';
@@ -88,6 +90,28 @@ export 'src/core/latex/latex_fuzzy_corrector.dart';
 export 'src/core/latex/latex_validator.dart';
 export 'src/core/latex/latex_confidence_annotator.dart';
 
+// Tabular (Spreadsheet Engine)
+export 'src/core/tabular/cell_address.dart';
+export 'src/core/tabular/cell_value.dart';
+export 'src/core/tabular/cell_node.dart';
+export 'src/core/tabular/spreadsheet_model.dart';
+export 'src/core/tabular/formula_ast.dart';
+export 'src/core/tabular/formula_token.dart';
+export 'src/core/tabular/formula_parser.dart';
+export 'src/core/tabular/formula_functions.dart';
+export 'src/core/tabular/spreadsheet_evaluator.dart';
+export 'src/core/tabular/spreadsheet_workbook.dart';
+export 'src/core/tabular/tabular_cell_stream.dart';
+export 'src/core/tabular/tabular_latex_bridge.dart';
+export 'src/core/tabular/tabular_csv.dart';
+export 'src/core/tabular/tabular_clipboard.dart';
+export 'src/core/tabular/cell_number_formatter.dart';
+export 'src/core/tabular/merge_region_manager.dart';
+export 'src/core/tabular/decimal_value.dart';
+export 'src/core/tabular/tabular_xlsx.dart';
+export 'src/core/tabular/cell_validation.dart';
+export 'src/core/tabular/conditional_format.dart';
+
 // Effects
 export 'src/core/effects/node_effect.dart';
 export 'src/core/effects/gradient_fill.dart';
@@ -117,8 +141,52 @@ export 'src/core/engine_event_bus.dart';
 export 'src/core/engine_telemetry.dart';
 export 'src/systems/engine_theme.dart';
 export 'src/core/assets/asset_handle.dart';
+export 'src/core/assets/asset_metadata.dart';
+export 'src/core/assets/asset_validator.dart' hide ValidationSeverity;
+export 'src/core/assets/asset_dependency_graph.dart';
 export 'src/core/assets/asset_registry.dart';
 export 'src/core/error_recovery_service.dart';
+export 'src/core/audit/audit_entry.dart';
+export 'src/core/audit/audit_log_service.dart';
+export 'src/core/audit/audit_event_bridge.dart';
+export 'src/core/audit/audit_exporter.dart';
+export 'src/core/rbac/engine_permission.dart';
+export 'src/core/rbac/permission_policy.dart';
+export 'src/core/rbac/permission_service.dart';
+export 'src/core/rbac/permission_interceptor.dart';
+export 'src/core/testing/golden_snapshot.dart';
+export 'src/core/testing/pixel_diff_engine.dart';
+export 'src/core/testing/visual_regression_runner.dart';
+export 'src/core/testing/performance_baseline.dart';
+export 'src/core/layout/auto_layout_config.dart'
+    hide
+        LayoutDirection,
+        MainAxisAlignment,
+        CrossAxisAlignment,
+        OverflowBehavior;
+export 'src/core/layout/flex_layout_solver.dart';
+export 'src/core/layout/grid_layout_solver.dart';
+export 'src/core/layout/layout_template.dart';
+export 'src/core/color/color_space_converter.dart';
+export 'src/core/color/color_blindness_simulator.dart';
+export 'src/core/color/soft_proof_engine.dart';
+export 'src/core/color/color_palette_store.dart' hide ColorPalette;
+export 'src/core/editing/adjustment_layer.dart';
+export 'src/core/editing/smart_filter_stack.dart';
+export 'src/core/editing/blend_mode_engine.dart';
+export 'src/core/editing/mask_channel.dart' hide MaskType;
+export 'src/core/analytics/usage_analytics.dart';
+export 'src/core/analytics/metric_exporter.dart';
+export 'src/core/analytics/dashboard_endpoint.dart' hide AlertSeverity;
+export 'src/core/analytics/feature_flag_service.dart';
+export 'src/core/marketplace/plugin_manifest_schema.dart';
+export 'src/core/marketplace/semver_resolver.dart';
+export 'src/core/marketplace/plugin_signing_service.dart';
+export 'src/core/marketplace/plugin_update_manager.dart';
+export 'src/core/formats/format_registry.dart';
+export 'src/core/formats/format_parser.dart';
+export 'src/core/formats/batch_export_pipeline.dart' hide ExportResult;
+export 'src/core/formats/format_converter.dart';
 export 'src/core/schema_version.dart';
 export 'src/core/scene_graph/scene_graph_integrity.dart';
 export 'src/core/scene_graph/invalidation_graph.dart';
@@ -206,22 +274,31 @@ export 'src/tools/pdf/pdf_import_controller.dart';
 export 'src/tools/pdf/pdf_search_controller.dart';
 export 'src/tools/pdf/pdf_annotation_controller.dart';
 export 'src/core/models/pdf_annotation_model.dart';
+export 'src/tools/tabular/tabular_tool.dart';
+export 'src/tools/tabular/tabular_selection_overlay.dart';
 export 'src/canvas/toolbar/pdf_thumbnail_sidebar.dart';
+export 'src/canvas/toolbar/tabular_contextual_toolbar.dart';
 
 // ────────────────────────── RENDERING ──────────────────────────
 
 // Scene Graph Rendering
 export 'src/rendering/scene_graph/scene_graph_renderer.dart';
 export 'src/rendering/scene_graph/render_interceptor.dart';
+export 'src/rendering/scene_graph/render_plan.dart';
 export 'src/rendering/scene_graph/path_renderer.dart';
 export 'src/rendering/scene_graph/rich_text_renderer.dart';
 export 'src/rendering/scene_graph/render_batch.dart';
 export 'src/rendering/scene_graph/latex_renderer.dart';
+export 'src/rendering/scene_graph/tabular_renderer.dart';
 
 // Platform — LaTeX Recognition
 export 'src/platform/latex_recognition_bridge.dart';
 export 'src/platform/ink_rasterizer.dart';
 export 'src/platform/native_latex_recognizer.dart';
+export 'src/platform/pix2tex_recognizer.dart';
+export 'src/platform/pix2tex_config.dart';
+export 'src/platform/onnx_latex_recognizer.dart';
+export 'src/core/latex/latex_tokenizer.dart';
 
 // Canvas Painters
 export 'src/rendering/canvas/drawing_painter.dart';
@@ -274,6 +351,9 @@ export 'src/rendering/render_profiler.dart';
 export 'src/rendering/optimization/memory_managed_cache.dart';
 export 'src/rendering/optimization/memory_budget_controller.dart';
 export 'src/rendering/optimization/memory_event.dart';
+export 'src/rendering/optimization/occlusion_culler.dart';
+export 'src/rendering/optimization/layer_picture_cache.dart';
+export 'src/rendering/canvas/incremental_paint_mixin.dart';
 
 // ────────────────────────── TIME TRAVEL ──────────────────────────
 export 'src/time_travel/models/time_travel_session.dart';
@@ -299,10 +379,14 @@ export 'src/history/variant_transactions.dart';
 export 'src/history/undo_redo_manager.dart';
 export 'src/history/canvas_delta_tracker.dart';
 export 'src/history/models/canvas_branch.dart';
+export 'src/history/models/branch_merge_result.dart';
 export 'src/history/branching_manager.dart';
 export 'src/history/background_checkpoint_service.dart';
 export 'src/history/async_command.dart';
 export 'src/history/latex_commands.dart';
+export 'src/history/tabular_commands.dart';
+export 'src/history/tabular_format_commands.dart';
+export 'src/history/tabular_merge_commands.dart';
 export 'src/history/widgets/branch_explorer_sheet.dart';
 
 // ────────────────────────── LAYERS ──────────────────────────
@@ -313,10 +397,12 @@ export 'src/layers/adapters/infinite_canvas_adapter.dart';
 export 'src/layers/widgets/layer_panel.dart';
 
 // ────────────────────────── COLLABORATION ──────────────────────────
-export 'src/collaboration/canvas_realtime_sync_manager.dart';
-export 'src/collaboration/sync_state_provider.dart';
-export 'src/collaboration/nebula_sync_interfaces.dart';
 export 'src/collaboration/widgets/canvas_presence_overlay.dart';
+export 'src/collaboration/nebula_realtime_adapter.dart';
+export 'src/collaboration/widgets/connected_users_strip.dart';
+export 'src/collaboration/realtime_enterprise.dart' hide AuditAction;
+export 'src/collaboration/conflict_resolution.dart';
+export 'src/collaboration/widgets/conflict_resolution_dialog.dart';
 
 // ────────────────────────── EXPORT ──────────────────────────
 export 'src/export/export_pipeline.dart';
@@ -391,6 +477,7 @@ export 'src/config/advanced_split_layout.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/nebula_storage_adapter.dart';
+export 'src/storage/nebula_cloud_adapter.dart';
 export 'src/storage/sqlite_storage_adapter.dart';
 export 'src/storage/recording_storage_service.dart';
 export 'src/storage/nebula_canvas_gallery.dart';

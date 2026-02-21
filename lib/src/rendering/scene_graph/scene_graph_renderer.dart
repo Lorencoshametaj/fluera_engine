@@ -23,6 +23,7 @@ import '../../core/nodes/pdf_document_node.dart';
 import '../../core/nodes/vector_network_node.dart';
 import '../../core/effects/shader_effect.dart';
 import '../../core/nodes/latex_node.dart';
+import '../../core/nodes/tabular_node.dart';
 import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
@@ -37,7 +38,10 @@ import './path_renderer.dart';
 import './rich_text_renderer.dart';
 import './render_interceptor.dart';
 import './render_batch.dart';
+import './tabular_renderer.dart';
 import './latex_renderer.dart';
+import '../optimization/layer_picture_cache.dart';
+import '../optimization/snapshot_cache_manager.dart';
 
 /// Renders a [SceneGraph] by recursively traversing the node tree.
 ///
@@ -99,6 +103,25 @@ class SceneGraphRenderer {
   /// Connect an invalidation graph for incremental rendering.
   set invalidationGraph(InvalidationGraph? graph) {
     _invalidationGraph = graph;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Layer Picture Cache (GAP C wiring)
+  // ---------------------------------------------------------------------------
+
+  /// Per-layer Picture cache for zero re-traversal rendering.
+  final LayerPictureCache layerPictureCache = LayerPictureCache();
+
+  // ---------------------------------------------------------------------------
+  // Snapshot Cache (GAP E wiring)
+  // ---------------------------------------------------------------------------
+
+  /// Optional snapshot cache for node-based image caching.
+  SnapshotCacheManager? _snapshotCache;
+
+  /// Connect a snapshot cache manager for node-based snapshot invalidation.
+  set snapshotCache(SnapshotCacheManager? cache) {
+    _snapshotCache = cache;
   }
 
   SceneGraphRenderer() {
@@ -177,8 +200,15 @@ class SceneGraphRenderer {
 
       _cachedPlan!.execute(canvas, this);
 
-      // Clear dirty flags after rendering.
+      // Clear dirty flags after rendering and propagate to caches.
       if (_invalidationGraph != null) {
+        if (_invalidationGraph!.hasDirty) {
+          final dirtyIds = _invalidationGraph!.collectAllDirty();
+          // GAP C: invalidate layer pictures for dirty nodes.
+          layerPictureCache.invalidateDirty(dirtyIds);
+          // GAP E: invalidate node-based snapshots for dirty nodes.
+          _snapshotCache?.onDirtyNodes(dirtyIds);
+        }
         _invalidationGraph!.clearAll();
       }
     } else {
@@ -1192,6 +1222,11 @@ class SceneGraphRenderer {
     LatexRenderer.drawLatexNode(canvas, node);
   }
 
+  /// Render a tabular (spreadsheet) node via TabularRenderer.
+  void _renderTabular(Canvas canvas, TabularNode node) {
+    TabularRenderer.drawTabularNode(canvas, node);
+  }
+
   // ---------------------------------------------------------------------------
   // Internal Visitor
   // ---------------------------------------------------------------------------
@@ -1281,6 +1316,9 @@ class _RendererVisitor implements NodeVisitor<void> {
 
   @override
   void visitLatex(LatexNode node) => renderer._renderLatex(_canvas, node);
+
+  @override
+  void visitTabular(TabularNode node) => renderer._renderTabular(_canvas, node);
 }
 
 // ---------------------------------------------------------------------------

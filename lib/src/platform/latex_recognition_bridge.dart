@@ -1,43 +1,60 @@
+import 'dart:typed_data';
+
 import '../core/latex/ink_stroke_data.dart';
 
-/// 🧮 LaTeX Recognition Bridge — abstract interface for on-device ML inference.
+/// 🧮 LaTeX Recognition Bridge — abstract interface for ML-based recognition.
 ///
-/// This bridge abstracts the platform-specific ML model integration
-/// (Core ML on iOS, TFLite on Android), allowing the Dart layer to
-/// invoke handwriting recognition without knowing the underlying engine.
+/// This bridge abstracts the recognition backend, allowing the Dart layer
+/// to invoke handwriting or image-based recognition without knowing
+/// the underlying engine (pix2tex, ML Kit, custom model, etc.).
 ///
-/// The pipeline:
-/// 1. Capture ink strokes via [InkData]
-/// 2. Rasterize to a 256×256 bitmap (handled internally)
-/// 3. Send to native ML model via platform channel
-/// 4. Receive [LatexRecognitionResult] with LaTeX + confidence
+/// The pipeline supports two input modes:
+/// 1. **Ink strokes** via [InkData] → rasterized internally → recognized
+/// 2. **Direct images** via [Uint8List] → recognized (screenshots, PDF, photos)
 ///
 /// Example:
 /// ```dart
-/// final bridge = NativeLatexRecognizer();
+/// final bridge = Pix2TexRecognizer();
 /// await bridge.initialize();
+///
+/// // From handwriting
 /// final result = await bridge.recognize(inkData);
-/// print(result.latexString); // e.g. "\frac{a}{b}"
+///
+/// // From screenshot
+/// final imgResult = await bridge.recognizeImage(pngBytes);
+/// print(imgResult.latexString); // e.g. "\frac{a}{b}"
 /// ```
 abstract class LatexRecognitionBridge {
-  /// Initialize the ML model and allocate resources.
+  /// Initialize the recognition backend and allocate resources.
   ///
-  /// Must be called before [recognize]. Safe to call multiple times.
+  /// Must be called before [recognize] or [recognizeImage].
+  /// Safe to call multiple times.
   Future<void> initialize();
 
   /// Recognize handwritten LaTeX from ink stroke data.
   ///
+  /// The implementation may rasterize the strokes to an image internally.
+  ///
   /// Returns a [LatexRecognitionResult] with the best-guess LaTeX string,
   /// overall confidence score, and alternative suggestions.
   ///
-  /// Throws [LatexRecognitionException] if the model is not initialized
-  /// or if inference fails.
+  /// Throws [LatexRecognitionException] if the backend is not initialized
+  /// or if recognition fails.
   Future<LatexRecognitionResult> recognize(InkData inkData);
 
-  /// Check whether the ML model is available and ready on this platform.
+  /// Recognize LaTeX from an image (PNG or JPEG bytes).
+  ///
+  /// Use this for screenshots, PDF crops, camera captures, or any
+  /// pre-existing image of a mathematical expression.
+  ///
+  /// Throws [LatexRecognitionException] if the backend is not initialized
+  /// or if recognition fails.
+  Future<LatexRecognitionResult> recognizeImage(Uint8List imageBytes);
+
+  /// Check whether the recognition backend is available and ready.
   Future<bool> isAvailable();
 
-  /// Release model resources.
+  /// Release backend resources.
   void dispose();
 }
 

@@ -153,6 +153,44 @@ class NativeLatexRecognizer implements LatexRecognitionBridge {
   }
 
   @override
+  Future<LatexRecognitionResult> recognizeImage(Uint8List imageBytes) async {
+    if (!_initialized) {
+      throw const LatexRecognitionException('Recognizer not initialized');
+    }
+    if (!_modelAvailable) {
+      throw const LatexRecognitionException('ML model not available');
+    }
+
+    final stopwatch = Stopwatch()..start();
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'recognize',
+        {'imageBytes': imageBytes},
+      );
+      stopwatch.stop();
+
+      if (result == null) {
+        throw const LatexRecognitionException('Native inference returned null');
+      }
+
+      return LatexRecognitionResult(
+        latexString: result['latex'] as String? ?? '',
+        confidence: (result['confidence'] as num?)?.toDouble() ?? 0.0,
+        alternatives: _parseAlternatives(result['alternatives']),
+        perSymbolConfidence: _parseSymbolConfidences(
+          result['perSymbolConfidence'],
+        ),
+        inferenceTimeMs: stopwatch.elapsedMilliseconds,
+      );
+    } on PlatformException catch (e) {
+      throw LatexRecognitionException(
+        'Native inference failed: ${e.message}',
+        cause: e,
+      );
+    }
+  }
+
+  @override
   void dispose() {
     _initialized = false;
     _modelAvailable = false;
@@ -229,6 +267,16 @@ class MockLatexRecognizer implements LatexRecognitionBridge {
 
   @override
   Future<LatexRecognitionResult> recognize(InkData inkData) async {
+    await Future.delayed(delay);
+    return LatexRecognitionResult(
+      latexString: mockResult,
+      confidence: mockConfidence,
+      inferenceTimeMs: delay.inMilliseconds,
+    );
+  }
+
+  @override
+  Future<LatexRecognitionResult> recognizeImage(Uint8List imageBytes) async {
     await Future.delayed(delay);
     return LatexRecognitionResult(
       latexString: mockResult,

@@ -38,6 +38,7 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 - **Limiti**: soft 500 LOC, hard 1000 LOC, preferred 200–400 LOC.
 - **Decomposition**: `part`+extension per accesso a State privati, standalone per logica pura. `part of` con path relativo.
 - **Directory grouping** (>6 parts): subdirectories logiche (`lifecycle/`, `drawing/`, `ui/`, `eraser/`). `part of` depth match.
+- **UI**: Material design 3
 - **Toolbar pattern**: `library` + `part` + extensions. Menus come standalone widgets.
 - Lint: `invalid_use_of_protected_member: ignore` per extensions su State.
 ---
@@ -123,3 +124,21 @@ NebulaCanvasScreen(config: NebulaCanvasConfig(
   3. **Edge case** — `const` safety, `null` handling, serializzazione roundtrip, error paths
   4. **Test coverage** — test per ogni feature, inclusi roundtrip e edge case
 - **MAI** fare audit incrementali ("round 1, round 2..."). Un audit = un documento completo.
+---
+## 8. 🔒 NUCLEO GRAFICO BLINDATO
+I seguenti moduli sono **BLINDATI**. Non modificarli MAI senza esplicita richiesta dell'utente.
+### Core Scene Graph (`lib/src/core/scene_graph/`)
+`canvas_node.dart`, `scene_graph.dart`, `invalidation_graph.dart`, `node_visitor.dart`, `scene_graph_transaction.dart`, `transform_bridge.dart`, `node_id.dart`, `node_constraint.dart`, `scene_graph_observer.dart`, `frozen_node_view.dart`, `read_only_scene_graph.dart`, `scene_graph_snapshot.dart`, `canvas_node_factory.dart`, `scene_graph_integrity.dart`, `scene_graph_interceptor.dart`, `paint_stack_mixin.dart`, `debug_info.dart`, `scene_graph_savepoint.dart`
+### Core Nodes (`lib/src/core/nodes/`)
+`group_node.dart`, `layer_node.dart`, `shape_node.dart`, `stroke_node.dart`, `text_node.dart`, `image_node.dart`, `clip_group_node.dart`, `path_node.dart`, `rich_text_node.dart`, `frame_node.dart`, `advanced_mask_node.dart`, `boolean_group_node.dart`, `symbol_system.dart`, `variant_property.dart`, `pdf_page_node.dart`, `pdf_document_node.dart`, `vector_network_node.dart`, `latex_node.dart`
+### Rendering Pipeline (`lib/src/rendering/scene_graph/`)
+`scene_graph_renderer.dart`, `render_plan.dart`, `render_interceptor.dart`, `render_batch.dart`, `path_renderer.dart`, `rich_text_renderer.dart`, `latex_renderer.dart`, `vector_network_renderer.dart`, `network_lod.dart`
+### Optimization (`lib/src/rendering/optimization/`)
+`occlusion_culler.dart`, `dirty_region_tracker.dart`, `layer_picture_cache.dart`, `snapshot_cache_manager.dart`, `spatial_index.dart`, `viewport_culler.dart`, `tile_cache_manager.dart`, `stroke_cache_manager.dart`, `frame_budget_manager.dart`, `lod_manager.dart`, `memory_budget_controller.dart`, `memory_managed_cache.dart`, `paint_pool.dart`, `optimized_path_builder.dart`, `stroke_optimizer.dart`
+### Canvas Painters (`lib/src/rendering/canvas/`)
+`drawing_painter.dart`, `incremental_paint_mixin.dart`, `current_stroke_painter.dart`, `shape_painter.dart`, `pro_stroke_painter.dart`, `pdf_page_painter.dart`, `image_painter.dart`, `digital_text_painter.dart`
+### Regole blindatura:
+- ⛔ **VIETATO** modificare senza richiesta esplicita dell'utente
+- ⛔ **VIETATO** "migliorare" o "ottimizzare" codice che funziona
+- ✅ **CONSENTITO**: aggiungere test, creare nuovi file che importano i moduli blindati, fixare bug dimostrati con test che falliscono
+- 🔧 Prima di toccare un file blindato: chiedere conferma, spiegare cosa cambierà, mostrare impatto sui test

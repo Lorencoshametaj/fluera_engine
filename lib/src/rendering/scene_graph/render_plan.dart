@@ -181,7 +181,9 @@ class RenderPlan {
     // Recompile if viewport changed significantly (>5% in any dimension)
     if (!_viewportsClose(viewport, currentViewport)) return false;
     // Recompile if scale changed significantly (>10%)
-    if ((currentScale - scale).abs() / scale > 0.1) return false;
+    if (scale <= 0.0 || (currentScale - scale).abs() / scale > 0.1) {
+      return false;
+    }
     // Recompile if invalidation graph has dirty nodes
     if (invalidationGraph != null && invalidationGraph.hasDirty) return false;
     return true;

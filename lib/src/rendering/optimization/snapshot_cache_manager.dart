@@ -266,3 +266,11 @@ class _CacheEntry {
     required this.sizeBytes,
   });
 }
+
+/// Internal cache entry for node-based snapshots (GAP 8).
+class _NodeCacheEntry {
+  final ui.Image image;
+  final int version;
+
+  _NodeCacheEntry({required this.image, required this.version});
+}

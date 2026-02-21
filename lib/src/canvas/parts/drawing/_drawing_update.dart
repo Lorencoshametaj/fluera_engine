@@ -8,44 +8,7 @@ extension on _NebulaCanvasScreenState {
     double tiltX,
     double tiltY,
   ) {
-    //  PRESENCE: Feed cursor + tool info to remote users via RTDB (throttled 250ms)
-    if (_isSharedCanvas) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastCursorFeedTime > 200) {
-        _lastCursorFeedTime = now;
-        final syncId = widget.infiniteCanvasId ?? _canvasId;
-        final user = null /* auth via _config */;
-        if (user != null) {
-          final colorIndex = user.uid.hashCode.abs() % 8;
-          const cursorColors = [
-            0xFF42A5F5,
-            0xFFEF5350,
-            0xFF66BB6A,
-            0xFFAB47BC,
-            0xFFFF7043,
-            0xFF26C6DA,
-            0xFFEC407A,
-            0xFFFFA726,
-          ];
-          // RtdbDeltaSyncService.instance.pushCursorPosition( // Phase 2: collaboration
-          //   canvasId: syncId,
-          //   userId: user.uid,
-          //   x: canvasPosition.dx,
-          //   y: canvasPosition.dy,
-          //   isDrawing: true,
-          //   displayName: user.displayName ?? 'User',
-          //   cursorColor: cursorColors[colorIndex],
-          //   penType: _effectivePenType.name,
-          //   penColor: _effectiveSelectedColor.toARGB32(),
-          //   isTyping: _digitalTextTool.hasSelection,
-          //   viewportX: _canvasController.offset.dx,
-          //   viewportY: _canvasController.offset.dy,
-          //   viewportScale: _canvasController.scale,
-          //   lockedElementId: _getActiveElementId(),
-          // );
-        }
-      }
-    }
+    //  PRESENCE: Feed cursor + tool info to remote users (Phase 2)
 
     // 📄 PDF PAGE DRAG: Update drag position + translate linked strokes
     if (_pdfPageDragController.isDragging) {
@@ -144,10 +107,6 @@ extension on _NebulaCanvasScreenState {
         // Start drag from the initial position
         _imageTool.startDrag(_initialTapPosition!);
         _initialTapPosition = null;
-        // 🔒 SYNC: Lock this image for remote collaborators
-        if (_isSharedCanvas && _imageTool.selectedImage != null) {
-          _realtimeSyncManager?.setActiveElement(_imageTool.selectedImage!.id);
-        }
         // 🚀 PERF: Immediately process first drag frame (don't wait for next event)
         final firstUpdate = _imageTool.updateDrag(canvasPosition);
         if (firstUpdate != null) {
@@ -285,6 +244,39 @@ extension on _NebulaCanvasScreenState {
         setState(() {});
       }
       return;
+    }
+
+    // 📊 TabularNode drag (move)
+    if (_tabularTool.isDragging) {
+      if (_tabularTool.updateDrag(canvasPosition)) {
+        _layerController.sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        setState(() {});
+      }
+      return;
+    }
+
+    // 📊 TabularNode resize (column/row border drag)
+    if (_tabularTool.isResizing) {
+      final newSize = _tabularTool.updateResize(canvasPosition);
+      if (newSize != null) {
+        _layerController.sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        setState(() {});
+      }
+      return;
+    }
+
+    // 📊 Drag-to-extend-selection (multi-cell range)
+    if (_tabularTool.hasCellSelection &&
+        _tabularTool.selectedTabular != null &&
+        !_tabularTool.isDragging) {
+      final cell = _tabularTool.hitTestCell(canvasPosition);
+      if (cell != null) {
+        _tabularTool.extendSelection(cell.$1, cell.$2);
+        setState(() {});
+        return;
+      }
     }
 
     // If il lasso is active, controlla se drag o disegno

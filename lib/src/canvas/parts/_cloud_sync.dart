@@ -6,7 +6,7 @@ part of '../nebula_canvas_screen.dart';
 /// - Saves are deferred while a stroke is being drawn (zero interference)
 /// - 2s debounce batches rapid modifications into a single save
 /// - SqliteStorageAdapter path: Layer → Binary (Isolate) → SQLite (no JSON)
-/// - Overlapping saves are dropped (lock flag)
+/// - Cloud sync via [NebulaSyncEngine] with its own 3s debounce + retry
 extension CloudSyncExtension on _NebulaCanvasScreenState {
   /// Flag to log auto-save errors only once (avoid console spam).
   static bool _autoSaveErrorLogged = false;
@@ -66,14 +66,9 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
   /// Saves are deferred if a stroke is currently being drawn.
   ///
   /// 1. Always saves locally via storage adapter or legacy callback.
-  /// 2. If cloud sync is enabled, pushes deltas and debounced full save.
+  /// 2. If cloud adapter is configured, pushes to cloud via [NebulaSyncEngine].
   Future<void> _autoSaveCanvas() async {
     if (_isLoading) return;
-
-    // Push deltas immediately (lightweight — no serialization)
-    if (_isSharedCanvas) {
-      _snapshotAndPushCloudDeltas();
-    }
 
     // Debounce heavy serialization + I/O (2s for maximum batching)
     _saveDebounceTimer?.cancel();
@@ -139,10 +134,13 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
 
       // ✅ Save succeeded — clear dirty tracking
       _layerController.clearDirtyLayerIds();
+      _lastLocalSaveTimestamp = DateTime.now().millisecondsSinceEpoch;
 
-      // 2️⃣ Cloud save (debounced, only if enabled + tier allows)
-      if (_config.cloudSyncEnabled && _hasCloudSync) {
-        _config.onCloudSync?.call(_canvasId, saveData.toJson());
+      // 2️⃣ Cloud save (via NebulaSyncEngine — has its own debounce + retry)
+      if (_syncEngine != null) {
+        final cloudData = saveData.toJson();
+        cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
+        _syncEngine!.requestSave(_canvasId, cloudData);
       }
     } catch (e) {
       if (!_autoSaveErrorLogged) {
@@ -154,25 +152,6 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
     } finally {
       _saveInProgress = false;
     }
-  }
-
-  /// 📤 Snapshot deltas and push to cloud BEFORE local save consumes them.
-  void _snapshotAndPushCloudDeltas({String? changeDescription}) {
-    if (!_isSharedCanvas) return;
-    if (_config.onDeltaSync == null) return;
-
-    final deltas = CanvasDeltaTracker.instance.peekDeltas();
-    if (deltas.isEmpty) return;
-
-    final taggedDeltas =
-        deltas.map((d) {
-          final json = d.toJson();
-          json['epoch'] = DateTime.now().millisecondsSinceEpoch;
-          if (changeDescription != null) json['desc'] = changeDescription;
-          return json;
-        }).toList();
-
-    _config.onDeltaSync!.call(_canvasId, taggedDeltas);
   }
 
   /// 🔄 Force full sync (manual trigger). Always does a FULL save.
@@ -208,11 +187,69 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
       _layerController.clearDirtyLayerIds();
 
       // Cloud save (immediate, no debounce)
-      if (_config.cloudSyncEnabled) {
-        await _config.onCloudSync?.call(_canvasId, saveData.toJson());
+      if (_syncEngine != null) {
+        final cloudData = saveData.toJson();
+        cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
+        await _syncEngine!.flush(_canvasId, cloudData);
       }
     } catch (e) {
       debugPrint('[CloudSync] Force sync error: $e');
+    }
+  }
+
+  /// ☁️ Download missing image assets from cloud storage.
+  ///
+  /// Called after loading canvas data from cloud. For each image element
+  /// that has a `storageUrl` but no local file, downloads the binary
+  /// and saves it locally.
+  Future<void> downloadMissingAssets() async {
+    if (_syncEngine == null) return;
+
+    for (final img in _imageElements) {
+      if (img.storageUrl == null || img.storageUrl!.isEmpty) continue;
+
+      // Check if local file already exists
+      final localFile = File(img.imagePath);
+      if (await localFile.exists()) continue;
+
+      try {
+        final bytes = await _syncEngine!.adapter.downloadAsset(
+          _canvasId,
+          img.id,
+        );
+
+        if (bytes != null) {
+          // Ensure parent directory exists
+          await localFile.parent.create(recursive: true);
+          await localFile.writeAsBytes(bytes);
+          debugPrint('☁️ Downloaded missing asset: ${img.id}');
+        }
+      } catch (e) {
+        debugPrint('☁️ Failed to download asset ${img.id}: $e');
+      }
+    }
+  }
+
+  /// ☁️ Upload a single image asset to cloud storage.
+  ///
+  /// Returns the cloud URL on success, or `null` on failure.
+  /// Used by `pickAndAddImage` and can be called for batch uploads.
+  Future<String?> uploadImageAsset(String imageId, String filePath) async {
+    if (_syncEngine == null) return null;
+
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      final url = await _syncEngine!.adapter.uploadAsset(
+        _canvasId,
+        imageId,
+        bytes,
+        mimeType: 'image/png',
+      );
+      debugPrint('☁️ Asset uploaded: $imageId');
+      return url;
+    } catch (e) {
+      debugPrint('☁️ Asset upload failed: $e');
+      return null;
     }
   }
 }
