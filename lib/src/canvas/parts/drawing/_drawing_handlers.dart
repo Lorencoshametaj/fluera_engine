@@ -343,6 +343,23 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
+    // 📄 PDF PAGE DRAG: Check if touch hits an unlocked PDF page
+    if (!_effectiveIsEraser && !_effectiveIsLasso && !_effectiveIsPanMode) {
+      for (final layer in _layerController.sceneGraph.layers) {
+        for (final child in layer.children) {
+          if (child is PdfDocumentNode) {
+            final hitPage = child.hitTestUnlockedPage(canvasPosition);
+            if (hitPage != null) {
+              _pdfPageDragController.startDrag(hitPage, child, canvasPosition);
+              _pdfLayoutVersion++;
+              setState(() {});
+              return;
+            }
+          }
+        }
+      }
+    }
+
     // 🖐️ If Pan mode is active, do not draw
     if (_effectiveIsPanMode) {
       return;
@@ -415,6 +432,39 @@ extension on _NebulaCanvasScreenState {
   void _onDrawCancel() {
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
+
+    // 📄 PDF PAGE DRAG: Cancel drag on multi-touch interrupt
+    // Strokes were translated in real-time, so roll them back.
+    if (_pdfPageDragController.isDragging) {
+      // Compute reverse delta: strokes moved (previousPos - startPos),
+      // so we need to move them back by -(previousPos - startPos).
+      final reverseDelta =
+          _pdfPageDragController.dragStartPosition -
+          _pdfPageDragController.previousPosition;
+      if (reverseDelta != Offset.zero) {
+        final ids = _pdfPageDragController.linkedAnnotationIds;
+        if (ids.isNotEmpty) {
+          final idSet = Set<String>.of(ids);
+          for (final layer in _layerController.layers) {
+            for (final strokeNode in layer.node.strokeNodes) {
+              if (idSet.contains(strokeNode.stroke.id)) {
+                final old = strokeNode.stroke;
+                final translatedPoints =
+                    old.points.map((p) {
+                      return p.copyWith(position: p.position + reverseDelta);
+                    }).toList();
+                strokeNode.stroke = old.copyWith(points: translatedPoints);
+              }
+            }
+          }
+        }
+      }
+      _pdfPageDragController.cancelDrag();
+      DrawingPainter.invalidateAllTiles();
+      _pdfLayoutVersion++;
+      setState(() {});
+      return;
+    }
 
     // 🔒 Restore lasso selection if a zoom gesture interrupted a new lasso
     if (_effectiveIsLasso && _lassoSelectionBackup != null) {

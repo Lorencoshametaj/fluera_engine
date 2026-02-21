@@ -15,7 +15,7 @@ void main() {
 
     // Set up EngineScope for telemetry.
     EngineScope.reset();
-    EngineScope.bind(EngineScope());
+    EngineScope.push(EngineScope());
   });
 
   tearDown(() async {
@@ -35,17 +35,37 @@ void main() {
 
   group('AssetHandle', () {
     test('equality by id and type', () {
-      const a = AssetHandle(id: NodeId('abc'), type: AssetType.image, sourcePath: '/a');
-      const b = AssetHandle(id: NodeId('abc'), type: AssetType.image, sourcePath: '/b');
-      const c = AssetHandle(id: NodeId('xyz'), type: AssetType.image, sourcePath: '/a');
+      const a = AssetHandle(
+        id: NodeId('abc'),
+        type: AssetType.image,
+        sourcePath: '/a',
+      );
+      const b = AssetHandle(
+        id: NodeId('abc'),
+        type: AssetType.image,
+        sourcePath: '/b',
+      );
+      const c = AssetHandle(
+        id: NodeId('xyz'),
+        type: AssetType.image,
+        sourcePath: '/a',
+      );
 
       expect(a, equals(b)); // same id+type, different path
       expect(a, isNot(equals(c))); // different id
     });
 
     test('hashCode consistent with equality', () {
-      const a = AssetHandle(id: NodeId('abc'), type: AssetType.image, sourcePath: '/a');
-      const b = AssetHandle(id: NodeId('abc'), type: AssetType.image, sourcePath: '/b');
+      const a = AssetHandle(
+        id: NodeId('abc'),
+        type: AssetType.image,
+        sourcePath: '/a',
+      );
+      const b = AssetHandle(
+        id: NodeId('abc'),
+        type: AssetType.image,
+        sourcePath: '/b',
+      );
       expect(a.hashCode, equals(b.hashCode));
     });
   });

@@ -239,6 +239,31 @@ class ToolbarImagePickerButton extends StatelessWidget {
   }
 }
 
+/// 🧮 LaTeX editor button
+class ToolbarLatexButton extends StatelessWidget {
+  final bool isActive;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const ToolbarLatexButton({
+    super.key,
+    required this.isActive,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ToolToggleButton(
+      isActive: isActive,
+      onTap: onTap,
+      isDark: isDark,
+      icon: Icons.functions_rounded,
+      activeColor: Colors.teal,
+    );
+  }
+}
+
 /// Shape Recognition toggle button.
 /// Shows a colored dot indicating sensitivity level (green=high, yellow=medium, red=low).
 /// Shows a 👻 indicator when ghost suggestion mode is active.

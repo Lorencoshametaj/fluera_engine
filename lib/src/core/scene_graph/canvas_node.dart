@@ -7,6 +7,7 @@ import './canvas_node_factory.dart';
 import './node_id.dart';
 import './node_visitor.dart';
 import './transform_bridge.dart';
+import './frozen_node_view.dart';
 
 /// Base class for all elements in the scene graph.
 ///
@@ -34,6 +35,10 @@ abstract class CanvasNode {
   /// To move/rotate/scale a node, mutate this matrix — the underlying
   /// geometry never changes.
   Matrix4 localTransform;
+
+  /// Whether the [localTransform] is exactly the identity matrix.
+  /// Used by renderers to skip `canvas.transform` without allocating `Matrix4.identity()`.
+  bool get isIdentityTransform => _isIdentity(localTransform);
 
   // ---------------------------------------------------------------------------
   // Visual properties
@@ -261,6 +266,12 @@ abstract class CanvasNode {
     json['id'] = generateUid();
     return CanvasNodeFactory.fromJson(json);
   }
+
+  /// Create a deep, immutable projection of this node.
+  ///
+  /// Useful for sharing data with plugins or background threads without
+  /// exposing the mutable internal graph structure.
+  FrozenNodeView freeze() => FrozenNodeView.from(this);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

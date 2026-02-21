@@ -33,10 +33,14 @@ class TileCacheManager
   // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Tile size in logical pixels
-  /// 512px: With devicePixelRatio 2.75 = 1408px real
-  /// Memory per tile: 1408² × 4 bytes = ~8MB (was ~127MB with 2048)
-  static const double tileSize = 512.0;
+  /// Base tile size in logical pixels (adapted by scale)
+  /// Memory per tile: 1408² × 4 bytes = ~8MB
+  static const double baseTileSize = 512.0;
+
+  /// Get adaptive tile size based on zoom level
+  static double getTileSize(double scale) {
+    return baseTileSize / scale.clamp(0.25, 4.0).ceil();
+  }
 
   /// Maximum number of cached tiles (LRU eviction)
   /// 32 tiles × ~8MB = ~256MB max (was 8×127MB = ~1GB)
@@ -72,6 +76,22 @@ class TileCacheManager
   /// Current device pixel ratio
   double _devicePixelRatio = 1.0;
 
+  /// Current scale bucket for grid alignment (flushes when changed)
+  int _currentScaleBucket = 1;
+
+  /// Update the internal scale bucket.
+  ///
+  /// Unlike the previous implementation, this does NOT clear the cache
+  /// on bucket change. Tiles from the old LOD level stay in the LRU
+  /// cache and are evicted naturally by the LRU policy. This eliminates
+  /// the full-cache flush jank on pinch-zoom transitions.
+  void updateScale(double scale) {
+    _currentScaleBucket = scale.clamp(0.25, 4.0).ceil();
+  }
+
+  /// Get the active tile size for the current bucket
+  double get currentTileSize => baseTileSize / _currentScaleBucket;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // 🔧 SINGLETON (optional, can be instance)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -85,29 +105,47 @@ class TileCacheManager
   // 📐 TILE GEOMETRY
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Generates unique key for tile
-  String _tileKey(int x, int y) => '$x:$y';
+  /// Generates unique key for tile, including LOD level.
+  ///
+  /// Format: `lod:x:y` — tiles from different zoom levels coexist
+  /// in the same LRU cache without colliding.
+  String _tileKey(int x, int y) => '$_currentScaleBucket:$x:$y';
+
+  /// Generates tile key for a specific LOD level.
+  String _tileKeyForLod(int lod, int x, int y) => '$lod:$x:$y';
+
+  /// Returns all LOD levels that currently have cached tiles.
+  Set<int> get _allCachedLodLevels {
+    final lods = <int>{};
+    for (final key in _tileCache.keys) {
+      final colonIdx = key.indexOf(':');
+      if (colonIdx > 0) {
+        final lod = int.tryParse(key.substring(0, colonIdx));
+        if (lod != null) lods.add(lod);
+      }
+    }
+    return lods;
+  }
 
   /// Calculates tile bounds in canvas coordinates
-  Rect getTileBounds(int tileX, int tileY) {
-    return Rect.fromLTWH(
-      tileX * tileSize,
-      tileY * tileSize,
-      tileSize,
-      tileSize,
-    );
+  Rect getTileBounds(int tileX, int tileY, double scale) {
+    updateScale(scale);
+    final ts = getTileSize(scale);
+    return Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
   }
 
   /// Calculates which tiles are visible in the viewport (with preload margin)
   /// Supports negative coordinates for infinite canvas
-  List<(int, int)> getVisibleTiles(Rect viewport) {
+  List<(int, int)> getVisibleTiles(Rect viewport, double scale) {
+    updateScale(scale);
+    final ts = getTileSize(scale);
     // Expand viewport for preload
-    final expandedViewport = viewport.inflate(tileSize * preloadMargin);
+    final expandedViewport = viewport.inflate(ts * preloadMargin);
 
-    final startX = (expandedViewport.left / tileSize).floor();
-    final startY = (expandedViewport.top / tileSize).floor();
-    final endX = (expandedViewport.right / tileSize).ceil();
-    final endY = (expandedViewport.bottom / tileSize).ceil();
+    final startX = (expandedViewport.left / ts).floor();
+    final startY = (expandedViewport.top / ts).floor();
+    final endX = (expandedViewport.right / ts).ceil();
+    final endY = (expandedViewport.bottom / ts).ceil();
 
     return [
       for (int x = startX; x <= endX; x++)
@@ -116,12 +154,13 @@ class TileCacheManager
   }
 
   /// Calculates which tiles are touched by bounds (stroke, shape)
-  /// Supports negative coordinates for infinite canvas
+  /// Uses internally cached scale bucket to not require scale parameter
   List<(int, int)> getTilesForBounds(Rect bounds) {
-    final startX = (bounds.left / tileSize).floor();
-    final startY = (bounds.top / tileSize).floor();
-    final endX = (bounds.right / tileSize).ceil();
-    final endY = (bounds.bottom / tileSize).ceil();
+    final ts = currentTileSize;
+    final startX = (bounds.left / ts).floor();
+    final startY = (bounds.top / ts).floor();
+    final endX = (bounds.right / ts).ceil();
+    final endY = (bounds.bottom / ts).ceil();
 
     return [
       for (int x = startX; x <= endX; x++)
@@ -175,7 +214,8 @@ class TileCacheManager
     canvas.scale(devicePixelRatio);
 
     // Translate to position tile at origin
-    canvas.translate(-tileX * tileSize, -tileY * tileSize);
+    final ts = currentTileSize;
+    canvas.translate(-tileX * ts, -tileY * ts);
 
     // 📦 BATCH RENDERING: group strokes by penType/color/width,
     // then draw each batch in a single pass (ballpoint combined into 1 path).
@@ -189,8 +229,8 @@ class TileCacheManager
     _totalPicturesCreated++;
 
     // Rasterize at HiDPI size
-    final pixelWidth = (tileSize * devicePixelRatio).ceil();
-    final pixelHeight = (tileSize * devicePixelRatio).ceil();
+    final pixelWidth = (ts * devicePixelRatio).ceil();
+    final pixelHeight = (ts * devicePixelRatio).ceil();
 
     // toImageSync is synchronous - no lag!
     final image = picture.toImageSync(pixelWidth, pixelHeight);
@@ -232,8 +272,9 @@ class TileCacheManager
     if (existingImage == null) return false;
 
     _devicePixelRatio = devicePixelRatio;
-    final pixelWidth = (tileSize * devicePixelRatio).ceil();
-    final pixelHeight = (tileSize * devicePixelRatio).ceil();
+    final ts = currentTileSize;
+    final pixelWidth = (ts * devicePixelRatio).ceil();
+    final pixelHeight = (ts * devicePixelRatio).ceil();
 
     // Create recorder and draw existing bitmap + new stroke
     final recorder = ui.PictureRecorder();
@@ -244,7 +285,7 @@ class TileCacheManager
 
     // 2. Overlay the new stroke (with HiDPI scaling + tile translation)
     canvas.scale(devicePixelRatio);
-    canvas.translate(-tileX * tileSize, -tileY * tileSize);
+    canvas.translate(-tileX * ts, -tileY * ts);
     _drawStroke(canvas, newStroke);
 
     final picture = recorder.endRecording();
@@ -298,7 +339,8 @@ class TileCacheManager
   /// [viewport]: Current viewport in canvas coordinates
   /// [scale]: Current scale of the canvas
   void paintVisibleTiles(Canvas canvas, Rect viewport, double scale) {
-    final visibleTiles = getVisibleTiles(viewport);
+    final visibleTiles = getVisibleTiles(viewport, scale);
+    final ts = currentTileSize;
 
     for (final (tileX, tileY) in visibleTiles) {
       final key = _tileKey(tileX, tileY);
@@ -309,12 +351,7 @@ class TileCacheManager
         _touchTile(key);
 
         // Calculate destination position
-        final destRect = Rect.fromLTWH(
-          tileX * tileSize,
-          tileY * tileSize,
-          tileSize,
-          tileSize,
-        );
+        final destRect = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
 
         // Draw correctly scaled tile
         canvas.drawImageRect(
@@ -327,32 +364,29 @@ class TileCacheManager
     }
   }
 
-  /// 🚀 Draw ALL cached tiles on the canvas
+  /// 🚀 Draw ALL cached tiles for the CURRENT LOD level on the canvas.
   ///
-  /// Used when paint() is called only on stroke changes (not on pan/zoom).
-  /// The Transform widget composites the canvas layer → ALL tiles are needed
-  /// because the GPU will show them when user pans.
-  /// Cost: 1 drawImageRect per cached tile (max 32) — negligible.
+  /// Only draws tiles matching `_currentScaleBucket` — tiles from other
+  /// LOD levels stay in cache but are not rendered.
   void paintAllCachedTiles(Canvas canvas) {
     final tilePaint = Paint()..filterQuality = FilterQuality.medium;
+    final lodPrefix = '$_currentScaleBucket:';
 
     for (final entry in _tileCache.entries) {
       final key = entry.key;
+      if (!key.startsWith(lodPrefix)) continue; // Skip other LOD levels
+
       final image = entry.value;
 
-      // Parse tile coordinates from key "x:y"
+      // Parse tile coordinates from key "lod:x:y"
       final parts = key.split(':');
-      if (parts.length != 2) continue;
-      final tileX = int.tryParse(parts[0]);
-      final tileY = int.tryParse(parts[1]);
+      if (parts.length != 3) continue;
+      final tileX = int.tryParse(parts[1]);
+      final tileY = int.tryParse(parts[2]);
       if (tileX == null || tileY == null) continue;
 
-      final destRect = Rect.fromLTWH(
-        tileX * tileSize,
-        tileY * tileSize,
-        tileSize,
-        tileSize,
-      );
+      final ts = currentTileSize;
+      final destRect = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
 
       canvas.drawImageRect(
         image,
@@ -377,23 +411,48 @@ class TileCacheManager
   // 🔄 INVALIDATION
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Invalidate un singolo tile (will come ri-rasterizzato al prossimo paint)
+  /// Invalidate a tile at ALL LOD levels.
+  ///
+  /// When content changes (stroke add/remove), the affected spatial region
+  /// must be invalidated at every cached LOD level, not just the active one.
+  /// Otherwise, switching zoom levels would show stale tiles.
   void invalidateTile(int tileX, int tileY) {
-    final key = _tileKey(tileX, tileY);
-    _dirtyTiles.add(key);
+    // Invalidate at current LOD level
+    _invalidateSingleTile(_tileKey(tileX, tileY));
 
-    // 🗑️ CRITICAL FIX: Dispose image when we invalidate tile
-    // The old image is no longer needed, will be re-rasterized
+    // Also invalidate tiles at other cached LOD levels that overlap
+    // the same spatial region. Different LOD levels have different tile
+    // sizes, so the tile coordinates differ per level.
+    for (final lod in _allCachedLodLevels) {
+      if (lod == _currentScaleBucket) continue;
+      // Compute the spatial bounds of this tile at current LOD
+      final ts = currentTileSize;
+      final bounds = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
+      // Map to tile coordinates at the other LOD level
+      final otherTs = baseTileSize / lod;
+      final startX = (bounds.left / otherTs).floor();
+      final startY = (bounds.top / otherTs).floor();
+      final endX = (bounds.right / otherTs).ceil();
+      final endY = (bounds.bottom / otherTs).ceil();
+      for (int x = startX; x <= endX; x++) {
+        for (int y = startY; y <= endY; y++) {
+          _invalidateSingleTile(_tileKeyForLod(lod, x, y));
+        }
+      }
+    }
+    _logMemoryStats('invalidateTile');
+  }
+
+  /// Invalidate a single tile by key (internal helper).
+  void _invalidateSingleTile(String key) {
+    _dirtyTiles.add(key);
     final oldImage = _tileCache[key];
     if (oldImage != null) {
       _tileCache.remove(key);
       _tileStrokeCounts.remove(key);
-
-      // 🐛 FIX: IMMEDIATE Dispose (not Future.microtask) to avoid leak
       oldImage.dispose();
       _totalImagesDisposed++;
     }
-    _logMemoryStats('invalidateTile');
   }
 
   /// Invalidate all tiles that contain a certain stroke
@@ -461,9 +520,12 @@ class TileCacheManager
   }
 
   /// Forces eviction of tiles far from viewport
-  void evictDistantTiles(Rect viewport) {
+  void evictDistantTiles(Rect viewport, double scale) {
     final visibleTiles =
-        getVisibleTiles(viewport).map((t) => _tileKey(t.$1, t.$2)).toSet();
+        getVisibleTiles(
+          viewport,
+          scale,
+        ).map((t) => _tileKey(t.$1, t.$2)).toSet();
 
     final keysToRemove = <String>[];
     for (final key in _tileCache.keys) {

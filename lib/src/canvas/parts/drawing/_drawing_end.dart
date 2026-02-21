@@ -11,6 +11,21 @@ extension on _NebulaCanvasScreenState {
     //   _presenceService.updateDrawingState(false);
     // }
 
+    // 📄 PDF PAGE DRAG: End drag and save position
+    // Strokes were already translated in real-time during _onDrawUpdate,
+    // so we only need to finalize the page position and invalidate caches.
+    if (_pdfPageDragController.isDragging) {
+      _pdfPageDragController.endDrag();
+      // Invalidate tile cache to prevent ghost copies (stale tiles showing
+      // the page at its pre-drag position after re-lock).
+      DrawingPainter.invalidateAllTiles();
+      _pdfLayoutVersion++;
+      _isDrawingNotifier.value = false;
+      setState(() {});
+      _autoSaveCanvas();
+      return;
+    }
+
     // 🪣 Fill mode — no stroke finalization needed
     if (_effectiveIsFill) {
       _isDrawingNotifier.value = false;
@@ -549,5 +564,29 @@ extension on _NebulaCanvasScreenState {
 
     result.add(points.last);
     return List.unmodifiable(result);
+  }
+
+  /// 📄 Translate all annotation strokes matching [annotationIds] by [delta].
+  ///
+  /// Creates new ProStroke instances with translated point positions and
+  /// replaces them on their StrokeNode. This ensures strokes follow
+  /// their linked PDF page when it's dragged to a new position.
+  void _translateAnnotationStrokes(Set<String> annotationIds, Offset delta) {
+    if (annotationIds.isEmpty || delta == Offset.zero) return;
+
+    for (final layer in _layerController.layers) {
+      for (final strokeNode in layer.node.strokeNodes) {
+        if (annotationIds.contains(strokeNode.stroke.id)) {
+          final old = strokeNode.stroke;
+          // Create translated points
+          final translatedPoints =
+              old.points.map((p) {
+                return p.copyWith(position: p.position + delta);
+              }).toList();
+          // Replace stroke data on the node (new ProStroke = fresh bounds cache)
+          strokeNode.stroke = old.copyWith(points: translatedPoints);
+        }
+      }
+    }
   }
 }

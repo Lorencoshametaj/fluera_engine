@@ -42,6 +42,10 @@ class RTree<T> {
   /// Total number of items in the tree.
   int _count = 0;
 
+  /// Tracks active query depth to prevent concurrent modification.
+  /// Mutations during a query would corrupt internal node lists.
+  int _queryDepth = 0;
+
   RTree(this._boundsOf, {int maxEntries = 9})
     : _maxEntries = maxEntries,
       _minEntries = (maxEntries / 2).ceil();
@@ -52,10 +56,22 @@ class RTree<T> {
   /// Whether the tree is empty.
   bool get isEmpty => _count == 0;
 
+  /// Guard against mutation during an active query.
+  void _guardMutation(String operation) {
+    if (_queryDepth > 0) {
+      throw StateError(
+        'RTree.$operation() called during an active query. '
+        'Mutations during iteration would corrupt the tree. '
+        'Buffer mutations and apply them after the query completes.',
+      );
+    }
+  }
+
   // ─── Insert ──────────────────────────────────────────────────────
 
   /// ➕ Insert an item into the R-tree.
   void insert(T item) {
+    _guardMutation('insert');
     final bounds = _boundsOf(item);
     if (bounds.isEmpty || !bounds.isFinite) return;
 
@@ -85,6 +101,7 @@ class RTree<T> {
   ///
   /// Uses identity comparison (identical()) for matching.
   bool remove(T item) {
+    _guardMutation('remove');
     if (_root == null) return false;
 
     final bounds = _boundsOf(item);
@@ -226,7 +243,12 @@ class RTree<T> {
 
     final expandedViewport = viewport.inflate(margin);
     final results = <T>[];
-    _queryRange(_root!, expandedViewport, results);
+    _queryDepth++;
+    try {
+      _queryRange(_root!, expandedViewport, results);
+    } finally {
+      _queryDepth--;
+    }
     return results;
   }
 
@@ -240,6 +262,7 @@ class RTree<T> {
 
   /// 🧹 Clear and reset the tree.
   void clear() {
+    _guardMutation('clear');
     _root = null;
     _count = 0;
   }
@@ -301,10 +324,33 @@ class RTree<T> {
 
   // ─── Internal: Split ─────────────────────────────────────────────
 
-  /// Split a leaf node by sorting entries by center X and splitting in half.
+  /// Compute the axis with the largest variance (extent) among a list of bounds.
+  /// Returns 0 for X-axis, 1 for Y-axis.
+  int _chooseSplitAxis(Iterable<Rect> boundsList) {
+    if (boundsList.isEmpty) return 0;
+    double minX = double.infinity, maxX = double.negativeInfinity;
+    double minY = double.infinity, maxY = double.negativeInfinity;
+    for (final b in boundsList) {
+      final cx = b.center.dx;
+      final cy = b.center.dy;
+      if (cx < minX) minX = cx;
+      if (cx > maxX) maxX = cx;
+      if (cy < minY) minY = cy;
+      if (cy > maxY) maxY = cy;
+    }
+    return (maxX - minX) > (maxY - minY) ? 0 : 1;
+  }
+
+  /// Split a leaf node by sorting entries by the axis with the largest variance.
   _RTreeNode<T> _splitLeaf(_RTreeNode<T> node) {
     final entries = node.entries.toList();
-    entries.sort((a, b) => a.bounds.center.dx.compareTo(b.bounds.center.dx));
+    final axis = _chooseSplitAxis(entries.map((e) => e.bounds));
+
+    if (axis == 0) {
+      entries.sort((a, b) => a.bounds.center.dx.compareTo(b.bounds.center.dx));
+    } else {
+      entries.sort((a, b) => a.bounds.center.dy.compareTo(b.bounds.center.dy));
+    }
 
     final mid = entries.length ~/ 2;
     node.entries.clear();
@@ -318,10 +364,16 @@ class RTree<T> {
     return sibling;
   }
 
-  /// Split an internal node by sorting children by center X.
+  /// Split an internal node by sorting children by the axis with the largest variance.
   _RTreeNode<T> _splitInternal(_RTreeNode<T> node) {
     final children = node.children.toList();
-    children.sort((a, b) => a.bounds.center.dx.compareTo(b.bounds.center.dx));
+    final axis = _chooseSplitAxis(children.map((c) => c.bounds));
+
+    if (axis == 0) {
+      children.sort((a, b) => a.bounds.center.dx.compareTo(b.bounds.center.dx));
+    } else {
+      children.sort((a, b) => a.bounds.center.dy.compareTo(b.bounds.center.dy));
+    }
 
     final mid = children.length ~/ 2;
     node.children.clear();

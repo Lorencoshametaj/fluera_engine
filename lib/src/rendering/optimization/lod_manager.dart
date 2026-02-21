@@ -1,6 +1,9 @@
+import 'dart:collection';
 import 'dart:isolate';
 import 'package:flutter/material.dart';
 import '../../drawing/models/pro_drawing_point.dart';
+import '../../core/engine_scope.dart';
+import './memory_managed_cache.dart';
 
 /// 🚀 LOD MANAGER - Level of Detail per stroke simplification
 ///
@@ -22,7 +25,7 @@ import '../../drawing/models/pro_drawing_point.dart';
 /// PERFORMANCE:
 /// - 1000 points → ~50 points at LOD 3 = 20x less work
 /// - Maintains the general shape of the stroke
-class LODManager {
+class LODManager with MemoryManagedCacheMixin implements MemoryManagedCache {
   // ═══════════════════════════════════════════════════════════════════════════
   // 📐 CONFIGURATION LOD
   // ═══════════════════════════════════════════════════════════════════════════
@@ -44,11 +47,22 @@ class LODManager {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Cache per punti semplificati: strokeId -> {lodLevel -> points}
-  static final Map<String, Map<int, List<ProDrawingPoint>>> _lodCache = {};
+  final LinkedHashMap<String, Map<int, List<ProDrawingPoint>>> _lodCache =
+      LinkedHashMap();
 
   /// Maximum number di stroke in cache LOD
   /// 🆕 Aumentato da 500 a 5000 per supportare canvas grandi without thrashing
   static const int maxCachedStrokes = 5000;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔧 SINGLETON / ENGINE SCOPE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Accesso tramite EngineScope corrente
+  static LODManager get instance => EngineScope.current.lodManager;
+
+  /// Crea una nuova istanza per l'EngineScope
+  LODManager.create();
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 📊 LOD LEVEL CALCULATION
@@ -89,7 +103,7 @@ class LODManager {
   /// [zoom]: Current zoom level (0.0 - 1.0+)
   ///
   /// Returns: Lista di punti (originali o semplificati)
-  static List<ProDrawingPoint> getPointsForZoom(ProStroke stroke, double zoom) {
+  List<ProDrawingPoint> getPointsForZoom(ProStroke stroke, double zoom) {
     final lodLevel = getLODLevel(zoom);
 
     // LOD 0 = nessuna semplificazione
@@ -114,23 +128,25 @@ class LODManager {
   }
 
   /// Gets punti cached for ao stroke/lod
-  static List<ProDrawingPoint>? _getCachedPoints(
-    String strokeId,
-    int lodLevel,
-  ) {
-    return _lodCache[strokeId]?[lodLevel];
+  List<ProDrawingPoint>? _getCachedPoints(String strokeId, int lodLevel) {
+    if (_lodCache.containsKey(strokeId)) {
+      // Touching object to bump LRU order
+      final entry = _lodCache.remove(strokeId)!;
+      _lodCache[strokeId] = entry;
+      return entry[lodLevel];
+    }
+    return null;
   }
 
   /// Saves punti semplificati in cache
-  static void _cachePoints(
+  void _cachePoints(
     String strokeId,
     int lodLevel,
     List<ProDrawingPoint> points,
   ) {
-    // Evict vecchi stroke se cache troppo grande
+    // Evict vecchi stroke se cache troppo grande (LRU: primo elemento = oldest)
     if (_lodCache.length >= maxCachedStrokes) {
-      final oldestKey = _lodCache.keys.first;
-      _lodCache.remove(oldestKey);
+      _lodCache.remove(_lodCache.keys.first);
     }
 
     _lodCache.putIfAbsent(strokeId, () => {});
@@ -138,12 +154,12 @@ class LODManager {
   }
 
   /// Invalidate cache for a stroke (call after modification)
-  static void invalidateStroke(String strokeId) {
+  void invalidateStroke(String strokeId) {
     _lodCache.remove(strokeId);
   }
 
   /// Clears the entire cache LOD
-  static void clearCache() {
+  void clearCache() {
     _lodCache.clear();
   }
 
@@ -245,10 +261,56 @@ class LODManager {
   }
 
   /// Statistiche cache
-  static Map<String, dynamic> get stats => {
+  Map<String, dynamic> get stats => {
     'cachedStrokes': _lodCache.length,
     'maxCachedStrokes': maxCachedStrokes,
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🧠 MEMORY MANAGED CACHE INTERFACE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  String get cacheName => 'LODCache';
+
+  @override
+  int get estimatedMemoryBytes {
+    int pointsCount = 0;
+    for (final maps in _lodCache.values) {
+      for (final points in maps.values) {
+        pointsCount += points.length;
+      }
+    }
+    // Ogni punto è ~40 bytes
+    return pointsCount * 40;
+  }
+
+  @override
+  int get cacheEntryCount => _lodCache.length;
+
+  /// LOD Cache has low priority (safe to evict, easy to regenerate via Douglas-Peucker)
+  @override
+  int get evictionPriority => 30;
+
+  @override
+  void evictFraction(double fraction) {
+    if (_lodCache.isEmpty || fraction <= 0) return;
+
+    final toEvict = (_lodCache.length * fraction).ceil().clamp(
+      1,
+      _lodCache.length,
+    );
+    int evicted = 0;
+
+    // LRU eviction: _lodCache is LinkedHashMap, keys.first is oldest
+    while (evicted < toEvict && _lodCache.isNotEmpty) {
+      _lodCache.remove(_lodCache.keys.first);
+      evicted++;
+    }
+  }
+
+  @override
+  void evictAll() => clearCache();
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 🧵 ASYNC SIMPLIFICATION (Compute Isolate)
@@ -294,10 +356,7 @@ class LODManager {
 
   /// Pre-compute LOD for a batch of strokes asynchronously.
   /// Call when idle (e.g., after zoom settles, or on canvas load).
-  static Future<void> precomputeLODBatch(
-    List<ProStroke> strokes,
-    double zoom,
-  ) async {
+  Future<void> precomputeLODBatch(List<ProStroke> strokes, double zoom) async {
     final lodLevel = getLODLevel(zoom);
     if (lodLevel == 0) return; // No simplification needed at full zoom
 

@@ -1,56 +1,118 @@
 import 'dart:ui';
-import '../nodes/group_node.dart';
-import '../nodes/layer_node.dart';
-import './canvas_node.dart';
+import './frozen_node_view.dart';
 import './scene_graph_snapshot.dart';
+import './node_id.dart';
+import './scene_graph.dart';
 
 /// Read-only view of a [SceneGraph].
 ///
 /// Exposes query-only methods, preventing plugins and renderers from
 /// accidentally mutating the scene graph. Use this interface when
 /// handing graph access to external consumers (plugin API, exporters).
-///
-/// ```dart
-/// void renderScene(ReadOnlySceneGraph graph) {
-///   for (final layer in graph.layers) {
-///     // safe — no mutation methods available
-///   }
-/// }
-/// ```
 abstract class ReadOnlySceneGraph {
-  /// The root group node of the tree.
-  GroupNode get rootNode;
-
-  /// All layers in the scene graph.
-  List<LayerNode> get layers;
-
-  /// Number of layers.
+  FrozenNodeView get rootNode;
+  List<FrozenNodeView> get layers;
   int get layerCount;
-
-  /// Look up a node by ID. Returns `null` if not found.
-  CanvasNode? findNodeById(String nodeId);
-
-  /// Whether the tree contains a node with [nodeId].
-  bool containsNode(String nodeId);
-
-  /// All nodes whose world bounds intersect [viewport].
-  List<CanvasNode> nodesInBounds(Rect viewport);
-
-  /// Hit test at a world-space point. Returns the topmost hit node.
-  CanvasNode? hitTestAt(Offset worldPoint);
-
-  /// All nodes in the tree (depth-first).
-  Iterable<CanvasNode> get allNodes;
-
-  /// Total number of leaf nodes (non-group nodes).
+  FrozenNodeView? findNodeById(NodeId nodeId);
+  bool containsNode(NodeId nodeId);
+  List<FrozenNodeView> nodesInBounds(Rect viewport);
+  FrozenNodeView? hitTestAt(Offset worldPoint);
+  Iterable<FrozenNodeView> get allNodes;
   int get totalElementCount;
-
-  /// Monotonically increasing version counter.
   int get version;
-
-  /// Serialize the graph to JSON.
   Map<String, dynamic> toJson();
-
-  /// Capture a lightweight structural snapshot.
   SceneGraphSnapshot snapshot();
+}
+
+/// Read-consistent, epoch-guarded view of a [SceneGraph].
+///
+/// Ensures that asynchronous consumers do not read a torn state if the
+/// scene graph mutates mid-operation. If the underlying `SceneGraph`'s
+/// version increments after this view is created, any read triggers a `StateError`.
+class ReadConsistentView implements ReadOnlySceneGraph {
+  final SceneGraph _graph;
+  final int _epoch;
+
+  ReadConsistentView(this._graph) : _epoch = _graph.version;
+
+  void _checkEpoch() {
+    if (_graph.version != _epoch) {
+      throw StateError(
+        'Scene graph was mutated after this read view was created '
+        '(epoch $_epoch -> ${_graph.version}). Obtain a fresh readView.',
+      );
+    }
+  }
+
+  @override
+  FrozenNodeView get rootNode {
+    _checkEpoch();
+    return _graph.rootNode.freeze();
+  }
+
+  @override
+  List<FrozenNodeView> get layers {
+    _checkEpoch();
+    return _graph.layers.map((l) => l.freeze()).toList();
+  }
+
+  @override
+  int get layerCount {
+    _checkEpoch();
+    return _graph.layerCount;
+  }
+
+  @override
+  FrozenNodeView? findNodeById(NodeId nodeId) {
+    _checkEpoch();
+    return _graph.findNodeById(nodeId)?.freeze();
+  }
+
+  @override
+  bool containsNode(NodeId nodeId) {
+    _checkEpoch();
+    return _graph.containsNode(nodeId);
+  }
+
+  @override
+  List<FrozenNodeView> nodesInBounds(Rect viewport) {
+    _checkEpoch();
+    return _graph.nodesInBounds(viewport).map((n) => n.freeze()).toList();
+  }
+
+  @override
+  FrozenNodeView? hitTestAt(Offset worldPoint) {
+    _checkEpoch();
+    return _graph.hitTestAt(worldPoint)?.freeze();
+  }
+
+  @override
+  Iterable<FrozenNodeView> get allNodes {
+    _checkEpoch();
+    return _graph.allNodes.map((n) => n.freeze());
+  }
+
+  @override
+  int get totalElementCount {
+    _checkEpoch();
+    return _graph.totalElementCount;
+  }
+
+  @override
+  int get version {
+    _checkEpoch();
+    return _graph.version;
+  }
+
+  @override
+  Map<String, dynamic> toJson() {
+    _checkEpoch();
+    return _graph.toJson();
+  }
+
+  @override
+  SceneGraphSnapshot snapshot() {
+    _checkEpoch();
+    return _graph.snapshot();
+  }
 }

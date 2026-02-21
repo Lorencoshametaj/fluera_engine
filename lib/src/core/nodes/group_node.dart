@@ -310,13 +310,18 @@ class GroupNode extends CanvasNode {
   /// Invalidate cached world transform for this node and all descendants.
   ///
   /// When a parent moves, every child's world transform is stale.
+  /// Uses lazy top-down marking (GAP 6): the `invalidateTransformCache()`
+  /// on each child only sets dirty flags — the actual O(depth) matrix
+  /// multiplication happens lazily when `worldTransform` is first accessed.
+  ///
+  /// The `propagatingTransform_` flag ensures that children don't
+  /// individually fire `onNodeTransformInvalidated` on the SceneGraph
+  /// bridge, avoiding O(n²) cascade storms.
   @override
   void invalidateTransformCache() {
     super.invalidateTransformCache();
     invalidateBoundsCache();
     for (final child in _children) {
-      // Mark children as "propagating" so they don't individually
-      // fire onNodeTransformInvalidated → avoids O(n²) cascade.
       child.propagatingTransform_ = true;
       child.invalidateTransformCache();
       child.propagatingTransform_ = false;

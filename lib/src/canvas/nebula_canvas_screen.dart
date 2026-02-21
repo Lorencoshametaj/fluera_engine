@@ -83,6 +83,7 @@ import './toolbar/menus/selection_actions_menu.dart';
 import './toolbar/menus/image_action_button.dart';
 import '../rendering/canvas/canvas_painters.dart';
 import '../dialogs/canvas_settings_dialog.dart';
+import '../tools/pdf_page_drag_controller.dart';
 
 // ── SDK Config (Dependency Inversion) ──────────────────────────────────────
 import './nebula_canvas_config.dart';
@@ -118,6 +119,10 @@ import '../systems/variable_resolver.dart';
 import '../systems/design_token_exporter.dart';
 import '../history/command_history.dart';
 import '../systems/variable_commands.dart';
+import '../core/nodes/latex_node.dart';
+import '../core/scene_graph/node_id.dart';
+import './widgets/latex_editor_sheet.dart';
+import '../history/latex_commands.dart';
 
 // ============================================================================
 // PART FILES
@@ -139,6 +144,7 @@ part './parts/_voice_recording.dart';
 part './parts/_cloud_sync.dart';
 part './parts/_phase2_stubs.dart';
 part './parts/_design_variables.dart';
+part './parts/_latex_handler.dart';
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -541,6 +547,22 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   /// 📄 PDF search controller (shared, uses active document's provider)
   PdfSearchController? _pdfSearchController;
+
+  /// 📄 Currently selected PDF document ID for toolbar interaction.
+  /// When null, the first PDF found in the layer tree is used as fallback.
+  String? _activePdfDocumentId;
+
+  /// 📄 PDF layout mutation counter. Incremented on in-place mutations
+  /// (lock toggle, rotate, grid change) so DrawingPainter.shouldRepaint
+  /// detects the change (sceneGraph is a shared ref so version comparison
+  /// alone doesn’t work).
+  int _pdfLayoutVersion = 0;
+
+  /// Currently selected PDF page index (for insert-at-position).
+  int _pdfSelectedPageIndex = 0;
+
+  /// 📄 Drag controller for unlocked PDF pages.
+  final PdfPageDragController _pdfPageDragController = PdfPageDragController();
 
   /// 🌐 Rebuild the R-tree spatial index from current image elements.
   void _rebuildImageSpatialIndex() {

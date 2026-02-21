@@ -22,6 +22,7 @@ import '../rendering/optimization/disk_stroke_manager.dart';
 import '../rendering/optimization/frame_budget_manager.dart';
 import '../rendering/optimization/advanced_tile_optimizer.dart';
 import '../rendering/optimization/memory_budget_controller.dart';
+import '../rendering/optimization/lod_manager.dart';
 import '../services/adaptive_debouncer_service.dart';
 import '../drawing/input/path_pool.dart';
 import '../drawing/input/stroke_point_pool.dart';
@@ -35,6 +36,7 @@ import '../services/image_cache_service.dart';
 import '../history/async_command.dart';
 import '../systems/engine_theme.dart';
 import '../systems/plugin_api.dart';
+import '../rendering/cache/render_cache_scope.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -204,6 +206,9 @@ class EngineScope {
   /// Tile-based render cache manager.
   late final TileCacheManager tileCacheManager = TileCacheManager.create();
 
+  /// Stroke point simplification and LOD caching.
+  late final LODManager lodManager = LODManager.create();
+
   /// Disk-based stroke manager for large canvases.
   late final DiskStrokeManager diskStrokeManager = DiskStrokeManager.create();
 
@@ -262,6 +267,10 @@ class EngineScope {
           memoryPressureHandler: memoryPressureHandler,
         )
         ..registerCache(tileCacheManager)
+        ..registerCache(
+          lodManager,
+          warningFraction: 0.75,
+        ) // evict 75% on warning
         ..registerCache(imageCacheService, warningFraction: 0.50)
         ..registerCache(diskStrokeManager)
         ..registerCache(assetRegistry);
@@ -313,6 +322,9 @@ class EngineScope {
 
   /// Plugin registry for managing engine plugins.
   late final PluginRegistry pluginRegistry = PluginRegistry(eventBus: eventBus);
+
+  /// Per-scope rendering cache state (replaces static caches).
+  late final RenderCacheScope renderCacheScope = RenderCacheScope();
 
   // ---------------------------------------------------------------------------
   // Health Check
@@ -400,6 +412,7 @@ class EngineScope {
     brushSettingsService.dispose();
     themeManager.dispose();
     shaderBrushService.dispose();
+    renderCacheScope.dispose();
 
     // ── 2. Mid-tier (depend on infra, depended on by leaves) ──
     asyncCommandRunner.dispose();
@@ -408,6 +421,7 @@ class EngineScope {
     memoryBudgetController.dispose();
     invalidationGraph.dispose();
     tileCacheManager.dispose();
+    lodManager.clearCache();
 
     // ── 3. Infrastructure (depended upon by everything above) ──
     errorRecovery.dispose();

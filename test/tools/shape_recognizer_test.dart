@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/tools/shape/shape_recognizer.dart';
 import 'package:nebula_engine/src/core/models/shape_type.dart';

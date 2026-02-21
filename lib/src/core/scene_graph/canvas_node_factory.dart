@@ -17,6 +17,7 @@ import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
 import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
+import '../nodes/latex_node.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
 ///
@@ -101,6 +102,9 @@ class CanvasNodeFactory {
 
       case 'vector_network':
         return VectorNetworkNode.fromJson(json);
+
+      case 'latex':
+        return LatexNode.fromJson(json);
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

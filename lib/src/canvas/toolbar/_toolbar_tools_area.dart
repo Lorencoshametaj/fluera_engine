@@ -241,6 +241,18 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               isDark: isDark,
             ),
             const SizedBox(width: 12),
+            // 🧮 LaTeX Editor
+            if (widget.onLatexToggle != null) ...[
+              ToolbarLatexButton(
+                isActive: widget.isLatexActive,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.onLatexToggle!();
+                },
+                isDark: isDark,
+              ),
+              const SizedBox(width: 12),
+            ],
             ToolbarImagePickerButton(
               isActive: widget.isImagePickerActive,
               onTap: () {
@@ -290,6 +302,18 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             // 📄 PDF CONTEXTUAL BUTTONS — appear when a PDF is active
             if (widget.pdfDocuments.isNotEmpty) ...[
               const SizedBox(width: 8),
+              // 📄 Document switcher — only when 2+ PDFs are loaded
+              if (widget.pdfDocuments.length > 1) ...[
+                _PdfDocumentSwitcher(
+                  documents: widget.pdfDocuments,
+                  activeDocumentId: widget.pdfDocument?.id,
+                  isDark: isDark,
+                  onDocumentSelected: (docId) {
+                    widget.onPdfDocumentChanged?.call(docId);
+                  },
+                ),
+                const SizedBox(width: 4),
+              ],
               // Pages
               if (widget.pdfDocument != null)
                 _PdfToolbarButton(
@@ -306,7 +330,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                       onPageChanged: (_) {},
                       onInsertBlankPage: widget.onPdfInsertBlankPage,
                       onDeletePage: widget.onPdfDeletePage,
-                      onLayoutChanged: null,
+                      onLayoutChanged: widget.onPdfLayoutChanged,
                       onExport: widget.onPdfExport,
                     );
                   },
@@ -364,6 +388,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     context: context,
                     anchor: anchor,
                     doc: widget.pdfDocument!,
+                    onLayoutChanged: widget.onPdfLayoutChanged,
                   );
                 },
               ),
@@ -638,6 +663,119 @@ class _PdfToolbarButton extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 📄 Compact PDF document switcher — dropdown chip to select the active PDF.
+///
+/// Shows the current PDF's label (name or "PDF N") and a dropdown arrow.
+/// Tapping opens a popup menu listing all loaded PDFs so the user can switch.
+class _PdfDocumentSwitcher extends StatelessWidget {
+  final List<PdfDocumentNode> documents;
+  final String? activeDocumentId;
+  final bool isDark;
+  final void Function(String documentId) onDocumentSelected;
+
+  const _PdfDocumentSwitcher({
+    required this.documents,
+    required this.activeDocumentId,
+    required this.isDark,
+    required this.onDocumentSelected,
+  });
+
+  String _labelFor(PdfDocumentNode doc, int index) {
+    final name = doc.name;
+    if (name.isNotEmpty) return name;
+    return 'PDF ${index + 1}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    // Find active index for display label
+    final activeIdx = documents.indexWhere((d) => d.id == activeDocumentId);
+    final activeLabel =
+        activeIdx >= 0 ? _labelFor(documents[activeIdx], activeIdx) : 'PDF 1';
+
+    return PopupMenuButton<String>(
+      tooltip: 'Switch PDF',
+      onSelected: onDocumentSelected,
+      position: PopupMenuPosition.under,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: isDark ? const Color(0xFF2A2A2A) : Colors.white,
+      itemBuilder: (context) {
+        return [
+          for (int i = 0; i < documents.length; i++)
+            PopupMenuItem<String>(
+              value: documents[i].id,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    documents[i].id == activeDocumentId
+                        ? Icons.picture_as_pdf_rounded
+                        : Icons.picture_as_pdf_outlined,
+                    size: 16,
+                    color:
+                        documents[i].id == activeDocumentId
+                            ? cs.primary
+                            : (isDark ? Colors.white70 : Colors.black54),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _labelFor(documents[i], i),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          documents[i].id == activeDocumentId
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                      color:
+                          documents[i].id == activeDocumentId
+                              ? cs.primary
+                              : null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${documents[i].documentModel.totalPages}p',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ];
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: cs.primaryContainer.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cs.primary.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.picture_as_pdf_rounded, size: 14, color: cs.primary),
+            const SizedBox(width: 4),
+            Text(
+              activeLabel,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: cs.primary,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(Icons.arrow_drop_down, size: 16, color: cs.primary),
+          ],
         ),
       ),
     );

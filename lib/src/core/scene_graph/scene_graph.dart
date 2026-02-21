@@ -44,9 +44,7 @@ import './read_only_scene_graph.dart';
 ///     └── LayerNode "Annotations"
 ///         └── TextNode
 /// ```
-class SceneGraph
-    with SceneGraphObservable
-    implements TransformBridge, ReadOnlySceneGraph {
+class SceneGraph with SceneGraphObservable implements TransformBridge {
   /// The root node of the scene graph. Direct children are layers.
   final GroupNode rootNode;
 
@@ -58,6 +56,10 @@ class SceneGraph
 
   /// Read-only view of node IDs in the index (for integrity checking).
   Set<String> get nodeIndexIds => _nodeIndex.keys.toSet();
+
+  /// Captures a read-consistent view of the graph.
+  /// Any read on a stale epoch throws automatically.
+  ReadConsistentView get readView => ReadConsistentView(this);
 
   /// Spatial index for O(log n) viewport culling and hit testing.
   final SpatialIndex spatialIndex = SpatialIndex();

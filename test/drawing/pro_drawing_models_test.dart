@@ -360,8 +360,8 @@ void main() {
     // ── ProPenType ─────────────────────────────────────────────────────
 
     group('ProPenType', () {
-      test('has four values', () {
-        expect(ProPenType.values.length, 4);
+      test('has eleven values', () {
+        expect(ProPenType.values.length, 11);
       });
 
       test('contains expected types', () {
@@ -369,6 +369,13 @@ void main() {
         expect(ProPenType.values, contains(ProPenType.fountain));
         expect(ProPenType.values, contains(ProPenType.pencil));
         expect(ProPenType.values, contains(ProPenType.highlighter));
+        expect(ProPenType.values, contains(ProPenType.watercolor));
+        expect(ProPenType.values, contains(ProPenType.marker));
+        expect(ProPenType.values, contains(ProPenType.charcoal));
+        expect(ProPenType.values, contains(ProPenType.oilPaint));
+        expect(ProPenType.values, contains(ProPenType.sprayPaint));
+        expect(ProPenType.values, contains(ProPenType.neonGlow));
+        expect(ProPenType.values, contains(ProPenType.inkWash));
       });
     });
   });

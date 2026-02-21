@@ -5,8 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/src/history/command_history.dart';
 import 'package:nebula_engine/src/history/guide_commands.dart';
 import 'package:nebula_engine/src/tools/ruler/ruler_guide_system.dart';
-import 'package:nebula_engine/src/tools/ruler/canvas_guide.dart';
-import 'package:nebula_engine/src/tools/ruler/constraint_guide.dart';
 
 void main() {
   // -----------------------------------------------------------------------
@@ -314,8 +312,16 @@ void main() {
     });
 
     test('equality by id', () {
-      final g1 = CanvasGuide(id: NodeId('test-1'), position: 100, isHorizontal: true);
-      final g2 = CanvasGuide(id: NodeId('test-1'), position: 200, isHorizontal: false);
+      final g1 = CanvasGuide(
+        id: NodeId('test-1'),
+        position: 100,
+        isHorizontal: true,
+      );
+      final g2 = CanvasGuide(
+        id: NodeId('test-1'),
+        position: 200,
+        isHorizontal: false,
+      );
       expect(g1, equals(g2));
     });
   });

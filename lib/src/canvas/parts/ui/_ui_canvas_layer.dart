@@ -184,6 +184,8 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                       },
                       pdfSearchController:
                           _pdfSearchController, // 🔍 Search highlights
+                      pdfLayoutVersion:
+                          _pdfLayoutVersion, // 📄 Layout mutation counter
                     ),
                     size: Size.infinite,
                   ),

@@ -31,6 +31,9 @@ export 'src/core/scene_graph/node_visitor.dart';
 export 'src/core/scene_graph/debug_info.dart';
 export 'src/core/scene_graph/scene_graph_observer.dart';
 export 'src/core/scene_graph/scene_graph_transaction.dart';
+export 'src/core/scene_graph/node_id.dart';
+export 'src/core/scene_graph/frozen_node_view.dart';
+export 'src/core/scene_graph/read_only_scene_graph.dart';
 
 // Nodes
 export 'src/core/nodes/group_node.dart';
@@ -51,6 +54,14 @@ export 'src/core/nodes/pdf_page_node.dart';
 export 'src/core/nodes/pdf_document_node.dart';
 export 'src/core/models/pdf_layout_preset.dart';
 export 'src/canvas/toolbar/pdf_contextual_toolbar.dart';
+export 'src/core/nodes/latex_node.dart';
+
+// LaTeX Widgets
+export 'src/canvas/widgets/latex_preview_card.dart';
+export 'src/canvas/widgets/latex_ink_overlay.dart';
+export 'src/canvas/widgets/latex_symbol_palette.dart';
+export 'src/canvas/widgets/latex_confidence_chips.dart';
+export 'src/canvas/widgets/latex_editor_sheet.dart';
 
 // Vector
 export 'src/core/vector/vector_path.dart';
@@ -65,6 +76,17 @@ export 'src/core/vector/bezier_clipping.dart';
 export 'src/core/vector/exact_boolean_ops.dart';
 export 'src/core/vector/constraints.dart';
 export 'src/rendering/scene_graph/network_lod.dart';
+
+// LaTeX
+export 'src/core/latex/latex_draw_command.dart' hide PathDrawCommand;
+export 'src/core/latex/latex_ast.dart';
+export 'src/core/latex/latex_parser.dart';
+export 'src/core/latex/latex_layout_engine.dart';
+export 'src/core/latex/latex_layout_cache.dart';
+export 'src/core/latex/ink_stroke_data.dart';
+export 'src/core/latex/latex_fuzzy_corrector.dart';
+export 'src/core/latex/latex_validator.dart';
+export 'src/core/latex/latex_confidence_annotator.dart';
 
 // Effects
 export 'src/core/effects/node_effect.dart';
@@ -193,6 +215,13 @@ export 'src/rendering/scene_graph/scene_graph_renderer.dart';
 export 'src/rendering/scene_graph/render_interceptor.dart';
 export 'src/rendering/scene_graph/path_renderer.dart';
 export 'src/rendering/scene_graph/rich_text_renderer.dart';
+export 'src/rendering/scene_graph/render_batch.dart';
+export 'src/rendering/scene_graph/latex_renderer.dart';
+
+// Platform — LaTeX Recognition
+export 'src/platform/latex_recognition_bridge.dart';
+export 'src/platform/ink_rasterizer.dart';
+export 'src/platform/native_latex_recognizer.dart';
 
 // Canvas Painters
 export 'src/rendering/canvas/drawing_painter.dart';
@@ -273,6 +302,7 @@ export 'src/history/models/canvas_branch.dart';
 export 'src/history/branching_manager.dart';
 export 'src/history/background_checkpoint_service.dart';
 export 'src/history/async_command.dart';
+export 'src/history/latex_commands.dart';
 export 'src/history/widgets/branch_explorer_sheet.dart';
 
 // ────────────────────────── LAYERS ──────────────────────────
@@ -315,6 +345,8 @@ export 'src/systems/spatial_index.dart';
 export 'src/systems/style_system.dart';
 export 'src/systems/prototype_flow.dart';
 export 'src/systems/plugin_api.dart';
+export 'src/systems/plugin_budget.dart';
+export 'src/systems/sandboxed_event_stream.dart';
 export 'src/systems/accessibility_tree.dart';
 export 'src/systems/accessibility_bridge.dart';
 export 'src/systems/animation_player.dart';

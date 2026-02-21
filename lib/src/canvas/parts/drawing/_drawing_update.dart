@@ -47,6 +47,37 @@ extension on _NebulaCanvasScreenState {
       }
     }
 
+    // 📄 PDF PAGE DRAG: Update drag position + translate linked strokes
+    if (_pdfPageDragController.isDragging) {
+      if (_pdfPageDragController.updateDrag(canvasPosition)) {
+        // ✅ Real-time stroke translation: move linked annotations by the
+        // incremental delta so they follow the page during drag.
+        final delta = _pdfPageDragController.lastDelta;
+        if (delta != Offset.zero) {
+          final ids = _pdfPageDragController.linkedAnnotationIds;
+          if (ids.isNotEmpty) {
+            final idSet = Set<String>.of(ids);
+            for (final layer in _layerController.layers) {
+              for (final strokeNode in layer.node.strokeNodes) {
+                if (idSet.contains(strokeNode.stroke.id)) {
+                  final old = strokeNode.stroke;
+                  final translatedPoints =
+                      old.points.map((p) {
+                        return p.copyWith(position: p.position + delta);
+                      }).toList();
+                  strokeNode.stroke = old.copyWith(points: translatedPoints);
+                }
+              }
+            }
+            DrawingPainter.invalidateAllTiles();
+          }
+        }
+        _pdfLayoutVersion++;
+        setState(() {});
+      }
+      return;
+    }
+
     // 🎨 PRIORITÀ 1: Se siamo in editing mode immagine
     if (_imageInEditMode != null) {
       final image = _loadedImages[_imageInEditMode!.imagePath];

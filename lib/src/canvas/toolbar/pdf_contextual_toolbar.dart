@@ -19,7 +19,7 @@ void showPdfPagePopup({
   required PdfDocumentNode doc,
   required int selectedPageIndex,
   required ValueChanged<int> onPageChanged,
-  VoidCallback? onInsertBlankPage,
+  void Function(int selectedPageIndex)? onInsertBlankPage,
   void Function(int)? onDeletePage,
   VoidCallback? onLayoutChanged,
   VoidCallback? onExport,
@@ -70,6 +70,7 @@ void showPdfSearchPopup({
   required Rect anchor,
   required List<PdfDocumentNode> docs,
   required PdfSearchController searchController,
+  int? selectedPageIndex,
   VoidCallback? onLayoutChanged,
   void Function(String documentId, int pageIndex)? onGoToPage,
 }) {
@@ -81,6 +82,7 @@ void showPdfSearchPopup({
           anchor: anchor,
           docs: docs,
           searchController: searchController,
+          selectedPageIndex: selectedPageIndex,
           onLayoutChanged: onLayoutChanged,
           onGoToPage: onGoToPage,
         ),
@@ -367,7 +369,7 @@ class _PdfPageNavItemState extends State<_PdfPageNavItem> {
 class _PdfPageActionsItem extends PopupMenuEntry<void> {
   final PdfDocumentNode doc;
   final int selectedPageIndex;
-  final VoidCallback? onInsertBlankPage;
+  final void Function(int selectedPageIndex)? onInsertBlankPage;
   final void Function(int)? onDeletePage;
   final VoidCallback? onLayoutChanged;
 
@@ -401,7 +403,7 @@ class _PdfPageActionsItemState extends State<_PdfPageActionsItem> {
           if (widget.onInsertBlankPage != null)
             _actionBtn(Icons.add_rounded, 'Insert', cs, () {
               HapticFeedback.mediumImpact();
-              widget.onInsertBlankPage!();
+              widget.onInsertBlankPage!(widget.selectedPageIndex);
               widget.onLayoutChanged?.call();
               Navigator.pop(context);
             }),
@@ -501,6 +503,7 @@ class _PdfSearchPanel extends StatefulWidget {
   final Rect anchor;
   final List<PdfDocumentNode> docs;
   final PdfSearchController searchController;
+  final int? selectedPageIndex;
   final VoidCallback? onLayoutChanged;
   final void Function(String documentId, int pageIndex)? onGoToPage;
 
@@ -508,6 +511,7 @@ class _PdfSearchPanel extends StatefulWidget {
     required this.anchor,
     required this.docs,
     required this.searchController,
+    this.selectedPageIndex,
     this.onLayoutChanged,
     this.onGoToPage,
   });
@@ -549,6 +553,8 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
         sc.currentMatch!.pageIndex,
       );
     }
+    // Issue 20: Keep focus on search field after clicking Next
+    _focusNode.requestFocus();
   }
 
   /// (N) Navigate to previous match and scroll to it.
@@ -562,6 +568,8 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
         sc.currentMatch!.pageIndex,
       );
     }
+    // Issue 20: Keep focus on search field after clicking Prev
+    _focusNode.requestFocus();
   }
 
   /// (O) Trigger debounced search.
@@ -573,7 +581,11 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      widget.searchController.searchDocuments(widget.docs, query);
+      widget.searchController.searchDocuments(
+        widget.docs,
+        query,
+        startPageIndex: widget.selectedPageIndex,
+      );
     });
   }
 
@@ -620,12 +632,6 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                                 } else {
                                   _goToNext(); // Enter → next
                                 }
-                              } else if (_textController.text.isNotEmpty) {
-                                // First Enter triggers search
-                                sc.searchDocuments(
-                                  widget.docs,
-                                  _textController.text,
-                                );
                               }
                             }
                           },
@@ -651,18 +657,67 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                               ),
                               suffixIcon:
                                   _textController.text.isNotEmpty
-                                      ? IconButton(
-                                        icon: Icon(
-                                          Icons.clear_rounded,
-                                          size: 16,
-                                          color: cs.onSurfaceVariant,
-                                        ),
-                                        onPressed: () {
-                                          _textController.clear();
-                                          sc.clearSearch();
-                                          setState(() {});
-                                        },
-                                        visualDensity: VisualDensity.compact,
+                                      ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Issue 18: Whole Word Search Toggle
+                                          Tooltip(
+                                            message: 'Match whole word',
+                                            child: InkWell(
+                                              onTap: () {
+                                                sc.wholeWord = !sc.wholeWord;
+                                                // Retrigger search with new mode
+                                                _onQueryChanged(
+                                                  _textController.text,
+                                                );
+                                                _focusNode.requestFocus();
+                                              },
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      sc.wholeWord
+                                                          ? cs.primaryContainer
+                                                          : Colors.transparent,
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  '[W]',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                    color:
+                                                        sc.wholeWord
+                                                            ? cs.onPrimaryContainer
+                                                            : cs.onSurfaceVariant,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: Icon(
+                                              Icons.clear_rounded,
+                                              size: 16,
+                                              color: cs.onSurfaceVariant,
+                                            ),
+                                            onPressed: () {
+                                              _textController.clear();
+                                              sc.clearSearch();
+                                              setState(() {});
+                                              _focusNode.requestFocus();
+                                            },
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                          ),
+                                        ],
                                       )
                                       : null,
                               contentPadding: const EdgeInsets.symmetric(
@@ -679,8 +734,17 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                                       : cs.surfaceContainerHigh,
                             ),
                             textInputAction: TextInputAction.search,
-                            onSubmitted:
-                                (_) {}, // (N) Handled by KeyboardListener
+                            // Issue 19: Use native onSubmitted for virtual keyboards
+                            onSubmitted: (query) {
+                              if (query.isNotEmpty) {
+                                sc.searchDocuments(
+                                  widget.docs,
+                                  query,
+                                  startPageIndex: widget.selectedPageIndex,
+                                );
+                              }
+                              _focusNode.requestFocus();
+                            },
                             onChanged: _onQueryChanged, // (O) Debounced
                           ),
                         ),

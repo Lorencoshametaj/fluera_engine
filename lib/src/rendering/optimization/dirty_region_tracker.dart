@@ -130,52 +130,53 @@ class DirtyRegionTracker extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Merge overlapping or nearby dirty regions
+  /// Merge overlapping or nearby dirty regions.
+  ///
+  /// Uses swap-and-pop instead of removeAt to avoid O(N) shifts.
+  /// Bounded to maxDirtyRegions × 2 merge passes to avoid worst-case O(N³).
   void _mergeDirtyRegions() {
     if (_dirtyRegions.length <= 1) return;
 
     final merged = <Rect>[];
-    final processed = <bool>[];
 
-    for (int i = 0; i < _dirtyRegions.length; i++) {
-      processed.add(false);
-    }
+    for (final region in _dirtyRegions) {
+      Rect current = region;
+      int passes = 0;
+      bool mergedWithExisting = true;
 
-    for (int i = 0; i < _dirtyRegions.length; i++) {
-      if (processed[i]) continue;
-
-      Rect current = _dirtyRegions[i];
-      processed[i] = true;
-
-      // Try to merge with other regions
-      bool didMerge = true;
-      while (didMerge) {
-        didMerge = false;
-
-        for (int j = 0; j < _dirtyRegions.length; j++) {
-          if (processed[j]) continue;
-
-          final other = _dirtyRegions[j];
-
-          // Check if regions overlap or are close enough to merge
-          if (_shouldMerge(current, other)) {
-            current = _mergeRects(current, other);
-            processed[j] = true;
-            didMerge = true;
+      while (mergedWithExisting && passes < maxDirtyRegions * 2) {
+        mergedWithExisting = false;
+        passes++;
+        for (int i = 0; i < merged.length; i++) {
+          if (_shouldMerge(merged[i], current)) {
+            current = _mergeRects(merged[i], current);
+            // Swap-and-pop: O(1) instead of removeAt's O(N) shift
+            final lastIdx = merged.length - 1;
+            if (i != lastIdx) {
+              merged[i] = merged[lastIdx];
+            }
+            merged.removeLast();
+            mergedWithExisting = true;
+            break;
           }
         }
       }
-
       merged.add(current);
+    }
+
+    // Complexity cap: force merge into single bounding box if still too many.
+    if (merged.length > maxDirtyRegions) {
+      Rect combined = merged.first;
+      for (int i = 1; i < merged.length; i++) {
+        combined = _mergeRects(combined, merged[i]);
+      }
+      merged.clear();
+      merged.add(combined);
     }
 
     // Replace dirty regions with merged ones
     _dirtyRegions.clear();
     _dirtyRegions.addAll(merged);
-
-    // 🚀 Log ONLY if not in batch mode
-    if (!_batchMode) {
-    }
   }
 
   /// Check if two rects should be merged
@@ -219,7 +220,6 @@ class DirtyRegionTracker extends ChangeNotifier {
 
   /// Debug info
   void printStatus() {
-    if (_dirtyRegions.isNotEmpty) {
-    }
+    if (_dirtyRegions.isNotEmpty) {}
   }
 }

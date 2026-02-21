@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 
 import '../optimization/optimization.dart';
 import '../../core/engine_scope.dart';
+import '../../core/engine_error.dart';
 
 /// 🎨 SHADER BRUSH SERVICE — GPU-accelerated brush rendering
 ///
@@ -190,9 +191,21 @@ class ShaderBrushService {
       _inkWashShader = _inkWashProgram!.fragmentShader();
 
       _initialized = true;
-    } catch (e) {
+    } catch (e, stack) {
       // GPU shaders unavailable — CPU fallback will be used
       _initialized = false;
+      if (EngineScope.hasScope) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.rendering,
+            source:
+                'ShaderBrushService.initialize: Failed to load GPU shaders. CPU fallback active.',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
     }
   }
 
@@ -200,29 +213,45 @@ class ShaderBrushService {
   /// Call after initialize() to avoid jank on first stroke.
   void warmUpShaders(Canvas canvas) {
     if (!_initialized) return;
-    final transparentPaint = Paint()..color = const Color(0x00000000);
-    final warmUpRect = const Rect.fromLTWH(-9999, -9999, 1, 1);
+    try {
+      final transparentPaint = Paint()..color = const Color(0x00000000);
+      final warmUpRect = const Rect.fromLTWH(-9999, -9999, 1, 1);
 
-    for (final shader in [
-      _pencilShader,
-      _fountainPenShader,
-      _textureOverlayShader,
-      _brushStampShader,
-      _watercolorShader,
-      _markerShader,
-      _charcoalShader,
-      _oilPaintShader,
-      _sprayPaintShader,
-      _neonGlowShader,
-      _inkWashShader,
-    ]) {
-      if (shader != null) {
-        // Set minimum required uniforms to avoid out-of-bounds
-        for (int i = 0; i < 22; i++) {
-          shader.setFloat(i, 0.0);
+      for (final shader in [
+        _pencilShader,
+        _fountainPenShader,
+        _textureOverlayShader,
+        _brushStampShader,
+        _watercolorShader,
+        _markerShader,
+        _charcoalShader,
+        _oilPaintShader,
+        _sprayPaintShader,
+        _neonGlowShader,
+        _inkWashShader,
+      ]) {
+        if (shader != null) {
+          // Set minimum required uniforms to avoid out-of-bounds
+          for (int i = 0; i < 22; i++) {
+            shader.setFloat(i, 0.0);
+          }
+          transparentPaint.shader = shader;
+          canvas.drawRect(warmUpRect, transparentPaint);
         }
-        transparentPaint.shader = shader;
-        canvas.drawRect(warmUpRect, transparentPaint);
+      }
+    } catch (e, stack) {
+      _initialized = false; // Disable if GPU crashes on warmup
+      if (EngineScope.hasScope) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.transient,
+            domain: ErrorDomain.rendering,
+            source:
+                'ShaderBrushService.warmUpShaders: Shader warmup failed. Falling back to CPU.',
+            original: e,
+            stack: stack,
+          ),
+        );
       }
     }
   }

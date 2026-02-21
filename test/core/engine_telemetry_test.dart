@@ -177,7 +177,7 @@ void main() {
   group('EngineScope integration', () {
     setUp(() {
       EngineScope.reset();
-      EngineScope.bind(EngineScope());
+      EngineScope.push(EngineScope());
     });
 
     tearDown(() {

@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:ui';
 import '../core/scene_graph/canvas_node.dart';
 import '../core/nodes/group_node.dart';
+import '../core/scene_graph/frozen_node_view.dart';
 import '../core/engine_event.dart';
 import '../core/engine_event_bus.dart';
 import '../history/command_history.dart';
+import './plugin_budget.dart';
+import './sandboxed_event_stream.dart';
 
 /// Capability that a plugin can request access to.
 enum PluginCapability {
@@ -92,6 +95,9 @@ class PluginManifest {
   /// Plugin icon path (asset path).
   final String? iconPath;
 
+  /// Resource limits for sandboxing.
+  final PluginBudget budget;
+
   const PluginManifest({
     required this.id,
     required this.name,
@@ -102,6 +108,7 @@ class PluginManifest {
     this.permission = PluginPermission.readOnly,
     this.minimumEngineVersion,
     this.iconPath,
+    this.budget = const PluginBudget(),
   });
 
   Map<String, dynamic> toJson() => {
@@ -159,17 +166,36 @@ class PluginContext {
   PluginContext({required this.manifest, required PluginBridge bridge})
     : _bridge = bridge;
 
+  int _nodeLookups = 0;
+  int _lastLookupReset = 0;
+
+  void _checkLookupBudget() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastLookupReset > 1000) {
+      _nodeLookups = 0;
+      _lastLookupReset = now;
+    }
+    _nodeLookups++;
+    if (_nodeLookups > manifest.budget.maxNodeLookupsPerFrame * 60) {
+      throw PluginPermissionError(
+        'Plugin "${manifest.name}" exceeded node lookup budget.',
+      );
+    }
+  }
+
   // ---- Read operations ----
 
   /// Get all nodes in the scene graph (requires readSceneGraph).
-  List<CanvasNode> getAllNodes() {
+  List<FrozenNodeView> getAllNodes() {
     _requireCapability(PluginCapability.readSceneGraph);
+    _checkLookupBudget();
     return _bridge.getAllNodes();
   }
 
   /// Find a node by ID (requires readSceneGraph).
-  CanvasNode? findNode(String nodeId) {
+  FrozenNodeView? findNode(String nodeId) {
     _requireCapability(PluginCapability.readSceneGraph);
+    _checkLookupBudget();
     return _bridge.findNode(nodeId);
   }
 
@@ -323,7 +349,10 @@ class PluginContext {
   /// ```
   Stream<T> onEvent<T extends EngineEvent>() {
     _requireCapability(PluginCapability.listenEvents);
-    return _bridge.eventBus.on<T>();
+    return SandboxedEventStream<T>(
+      _bridge.eventBus.on<T>(),
+      maxEventsPerSecond: manifest.budget.maxEventSubscriptions * 10,
+    );
   }
 
   /// Emit a custom plugin event (requires listenEvents).
@@ -354,8 +383,8 @@ class PluginPermissionError extends Error {
 /// Plugins interact through [PluginContext] which wraps this with
 /// capability guards.
 abstract class PluginBridge {
-  List<CanvasNode> getAllNodes();
-  CanvasNode? findNode(String nodeId);
+  List<FrozenNodeView> getAllNodes();
+  FrozenNodeView? findNode(String nodeId);
   Set<String> getSelectedIds();
   void setNodeOpacity(String nodeId, double opacity);
   void setNodeVisibility(String nodeId, bool visible);
@@ -466,8 +495,20 @@ class PluginRegistry {
     final context = PluginContext(manifest: entry.manifest, bridge: bridge);
     entry.context = context;
     entry.isActive = true;
-    entry.entryPoint.onActivate(context);
-    _emitLifecycle(pluginId, PluginLifecycleAction.activated);
+
+    runZonedGuarded(
+      () {
+        entry.entryPoint.onActivate(context);
+      },
+      (error, stackTrace) {
+        print('Plugin $pluginId crashed during activation: $error');
+        deactivate(pluginId);
+      },
+    );
+
+    if (entry.isActive) {
+      _emitLifecycle(pluginId, PluginLifecycleAction.activated);
+    }
   }
 
   /// Deactivate a plugin.
@@ -475,8 +516,17 @@ class PluginRegistry {
     final entry = _plugins[pluginId];
     if (entry == null || !entry.isActive) return;
 
-    entry.entryPoint.onDeactivate();
-    entry.isActive = false;
+    entry.isActive = false; // Mark true first to avoid loops
+
+    runZonedGuarded(
+      () {
+        entry.entryPoint.onDeactivate();
+      },
+      (error, stackTrace) {
+        print('Plugin $pluginId crashed during deactivation: $error');
+      },
+    );
+
     entry.context = null;
     _emitLifecycle(pluginId, PluginLifecycleAction.deactivated);
   }
@@ -500,7 +550,17 @@ class PluginRegistry {
     for (final entry in _plugins.values) {
       if (entry.isActive &&
           entry.manifest.capabilities.contains(PluginCapability.selection)) {
-        entry.entryPoint.onSelectionChanged(selectedIds);
+        runZonedGuarded(
+          () {
+            entry.entryPoint.onSelectionChanged(selectedIds);
+          },
+          (error, stackTrace) {
+            print(
+              'Plugin ${entry.manifest.id} crashed dynamically (selection): $error',
+            );
+            deactivate(entry.manifest.id);
+          },
+        );
       }
     }
   }
@@ -512,7 +572,17 @@ class PluginRegistry {
           entry.manifest.capabilities.contains(
             PluginCapability.readSceneGraph,
           )) {
-        entry.entryPoint.onSceneChanged();
+        runZonedGuarded(
+          () {
+            entry.entryPoint.onSceneChanged();
+          },
+          (error, stackTrace) {
+            print(
+              'Plugin ${entry.manifest.id} crashed dynamically (scene): $error',
+            );
+            deactivate(entry.manifest.id);
+          },
+        );
       }
     }
   }

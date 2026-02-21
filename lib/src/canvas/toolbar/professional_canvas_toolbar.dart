@@ -55,7 +55,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final bool isPanModeActive; // 🖐️ Modalità Pan
   final bool isStylusModeActive; // 🖊️ Modalità Stylus
   final bool isRulerActive; // 📏 Ruler/guide overlay
-  final bool isPenToolActive; // ✒️ Vector Pen Tool
+  final bool isPenToolActive; // ✏️ Vector Pen Tool
+  final bool isLatexActive; // 🧮 LaTeX editor
   final Duration recordingDuration;
   final String? noteTitle;
   // 🎨 Preset-based brush selection
@@ -90,7 +91,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback onPanModeToggle; // 🖐️ Callback Pan Mode
   final VoidCallback onStylusModeToggle; // 🖊️ Callback Stylus Mode
   final VoidCallback? onRulerToggle; // 📏 Callback Ruler toggle
-  final VoidCallback? onPenToolToggle; // ✒️ Callback Pen Tool toggle
+  final VoidCallback? onPenToolToggle; // ✏️ Callback Pen Tool toggle
+  final VoidCallback? onLatexToggle; // 🧮 Callback LaTeX toggle
   final VoidCallback onImagePickerPressed; // 🖼️ Callback immagini
   final VoidCallback? onImageEditorPressed;
   final VoidCallback? onExitImageEditMode; // ✅ Esci da edit mode
@@ -135,9 +137,13 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final PdfAnnotationController? pdfAnnotationController;
   final PdfSearchController? pdfSearchController;
   final CommandHistory? pdfCommandHistory;
-  final VoidCallback? onPdfInsertBlankPage;
+  final void Function(int selectedPageIndex)? onPdfInsertBlankPage;
   final void Function(int)? onPdfDeletePage;
   final void Function(String, int)? onPdfGoToPage; // 🔍 Scroll to PDF page
+  final void Function(String documentId)?
+  onPdfDocumentChanged; // 📄 Switch active PDF
+  final VoidCallback?
+  onPdfLayoutChanged; // 📄 Notify canvas of PDF layout mutations
   final VoidCallback? onPdfExport;
   final int pdfSelectedPageIndex;
 
@@ -160,6 +166,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.isStylusModeActive,
     this.isRulerActive = false,
     this.isPenToolActive = false,
+    this.isLatexActive = false,
     required this.recordingDuration,
     this.isImageEditingMode = false,
     this.noteTitle,
@@ -192,6 +199,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.onStylusModeToggle,
     this.onRulerToggle,
     this.onPenToolToggle,
+    this.onLatexToggle,
     required this.onImagePickerPressed,
     this.onImageEditorPressed,
     this.onExitImageEditMode, // ✅ Esci da edit mode
@@ -234,6 +242,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onPdfInsertBlankPage,
     this.onPdfDeletePage,
     this.onPdfGoToPage, // 🔍 Scroll to page
+    this.onPdfDocumentChanged, // 📄 Switch active PDF
+    this.onPdfLayoutChanged, // 📄 Layout mutation callback
     this.onPdfExport,
     this.pdfSelectedPageIndex = 0,
     this.hideRecordingControlWhenActive = false,

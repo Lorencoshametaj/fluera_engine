@@ -1,4 +1,3 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nebula_engine/nebula_engine.dart';
@@ -844,9 +843,8 @@ void main() {
       final node = VectorNetworkNode(
         id: NodeId('test-node-1'),
         network: network,
-        fillColor: const Color(0xFFFF0000),
-        strokeColor: const Color(0xFF000000),
-        strokeWidth: 3.0,
+        fills: [FillLayer.solid(color: const Color(0xFFFF0000))],
+        strokes: [StrokeLayer(color: const Color(0xFF000000), width: 3.0)],
       );
 
       final json = node.toJson();
@@ -855,8 +853,8 @@ void main() {
       final restored = VectorNetworkNode.fromJson(json);
       expect(restored.id, 'test-node-1');
       expect(restored.network.vertices.length, 2);
-      expect(restored.strokeWidth, 3.0);
-      expect(restored.fillColor, const Color(0xFFFF0000));
+      expect(restored.strokes.first.width, 3.0);
+      expect(restored.fills.first.color, const Color(0xFFFF0000));
     });
 
     test('localBounds includes stroke width', () {
@@ -868,7 +866,7 @@ void main() {
       final node = VectorNetworkNode(
         id: NodeId('bounds-test'),
         network: network,
-        strokeWidth: 4.0,
+        strokes: [StrokeLayer(width: 4.0, color: const Color(0xFF000000))],
       );
 
       final bounds = node.localBounds;

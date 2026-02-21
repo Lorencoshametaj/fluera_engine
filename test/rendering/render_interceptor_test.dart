@@ -216,7 +216,7 @@ void main() {
   group('RenderProfilingInterceptor', () {
     testWidgets('counts rendered nodes', (tester) async {
       EngineScope.reset();
-      EngineScope.bind(EngineScope());
+      EngineScope.push(EngineScope());
 
       final profiler = RenderProfilingInterceptor();
       renderer.addInterceptor(profiler);

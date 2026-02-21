@@ -214,6 +214,18 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             }
             setState(() {}); // Trigger rebuild
           },
+          // 🧮 LaTeX Editor
+          isLatexActive: _toolController.isLatexMode,
+          onLatexToggle: () {
+            _toolController.toggleLatexMode();
+            if (_toolController.isLatexMode) {
+              _digitalTextTool.deselectElement();
+              _lassoTool.clearSelection();
+              _eraserCursorPosition = null;
+              _showLatexEditorSheet();
+            }
+            setState(() {}); // Trigger rebuild
+          },
           onImagePickerPressed: () {
             // 🖼️ Open gallery and add image
             pickAndAddImage();
@@ -343,26 +355,37 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           },
           // 📄 PDF active state — contextual tools
           isPdfActive: _pdfPainters.isNotEmpty,
-          pdfDocument: _findFirstPdfDocument(),
+          pdfDocument: _activePdfDocument,
           pdfDocuments: _findAllPdfDocuments(),
           pdfAnnotationController: _pdfAnnotationController,
           pdfSearchController: _pdfSearchController,
-          pdfSelectedPageIndex: 0,
+          pdfSelectedPageIndex: _pdfSelectedPageIndex,
+          onPdfDocumentChanged: (docId) {
+            setState(() => _activePdfDocumentId = docId);
+            // Re-attach annotation controller to newly selected document
+            final doc = _findPdfDocumentById(docId);
+            if (doc != null) {
+              _pdfAnnotationController?.dispose();
+              _pdfAnnotationController = PdfAnnotationController();
+              _pdfAnnotationController!.attach(doc);
+            }
+          },
           onPdfInsertBlankPage:
               _pdfPainters.isNotEmpty
-                  ? () {
-                    final doc = _findFirstPdfDocument();
+                  ? (selectedPageIndex) {
+                    final doc = _activePdfDocument;
                     if (doc != null) {
-                      doc.insertBlankPage(
-                        afterIndex: doc.documentModel.totalPages - 1,
-                      );
+                      doc.insertBlankPage(afterIndex: selectedPageIndex);
+                      // Track the newly inserted page as selected
+                      _pdfSelectedPageIndex = selectedPageIndex + 1;
+                      _pdfLayoutVersion++;
                       setState(() {});
                       _autoSaveCanvas();
                     }
                   }
                   : null,
           onPdfDeletePage: (pageIndex) {
-            final doc = _findFirstPdfDocument();
+            final doc = _activePdfDocument;
             if (doc != null && doc.documentModel.totalPages > 1) {
               doc.removePage(pageIndex);
               setState(() {});
@@ -388,6 +411,47 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               viewportSize.height / 2 - pageCenter.dy * scale,
             );
             _canvasController.animateOffsetTo(targetOffset);
+          },
+          onPdfLayoutChanged: () {
+            // Bump version so DrawingPainter.shouldRepaint detects the change.
+            // togglePageLock/rotate/grid mutate page models in-place without
+            // structural changes, so the version must be bumped explicitly.
+            _pdfLayoutVersion++;
+
+            // 📄 Translate linked annotation strokes when a page is re-locked.
+            // togglePageLock() sets pendingStrokeTranslation with the delta
+            // between the old custom position and the new grid position.
+            for (final layer in _layerController.sceneGraph.layers) {
+              for (final child in layer.children) {
+                if (child is PdfDocumentNode &&
+                    child.pendingStrokeTranslation != null) {
+                  final tx = child.pendingStrokeTranslation!;
+                  child.pendingStrokeTranslation = null; // Consume
+
+                  if (tx.annotationIds.isNotEmpty) {
+                    final idSet = Set<String>.of(tx.annotationIds);
+                    for (final l in _layerController.layers) {
+                      for (final strokeNode in l.node.strokeNodes) {
+                        if (idSet.contains(strokeNode.stroke.id)) {
+                          final old = strokeNode.stroke;
+                          final translated =
+                              old.points.map((p) {
+                                return p.copyWith(
+                                  position: p.position + tx.delta,
+                                );
+                              }).toList();
+                          strokeNode.stroke = old.copyWith(points: translated);
+                        }
+                      }
+                    }
+                    DrawingPainter.invalidateAllTiles();
+                  }
+                }
+              }
+            }
+
+            setState(() {});
+            _autoSaveCanvas();
           },
           onPdfExport: null, // TODO: wire to export annotated PDF
         );

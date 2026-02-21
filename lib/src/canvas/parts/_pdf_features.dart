@@ -130,6 +130,9 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
       activeLayer.node.add(docNode);
     }
 
+    // 📄 Auto-select newly imported PDF in toolbar
+    _activePdfDocumentId = documentId;
+
     // Trigger rebuild + auto-save
     if (mounted) setState(() {});
     _autoSaveCanvas();
@@ -231,6 +234,9 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
         _pdfAnnotationController?.dispose();
         _pdfAnnotationController = PdfAnnotationController();
         _pdfAnnotationController!.attach(docNode);
+
+        // 📄 Auto-select last restored PDF in toolbar
+        _activePdfDocumentId = documentId;
 
         // 📄 Register document in search controller (multi-doc aware)
         _pdfSearchController ??= PdfSearchController();

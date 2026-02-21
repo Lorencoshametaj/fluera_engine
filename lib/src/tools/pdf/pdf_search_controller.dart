@@ -60,15 +60,32 @@ class PdfSearchMatch {
 
 /// Per-document extraction state.
 class _DocState {
-  final Uint8List bytes;
+  /// Raw PDF bytes. Nullable: cleared after full Dart text extraction
+  /// succeeds to free RAM (Issue 6).
+  Uint8List? bytes;
   final NebulaPdfProvider? provider;
   List<ExtractedPageText>? extractedPages;
   final Map<int, String> textCache = {};
 
+  /// Pre-lowercased text cache — avoids redundant `toLowerCase()` per search
+  /// (Issue 9). Populated alongside `textCache`.
+  final Map<int, String> lowerTextCache = {};
+
   /// Cached OCR results per page — avoids re-running expensive native OCR.
+  /// Capped at [_maxOcrCacheEntries] via LRU eviction (Issue 5).
   final Map<int, OcrPageResult> ocrCache = {};
 
-  _DocState({required this.bytes, this.provider});
+  /// Maximum OCR cache entries before LRU eviction kicks in.
+  static const int _maxOcrCacheEntries = 50;
+
+  /// Evict oldest OCR cache entries when the cache exceeds the limit.
+  void trimOcrCache() {
+    while (ocrCache.length > _maxOcrCacheEntries) {
+      ocrCache.remove(ocrCache.keys.first);
+    }
+  }
+
+  _DocState({required Uint8List this.bytes, this.provider});
 }
 
 /// 🔍 Enterprise multi-document PDF search controller.
@@ -88,6 +105,10 @@ class PdfSearchController extends ChangeNotifier {
   /// Per-document state (bytes, cache, provider, extracted pages).
   final Map<String, _DocState> _documents = {};
 
+  /// Pre-computed match count per document — O(1) lookups for UI badges
+  /// (Issue 8). Updated incrementally during `_insertMatchSorted`.
+  final Map<String, int> _matchCountPerDoc = {};
+
   /// Per-page OCR status tracking — prevents duplicate work and enables
   /// UI status reporting.
   /// Key: 'documentId:pageIndex'.
@@ -102,7 +123,7 @@ class PdfSearchController extends ChangeNotifier {
   /// DEBUG: When true, skip native text extraction and Dart parsing —
   /// always use OCR for every page. Set to `true` to test the full
   /// OCR pipeline on Android/iOS.
-  static const bool forceOcr = true;
+  static const bool forceOcr = false;
 
   /// Monotonic version counter — guards against stale async results.
   int _searchVersion = 0;
@@ -157,7 +178,7 @@ class PdfSearchController extends ChangeNotifier {
 
   /// Match count for a specific document.
   int matchCountForDocument(String documentId) =>
-      _matches.where((m) => m.documentId == documentId).length;
+      _matchCountPerDoc[documentId] ?? 0;
 
   /// Whether there are any results.
   bool get hasMatches => _matches.isNotEmpty;
@@ -215,8 +236,12 @@ class PdfSearchController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Search a single document for [query].
-  Future<void> search(PdfDocumentNode doc, String query) async {
-    return searchDocuments([doc], query);
+  Future<void> search(
+    PdfDocumentNode doc,
+    String query, {
+    int? startPageIndex,
+  }) async {
+    return searchDocuments([doc], query, startPageIndex: startPageIndex);
   }
 
   /// Search across multiple PDF documents for [query].
@@ -227,6 +252,7 @@ class PdfSearchController extends ChangeNotifier {
     List<PdfDocumentNode> docs,
     String query, {
     bool? wholeWord,
+    int? startPageIndex,
   }) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
@@ -250,6 +276,13 @@ class PdfSearchController extends ChangeNotifier {
     _wholeWord = useWholeWord;
     _isSearching = true;
 
+    // STREAMING MODE: Clear previous matches immediately so UI reflects
+    // the new searching state right away.
+    _matches = [];
+    _currentIndex = -1;
+    _matchCountPerDoc.clear();
+    _invalidateHighlightCache();
+
     // Count total pages for progress
     _totalPagesToSearch = docs.fold<int>(0, (s, d) => s + d.pageNodes.length);
     _pagesSearched = 0;
@@ -262,188 +295,158 @@ class PdfSearchController extends ChangeNotifier {
             ? RegExp('\\b${RegExp.escape(lowerQuery)}\\b', caseSensitive: false)
             : null;
 
-    final results = <PdfSearchMatch>[];
     int totalPagesWithText = 0;
+
+    // Debounce state for streaming UI updates
+    final debounceTimer = Stopwatch()..start();
+    int matchesSinceLastNotify = 0;
 
     for (final doc in docs) {
       final documentId = doc.id;
-      final pages = doc.pageNodes;
+
+      // SAFE UNMOUNT: Skip if document was closed mid-search
+      if (!hasDocument(documentId)) continue;
+
+      var pages = doc.pageNodes;
       final totalPageCount = pages.length;
 
-      for (int i = 0; i < pages.length; i++) {
-        if (_searchVersion != version) return; // bail on newer search
+      // RADIAL SORT (Viewport Locality)
+      // If a startPageIndex is provided, sort pages by their distance to the start page
+      // so we OCR the visible pages near the user first.
+      if (startPageIndex != null &&
+          startPageIndex >= 0 &&
+          startPageIndex < totalPageCount) {
+        pages =
+            pages.toList()..sort((a, b) {
+              final distA = (a.pageModel.pageIndex - startPageIndex).abs();
+              final distB = (b.pageModel.pageIndex - startPageIndex).abs();
+              if (distA == distB) {
+                return a.pageModel.pageIndex.compareTo(b.pageModel.pageIndex);
+              }
+              return distA.compareTo(distB);
+            });
+      }
 
-        final pageNode = pages[i];
-        final pageIndex = pageNode.pageModel.pageIndex;
-        final text = await _getPageText(
-          documentId,
-          pageIndex,
-          totalPageCount,
-          pageNode: pageNode,
-        );
+      // CONCURRENCY LIMIT: Process N pages in parallel.
+      // 3 is the sweet spot for avoiding OOM crashes on mobile when
+      // allocating heavy native bitmaps for OCR, while still dramatically
+      // cutting total scan time on modern multi-core CPUs.
+      const int batchSize = 3;
 
-        _pagesSearched++;
-        // Notify progress every 5 pages to avoid excessive rebuilds
-        if (_pagesSearched % 5 == 0 || _pagesSearched == _totalPagesToSearch) {
-          notifyListeners();
+      for (int i = 0; i < pages.length; i += batchSize) {
+        // SAFE UNMOUNT: Abort if user typed a new letter or closed the document
+        if (_searchVersion != version || !hasDocument(documentId)) return;
+
+        final endIdx =
+            (i + batchSize < pages.length) ? i + batchSize : pages.length;
+        final chunkNodes = pages.sublist(i, endIdx);
+
+        // Fire text/OCR requests in parallel for the current chunk
+        final textFutures =
+            chunkNodes.map((pageNode) {
+              return _getPageText(
+                documentId,
+                pageNode.pageModel.pageIndex,
+                totalPageCount,
+                pageNode: pageNode,
+              );
+            }).toList();
+
+        final chunkTexts = await Future.wait(textFutures);
+
+        if (_searchVersion != version || !hasDocument(documentId)) return;
+
+        bool addedMatches = false;
+
+        // Process results sequentially to guarantee correct page order in UI
+        for (int c = 0; c < chunkTexts.length; c++) {
+          final text = chunkTexts[c];
+          final pageNode = chunkNodes[c];
+          final pageIndex = pageNode.pageModel.pageIndex;
+
+          _pagesSearched++;
+
+          if (text.isNotEmpty) {
+            totalPagesWithText++;
+            final initialCount = _matches.length;
+
+            if (wordPattern != null) {
+              _collectMatchesRegex(
+                text,
+                wordPattern,
+                trimmed.length,
+                documentId,
+                pageIndex,
+                _matches,
+              );
+            } else {
+              _collectMatches(
+                text,
+                lowerQuery,
+                trimmed.length,
+                documentId,
+                pageIndex,
+                _matches,
+              );
+            }
+
+            if (_matches.length > initialCount) {
+              addedMatches = true;
+              matchesSinceLastNotify += (_matches.length - initialCount);
+              if (_currentIndex == -1) _currentIndex = 0;
+            }
+          }
         }
 
-        if (text.isEmpty) continue;
-        totalPagesWithText++;
+        // STREAMING YIELD:
+        // Notify UI incrementally so the user sees results instantly
+        // without waiting for the entire document to finish (crucial for OCR).
+        final isFirstMatch =
+            addedMatches && _matches.length == matchesSinceLastNotify;
+        final timeElapsed = debounceTimer.elapsedMilliseconds > 400;
 
-        if (wordPattern != null) {
-          _collectMatchesRegex(
-            text,
-            wordPattern,
-            trimmed.length,
-            documentId,
-            pageIndex,
-            results,
-          );
-        } else {
-          _collectMatches(
-            text,
-            lowerQuery,
-            trimmed.length,
-            documentId,
-            pageIndex,
-            results,
-          );
+        if (isFirstMatch ||
+            (addedMatches && timeElapsed) ||
+            _pagesSearched % 5 == 0 ||
+            _pagesSearched == _totalPagesToSearch) {
+          // Issue 11: Only invalidate highlight cache at streaming yield
+          // points, not per-chunk, to avoid thrashing the cache.
+          if (addedMatches) _invalidateHighlightCache();
+          notifyListeners();
+
+          if (timeElapsed) {
+            debounceTimer.reset();
+            matchesSinceLastNotify = 0;
+          }
+        }
+
+        // THERMAL THROTTLING:
+        // Yield to the event loop and allow OS to dissipate heat / handle frame rendering
+        // between heavy OCR batches. 50ms sleep prevents battery drain and CPU starvation.
+        if (i + batchSize < pages.length) {
+          await Future.delayed(const Duration(milliseconds: 50));
         }
       }
     }
 
     if (_searchVersion != version) return;
 
-    debugPrint(
-      '[PDF Search] Done: $totalPagesWithText pages had text, '
-      '${results.length} matches across ${docs.length} document(s)',
-    );
+    if (kDebugMode) {
+      debugPrint(
+        '[PDF Search] Streaming Done: $totalPagesWithText pages had text, '
+        '${_matches.length} matches across ${docs.length} document(s)',
+      );
+    }
 
-    _matches = results;
-    _currentIndex = results.isNotEmpty ? 0 : -1;
     _isSearching = false;
     _invalidateHighlightCache();
-
-    // ── ONE-SHOT DIAGNOSTIC ──
-    if (results.isNotEmpty) {
-      for (final doc in docs) {
-        final firstMatch = results.first;
-        final matchPage = doc.pageNodes.firstWhere(
-          (p) => p.pageModel.pageIndex == firstMatch.pageIndex,
-          orElse: () => doc.pageNodes.first,
-        );
-        final trs = matchPage.textRects;
-        if (trs != null && trs.isNotEmpty) {
-          final f = trs.first;
-          final l = trs.last;
-          debugPrint(
-            '[PDF DBG] viewerSize=${matchPage.pageModel.originalSize}',
-          );
-          // Show extractor dims for comparison
-          final docState = _documents[doc.id];
-          final ext = docState?.extractedPages;
-          if (ext != null && firstMatch.pageIndex < ext.length) {
-            final ep = ext[firstMatch.pageIndex];
-            debugPrint(
-              '[PDF DBG] extractorSize=${ep.pageWidth}x${ep.pageHeight}',
-            );
-          }
-          debugPrint(
-            '[PDF DBG] first textRect: rect=${f.rect}, '
-            'charOffset=${f.charOffset}, text="${f.text}"',
-          );
-          debugPrint(
-            '[PDF DBG] last textRect: rect=${l.rect}, '
-            'charOffset=${l.charOffset}',
-          );
-          debugPrint(
-            '[PDF DBG] match: page=${firstMatch.pageIndex}, '
-            'start=${firstMatch.startOffset}, end=${firstMatch.endOffset}, '
-            'docId=${firstMatch.documentId}',
-          );
-          // Detect normalization state
-          final isNorm = f.rect.right <= 1.5 && f.rect.bottom <= 1.5;
-          debugPrint('[PDF DBG] rects normalized=$isNorm');
-          // Compute highlight with current logic
-          final hlRects = _computeHighlightRects(
-            matchPage,
-            firstMatch.pageIndex,
-            doc.id,
-            false,
-          );
-          if (hlRects.isNotEmpty) {
-            debugPrint('[PDF DBG] highlight[0]=${hlRects.first}');
-          } else {
-            debugPrint('[PDF DBG] highlight: 0 rects!');
-          }
-
-          // Y-position map of page 0: group by Y-band
-          final yBands = <int, StringBuffer>{};
-          for (final tr in trs) {
-            final band = (tr.rect.top * 10).floor(); // 0-9 for 0%-100%
-            yBands.putIfAbsent(band, () => StringBuffer());
-            if (yBands[band]!.length < 80) {
-              yBands[band]!.write('${tr.text} ');
-            }
-          }
-          for (final band in yBands.keys.toList()..sort()) {
-            debugPrint(
-              '[Y-MAP] band=${band * 10}%-${(band + 1) * 10}%: '
-              '${yBands[band].toString().trim()}',
-            );
-          }
-
-          // Show what textRect is at the match's charOffset
-          int overlapCount = 0;
-          for (final tr in trs) {
-            final trEnd = tr.charOffset + tr.text.length;
-            if (trEnd > firstMatch.startOffset &&
-                tr.charOffset < firstMatch.endOffset) {
-              overlapCount++;
-              if (overlapCount <= 10) {
-                debugPrint(
-                  '[PDF DBG] overlap[$overlapCount]: '
-                  'charOffset=${tr.charOffset}..${trEnd - 1}, '
-                  'rect=${tr.rect}, '
-                  'text="${tr.text.substring(0, tr.text.length.clamp(0, 40))}"',
-                );
-              }
-            }
-          }
-          debugPrint(
-            '[PDF DBG] Total overlapping rects=$overlapCount, '
-            'highlight rects=${hlRects.length}',
-          );
-
-          // Show what the search text has at offset 152
-          final cached =
-              _documents[firstMatch.documentId]?.textCache[firstMatch
-                  .pageIndex] ??
-              '';
-          if (cached.isNotEmpty && firstMatch.endOffset <= cached.length) {
-            final matchSnippet = cached.substring(
-              firstMatch.startOffset,
-              firstMatch.endOffset,
-            );
-            debugPrint(
-              '[PDF DBG] search text at offset ${firstMatch.startOffset}: "$matchSnippet"',
-            );
-          }
-        } else {
-          debugPrint(
-            '[PDF DBG] NO textRects on match page '
-            '${firstMatch.pageIndex}!',
-          );
-        }
-      }
-    }
-    // ── END DIAGNOSTIC ──
-
     notifyListeners();
   }
 
   /// Collect substring matches.
+  ///
+  /// Uses pre-cached lowercase text from `_DocState.lowerTextCache`
+  /// to avoid redundant `toLowerCase()` allocations (Issue 9).
   void _collectMatches(
     String text,
     String lowerQuery,
@@ -452,20 +455,25 @@ class PdfSearchController extends ChangeNotifier {
     int pageIndex,
     List<PdfSearchMatch> results,
   ) {
-    final lowerText = text.toLowerCase();
+    // Issue 9: Use cached lowercase if available
+    final docState = _documents[documentId];
+    final lowerText = docState?.lowerTextCache[pageIndex] ?? text.toLowerCase();
+    // Populate cache if not yet set
+    if (docState != null && !docState.lowerTextCache.containsKey(pageIndex)) {
+      docState.lowerTextCache[pageIndex] = lowerText;
+    }
     int searchFrom = 0;
     while (true) {
       final idx = lowerText.indexOf(lowerQuery, searchFrom);
       if (idx < 0) break;
-      results.add(
-        PdfSearchMatch(
-          documentId: documentId,
-          pageIndex: pageIndex,
-          startOffset: idx,
-          endOffset: idx + originalLength,
-          snippet: _extractSnippet(text, idx, originalLength),
-        ),
+      final match = PdfSearchMatch(
+        documentId: documentId,
+        pageIndex: pageIndex,
+        startOffset: idx,
+        endOffset: idx + originalLength,
+        snippet: _extractSnippet(text, idx, originalLength),
       );
+      _insertMatchSorted(results, match);
       searchFrom = idx + 1;
     }
   }
@@ -480,16 +488,54 @@ class PdfSearchController extends ChangeNotifier {
     List<PdfSearchMatch> results,
   ) {
     for (final m in pattern.allMatches(text)) {
-      results.add(
-        PdfSearchMatch(
-          documentId: documentId,
-          pageIndex: pageIndex,
-          startOffset: m.start,
-          endOffset: m.end,
-          snippet: _extractSnippet(text, m.start, m.end - m.start),
-        ),
+      final match = PdfSearchMatch(
+        documentId: documentId,
+        pageIndex: pageIndex,
+        startOffset: m.start,
+        endOffset: m.end,
+        snippet: _extractSnippet(text, m.start, m.end - m.start),
       );
+      _insertMatchSorted(results, match);
     }
+  }
+
+  /// Insert a match into [results] at the correct sorted position using
+  /// binary search. This is O(log N) per insertion vs O(N log N) for a
+  /// full sort after each batch (Issue 1 fix).
+  ///
+  /// Also fixes Issue 10: adjusts `_currentIndex` when inserting before
+  /// the currently focused match to prevent silent drift.
+  void _insertMatchSorted(List<PdfSearchMatch> results, PdfSearchMatch match) {
+    int lo = 0, hi = results.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      final cmp = _compareMatches(results[mid], match);
+      if (cmp <= 0) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    results.insert(lo, match);
+
+    // Issue 10: Stabilize _currentIndex — if we inserted before the
+    // current match, shift the index so it still points at the same match.
+    if (_currentIndex >= 0 && lo <= _currentIndex) {
+      _currentIndex++;
+    }
+
+    // Issue 8: Increment per-document counter
+    _matchCountPerDoc[match.documentId] =
+        (_matchCountPerDoc[match.documentId] ?? 0) + 1;
+  }
+
+  /// Compare two matches for spatial ordering:
+  /// documentId → pageIndex → startOffset.
+  static int _compareMatches(PdfSearchMatch a, PdfSearchMatch b) {
+    if (a.documentId != b.documentId)
+      return a.documentId.compareTo(b.documentId);
+    if (a.pageIndex != b.pageIndex) return a.pageIndex.compareTo(b.pageIndex);
+    return a.startOffset.compareTo(b.startOffset);
   }
 
   /// Navigate to the next match (wraps around).
@@ -518,6 +564,7 @@ class PdfSearchController extends ChangeNotifier {
     _query = '';
     _matches = const [];
     _currentIndex = -1;
+    _matchCountPerDoc.clear();
     _isSearching = false;
     _pagesSearched = 0;
     _totalPagesToSearch = 0;
@@ -565,7 +612,9 @@ class PdfSearchController extends ChangeNotifier {
     String? documentId,
     bool currentOnly,
   ) {
-    final Iterable<PdfSearchMatch> pageMatches;
+    // Issue 7: Use binary search to find page-specific matches in O(log N)
+    // instead of linear scan through all matches.
+    final List<PdfSearchMatch> pageMatches;
 
     if (currentOnly) {
       pageMatches =
@@ -575,11 +624,7 @@ class PdfSearchController extends ChangeNotifier {
               ? [currentMatch!]
               : const <PdfSearchMatch>[];
     } else {
-      pageMatches = _matches.where(
-        (m) =>
-            m.pageIndex == pageIndex &&
-            (documentId == null || m.documentId == documentId),
-      );
+      pageMatches = _findMatchesForPage(documentId ?? '', pageIndex);
     }
 
     if (pageMatches.isEmpty) return const [];
@@ -590,63 +635,94 @@ class PdfSearchController extends ChangeNotifier {
     final pgH = page.pageModel.originalSize.height;
 
     // Minimum dimensions for visible highlights (in normalized 0-1 coords).
-    // ~1.5% of page ≈ 12pt on a typical 792pt page — approximately one
-    // standard text line height.
     const double minNormalizedHeight = 0.015;
     const double minNormalizedWidth = 0.003;
 
-    // Y is always top-down after _normalizeRects (which flips bottom-up to
-    // top-down during normalization). No Y-flip needed here.
     for (final match in pageMatches) {
-      for (final tr in textRects) {
-        final trEnd = tr.charOffset + tr.text.length;
-        if (trEnd > match.startOffset && tr.charOffset < match.endOffset) {
-          final trLen = tr.text.length;
-          double left = tr.rect.left;
-          double right = tr.rect.right;
-
-          // Clip to match boundaries within the text rect
-          if (trLen > 1) {
-            final trWidth = tr.rect.width;
-            final clipStart = (match.startOffset - tr.charOffset).clamp(
-              0,
-              trLen,
-            );
-            final clipEnd = (match.endOffset - tr.charOffset).clamp(0, trLen);
-
-            // Use run-boundary charPositions when available for precision;
-            // fall back to uniform subdivision otherwise.
-            final cp = tr.charPositions;
-            if (cp != null && clipEnd < cp.length) {
-              left = tr.rect.left + cp[clipStart] * trWidth;
-              right = tr.rect.left + cp[clipEnd] * trWidth;
-            } else {
-              left = tr.rect.left + (clipStart / trLen) * trWidth;
-              right = tr.rect.left + (clipEnd / trLen) * trWidth;
-            }
-          }
-
-          // Enforce minimum dimensions on degenerate rects (e.g. rects
-          // whose height collapsed during CTM transform or normalization).
-          double top = tr.rect.top;
-          double bottom = tr.rect.bottom;
-          if ((bottom - top) < minNormalizedHeight) {
-            final midY = (top + bottom) / 2;
-            top = (midY - minNormalizedHeight / 2).clamp(0.0, 1.0);
-            bottom = (midY + minNormalizedHeight / 2).clamp(0.0, 1.0);
-          }
-          if ((right - left) < minNormalizedWidth) {
-            right = (left + minNormalizedWidth).clamp(0.0, 1.0);
-          }
-
-          rects.add(
-            Rect.fromLTRB(left * pgW, top * pgH, right * pgW, bottom * pgH),
-          );
+      // Issue 7: Binary search for the first textRect that could overlap
+      // with this match (charOffset + text.length > match.startOffset).
+      int trLo = 0, trHi = textRects.length;
+      while (trLo < trHi) {
+        final mid = (trLo + trHi) >> 1;
+        final trEnd = textRects[mid].charOffset + textRects[mid].text.length;
+        if (trEnd <= match.startOffset) {
+          trLo = mid + 1;
+        } else {
+          trHi = mid;
         }
+      }
+
+      // Scan forward from the binary search result — only rects that overlap
+      for (int ti = trLo; ti < textRects.length; ti++) {
+        final tr = textRects[ti];
+        if (tr.charOffset >= match.endOffset) break; // past the match
+
+        final trLen = tr.text.length;
+        double left = tr.rect.left;
+        double right = tr.rect.right;
+
+        if (trLen > 1) {
+          final trWidth = tr.rect.width;
+          final clipStart = (match.startOffset - tr.charOffset).clamp(0, trLen);
+          final clipEnd = (match.endOffset - tr.charOffset).clamp(0, trLen);
+
+          final cp = tr.charPositions;
+          if (cp != null && clipEnd < cp.length) {
+            left = tr.rect.left + cp[clipStart] * trWidth;
+            right = tr.rect.left + cp[clipEnd] * trWidth;
+          } else {
+            left = tr.rect.left + (clipStart / trLen) * trWidth;
+            right = tr.rect.left + (clipEnd / trLen) * trWidth;
+          }
+        }
+
+        double top = tr.rect.top;
+        double bottom = tr.rect.bottom;
+        if ((bottom - top) < minNormalizedHeight) {
+          final midY = (top + bottom) / 2;
+          top = (midY - minNormalizedHeight / 2).clamp(0.0, 1.0);
+          bottom = (midY + minNormalizedHeight / 2).clamp(0.0, 1.0);
+        }
+        if ((right - left) < minNormalizedWidth) {
+          right = (left + minNormalizedWidth).clamp(0.0, 1.0);
+        }
+
+        rects.add(
+          Rect.fromLTRB(left * pgW, top * pgH, right * pgW, bottom * pgH),
+        );
       }
     }
 
     return rects;
+  }
+
+  /// Find all matches for a specific (documentId, pageIndex) using binary
+  /// search on the sorted `_matches` list. Returns O(log N + k) where k
+  /// is the number of matches on that page.
+  List<PdfSearchMatch> _findMatchesForPage(String documentId, int pageIndex) {
+    if (_matches.isEmpty) return const [];
+
+    // Binary search for the first match on this (docId, pageIndex)
+    int lo = 0, hi = _matches.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      final m = _matches[mid];
+      final cmpDoc = m.documentId.compareTo(documentId);
+      if (cmpDoc < 0 || (cmpDoc == 0 && m.pageIndex < pageIndex)) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+
+    // Collect all matches for this page
+    final result = <PdfSearchMatch>[];
+    for (int i = lo; i < _matches.length; i++) {
+      final m = _matches[i];
+      if (m.documentId != documentId || m.pageIndex != pageIndex) break;
+      result.add(m);
+    }
+    return result;
   }
 
   /// Get the highlight rect for only the current match on [page].
@@ -810,10 +886,10 @@ class PdfSearchController extends ChangeNotifier {
         }
         // If still missing (native provider path), trigger Dart extraction
         // just for rects
-        if (pageNode.textRects == null) {
+        if (pageNode.textRects == null && docState.bytes != null) {
           try {
             docState.extractedPages ??= await PdfTextExtractor.extractInIsolate(
-              docState.bytes,
+              docState.bytes!,
               pageCount: totalPageCount,
             );
             if (pageIndex < docState.extractedPages!.length) {
@@ -856,11 +932,13 @@ class PdfSearchController extends ChangeNotifier {
         final text = await docState.provider!.getPageText(pageIndex);
         if (text.isNotEmpty) {
           // (E) Still need rects from Dart extraction for highlighting
-          if (pageNode != null && pageNode.textRects == null) {
+          if (pageNode != null &&
+              pageNode.textRects == null &&
+              docState.bytes != null) {
             try {
               docState
                   .extractedPages ??= await PdfTextExtractor.extractInIsolate(
-                docState.bytes,
+                docState.bytes!,
                 pageCount: totalPageCount,
               );
               if (pageIndex < docState.extractedPages!.length) {
@@ -882,7 +960,7 @@ class PdfSearchController extends ChangeNotifier {
                   // with rect charOffsets (native text may differ in spacing)
                   if (extracted.text.isNotEmpty) {
                     // Diagnostic: compare native vs Dart text for first page
-                    if (pageIndex == 0) {
+                    if (kDebugMode && pageIndex == 0) {
                       final nativeSnip = text.substring(
                         0,
                         text.length.clamp(0, 50),
@@ -926,9 +1004,12 @@ class PdfSearchController extends ChangeNotifier {
     }
 
     // Fallback: pure-Dart text extraction (isolate, non-blocking)
+    if (docState.bytes == null) {
+      return _tryOcrFallback(documentId, pageIndex, pageNode: pageNode);
+    }
     try {
       docState.extractedPages ??= await PdfTextExtractor.extractInIsolate(
-        docState.bytes,
+        docState.bytes!,
         pageCount: totalPageCount,
       );
       if (pageIndex >= 0 && pageIndex < docState.extractedPages!.length) {
@@ -946,6 +1027,13 @@ class PdfSearchController extends ChangeNotifier {
         }
         // If Dart extraction returned text, use it; otherwise try OCR
         if (extracted.text.isNotEmpty) {
+          // Issue 6: Release raw bytes after successful full extraction
+          // — they are no longer needed for text search or highlighting,
+          //   only for OCR fallback on image-based pages (which we've
+          //   already passed through if we're here).
+          if (docState.extractedPages!.length >= totalPageCount) {
+            docState.bytes = null;
+          }
           return extracted.text;
         }
       }
@@ -1055,16 +1143,19 @@ class PdfSearchController extends ChangeNotifier {
         'estimatedBytes': enriched.estimatedBytes,
       });
 
-      debugPrint(
-        '[PDF OCR] Page $pageIndex: ${enriched.blocks.length} blocks, '
-        '${enriched.text.length} chars, '
-        'avgConf=${enriched.averageConfidence?.toStringAsFixed(2) ?? "n/a"}, '
-        '${stopwatch.elapsedMilliseconds}ms',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          '[PDF OCR] Page $pageIndex: ${enriched.blocks.length} blocks, '
+          '${enriched.text.length} chars, '
+          'avgConf=${enriched.averageConfidence?.toStringAsFixed(2) ?? "n/a"}, '
+          '${stopwatch.elapsedMilliseconds}ms',
+        );
+      }
 
       // Cache results
       _ocrStatus[ocrKey] = OcrPageStatus.completed;
       docState.ocrCache[pageIndex] = enriched;
+      docState.trimOcrCache(); // Issue 5: LRU eviction
       docState.textCache[pageIndex] = enriched.text;
 
       // Generate synthetic textRects from OCR blocks for highlighting

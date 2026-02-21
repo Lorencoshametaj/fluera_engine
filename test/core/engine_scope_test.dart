@@ -37,7 +37,7 @@ void main() {
     test('bind replaces active scope', () {
       final scope1 = EngineScope.current;
       final scope2 = EngineScope();
-      EngineScope.bind(scope2);
+      EngineScope.push(scope2);
       expect(identical(EngineScope.current, scope2), isTrue);
       expect(identical(EngineScope.current, scope1), isFalse);
     });

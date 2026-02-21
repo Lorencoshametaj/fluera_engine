@@ -25,6 +25,11 @@ class PdfDocumentNode extends GroupNode {
   /// Document-level metadata (hash, grid config, timestamps).
   PdfDocumentModel documentModel;
 
+  /// Pending stroke translation from the last `togglePageLock()` re-lock.
+  /// Set when a page goes from unlocked→locked, consumed by the layout
+  /// changed callback to translate linked annotation strokes.
+  ({Offset delta, List<String> annotationIds})? pendingStrokeTranslation;
+
   PdfDocumentNode({
     required super.id,
     required this.documentModel,
@@ -53,6 +58,25 @@ class PdfDocumentNode extends GroupNode {
     return null;
   }
 
+  /// Hit-test unlocked pages at [canvasPoint] (canvas-space coordinates).
+  ///
+  /// Returns the topmost unlocked page whose bounds contain the point,
+  /// or `null` if no unlocked page is hit. Iterates in reverse order
+  /// so the visually topmost page wins (unlocked pages render last).
+  PdfPageNode? hitTestUnlockedPage(Offset canvasPoint) {
+    final pages = pageNodes;
+    // Reverse: last painted = topmost
+    for (int i = pages.length - 1; i >= 0; i--) {
+      final page = pages[i];
+      if (page.pageModel.isLocked) continue;
+      final pos = page.position;
+      final size = page.pageModel.originalSize;
+      final rect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
+      if (rect.contains(canvasPoint)) return page;
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------------------
   // Grid layout
   // ---------------------------------------------------------------------------
@@ -61,6 +85,10 @@ class PdfDocumentNode extends GroupNode {
   ///
   /// Uses per-row max height to handle mixed page sizes (portrait + landscape).
   /// Unlocked pages retain their [PdfPageModel.customOffset].
+  ///
+  /// 🔑 Grid slots are based on each page's [PdfPageModel.pageIndex], NOT a
+  /// compressed counter. This preserves visual gaps where unlocked pages were,
+  /// preventing locked pages from overlapping unlocked ones.
   void performGridLayout() {
     final cols = documentModel.gridColumns;
     final spacing = documentModel.gridSpacing;
@@ -70,30 +98,49 @@ class PdfDocumentNode extends GroupNode {
     final pages = pageNodes;
     if (pages.isEmpty) return;
 
-    // First pass: compute max height per row for locked pages
-    final lockedPages = pages.where((p) => p.pageModel.isLocked).toList();
-    final rowCount = (lockedPages.length / cols).ceil();
+    // First pass: compute max height per row using ALL pages' original indices
+    final totalPages = pages.length;
+    final rowCount = (totalPages / cols).ceil();
     final rowMaxHeights = List<double>.filled(rowCount, 0.0);
 
-    for (int i = 0; i < lockedPages.length; i++) {
-      final row = i ~/ cols;
-      final h = lockedPages[i].pageModel.originalSize.height;
-      if (h > rowMaxHeights[row]) rowMaxHeights[row] = h;
+    for (final page in pages) {
+      final idx = page.pageModel.pageIndex;
+      final row = idx ~/ cols;
+      final h = page.pageModel.originalSize.height;
+      if (row < rowMaxHeights.length && h > rowMaxHeights[row]) {
+        rowMaxHeights[row] = h;
+      }
     }
 
-    // Second pass: position pages using cumulative row heights
-    int lockedIdx = 0;
+    // Pre-compute cumulative Y offsets for each row
+    final rowYOffsets = List<double>.filled(rowCount, 0.0);
     double cumulativeY = 0;
+    for (int r = 0; r < rowCount; r++) {
+      rowYOffsets[r] = cumulativeY;
+      cumulativeY += rowMaxHeights[r] + spacing;
+    }
 
+    // Second pass: position pages using their original pageIndex for grid slots
     for (final pageNode in pages) {
       if (pageNode.pageModel.isLocked) {
-        final row = lockedIdx ~/ cols;
-        final col = lockedIdx % cols;
+        // 🔒 Lock-in-place: if the page has a customOffset, it was locked
+        // at a custom position (not in the grid). Keep it there.
+        final customPos = pageNode.pageModel.customOffset;
+        if (customPos != null) {
+          pageNode.setPosition(customPos.dx, customPos.dy);
+          pageNode.invalidateTransformCache();
+          continue;
+        }
+
+        // Use original pageIndex to preserve grid gaps
+        final idx = pageNode.pageModel.pageIndex;
+        final row = idx ~/ cols;
+        final col = idx % cols;
 
         final pageWidth = pageNode.pageModel.originalSize.width;
 
         final x = origin.dx + col * (pageWidth + spacing);
-        final y = origin.dy + cumulativeY;
+        final y = origin.dy + (row < rowYOffsets.length ? rowYOffsets[row] : 0);
 
         pageNode.setPosition(x, y);
         pageNode.invalidateTransformCache();
@@ -102,13 +149,6 @@ class PdfDocumentNode extends GroupNode {
           gridRow: row,
           gridCol: col,
         );
-
-        lockedIdx++;
-
-        // Advance to next row when column wraps
-        if (lockedIdx % cols == 0 && row < rowMaxHeights.length) {
-          cumulativeY += rowMaxHeights[row] + spacing;
-        }
       } else {
         // Unlocked pages use their custom offset
         final offset = pageNode.pageModel.customOffset ?? Offset.zero;
@@ -116,9 +156,17 @@ class PdfDocumentNode extends GroupNode {
         pageNode.invalidateTransformCache();
       }
     }
+
+    // 🔑 Invalidate parent bounds so viewport culling uses fresh values.
+    // Without this, worldBounds stays stale after child positions change,
+    // causing the entire document to be incorrectly culled.
+    invalidateBoundsCache();
   }
 
   /// Toggle lock state for a specific page and re-layout.
+  ///
+  /// **Lock-in-place**: re-locking keeps the page at its current custom
+  /// position. To return a page to the grid, use [returnPageToGrid].
   void togglePageLock(int pageIndex) {
     final pageNode = pageAt(pageIndex);
     if (pageNode == null) return;
@@ -133,20 +181,54 @@ class PdfDocumentNode extends GroupNode {
         lastModifiedAt: now,
       );
     } else {
-      // Lock: clear custom offset, will be positioned by grid
+      // Lock in place: keep customOffset so page stays where it is
       pageNode.pageModel = pageNode.pageModel.copyWith(
         isLocked: true,
-        clearCustomOffset: true,
+        customOffset: pageNode.position,
         lastModifiedAt: now,
       );
     }
 
     // Update document timestamp
     documentModel = documentModel.copyWith(lastModifiedAt: now);
-
-    // Re-layout grid
     _syncTotalPages();
     performGridLayout();
+  }
+
+  /// Return a locked page to its default grid position.
+  ///
+  /// Clears [customOffset] so the page snaps back to its grid slot.
+  /// Returns the position delta and annotation IDs for stroke translation,
+  /// or `null` if no translation is needed.
+  ({Offset delta, List<String> annotationIds})? returnPageToGrid(
+    int pageIndex,
+  ) {
+    final pageNode = pageAt(pageIndex);
+    if (pageNode == null) return null;
+    if (pageNode.pageModel.customOffset == null) return null;
+
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final oldPosition = pageNode.position;
+    final annotations = List<String>.from(pageNode.pageModel.annotations);
+
+    pageNode.pageModel = pageNode.pageModel.copyWith(
+      isLocked: true,
+      clearCustomOffset: true,
+      lastModifiedAt: now,
+    );
+
+    documentModel = documentModel.copyWith(lastModifiedAt: now);
+    _syncTotalPages();
+    performGridLayout();
+
+    final newPosition = pageNode.position;
+    final delta = newPosition - oldPosition;
+
+    if (delta != Offset.zero && annotations.isNotEmpty) {
+      pendingStrokeTranslation = (delta: delta, annotationIds: annotations);
+      return pendingStrokeTranslation;
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------------------

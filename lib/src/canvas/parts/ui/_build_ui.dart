@@ -145,6 +145,18 @@ extension on _NebulaCanvasScreenState {
     ); // Focus + Scaffold
   }
 
+  /// Resolve the currently active PDF document for toolbar interaction.
+  ///
+  /// Uses [_activePdfDocumentId] if set and found, otherwise falls back to
+  /// the first [PdfDocumentNode] in the layer tree.
+  PdfDocumentNode? get _activePdfDocument {
+    if (_activePdfDocumentId != null) {
+      final found = _findPdfDocumentById(_activePdfDocumentId!);
+      if (found != null) return found;
+    }
+    return _findFirstPdfDocument();
+  }
+
   /// Find the first [PdfDocumentNode] in the layer tree.
   PdfDocumentNode? _findFirstPdfDocument() {
     for (final layer in _layerController.layers) {

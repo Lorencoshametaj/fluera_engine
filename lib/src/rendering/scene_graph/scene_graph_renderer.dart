@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../core/engine_scope.dart';
 import '../../core/engine_error.dart';
@@ -21,9 +22,13 @@ import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../core/nodes/vector_network_node.dart';
 import '../../core/effects/shader_effect.dart';
+import '../../core/nodes/latex_node.dart';
 import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
+import '../../core/scene_graph/invalidation_graph.dart';
+import './render_plan.dart';
+import '../../core/scene_graph/node_visitor.dart';
 import '../../drawing/brushes/brushes.dart';
 import './vector_network_renderer.dart';
 import '../../systems/layout_engine.dart';
@@ -31,6 +36,8 @@ import '../canvas/shape_painter.dart';
 import './path_renderer.dart';
 import './rich_text_renderer.dart';
 import './render_interceptor.dart';
+import './render_batch.dart';
+import './latex_renderer.dart';
 
 /// Renders a [SceneGraph] by recursively traversing the node tree.
 ///
@@ -53,8 +60,53 @@ class SceneGraphRenderer {
 
   final List<RenderInterceptor> _interceptors = [];
 
+  /// The internal visitor used for O(1) type-safe dispatch.
+  late final _RendererVisitor _visitor;
+
+  /// Batch renderer for material-sorted draw call coalescing.
+  final BatchRenderer batchRenderer = BatchRenderer();
+
   /// Symbol registry for resolving [SymbolInstanceNode]s.
   SymbolRegistry? _symbolRegistry;
+
+  /// Current zoom scale — used for LOD decisions in stroke rendering.
+  /// Set per frame in [render()].
+  double _currentScale = 1.0;
+
+  // ---------------------------------------------------------------------------
+  // Compiled Render Plan (GAP 1)
+  // ---------------------------------------------------------------------------
+
+  /// Cached compiled render plan — reused when the scene graph hasn't changed.
+  RenderPlan? _cachedPlan;
+
+  /// Compiler for building render plans from the scene graph.
+  final RenderPlanCompiler _planCompiler = RenderPlanCompiler();
+
+  /// Whether to use the compiled render plan path.
+  ///
+  /// Enabled by default. Disable for debugging or when interceptors
+  /// need per-node control (interceptors bypass the plan).
+  bool useRenderPlan = true;
+
+  // ---------------------------------------------------------------------------
+  // Invalidation Graph (GAP 2)
+  // ---------------------------------------------------------------------------
+
+  /// Optional invalidation graph for dirty-driven plan invalidation.
+  InvalidationGraph? _invalidationGraph;
+
+  /// Connect an invalidation graph for incremental rendering.
+  set invalidationGraph(InvalidationGraph? graph) {
+    _invalidationGraph = graph;
+  }
+
+  SceneGraphRenderer() {
+    _visitor = _RendererVisitor(this);
+  }
+
+  /// Cache for instanced symbol definitions.
+  final Map<String, ui.Picture> _symbolPictureCache = {};
 
   /// Set the symbol registry used to resolve component instances.
   set symbolRegistry(SymbolRegistry? registry) => _symbolRegistry = registry;
@@ -70,6 +122,14 @@ class SceneGraphRenderer {
   /// Remove all interceptors.
   void clearInterceptors() => _interceptors.clear();
 
+  /// Clear any cached resources like symbol stamping pictures.
+  void clearCache() {
+    for (final p in _symbolPictureCache.values) {
+      p.dispose();
+    }
+    _symbolPictureCache.clear();
+  }
+
   /// Currently registered interceptors (read-only view).
   List<RenderInterceptor> get interceptors => List.unmodifiable(_interceptors);
 
@@ -80,19 +140,70 @@ class SceneGraphRenderer {
   /// Render the entire scene graph.
   ///
   /// Only nodes whose world bounds intersect [viewport] are rendered.
-  void render(Canvas canvas, SceneGraph sceneGraph, Rect viewport) {
+  /// [scale] is the current zoom level, used for adaptive LOD (sub-pixel
+  /// stroke skipping at low zoom).
+  ///
+  /// When [useRenderPlan] is enabled and no interceptors are registered,
+  /// the renderer uses a compiled [RenderPlan] that avoids recursive
+  /// traversal on unchanged frames.
+  void render(
+    Canvas canvas,
+    SceneGraph sceneGraph,
+    Rect viewport, {
+    double scale = 1.0,
+  }) {
+    _currentScale = scale;
+
     for (final i in _interceptors) {
       i.onFrameStart();
     }
 
-    for (final layer in sceneGraph.layers) {
-      if (!layer.isVisible) continue;
-      renderNode(canvas, layer, viewport);
+    // --- Compiled Render Plan path (GAP 1) ---
+    // Use the plan when: (1) enabled, (2) no interceptors (interceptors
+    // need per-node hooks that the flat plan can't provide).
+    if (useRenderPlan && _interceptors.isEmpty) {
+      final planValid =
+          _cachedPlan != null &&
+          _cachedPlan!.isValid(
+            currentGraphVersion: sceneGraph.version,
+            currentViewport: viewport,
+            currentScale: scale,
+            invalidationGraph: _invalidationGraph,
+          );
+
+      if (!planValid) {
+        _cachedPlan = _planCompiler.compile(sceneGraph, viewport, scale: scale);
+      }
+
+      _cachedPlan!.execute(canvas, this);
+
+      // Clear dirty flags after rendering.
+      if (_invalidationGraph != null) {
+        _invalidationGraph!.clearAll();
+      }
+    } else {
+      // --- Legacy recursive path (with interceptor support) ---
+      for (final layer in sceneGraph.layers) {
+        if (!layer.isVisible) continue;
+        renderNode(canvas, layer, viewport);
+      }
     }
+
+    // Flush any accumulated batched draw calls.
+    batchRenderer.flushAll(canvas);
 
     for (final i in _interceptors) {
       i.onFrameEnd();
     }
+  }
+
+  /// Invalidate the cached render plan, forcing recompilation next frame.
+  ///
+  /// Call this when the scene graph changes in a way not tracked by
+  /// the invalidation graph (e.g., external property mutations).
+  void invalidatePlan() {
+    _cachedPlan?.markDirty();
+    _cachedPlan = null;
   }
 
   /// Render a single node and its subtree.
@@ -114,44 +225,18 @@ class SceneGraphRenderer {
 
   /// Run the interceptor chain for a single node.
   ///
-  /// Uses an iterative approach instead of recursive closures to avoid
-  /// per-node-per-interceptor closure allocations (GC pressure in paint()).
-  /// Each interceptor is wrapped in try/catch so a failing interceptor
-  /// cannot crash the entire frame.
+  /// Uses a zero-allocation iterative approach: a single persistent
+  /// [_InterceptorChainRunner] walks the interceptor list via an index.
+  /// No closures are allocated per node — the runner is reused across all
+  /// nodes in the frame. Each interceptor is wrapped in try/catch so a
+  /// failing interceptor cannot crash the entire frame.
   void _runInterceptorChain(Canvas canvas, CanvasNode node, Rect viewport) {
-    // Build a RenderNext that walks the chain iteratively.
-    // We build from the end backwards so each step wraps the next.
-    RenderNext tail = _renderNodeDirect;
-    for (int i = _interceptors.length - 1; i >= 0; i--) {
-      final interceptor = _interceptors[i];
-      final nextInChain = tail;
-      tail = (Canvas c, CanvasNode n, Rect v) {
-        try {
-          interceptor.intercept(c, n, v, nextInChain);
-        } catch (e, stack) {
-          // Never let a single interceptor crash the frame.
-          if (EngineScope.hasScope) {
-            EngineScope.current.errorRecovery.reportError(
-              EngineError(
-                original: e,
-                stack: stack,
-                source: 'RenderInterceptor:${interceptor.runtimeType}',
-                domain: ErrorDomain.rendering,
-                severity: ErrorSeverity.transient,
-              ),
-            );
-          } else {
-            debugPrint(
-              '[RenderInterceptor] ${interceptor.runtimeType} error: $e',
-            );
-          }
-          // Skip this interceptor, continue with next in chain.
-          nextInChain(c, n, v);
-        }
-      };
-    }
-    tail(canvas, node, viewport);
+    _chainRunner ??= _InterceptorChainRunner(this);
+    _chainRunner!.run(canvas, node, viewport, _interceptors);
   }
+
+  /// Reusable chain runner — allocated once, zero per-node overhead.
+  _InterceptorChainRunner? _chainRunner;
 
   /// The actual node rendering logic (no interceptors).
   void _renderNodeDirect(Canvas canvas, CanvasNode node, Rect viewport) {
@@ -165,13 +250,12 @@ class SceneGraphRenderer {
     canvas.save();
 
     // Apply local transform.
-    final transform = node.localTransform;
-    if (transform != Matrix4.identity()) {
-      canvas.transform(transform.storage);
+    if (!node.isIdentityTransform) {
+      canvas.transform(node.localTransform.storage);
     }
 
     // Apply pre-effects (shadows, glow) — drawn BEFORE the node.
-    _applyPreEffects(canvas, node);
+    _applyPreEffects(canvas, node, viewport);
 
     // Compositing layer (opacity / blendMode).
     final needsCompositing = shouldComposite(node);
@@ -182,42 +266,9 @@ class SceneGraphRenderer {
     // Post-effects that need saveLayer wrapping (blur, color overlay).
     final postLayers = _beginPostEffects(canvas, node);
 
-    // Dispatch by node type.
-    if (node is ClipGroupNode) {
-      _renderClipGroup(canvas, node, viewport);
-    } else if (node is LayerNode) {
-      _renderChildren(canvas, node, viewport);
-    } else if (node is GroupNode) {
-      _renderChildren(canvas, node, viewport);
-    } else if (node is StrokeNode) {
-      _renderStroke(canvas, node);
-    } else if (node is ShapeNode) {
-      _renderShape(canvas, node);
-    } else if (node is PathNode) {
-      _renderPath(canvas, node);
-    } else if (node is TextNode) {
-      _renderText(canvas, node);
-    } else if (node is RichTextNode) {
-      _renderRichText(canvas, node);
-    } else if (node is SymbolInstanceNode) {
-      _renderSymbolInstance(canvas, node, viewport);
-    } else if (node is ImageNode) {
-      _renderImage(canvas, node);
-    } else if (node is ShaderNode) {
-      _renderShaderNode(canvas, node);
-    } else if (node is AdvancedMaskNode) {
-      _renderAdvancedMask(canvas, node, viewport);
-    } else if (node is FrameNode) {
-      _renderFrame(canvas, node, viewport);
-    } else if (node is BooleanGroupNode) {
-      _renderBooleanGroup(canvas, node);
-    } else if (node is PdfDocumentNode) {
-      _renderPdfDocument(canvas, node, viewport);
-    } else if (node is PdfPageNode) {
-      _renderPdfPage(canvas, node);
-    } else if (node is VectorNetworkNode) {
-      _renderVectorNetwork(canvas, node);
-    }
+    // Dispatch by node type using O(1) visitor instead of O(N) 17-branch if/else.
+    _visitor.setContext(canvas, viewport);
+    node.accept(_visitor);
 
     // End post-effect layers.
     _endPostEffects(canvas, postLayers);
@@ -229,6 +280,47 @@ class SceneGraphRenderer {
 
     // Pop transform.
     canvas.restore();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render Plan leaf dispatch
+  // ---------------------------------------------------------------------------
+
+  /// Render a leaf node directly, used by [RenderPlan.execute].
+  ///
+  /// Unlike [_renderNodeDirect], this does NOT handle save/restore,
+  /// transforms, or compositing — those are already in the plan.
+  /// It only dispatches the node-type-specific drawing.
+  void renderNodeLeaf(Canvas canvas, CanvasNode node) {
+    // For complex nodes that need full traversal (ClipGroup, Frame,
+    // AdvancedMask), we delegate to the full recursive path.
+    if (node is ClipGroupNode) {
+      _renderClipGroup(canvas, node, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
+      return;
+    }
+    if (node is FrameNode) {
+      _renderFrame(canvas, node, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
+      return;
+    }
+    if (node is AdvancedMaskNode) {
+      _renderAdvancedMask(
+        canvas,
+        node,
+        const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9),
+      );
+      return;
+    }
+    if (node is GroupNode) {
+      // Groups in the plan path just render their children recursively.
+      for (final child in node.children) {
+        renderNode(canvas, child, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
+      }
+      return;
+    }
+
+    // Standard leaf dispatch via visitor.
+    _visitor.setContext(canvas, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
+    node.accept(_visitor);
   }
 
   // -------------------------------------------------------------------------
@@ -266,9 +358,23 @@ class SceneGraphRenderer {
   }
 
   /// Render a single stroke via BrushEngine.
+  ///
+  /// Applies adaptive LOD: at zoom < 0.5, strokes whose on-screen size
+  /// would be smaller than 2px are skipped entirely. This matches the
+  /// logic in [ViewportCuller.applyAdaptiveLOD].
   void _renderStroke(Canvas canvas, StrokeNode node) {
     final stroke = node.stroke;
     if (stroke.points.isEmpty) return;
+
+    // Adaptive LOD: skip sub-pixel strokes at low zoom.
+    if (_currentScale < 0.5) {
+      final bounds = stroke.bounds;
+      final screenSize = math.max(
+        bounds.width * _currentScale,
+        bounds.height * _currentScale,
+      );
+      if (screenSize < 2.0) return;
+    }
 
     if (stroke.isFill) {
       _drawFillOverlay(canvas, stroke);
@@ -576,45 +682,102 @@ class SceneGraphRenderer {
     // Cache bounds for hit testing and viewport culling.
     node.resolvedBounds = resolvedContent.worldBounds;
 
-    // Render the resolved GroupNode subtree.
-    _renderChildren(canvas, resolvedContent, viewport);
+    // Symbol Instance Stamping: render definition once, stamp with transforms
+    final picture = _symbolPictureCache.putIfAbsent(
+      resolvedContent.id.value,
+      () {
+        final recorder = ui.PictureRecorder();
+        final pbCanvas = Canvas(recorder);
+
+        final infiniteRect = const Rect.fromLTWH(-1e6, -1e6, 2e6, 2e6);
+        _renderChildren(pbCanvas, resolvedContent, infiniteRect);
+
+        return recorder.endRecording();
+      },
+    );
+
+    canvas.drawPicture(picture);
   }
 
   /// Render a text element.
+  ///
+  /// Caches the [TextPainter] per node to avoid expensive [TextPainter.layout()]
+  /// calls every frame. Only re-layouts when text properties change (detected
+  /// via content hash).
   void _renderText(Canvas canvas, TextNode node) {
     final text = node.textElement;
-    final textSpan = TextSpan(
-      text: text.text,
-      style: TextStyle(
-        fontFamily: text.fontFamily,
-        fontSize: text.fontSize * text.scale,
-        color: text.color,
-        fontWeight: text.fontWeight,
-      ),
+    final contentHash = Object.hash(
+      text.text,
+      text.fontFamily,
+      text.fontSize,
+      text.color,
+      text.fontWeight,
+      text.scale,
     );
 
-    final painter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.ltr,
-    )..layout();
+    final cached = _textPainterCache[node.id.value];
+    TextPainter painter;
+    if (cached != null && cached.contentHash == contentHash) {
+      // Cache hit — skip layout.
+      painter = cached.painter;
+    } else {
+      // Cache miss — create, layout, and cache.
+      final textSpan = TextSpan(
+        text: text.text,
+        style: TextStyle(
+          fontFamily: text.fontFamily,
+          fontSize: text.fontSize * text.scale,
+          color: text.color,
+          fontWeight: text.fontWeight,
+        ),
+      );
+      painter = TextPainter(text: textSpan, textDirection: TextDirection.ltr)
+        ..layout();
+      _textPainterCache[node.id.value] = _CachedTextPainter(
+        painter,
+        contentHash,
+      );
+      // Update cached size for hit testing.
+      node.cachedTextSize = painter.size;
+    }
 
     painter.paint(canvas, text.position);
-
-    // Update cached size for hit testing.
-    node.cachedTextSize = painter.size;
   }
+
+  /// Cached [TextPainter]s keyed by node ID. Only re-layout on property change.
+  final Map<String, _CachedTextPainter> _textPainterCache = {};
 
   /// Render an image element.
   ///
   /// Note: actual image decoding/loading is handled externally by the
-  /// existing rendering pipeline. This method applies the transform
-  /// and draws the image if already decoded (via ImageNode.imageSize).
+  /// pipeline. This method applies the transform
+  /// and draws the image if already decoded and cached.
   void _renderImage(Canvas canvas, ImageNode node) {
-    // Image rendering is currently handled by the existing pipeline.
-    // When the full scene graph renderer is enabled, this will need
-    // integration with the image loading/caching system.
-    // For now, this is a no-op placeholder — images continue to be
-    // rendered by the existing DrawingPainter/image overlay system.
+    if (!EngineScope.hasScope) return;
+
+    final image = EngineScope.current.imageCacheService.getCachedImage(
+      node.imageElement.imagePath,
+    );
+    if (image == null) return;
+
+    // Source rect is the full original image size
+    final srcRect = Rect.fromLTWH(
+      0,
+      0,
+      image.width.toDouble(),
+      image.height.toDouble(),
+    );
+
+    // Destination rect matches the node's local bounds
+    final destRect = node.localBounds;
+
+    final paint =
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..color = Color.fromARGB((node.opacity * 255).round(), 255, 255, 255)
+          ..blendMode = node.blendMode;
+
+    canvas.drawImageRect(image, srcRect, destRect, paint);
   }
 
   /// Draw a fill overlay (bucket fill) for a stroke.
@@ -635,7 +798,7 @@ class SceneGraphRenderer {
   // -------------------------------------------------------------------------
 
   /// Apply pre-effects (shadows, glow) — these draw BEFORE the node.
-  void _applyPreEffects(Canvas canvas, CanvasNode node) {
+  void _applyPreEffects(Canvas canvas, CanvasNode node, Rect viewport) {
     for (final fx in node.effects) {
       if (!fx.isEnabled || !fx.isPre) continue;
 
@@ -643,13 +806,16 @@ class SceneGraphRenderer {
         canvas.save();
         canvas.translate(fx.offset.dx, fx.offset.dy);
         canvas.saveLayer(null, fx.createShadowPaint());
-        // The node will be rendered normally afterwards — this layer
-        // captures a blurred shadow copy. We restore immediately so
-        // the shadow offset doesn't affect the main node.
+        // Draw the node's silhouette for the shadow
+        _visitor.setContext(canvas, viewport);
+        node.accept(_visitor);
         canvas.restore(); // saveLayer
         canvas.restore(); // translate
       } else if (fx is OuterGlowEffect) {
         canvas.saveLayer(null, fx.createGlowPaint());
+        // Draw the node's silhouette for the glow
+        _visitor.setContext(canvas, viewport);
+        node.accept(_visitor);
         canvas.restore();
       }
     }
@@ -748,18 +914,72 @@ class SceneGraphRenderer {
   // Shader Node rendering
   // ---------------------------------------------------------------------------
 
-  /// Render a shader node.
+  /// Render a shader node with preset-aware procedural fallback.
   ///
-  /// In production, this would compile and bind the fragment shader program.
-  /// For now, it renders a filled rect as a placeholder — the actual
-  /// GPU program binding requires runtime FragmentProgram.fromAsset().
+  /// When runtime [FragmentProgram] compilation is available, this will
+  /// load and bind the SPIR-V shader. Until then, each [ShaderPreset]
+  /// gets a recognizable procedural gradient so the node is visually
+  /// distinguishable in the scene graph (rather than a flat purple rect).
   void _renderShaderNode(Canvas canvas, ShaderNode node) {
     if (!node.effect.isEnabled) return;
 
     final rect = node.localBounds;
+    if (rect.isEmpty) return;
+
+    final alpha = (node.effect.opacity * 255).round();
+
+    // Map each preset to a distinctive gradient so designers see the intent.
+    final List<Color> gradientColors;
+    switch (node.effect.preset) {
+      case ShaderPreset.noise:
+        gradientColors = [
+          Color.fromARGB(alpha, 80, 80, 80),
+          Color.fromARGB(alpha, 200, 200, 200),
+        ];
+      case ShaderPreset.voronoi:
+        gradientColors = [
+          Color.fromARGB(alpha, 30, 120, 180),
+          Color.fromARGB(alpha, 180, 230, 255),
+        ];
+      case ShaderPreset.chromaticAberration:
+        gradientColors = [
+          Color.fromARGB(alpha, 255, 80, 80),
+          Color.fromARGB(alpha, 80, 80, 255),
+        ];
+      case ShaderPreset.glitch:
+        gradientColors = [
+          Color.fromARGB(alpha, 0, 255, 100),
+          Color.fromARGB(alpha, 255, 0, 200),
+        ];
+      case ShaderPreset.gradientMap:
+        gradientColors = [
+          Color.fromARGB(alpha, 255, 200, 50),
+          Color.fromARGB(alpha, 200, 50, 100),
+        ];
+      case ShaderPreset.pixelate:
+        gradientColors = [
+          Color.fromARGB(alpha, 100, 200, 100),
+          Color.fromARGB(alpha, 50, 100, 50),
+        ];
+      case ShaderPreset.vignette:
+        gradientColors = [
+          Color.fromARGB(alpha, 0, 0, 0),
+          Color.fromARGB(alpha, 80, 80, 80),
+        ];
+      case ShaderPreset.custom:
+        gradientColors = [
+          Color.fromARGB(alpha, 128, 128, 255),
+          Color.fromARGB(alpha, 200, 100, 255),
+        ];
+    }
+
     final paint =
         Paint()
-          ..color = Color.fromRGBO(128, 128, 255, node.effect.opacity)
+          ..shader = ui.Gradient.linear(
+            rect.topLeft,
+            rect.bottomRight,
+            gradientColors,
+          )
           ..blendMode = node.effect.blendMode;
 
     canvas.drawRect(rect, paint);
@@ -966,4 +1186,174 @@ class SceneGraphRenderer {
   void _renderVectorNetwork(Canvas canvas, VectorNetworkNode node) {
     VectorNetworkRenderer.drawVectorNetworkNode(canvas, node);
   }
+
+  /// Render a LaTeX mathematical expression via LatexRenderer.
+  void _renderLatex(Canvas canvas, LatexNode node) {
+    LatexRenderer.drawLatexNode(canvas, node);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal Visitor
+  // ---------------------------------------------------------------------------
+}
+
+// ---------------------------------------------------------------------------
+// Internal Visitor
+// ---------------------------------------------------------------------------
+
+/// Internal visitor that delegates type-safe dispatch back to [SceneGraphRenderer].
+///
+/// Converts O(n) type checking into O(1) virtual method dispatch.
+class _RendererVisitor implements NodeVisitor<void> {
+  final SceneGraphRenderer renderer;
+
+  late Canvas _canvas;
+  late Rect _viewport;
+
+  _RendererVisitor(this.renderer);
+
+  void setContext(Canvas canvas, Rect viewport) {
+    _canvas = canvas;
+    _viewport = viewport;
+  }
+
+  @override
+  void visitGroup(GroupNode node) =>
+      renderer._renderChildren(_canvas, node, _viewport);
+
+  @override
+  void visitLayer(LayerNode node) =>
+      renderer._renderChildren(_canvas, node, _viewport);
+
+  @override
+  void visitShape(ShapeNode node) => renderer._renderShape(_canvas, node);
+
+  @override
+  void visitStroke(StrokeNode node) => renderer._renderStroke(_canvas, node);
+
+  @override
+  void visitText(TextNode node) => renderer._renderText(_canvas, node);
+
+  @override
+  void visitImage(ImageNode node) => renderer._renderImage(_canvas, node);
+
+  @override
+  void visitClipGroup(ClipGroupNode node) =>
+      renderer._renderClipGroup(_canvas, node, _viewport);
+
+  @override
+  void visitPath(PathNode node) => renderer._renderPath(_canvas, node);
+
+  @override
+  void visitRichText(RichTextNode node) =>
+      renderer._renderRichText(_canvas, node);
+
+  @override
+  void visitSymbolInstance(SymbolInstanceNode node) =>
+      renderer._renderSymbolInstance(_canvas, node, _viewport);
+
+  @override
+  void visitFrame(FrameNode node) =>
+      renderer._renderFrame(_canvas, node, _viewport);
+
+  @override
+  void visitAdvancedMask(AdvancedMaskNode node) =>
+      renderer._renderAdvancedMask(_canvas, node, _viewport);
+
+  @override
+  void visitBooleanGroup(BooleanGroupNode node) =>
+      renderer._renderBooleanGroup(_canvas, node);
+
+  @override
+  void visitShader(ShaderNode node) =>
+      renderer._renderShaderNode(_canvas, node);
+
+  @override
+  void visitPdfPage(PdfPageNode node) => renderer._renderPdfPage(_canvas, node);
+
+  @override
+  void visitPdfDocument(PdfDocumentNode node) =>
+      renderer._renderPdfDocument(_canvas, node, _viewport);
+
+  @override
+  void visitVectorNetwork(VectorNetworkNode node) =>
+      renderer._renderVectorNetwork(_canvas, node);
+
+  @override
+  void visitLatex(LatexNode node) => renderer._renderLatex(_canvas, node);
+}
+
+// ---------------------------------------------------------------------------
+// Zero-allocation interceptor chain runner
+// ---------------------------------------------------------------------------
+
+/// Walks the interceptor chain using an index instead of closures.
+///
+/// A single instance is reused across all nodes in a frame, eliminating
+/// the previous O(interceptors × nodes) closure allocations per frame.
+class _InterceptorChainRunner {
+  final SceneGraphRenderer _renderer;
+
+  /// Current position in the interceptor list.
+  int _index = 0;
+
+  /// The interceptors for the current run (set per call to [run]).
+  late List<RenderInterceptor> _interceptors;
+
+  _InterceptorChainRunner(this._renderer);
+
+  /// Run the full interceptor chain for a single node.
+  void run(
+    Canvas canvas,
+    CanvasNode node,
+    Rect viewport,
+    List<RenderInterceptor> interceptors,
+  ) {
+    _interceptors = interceptors;
+    _index = 0;
+    _next(canvas, node, viewport);
+  }
+
+  /// Advance to the next interceptor or fall through to direct rendering.
+  ///
+  /// This method is passed as [RenderNext] to each interceptor's `intercept`.
+  /// When the interceptor calls `next(c, n, v)`, it re-enters this method
+  /// with `_index` already advanced to the next slot — zero closures.
+  void _next(Canvas canvas, CanvasNode node, Rect viewport) {
+    if (_index >= _interceptors.length) {
+      // End of chain — render the node directly.
+      _renderer._renderNodeDirect(canvas, node, viewport);
+      return;
+    }
+
+    final interceptor = _interceptors[_index];
+    _index++;
+    try {
+      interceptor.intercept(canvas, node, viewport, _next);
+    } catch (e, stack) {
+      // Never let a single interceptor crash the frame.
+      if (EngineScope.hasScope) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            original: e,
+            stack: stack,
+            source: 'RenderInterceptor:${interceptor.runtimeType}',
+            domain: ErrorDomain.rendering,
+            severity: ErrorSeverity.transient,
+          ),
+        );
+      } else {
+        debugPrint('[RenderInterceptor] ${interceptor.runtimeType} error: $e');
+      }
+      // Skip this interceptor, continue with next in chain.
+      _next(canvas, node, viewport);
+    }
+  }
+}
+
+/// Pairs a cached [TextPainter] with a content hash for invalidation.
+class _CachedTextPainter {
+  final TextPainter painter;
+  final int contentHash;
+  const _CachedTextPainter(this.painter, this.contentHash);
 }
