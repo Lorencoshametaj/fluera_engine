@@ -107,8 +107,9 @@ class LatexTokenizer {
   /// Decode a sequence of token IDs to a LaTeX string.
   ///
   /// Stops at the first EOS token. Strips BOS, EOS, and PAD tokens.
+  /// Inserts spaces between tokens where needed for valid LaTeX output.
   String decode(List<int> tokenIds) {
-    final buffer = StringBuffer();
+    final tokens = <String>[];
 
     for (final id in tokenIds) {
       if (id == eosTokenId) break;
@@ -116,11 +117,75 @@ class LatexTokenizer {
 
       final token = _id2token[id];
       if (token != null) {
-        buffer.write(token);
+        tokens.add(token);
       }
     }
 
+    final buffer = StringBuffer();
+    for (int i = 0; i < tokens.length; i++) {
+      final token = tokens[i];
+      final prev = i > 0 ? tokens[i - 1] : '';
+
+      // Decide whether we need a space before this token
+      if (i > 0 && _needsSpaceBetween(prev, token)) {
+        buffer.write(' ');
+      }
+
+      buffer.write(token);
+    }
+
     return _postProcess(buffer.toString());
+  }
+
+  /// Check whether a space is needed between two adjacent tokens.
+  ///
+  /// Rules:
+  /// - No space before/after structural tokens: { } ^ _ ( ) [ ]
+  /// - Space before a LaTeX command (\xxx) if preceded by a letter/digit/closing
+  /// - Space after a LaTeX command if followed by a letter/digit
+  /// - Space between two adjacent letters/digits that are separate tokens
+  ///   (e.g. token "a" + token "b" → "a b" since they're distinct variables)
+  bool _needsSpaceBetween(String prev, String current) {
+    if (prev.isEmpty || current.isEmpty) return false;
+
+    // Structural tokens never get separated
+    const noSpaceTokens = {'{', '}', '^', '_', '(', ')', '[', ']'};
+    if (noSpaceTokens.contains(prev) || noSpaceTokens.contains(current)) {
+      return false;
+    }
+
+    final prevIsCmd = prev.startsWith(r'\');
+    final curIsCmd = current.startsWith(r'\');
+
+    // Space before a \command if preceded by alphanumeric, '}', or ')'
+    if (curIsCmd) {
+      final lastChar = prev[prev.length - 1];
+      return _isAlphaNum(lastChar) || lastChar == '}' || lastChar == ')';
+    }
+
+    // Space after a \command if followed by alphanumeric
+    if (prevIsCmd) {
+      final firstChar = current[0];
+      return _isAlphaNum(firstChar);
+    }
+
+    // Space between two distinct single-letter/digit tokens
+    // (e.g. "a" + "b" are separate variables, not "ab")
+    if (_isAlphaNum(prev[prev.length - 1]) && _isAlphaNum(current[0])) {
+      return true;
+    }
+
+    // No space for operators next to operands (e.g. "=" "+" "-" "/")
+    return false;
+  }
+
+  /// Check if a character is alphanumeric (letter or digit).
+  bool _isAlphaNum(String c) {
+    if (c.isEmpty) return false;
+    final code = c.codeUnitAt(0);
+    return (code >= 0x30 && code <= 0x39) || // 0-9
+        (code >= 0x41 && code <= 0x5A) || // A-Z
+        (code >= 0x61 && code <= 0x7A); // a-z
   }
 
   /// Encode a LaTeX string to token IDs (best-effort character-level).

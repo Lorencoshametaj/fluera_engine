@@ -43,13 +43,31 @@ Motore 2D professionale costruito in 6 fasi incrementali, 100% retrocompatibile.
 │   ├── animation_timeline.dart  Keyframes, tracks, timeline con interpolazione e 5 curve di easing
 │   ├── command_history.dart     Undo/redo con Command pattern, coalescing, batch
 │   ├── selection_manager.dart   Multi-selezione, aggregate bounds, group transforms, allineamento
-│   ├── export_pipeline.dart     Esportazione PNG (1x/2x/3x), SVG
+│   ├── export_pipeline.dart     Esportazione PNG/JPEG/WebP/SVG/PDF
 │   ├── dirty_tracker.dart       Dirty tracking con propagazione a parent, minimal repaint region
 │   ├── spatial_index.dart       R-tree per viewport culling O(log n) e hit testing
 │   ├── style_system.dart        Design tokens (colori, tipografia, spacing) + stili riutilizzabili con linking
 │   ├── prototype_flow.dart      Prototyping: link, transizioni, trigger, schermate, flow navigation
 │   ├── plugin_api.dart          Plugin/extension API con capabilities, sandbox, registry
-│   └── accessibility_tree.dart  Accessibility tree con 15 ruoli semantici, reading order, focus
+│   ├── accessibility_tree.dart  Accessibility tree con 15 ruoli semantici, reading order, focus
+│   ├── dev_handoff/             Dev Handoff / Inspect Mode
+│   │   ├── inspect_engine.dart     Ispezione nodi: posizione, dimensioni, fill, stroke, tipografia
+│   │   ├── code_generator.dart     Generazione codice Flutter/CSS/SwiftUI
+│   │   ├── token_resolver.dart     Risoluzione proprietà → design token
+│   │   ├── asset_manifest.dart     Manifest degli asset per export
+│   │   └── redline_overlay.dart    Annotazioni dimensionali e spacing
+│   ├── component_state_machine.dart  Macchina stati interattivi (hover, pressed, disabled)
+│   ├── component_state_resolver.dart Risoluzione cascata stato + override istanza
+│   ├── semantic_token.dart          Alias semantici per design token con chain resolution
+│   ├── theme_manager.dart           Gestione temi con switching e scaffolding
+│   ├── spring_simulation.dart       Simulazione fisica molle (critically/under/over damped)
+│   ├── path_motion.dart             Moto lungo path Bézier con parametrizzazione arc-length
+│   ├── stagger_animation.dart       Animazioni staggerate (sequential, reverse, fromCenter, fromEdges)
+│   ├── variable_font.dart           Configurazione font variabili (weight, width, slant, optical size)
+│   ├── opentype_features.dart       Feature OpenType (ligature, small caps, fractions, tabular nums)
+│   ├── text_auto_resize.dart        Auto-resize testo (fixed, autoWidth, autoHeight, autoAll)
+│   ├── image_adjustment.dart        Regolazioni immagine non-distruttive (brightness, contrast, saturation, hue, exposure, temperature)
+│   └── image_fill_mode.dart         Modalità fill immagine (fill, fit, crop, tile, stretch) con transform matrix
 │
 └── renderers/         ← Rendering del scene graph
     ├── scene_graph_renderer.dart Traversal ricorsivo con compositing, effetti, viewport culling
@@ -101,7 +119,7 @@ Motore 2D professionale costruito in 6 fasi incrementali, 100% retrocompatibile.
 - **Multi-Selezione**: `SelectionManager` con aggregate bounds, group transforms (translate/rotate/scale), marquee select, 6 allineamenti, distribuzione H/V, filtri per tipo
 - **Boolean Ops**: Union, subtract, intersect, XOR via `Path.combine`. Path overlap detection, multi-path flatten, Flutter Path → VectorPath conversion
 - **Auto Layout**: `FrameNode extends GroupNode` con `LayoutConstraint` per figlio (fill/fixed/hug, pin, flex-grow). Layout solver 3-pass con main/cross axis alignment e space distribution
-- **Export Pipeline**: PNG (1x/2x/3x DPI), SVG (scene graph → SVG DOM). Export per nodo singolo, selezione, o intero scene graph
+- **Export Pipeline**: PNG (1x/2x/3x DPI), JPEG (quality 0-100), WebP (quality 0-100), SVG (scene graph → SVG DOM), PDF (vector, custom PDF 1.4 writer). Export per nodo singolo, selezione, o intero scene graph
 
 ### Fase 8 — Performance & Design Systems
 - **Dirty Tracking**: `DirtyTracker` con propagazione a parent, old-bounds tracking, dirty region computation (minimal repaint rect), per-layer dirty checking
@@ -132,24 +150,36 @@ Motore 2D professionale costruito in 6 fasi incrementali, 100% retrocompatibile.
 - **Barrel Export**: `scene_graph_engine.dart` — singolo import per tutto il motore
 - **Code Quality**: Fix annotazioni `@override`, cleanup lint
 
+### Fase 12 — Design System Completeness
+- **Dev Handoff**: `InspectEngine` per ispezione nodi, `CodeGenerator` per generazione Flutter/CSS/SwiftUI, `TokenResolver` per mapping proprietà → token, `AssetManifest`, `RedlineCalculator` per annotazioni misure
+- **Component States**: `ComponentStateMachine` con stati interattivi (hover, pressed, disabled, focused), `ComponentStateResolver` con cascata override (definition defaults → state map → instance overrides)
+- **Semantic Tokens**: `SemanticTokenRegistry` con alias chaining, circular reference detection, validation. `ThemeManager` con switching temi, scaffolding light/dark, serializzazione
+- **Physics Animation**: `SpringSimulation` con 3 regimi di smorzamento (critically/under/over damped), `MotionPath` con arc-length parametrization per moto costante, `StaggerAnimation` con 5 strategie di ordinamento
+- **Typography**: `VariableFontConfig` con assi font variabili (wght, wdth, slnt, opsz, ital, GRAD), `OpenTypeConfig` con preset e merge, `TextAutoResizeEngine` con 4 modalità resize
+- **Image Editing**: `ImageAdjustmentConfig` con 6 regolazioni non-distruttive (5×4 color matrix), `FillConfig` con 5 modalità fill e alignment/offset/scale
+
 ---
 
 ## Statistiche
 
 | Metrica | Valore |
 |---------|--------|
-| File totali | 38 |
-| LOC totali | ~13,000 |
+| File totali | 53 |
+| LOC totali | ~18,000 |
 | Tipi di nodo | 13 |
 | Effetti | 6 + 8 shader preset |
 | Forme preset | 11 |
 | Tipi di snap | 6 |
 | Curve di easing | 5 |
 | Comandi undo/redo | 10 |
-| Formati export | 3 |
+| Formati export | 6 + code gen (Flutter/CSS/SwiftUI) |
 | Tipi di maschera | 6 |
-| Design tokens | 3 |
+| Design tokens | 3 + semantic alias + themes |
 | Trigger prototyping | 6 |
 | Transizioni | 13 |
 | Plugin capabilities | 12 |
 | Ruoli a11y | 15 |
+| Physics animation | 3 (spring, path, stagger) |
+| Font variable axes | 6 preset |
+| Image adjustments | 6 (brightness, contrast, saturation, hue, exposure, temperature) |
+| Unit tests | 348 |

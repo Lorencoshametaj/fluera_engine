@@ -41,6 +41,9 @@ import '../history/async_command.dart';
 import '../systems/engine_theme.dart';
 import '../systems/plugin_api.dart';
 import '../rendering/cache/render_cache_scope.dart';
+import 'tabular/spreadsheet_model.dart';
+import 'tabular/spreadsheet_evaluator.dart';
+import 'tabular/tabular_latex_bridge.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -345,6 +348,23 @@ class EngineScope {
   late final PermissionService permissionService = PermissionService();
 
   // ---------------------------------------------------------------------------
+  // Global Tabular Integration (P1)
+  // ---------------------------------------------------------------------------
+
+  /// Global spreadsheet model (shared logic across all tabular nodes).
+  late final SpreadsheetModel globalSpreadsheetModel = SpreadsheetModel();
+
+  /// Global evaluator for the spreadsheet model.
+  late final SpreadsheetEvaluator globalSpreadsheetEvaluator =
+      SpreadsheetEvaluator(globalSpreadsheetModel);
+
+  /// The magical bridge that natively connects tabular data to LaTeX output.
+  late final TabularLatexBridge globalTabularBridge = TabularLatexBridge(
+    globalSpreadsheetEvaluator,
+    invalidationGraph,
+  );
+
+  // ---------------------------------------------------------------------------
   // Health Check
   // ---------------------------------------------------------------------------
 
@@ -439,6 +459,10 @@ class EngineScope {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+
+    // ── 0. Independent Systems ──
+    globalTabularBridge.dispose();
+    globalSpreadsheetEvaluator.dispose();
 
     // ── 1. Leaf services (no other service depends on these) ──
     pluginRegistry.dispose();

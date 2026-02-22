@@ -20,7 +20,10 @@ enum ToolbarTab {
   excel(Icons.table_chart_rounded, 'Excel'),
 
   /// Media & extras: digital text, image picker, recording, view recordings
-  media(Icons.perm_media_rounded, 'Media');
+  media(Icons.perm_media_rounded, 'Media'),
+
+  /// Design tools: prototype, animate, inspect, responsive, components, quality
+  design(Icons.design_services_rounded, 'Design');
 
   const ToolbarTab(this.icon, this.label);
 

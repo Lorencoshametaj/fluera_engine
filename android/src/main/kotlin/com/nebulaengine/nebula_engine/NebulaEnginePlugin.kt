@@ -19,6 +19,7 @@ class NebulaEnginePlugin : FlutterPlugin {
     private var performanceMonitorPlugin: PerformanceMonitorPlugin? = null
     private var audioRecorderPlugin: AudioRecorderPlugin? = null
     private var pdfRendererPlugin: PdfRendererPlugin? = null
+    private var latexRecognizerPlugin: LatexRecognizerPlugin? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         // Register predicted touch plugin
@@ -44,6 +45,10 @@ class NebulaEnginePlugin : FlutterPlugin {
         // Register PDF renderer plugin
         pdfRendererPlugin = PdfRendererPlugin()
         pdfRendererPlugin?.onAttachedToEngine(binding)
+
+        // Register LaTeX recognizer plugin (PyTorch Mobile)
+        latexRecognizerPlugin = LatexRecognizerPlugin()
+        latexRecognizerPlugin?.onAttachedToEngine(binding)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -64,6 +69,9 @@ class NebulaEnginePlugin : FlutterPlugin {
 
         pdfRendererPlugin?.onDetachedFromEngine(binding)
         pdfRendererPlugin = null
+
+        latexRecognizerPlugin?.onDetachedFromEngine(binding)
+        latexRecognizerPlugin = null
     }
 }
 

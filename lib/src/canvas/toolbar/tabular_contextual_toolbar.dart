@@ -6,85 +6,54 @@ import '../../core/tabular/cell_address.dart';
 import '../../core/tabular/cell_node.dart';
 import '../../core/tabular/cell_value.dart';
 
-/// 📊 Contextual toolbar for spreadsheet operations.
+// ---------------------------------------------------------------------------
+// Tab identifiers
+// ---------------------------------------------------------------------------
+
+enum _TabId { format, insert, data, view }
+
+/// 📊 Tabbed contextual toolbar for spreadsheet operations.
 ///
-/// Appears when a [TabularNode] is selected, providing:
-/// - Cell formatting (bold, italic, text/bg color)
-/// - Alignment controls
-/// - Insert/Delete row/column
-/// - CSV Import/Export actions
+/// Uses a **ribbon-style** layout with 4 tabs. Each tab's content is
+/// horizontally scrollable so buttons are comfortably sized and grouped
+/// in visual cards — the user swipes left/right to reveal more groups.
 ///
-/// Observes [TabularToolState] to enable/disable buttons based on selection.
-class TabularContextualToolbar extends StatelessWidget {
+/// Undo/Redo are always visible in the tab bar.
+class TabularContextualToolbar extends StatefulWidget {
   final TabularToolState toolState;
 
-  /// Called when the user toggles bold on the selected cell.
+  // -- Format callbacks --
   final VoidCallback? onToggleBold;
-
-  /// Called when the user toggles italic.
   final VoidCallback? onToggleItalic;
-
-  /// Called when the user changes text color.
   final ValueChanged<Color>? onTextColorChanged;
-
-  /// Called when the user changes cell background color.
   final ValueChanged<Color>? onBackgroundColorChanged;
-
-  /// Called when a row is inserted.
-  final VoidCallback? onInsertRow;
-
-  /// Called when a row is deleted.
-  final VoidCallback? onDeleteRow;
-
-  /// Called when a column is inserted.
-  final VoidCallback? onInsertColumn;
-
-  /// Called when a column is deleted.
-  final VoidCallback? onDeleteColumn;
-
-  /// Called to import CSV data.
-  final VoidCallback? onImportCsv;
-
-  /// Called to export as CSV.
-  final VoidCallback? onExportCsv;
-
-  /// Called to import XLSX data.
-  final VoidCallback? onImportXlsx;
-
-  /// Called to export as XLSX.
-  final VoidCallback? onExportXlsx;
-
-  /// Called to open validation rule picker for selected cell.
-  final VoidCallback? onSetValidation;
-
-  /// Called to open conditional format rule picker.
-  final VoidCallback? onSetConditionalFormat;
-
-  /// Called when user selects a number format for the selected cell.
-  final ValueChanged<String>? onNumberFormatChanged;
-
-  /// Called when user changes text alignment.
   final ValueChanged<CellAlignment>? onAlignmentChanged;
-
-  /// Called when user changes font size.
   final ValueChanged<double>? onFontSizeChanged;
 
-  /// Called when user merges selected cells.
+  // -- Insert callbacks --
+  final VoidCallback? onInsertRow;
+  final VoidCallback? onDeleteRow;
+  final VoidCallback? onInsertColumn;
+  final VoidCallback? onDeleteColumn;
   final VoidCallback? onMergeCells;
-
-  /// Called when user unmerges selected cells.
   final VoidCallback? onUnmergeCells;
 
-  /// Called when user toggles freeze panes at selected cell.
+  // -- Data & LaTeX callbacks --
+  final ValueChanged<String>? onNumberFormatChanged;
+  final VoidCallback? onSetValidation;
+  final VoidCallback? onSetConditionalFormat;
+  final VoidCallback? onGenerateLatex;
+
+  // -- View callbacks --
   final VoidCallback? onToggleFreeze;
-
-  /// Whether freeze panes are currently active.
   final bool isFrozen;
+  final VoidCallback? onImportCsv;
+  final VoidCallback? onExportCsv;
+  final VoidCallback? onImportXlsx;
+  final VoidCallback? onExportXlsx;
 
-  /// Called to undo last action.
+  // -- History callbacks --
   final VoidCallback? onUndo;
-
-  /// Called to redo last undone action.
   final VoidCallback? onRedo;
 
   const TabularContextualToolbar({
@@ -94,377 +63,591 @@ class TabularContextualToolbar extends StatelessWidget {
     this.onToggleItalic,
     this.onTextColorChanged,
     this.onBackgroundColorChanged,
+    this.onAlignmentChanged,
+    this.onFontSizeChanged,
     this.onInsertRow,
     this.onDeleteRow,
     this.onInsertColumn,
     this.onDeleteColumn,
+    this.onMergeCells,
+    this.onUnmergeCells,
+    this.onNumberFormatChanged,
+    this.onSetValidation,
+    this.onSetConditionalFormat,
+    this.onGenerateLatex,
+    this.onToggleFreeze,
+    this.isFrozen = false,
     this.onImportCsv,
     this.onExportCsv,
     this.onImportXlsx,
     this.onExportXlsx,
-    this.onSetValidation,
-    this.onSetConditionalFormat,
-    this.onNumberFormatChanged,
-    this.onAlignmentChanged,
-    this.onFontSizeChanged,
-    this.onMergeCells,
-    this.onUnmergeCells,
-    this.onToggleFreeze,
-    this.isFrozen = false,
     this.onUndo,
     this.onRedo,
   });
 
   @override
+  State<TabularContextualToolbar> createState() =>
+      _TabularContextualToolbarState();
+}
+
+class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
+  _TabId _selectedTab = _TabId.format;
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: toolState,
+      listenable: widget.toolState,
       builder: (context, _) {
-        final hasSelection = toolState.hasCellSelection;
-
         return Container(
-          height: 44,
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1E1E),
+          decoration: const BoxDecoration(
+            color: Color(0xFF1A1A1A),
             border: Border(
-              top: BorderSide(color: const Color(0xFF333333), width: 0.5),
-              bottom: BorderSide(color: const Color(0xFF333333), width: 0.5),
+              top: BorderSide(color: Color(0xFF333333), width: 0.5),
+              bottom: BorderSide(color: Color(0xFF333333), width: 0.5),
             ),
           ),
-          child: Row(
-            children: [
-              const SizedBox(width: 8),
-
-              // ── Format group ──
-              _ToolbarIconButton(
-                icon: Icons.format_bold,
-                tooltip: 'Bold',
-                onPressed: hasSelection ? onToggleBold : null,
-                isActive: _isBold,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.format_italic,
-                tooltip: 'Italic',
-                onPressed: hasSelection ? onToggleItalic : null,
-                isActive: _isItalic,
-              ),
-
-              _divider(),
-
-              // ── Alignment group ──
-              _ToolbarIconButton(
-                icon: Icons.format_align_left,
-                tooltip: 'Align left',
-                onPressed:
-                    hasSelection
-                        ? () => onAlignmentChanged?.call(CellAlignment.left)
-                        : null,
-                isActive: _currentAlign == CellAlignment.left,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.format_align_center,
-                tooltip: 'Align center',
-                onPressed:
-                    hasSelection
-                        ? () => onAlignmentChanged?.call(CellAlignment.center)
-                        : null,
-                isActive: _currentAlign == CellAlignment.center,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.format_align_right,
-                tooltip: 'Align right',
-                onPressed:
-                    hasSelection
-                        ? () => onAlignmentChanged?.call(CellAlignment.right)
-                        : null,
-                isActive: _currentAlign == CellAlignment.right,
-              ),
-
-              // ── Font size ──
-              if (hasSelection)
-                _FontSizeDropdown(
-                  currentSize: _currentFontSize,
-                  onChanged: onFontSizeChanged,
-                ),
-
-              _divider(),
-
-              // ── Color group ──
-              _ToolbarColorButton(
-                icon: Icons.format_color_text,
-                tooltip: 'Text color',
-                color: _textColor,
-                onPressed:
-                    hasSelection
-                        ? () => _showColorPicker(
-                          context,
-                          _textColor,
-                          onTextColorChanged,
-                        )
-                        : null,
-              ),
-              _ToolbarColorButton(
-                icon: Icons.format_color_fill,
-                tooltip: 'Fill color',
-                color: _bgColor,
-                onPressed:
-                    hasSelection
-                        ? () => _showColorPicker(
-                          context,
-                          _bgColor,
-                          onBackgroundColorChanged,
-                        )
-                        : null,
-              ),
-
-              _divider(),
-
-              // ── Row/Column group ──
-              _ToolbarIconButton(
-                icon: Icons.table_rows_outlined,
-                tooltip: 'Insert row',
-                onPressed: onInsertRow,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.remove_circle_outline,
-                tooltip: 'Delete row',
-                onPressed: hasSelection ? onDeleteRow : null,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.view_column_outlined,
-                tooltip: 'Insert column',
-                onPressed: onInsertColumn,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.remove_circle_outline,
-                tooltip: 'Delete column',
-                onPressed: hasSelection ? onDeleteColumn : null,
-              ),
-
-              _divider(),
-
-              // ── CSV/XLSX group ──
-              _ToolbarIconButton(
-                icon: Icons.file_upload_outlined,
-                tooltip: 'Import CSV',
-                onPressed: onImportCsv,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.file_download_outlined,
-                tooltip: 'Export CSV',
-                onPressed: onExportCsv,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.grid_on_rounded,
-                tooltip: 'Import XLSX',
-                onPressed: onImportXlsx,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.grid_view_rounded,
-                tooltip: 'Export XLSX',
-                onPressed: onExportXlsx,
-              ),
-
-              _divider(),
-
-              // ── Data tools group ──
-              _ToolbarIconButton(
-                icon: Icons.numbers_rounded,
-                tooltip: 'Number format',
-                onPressed:
-                    hasSelection
-                        ? () => _showNumberFormatPicker(context)
-                        : null,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.rule_rounded,
-                tooltip: 'Validation rule',
-                onPressed: hasSelection ? onSetValidation : null,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.format_paint_rounded,
-                tooltip: 'Conditional format',
-                onPressed: hasSelection ? onSetConditionalFormat : null,
-              ),
-
-              _divider(),
-
-              // ── Merge / Freeze group ──
-              _ToolbarIconButton(
-                icon: Icons.call_merge_rounded,
-                tooltip: 'Merge cells',
-                onPressed: hasSelection ? onMergeCells : null,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.call_split_rounded,
-                tooltip: 'Unmerge cells',
-                onPressed: hasSelection ? onUnmergeCells : null,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.view_compact_rounded,
-                tooltip: 'Freeze panes',
-                onPressed: onToggleFreeze,
-                isActive: isFrozen,
-              ),
-
-              _divider(),
-
-              // ── Undo/Redo ──
-              _ToolbarIconButton(
-                icon: Icons.undo_rounded,
-                tooltip: 'Undo',
-                onPressed: onUndo,
-              ),
-              _ToolbarIconButton(
-                icon: Icons.redo_rounded,
-                tooltip: 'Redo',
-                onPressed: onRedo,
-              ),
-
-              const Spacer(),
-
-              // Cell address label.
-              if (toolState.selectedCell != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    toolState.selectedCell!.label,
-                    style: const TextStyle(
-                      color: Color(0xFF90CAF9),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-            ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [_buildTabBar(), _buildTabContent()],
           ),
         );
       },
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------------------------
+  // =========================================================================
+  // Tab bar (always visible — 36px)
+  // =========================================================================
 
-  bool get _isBold {
-    final cell = _selectedCellNode;
-    return cell?.format?.bold ?? false;
-  }
-
-  bool get _isItalic {
-    final cell = _selectedCellNode;
-    return cell?.format?.italic ?? false;
-  }
-
-  Color get _textColor {
-    final cell = _selectedCellNode;
-    return cell?.format?.textColor ?? const Color(0xFFE0E0E0);
-  }
-
-  Color get _bgColor {
-    final cell = _selectedCellNode;
-    return cell?.format?.backgroundColor ?? Colors.transparent;
-  }
-
-  CellAlignment? get _currentAlign {
-    final cell = _selectedCellNode;
-    return cell?.format?.horizontalAlign;
-  }
-
-  double get _currentFontSize {
-    final cell = _selectedCellNode;
-    return cell?.format?.fontSize ?? 13.0;
-  }
-
-  CellNode? get _selectedCellNode {
-    if (toolState.activeNode == null || toolState.selectedCell == null) {
-      return null;
-    }
-    return toolState.activeNode!.model.getCell(toolState.selectedCell!);
-  }
-
-  Widget _divider() {
+  Widget _buildTabBar() {
     return Container(
-      width: 1,
-      height: 24,
-      margin: const EdgeInsets.symmetric(horizontal: 6),
-      color: const Color(0xFF3A3A3A),
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      color: const Color(0xFF1E1E1E),
+      child: Row(
+        children: [
+          // Tab chips.
+          Expanded(
+            child: Row(
+              children: [
+                _tabChip(_TabId.format, 'Format', Icons.text_format_rounded),
+                const SizedBox(width: 4),
+                _tabChip(_TabId.insert, 'Insert', Icons.add_box_outlined),
+                const SizedBox(width: 4),
+                _tabChip(_TabId.data, 'Data', Icons.data_usage_rounded),
+                const SizedBox(width: 4),
+                _tabChip(_TabId.view, 'View', Icons.visibility_outlined),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          // Cell address badge.
+          if (widget.toolState.selectedCell != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF252525),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                widget.toolState.selectedCell!.label,
+                style: const TextStyle(
+                  color: Color(0xFF90CAF9),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+
+          const SizedBox(width: 6),
+
+          // Undo/Redo (always visible).
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF252525),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _miniButton(Icons.undo_rounded, 'Undo', widget.onUndo),
+                Container(width: 1, height: 16, color: const Color(0xFF3A3A3A)),
+                _miniButton(Icons.redo_rounded, 'Redo', widget.onRedo),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
+
+  Widget _tabChip(_TabId id, String label, IconData icon) {
+    final isSelected = _selectedTab == id;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTab = id),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color:
+              isSelected
+                  ? const Color(0xFF2D5FE0).withValues(alpha: 0.20)
+                  : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border:
+              isSelected
+                  ? Border.all(
+                    color: const Color(0xFF2D5FE0).withValues(alpha: 0.4),
+                    width: 0.5,
+                  )
+                  : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 14,
+              color:
+                  isSelected
+                      ? const Color(0xFF7EAAEF)
+                      : const Color(0xFF888888),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                color:
+                    isSelected
+                        ? const Color(0xFFCCDDFF)
+                        : const Color(0xFF888888),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _miniButton(IconData icon, String tooltip, VoidCallback? onPressed) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(4),
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: Icon(
+            icon,
+            size: 16,
+            color:
+                onPressed != null
+                    ? const Color(0xFFBBBBBB)
+                    : const Color(0xFF555555),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // =========================================================================
+  // Tab content — horizontally scrollable with grouped cards (56px)
+  // =========================================================================
+
+  Widget _buildTabContent() {
+    return SizedBox(
+      height: 56,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 120),
+        child: SingleChildScrollView(
+          key: ValueKey(_selectedTab),
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            children: switch (_selectedTab) {
+              _TabId.format => _formatTab(),
+              _TabId.insert => _insertTab(),
+              _TabId.data => _dataTab(),
+              _TabId.view => _viewTab(),
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Wraps a list of buttons in a visual group card with a label.
+  Widget _group(String label, List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF222222),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF333333), width: 0.5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: children),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 8,
+              color: Color(0xFF666666),
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // FORMAT tab
+  // =========================================================================
+
+  List<Widget> _formatTab() {
+    final sel = widget.toolState.hasCellSelection;
+    return [
+      _group('Style', [
+        _Btn(
+          icon: Icons.format_bold,
+          tooltip: 'Bold',
+          onPressed: sel ? widget.onToggleBold : null,
+          isActive: _isBold,
+        ),
+        _Btn(
+          icon: Icons.format_italic,
+          tooltip: 'Italic',
+          onPressed: sel ? widget.onToggleItalic : null,
+          isActive: _isItalic,
+        ),
+      ]),
+
+      _group('Align', [
+        _Btn(
+          icon: Icons.format_align_left,
+          tooltip: 'Left',
+          onPressed:
+              sel
+                  ? () => widget.onAlignmentChanged?.call(CellAlignment.left)
+                  : null,
+          isActive: _currentAlign == CellAlignment.left,
+        ),
+        _Btn(
+          icon: Icons.format_align_center,
+          tooltip: 'Center',
+          onPressed:
+              sel
+                  ? () => widget.onAlignmentChanged?.call(CellAlignment.center)
+                  : null,
+          isActive: _currentAlign == CellAlignment.center,
+        ),
+        _Btn(
+          icon: Icons.format_align_right,
+          tooltip: 'Right',
+          onPressed:
+              sel
+                  ? () => widget.onAlignmentChanged?.call(CellAlignment.right)
+                  : null,
+          isActive: _currentAlign == CellAlignment.right,
+        ),
+      ]),
+
+      _group('Color', [
+        _ColorBtn(
+          icon: Icons.format_color_text,
+          tooltip: 'Text color',
+          color: _textColor,
+          onPressed:
+              sel
+                  ? () => _showColorPicker(
+                    context,
+                    _textColor,
+                    widget.onTextColorChanged,
+                  )
+                  : null,
+        ),
+        _ColorBtn(
+          icon: Icons.format_color_fill,
+          tooltip: 'Fill color',
+          color: _bgColor,
+          onPressed:
+              sel
+                  ? () => _showColorPicker(
+                    context,
+                    _bgColor,
+                    widget.onBackgroundColorChanged,
+                  )
+                  : null,
+        ),
+      ]),
+
+      if (sel)
+        _group('Size', [
+          _FontSizeDropdown(
+            currentSize: _currentFontSize,
+            onChanged: widget.onFontSizeChanged,
+          ),
+        ]),
+    ];
+  }
+
+  // =========================================================================
+  // INSERT tab
+  // =========================================================================
+
+  List<Widget> _insertTab() {
+    final sel = widget.toolState.hasCellSelection;
+    return [
+      _group('Rows', [
+        _Btn(
+          icon: Icons.add_rounded,
+          tooltip: 'Insert row',
+          onPressed: widget.onInsertRow,
+        ),
+        _Btn(
+          icon: Icons.remove_rounded,
+          tooltip: 'Delete row',
+          onPressed: sel ? widget.onDeleteRow : null,
+        ),
+      ]),
+
+      _group('Columns', [
+        _Btn(
+          icon: Icons.add_rounded,
+          tooltip: 'Insert column',
+          onPressed: widget.onInsertColumn,
+        ),
+        _Btn(
+          icon: Icons.remove_rounded,
+          tooltip: 'Delete column',
+          onPressed: sel ? widget.onDeleteColumn : null,
+        ),
+      ]),
+
+      _group('Merge', [
+        _Btn(
+          icon: Icons.call_merge_rounded,
+          tooltip: 'Merge cells',
+          onPressed: sel ? widget.onMergeCells : null,
+        ),
+        _Btn(
+          icon: Icons.call_split_rounded,
+          tooltip: 'Unmerge cells',
+          onPressed: sel ? widget.onUnmergeCells : null,
+        ),
+      ]),
+    ];
+  }
+
+  // =========================================================================
+  // DATA tab
+  // =========================================================================
+
+  List<Widget> _dataTab() {
+    final sel = widget.toolState.hasCellSelection;
+    return [
+      _group('Number Format', [
+        _Btn(
+          icon: Icons.numbers_rounded,
+          tooltip: 'Number format',
+          onPressed: sel ? () => _showNumberFormatPicker(context) : null,
+        ),
+      ]),
+
+      _group('Validation', [
+        _Btn(
+          icon: Icons.rule_rounded,
+          tooltip: 'Validation rule',
+          onPressed: sel ? widget.onSetValidation : null,
+        ),
+      ]),
+
+      _group('Conditional', [
+        _Btn(
+          icon: Icons.format_paint_rounded,
+          tooltip: 'Conditional format',
+          onPressed: sel ? widget.onSetConditionalFormat : null,
+        ),
+      ]),
+
+      _group('Export Data', [
+        _Btn(
+          icon: Icons.functions_rounded, // or code, auto_awesome
+          tooltip: 'Generate LaTeX Table from Selection',
+          onPressed: sel ? widget.onGenerateLatex : null,
+        ),
+      ]),
+    ];
+  }
+
+  // =========================================================================
+  // VIEW tab
+  // =========================================================================
+
+  List<Widget> _viewTab() {
+    return [
+      _group('Freeze', [
+        _Btn(
+          icon: Icons.view_compact_rounded,
+          tooltip: 'Freeze panes',
+          onPressed: widget.onToggleFreeze,
+          isActive: widget.isFrozen,
+        ),
+      ]),
+
+      _group('CSV', [
+        _Btn(
+          icon: Icons.file_upload_outlined,
+          tooltip: 'Import CSV',
+          onPressed: widget.onImportCsv,
+        ),
+        _Btn(
+          icon: Icons.file_download_outlined,
+          tooltip: 'Export CSV',
+          onPressed: widget.onExportCsv,
+        ),
+      ]),
+
+      _group('XLSX', [
+        _Btn(
+          icon: Icons.grid_on_rounded,
+          tooltip: 'Import XLSX',
+          onPressed: widget.onImportXlsx,
+        ),
+        _Btn(
+          icon: Icons.grid_view_rounded,
+          tooltip: 'Export XLSX',
+          onPressed: widget.onExportXlsx,
+        ),
+      ]),
+    ];
+  }
+
+  // =========================================================================
+  // Format state helpers
+  // =========================================================================
+
+  bool get _isBold => _selectedCellNode?.format?.bold ?? false;
+  bool get _isItalic => _selectedCellNode?.format?.italic ?? false;
+  Color get _textColor =>
+      _selectedCellNode?.format?.textColor ?? const Color(0xFFE0E0E0);
+  Color get _bgColor =>
+      _selectedCellNode?.format?.backgroundColor ?? Colors.transparent;
+  CellAlignment? get _currentAlign =>
+      _selectedCellNode?.format?.horizontalAlign;
+  double get _currentFontSize => _selectedCellNode?.format?.fontSize ?? 13.0;
+
+  CellNode? get _selectedCellNode {
+    if (widget.toolState.activeNode == null ||
+        widget.toolState.selectedCell == null) {
+      return null;
+    }
+    return widget.toolState.activeNode!.model.getCell(
+      widget.toolState.selectedCell!,
+    );
+  }
+
+  // =========================================================================
+  // Dialogs
+  // =========================================================================
 
   void _showColorPicker(
     BuildContext context,
     Color currentColor,
-    ValueChanged<Color>? onChanged,
+    ValueChanged<Color>? onColorChanged,
   ) {
-    if (onChanged == null) return;
+    if (onColorChanged == null) return;
 
-    final colors = [
+    const colors = [
       Colors.white,
-      const Color(0xFFE0E0E0),
-      const Color(0xFF9E9E9E),
-      const Color(0xFF424242),
       Colors.black,
-      const Color(0xFFFF4444),
-      const Color(0xFFFF8A65),
-      const Color(0xFFFFD54F),
-      const Color(0xFF81C784),
-      const Color(0xFF4FC3F7),
-      const Color(0xFF7986CB),
-      const Color(0xFFBA68C8),
+      Colors.red,
+      Colors.pink,
+      Colors.purple,
+      Colors.deepPurple,
+      Colors.indigo,
+      Colors.blue,
+      Colors.lightBlue,
+      Colors.cyan,
+      Colors.teal,
+      Colors.green,
+      Colors.lightGreen,
+      Colors.lime,
+      Colors.yellow,
+      Colors.amber,
+      Colors.orange,
+      Colors.deepOrange,
+      Colors.brown,
+      Colors.grey,
     ];
 
     showDialog(
       context: context,
       builder:
-          (ctx) => AlertDialog(
+          (ctx) => SimpleDialog(
             backgroundColor: const Color(0xFF2A2A2A),
-            contentPadding: const EdgeInsets.all(16),
-            content: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children:
-                  colors.map((c) {
-                    return InkWell(
-                      onTap: () {
-                        onChanged(c);
-                        Navigator.of(ctx).pop();
-                      },
-                      borderRadius: BorderRadius.circular(4),
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: c,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color:
-                                c == currentColor
-                                    ? const Color(0xFF4A90D9)
-                                    : const Color(0xFF555555),
-                            width: c == currentColor ? 2 : 1,
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
+            title: const Text(
+              'Pick Color',
+              style: TextStyle(color: Color(0xFFE0E0E0), fontSize: 16),
             ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children:
+                      colors.map((c) {
+                        return GestureDetector(
+                          onTap: () {
+                            onColorChanged(c);
+                            Navigator.of(ctx).pop();
+                          },
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: c,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color:
+                                    c == currentColor
+                                        ? const Color(0xFF90CAF9)
+                                        : const Color(0xFF555555),
+                                width: c == currentColor ? 2 : 0.5,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                ),
+              ),
+            ],
           ),
     );
   }
 
   void _showNumberFormatPicker(BuildContext context) {
-    if (onNumberFormatChanged == null) return;
+    if (widget.onNumberFormatChanged == null) return;
 
-    final formats = <(String, String)>[
+    final formats = [
       ('General', ''),
       ('Number', '#,##0.00'),
       ('Currency', '\$#,##0.00'),
       ('Percentage', '0.00%'),
       ('Date', 'yyyy-mm-dd'),
-      ('Scientific', '0.00E+0'),
+      ('Scientific', '0.00E+00'),
       ('Text', '@'),
     ];
 
@@ -481,7 +664,7 @@ class TabularContextualToolbar extends StatelessWidget {
                 formats.map((f) {
                   return SimpleDialogOption(
                     onPressed: () {
-                      onNumberFormatChanged!(f.$2);
+                      widget.onNumberFormatChanged!(f.$2);
                       Navigator.of(ctx).pop();
                     },
                     child: Row(
@@ -509,17 +692,18 @@ class TabularContextualToolbar extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Internal button widgets
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Toolbar button widgets — large (38×38) with proper tap targets
+// ===========================================================================
 
-class _ToolbarIconButton extends StatelessWidget {
+/// Standard toolbar action button — 38×38 with 20px icon.
+class _Btn extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
   final bool isActive;
 
-  const _ToolbarIconButton({
+  const _Btn({
     required this.icon,
     required this.tooltip,
     this.onPressed,
@@ -531,20 +715,25 @@ class _ToolbarIconButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: isActive ? const Color(0xFF3A3A3A) : Colors.transparent,
-        borderRadius: BorderRadius.circular(4),
+        color:
+            isActive
+                ? const Color(0xFF2D5FE0).withValues(alpha: 0.25)
+                : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(6),
           child: SizedBox(
-            width: 32,
-            height: 32,
+            width: 38,
+            height: 38,
             child: Icon(
               icon,
-              size: 18,
+              size: 20,
               color:
                   onPressed != null
-                      ? const Color(0xFFCCCCCC)
+                      ? (isActive
+                          ? const Color(0xFF90CAF9)
+                          : const Color(0xFFD0D0D0))
                       : const Color(0xFF555555),
             ),
           ),
@@ -554,13 +743,14 @@ class _ToolbarIconButton extends StatelessWidget {
   }
 }
 
-class _ToolbarColorButton extends StatelessWidget {
+/// Color picker button with colored underline.
+class _ColorBtn extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final Color color;
   final VoidCallback? onPressed;
 
-  const _ToolbarColorButton({
+  const _ColorBtn({
     required this.icon,
     required this.tooltip,
     required this.color,
@@ -573,28 +763,28 @@ class _ToolbarColorButton extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(6),
         child: SizedBox(
-          width: 32,
-          height: 32,
+          width: 38,
+          height: 38,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 icon,
-                size: 16,
+                size: 18,
                 color:
                     onPressed != null
-                        ? const Color(0xFFCCCCCC)
+                        ? const Color(0xFFD0D0D0)
                         : const Color(0xFF555555),
               ),
               Container(
-                width: 14,
-                height: 3,
-                margin: const EdgeInsets.only(top: 1),
+                width: 16,
+                height: 4,
+                margin: const EdgeInsets.only(top: 2),
                 decoration: BoxDecoration(
                   color: color,
-                  borderRadius: BorderRadius.circular(1),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ],
@@ -605,6 +795,7 @@ class _ToolbarColorButton extends StatelessWidget {
   }
 }
 
+/// Compact font size dropdown.
 class _FontSizeDropdown extends StatelessWidget {
   final double currentSize;
   final ValueChanged<double>? onChanged;
@@ -629,57 +820,54 @@ class _FontSizeDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: SizedBox(
-        width: 52,
-        height: 28,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xFF2A2A2A),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: const Color(0xFF444444), width: 0.5),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<double>(
-              value: _sizes.contains(currentSize) ? currentSize : null,
-              hint: Text(
-                currentSize.round().toString(),
-                style: const TextStyle(
-                  color: Color(0xFFCCCCCC),
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              isDense: true,
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              dropdownColor: const Color(0xFF2A2A2A),
+    return SizedBox(
+      width: 56,
+      height: 32,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFF444444), width: 0.5),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<double>(
+            value: _sizes.contains(currentSize) ? currentSize : null,
+            hint: Text(
+              currentSize.round().toString(),
               style: const TextStyle(
                 color: Color(0xFFCCCCCC),
-                fontSize: 11,
+                fontSize: 12,
                 fontFamily: 'monospace',
               ),
-              icon: const Icon(
-                Icons.arrow_drop_down,
-                size: 14,
-                color: Color(0xFF888888),
-              ),
-              items:
-                  _sizes
-                      .map(
-                        (s) => DropdownMenuItem(
-                          value: s,
-                          child: Text('${s.round()}'),
-                        ),
-                      )
-                      .toList(),
-              onChanged:
-                  onChanged != null
-                      ? (v) {
-                        if (v != null) onChanged!(v);
-                      }
-                      : null,
             ),
+            isDense: true,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            dropdownColor: const Color(0xFF2A2A2A),
+            style: const TextStyle(
+              color: Color(0xFFCCCCCC),
+              fontSize: 12,
+              fontFamily: 'monospace',
+            ),
+            icon: const Icon(
+              Icons.arrow_drop_down,
+              size: 16,
+              color: Color(0xFF888888),
+            ),
+            items:
+                _sizes
+                    .map(
+                      (s) => DropdownMenuItem(
+                        value: s,
+                        child: Text('${s.round()}'),
+                      ),
+                    )
+                    .toList(),
+            onChanged:
+                onChanged != null
+                    ? (v) {
+                      if (v != null) onChanged!(v);
+                    }
+                    : null,
           ),
         ),
       ),

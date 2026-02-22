@@ -1,18 +1,40 @@
 import 'dart:ui' as ui;
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' hide Image;
+import 'package:logging/logging.dart';
+
 import '../core/scene_graph/canvas_node.dart';
 import '../core/scene_graph/scene_graph.dart';
 import '../core/nodes/group_node.dart';
 import '../core/nodes/frame_node.dart';
 import '../core/nodes/path_node.dart';
 import '../core/nodes/text_node.dart';
+import '../core/nodes/image_node.dart';
 import '../core/nodes/rich_text_node.dart';
 import '../core/nodes/shape_node.dart';
 import '../rendering/scene_graph/scene_graph_renderer.dart';
+import 'pdf_export_writer.dart';
+import 'saved_export_area.dart';
+import 'raster_image_encoder.dart';
 
 /// Supported export formats.
-enum ExportFormat { png, svg }
+enum ExportFormat {
+  /// Lossless raster (default).
+  png,
+
+  /// Lossy raster with configurable quality.
+  jpeg,
+
+  /// Modern lossy/lossless raster format.
+  webp,
+
+  /// Scalable vector graphics.
+  svg,
+
+  /// Portable Document Format (vector).
+  pdf,
+}
 
 /// Export configuration.
 class ExportConfig {
@@ -34,8 +56,23 @@ class ExportConfig {
   /// Whether to include hidden layers in the export.
   final bool includeHidden;
 
-  /// Quality for PNG compression (0-100). Higher = larger file.
+  /// Quality for lossy compression (0-100). Higher = better quality.
+  /// Applies to JPEG and WebP formats. Ignored for PNG/SVG/PDF.
   final int quality;
+
+  // PDF-specific options
+
+  /// Enable PDF/A-1b archival conformance.
+  final bool pdfAConformance;
+
+  /// Watermark text to overlay on PDF pages.
+  final String? pdfWatermark;
+
+  /// Password to protect the PDF (future use).
+  final String? pdfPassword;
+
+  /// Enable Flate compression for PDF streams.
+  final bool enableCompression;
 
   const ExportConfig({
     this.format = ExportFormat.png,
@@ -44,7 +81,11 @@ class ExportConfig {
     this.region,
     this.padding = 0,
     this.includeHidden = false,
-    this.quality = 100,
+    this.quality = 85,
+    this.pdfAConformance = false,
+    this.pdfWatermark,
+    this.pdfPassword,
+    this.enableCompression = true,
   });
 
   /// Create a 1x PNG export config.
@@ -55,7 +96,11 @@ class ExportConfig {
     this.includeHidden = false,
   }) : format = ExportFormat.png,
        pixelRatio = 1.0,
-       quality = 100;
+       quality = 100,
+       pdfAConformance = false,
+       pdfWatermark = null,
+       pdfPassword = null,
+       enableCompression = true;
 
   /// Create a 2x PNG export config (Retina).
   const ExportConfig.png2x({
@@ -65,7 +110,11 @@ class ExportConfig {
     this.includeHidden = false,
   }) : format = ExportFormat.png,
        pixelRatio = 2.0,
-       quality = 100;
+       quality = 100,
+       pdfAConformance = false,
+       pdfWatermark = null,
+       pdfPassword = null,
+       enableCompression = true;
 
   /// Create a 3x PNG export config.
   const ExportConfig.png3x({
@@ -75,7 +124,11 @@ class ExportConfig {
     this.includeHidden = false,
   }) : format = ExportFormat.png,
        pixelRatio = 3.0,
-       quality = 100;
+       quality = 100,
+       pdfAConformance = false,
+       pdfWatermark = null,
+       pdfPassword = null,
+       enableCompression = true;
 }
 
 /// Result of an export operation.
@@ -93,15 +146,34 @@ class ExportResult {
   final ui.Size pixelSize;
 
   /// File extension for the export format.
-  String get extension => format.name;
+  String get extension {
+    switch (format) {
+      case ExportFormat.png:
+        return 'png';
+      case ExportFormat.jpeg:
+        return 'jpg';
+      case ExportFormat.webp:
+        return 'webp';
+      case ExportFormat.svg:
+        return 'svg';
+      case ExportFormat.pdf:
+        return 'pdf';
+    }
+  }
 
   /// MIME type for the export format.
   String get mimeType {
     switch (format) {
       case ExportFormat.png:
         return 'image/png';
+      case ExportFormat.jpeg:
+        return 'image/jpeg';
+      case ExportFormat.webp:
+        return 'image/webp';
       case ExportFormat.svg:
         return 'image/svg+xml';
+      case ExportFormat.pdf:
+        return 'application/pdf';
     }
   }
 
@@ -128,8 +200,10 @@ class ExportResult {
 /// ```
 class ExportPipeline {
   final SceneGraphRenderer _renderer;
+  final RasterImageEncoder _rasterEncoder;
 
-  ExportPipeline(this._renderer);
+  ExportPipeline(this._renderer, {RasterImageEncoder? rasterEncoder})
+    : _rasterEncoder = rasterEncoder ?? RasterImageEncoder();
 
   /// Export the entire scene graph.
   Future<ExportResult> exportSceneGraph(
@@ -152,8 +226,24 @@ class ExportPipeline {
     switch (config.format) {
       case ExportFormat.png:
         return _exportPng(sceneGraph, expandedBounds, config);
+      case ExportFormat.jpeg:
+        return _exportRasterFormat(
+          sceneGraph,
+          expandedBounds,
+          config,
+          ExportFormat.jpeg,
+        );
+      case ExportFormat.webp:
+        return _exportRasterFormat(
+          sceneGraph,
+          expandedBounds,
+          config,
+          ExportFormat.webp,
+        );
       case ExportFormat.svg:
         return _exportSvg(sceneGraph, expandedBounds, config);
+      case ExportFormat.pdf:
+        return _exportPdf(sceneGraph, expandedBounds, config);
     }
   }
 
@@ -167,8 +257,13 @@ class ExportPipeline {
     switch (config.format) {
       case ExportFormat.png:
         return _exportNodePng(node, expandedBounds, config);
+      case ExportFormat.jpeg:
+      case ExportFormat.webp:
+        return _exportNodeRaster(node, expandedBounds, config);
       case ExportFormat.svg:
         return _exportNodeSvg(node, expandedBounds, config);
+      case ExportFormat.pdf:
+        return _exportNodePdf(node, expandedBounds, config);
     }
   }
 
@@ -201,8 +296,13 @@ class ExportPipeline {
     switch (config.format) {
       case ExportFormat.png:
         return _exportMultiNodePng(nodes, expandedBounds, config);
+      case ExportFormat.jpeg:
+      case ExportFormat.webp:
+        return _exportMultiNodeRaster(nodes, expandedBounds, config);
       case ExportFormat.svg:
         return _exportNodeSvg(nodes.first, expandedBounds, config);
+      case ExportFormat.pdf:
+        return _exportPdf(null, expandedBounds, config, nodes: nodes);
     }
   }
 
@@ -506,10 +606,275 @@ class ExportPipeline {
   }
 
   // ---------------------------------------------------------------------------
+  // JPEG / WebP raster export
+  // ---------------------------------------------------------------------------
+
+  /// Export scene graph as JPEG or WebP.
+  Future<ExportResult> _exportRasterFormat(
+    SceneGraph sceneGraph,
+    ui.Rect bounds,
+    ExportConfig config,
+    ExportFormat format,
+  ) async {
+    // First render to a raster image (same as PNG).
+    final pixelWidth = (bounds.width * config.pixelRatio).ceil();
+    final pixelHeight = (bounds.height * config.pixelRatio).ceil();
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(
+      recorder,
+      ui.Rect.fromLTWH(0, 0, pixelWidth.toDouble(), pixelHeight.toDouble()),
+    );
+
+    canvas.scale(config.pixelRatio);
+    canvas.translate(-bounds.left, -bounds.top);
+
+    // For JPEG, always draw a white background (no transparency).
+    final bgColor =
+        config.backgroundColor ??
+        (format == ExportFormat.jpeg ? const ui.Color(0xFFFFFFFF) : null);
+    if (bgColor != null) {
+      canvas.drawRect(bounds, ui.Paint()..color = bgColor);
+    }
+
+    _renderer.render(canvas, sceneGraph, bounds);
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelWidth, pixelHeight);
+
+    Uint8List? encoded;
+    if (format == ExportFormat.jpeg) {
+      encoded = await _rasterEncoder.encodeImageToJpeg(
+        image,
+        quality: config.quality,
+      );
+    } else {
+      encoded = await _rasterEncoder.encodeImageToWebp(
+        image,
+        quality: config.quality,
+      );
+    }
+
+    picture.dispose();
+    image.dispose();
+
+    // If native encoding failed, fall back to PNG.
+    if (encoded == null) {
+      return _exportPng(sceneGraph, bounds, config);
+    }
+
+    return ExportResult(
+      bytes: encoded,
+      format: format,
+      logicalSize: ui.Size(bounds.width, bounds.height),
+      pixelSize: ui.Size(pixelWidth.toDouble(), pixelHeight.toDouble()),
+    );
+  }
+
+  /// Export a single node as JPEG or WebP.
+  Future<ExportResult> _exportNodeRaster(
+    CanvasNode node,
+    ui.Rect bounds,
+    ExportConfig config,
+  ) async {
+    final pixelWidth = (bounds.width * config.pixelRatio).ceil();
+    final pixelHeight = (bounds.height * config.pixelRatio).ceil();
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(
+      recorder,
+      ui.Rect.fromLTWH(0, 0, pixelWidth.toDouble(), pixelHeight.toDouble()),
+    );
+
+    canvas.scale(config.pixelRatio);
+    canvas.translate(-bounds.left, -bounds.top);
+
+    final bgColor =
+        config.backgroundColor ??
+        (config.format == ExportFormat.jpeg
+            ? const ui.Color(0xFFFFFFFF)
+            : null);
+    if (bgColor != null) {
+      canvas.drawRect(bounds, ui.Paint()..color = bgColor);
+    }
+
+    _renderer.renderNode(canvas, node, bounds);
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelWidth, pixelHeight);
+
+    Uint8List? encoded;
+    if (config.format == ExportFormat.jpeg) {
+      encoded = await _rasterEncoder.encodeImageToJpeg(
+        image,
+        quality: config.quality,
+      );
+    } else {
+      encoded = await _rasterEncoder.encodeImageToWebp(
+        image,
+        quality: config.quality,
+      );
+    }
+
+    picture.dispose();
+    image.dispose();
+
+    if (encoded == null) {
+      return _exportNodePng(node, bounds, config);
+    }
+
+    return ExportResult(
+      bytes: encoded,
+      format: config.format,
+      logicalSize: ui.Size(bounds.width, bounds.height),
+      pixelSize: ui.Size(pixelWidth.toDouble(), pixelHeight.toDouble()),
+    );
+  }
+
+  /// Export multiple nodes as JPEG or WebP.
+  Future<ExportResult> _exportMultiNodeRaster(
+    List<CanvasNode> nodes,
+    ui.Rect bounds,
+    ExportConfig config,
+  ) async {
+    final pixelWidth = (bounds.width * config.pixelRatio).ceil();
+    final pixelHeight = (bounds.height * config.pixelRatio).ceil();
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(
+      recorder,
+      ui.Rect.fromLTWH(0, 0, pixelWidth.toDouble(), pixelHeight.toDouble()),
+    );
+
+    canvas.scale(config.pixelRatio);
+    canvas.translate(-bounds.left, -bounds.top);
+
+    final bgColor =
+        config.backgroundColor ??
+        (config.format == ExportFormat.jpeg
+            ? const ui.Color(0xFFFFFFFF)
+            : null);
+    if (bgColor != null) {
+      canvas.drawRect(bounds, ui.Paint()..color = bgColor);
+    }
+
+    for (final node in nodes) {
+      _renderer.renderNode(canvas, node, bounds);
+    }
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelWidth, pixelHeight);
+
+    Uint8List? encoded;
+    if (config.format == ExportFormat.jpeg) {
+      encoded = await _rasterEncoder.encodeImageToJpeg(
+        image,
+        quality: config.quality,
+      );
+    } else {
+      encoded = await _rasterEncoder.encodeImageToWebp(
+        image,
+        quality: config.quality,
+      );
+    }
+
+    picture.dispose();
+    image.dispose();
+
+    if (encoded == null) {
+      return _exportMultiNodePng(nodes, bounds, config);
+    }
+
+    return ExportResult(
+      bytes: encoded,
+      format: config.format,
+      logicalSize: ui.Size(bounds.width, bounds.height),
+      pixelSize: ui.Size(pixelWidth.toDouble(), pixelHeight.toDouble()),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // PDF vector export
+  // ---------------------------------------------------------------------------
+
+  /// Export scene graph or specific nodes as a vector PDF.
+  Future<ExportResult> _exportPdf(
+    SceneGraph? sceneGraph,
+    ui.Rect bounds,
+    ExportConfig config, {
+    List<CanvasNode>? nodes,
+  }) async {
+    final writer = PdfExportWriter(enableCompression: config.enableCompression);
+
+    // Apply PDF-specific configuration.
+    writer.pdfAConformance = config.pdfAConformance;
+    if (config.pdfWatermark != null && config.pdfWatermark!.isNotEmpty) {
+      writer.setWatermark(
+        PdfWatermark(
+          text: config.pdfWatermark!,
+          position: WatermarkPosition.diagonal,
+          opacity: 0.15,
+        ),
+      );
+    }
+
+    if (sceneGraph != null) {
+      writer.exportSceneGraph(sceneGraph, bounds);
+    } else if (nodes != null && nodes.isNotEmpty) {
+      writer.beginPage(width: bounds.width, height: bounds.height);
+      for (final node in nodes) {
+        writer.exportNode(node, bounds);
+      }
+    } else {
+      writer.beginPage(width: bounds.width, height: bounds.height);
+    }
+
+    final bytes = writer.finish(title: 'Nebula Engine Export');
+
+    return ExportResult(
+      bytes: bytes,
+      format: ExportFormat.pdf,
+      logicalSize: ui.Size(bounds.width, bounds.height),
+      pixelSize: ui.Size(bounds.width, bounds.height),
+    );
+  }
+
+  /// Export a single node as PDF.
+  Future<ExportResult> _exportNodePdf(
+    CanvasNode node,
+    ui.Rect bounds,
+    ExportConfig config,
+  ) async {
+    final writer = PdfExportWriter(enableCompression: config.enableCompression);
+
+    // Apply PDF-specific configuration.
+    writer.pdfAConformance = config.pdfAConformance;
+    if (config.pdfWatermark != null && config.pdfWatermark!.isNotEmpty) {
+      writer.setWatermark(
+        PdfWatermark(
+          text: config.pdfWatermark!,
+          position: WatermarkPosition.diagonal,
+          opacity: 0.15,
+        ),
+      );
+    }
+
+    writer.exportNode(node, bounds);
+    final bytes = writer.finish(title: 'Nebula Engine Export');
+
+    return ExportResult(
+      bytes: bytes,
+      format: ExportFormat.pdf,
+      logicalSize: ui.Size(bounds.width, bounds.height),
+      pixelSize: ui.Size(bounds.width, bounds.height),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
-  /// Calculatate the bounding box of all visible content.
+  /// Calculate the bounding box of all visible content.
   ui.Rect _calculateContentBounds(SceneGraph sceneGraph) {
     ui.Rect? bounds;
     for (final node in sceneGraph.allNodes) {

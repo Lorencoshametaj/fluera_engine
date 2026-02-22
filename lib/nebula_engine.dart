@@ -103,6 +103,11 @@ export 'src/core/tabular/spreadsheet_evaluator.dart';
 export 'src/core/tabular/spreadsheet_workbook.dart';
 export 'src/core/tabular/tabular_cell_stream.dart';
 export 'src/core/tabular/tabular_latex_bridge.dart';
+export 'src/core/tabular/latex_report_template.dart';
+export 'src/core/tabular/tikz_chart_generator.dart';
+export 'src/core/tabular/latex_table_parser.dart';
+export 'src/core/tabular/formula_to_latex.dart';
+export 'src/export/latex_file_exporter.dart';
 export 'src/core/tabular/tabular_csv.dart';
 export 'src/core/tabular/tabular_clipboard.dart';
 export 'src/core/tabular/cell_number_formatter.dart';
@@ -368,6 +373,21 @@ export 'src/time_travel/widgets/synchronized_playback_overlay.dart';
 
 // ────────────────────────── HISTORY ──────────────────────────
 export 'src/history/command_history.dart';
+export 'src/history/version_history.dart';
+export 'src/core/layout/layout_grid.dart';
+export 'src/core/transforms/transform_3d.dart';
+export 'src/systems/preferred_values.dart';
+export 'src/systems/component_set.dart';
+
+// ────────────────────────── UI WIRING ──────────────────────────
+export 'src/canvas/overlays/layout_grid_overlay.dart';
+export 'src/canvas/overlays/design_comments_overlay.dart';
+export 'src/canvas/widgets/version_history_panel.dart';
+export 'src/canvas/toolbar/svg_import_action.dart';
+export 'src/rendering/scene_graph/transform_3d_interceptor.dart';
+export 'src/rendering/scene_graph/nested_instance_interceptor.dart';
+export 'src/canvas/widgets/preferred_value_picker.dart';
+export 'src/canvas/widgets/component_set_browser.dart';
 export 'src/history/command_journal.dart';
 export 'src/history/journal_recovery_middleware.dart';
 export 'src/history/command_middlewares.dart';
@@ -403,6 +423,7 @@ export 'src/collaboration/widgets/connected_users_strip.dart';
 export 'src/collaboration/realtime_enterprise.dart' hide AuditAction;
 export 'src/collaboration/conflict_resolution.dart';
 export 'src/collaboration/widgets/conflict_resolution_dialog.dart';
+export 'src/collaboration/design_comment.dart';
 
 // ────────────────────────── EXPORT ──────────────────────────
 export 'src/export/export_pipeline.dart';
@@ -411,6 +432,10 @@ export 'src/export/saved_export_area.dart';
 export 'src/export/timelapse_export_config.dart';
 export 'src/export/binary_canvas_format.dart';
 export 'src/export/pdf_annotation_exporter.dart';
+export 'src/export/pdf_export_writer.dart';
+export 'src/export/svg_importer.dart';
+export 'src/export/raster_image_encoder.dart';
+export 'src/export/raster_encoder_channel.dart';
 
 // ────────────────────────── AUDIO ──────────────────────────
 export 'src/audio/native_audio_models.dart';
@@ -430,6 +455,9 @@ export 'src/systems/dirty_tracker.dart';
 export 'src/systems/spatial_index.dart';
 export 'src/systems/style_system.dart';
 export 'src/systems/prototype_flow.dart';
+export 'src/systems/smart_animate_engine.dart';
+export 'src/systems/smart_animate_snapshot.dart';
+export 'src/systems/nested_instance_resolver.dart';
 export 'src/systems/plugin_api.dart';
 export 'src/systems/plugin_budget.dart';
 export 'src/systems/sandboxed_event_stream.dart';
@@ -446,6 +474,35 @@ export 'src/systems/variable_commands.dart';
 export 'src/systems/variable_resolver.dart';
 export 'src/systems/variable_scope.dart';
 export 'src/systems/design_token_exporter.dart';
+
+// Dev Handoff / Inspect Mode
+export 'src/systems/dev_handoff/inspect_engine.dart';
+export 'src/systems/dev_handoff/code_generator.dart';
+export 'src/systems/dev_handoff/asset_manifest.dart';
+export 'src/systems/dev_handoff/redline_overlay.dart';
+export 'src/systems/dev_handoff/token_resolver.dart';
+
+// Component Interactive States
+export 'src/systems/component_state_machine.dart';
+export 'src/systems/component_state_resolver.dart';
+
+// Semantic Tokens & Theme Switching
+export 'src/systems/semantic_token.dart';
+export 'src/systems/theme_manager.dart';
+
+// Advanced Animation
+export 'src/systems/spring_simulation.dart';
+export 'src/systems/path_motion.dart';
+export 'src/systems/stagger_animation.dart';
+
+// Advanced Typography
+export 'src/systems/variable_font.dart';
+export 'src/systems/opentype_features.dart';
+export 'src/systems/text_auto_resize.dart';
+
+// Advanced Image Editing
+export 'src/systems/image_adjustment.dart';
+export 'src/systems/image_fill_mode.dart';
 
 // ────────────────────────── CANVAS (Screen) ──────────────────────────
 export 'src/canvas/nebula_canvas_screen.dart';

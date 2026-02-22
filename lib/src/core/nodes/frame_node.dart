@@ -1232,6 +1232,62 @@ class FrameNode extends GroupNode {
     }
   }
 
+  /// Resize this frame and recursively propagate constraints to all
+  /// nested [FrameNode] children at any depth.
+  ///
+  /// This is the top-level entry point for responsive resize. It:
+  /// 1. Applies pin constraints to direct children
+  /// 2. For any child that is a [FrameNode], recursively propagates
+  ///    the resize to its children
+  /// 3. Re-runs layout at each level to update positions
+  ///
+  /// ```dart
+  /// frame.resizeWithConstraintPropagation(
+  ///   Size(400, 300), // old size
+  ///   Size(600, 400), // new size
+  /// );
+  /// ```
+  void resizeWithConstraintPropagation(Size oldSize, Size newSize) {
+    frameSize = newSize;
+    applyPinConstraints(oldSize, newSize);
+    _propagateToNestedFrames(oldSize, newSize);
+    performLayout();
+  }
+
+  /// Recursively propagate resize constraints to nested [FrameNode] children.
+  void _propagateToNestedFrames(Size parentOldSize, Size parentNewSize) {
+    for (final child in children) {
+      if (child is FrameNode && child.frameSize != null) {
+        final childConstraint = constraintFor(child.id);
+        final childOldSize = child.frameSize!;
+
+        // Compute new child size based on pin constraints.
+        double newW = childOldSize.width;
+        double newH = childOldSize.height;
+        final dw = parentNewSize.width - parentOldSize.width;
+        final dh = parentNewSize.height - parentOldSize.height;
+
+        if (childConstraint.pinLeft && childConstraint.pinRight) {
+          newW += dw;
+        }
+        if (childConstraint.pinTop && childConstraint.pinBottom) {
+          newH += dh;
+        }
+
+        // Clamp to min/max.
+        newW = newW.clamp(childConstraint.minWidth, childConstraint.maxWidth);
+        newH = newH.clamp(childConstraint.minHeight, childConstraint.maxHeight);
+
+        final childNewSize = Size(newW, newH);
+
+        if (childNewSize != childOldSize) {
+          // Recurse into nested frame.
+          child.resizeWithConstraintPropagation(childOldSize, childNewSize);
+        }
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Bounds override
   // ---------------------------------------------------------------------------

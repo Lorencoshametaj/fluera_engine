@@ -52,7 +52,7 @@ import '../tools/ruler/ruler_guide_system.dart';
 import '../tools/flood_fill/flood_fill_tool.dart';
 import '../tools/pen/pen_tool.dart';
 import '../tools/shape/shape_recognizer.dart';
-import '../platform/pix2tex_recognizer.dart';
+import '../platform/hme_latex_recognizer.dart';
 import '../platform/ink_rasterizer.dart';
 import '../platform/latex_recognition_bridge.dart';
 import '../core/latex/ink_stroke_data.dart';
@@ -140,6 +140,62 @@ import '../core/tabular/cell_node.dart';
 import '../core/tabular/cell_value.dart';
 import '../core/tabular/tabular_clipboard.dart';
 import '../core/tabular/tabular_csv.dart';
+import '../core/tabular/latex_report_template.dart';
+import '../rendering/canvas/latex_provenance_overlay_painter.dart';
+
+// ─── Design SDK modules ────────────────────────────────────────────────────
+import '../systems/prototype_flow.dart';
+import '../systems/animation_timeline.dart';
+import '../systems/animation_player.dart';
+import '../systems/spring_simulation.dart';
+import '../systems/stagger_animation.dart';
+import '../systems/path_motion.dart';
+import '../systems/smart_animate_engine.dart';
+import '../systems/smart_animate_snapshot.dart';
+import '../systems/smart_snap_engine.dart';
+import '../systems/design_linter.dart';
+import '../systems/style_system.dart';
+import '../systems/accessibility_bridge.dart';
+import '../systems/accessibility_tree.dart';
+import '../systems/nested_instance_resolver.dart';
+import '../systems/image_adjustment.dart';
+import '../systems/image_fill_mode.dart';
+import '../systems/text_auto_resize.dart';
+import '../systems/plugin_api.dart';
+import '../systems/plugin_budget.dart';
+import '../systems/sandboxed_event_stream.dart';
+import '../systems/responsive_breakpoint.dart';
+import '../systems/responsive_variant.dart';
+import '../systems/animation_commands.dart';
+import '../systems/component_state_machine.dart';
+import '../systems/component_state_resolver.dart';
+import '../systems/dirty_tracker.dart';
+import '../systems/engine_theme.dart';
+import '../systems/opentype_features.dart';
+import '../systems/selection_manager.dart';
+import '../systems/selection_query.dart';
+import '../systems/semantic_token.dart';
+import '../systems/theme_manager.dart';
+import '../systems/variable_font.dart';
+import '../systems/variable_scope.dart';
+import '../systems/dev_handoff/inspect_engine.dart';
+import '../systems/dev_handoff/redline_overlay.dart';
+import '../systems/dev_handoff/code_generator.dart';
+import '../systems/dev_handoff/asset_manifest.dart';
+import '../systems/dev_handoff/token_resolver.dart';
+import '../systems/component_set.dart';
+import '../systems/layout_engine.dart';
+import '../systems/preferred_values.dart';
+import '../collaboration/scene_graph_crdt.dart';
+import '../export/nebula_file_format.dart';
+
+// ─── Design overlay panels ─────────────────────────────────────────────────
+import './overlays/animation_timeline_panel.dart';
+import './overlays/dev_handoff_panel.dart';
+import './overlays/design_quality_panel.dart';
+import './overlays/responsive_preview_panel.dart';
+import './overlays/image_adjustment_panel.dart';
+import './overlays/token_export_dialog.dart';
 
 // ============================================================================
 // PART FILES
@@ -164,6 +220,14 @@ part './parts/_design_variables.dart';
 part './parts/_latex_handler.dart';
 part './parts/_latex_recognition_handler.dart';
 part './parts/_tabular_handler.dart';
+
+// 🎨 Design Features
+part './parts/_prototype_animation.dart';
+part './parts/_dev_handoff.dart';
+part './parts/_component_system.dart';
+part './parts/_responsive_design.dart';
+part './parts/_design_quality.dart';
+part './parts/_advanced_export.dart';
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -771,6 +835,21 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   BranchingManager? _branchingManager;
   String? _activeBranchId;
   String? _activeBranchName;
+
+  // ============================================================================
+  // 🎨 DESIGN FEATURES STATE
+  // ============================================================================
+
+  /// 🛠️ Inspect mode (dev handoff measurements)
+  bool _isInspectModeActive = false;
+  InspectEngine? _activeInspectEngine;
+
+  /// 📏 Redline overlay (spec annotations)
+  bool _isRedlineActive = false;
+
+  /// 🔲 Smart snap engine
+  bool _isSmartSnapEnabled = false;
+  SmartSnapEngine? _smartSnapEngine;
 
   @override
   void initState() {

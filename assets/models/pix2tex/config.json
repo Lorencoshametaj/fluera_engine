@@ -1,0 +1,9 @@
+{
+  "bos_token": 1,
+  "eos_token": 2,
+  "vocab_size": 1175,
+  "max_seq_len": 512,
+  "img_channels": 1,
+  "encoder_input_height": 192,
+  "encoder_input_width": 672
+}

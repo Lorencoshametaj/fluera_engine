@@ -25,6 +25,12 @@ class TabularToolState extends ChangeNotifier {
   /// Range selection end.
   CellAddress? _selectionEnd;
 
+  /// Entire selected row index (null if not a full-row selection).
+  int? _selectedRow;
+
+  /// Entire selected column index (null if not a full-column selection).
+  int? _selectedColumn;
+
   /// Whether the cell is in edit mode (text input active).
   bool _isEditing = false;
 
@@ -39,6 +45,8 @@ class TabularToolState extends ChangeNotifier {
   CellAddress? get selectedCell => _selectedCell;
   CellAddress? get selectionStart => _selectionStart;
   CellAddress? get selectionEnd => _selectionEnd;
+  int? get selectedRow => _selectedRow;
+  int? get selectedColumn => _selectedColumn;
   bool get isEditing => _isEditing;
   String get editValue => _editValue;
 
@@ -48,6 +56,12 @@ class TabularToolState extends ChangeNotifier {
   /// Whether a range is selected.
   bool get hasRangeSelection =>
       _selectionStart != null && _selectionEnd != null;
+
+  /// Whether an entire row is selected.
+  bool get hasFullRowSelection => _selectedRow != null;
+
+  /// Whether an entire column is selected.
+  bool get hasFullColumnSelection => _selectedColumn != null;
 
   /// The display value of the selected cell.
   String get selectedCellDisplayValue {
@@ -73,6 +87,36 @@ class TabularToolState extends ChangeNotifier {
     _selectedCell = addr;
     _selectionStart = null;
     _selectionEnd = null;
+    _selectedRow = null;
+    _selectedColumn = null;
+    _isEditing = false;
+    _editValue = '';
+    notifyListeners();
+  }
+
+  /// Select an entire row (all columns).
+  void selectRow(int row) {
+    if (_activeNode == null) return;
+    final lastCol = _activeNode!.effectiveColumns - 1;
+    _selectedCell = CellAddress(0, row);
+    _selectionStart = CellAddress(0, row);
+    _selectionEnd = CellAddress(lastCol, row);
+    _selectedRow = row;
+    _selectedColumn = null;
+    _isEditing = false;
+    _editValue = '';
+    notifyListeners();
+  }
+
+  /// Select an entire column (all rows).
+  void selectColumn(int col) {
+    if (_activeNode == null) return;
+    final lastRow = _activeNode!.effectiveRows - 1;
+    _selectedCell = CellAddress(col, 0);
+    _selectionStart = CellAddress(col, 0);
+    _selectionEnd = CellAddress(col, lastRow);
+    _selectedRow = null;
+    _selectedColumn = col;
     _isEditing = false;
     _editValue = '';
     notifyListeners();
@@ -82,6 +126,8 @@ class TabularToolState extends ChangeNotifier {
     _selectionStart = start;
     _selectionEnd = start;
     _selectedCell = start;
+    _selectedRow = null;
+    _selectedColumn = null;
     _isEditing = false;
     notifyListeners();
   }
@@ -123,6 +169,8 @@ class TabularToolState extends ChangeNotifier {
     _selectedCell = null;
     _selectionStart = null;
     _selectionEnd = null;
+    _selectedRow = null;
+    _selectedColumn = null;
     _isEditing = false;
     _editValue = '';
   }
@@ -197,6 +245,18 @@ class TabularTool extends BaseTool {
     _lastPointerDownPos = canvasPos;
 
     if (toolState.activeNode == null) return;
+
+    // Check header taps first.
+    final headerHit = _hitTestHeader(canvasPos);
+    if (headerHit != null) {
+      if (headerHit.$1 == _HeaderHitType.row) {
+        toolState.selectRow(headerHit.$2);
+      } else {
+        toolState.selectColumn(headerHit.$2);
+      }
+      beginOperation(context, event.position);
+      return;
+    }
 
     final addr = _hitTestCell(canvasPos);
     if (addr == null) return;
@@ -289,6 +349,44 @@ class TabularTool extends BaseTool {
   // Hit testing
   // -------------------------------------------------------------------------
 
+  /// Detect tap on a row or column header.
+  /// Returns (type, index) or null if not on a header.
+  (_HeaderHitType, int)? _hitTestHeader(Offset canvasPos) {
+    final node = toolState.activeNode;
+    if (node == null) return null;
+
+    final localPos = canvasPos;
+    final xOffset = node.showRowHeaders ? node.headerWidth : 0.0;
+    final yOffset = node.showColumnHeaders ? node.headerHeight : 0.0;
+
+    final x = localPos.dx;
+    final y = localPos.dy;
+
+    // Tap on row header (left strip: x < headerWidth, y > headerHeight).
+    if (node.showRowHeaders && x >= 0 && x < xOffset && y >= yOffset) {
+      final gridY = y - yOffset;
+      double ry = 0;
+      for (int r = 0; r < node.effectiveRows; r++) {
+        final h = node.model.getRowHeight(r);
+        if (ry + h > gridY) return (_HeaderHitType.row, r);
+        ry += h;
+      }
+    }
+
+    // Tap on column header (top strip: y < headerHeight, x > headerWidth).
+    if (node.showColumnHeaders && y >= 0 && y < yOffset && x >= xOffset) {
+      final gridX = x - xOffset;
+      double cx = 0;
+      for (int c = 0; c < node.effectiveColumns; c++) {
+        final w = node.model.getColumnWidth(c);
+        if (cx + w > gridX) return (_HeaderHitType.column, c);
+        cx += w;
+      }
+    }
+
+    return null;
+  }
+
   /// Convert a canvas position to a cell address within the active node.
   CellAddress? _hitTestCell(Offset canvasPos) {
     final node = toolState.activeNode;
@@ -336,3 +434,6 @@ class TabularTool extends BaseTool {
     return CellAddress(col, row);
   }
 }
+
+/// Type of header hit (row number or column letter).
+enum _HeaderHitType { row, column }

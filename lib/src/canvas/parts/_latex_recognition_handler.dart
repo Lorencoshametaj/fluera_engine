@@ -70,10 +70,10 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
       }
       debugPrint('🧮 [LaTeX] Rasterized: ${png.length} bytes');
 
-      // 4. Recognize via pix2tex
+      // 4. Recognize via HME CTC model
       debugPrint('🧮 [LaTeX] Initializing recognizer...');
       if (NebulaCanvasLatexHandler._latexRecognizer == null) {
-        NebulaCanvasLatexHandler._latexRecognizer = Pix2TexRecognizer();
+        NebulaCanvasLatexHandler._latexRecognizer = HmeLatexRecognizer();
         await NebulaCanvasLatexHandler._latexRecognizer!.initialize();
       }
       final recognizer = NebulaCanvasLatexHandler._latexRecognizer!;

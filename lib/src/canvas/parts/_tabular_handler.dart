@@ -676,4 +676,57 @@ extension NebulaCanvasTabularHandler on _NebulaCanvasScreenState {
     setState(() {});
     _autoSaveCanvas();
   }
+
+  // ── Excel-to-LaTeX Integration ────────────────────────────────────────
+
+  /// Generate a LateX table from the selected spreadsheet range.
+  void _generateLatexFromSelection() {
+    final node = _tabularTool.selectedTabular;
+    final range = _tabularTool.selectedRange;
+    if (node == null || range == null) return;
+
+    if (!EngineScope.hasScope) return;
+
+    // Use LatexReportTemplate directly on the active cell evaluator
+    final renderer = LatexReportTemplate(node.evaluator);
+
+    // Generate LaTeX source code from the spreadsheet range dynamically via a TABLE directive
+    final latexSource = renderer.render(
+      '{TABLE(${range.label}, headers=true)}',
+    );
+
+    // Calculate the insertion point (slightly to the right of the table)
+    final tableWidth = node.model.totalWidth(node.visibleColumns);
+    final insertX = node.localTransform.getTranslation().x + tableWidth + 50;
+    final insertY = node.localTransform.getTranslation().y;
+
+    // Create the LaTeX node
+    final latexNodeId = generateUid();
+    final latexNode = LatexNode(
+      id: NodeId(latexNodeId),
+      name: 'Generated Table',
+      latexSource: latexSource,
+    );
+
+    latexNode.localTransform.setTranslationRaw(insertX, insertY, 0);
+
+    // Add to scene graph root via undo-able command
+    final rootGroup = _layerController.sceneGraph.rootNode;
+    _commandHistory.execute(
+      AddLatexNodeCommand(parent: rootGroup, latexNode: latexNode),
+    );
+
+    // Provide haptic feedback and visual confirmation
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('LaTeX Table Generated'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    _layerController.sceneGraph.bumpVersion();
+    setState(() {});
+    _autoSaveCanvas();
+  }
 }

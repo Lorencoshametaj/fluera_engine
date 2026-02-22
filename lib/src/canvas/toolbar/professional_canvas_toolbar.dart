@@ -81,6 +81,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onPasteSelection; // 📊 Paste cells
   final void Function(bool ascending)? onSortColumn; // 📊 Sort
   final VoidCallback? onAutoFill; // 📊 Auto-fill down
+  final VoidCallback? onGenerateLatex; // 🧮 Excel-to-LaTeX Generation
   // 🎨 Cell formatting
   final CellFormat? selectedCellFormat; // Current cell format state
   final bool hasRangeSelection; // Multi-cell range selected
@@ -187,6 +188,42 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onPdfExport;
   final int pdfSelectedPageIndex;
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🎨 DESIGN TAB — Callbacks and state for Design toolbar features
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Prototype
+  final VoidCallback? onPrototypePlay;
+  final VoidCallback? onFlowLinkAdd;
+
+  // Animation
+  final VoidCallback? onAnimationTimeline;
+  final VoidCallback? onSmartAnimate;
+
+  // Inspect / Dev Handoff
+  final VoidCallback? onInspectToggle;
+  final bool isInspectActive;
+  final VoidCallback? onCodeGen;
+  final VoidCallback? onRedlineToggle;
+  final bool isRedlineActive;
+
+  // Responsive
+  final ValueChanged<String>? onBreakpointSelect;
+
+  // Quality
+  final VoidCallback? onSmartSnapToggle;
+  final bool isSmartSnapActive;
+  final VoidCallback? onDesignLint;
+  final VoidCallback? onStyleSystem;
+  final VoidCallback? onAccessibilityTree;
+
+  // Images
+  final VoidCallback? onImageAdjust;
+  final VoidCallback? onImageFillMode;
+
+  // Token Export
+  final ValueChanged<String>? onTokenExport;
+
   /// ☁️ Cloud sync state notifier — drives the toolbar sync indicator.
   final ValueListenable<NebulaSyncState>? cloudSyncState;
 
@@ -227,6 +264,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onPasteSelection,
     this.onSortColumn,
     this.onAutoFill,
+    this.onGenerateLatex,
     this.selectedCellFormat,
     this.hasRangeSelection = false,
     this.onToggleBold,
@@ -320,6 +358,25 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onPdfLayoutChanged, // 📄 Layout mutation callback
     this.onPdfExport,
     this.pdfSelectedPageIndex = 0,
+    // 🎨 Design tab
+    this.onPrototypePlay,
+    this.onFlowLinkAdd,
+    this.onAnimationTimeline,
+    this.onSmartAnimate,
+    this.onInspectToggle,
+    this.isInspectActive = false,
+    this.onCodeGen,
+    this.onRedlineToggle,
+    this.isRedlineActive = false,
+    this.onBreakpointSelect,
+    this.onSmartSnapToggle,
+    this.isSmartSnapActive = false,
+    this.onDesignLint,
+    this.onStyleSystem,
+    this.onAccessibilityTree,
+    this.onImageAdjust,
+    this.onImageFillMode,
+    this.onTokenExport,
     this.cloudSyncState,
     this.hideRecordingControlWhenActive = false,
     this.isFloating = false, // 🏝️ Floating Island mode
@@ -347,6 +404,7 @@ class _ProfessionalCanvasToolbarState
     tabs.add(ToolbarTab.scientific);
     tabs.add(ToolbarTab.excel);
     tabs.add(ToolbarTab.media);
+    tabs.add(ToolbarTab.design);
     return tabs;
   }
 

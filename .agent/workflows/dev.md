@@ -10,21 +10,24 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 - **Serializzazione**: `toJson()` + `baseToJson()` + `applyBaseFromJson()`. MAI rompere retrocompatibilità JSON.
 - **Transforms**: `Matrix4` gerarchico. `worldTransform` cachato — `invalidateTransformCache()` su modifica.
 - **Observer**: `SceneGraphObserver` per notifiche. Usalo, non reinventare.
-- **Integrity** (`scene_graph_integrity.dart`): 7 checks (duplicate IDs, parent pointers, root types, spatial index bidirectional, dirty tracker, depth, cycles), 3 auto-repairs (deduplicated). `validate()` è **puro**. `validateAndRepair()` → `ErrorRecoveryService`. `IntegrityMetrics` singleton + `IntegrityWatchdog` timer (debug only). `fromJson()` asserts `violations.isEmpty`.
-- **Concurrency Safety**: `_guardedMutation()` wraps all mutations (throws on re-entrancy, resets in `finally`). `List.of(_observers)` snapshot in notify. `snapshotVersion()` + `assertUnchanged(v)` for async gaps. `toJson()` throws during mutation.
+- **Integrity**: 7 checks, 3 auto-repairs. `validate()` puro, `validateAndRepair()` → `ErrorRecoveryService`. `fromJson()` asserts `violations.isEmpty`.
+- **Concurrency**: `_guardedMutation()` anti-reentrant. `List.of(_observers)` snapshot. `snapshotVersion()` + `assertUnchanged()` per async gaps.
 ### Dependency Inversion (SDK ↔ App)
 - **MAI** importare Firebase/auth/servizi app dentro `nebula_engine`.
-- Dipendenze esterne via `NebulaCanvasConfig` (auth, storage, sync, voice, permissions, tier).
-- Interfacce: `nebula_sync_interfaces.dart` (`NebulaTimeTravelStorage`, `NebulaBranchCloudSync`, `NebulaRealtimeDeltaSync`).
-- Provider: `nebula_canvas_config.dart` (`NebulaVoiceRecordingProvider`, `NebulaRealtimeSyncProvider`, `NebulaTimeTravelProvider`, `NebulaPermissionProvider`, `NebulaPresenceProvider`).
+- DI via `NebulaCanvasConfig`. Interfacce sync in `nebula_sync_interfaces.dart`. Provider in `nebula_canvas_config.dart`.
 ### Tool System (tools/)
 - Implementa `DrawingTool` (`tool_interface.dart`). Tool sono **stateless** — logica in `ToolContext`/`CanvasAdapter`.
 - Aggiungi tool: implementa `DrawingTool`, registra in `ToolRegistry`. Mixin: `SelectionToolMixin`, `ContinuousDrawingMixin`.
 ### Selection System (systems/selection_manager.dart)
-- **Single source of truth**: `SelectionManager` gestisce TUTTO lo stato di selezione. Nessun set tipizzato (`selectedStrokeIds`, etc.) fuori dal manager.
-- **LassoTool** delega a `SelectionManager` per select, deselect, transforms (translate/rotate/scale/flip), alignment, distribution, delete, duplicate.
-- **API**: `select()`, `selectAll()`, `clearSelection()`, `marqueeSelect()`, `translateAll()`, `rotateAll()`, `scaleAll()`, `flipHorizontal/Vertical()`, `alignLeft/Right/Top/Bottom/CenterH/CenterV()`, `distributeH/V()`, `deleteAll()`, `duplicateAll()`.
-- **MAI** creare set di selezione paralleli nei tool. Usa `selectionManager.selectedIds` e `selectionManager.selectedNodes`.
+- **Single source of truth**: `SelectionManager` gestisce TUTTO. MAI set paralleli.
+- API: `select/All()`, `clear()`, `marquee()`, `translate/rotate/scale/flipH/V()`, `align*()`, `distributeH/V()`, `delete/duplicateAll()`.
+### Design Systems (systems/)
+- **Dev Handoff** (`dev_handoff/`): `InspectEngine`, `CodeGenerator` (Flutter/CSS/SwiftUI), `TokenResolver`, `AssetManifest`, `RedlineCalculator`. Nuovo target codegen → metodo in `CodeGenerator`.
+- **Component States**: `ComponentStateMachine` + `ComponentStateResolver`. Cascata: definition defaults → state map → instance overrides.
+- **Semantic Tokens**: `SemanticTokenRegistry` (alias chaining, circular detection). `ThemeManager` (switching, scaffolding light/dark). MAI alias circolari.
+- **Animation**: `SpringSimulation` (3 damping), `MotionPath` (arc-length), `StaggerAnimation` (5 orderings).
+- **Typography**: `VariableFontConfig` (6 assi), `OpenTypeConfig` (presets+merge), `TextAutoResizeEngine` (4 modi).
+- **Image**: `ImageAdjustmentConfig` (6 regolazioni, 5×4 color matrix), `FillConfig` (5 fill modes).
 ### Drawing Pipeline (drawing/)
 - `DrawingInputHandler` → 1€ Filter, predicted touches, pressure normalization.
 - `BrushEngine` è l'**UNICO** dispatch point pen→brush. MAI duplicare switch(penType).
@@ -58,12 +61,9 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 ### State Management
 - `ValueNotifier` per real-time (hot path). `ChangeNotifier` per controller. `flutter_riverpod` per stato app (non hot path).
 ### Error Handling — Enterprise Error Recovery
-- **MAI** `catch (_) {}` o `catchError((_))`. Ogni errore DEVE essere osservabile.
-- Usa `ErrorRecoveryService`: `EngineScope.current.errorRecovery.reportError(EngineError(...))`.
-- `EngineError`: `severity` (.transient/.degraded/.critical), `domain` (.rendering/.storage/.platform/.input/.network/.sceneGraph), `source`, `original`, `stack`.
-- **Severity**: transient = retry-safe, degraded = partial loss, critical = subsystem down.
-- Eccezione: `compute()` isolate → `debugPrint` fallback. UI-only catches (color parsing) → `debugPrint` accettabile.
-- `mounted` check prima di `setState()` in async callbacks.
+- **MAI** `catch (_) {}`. Ogni errore osservabile via `ErrorRecoveryService.reportError(EngineError(...))`.
+- `EngineError`: severity (.transient/.degraded/.critical), domain (.rendering/.storage/.platform/.input/.network/.sceneGraph).
+- Eccezione: `compute()` isolate → `debugPrint`. `mounted` check prima di `setState()` async.
 ### Analysis Options
 - `invalid_use_of_protected_member: ignore`, `unused_element/field/variable/import: ignore` (Phase 2 stubs).
 - `_phase2_disabled/` esclusa dall'analisi.
@@ -107,6 +107,12 @@ NebulaCanvasScreen(config: NebulaCanvasConfig(
 | `nebula_canvas_config.dart` | DI config |
 | `layer_controller.dart` | Layer management |
 | `nebula_engine.dart` | Barrel export |
+| `dev_handoff/inspect_engine.dart` | Node inspection + measurement |
+| `component_state_machine.dart` | Interactive state management |
+| `semantic_token.dart` | Semantic token alias resolution |
+| `theme_manager.dart` | Theme switching + scaffolding |
+| `spring_simulation.dart` | Spring physics simulation |
+| `image_adjustment.dart` | Non-destructive image adjustments |
 ---
 ## 6. CHECKLIST PRE-COMMIT
 - [ ] `flutter analyze` clean
@@ -129,6 +135,8 @@ NebulaCanvasScreen(config: NebulaCanvasConfig(
 I seguenti moduli sono **BLINDATI**. Non modificarli MAI senza esplicita richiesta dell'utente.
 ### Core Scene Graph (`lib/src/core/scene_graph/`)
 `canvas_node.dart`, `scene_graph.dart`, `invalidation_graph.dart`, `node_visitor.dart`, `scene_graph_transaction.dart`, `transform_bridge.dart`, `node_id.dart`, `node_constraint.dart`, `scene_graph_observer.dart`, `frozen_node_view.dart`, `read_only_scene_graph.dart`, `scene_graph_snapshot.dart`, `canvas_node_factory.dart`, `scene_graph_integrity.dart`, `scene_graph_interceptor.dart`, `paint_stack_mixin.dart`, `debug_info.dart`, `scene_graph_savepoint.dart`
+### Design Systems (`lib/src/systems/`)
+`component_state_machine.dart`, `component_state_resolver.dart`, `semantic_token.dart`, `theme_manager.dart`, `spring_simulation.dart`, `path_motion.dart`, `stagger_animation.dart`, `variable_font.dart`, `opentype_features.dart`, `text_auto_resize.dart`, `image_adjustment.dart`, `image_fill_mode.dart`, `dev_handoff/inspect_engine.dart`, `dev_handoff/code_generator.dart`, `dev_handoff/token_resolver.dart`, `dev_handoff/asset_manifest.dart`, `dev_handoff/redline_overlay.dart`
 ### Core Nodes (`lib/src/core/nodes/`)
 `group_node.dart`, `layer_node.dart`, `shape_node.dart`, `stroke_node.dart`, `text_node.dart`, `image_node.dart`, `clip_group_node.dart`, `path_node.dart`, `rich_text_node.dart`, `frame_node.dart`, `advanced_mask_node.dart`, `boolean_group_node.dart`, `symbol_system.dart`, `variant_property.dart`, `pdf_page_node.dart`, `pdf_document_node.dart`, `vector_network_node.dart`, `latex_node.dart`
 ### Rendering Pipeline (`lib/src/rendering/scene_graph/`)
@@ -137,8 +145,7 @@ I seguenti moduli sono **BLINDATI**. Non modificarli MAI senza esplicita richies
 `occlusion_culler.dart`, `dirty_region_tracker.dart`, `layer_picture_cache.dart`, `snapshot_cache_manager.dart`, `spatial_index.dart`, `viewport_culler.dart`, `tile_cache_manager.dart`, `stroke_cache_manager.dart`, `frame_budget_manager.dart`, `lod_manager.dart`, `memory_budget_controller.dart`, `memory_managed_cache.dart`, `paint_pool.dart`, `optimized_path_builder.dart`, `stroke_optimizer.dart`
 ### Canvas Painters (`lib/src/rendering/canvas/`)
 `drawing_painter.dart`, `incremental_paint_mixin.dart`, `current_stroke_painter.dart`, `shape_painter.dart`, `pro_stroke_painter.dart`, `pdf_page_painter.dart`, `image_painter.dart`, `digital_text_painter.dart`
-### Regole blindatura:
-- ⛔ **VIETATO** modificare senza richiesta esplicita dell'utente
-- ⛔ **VIETATO** "migliorare" o "ottimizzare" codice che funziona
-- ✅ **CONSENTITO**: aggiungere test, creare nuovi file che importano i moduli blindati, fixare bug dimostrati con test che falliscono
-- 🔧 Prima di toccare un file blindato: chiedere conferma, spiegare cosa cambierà, mostrare impatto sui test
+### Regole:
+- ⛔ MAI modificare senza richiesta esplicita. ⛔ MAI "migliorare" codice funzionante.
+- ✅ OK: aggiungere test, nuovi file che importano blindati, fix bug con test che falliscono.
+- 🔧 Prima di toccare: chiedere conferma, spiegare impatto.

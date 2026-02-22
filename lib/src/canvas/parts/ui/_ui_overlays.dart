@@ -236,6 +236,36 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
             );
           },
         ),
+
+      // 🔗 Bidirectional Traceability: Latex <-> Tabular Provenance Highlight
+      if (EngineScope.hasScope &&
+          (_tabularTool.hasCellSelection || _lassoTool.selectedIds.length == 1))
+        Builder(
+          builder: (context) {
+            final painter = LatexProvenanceOverlayPainter(
+              layerController: _layerController,
+              tabularTool: _tabularTool,
+              selectedNodeIds: _lassoTool.selectedIds,
+              canvasOffset: _canvasController.offset,
+              canvasScale: _canvasController.scale,
+            );
+            return Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTapUp: (details) {
+                  final target = painter.hitTestTarget(details.localPosition);
+                  if (target != null) {
+                    _canvasController.animateToTransform(
+                      targetOffset: Offset(-target.dx + 400, -target.dy + 300),
+                      targetScale: 1.0,
+                    );
+                  }
+                },
+                child: CustomPaint(painter: painter, size: Size.infinite),
+              ),
+            );
+          },
+        ),
     ];
   }
 

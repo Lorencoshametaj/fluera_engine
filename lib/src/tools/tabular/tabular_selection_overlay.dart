@@ -105,7 +105,7 @@ class _TabularSelectionOverlayState extends State<TabularSelectionOverlay> {
                 border: Border(right: BorderSide(color: Color(0xFF3A3A3A))),
               ),
               child: Text(
-                state.selectedCell?.label ?? '',
+                _selectionLabel(state),
                 style: const TextStyle(
                   color: Color(0xFF90CAF9),
                   fontSize: 12,
@@ -157,6 +157,17 @@ class _TabularSelectionOverlayState extends State<TabularSelectionOverlay> {
         ),
       ),
     );
+  }
+
+  /// Descriptive label for the current selection.
+  String _selectionLabel(TabularToolState state) {
+    if (state.hasFullRowSelection) {
+      return 'Row ${state.selectedRow! + 1}';
+    }
+    if (state.hasFullColumnSelection) {
+      return CellAddress(state.selectedColumn!, 0).columnLabel;
+    }
+    return state.selectedCell?.label ?? '';
   }
 }
 

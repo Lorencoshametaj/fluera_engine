@@ -276,6 +276,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           onSetBackgroundColor: _setBackgroundColor,
           onClearFormatting: _clearFormatting,
           onClearCells: _clearSelectedCells,
+          onGenerateLatex: _generateLatexFromSelection,
           onImportCsv: _importCsv,
           onExportCsv: () {
             final csv = _exportCsv();
@@ -520,6 +521,25 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             _autoSaveCanvas();
           },
           onPdfExport: null, // TODO: wire to export annotated PDF
+          // 🎨 Design Tab — Wire to part file extensions
+          onPrototypePlay: _startPrototypePreview,
+          onFlowLinkAdd: _addFlowLink,
+          onAnimationTimeline: _showAnimationTimeline,
+          onSmartAnimate: _enableSmartAnimate,
+          onInspectToggle: _toggleInspectMode,
+          isInspectActive: _isInspectModeActive,
+          onCodeGen: _showCodeGenerator,
+          onRedlineToggle: _toggleRedlineOverlay,
+          isRedlineActive: _isRedlineActive,
+          onBreakpointSelect: _showBreakpointPicker,
+          onSmartSnapToggle: _toggleSmartSnap,
+          isSmartSnapActive: _isSmartSnapEnabled,
+          onDesignLint: _runDesignLint,
+          onStyleSystem: _showStyleSystemPanel,
+          onAccessibilityTree: _showAccessibilityTree,
+          onImageAdjust: _showImageAdjustments,
+          onImageFillMode: _setImageFillMode,
+          onTokenExport: _exportTokensToFormat,
           cloudSyncState: _syncEngine?.state,
         );
       },

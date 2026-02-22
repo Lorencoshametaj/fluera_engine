@@ -6,12 +6,12 @@ part of '../nebula_canvas_screen.dart';
 /// via the command history system, and wires up the ML recognizer warm-up.
 extension NebulaCanvasLatexHandler on _NebulaCanvasScreenState {
   /// Lazily-initialized OCR recognizer for camera mode.
-  static Pix2TexRecognizer? _latexRecognizer;
+  static HmeLatexRecognizer? _latexRecognizer;
 
-  /// Get or create the Pix2TexRecognizer (singleton per session).
-  Future<Pix2TexRecognizer> _getLatexRecognizer() async {
+  /// Get or create the HmeLatexRecognizer (singleton per session).
+  Future<HmeLatexRecognizer> _getLatexRecognizer() async {
     if (_latexRecognizer == null) {
-      _latexRecognizer = Pix2TexRecognizer();
+      _latexRecognizer = HmeLatexRecognizer();
       await _latexRecognizer!.initialize();
     }
     return _latexRecognizer!;

@@ -20,6 +20,15 @@ enum DesignTokenFormat {
 
   /// Style Dictionary flat format (with value/type at leaf level).
   styleDictionary,
+
+  /// CSS Custom Properties (`:root { --token-name: value; }`).
+  cssCustomProperties,
+
+  /// Kotlin object constants (`object Tokens { val tokenName = value }`).
+  kotlinObject,
+
+  /// Swift struct constants (`struct Tokens { static let tokenName = value }`).
+  swiftStruct,
 }
 
 /// Exports [VariableCollection]s to standard design token formats.
@@ -50,6 +59,12 @@ class DesignTokenExporter {
         return _exportW3C(collection, modeId);
       case DesignTokenFormat.styleDictionary:
         return _exportStyleDictionary(collection, modeId);
+      case DesignTokenFormat.cssCustomProperties:
+        return {'_output': _exportCSS(collection, modeId)};
+      case DesignTokenFormat.kotlinObject:
+        return {'_output': _exportKotlin(collection, modeId)};
+      case DesignTokenFormat.swiftStruct:
+        return {'_output': _exportSwift(collection, modeId)};
     }
   }
 
@@ -251,6 +266,223 @@ class DesignTokenExporter {
     }
 
     return root;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CSS Custom Properties
+  // ---------------------------------------------------------------------------
+
+  static String _exportCSS(VariableCollection collection, String modeId) {
+    final resolved = collection.resolveAll(modeId);
+    final buf = StringBuffer();
+    buf.writeln('/* Generated from ${collection.name} — mode: $modeId */');
+    buf.writeln(':root {');
+
+    for (final variable in collection.variables) {
+      final value = resolved[variable.id];
+      if (value == null) continue;
+      final cssName = '--${_cssVarName(variable)}';
+      final cssValue = _toCSSValue(variable.type, value);
+      if (variable.description != null) {
+        buf.writeln('  /* ${variable.description} */');
+      }
+      buf.writeln('  $cssName: $cssValue;');
+    }
+
+    buf.writeln('}');
+    return buf.toString();
+  }
+
+  static String _cssVarName(DesignVariable variable) {
+    final parts = <String>[];
+    if (variable.group != null && variable.group!.isNotEmpty) {
+      parts.addAll(variable.group!.split('/'));
+    }
+    parts.add(variable.name);
+    return parts.map((p) => _sanitizeKey(p)).join('-');
+  }
+
+  static String _toCSSValue(DesignVariableType type, dynamic value) {
+    if (type == DesignVariableType.color && value is int) {
+      final a = (value >> 24) & 0xFF;
+      final r = (value >> 16) & 0xFF;
+      final g = (value >> 8) & 0xFF;
+      final b = value & 0xFF;
+      if (a == 0xFF) {
+        return '#${r.toRadixString(16).padLeft(2, '0')}'
+            '${g.toRadixString(16).padLeft(2, '0')}'
+            '${b.toRadixString(16).padLeft(2, '0')}';
+      }
+      return 'rgba($r, $g, $b, ${(a / 255).toStringAsFixed(2)})';
+    }
+    if (type == DesignVariableType.number && value is num) {
+      return value.toString();
+    }
+    if (type == DesignVariableType.boolean) {
+      return value == true ? '1' : '0';
+    }
+    return '"$value"';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kotlin Object
+  // ---------------------------------------------------------------------------
+
+  static String _exportKotlin(VariableCollection collection, String modeId) {
+    final resolved = collection.resolveAll(modeId);
+    final className = _pascalCase(collection.name);
+    final buf = StringBuffer();
+    buf.writeln('// Generated from ${collection.name} — mode: $modeId');
+    buf.writeln('object $className {');
+
+    for (final variable in collection.variables) {
+      final value = resolved[variable.id];
+      if (value == null) continue;
+      final name = _camelCase(variable);
+      final (kotlinType, kotlinVal) = _toKotlinValue(variable.type, value);
+      if (variable.description != null) {
+        buf.writeln('    /** ${variable.description} */');
+      }
+      buf.writeln('    val $name: $kotlinType = $kotlinVal');
+    }
+
+    buf.writeln('}');
+    return buf.toString();
+  }
+
+  static (String, String) _toKotlinValue(
+    DesignVariableType type,
+    dynamic value,
+  ) {
+    switch (type) {
+      case DesignVariableType.color:
+        if (value is int) {
+          return (
+            'Long',
+            '0x${value.toRadixString(16).padLeft(8, '0').toUpperCase()}L',
+          );
+        }
+        return ('String', '"$value"');
+      case DesignVariableType.number:
+        if (value is double) return ('Double', '${value}');
+        return ('Int', '$value');
+      case DesignVariableType.boolean:
+        return ('Boolean', value == true ? 'true' : 'false');
+      case DesignVariableType.string:
+        return ('String', '"$value"');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Swift Struct
+  // ---------------------------------------------------------------------------
+
+  static String _exportSwift(VariableCollection collection, String modeId) {
+    final resolved = collection.resolveAll(modeId);
+    final structName = _pascalCase(collection.name);
+    final buf = StringBuffer();
+    buf.writeln('// Generated from ${collection.name} — mode: $modeId');
+    buf.writeln('struct $structName {');
+
+    for (final variable in collection.variables) {
+      final value = resolved[variable.id];
+      if (value == null) continue;
+      final name = _camelCase(variable);
+      final (swiftType, swiftVal) = _toSwiftValue(variable.type, value);
+      if (variable.description != null) {
+        buf.writeln('    /// ${variable.description}');
+      }
+      buf.writeln('    static let $name: $swiftType = $swiftVal');
+    }
+
+    buf.writeln('}');
+    return buf.toString();
+  }
+
+  static (String, String) _toSwiftValue(
+    DesignVariableType type,
+    dynamic value,
+  ) {
+    switch (type) {
+      case DesignVariableType.color:
+        if (value is int) {
+          return (
+            'UInt32',
+            '0x${value.toRadixString(16).padLeft(8, '0').toUpperCase()}',
+          );
+        }
+        return ('String', '"$value"');
+      case DesignVariableType.number:
+        if (value is double) return ('Double', '$value');
+        return ('Int', '$value');
+      case DesignVariableType.boolean:
+        return ('Bool', value == true ? 'true' : 'false');
+      case DesignVariableType.string:
+        return ('String', '"$value"');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // String export convenience
+  // ---------------------------------------------------------------------------
+
+  /// Export a collection to a platform-native string format.
+  ///
+  /// Use this for [DesignTokenFormat.cssCustomProperties],
+  /// [DesignTokenFormat.kotlinObject], and [DesignTokenFormat.swiftStruct].
+  /// For JSON-based formats (w3c, styleDictionary), use [exportToJson].
+  static String exportToString({
+    required VariableCollection collection,
+    required String modeId,
+    required DesignTokenFormat format,
+  }) {
+    switch (format) {
+      case DesignTokenFormat.cssCustomProperties:
+        return _exportCSS(collection, modeId);
+      case DesignTokenFormat.kotlinObject:
+        return _exportKotlin(collection, modeId);
+      case DesignTokenFormat.swiftStruct:
+        return _exportSwift(collection, modeId);
+      case DesignTokenFormat.w3c:
+      case DesignTokenFormat.styleDictionary:
+        return const JsonEncoder.withIndent('  ').convert(
+          exportCollection(
+            collection: collection,
+            modeId: modeId,
+            format: format,
+          ),
+        );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Name formatting helpers
+  // ---------------------------------------------------------------------------
+
+  static String _pascalCase(String name) {
+    return name
+        .split(RegExp(r'[\s_-]+'))
+        .map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}')
+        .join();
+  }
+
+  static String _camelCase(DesignVariable variable) {
+    final parts = <String>[];
+    if (variable.group != null && variable.group!.isNotEmpty) {
+      parts.addAll(variable.group!.split('/'));
+    }
+    parts.add(variable.name);
+    final words =
+        parts
+            .expand((p) => p.split(RegExp(r'[\s_-]+')))
+            .where((w) => w.isNotEmpty)
+            .toList();
+    if (words.isEmpty) return 'unknown';
+    return words.first.toLowerCase() +
+        words
+            .skip(1)
+            .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
+            .join();
   }
 
   // ---------------------------------------------------------------------------

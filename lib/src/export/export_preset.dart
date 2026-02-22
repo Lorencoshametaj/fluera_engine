@@ -345,6 +345,11 @@ class ExportConfig {
   final ExportPageFormat pageFormat;
   final String? savedAreaName; // If l'utente vuole salvare quest'area
 
+  // PDF-specific options
+  final bool pdfAConformance;
+  final String? pdfWatermark;
+  final String? pdfPassword;
+
   const ExportConfig({
     this.preset = ExportPreset.a4Portrait,
     this.format = ExportFormat.png,
@@ -356,6 +361,9 @@ class ExportConfig {
     this.multiPage = false,
     this.pageFormat = ExportPageFormat.a4Portrait,
     this.savedAreaName,
+    this.pdfAConformance = false,
+    this.pdfWatermark,
+    this.pdfPassword,
   });
 
   ExportConfig copyWith({
@@ -369,6 +377,9 @@ class ExportConfig {
     bool? multiPage,
     ExportPageFormat? pageFormat,
     String? savedAreaName,
+    bool? pdfAConformance,
+    String? pdfWatermark,
+    String? pdfPassword,
   }) {
     return ExportConfig(
       preset: preset ?? this.preset,
@@ -381,6 +392,9 @@ class ExportConfig {
       multiPage: multiPage ?? this.multiPage,
       pageFormat: pageFormat ?? this.pageFormat,
       savedAreaName: savedAreaName ?? this.savedAreaName,
+      pdfAConformance: pdfAConformance ?? this.pdfAConformance,
+      pdfWatermark: pdfWatermark ?? this.pdfWatermark,
+      pdfPassword: pdfPassword ?? this.pdfPassword,
     );
   }
 

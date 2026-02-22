@@ -8,15 +8,36 @@ OUTPUT_DIR = sys.argv[1] if len(sys.argv) > 1 else "assets/models/comer"
 COMER_DIR = "/tmp/CoMER"
 
 # Patch pos_enc.py to fix self.device (PL provides this, nn.Module doesn't)
+# ImgPosEnc has no trainable parameters, so next(self.parameters()) raises
+# StopIteration. Use x.device from the forward() input instead.
 pos_enc_py = os.path.join(COMER_DIR, "comer", "model", "pos_enc.py")
 with open(pos_enc_py) as f:
     src = f.read()
-# Replace self.device with a method that gets device from parameters
-src = src.replace("device=self.device", "device=next(self.parameters()).device")
+src = src.replace("device=self.device", "device=x.device")
 with open(pos_enc_py, 'w') as f:
     f.write(src)
 
 sys.path.insert(0, COMER_DIR)
+
+# --- MONKEY PATCH ARM FOR ONNX COMPATIBILITY ---
+import comer.model.transformer.arm as arm_module
+class ONNXSafeMaskBatchNorm2d(nn.Module):
+    def __init__(self, num_features: int):
+        super().__init__()
+        # PyTorch BatchNorm2d does exactly what we want without boolean indexing!
+        self.bn = nn.BatchNorm2d(num_features)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        # x is [b, d, h, w], mask is [b, 1, h, w] (bool: True where padded)
+        # In eval mode, BN is just (x - mean)/sqrt(var)*w + b.
+        # We can apply it everywhere, then zero out the padded regions.
+        out = self.bn(x)
+        out = out.masked_fill(mask, 0.0)
+        return out
+
+arm_module.MaskBatchNorm2d = ONNXSafeMaskBatchNorm2d
+# -----------------------------------------------
+
 from comer.model.encoder import Encoder
 from comer.model.decoder import Decoder
 
@@ -42,18 +63,71 @@ dec_sd = {k.replace("comer_model.decoder.", ""): v for k, v in state.items() if 
 print(f"  Enc keys: {len(enc_sd)}, Dec keys: {len(dec_sd)}")
 
 m1 = encoder.load_state_dict(enc_sd, strict=True)
-# strict=False: ARM's BN1d→BN2d key mapping (compatible weights)
-m2 = decoder.load_state_dict(dec_sd, strict=False)
-if m2.missing_keys:
-    print(f"  ⚠ Decoder missing: {m2.missing_keys[:5]}")
-if m2.unexpected_keys:
-    print(f"  ⓘ Decoder unexpected: {m2.unexpected_keys[:5]}")
+
+# ----- ARM weight key remapping -----
+# The checkpoint may use slightly different key names for ARM's BatchNorm
+# layers (e.g. bn1d vs bn, or flattened vs nested). We auto-remap to
+# match the decoder's expected keys.
+dec_expected = set(decoder.state_dict().keys())
+dec_provided = set(dec_sd.keys())
+
+missing = dec_expected - dec_provided
+unexpected = dec_provided - dec_expected
+
+if missing or unexpected:
+    print(f"  ⚠ Key mismatch detected — remapping ARM weights...")
+    print(f"    Missing ({len(missing)}):    {sorted(missing)[:10]}")
+    print(f"    Unexpected ({len(unexpected)}): {sorted(unexpected)[:10]}")
+
+    # Build mapping: for each missing key, try to find a matching unexpected key
+    # by comparing the suffix after the last differing segment.
+    remapped = {}
+    used_unexpected = set()
+    for mkey in sorted(missing):
+        # Try exact shape match among unexpected keys with similar suffix
+        m_parts = mkey.split('.')
+        m_suffix = '.'.join(m_parts[-2:])  # e.g. "bn.weight", "running_mean"
+        m_shape = decoder.state_dict()[mkey].shape
+
+        for ukey in sorted(unexpected):
+            if ukey in used_unexpected:
+                continue
+            u_parts = ukey.split('.')
+            u_suffix = '.'.join(u_parts[-2:])
+
+            # Match by suffix similarity and identical tensor shape
+            if m_suffix == u_suffix or m_parts[-1] == u_parts[-1]:
+                if dec_sd[ukey].shape == m_shape:
+                    remapped[mkey] = ukey
+                    used_unexpected.add(ukey)
+                    print(f"    ✓ Remap: {ukey} → {mkey}")
+                    break
+
+    # Apply remapping
+    for new_key, old_key in remapped.items():
+        dec_sd[new_key] = dec_sd.pop(old_key)
+
+    still_missing = dec_expected - set(dec_sd.keys())
+    if still_missing:
+        print(f"  ⚠ Still missing after remap: {sorted(still_missing)[:10]}")
+        print(f"    Loading with strict=False as fallback")
+        m2 = decoder.load_state_dict(dec_sd, strict=False)
+        if m2.missing_keys:
+            print(f"    Final missing: {m2.missing_keys}")
+    else:
+        print(f"  ✓ All keys remapped successfully — loading with strict=True")
+        m2 = decoder.load_state_dict(dec_sd, strict=True)
+else:
+    print(f"  ✓ All decoder keys match — loading with strict=True")
+    m2 = decoder.load_state_dict(dec_sd, strict=True)
+
 encoder.eval(); decoder.eval()
 
 ep = sum(p.numel() for p in encoder.parameters())
 dp = sum(p.numel() for p in decoder.parameters())
 print(f"  ✓ Encoder: {ep:,} params ({ep*4/1024/1024:.1f} MB)")
 print(f"  ✓ Decoder: {dp:,} params ({dp*4/1024/1024:.1f} MB)")
+
 
 print("\n[3/4] Exporting ONNX...")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -107,6 +181,7 @@ with torch.no_grad():
     tl = dw(tf, tm, dt)
     print(f"  dec test: logits={tl.shape}")
 
+
 dp_path = os.path.join(OUTPUT_DIR, "decoder.onnx")
 torch.onnx.export(dw, (tf, tm, dt), dp_path,
     input_names=["feature", "feature_mask", "tgt"],
@@ -144,8 +219,47 @@ print(f"  ✓ vocab.json: {len(vocab)} tokens")
 for i in [0, 1, 2, 3, 10, 20, 50, len(vocab)-1]:
     print(f"    {i}: '{vocab[str(i)]}'")
 
+# --- Post-export sanity check ---
+print("\n[5/5] Sanity check...")
+with torch.no_grad():
+    # Run encoder on a small test image
+    test_img = torch.randn(1, 1, 64, 128)
+    test_mask = torch.zeros(1, 64, 128, dtype=torch.long)
+    feat, feat_mask = ew(test_img, test_mask)
+
+    # Run decoder for a few steps (greedy decode)
+    sos_id = 1
+    eos_id = 2
+    generated = [sos_id]
+    for step in range(20):
+        tgt = torch.tensor([generated], dtype=torch.long)
+        logits = dw(feat, feat_mask, tgt)
+        next_id = logits[0, -1, :].argmax().item()
+        if next_id == eos_id:
+            break
+        generated.append(next_id)
+
+    # Decode with vocab
+    tokens = []
+    for tid in generated[1:]:  # skip SOS
+        tok = vocab.get(str(tid), f"<{tid}>")
+        tokens.append(tok)
+
+    decoded = ' '.join(tokens)
+    print(f"  Test decode (20 steps): {decoded}")
+
+    # Check for excessive repetition (symptom of broken ARM)
+    if len(generated) > 5:
+        unique_ratio = len(set(generated[1:])) / len(generated[1:])
+        if unique_ratio < 0.3:
+            print(f"  ⚠ WARNING: Low token diversity ({unique_ratio:.1%}) — ARM may not be loaded correctly!")
+            print(f"    The decoder is producing repetitive garbage. Check ARM weight mapping.")
+        else:
+            print(f"  ✓ Token diversity OK ({unique_ratio:.1%})")
+
 print(f"\n{'='*50}")
 print(f"  encoder.onnx: {es:.1f} MB")
 print(f"  decoder.onnx: {ds:.1f} MB")
 print(f"  TOTAL: {es+ds:.1f} MB FP32")
 print(f"{'='*50}\n✓ Done!")
+

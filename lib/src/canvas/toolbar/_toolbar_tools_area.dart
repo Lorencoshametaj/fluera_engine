@@ -35,6 +35,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
           ToolbarTab.scientific => _buildScientificTools(context, isDark),
           ToolbarTab.excel => _buildExcelTools(context, isDark),
           ToolbarTab.media => _buildMediaTools(context, isDark),
+          ToolbarTab.design => _buildDesignTools(context, isDark),
         },
       ),
     );
@@ -535,95 +536,115 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // ── ROW 1: Formatting bar ──────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-          child: SizedBox(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+        // ── ROW 1: Grouped toolbar — swipeable cards ───────────────────
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 2),
+          child: Row(
+            children: [
+              // ────── Table group ──────
+              _ExcelGroup(
+                label: 'Table',
+                isDark: isDark,
                 children: [
-                  // New Table
-                  _ToolbarIconBtn(
+                  _ExcelBtn(
                     icon: Icons.add_rounded,
                     tooltip: 'New Table',
+                    isDark: isDark,
                     onPressed: () {
                       HapticFeedback.selectionClick();
                       _showCreateTableDialog(context);
                     },
                   ),
-
-                  // Delete table
                   if (widget.hasTabularSelection)
-                    _ToolbarIconBtn(
+                    _ExcelBtn(
                       icon: Icons.delete_outline_rounded,
                       tooltip: 'Delete Table',
-                      color: cs.error,
+                      isDark: isDark,
+                      isDestructive: true,
                       onPressed: () {
                         HapticFeedback.selectionClick();
                         widget.onTabularDelete?.call();
                       },
                     ),
+                ],
+              ),
 
-                  if (widget.hasTabularSelection) _ToolbarDivider(),
-
-                  // ── Formatting icons ───────────────────────────────────
-                  if (hasCellSel) ...[
-                    // Bold
-                    _ToolbarIconBtn(
+              // ────── Style group ──────
+              if (hasCellSel) ...[
+                _ExcelGroup(
+                  label: 'Style',
+                  isDark: isDark,
+                  children: [
+                    _ExcelBtn(
                       icon: Icons.format_bold_rounded,
                       tooltip: 'Bold',
+                      isDark: isDark,
                       isActive: isBold,
                       onPressed: () => widget.onToggleBold?.call(),
                     ),
-                    // Italic
-                    _ToolbarIconBtn(
+                    _ExcelBtn(
                       icon: Icons.format_italic_rounded,
                       tooltip: 'Italic',
+                      isDark: isDark,
                       isActive: isItalic,
                       onPressed: () => widget.onToggleItalic?.call(),
                     ),
+                    _ExcelBtn(
+                      icon: Icons.format_clear_rounded,
+                      tooltip: 'Clear',
+                      isDark: isDark,
+                      onPressed: () => widget.onClearFormatting?.call(),
+                    ),
+                  ],
+                ),
 
-                    _ToolbarDivider(),
-
-                    // Align Left
-                    _ToolbarIconBtn(
+                // ────── Align group ──────
+                _ExcelGroup(
+                  label: 'Align',
+                  isDark: isDark,
+                  children: [
+                    _ExcelBtn(
                       icon: Icons.format_align_left_rounded,
-                      tooltip: 'Align Left',
+                      tooltip: 'Left',
+                      isDark: isDark,
                       isActive: hAlign == CellAlignment.left,
                       onPressed:
                           () => widget.onSetAlignment?.call(CellAlignment.left),
                     ),
-                    // Align Center
-                    _ToolbarIconBtn(
+                    _ExcelBtn(
                       icon: Icons.format_align_center_rounded,
-                      tooltip: 'Align Center',
+                      tooltip: 'Center',
+                      isDark: isDark,
                       isActive: hAlign == CellAlignment.center,
                       onPressed:
                           () =>
                               widget.onSetAlignment?.call(CellAlignment.center),
                     ),
-                    // Align Right
-                    _ToolbarIconBtn(
+                    _ExcelBtn(
                       icon: Icons.format_align_right_rounded,
-                      tooltip: 'Align Right',
+                      tooltip: 'Right',
+                      isDark: isDark,
                       isActive: hAlign == CellAlignment.right,
                       onPressed:
                           () =>
                               widget.onSetAlignment?.call(CellAlignment.right),
                     ),
+                  ],
+                ),
 
-                    _ToolbarDivider(),
-
-                    // Text color picker
+                // ────── Color group ──────
+                _ExcelGroup(
+                  label: 'Color',
+                  isDark: isDark,
+                  children: [
                     _ColorPickerBtn(
                       icon: Icons.format_color_text_rounded,
                       tooltip: 'Text Color',
                       currentColor: fmt?.textColor ?? cs.onSurface,
                       onColorSelected: (c) => widget.onSetTextColor?.call(c),
                     ),
-                    // Background color picker
                     _ColorPickerBtn(
                       icon: Icons.format_color_fill_rounded,
                       tooltip: 'Fill Color',
@@ -631,24 +652,78 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                       onColorSelected:
                           (c) => widget.onSetBackgroundColor?.call(c),
                     ),
-
-                    // Clear formatting
-                    _ToolbarIconBtn(
-                      icon: Icons.format_clear_rounded,
-                      tooltip: 'Clear Formatting',
-                      onPressed: () => widget.onClearFormatting?.call(),
-                    ),
-
-                    _ToolbarDivider(),
                   ],
+                ),
+              ],
 
-                  // ── Overflow menu (actions) ───────────────────────────
-                  if (widget.hasTabularSelection)
+              // ────── Rows/Cols group ──────
+              if (widget.hasTabularSelection)
+                _ExcelGroup(
+                  label: 'Rows & Cols',
+                  isDark: isDark,
+                  children: [
+                    _ExcelBtn(
+                      icon: Icons.table_rows_outlined,
+                      tooltip: 'Insert Row',
+                      isDark: isDark,
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        widget.onInsertRow?.call();
+                      },
+                    ),
+                    _ExcelBtn(
+                      icon: Icons.remove_circle_outline_rounded,
+                      tooltip: 'Delete Row',
+                      isDark: isDark,
+                      isDestructive: true,
+                      onPressed:
+                          hasCellSel
+                              ? () {
+                                HapticFeedback.selectionClick();
+                                widget.onDeleteRow?.call();
+                              }
+                              : null,
+                    ),
+                    _ExcelBtn(
+                      icon: Icons.view_column_outlined,
+                      tooltip: 'Insert Col',
+                      isDark: isDark,
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        widget.onInsertColumn?.call();
+                      },
+                    ),
+                    _ExcelBtn(
+                      icon: Icons.remove_circle_outline_rounded,
+                      tooltip: 'Delete Col',
+                      isDark: isDark,
+                      isDestructive: true,
+                      onPressed:
+                          hasCellSel
+                              ? () {
+                                HapticFeedback.selectionClick();
+                                widget.onDeleteColumn?.call();
+                              }
+                              : null,
+                    ),
+                  ],
+                ),
+
+              // ────── Actions overflow ──────
+              if (widget.hasTabularSelection)
+                _ExcelGroup(
+                  label: 'More',
+                  isDark: isDark,
+                  children: [
                     SizedBox(
-                      width: 32,
-                      height: 32,
+                      width: 40,
+                      height: 38,
                       child: PopupMenuButton<String>(
-                        icon: const Icon(Icons.more_horiz_rounded, size: 18),
+                        icon: Icon(
+                          Icons.more_horiz_rounded,
+                          size: 22,
+                          color: isDark ? Colors.white70 : Colors.black54,
+                        ),
                         tooltip: 'More Actions',
                         padding: EdgeInsets.zero,
                         shape: RoundedRectangleBorder(
@@ -657,14 +732,6 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                         onSelected: (action) {
                           HapticFeedback.selectionClick();
                           switch (action) {
-                            case 'insert_row':
-                              widget.onInsertRow?.call();
-                            case 'delete_row':
-                              widget.onDeleteRow?.call();
-                            case 'insert_col':
-                              widget.onInsertColumn?.call();
-                            case 'delete_col':
-                              widget.onDeleteColumn?.call();
                             case 'copy':
                               widget.onCopySelection?.call();
                             case 'cut':
@@ -677,6 +744,8 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                               widget.onSortColumn?.call(false);
                             case 'autofill':
                               widget.onAutoFill?.call();
+                            case 'generate_latex':
+                              widget.onGenerateLatex?.call();
                             case 'clear_cells':
                               widget.onClearCells?.call();
                             case 'export_csv':
@@ -687,31 +756,6 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                         },
                         itemBuilder:
                             (ctx) => [
-                              _menuItem(
-                                'insert_row',
-                                Icons.add_rounded,
-                                'Insert Row',
-                              ),
-                              _menuItem(
-                                'delete_row',
-                                Icons.remove_rounded,
-                                'Delete Row',
-                                enabled: hasCellSel,
-                                destructive: true,
-                              ),
-                              _menuItem(
-                                'insert_col',
-                                Icons.add_rounded,
-                                'Insert Column',
-                              ),
-                              _menuItem(
-                                'delete_col',
-                                Icons.remove_rounded,
-                                'Delete Column',
-                                enabled: hasCellSel,
-                                destructive: true,
-                              ),
-                              const PopupMenuDivider(),
                               _menuItem(
                                 'copy',
                                 Icons.copy_rounded,
@@ -749,6 +793,12 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                                 'Auto-fill Down',
                                 enabled: hasCellSel,
                               ),
+                              _menuItem(
+                                'generate_latex',
+                                Icons.functions_rounded,
+                                'Generate LaTeX Table',
+                                enabled: hasCellSel,
+                              ),
                               const PopupMenuDivider(),
                               _menuItem(
                                 'clear_cells',
@@ -774,9 +824,9 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                             ],
                       ),
                     ),
-                ],
-              ),
-            ),
+                  ],
+                ),
+            ],
           ),
         ),
 
@@ -1701,6 +1751,116 @@ class _ToolbarDivider extends StatelessWidget {
   }
 }
 
+/// 📊 Visual group card for Excel toolbar — wraps buttons with a label.
+class _ExcelGroup extends StatelessWidget {
+  final String label;
+  final bool isDark;
+  final List<Widget> children;
+
+  const _ExcelGroup({
+    required this.label,
+    required this.isDark,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.fromLTRB(4, 3, 4, 1),
+      decoration: BoxDecoration(
+        color:
+            isDark
+                ? Colors.white.withValues(alpha: 0.04)
+                : Colors.black.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color:
+              isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06),
+          width: 0.5,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: children),
+          Padding(
+            padding: const EdgeInsets.only(top: 1, bottom: 1),
+            child: Text(
+              label.toUpperCase(),
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.8,
+                color:
+                    isDark
+                        ? Colors.white.withValues(alpha: 0.30)
+                        : Colors.black.withValues(alpha: 0.30),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 📊 Excel toolbar button — 40×38 with 22px icon. Larger, easier to tap.
+class _ExcelBtn extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool isDark;
+  final bool isActive;
+  final bool isDestructive;
+  final VoidCallback? onPressed;
+
+  const _ExcelBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.isDark,
+    this.isActive = false,
+    this.isDestructive = false,
+    this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final enabled = onPressed != null;
+
+    Color iconColor;
+    if (!enabled) {
+      iconColor =
+          isDark
+              ? Colors.white.withValues(alpha: 0.20)
+              : Colors.black.withValues(alpha: 0.20);
+    } else if (isDestructive) {
+      iconColor = cs.error;
+    } else if (isActive) {
+      iconColor = cs.primary;
+    } else {
+      iconColor = isDark ? Colors.white70 : Colors.black54;
+    }
+
+    return SizedBox(
+      width: 40,
+      height: 38,
+      child: IconButton(
+        icon: Icon(icon, size: 22, color: iconColor),
+        tooltip: tooltip,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        style: IconButton.styleFrom(
+          backgroundColor: isActive ? cs.primary.withValues(alpha: 0.12) : null,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    );
+  }
+}
+
 /// 📊 Color picker button with popup grid of preset colors.
 class _ColorPickerBtn extends StatelessWidget {
   final IconData icon;
@@ -1789,6 +1949,357 @@ class _ColorPickerBtn extends StatelessWidget {
               decoration: BoxDecoration(
                 color: currentColor ?? Colors.transparent,
                 borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// 🎨 DESIGN TOOLBAR — Design tools, prototyping, inspect, responsive
+// ============================================================================
+
+extension _DesignToolsBuilder on _ProfessionalCanvasToolbarState {
+  Widget _buildDesignTools(BuildContext context, bool isDark) {
+    final cs = Theme.of(context).colorScheme;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          // ─── Prototype ───
+          _DesignChipGroup(
+            label: 'Prototype',
+            icon: Icons.play_circle_outline_rounded,
+            isDark: isDark,
+            children: [
+              _DesignActionChip(
+                icon: Icons.play_arrow_rounded,
+                label: 'Play',
+                isDark: isDark,
+                onTap: widget.onPrototypePlay,
+              ),
+              _DesignActionChip(
+                icon: Icons.link_rounded,
+                label: 'Flow',
+                isDark: isDark,
+                onTap: widget.onFlowLinkAdd,
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+
+          // ─── Animate ───
+          _DesignChipGroup(
+            label: 'Animate',
+            icon: Icons.animation_rounded,
+            isDark: isDark,
+            children: [
+              _DesignActionChip(
+                icon: Icons.timeline_rounded,
+                label: 'Timeline',
+                isDark: isDark,
+                onTap: widget.onAnimationTimeline,
+              ),
+              _DesignActionChip(
+                icon: Icons.auto_fix_high_rounded,
+                label: 'Smart',
+                isDark: isDark,
+                onTap: widget.onSmartAnimate,
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+
+          // ─── Inspect ───
+          _DesignChipGroup(
+            label: 'Inspect',
+            icon: Icons.straighten_rounded,
+            isDark: isDark,
+            children: [
+              _DesignActionChip(
+                icon: Icons.space_bar_rounded,
+                label: 'Measure',
+                isDark: isDark,
+                isActive: widget.isInspectActive,
+                onTap: widget.onInspectToggle,
+              ),
+              _DesignActionChip(
+                icon: Icons.code_rounded,
+                label: 'Code',
+                isDark: isDark,
+                onTap: widget.onCodeGen,
+              ),
+              _DesignActionChip(
+                icon: Icons.grid_on_rounded,
+                label: 'Redline',
+                isDark: isDark,
+                isActive: widget.isRedlineActive,
+                onTap: widget.onRedlineToggle,
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+
+          // ─── Responsive ───
+          _DesignChipGroup(
+            label: 'Responsive',
+            icon: Icons.devices_rounded,
+            isDark: isDark,
+            children: [
+              _DesignActionChip(
+                icon: Icons.phone_android_rounded,
+                label: 'Mobile',
+                isDark: isDark,
+                onTap: () => widget.onBreakpointSelect?.call('mobile'),
+              ),
+              _DesignActionChip(
+                icon: Icons.tablet_rounded,
+                label: 'Tablet',
+                isDark: isDark,
+                onTap: () => widget.onBreakpointSelect?.call('tablet'),
+              ),
+              _DesignActionChip(
+                icon: Icons.desktop_windows_rounded,
+                label: 'Desktop',
+                isDark: isDark,
+                onTap: () => widget.onBreakpointSelect?.call('desktop'),
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+
+          // ─── Quality ───
+          _DesignChipGroup(
+            label: 'Quality',
+            icon: Icons.verified_rounded,
+            isDark: isDark,
+            children: [
+              _DesignActionChip(
+                icon: Icons.grid_3x3_rounded,
+                label: 'Snap',
+                isDark: isDark,
+                isActive: widget.isSmartSnapActive,
+                onTap: widget.onSmartSnapToggle,
+              ),
+              _DesignActionChip(
+                icon: Icons.checklist_rounded,
+                label: 'Lint',
+                isDark: isDark,
+                onTap: widget.onDesignLint,
+              ),
+              _DesignActionChip(
+                icon: Icons.palette_rounded,
+                label: 'Styles',
+                isDark: isDark,
+                onTap: widget.onStyleSystem,
+              ),
+              _DesignActionChip(
+                icon: Icons.accessibility_new_rounded,
+                label: 'A11y',
+                isDark: isDark,
+                onTap: widget.onAccessibilityTree,
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+
+          // ─── Images ───
+          _DesignChipGroup(
+            label: 'Images',
+            icon: Icons.tune_rounded,
+            isDark: isDark,
+            children: [
+              _DesignActionChip(
+                icon: Icons.brightness_6_rounded,
+                label: 'Adjust',
+                isDark: isDark,
+                onTap: widget.onImageAdjust,
+              ),
+              _DesignActionChip(
+                icon: Icons.crop_rounded,
+                label: 'Fill',
+                isDark: isDark,
+                onTap: widget.onImageFillMode,
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+
+          // ─── Export ───
+          _DesignChipGroup(
+            label: 'Export',
+            icon: Icons.download_rounded,
+            isDark: isDark,
+            children: [
+              _DesignActionChip(
+                icon: Icons.css_rounded,
+                label: 'CSS',
+                isDark: isDark,
+                onTap: () => widget.onTokenExport?.call('css'),
+              ),
+              _DesignActionChip(
+                icon: Icons.android_rounded,
+                label: 'Kotlin',
+                isDark: isDark,
+                onTap: () => widget.onTokenExport?.call('kotlin'),
+              ),
+              _DesignActionChip(
+                icon: Icons.apple_rounded,
+                label: 'Swift',
+                isDark: isDark,
+                onTap: () => widget.onTokenExport?.call('swift'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// 🏷️ Design Chip Widgets — Material 3 grouped action chips
+// ============================================================================
+
+/// A labeled group of action chips for the Design toolbar.
+class _DesignChipGroup extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isDark;
+  final List<Widget> children;
+
+  const _DesignChipGroup({
+    required this.label,
+    required this.icon,
+    required this.isDark,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: isDark ? 0.3 : 0.5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Group label
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 11, color: cs.onSurfaceVariant),
+              const SizedBox(width: 3),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurfaceVariant,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          // Action chips row
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (int i = 0; i < children.length; i++) ...[
+                if (i > 0) const SizedBox(width: 4),
+                children[i],
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Single Material 3 action chip for the Design toolbar.
+class _DesignActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isDark;
+  final bool isActive;
+  final VoidCallback? onTap;
+
+  const _DesignActionChip({
+    required this.icon,
+    required this.label,
+    required this.isDark,
+    this.isActive = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final activeColor = cs.primary;
+    final enabled = onTap != null;
+
+    return GestureDetector(
+      onTap:
+          enabled
+              ? () {
+                HapticFeedback.selectionClick();
+                onTap!();
+              }
+              : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color:
+              isActive
+                  ? activeColor.withValues(alpha: isDark ? 0.25 : 0.12)
+                  : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border:
+              isActive
+                  ? Border.all(
+                    color: activeColor.withValues(alpha: 0.5),
+                    width: 1.5,
+                  )
+                  : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color:
+                  !enabled
+                      ? cs.onSurface.withValues(alpha: 0.25)
+                      : isActive
+                      ? activeColor
+                      : (isDark ? Colors.white70 : Colors.black54),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                color:
+                    !enabled
+                        ? cs.onSurface.withValues(alpha: 0.25)
+                        : isActive
+                        ? activeColor
+                        : (isDark ? Colors.white54 : Colors.black45),
               ),
             ),
           ],

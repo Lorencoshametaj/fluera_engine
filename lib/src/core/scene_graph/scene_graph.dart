@@ -22,6 +22,9 @@ import './node_constraint.dart';
 import './invalidation_graph.dart';
 import './transform_bridge.dart';
 import './read_only_scene_graph.dart';
+import '../engine_scope.dart';
+import '../nodes/tabular_node.dart';
+import '../nodes/latex_node.dart';
 
 /// Top-level container for the canvas scene graph.
 ///
@@ -530,6 +533,16 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
         'entries (current: ${_nodeIndex.length}). Consider lazy-loading.',
       );
     }
+
+    // --- Global Tabular/LaTeX Bridge Integration ---
+    if (EngineScope.hasScope) {
+      if (node is LatexNode) {
+        EngineScope.current.globalTabularBridge.registerLatexNode(
+          node,
+          node.id.toString(),
+        );
+      }
+    }
   }
 
   /// Unregister a node subtree from all indices and dispose.
@@ -542,6 +555,16 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
         _unregisterSubtree(child);
       }
     }
+
+    // --- Global Tabular/LaTeX Bridge Integration ---
+    if (EngineScope.hasScope) {
+      if (node is LatexNode) {
+        EngineScope.current.globalTabularBridge.unregisterLatexNode(
+          node.id.toString(),
+        );
+      }
+    }
+
     node.dispose();
   }
 

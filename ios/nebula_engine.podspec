@@ -13,6 +13,8 @@ canvas applications.
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
   s.dependency 'Flutter'
+  # PyTorch Mobile Lite for on-device pix2tex LaTeX recognition
+  s.dependency 'LibTorchLite', '~> 2.1.0'
   s.platform         = :ios, '13.0'
 
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
