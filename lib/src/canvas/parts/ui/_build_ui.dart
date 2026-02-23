@@ -113,6 +113,43 @@ extension on _NebulaCanvasScreenState {
           return KeyEventResult.handled;
         }
 
+        // 🧭 Navigation keyboard shortcuts
+        if (event is KeyDownEvent) {
+          final isCtrl =
+              HardwareKeyboard.instance.isControlPressed ||
+              HardwareKeyboard.instance.isMetaPressed;
+          final isShift = HardwareKeyboard.instance.isShiftPressed;
+
+          // Ctrl+Shift+1 → Fit all content
+          if (isCtrl &&
+              isShift &&
+              event.logicalKey == LogicalKeyboardKey.digit1) {
+            CameraActions.fitAllContent(
+              _canvasController,
+              _layerController.sceneGraph,
+              MediaQuery.of(context).size,
+            );
+            return KeyEventResult.handled;
+          }
+
+          // Ctrl+0 → Return to origin
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.digit0) {
+            CameraActions.returnToOrigin(
+              _canvasController,
+              MediaQuery.of(context).size,
+            );
+            return KeyEventResult.handled;
+          }
+
+          // Ctrl+M → Toggle minimap
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyM) {
+            setState(() {
+              _showMinimap = !_showMinimap;
+            });
+            return KeyEventResult.handled;
+          }
+        }
+
         return KeyEventResult.ignored;
       },
       child: Scaffold(
@@ -126,70 +163,164 @@ extension on _NebulaCanvasScreenState {
                   // 🛠️ Professional Toolbar
                   _buildToolbar(context),
 
-                  // 🎨 Infinite Canvas with Zoom & Pan
-                  _buildCanvasArea(context),
+                  // 🎨 Canvas + Navigation Overlays
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        _buildCanvasArea(context),
+
+                        // 🔵 Navigation: Dot grid (orientation & alignment)
+                        if (_showDotGrid)
+                          Positioned.fill(
+                            child: CanvasDotGrid(
+                              controller: _canvasController,
+                              canvasBackground: _canvasBackgroundColor,
+                            ),
+                          ),
+
+                        // ✛ Navigation: Origin crosshair at (0,0)
+                        Positioned.fill(
+                          child: OriginCrosshair(
+                            controller: _canvasController,
+                            viewportSize: MediaQuery.of(context).size,
+                            canvasBackground: _canvasBackgroundColor,
+                          ),
+                        ),
+
+                        // 🧭 Navigation: Content Radar (directional indicators)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            ignoring: false,
+                            child: ContentRadarOverlay(
+                              controller: _canvasController,
+                              boundsTracker: _contentBoundsTracker,
+                              viewportSize: MediaQuery.of(context).size,
+                              canvasBackground: _canvasBackgroundColor,
+                            ),
+                          ),
+                        ),
+
+                        // 🗺️ Navigation: Minimap (bottom-right)
+                        // Auto-hides when no content exists on the canvas.
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: ValueListenableBuilder<List>(
+                            valueListenable: _contentBoundsTracker.regions,
+                            builder: (context, regions, child) {
+                              final hasContent = regions.isNotEmpty;
+                              return CanvasMinimap(
+                                controller: _canvasController,
+                                boundsTracker: _contentBoundsTracker,
+                                viewportSize: MediaQuery.of(context).size,
+                                visible: _showMinimap && hasContent,
+                                canvasBackground: _canvasBackgroundColor,
+                              );
+                            },
+                          ),
+                        ),
+
+                        // 🔍 Navigation: Zoom Level Indicator (bottom-left)
+                        Positioned(
+                          bottom: 16,
+                          left: 16,
+                          child: ZoomLevelIndicator(
+                            controller: _canvasController,
+                            viewportSize: MediaQuery.of(context).size,
+                            canvasBackground: _canvasBackgroundColor,
+                            showGridActive: _showDotGrid,
+                            onLongPress: () {
+                              setState(() => _showDotGrid = !_showDotGrid);
+                            },
+                          ),
+                        ),
+
+                        // ↩ Navigation: "Return to content" FAB (centered, bottom)
+                        Positioned(
+                          bottom: 24,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: ReturnToContentFab(
+                              controller: _canvasController,
+                              boundsTracker: _contentBoundsTracker,
+                              layerController: _layerController,
+                              viewportSize: MediaQuery.of(context).size,
+                              canvasBackground: _canvasBackgroundColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
 
               // 🌀 Rotation Angle Indicator (reactive, floating pill)
-              ListenableBuilder(
-                listenable: _canvasController,
-                builder: (context, _) {
-                  final rotation = _canvasController.rotation;
-                  if (rotation == 0.0) return const SizedBox.shrink();
+              Positioned.fill(
+                child: ListenableBuilder(
+                  listenable: _canvasController,
+                  builder: (context, _) {
+                    final rotation = _canvasController.rotation;
+                    if (rotation == 0.0) return const SizedBox.shrink();
 
-                  final isSnapped =
-                      _canvasController.checkSnapAngle(rotation) != null;
-                  final pillColor =
-                      isSnapped
-                          ? Colors.blue.withValues(alpha: 0.85)
-                          : Colors.black.withValues(alpha: 0.65);
+                    final isSnapped =
+                        _canvasController.checkSnapAngle(rotation) != null;
+                    final pillColor =
+                        isSnapped
+                            ? Colors.blue.withValues(alpha: 0.85)
+                            : Colors.black.withValues(alpha: 0.65);
 
-                  return Positioned(
-                    bottom: 24,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: IgnorePointer(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: pillColor,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Transform.rotate(
-                                angle: rotation,
-                                child: Icon(
-                                  isSnapped
-                                      ? Icons.check_circle_rounded
-                                      : Icons.navigation_rounded,
-                                  color: Colors.white,
-                                  size: 14,
+                    return Stack(
+                      children: [
+                        Positioned(
+                          bottom: 24,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: IgnorePointer(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: pillColor,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Transform.rotate(
+                                      angle: rotation,
+                                      child: Icon(
+                                        isSnapped
+                                            ? Icons.check_circle_rounded
+                                            : Icons.navigation_rounded,
+                                        color: Colors.white,
+                                        size: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _canvasController.rotationDegrees,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _canvasController.rotationDegrees,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                  );
-                },
+                      ],
+                    );
+                  },
+                ),
               ),
 
               // 🎯 Context Menus & Panels (above everything)

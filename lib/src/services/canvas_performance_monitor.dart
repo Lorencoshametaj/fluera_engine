@@ -139,8 +139,7 @@ class CanvasPerformanceMonitor {
     }
   }
 
-  void _logPerformanceWarning(String message) {
-  }
+  void _logPerformanceWarning(String message) {}
 
   /// Build debug overlay widget
   Widget buildDebugOverlay() {
@@ -150,56 +149,60 @@ class CanvasPerformanceMonitor {
       stream: Stream.periodic(const Duration(milliseconds: 500)),
       builder: (context, snapshot) {
         final metrics = getMetrics();
-        return Positioned(
-          top: 40,
-          right: 10,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color:
-                    metrics.currentFPS < _lowFPSThreshold
-                        ? Colors.red.withValues(alpha: 0.5)
-                        : Colors.green.withValues(alpha: 0.5),
-                width: 2,
+        return Stack(
+          children: [
+            Positioned(
+              top: 40,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color:
+                        metrics.currentFPS < _lowFPSThreshold
+                            ? Colors.red.withValues(alpha: 0.5)
+                            : Colors.green.withValues(alpha: 0.5),
+                    width: 2,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildMetricRow(
+                      '📊 FPS',
+                      '${metrics.currentFPS.toStringAsFixed(1)} / ${metrics.targetFPS.toInt()}',
+                      metrics.currentFPS >= metrics.targetFPS * 0.9
+                          ? Colors.green
+                          : metrics.currentFPS >= _lowFPSThreshold
+                          ? Colors.orange
+                          : Colors.red,
+                    ),
+                    const SizedBox(height: 4),
+                    _buildMetricRow(
+                      '📈 Avg FPS',
+                      metrics.avgFPS.toStringAsFixed(1),
+                      Colors.white70,
+                    ),
+                    const SizedBox(height: 4),
+                    _buildMetricRow(
+                      '💾 Memory',
+                      '${metrics.memoryUsageMB.toStringAsFixed(1)} MB',
+                      Colors.white70,
+                    ),
+                    const SizedBox(height: 4),
+                    _buildMetricRow(
+                      '✏️ Strokes',
+                      metrics.strokeCount.toString(),
+                      Colors.white70,
+                    ),
+                  ],
+                ),
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildMetricRow(
-                  '📊 FPS',
-                  '${metrics.currentFPS.toStringAsFixed(1)} / ${metrics.targetFPS.toInt()}',
-                  metrics.currentFPS >= metrics.targetFPS * 0.9
-                      ? Colors.green
-                      : metrics.currentFPS >= _lowFPSThreshold
-                      ? Colors.orange
-                      : Colors.red,
-                ),
-                const SizedBox(height: 4),
-                _buildMetricRow(
-                  '📈 Avg FPS',
-                  metrics.avgFPS.toStringAsFixed(1),
-                  Colors.white70,
-                ),
-                const SizedBox(height: 4),
-                _buildMetricRow(
-                  '💾 Memory',
-                  '${metrics.memoryUsageMB.toStringAsFixed(1)} MB',
-                  Colors.white70,
-                ),
-                const SizedBox(height: 4),
-                _buildMetricRow(
-                  '✏️ Strokes',
-                  metrics.strokeCount.toString(),
-                  Colors.white70,
-                ),
-              ],
-            ),
-          ),
+          ],
         );
       },
     );

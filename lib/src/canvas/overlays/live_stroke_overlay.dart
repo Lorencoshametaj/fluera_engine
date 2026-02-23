@@ -32,17 +32,21 @@ class LiveStrokeOverlay extends StatelessWidget {
       builder: (context, strokes, _) {
         if (strokes.isEmpty) return const SizedBox.shrink();
 
-        return Positioned.fill(
-          child: IgnorePointer(
-            child: CustomPaint(
-              painter: _LiveStrokePainter(
-                liveStrokes: strokes,
-                canvasOffset: canvasOffset,
-                canvasScale: canvasScale,
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _LiveStrokePainter(
+                    liveStrokes: strokes,
+                    canvasOffset: canvasOffset,
+                    canvasScale: canvasScale,
+                  ),
+                  size: Size.infinite,
+                ),
               ),
-              size: Size.infinite,
             ),
-          ),
+          ],
         );
       },
     );

@@ -279,6 +279,20 @@ extension on _NebulaCanvasScreenState {
       }
     }
 
+    // 🧮 LatexNode drag (move)
+    if (_isDraggingLatex &&
+        _selectedLatexNode != null &&
+        _latexDragStart != null) {
+      final delta = canvasPosition - _latexDragStart!;
+      final t = _selectedLatexNode!.localTransform;
+      final pos = t.getTranslation();
+      t.setTranslationRaw(pos.x + delta.dx, pos.y + delta.dy, 0);
+      _latexDragStart = canvasPosition;
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      setState(() {});
+      return;
+    }
     // If il lasso is active, controlla se drag o disegno
     // 🪣 Fill mode — no continuous drawing, fill is single-tap only
     if (_effectiveIsFill) {

@@ -76,17 +76,24 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onDeleteRow; // 📊 Delete row
   final VoidCallback? onInsertColumn; // 📊 Insert column
   final VoidCallback? onDeleteColumn; // 📊 Delete column
+  final VoidCallback? onMergeCells; // 📊 Merge selected cells
+  final VoidCallback? onUnmergeCells; // 📊 Unmerge selected cell
   final VoidCallback? onCopySelection; // 📊 Copy cells
   final VoidCallback? onCutSelection; // 📊 Cut cells
   final VoidCallback? onPasteSelection; // 📊 Paste cells
   final void Function(bool ascending)? onSortColumn; // 📊 Sort
   final VoidCallback? onAutoFill; // 📊 Auto-fill down
   final VoidCallback? onGenerateLatex; // 🧮 Excel-to-LaTeX Generation
+  final VoidCallback? onCopySelectionAsLatex; // 📋 Copy selection as LaTeX code
+  final VoidCallback? onGenerateChart; // 📊 TikZ Chart from Selection
+  final VoidCallback? onImportLatex; // 📥 Import LaTeX → Spreadsheet
+  final VoidCallback? onExportTex; // 📄 Export .tex File
   // 🎨 Cell formatting
   final CellFormat? selectedCellFormat; // Current cell format state
   final bool hasRangeSelection; // Multi-cell range selected
   final VoidCallback? onToggleBold;
   final VoidCallback? onToggleItalic;
+  final ValueChanged<String>? onBorderPreset;
   final void Function(CellAlignment)? onSetAlignment;
   final void Function(Color)? onSetTextColor;
   final void Function(Color)? onSetBackgroundColor;
@@ -259,16 +266,23 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onDeleteRow,
     this.onInsertColumn,
     this.onDeleteColumn,
+    this.onMergeCells,
+    this.onUnmergeCells,
     this.onCopySelection,
     this.onCutSelection,
     this.onPasteSelection,
     this.onSortColumn,
     this.onAutoFill,
     this.onGenerateLatex,
+    this.onCopySelectionAsLatex,
+    this.onGenerateChart,
+    this.onImportLatex,
+    this.onExportTex,
     this.selectedCellFormat,
     this.hasRangeSelection = false,
     this.onToggleBold,
     this.onToggleItalic,
+    this.onBorderPreset,
     this.onSetAlignment,
     this.onSetTextColor,
     this.onSetBackgroundColor,
@@ -404,7 +418,7 @@ class _ProfessionalCanvasToolbarState
     tabs.add(ToolbarTab.scientific);
     tabs.add(ToolbarTab.excel);
     tabs.add(ToolbarTab.media);
-    tabs.add(ToolbarTab.design);
+    // Design tab: SDK-only, not exposed in Looponia (see dev.md)
     return tabs;
   }
 

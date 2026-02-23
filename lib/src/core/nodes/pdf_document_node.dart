@@ -25,10 +25,11 @@ class PdfDocumentNode extends GroupNode {
   /// Document-level metadata (hash, grid config, timestamps).
   PdfDocumentModel documentModel;
 
-  /// Pending stroke translation from the last `togglePageLock()` re-lock.
-  /// Set when a page goes from unlocked→locked, consumed by the layout
-  /// changed callback to translate linked annotation strokes.
-  ({Offset delta, List<String> annotationIds})? pendingStrokeTranslation;
+  /// Pending stroke translations from the last layout change.
+  /// Populated by [performGridLayout] when pages with annotations move.
+  /// Consumed by the layout-changed callback to translate linked strokes.
+  List<({Offset delta, List<String> annotationIds})> pendingStrokeTranslations =
+      [];
 
   PdfDocumentNode({
     required super.id,
@@ -98,6 +99,15 @@ class PdfDocumentNode extends GroupNode {
     final pages = pageNodes;
     if (pages.isEmpty) return;
 
+    // 📄 Snapshot current positions — used to compute per-page deltas
+    // so linked annotation strokes can be translated after layout.
+    final oldPositions = <String, Offset>{};
+    for (final page in pages) {
+      if (page.pageModel.annotations.isNotEmpty) {
+        oldPositions[page.id] = page.position;
+      }
+    }
+
     // First pass: compute max height per row using ALL pages' original indices
     final totalPages = pages.length;
     final rowCount = (totalPages / cols).ceil();
@@ -157,6 +167,20 @@ class PdfDocumentNode extends GroupNode {
       }
     }
 
+    // 📄 Compute per-page deltas and queue stroke translations
+    for (final page in pages) {
+      final oldPos = oldPositions[page.id];
+      if (oldPos == null) continue; // No annotations, skip
+      final newPos = page.position;
+      final delta = newPos - oldPos;
+      if (delta != Offset.zero) {
+        pendingStrokeTranslations.add((
+          delta: delta,
+          annotationIds: List<String>.from(page.pageModel.annotations),
+        ));
+      }
+    }
+
     // 🔑 Invalidate parent bounds so viewport culling uses fresh values.
     // Without this, worldBounds stays stale after child positions change,
     // causing the entire document to be incorrectly culled.
@@ -208,8 +232,6 @@ class PdfDocumentNode extends GroupNode {
     if (pageNode.pageModel.customOffset == null) return null;
 
     final now = DateTime.now().microsecondsSinceEpoch;
-    final oldPosition = pageNode.position;
-    final annotations = List<String>.from(pageNode.pageModel.annotations);
 
     pageNode.pageModel = pageNode.pageModel.copyWith(
       isLocked: true,
@@ -219,14 +241,12 @@ class PdfDocumentNode extends GroupNode {
 
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
+    // performGridLayout() now auto-populates pendingStrokeTranslations
     performGridLayout();
 
-    final newPosition = pageNode.position;
-    final delta = newPosition - oldPosition;
-
-    if (delta != Offset.zero && annotations.isNotEmpty) {
-      pendingStrokeTranslation = (delta: delta, annotationIds: annotations);
-      return pendingStrokeTranslation;
+    // Return the translation for this specific page (if any)
+    if (pendingStrokeTranslations.isNotEmpty) {
+      return pendingStrokeTranslations.last;
     }
     return null;
   }

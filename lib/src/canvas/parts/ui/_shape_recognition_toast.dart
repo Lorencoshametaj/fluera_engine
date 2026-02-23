@@ -18,69 +18,73 @@ extension ShapeRecognitionFeedbackUI on _NebulaCanvasScreenState {
       builder: (context, data, _) {
         if (data == null) return const SizedBox.shrink();
 
-        return Positioned(
-          bottom: 80,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: TweenAnimationBuilder<double>(
-              duration: const Duration(milliseconds: 300),
-              tween: Tween(begin: 0.0, end: 1.0),
-              builder: (context, opacity, child) {
-                return Opacity(
-                  opacity: opacity,
-                  child: Transform.translate(
-                    offset: Offset(0, 10 * (1 - opacity)),
-                    child: child,
-                  ),
-                );
-              },
-              child: IgnorePointer(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.75),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: data.accentColor.withValues(alpha: 0.3),
-                        blurRadius: 12,
-                        spreadRadius: 1,
+        return Stack(
+          children: [
+            Positioned(
+              bottom: 80,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 300),
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  builder: (context, opacity, child) {
+                    return Opacity(
+                      opacity: opacity,
+                      child: Transform.translate(
+                        offset: Offset(0, 10 * (1 - opacity)),
+                        child: child,
                       ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(data.icon, color: data.accentColor, size: 18),
-                      const SizedBox(width: 8),
-                      Text(
-                        data.shapeName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
-                        ),
+                    );
+                  },
+                  child: IgnorePointer(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${(data.confidence * 100).round()}%',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.6),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w400,
-                        ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.75),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: data.accentColor.withValues(alpha: 0.3),
+                            blurRadius: 12,
+                            spreadRadius: 1,
+                          ),
+                        ],
                       ),
-                    ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(data.icon, color: data.accentColor, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            data.shapeName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${(data.confidence * 100).round()}%',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         );
       },
     );

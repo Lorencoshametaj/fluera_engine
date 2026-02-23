@@ -5,7 +5,7 @@ part of '../../nebula_canvas_screen.dart';
 extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
   /// Builds the canvas area: background + drawings + gesture detector + overlays.
   Widget _buildCanvasArea(BuildContext context) {
-    return Expanded(
+    return Positioned.fill(
       key: _canvasAreaKey, // Key to track la size of the area
       child: ClipRect(
         // 🔒 ClipRect prevents canvas from invading the toolbar
@@ -409,14 +409,18 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
     return ListenableBuilder(
       listenable: _canvasController,
       builder: (context, child) {
-        return Positioned.fill(
-          child: SynchronizedPlaybackOverlay(
-            controller: widget.externalPlaybackController!,
-            canvasOffset: _canvasController.offset,
-            canvasScale: _canvasController.scale,
-            showControls: false, // Gestiti globalmente
-            forcePageIndex: widget.playbackPageIndex,
-          ),
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: SynchronizedPlaybackOverlay(
+                controller: widget.externalPlaybackController!,
+                canvasOffset: _canvasController.offset,
+                canvasScale: _canvasController.scale,
+                showControls: false, // Gestiti globalmente
+                forcePageIndex: widget.playbackPageIndex,
+              ),
+            ),
+          ],
         );
       },
     );

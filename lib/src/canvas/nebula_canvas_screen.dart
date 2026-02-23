@@ -129,6 +129,7 @@ import '../systems/design_token_exporter.dart';
 import '../history/command_history.dart';
 import '../systems/variable_commands.dart';
 import '../core/nodes/latex_node.dart';
+import '../core/scene_graph/canvas_node_factory.dart';
 import '../core/scene_graph/node_id.dart';
 import './widgets/latex_editor_sheet.dart';
 import '../history/latex_commands.dart';
@@ -141,7 +142,20 @@ import '../core/tabular/cell_value.dart';
 import '../core/tabular/tabular_clipboard.dart';
 import '../core/tabular/tabular_csv.dart';
 import '../core/tabular/latex_report_template.dart';
+import '../core/tabular/tikz_chart_generator.dart';
+import '../core/tabular/latex_table_parser.dart';
+import '../export/latex_file_exporter.dart';
 import '../rendering/canvas/latex_provenance_overlay_painter.dart';
+
+// ─── Navigation & Orientation ──────────────────────────────────────────────
+import './navigation/content_bounds_tracker.dart';
+import './navigation/camera_actions.dart';
+import './navigation/canvas_minimap.dart';
+import './navigation/content_radar_overlay.dart';
+import './navigation/zoom_level_indicator.dart';
+import './navigation/return_to_content_fab.dart';
+import './navigation/origin_crosshair.dart';
+import './navigation/canvas_dot_grid.dart';
 
 // ─── Design SDK modules ────────────────────────────────────────────────────
 import '../systems/prototype_flow.dart';
@@ -608,6 +622,11 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   late final TabularInteractionTool _tabularTool;
   bool _editingInCell = false;
 
+  /// 🧮 LatexNode interaction state
+  LatexNode? _selectedLatexNode;
+  bool _isDraggingLatex = false;
+  Offset? _latexDragStart;
+
   /// 🧠 Version counter: incremented on every image content mutation
   /// Used by ImagePainter for fast shouldRepaint + Picture cache invalidation
   int _imageVersion = 0;
@@ -851,6 +870,17 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   bool _isSmartSnapEnabled = false;
   SmartSnapEngine? _smartSnapEngine;
 
+  // ============================================================================
+  // 🧭 NAVIGATION & ORIENTATION STATE
+  // ============================================================================
+
+  /// 🗺️ Content bounds tracker (shared by minimap, radar, camera actions)
+  late final ContentBoundsTracker _contentBoundsTracker;
+
+  /// 🗺️ Whether the minimap overlay is visible
+  bool _showMinimap = true;
+  bool _showDotGrid = true;
+
   @override
   void initState() {
     super.initState();
@@ -882,6 +912,11 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     _layerController.enableDeltaTracking = true;
     _layerController.addListener(_onLayerChanged);
     _refreshCachedLists();
+
+    // 🧭 Initialize navigation bounds tracker
+    _contentBoundsTracker = ContentBoundsTracker(
+      layerController: _layerController,
+    );
 
     // Initialize eraser tool
     _eraserTool = EraserTool(
@@ -961,6 +996,11 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
     // 🌊 LIQUID: Attach physics ticker from this TickerProviderStateMixin
     _canvasController.attachTicker(this);
+
+    // 🔒 Haptic feedback at zoom limits (one-shot per crossing)
+    _canvasController.onZoomLimitReached = () {
+      HapticFeedback.heavyImpact();
+    };
 
     // 🌀 Load persisted rotation lock preference
     _canvasController.loadPersistedState();
@@ -1074,6 +1114,9 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   @override
   void dispose() {
+    // 🧭 Navigation
+    _contentBoundsTracker.dispose();
+
     // 🖼️ MEMORY: Dispose all loaded ui.Image objects
     for (final image in _loadedImages.values) {
       image.dispose();

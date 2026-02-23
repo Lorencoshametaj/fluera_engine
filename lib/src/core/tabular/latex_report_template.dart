@@ -1,4 +1,5 @@
 import 'cell_address.dart';
+import 'cell_node.dart';
 import 'cell_number_formatter.dart';
 import 'cell_value.dart';
 import 'formula_to_latex.dart';
@@ -224,57 +225,320 @@ class LatexReportTemplate {
     CellAddress end,
     _TableOptions opts,
   ) {
-    final colCount = end.column - start.column + 1;
-    final rowCount = end.row - start.row + 1;
+    var minCol = start.column < end.column ? start.column : end.column;
+    var maxCol = start.column > end.column ? start.column : end.column;
+    var minRow = start.row < end.row ? start.row : end.row;
+    var maxRow = start.row > end.row ? start.row : end.row;
+
+    // Auto-expand range to include all merge regions that intersect.
+    if (_mergeManager != null) {
+      bool expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (final region in _mergeManager.regions) {
+          if (region.endColumn >= minCol &&
+              region.startColumn <= maxCol &&
+              region.endRow >= minRow &&
+              region.startRow <= maxRow) {
+            if (region.endRow > maxRow) {
+              maxRow = region.endRow;
+              expanded = true;
+            }
+            if (region.endColumn > maxCol) {
+              maxCol = region.endColumn;
+              expanded = true;
+            }
+          }
+        }
+      }
+    }
+
+    final colCount = maxCol - minCol + 1;
 
     // Build alignment spec.
     final alignSpec = opts.align ?? List.filled(colCount, 'c').join();
     final buf = StringBuffer();
 
-    buf.writeln('\\begin{tabular}{|${alignSpec.split('').join('|')}|}');
-    buf.writeln('\\hline');
+    // Collect merge regions intersecting the selection.
+    final merges = <CellRange>[];
+    if (_mergeManager != null) {
+      for (final region in _mergeManager.regions) {
+        if (region.endColumn >= minCol &&
+            region.startColumn <= maxCol &&
+            region.endRow >= minRow &&
+            region.startRow <= maxRow) {
+          merges.add(region);
+        }
+      }
+    }
 
-    for (int r = 0; r < rowCount; r++) {
-      final row = start.row + r;
-      final isHeader = opts.headers && r == 0;
+    // Track vertical continuation cells (non-master cells in a row-span).
+    final vertContinuation = <String, bool>{};
+    for (final m in merges) {
+      for (int r = m.startRow + 1; r <= m.endRow; r++) {
+        for (int c = m.startColumn; c <= m.endColumn; c++) {
+          if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
+            vertContinuation['$c:$r'] = true;
+          }
+        }
+      }
+    }
+
+    final needsMultirow = merges.any((m) => m.endRow > m.startRow);
+    if (needsMultirow) {
+      // Note: \multirow requires \usepackage{multirow} in the preamble.
+      // We don't emit the \usepackage here since this is a fragment.
+    }
+
+    // Helper to get borders for a cell.
+    CellBorders _borders(int c, int r) {
+      return _evaluator.model.getCell(CellAddress(c, r))?.format?.borders ??
+          CellBorders.all;
+    }
+
+    // Build border-aware column spec.
+    final colSpec = StringBuffer();
+    for (int i = 0; i < colCount; i++) {
+      final c = minCol + i;
+      if (i == 0) {
+        if (_borders(c, minRow).left) colSpec.write('|');
+      } else {
+        final prevRight = _borders(c - 1, minRow).right;
+        final curLeft = _borders(c, minRow).left;
+        if (prevRight || curLeft) colSpec.write('|');
+      }
+      colSpec.write(alignSpec[i]);
+    }
+    if (_borders(maxCol, minRow).right) colSpec.write('|');
+    buf.writeln('\\begin{tabular}{$colSpec}');
+    // Top rule: only if at least one cell has .top border.
+    final hasTopBorder = List.generate(
+      colCount,
+      (i) => _borders(minCol + i, minRow).top,
+    ).any((b) => b);
+    if (hasTopBorder) buf.writeln('\\hline');
+
+    for (int row = minRow; row <= maxRow; row++) {
+      final isHeader = opts.headers && row == minRow;
       final cells = <String>[];
 
-      int col = start.column;
-      while (col <= end.column) {
+      int col = minCol;
+      while (col <= maxCol) {
         final addr = CellAddress(col, row);
 
-        // Check for merge regions.
-        if (_mergeManager != null && _mergeManager.isHiddenByMerge(addr)) {
-          col++;
+        // Check if this cell is a vertical continuation (not the master).
+        if (vertContinuation['$col:$row'] == true) {
+          // Emit empty placeholder to keep column alignment.
+          final merge = _findMerge(merges, col, row);
+          if (merge != null) {
+            final clampedEnd = merge.endColumn.clamp(minCol, maxCol);
+            final colSpan = clampedEnd - merge.startColumn + 1;
+            if (colSpan > 1) {
+              cells.add('\\multicolumn{$colSpan}{|c|}{}');
+            } else {
+              cells.add('');
+            }
+            col = clampedEnd + 1;
+          } else {
+            cells.add('');
+            col++;
+          }
           continue;
         }
 
-        String cellText = _getCellDisplay(addr);
+        // Check if this cell is the master of a merge region.
+        final merge = _findMasterMerge(merges, col, row);
+        if (merge != null) {
+          // Clamp spans to visible range.
+          final clampedEndCol = merge.endColumn.clamp(minCol, maxCol);
+          final clampedEndRow = merge.endRow.clamp(minRow, maxRow);
+          final colSpan = clampedEndCol - merge.startColumn + 1;
+          final rowSpan = clampedEndRow - merge.startRow + 1;
 
-        if (_mergeManager != null && _mergeManager.isMasterCell(addr)) {
-          final region = _mergeManager.getRegion(addr)!;
-          final span = region.endColumn - region.startColumn + 1;
-          if (span > 1) {
-            cellText = '\\multicolumn{$span}{|c|}{$cellText}';
-            col += span;
-            cells.add(cellText);
-            continue;
+          String cellText = _getCellDisplay(addr);
+          if (isHeader) cellText = '\\textbf{$cellText}';
+
+          if (colSpan > 1 && rowSpan > 1) {
+            // 2D merge: \multicolumn wrapping \multirow.
+            cellText =
+                '\\multicolumn{$colSpan}{|c|}'
+                '{\\multirow{$rowSpan}{*}{$cellText}}';
+          } else if (colSpan > 1) {
+            cellText = '\\multicolumn{$colSpan}{|c|}{$cellText}';
+          } else if (rowSpan > 1) {
+            cellText = '\\multirow{$rowSpan}{*}{$cellText}';
           }
+
+          cells.add(cellText);
+          col = clampedEndCol + 1;
+          continue;
         }
 
+        // Normal cell.
+        String cellText = _getCellDisplay(addr);
         if (isHeader) cellText = '\\textbf{$cellText}';
         cells.add(cellText);
         col++;
       }
 
       buf.writeln('${cells.join(' & ')} \\\\');
-      if (isHeader) buf.writeln('\\hline');
+
+      // Row separator — use \cline for partial rules when merges or
+      // borderless cells skip segments.
+      if (row == maxRow) {
+        // Last row bottom rule.
+        final allBottom = List.generate(
+          colCount,
+          (i) => _borders(minCol + i, maxRow).bottom,
+        ).every((b) => b);
+        if (allBottom) {
+          buf.writeln('\\hline');
+        } else {
+          final anyBottom = List.generate(
+            colCount,
+            (i) => _borders(minCol + i, maxRow).bottom,
+          ).any((b) => b);
+          if (anyBottom) {
+            _writeBorderCline(buf, minCol, maxCol, maxRow, _borders);
+          }
+        }
+      } else if (isHeader) {
+        buf.writeln('\\hline');
+      } else {
+        final clineSegments = _computeClineSegments(
+          merges,
+          row,
+          minCol,
+          colCount,
+          _borders,
+        );
+        if (clineSegments == null) {
+          // No merges or borderless cells cross — but check cell borders.
+          final allBottom = List.generate(
+            colCount,
+            (i) => _borders(minCol + i, row).bottom,
+          ).every((b) => b);
+          if (allBottom) {
+            buf.writeln('\\hline');
+          } else {
+            final anyBottom = List.generate(
+              colCount,
+              (i) => _borders(minCol + i, row).bottom,
+            ).any((b) => b);
+            if (anyBottom) {
+              _writeBorderCline(buf, minCol, maxCol, row, _borders);
+            }
+          }
+        } else if (clineSegments.isNotEmpty) {
+          for (final seg in clineSegments) {
+            buf.writeln('\\cline{${seg.$1}-${seg.$2}}');
+          }
+        }
+      }
     }
 
-    buf.writeln('\\hline');
     buf.write('\\end{tabular}');
-
     return buf.toString();
+  }
+
+  /// Find a merge region whose master cell is at (col, row).
+  static CellRange? _findMasterMerge(List<CellRange> merges, int col, int row) {
+    for (final m in merges) {
+      if (m.startColumn == col && m.startRow == row) return m;
+    }
+    return null;
+  }
+
+  /// Find any merge region that contains (col, row).
+  static CellRange? _findMerge(List<CellRange> merges, int col, int row) {
+    for (final m in merges) {
+      if (col >= m.startColumn &&
+          col <= m.endColumn &&
+          row >= m.startRow &&
+          row <= m.endRow) {
+        return m;
+      }
+    }
+    return null;
+  }
+
+  /// Compute \cline segments for the boundary after [row].
+  ///
+  /// Returns null if no merges cross this boundary → full \hline.
+  /// Returns empty list if entire boundary is blocked by merges.
+  /// Returns (start1-indexed, end1-indexed) pairs for partial rules.
+  static List<(int, int)>? _computeClineSegments(
+    List<CellRange> merges,
+    int row,
+    int minCol,
+    int colCount,
+    CellBorders Function(int col, int row) getBorders,
+  ) {
+    final blocked = List.filled(colCount, false);
+    bool anyBlocked = false;
+    for (final m in merges) {
+      if (m.startRow <= row && m.endRow > row) {
+        for (int c = m.startColumn; c <= m.endColumn; c++) {
+          final idx = c - minCol;
+          if (idx >= 0 && idx < colCount) {
+            blocked[idx] = true;
+            anyBlocked = true;
+          }
+        }
+      }
+    }
+    // Also block columns where cells have no bottom border.
+    for (int i = 0; i < colCount; i++) {
+      if (!getBorders(minCol + i, row).bottom) {
+        blocked[i] = true;
+        anyBlocked = true;
+      }
+    }
+
+    if (!anyBlocked) return null;
+
+    final segments = <(int, int)>[];
+    int? segStart;
+    for (int i = 0; i < colCount; i++) {
+      if (!blocked[i]) {
+        segStart ??= i;
+      } else {
+        if (segStart != null) {
+          segments.add((segStart + 1, i));
+          segStart = null;
+        }
+      }
+    }
+    if (segStart != null) {
+      segments.add((segStart + 1, colCount));
+    }
+    return segments;
+  }
+
+  /// Write \cline segments for columns where cells have bottom borders.
+  static void _writeBorderCline(
+    StringBuffer buf,
+    int minCol,
+    int maxCol,
+    int row,
+    CellBorders Function(int col, int row) getBorders,
+  ) {
+    final colCount = maxCol - minCol + 1;
+    int? segStart;
+    for (int i = 0; i < colCount; i++) {
+      final hasBorder = getBorders(minCol + i, row).bottom;
+      if (hasBorder) {
+        segStart ??= i;
+      } else {
+        if (segStart != null) {
+          buf.writeln('\\cline{${segStart + 1}-${i}');
+          segStart = null;
+        }
+      }
+    }
+    if (segStart != null) {
+      buf.writeln('\\cline{${segStart + 1}-$colCount}');
+    }
   }
 
   // =========================================================================

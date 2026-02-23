@@ -28,6 +28,7 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 - **Animation**: `SpringSimulation` (3 damping), `MotionPath` (arc-length), `StaggerAnimation` (5 orderings).
 - **Typography**: `VariableFontConfig` (6 assi), `OpenTypeConfig` (presets+merge), `TextAutoResizeEngine` (4 modi).
 - **Image**: `ImageAdjustmentConfig` (6 regolazioni, 5×4 color matrix), `FillConfig` (5 fill modes).
+- **⚠️ Design Tab**: SDK-only. NON esposto nella toolbar Looponia (features da design tool, non note-taking). Tab enum esiste ma `_availableTabs` lo esclude. Moduli restano nel codice per uso libreria.
 ### Drawing Pipeline (drawing/)
 - `DrawingInputHandler` → 1€ Filter, predicted touches, pressure normalization.
 - `BrushEngine` è l'**UNICO** dispatch point pen→brush. MAI duplicare switch(penType).

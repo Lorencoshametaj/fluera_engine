@@ -25,6 +25,7 @@ class TabularContextualToolbar extends StatefulWidget {
   // -- Format callbacks --
   final VoidCallback? onToggleBold;
   final VoidCallback? onToggleItalic;
+  final ValueChanged<String>? onBorderPreset;
   final ValueChanged<Color>? onTextColorChanged;
   final ValueChanged<Color>? onBackgroundColorChanged;
   final ValueChanged<CellAlignment>? onAlignmentChanged;
@@ -43,6 +44,10 @@ class TabularContextualToolbar extends StatefulWidget {
   final VoidCallback? onSetValidation;
   final VoidCallback? onSetConditionalFormat;
   final VoidCallback? onGenerateLatex;
+  final VoidCallback? onCopySelectionAsLatex;
+  final VoidCallback? onGenerateChart;
+  final VoidCallback? onImportLatex;
+  final VoidCallback? onExportTex;
 
   // -- View callbacks --
   final VoidCallback? onToggleFreeze;
@@ -61,6 +66,7 @@ class TabularContextualToolbar extends StatefulWidget {
     required this.toolState,
     this.onToggleBold,
     this.onToggleItalic,
+    this.onBorderPreset,
     this.onTextColorChanged,
     this.onBackgroundColorChanged,
     this.onAlignmentChanged,
@@ -75,6 +81,10 @@ class TabularContextualToolbar extends StatefulWidget {
     this.onSetValidation,
     this.onSetConditionalFormat,
     this.onGenerateLatex,
+    this.onCopySelectionAsLatex,
+    this.onGenerateChart,
+    this.onImportLatex,
+    this.onExportTex,
     this.onToggleFreeze,
     this.isFrozen = false,
     this.onImportCsv,
@@ -331,6 +341,72 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
           onPressed: sel ? widget.onToggleItalic : null,
           isActive: _isItalic,
         ),
+        PopupMenuButton<String>(
+          tooltip: 'Borders',
+          enabled: sel,
+          onSelected: (v) => widget.onBorderPreset?.call(v),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Icon(
+              Icons.border_all,
+              size: 18,
+              color: sel ? null : Colors.grey,
+            ),
+          ),
+          itemBuilder:
+              (_) => const [
+                PopupMenuItem(
+                  value: 'all',
+                  child: Row(
+                    children: [
+                      Icon(Icons.border_all, size: 18),
+                      SizedBox(width: 8),
+                      Text('All'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'outline',
+                  child: Row(
+                    children: [
+                      Icon(Icons.border_outer, size: 18),
+                      SizedBox(width: 8),
+                      Text('Outside'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'inside',
+                  child: Row(
+                    children: [
+                      Icon(Icons.border_inner, size: 18),
+                      SizedBox(width: 8),
+                      Text('Inside'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'bottom',
+                  child: Row(
+                    children: [
+                      Icon(Icons.border_bottom, size: 18),
+                      SizedBox(width: 8),
+                      Text('Bottom'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'none',
+                  child: Row(
+                    children: [
+                      Icon(Icons.border_clear, size: 18),
+                      SizedBox(width: 8),
+                      Text('None'),
+                    ],
+                  ),
+                ),
+              ],
+        ),
       ]),
 
       _group('Align', [
@@ -483,9 +559,29 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
 
       _group('Export Data', [
         _Btn(
-          icon: Icons.functions_rounded, // or code, auto_awesome
+          icon: Icons.functions_rounded,
           tooltip: 'Generate LaTeX Table from Selection',
           onPressed: sel ? widget.onGenerateLatex : null,
+        ),
+        _Btn(
+          icon: Icons.content_copy_rounded,
+          tooltip: 'Copy Selection as LaTeX',
+          onPressed: sel ? widget.onCopySelectionAsLatex : null,
+        ),
+        _Btn(
+          icon: Icons.bar_chart_rounded,
+          tooltip: 'Generate TikZ Chart from Selection',
+          onPressed: sel ? widget.onGenerateChart : null,
+        ),
+        _Btn(
+          icon: Icons.input_rounded,
+          tooltip: 'Import LaTeX → Spreadsheet',
+          onPressed: widget.onImportLatex,
+        ),
+        _Btn(
+          icon: Icons.description_outlined,
+          tooltip: 'Export .tex File',
+          onPressed: widget.onExportTex,
         ),
       ]),
     ];
@@ -540,6 +636,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
 
   bool get _isBold => _selectedCellNode?.format?.bold ?? false;
   bool get _isItalic => _selectedCellNode?.format?.italic ?? false;
+  bool get _hasBorders => _selectedCellNode?.format?.borders?.hasAll ?? true;
   Color get _textColor =>
       _selectedCellNode?.format?.textColor ?? const Color(0xFFE0E0E0);
   Color get _bgColor =>

@@ -246,6 +246,23 @@ class TabularSelectionPainter extends CustomPainter {
   Rect? _cellRect(TabularNode node, CellAddress addr) {
     final topLeft = _cellTopLeft(node, addr);
     if (topLeft == null) return null;
+
+    // Check if this cell is the master of a merge region.
+    final mergeRegion = node.mergeManager.getRegion(addr);
+    if (mergeRegion != null && node.mergeManager.isMasterCell(addr)) {
+      // Sum widths across merged columns.
+      double w = 0;
+      for (int c = mergeRegion.startColumn; c <= mergeRegion.endColumn; c++) {
+        w += node.model.getColumnWidth(c);
+      }
+      // Sum heights across merged rows.
+      double h = 0;
+      for (int r = mergeRegion.startRow; r <= mergeRegion.endRow; r++) {
+        h += node.model.getRowHeight(r);
+      }
+      return Rect.fromLTWH(topLeft.dx, topLeft.dy, w, h);
+    }
+
     final w = node.model.getColumnWidth(addr.column);
     final h = node.model.getRowHeight(addr.row);
     return Rect.fromLTWH(topLeft.dx, topLeft.dy, w, h);

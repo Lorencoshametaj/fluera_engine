@@ -512,6 +512,13 @@ export 'src/canvas/infinite_canvas_gesture_detector.dart';
 export 'src/canvas/liquid_canvas_config.dart';
 export 'src/canvas/spring_animation_controller.dart';
 
+// Navigation & Orientation
+export 'src/canvas/navigation/content_bounds_tracker.dart';
+export 'src/canvas/navigation/camera_actions.dart';
+export 'src/canvas/navigation/canvas_minimap.dart';
+export 'src/canvas/navigation/content_radar_overlay.dart';
+export 'src/canvas/navigation/zoom_level_indicator.dart';
+
 // ────────────────────────── REFLOW ──────────────────────────
 export 'src/reflow/content_cluster.dart';
 export 'src/reflow/cluster_detector.dart';

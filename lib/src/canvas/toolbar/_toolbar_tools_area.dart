@@ -591,6 +591,73 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                       isActive: isItalic,
                       onPressed: () => widget.onToggleItalic?.call(),
                     ),
+                    PopupMenuButton<String>(
+                      tooltip: 'Borders',
+                      onSelected: (v) => widget.onBorderPreset?.call(v),
+                      icon: Icon(
+                        Icons.border_all_rounded,
+                        size: 16,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 28,
+                      ),
+                      itemBuilder:
+                          (_) => const [
+                            PopupMenuItem(
+                              value: 'all',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.border_all, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('All Borders'),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'outline',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.border_outer, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Outside'),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'inside',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.border_inner, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Inside'),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'bottom',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.border_bottom, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Bottom'),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'none',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.border_clear, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('No Borders'),
+                                ],
+                              ),
+                            ),
+                          ],
+                    ),
                     _ExcelBtn(
                       icon: Icons.format_clear_rounded,
                       tooltip: 'Clear',
@@ -746,6 +813,18 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                               widget.onAutoFill?.call();
                             case 'generate_latex':
                               widget.onGenerateLatex?.call();
+                            case 'copy_latex':
+                              widget.onCopySelectionAsLatex?.call();
+                            case 'merge_cells':
+                              widget.onMergeCells?.call();
+                            case 'unmerge_cells':
+                              widget.onUnmergeCells?.call();
+                            case 'generate_chart':
+                              widget.onGenerateChart?.call();
+                            case 'import_latex':
+                              widget.onImportLatex?.call();
+                            case 'export_tex':
+                              widget.onExportTex?.call();
                             case 'clear_cells':
                               widget.onClearCells?.call();
                             case 'export_csv':
@@ -793,11 +872,47 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                                 'Auto-fill Down',
                                 enabled: hasCellSel,
                               ),
+                              const PopupMenuDivider(),
+                              _menuItem(
+                                'merge_cells',
+                                Icons.call_merge_rounded,
+                                'Merge Cells',
+                                enabled: hasCellSel && widget.hasRangeSelection,
+                              ),
+                              _menuItem(
+                                'unmerge_cells',
+                                Icons.call_split_rounded,
+                                'Unmerge Cells',
+                                enabled: hasCellSel,
+                              ),
+                              const PopupMenuDivider(),
                               _menuItem(
                                 'generate_latex',
                                 Icons.functions_rounded,
                                 'Generate LaTeX Table',
                                 enabled: hasCellSel,
+                              ),
+                              _menuItem(
+                                'copy_latex',
+                                Icons.content_copy_rounded,
+                                'Copy Selection as LaTeX',
+                                enabled: hasCellSel,
+                              ),
+                              _menuItem(
+                                'generate_chart',
+                                Icons.bar_chart_rounded,
+                                'Generate TikZ Chart',
+                                enabled: hasCellSel,
+                              ),
+                              _menuItem(
+                                'import_latex',
+                                Icons.input_rounded,
+                                'Import LaTeX → Table',
+                              ),
+                              _menuItem(
+                                'export_tex',
+                                Icons.description_outlined,
+                                'Export .tex File',
                               ),
                               const PopupMenuDivider(),
                               _menuItem(

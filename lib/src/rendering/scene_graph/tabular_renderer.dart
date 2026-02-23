@@ -99,7 +99,20 @@ class TabularRenderer {
       bounds,
     );
 
-    // 5. Draw cell contents.
+    // 5. Draw merge region overlays (covers internal grid lines).
+    _drawMergeOverlays(
+      canvas,
+      model,
+      node,
+      firstCol,
+      lastCol,
+      firstRow,
+      lastRow,
+      xOffset,
+      yOffset,
+    );
+
+    // 6. Draw cell contents.
     _drawCells(
       canvas,
       model,
@@ -297,30 +310,193 @@ class TabularRenderer {
           ..color = node.gridLineColor
           ..strokeWidth = node.gridLineWidth
           ..style = PaintingStyle.stroke
-          ..isAntiAlias = false; // Disable AA for crisp grid lines.
+          ..isAntiAlias = false;
 
-    // Vertical lines.
-    double x = xOffset;
+    // Pre-compute column X positions.
+    final colX = <double>[];
+    double cx = xOffset;
     for (int c = 0; c < firstCol; c++) {
-      x += model.getColumnWidth(c) as double;
+      cx += model.getColumnWidth(c) as double;
     }
     for (int c = firstCol; c <= lastCol + 1; c++) {
-      canvas.drawLine(Offset(x, yOffset), Offset(x, bounds.bottom), linePaint);
-      if (c <= lastCol) {
-        x += model.getColumnWidth(c) as double;
+      colX.add(cx);
+      if (c <= lastCol) cx += model.getColumnWidth(c) as double;
+    }
+
+    // Pre-compute row Y positions.
+    final rowY = <double>[];
+    double ry = yOffset;
+    for (int r = 0; r < firstRow; r++) {
+      ry += model.getRowHeight(r) as double;
+    }
+    for (int r = firstRow; r <= lastRow + 1; r++) {
+      rowY.add(ry);
+      if (r <= lastRow) ry += model.getRowHeight(r) as double;
+    }
+
+    // Helper to get cell borders (null format = default = all borders).
+    CellBorders _getBorders(int col, int row) {
+      final cell = model.getCell(CellAddress(col, row));
+      return cell?.format?.borders ?? CellBorders.all;
+    }
+
+    // Draw vertical line segments (between columns).
+    for (int ci = 0; ci < colX.length; ci++) {
+      final c = firstCol + ci;
+      final x = colX[ci];
+
+      for (int ri = 0; ri < rowY.length - 1; ri++) {
+        final r = firstRow + ri;
+        final y1 = rowY[ri];
+        final y2 = rowY[ri + 1];
+
+        if (c == firstCol) {
+          // Left edge of table: draw if edge cell has .left border.
+          if (_getBorders(c, r).left) {
+            canvas.drawLine(Offset(x, y1), Offset(x, y2), linePaint);
+          }
+        } else if (c == lastCol + 1) {
+          // Right edge of table: draw if edge cell has .right border.
+          if (_getBorders(c - 1, r).right) {
+            canvas.drawLine(Offset(x, y1), Offset(x, y2), linePaint);
+          }
+        } else {
+          // Between col c-1 and col c: draw if c-1.right or c.left is true.
+          final leftBorders = _getBorders(c - 1, r);
+          final rightBorders = _getBorders(c, r);
+          if (leftBorders.right || rightBorders.left) {
+            canvas.drawLine(Offset(x, y1), Offset(x, y2), linePaint);
+          }
+        }
       }
     }
 
-    // Horizontal lines.
-    double y = yOffset;
-    for (int r = 0; r < firstRow; r++) {
-      y += model.getRowHeight(r) as double;
-    }
-    for (int r = firstRow; r <= lastRow + 1; r++) {
-      canvas.drawLine(Offset(xOffset, y), Offset(bounds.right, y), linePaint);
-      if (r <= lastRow) {
-        y += model.getRowHeight(r) as double;
+    // Draw horizontal line segments (between rows).
+    for (int ri = 0; ri < rowY.length; ri++) {
+      final r = firstRow + ri;
+      final y = rowY[ri];
+
+      for (int ci = 0; ci < colX.length - 1; ci++) {
+        final c = firstCol + ci;
+        final x1 = colX[ci];
+        final x2 = colX[ci + 1];
+
+        if (r == firstRow) {
+          // Top edge of table: draw if edge cell has .top border.
+          if (_getBorders(c, r).top) {
+            canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
+          }
+        } else if (r == lastRow + 1) {
+          // Bottom edge of table: draw if edge cell has .bottom border.
+          if (_getBorders(c, r - 1).bottom) {
+            canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
+          }
+        } else {
+          // Between row r-1 and row r: draw if r-1.bottom or r.top is true.
+          final topBorders = _getBorders(c, r - 1);
+          final bottomBorders = _getBorders(c, r);
+          if (topBorders.bottom || bottomBorders.top) {
+            canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
+          }
+        }
       }
+    }
+  }
+
+  // =========================================================================
+  // Merge region overlays — fills merged areas to hide internal grid lines
+  // =========================================================================
+
+  static void _drawMergeOverlays(
+    Canvas canvas,
+    dynamic model,
+    TabularNode node,
+    int firstCol,
+    int lastCol,
+    int firstRow,
+    int lastRow,
+    double xOffset,
+    double yOffset,
+  ) {
+    final regions = node.mergeManager.regions;
+    if (regions.isEmpty) return;
+
+    // Pre-compute column X positions.
+    final colXMap = <int, double>{};
+    double cx = xOffset;
+    for (int c = 0; c <= lastCol; c++) {
+      if (c >= firstCol) colXMap[c] = cx;
+      cx += model.getColumnWidth(c) as double;
+    }
+
+    // Pre-compute row Y positions.
+    final rowYMap = <int, double>{};
+    double ry = yOffset;
+    for (int r = 0; r <= lastRow; r++) {
+      if (r >= firstRow) rowYMap[r] = ry;
+      ry += model.getRowHeight(r) as double;
+    }
+
+    final bgPaint =
+        Paint()
+          ..color = node.backgroundColor
+          ..style = PaintingStyle.fill;
+
+    final borderPaint =
+        Paint()
+          ..color = node.gridLineColor
+          ..strokeWidth = node.gridLineWidth
+          ..style = PaintingStyle.stroke
+          ..isAntiAlias = false;
+
+    for (final region in regions) {
+      // Skip regions fully outside the visible range.
+      if (region.endColumn < firstCol || region.startColumn > lastCol) continue;
+      if (region.endRow < firstRow || region.startRow > lastRow) continue;
+
+      // Compute the pixel rect for this region.
+      final startCol = region.startColumn;
+      final startRow = region.startRow;
+
+      // X position of the region start.
+      double regionX = xOffset;
+      for (int c = 0; c < startCol; c++) {
+        regionX += model.getColumnWidth(c) as double;
+      }
+      // Y position of the region start.
+      double regionY = yOffset;
+      for (int r = 0; r < startRow; r++) {
+        regionY += model.getRowHeight(r) as double;
+      }
+      // Width = sum of column widths in region.
+      double regionW = 0;
+      for (int c = region.startColumn; c <= region.endColumn; c++) {
+        regionW += model.getColumnWidth(c) as double;
+      }
+      // Height = sum of row heights in region.
+      double regionH = 0;
+      for (int r = region.startRow; r <= region.endRow; r++) {
+        regionH += model.getRowHeight(r) as double;
+      }
+
+      final rect = Rect.fromLTWH(regionX, regionY, regionW, regionH);
+
+      // Fill with background to cover internal grid lines.
+      canvas.drawRect(rect, bgPaint);
+
+      // Check if the master cell has a custom background color.
+      final masterAddr = CellAddress(region.startColumn, region.startRow);
+      final masterCell = model.getCell(masterAddr);
+      if (masterCell != null && masterCell.format?.backgroundColor != null) {
+        final cellBgPaint =
+            Paint()
+              ..color = masterCell.format!.backgroundColor!
+              ..style = PaintingStyle.fill;
+        canvas.drawRect(rect, cellBgPaint);
+      }
+
+      // Draw border around the merged region.
+      canvas.drawRect(rect, borderPaint);
     }
   }
 

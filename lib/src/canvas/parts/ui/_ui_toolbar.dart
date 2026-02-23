@@ -257,6 +257,8 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           onDeleteRow: _deleteRow,
           onInsertColumn: _insertColumn,
           onDeleteColumn: _deleteColumn,
+          onMergeCells: _mergeCells,
+          onUnmergeCells: _unmergeCells,
           onCopySelection: _copySelection,
           onCutSelection: _cutSelection,
           onPasteSelection: _pasteAtSelection,
@@ -271,12 +273,129 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           hasRangeSelection: _tabularTool.hasRangeSelection,
           onToggleBold: _toggleBold,
           onToggleItalic: _toggleItalic,
+          onBorderPreset: _setBorderPreset,
           onSetAlignment: _setAlignment,
           onSetTextColor: _setTextColor,
           onSetBackgroundColor: _setBackgroundColor,
           onClearFormatting: _clearFormatting,
           onClearCells: _clearSelectedCells,
           onGenerateLatex: _generateLatexFromSelection,
+          onCopySelectionAsLatex: () {
+            final latex = _tabularTool.selectionToLatex(includeHeaders: true);
+            if (latex == null) return;
+            HapticFeedback.lightImpact();
+            showDialog(
+              context: context,
+              builder: (ctx) {
+                final cs = Theme.of(ctx).colorScheme;
+                return AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  backgroundColor: const Color(0xFF1E1E1E),
+                  titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                  title: Row(
+                    children: [
+                      Icon(Icons.code_rounded, color: cs.primary, size: 22),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'LaTeX Code',
+                        style: TextStyle(
+                          color: Color(0xFFE0E0E0),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Package requirements notice.
+                      if (latex.contains('\\multirow') ||
+                          latex.contains('\\toprule'))
+                        Container(
+                          width: double.maxFinite,
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A2010),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFF5C4A1E),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Text(
+                            '📦 Add to preamble:\n'
+                            '${latex.contains('\\multirow') ? '\\usepackage{multirow}\n' : ''}'
+                            '${latex.contains('\\toprule') ? '\\usepackage{booktabs}\n' : ''}',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              color: Color(0xFFFFD54F),
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      // LaTeX code.
+                      Container(
+                        width: double.maxFinite,
+                        constraints: const BoxConstraints(maxHeight: 300),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF121212),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFF333333),
+                            width: 0.5,
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(14),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            latex,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                              color: Color(0xFFA5D6A7),
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  actionsPadding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Close'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: latex));
+                        HapticFeedback.mediumImpact();
+                        Navigator.of(ctx).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('LaTeX copied to clipboard'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 18),
+                      label: const Text('Copy'),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+          onGenerateChart: _generateChartFromSelection,
+          onImportLatex: _importLatexToSpreadsheet,
+          onExportTex: _exportTexFile,
           onImportCsv: _importCsv,
           onExportCsv: () {
             final csv = _exportCsv();
@@ -485,36 +604,44 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             // structural changes, so the version must be bumped explicitly.
             _pdfLayoutVersion++;
 
-            // 📄 Translate linked annotation strokes when a page is re-locked.
-            // togglePageLock() sets pendingStrokeTranslation with the delta
-            // between the old custom position and the new grid position.
+            // 📄 Translate linked annotation strokes when pages move.
+            // performGridLayout() populates pendingStrokeTranslations with
+            // per-page deltas for all pages whose annotations need moving.
+            bool didTranslate = false;
             for (final layer in _layerController.sceneGraph.layers) {
               for (final child in layer.children) {
                 if (child is PdfDocumentNode &&
-                    child.pendingStrokeTranslation != null) {
-                  final tx = child.pendingStrokeTranslation!;
-                  child.pendingStrokeTranslation = null; // Consume
+                    child.pendingStrokeTranslations.isNotEmpty) {
+                  final translations = child.pendingStrokeTranslations.toList();
+                  child.pendingStrokeTranslations.clear(); // Consume
 
-                  if (tx.annotationIds.isNotEmpty) {
-                    final idSet = Set<String>.of(tx.annotationIds);
-                    for (final l in _layerController.layers) {
-                      for (final strokeNode in l.node.strokeNodes) {
-                        if (idSet.contains(strokeNode.stroke.id)) {
-                          final old = strokeNode.stroke;
-                          final translated =
-                              old.points.map((p) {
-                                return p.copyWith(
-                                  position: p.position + tx.delta,
-                                );
-                              }).toList();
-                          strokeNode.stroke = old.copyWith(points: translated);
+                  for (final tx in translations) {
+                    if (tx.annotationIds.isNotEmpty) {
+                      final idSet = Set<String>.of(tx.annotationIds);
+                      for (final l in _layerController.layers) {
+                        for (final strokeNode in l.node.strokeNodes) {
+                          if (idSet.contains(strokeNode.stroke.id)) {
+                            final old = strokeNode.stroke;
+                            final translated =
+                                old.points.map((p) {
+                                  return p.copyWith(
+                                    position: p.position + tx.delta,
+                                  );
+                                }).toList();
+                            strokeNode.stroke = old.copyWith(
+                              points: translated,
+                            );
+                            didTranslate = true;
+                          }
                         }
                       }
                     }
-                    DrawingPainter.invalidateAllTiles();
                   }
                 }
               }
+            }
+            if (didTranslate) {
+              DrawingPainter.invalidateAllTiles();
             }
 
             setState(() {});

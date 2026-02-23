@@ -527,116 +527,132 @@ extension NebulaCanvasEraserUI on _NebulaCanvasScreenState {
         final pulseScale = 1.0 + 0.15 * (1.0 - _eraserPulseController.value);
         final scaledRadius = radius * pulseScale;
 
-        return Positioned(
-          left: screenPos.dx - scaledRadius,
-          top: screenPos.dy - scaledRadius,
-          child: IgnorePointer(
-            child: SizedBox(
-              width: scaledRadius * 2,
-              height: scaledRadius * 2,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  // Circle border + fill (V5: tilt-based ellipse)
-                  Positioned.fill(
-                    child: Transform(
-                      alignment: Alignment.center,
-                      // V5: Compress on tilt axis for ellipse effect
-                      transform:
-                          Matrix4.identity()
-                            ..scaleByDouble(
-                              1.0 - (_eraserTiltX.abs() * 0.3).clamp(0.0, 0.4),
-                              1.0 - (_eraserTiltY.abs() * 0.3).clamp(0.0, 0.4),
-                              1.0,
-                              1.0,
-                            )
-                            ..rotateZ(
-                              _eraserTiltX != 0 || _eraserTiltY != 0
-                                  ? math.atan2(_eraserTiltX, _eraserTiltY)
-                                  : 0.0,
+        return Stack(
+          children: [
+            Positioned(
+              left: screenPos.dx - scaledRadius,
+              top: screenPos.dy - scaledRadius,
+              child: IgnorePointer(
+                child: SizedBox(
+                  width: scaledRadius * 2,
+                  height: scaledRadius * 2,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Circle border + fill (V5: tilt-based ellipse)
+                      Positioned.fill(
+                        child: Transform(
+                          alignment: Alignment.center,
+                          // V5: Compress on tilt axis for ellipse effect
+                          transform:
+                              Matrix4.identity()
+                                ..scaleByDouble(
+                                  1.0 -
+                                      (_eraserTiltX.abs() * 0.3).clamp(
+                                        0.0,
+                                        0.4,
+                                      ),
+                                  1.0 -
+                                      (_eraserTiltY.abs() * 0.3).clamp(
+                                        0.0,
+                                        0.4,
+                                      ),
+                                  1.0,
+                                  1.0,
+                                )
+                                ..rotateZ(
+                                  _eraserTiltX != 0 || _eraserTiltY != 0
+                                      ? math.atan2(_eraserTiltX, _eraserTiltY)
+                                      : 0.0,
+                                ),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: cursorBorderColor,
+                                width: 2,
+                              ),
+                              color: cursorFillColor,
                             ),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 120),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: cursorBorderColor,
-                            width: 2,
                           ),
-                          color: cursorFillColor,
                         ),
                       ),
-                    ),
-                  ),
 
-                  // Crosshair lines
-                  Center(
-                    child: CustomPaint(
-                      size: Size(scaledRadius * 2, scaledRadius * 2),
-                      painter: _CrosshairPainter(
-                        radius: scaledRadius,
-                        color: crosshairColor,
-                      ),
-                    ),
-                  ),
-
-                  // 📏 Px label (below cursor)
-                  Positioned(
-                    bottom: -18,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Text(
-                        '${_eraserTool.eraserRadius.round()}px',
-                        style: TextStyle(
-                          color: isDark ? Colors.red[200] : Colors.red[600],
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
+                      // Crosshair lines
+                      Center(
+                        child: CustomPaint(
+                          size: Size(scaledRadius * 2, scaledRadius * 2),
+                          painter: _CrosshairPainter(
+                            radius: scaledRadius,
+                            color: crosshairColor,
+                          ),
                         ),
                       ),
-                    ),
-                  ),
 
-                  // Erase count badge (animated fade-out)
-                  Positioned(
-                    right: -6,
-                    top: -6,
-                    child: AnimatedOpacity(
-                      opacity: _eraserGestureEraseCount > 0 ? 1.0 : 0.0,
-                      duration: Duration(
-                        milliseconds: _eraserGestureEraseCount > 0 ? 100 : 400,
-                      ),
-                      child: AnimatedScale(
-                        scale: _eraserGestureEraseCount > 0 ? 1.0 : 0.6,
-                        duration: const Duration(milliseconds: 200),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade700,
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(color: Colors.black26, blurRadius: 3),
-                            ],
-                          ),
+                      // 📏 Px label (below cursor)
+                      Positioned(
+                        bottom: -18,
+                        left: 0,
+                        right: 0,
+                        child: Center(
                           child: Text(
-                            '${_eraserGestureEraseCount > 0 ? _eraserGestureEraseCount : ""}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
+                            '${_eraserTool.eraserRadius.round()}px',
+                            style: TextStyle(
+                              color: isDark ? Colors.red[200] : Colors.red[600],
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                       ),
-                    ),
+
+                      // Erase count badge (animated fade-out)
+                      Positioned(
+                        right: -6,
+                        top: -6,
+                        child: AnimatedOpacity(
+                          opacity: _eraserGestureEraseCount > 0 ? 1.0 : 0.0,
+                          duration: Duration(
+                            milliseconds:
+                                _eraserGestureEraseCount > 0 ? 100 : 400,
+                          ),
+                          child: AnimatedScale(
+                            scale: _eraserGestureEraseCount > 0 ? 1.0 : 0.6,
+                            duration: const Duration(milliseconds: 200),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade700,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 3,
+                                  ),
+                                ],
+                              ),
+                              child: Text(
+                                '${_eraserGestureEraseCount > 0 ? _eraserGestureEraseCount : ""}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          ),
+          ],
         );
       },
     );

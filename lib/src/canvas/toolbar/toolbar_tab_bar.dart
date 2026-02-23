@@ -64,23 +64,28 @@ class ToolbarTabBar extends StatelessWidget {
           ),
         ),
       ),
-      child: Row(
-        children: [
-          for (int i = 0; i < availableTabs.length; i++) ...[
-            if (i > 0) const SizedBox(width: 2),
-            _ToolbarTabChip(
-              tab: availableTabs[i],
-              isActive: availableTabs[i] == activeTab,
-              isDark: isDark,
-              onTap: () {
-                if (availableTabs[i] != activeTab) {
-                  HapticFeedback.selectionClick();
-                  onTabChanged(availableTabs[i]);
-                }
-              },
-            ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (int i = 0; i < availableTabs.length; i++) ...[
+              if (i > 0) const SizedBox(width: 2),
+              _ToolbarTabChip(
+                tab: availableTabs[i],
+                isActive: availableTabs[i] == activeTab,
+                isDark: isDark,
+                onTap: () {
+                  if (availableTabs[i] != activeTab) {
+                    HapticFeedback.selectionClick();
+                    onTabChanged(availableTabs[i]);
+                  }
+                },
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

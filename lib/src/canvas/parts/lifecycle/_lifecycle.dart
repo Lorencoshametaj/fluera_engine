@@ -171,7 +171,7 @@ extension on _NebulaCanvasScreenState {
       }
 
       if (data != null && mounted) {
-        _applyCanvasData(data);
+        await _applyCanvasData(data);
 
         // ☁️ Download images/PDFs that are in cloud but missing locally
         // (runs in background — non-blocking)
@@ -226,7 +226,7 @@ extension on _NebulaCanvasScreenState {
       // Cloud data is newer — apply it
       if (mounted) {
         debugPrint('☁️ Background sync: applying newer cloud data');
-        _applyCanvasData(cloudData);
+        await _applyCanvasData(cloudData);
         downloadMissingAssets();
       }
     } catch (e) {
@@ -235,7 +235,7 @@ extension on _NebulaCanvasScreenState {
   }
 
   /// 🛠️ Applica dati canvas alla UI (estratto per riuso)
-  void _applyCanvasData(Map<String, dynamic> data) {
+  Future<void> _applyCanvasData(Map<String, dynamic> data) async {
     // 🛠️ APPLICATION OF DATA WITH IMMEDIATE SETSTATE
     setState(() {
       // 🆕 Load titolo (if present nel salvataggio)
@@ -407,12 +407,45 @@ extension on _NebulaCanvasScreenState {
     // 📄 Restore PDF documents from saved metadata
     final pdfDocsList = data['pdfDocuments'] as List<dynamic>?;
     if (pdfDocsList != null && pdfDocsList.isNotEmpty) {
-      _restorePdfDocuments(pdfDocsList);
+      await _restorePdfDocuments(pdfDocsList);
+    }
+
+    // 🧮 Restore scene nodes (LatexNode, TabularNode) from JSON sidecar
+    final sceneNodesList = data['sceneNodes'] as List<dynamic>?;
+    if (sceneNodesList != null && sceneNodesList.isNotEmpty) {
+      for (final entry in sceneNodesList) {
+        try {
+          final map = Map<String, dynamic>.from(entry as Map);
+          final layerId = map['layerId'] as String;
+          final nodeJson = Map<String, dynamic>.from(map['node'] as Map);
+
+          final restoredNode = CanvasNodeFactory.fromJson(nodeJson);
+
+          final targetLayer = _layerController.layers.firstWhere(
+            (l) => l.id == layerId,
+            orElse: () => _layerController.layers.first,
+          );
+          targetLayer.node.add(restoredNode);
+        } catch (e) {
+          debugPrint('[SceneNodes] Error restoring node: $e');
+        }
+      }
+      _layerController.sceneGraph.bumpVersion();
+      if (mounted) setState(() {});
     }
   }
 
   ///  Callback called when the layer controller notifica modifiche
   void _onLayerChanged() {
+    // 🧭 Update navigation bounds tracker — DEFERRED to avoid re-entrant
+    // scene graph rebuild during the LayerController notification cycle.
+    // (sceneGraph getter triggers _rebuildSceneGraphImpl → addLayer →
+    //  bumpVersion + notifyNodeAdded, which corrupts state if called
+    //  synchronously inside _onLayerChanged.)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _contentBoundsTracker.update();
+    });
+
     // 🔧 FIX ZOOM LAG: Update list cache
     _refreshCachedLists();
 

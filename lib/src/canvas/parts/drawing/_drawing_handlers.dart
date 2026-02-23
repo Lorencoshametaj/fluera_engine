@@ -230,6 +230,22 @@ extension on _NebulaCanvasScreenState {
       setState(() {});
     }
 
+    // 🧮 LatexNode hit-test (tap to select/drag, tap away to deselect)
+    final hitLatex = _hitTestLatexNode(canvasPosition);
+    if (hitLatex != null) {
+      _selectedLatexNode = hitLatex;
+      _isDraggingLatex = true;
+      _latexDragStart = canvasPosition;
+      setState(() {});
+      return;
+    }
+    // Deselect LatexNode if tapped empty area
+    if (_selectedLatexNode != null) {
+      _selectedLatexNode = null;
+      _isDraggingLatex = false;
+      setState(() {});
+    }
+
     // If digital text mode is active and no text was hit, return (don't draw)
     if (_effectiveIsDigitalText) {
       return;
@@ -472,6 +488,20 @@ extension on _NebulaCanvasScreenState {
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
 
+    // 📊 TabularNode: Cancel any drag/resize so pinch-to-zoom works
+    if (_tabularTool.isDragging) {
+      _tabularTool.endDrag();
+    }
+    if (_tabularTool.isResizing) {
+      _tabularTool.endResize();
+    }
+
+    // 🧮 LatexNode drag cancel (pinch-to-zoom interrupt)
+    if (_isDraggingLatex) {
+      _isDraggingLatex = false;
+      _latexDragStart = null;
+    }
+
     // 📄 PDF PAGE DRAG: Cancel drag on multi-touch interrupt
     // Strokes were translated in real-time, so roll them back.
     if (_pdfPageDragController.isDragging) {
@@ -560,5 +590,722 @@ extension on _NebulaCanvasScreenState {
       _layerController.updateImage(_imageTool.selectedImage!);
       _imageTool.endRotation();
     }
+  }
+
+  // ===========================================================================
+  // 🧮 LatexNode — hit-test, delete
+  // ===========================================================================
+
+  /// Hit-test all LatexNodes on the canvas. Returns the first LatexNode
+  /// whose world-space bounds contain [canvasPosition], or null.
+  LatexNode? _hitTestLatexNode(Offset canvasPosition) {
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is LatexNode && child.isVisible) {
+          final pos = child.localTransform.getTranslation();
+          final bounds = child.localBounds.translate(pos.x, pos.y);
+          if (bounds.contains(canvasPosition)) {
+            return child;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Delete the currently selected LatexNode from the scene graph.
+  void _deleteSelectedLatexNode() {
+    final node = _selectedLatexNode;
+    if (node == null) return;
+
+    // Find and remove from the layer
+    for (final layer in _layerController.layers) {
+      final children = layer.node.children.toList();
+      if (children.contains(node)) {
+        layer.node.remove(node);
+        break;
+      }
+    }
+
+    _selectedLatexNode = null;
+    _isDraggingLatex = false;
+    _latexDragStart = null;
+    _layerController.sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    HapticFeedback.mediumImpact();
+    setState(() {});
+    _autoSaveCanvas();
+  }
+
+  void _showChartSettingsDialog(BuildContext context, LatexNode node) {
+    final titleCtrl = TextEditingController(text: node.chartTitle ?? node.name);
+    bool showLegend = node.chartShowLegend;
+    bool showAvg = node.chartShowAvg;
+    bool showTrend = node.chartShowTrend;
+    bool showValues = node.chartShowValues;
+    String valueDisplay = node.chartValueDisplay;
+    int? bgColor = node.chartBgColor;
+    String chartType = node.chartType ?? 'bar';
+    int palette = node.chartColorPalette;
+    String sizePreset = node.chartSizePreset;
+    int? axisColor = node.chartAxisColor;
+
+    // Background presets.
+    const bgPresets = <int?>[
+      null, // default gradient
+      0xF01E1E2E, // deep navy
+      0xF02D1B3D, // dark purple
+      0xF01B2D2D, // dark teal
+      0xF02D2D1B, // dark olive
+      0xF02D1B1B, // dark red
+      0xF01A1A1A, // pure dark
+      0xF0FFFFFF, // white
+      0x00000000, // transparent
+    ];
+    const bgPresetLabels = [
+      'Default',
+      'Navy',
+      'Purple',
+      'Teal',
+      'Olive',
+      'Red',
+      'Dark',
+      'White',
+      'Transparent',
+    ];
+
+    // Color palette preview data.
+    const palNames = ['Neon', 'Pastel', 'Earth', 'Ocean', 'Sunset'];
+    const palColors = <List<Color>>[
+      [
+        Color(0xFF7C4DFF),
+        Color(0xFF00E5FF),
+        Color(0xFFFF6D00),
+        Color(0xFF00E676),
+      ],
+      [
+        Color(0xFFA78BFA),
+        Color(0xFF93C5FD),
+        Color(0xFFFCA5A5),
+        Color(0xFF86EFAC),
+      ],
+      [
+        Color(0xFFD97706),
+        Color(0xFF059669),
+        Color(0xFF92400E),
+        Color(0xFF065F46),
+      ],
+      [
+        Color(0xFF0EA5E9),
+        Color(0xFF06B6D4),
+        Color(0xFF3B82F6),
+        Color(0xFF14B8A6),
+      ],
+      [
+        Color(0xFFF43F5E),
+        Color(0xFFF97316),
+        Color(0xFFEAB308),
+        Color(0xFFEC4899),
+      ],
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            Widget toggleRow(
+              String label,
+              bool value,
+              void Function(bool) onChanged,
+            ) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      height: 28,
+                      child: Switch(
+                        value: value,
+                        activeTrackColor: const Color(0xFF7C4DFF),
+                        onChanged: (v) => setDialogState(() => onChanged(v)),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E2E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Text(
+                'Chart Settings',
+                style: TextStyle(
+                  color: Color(0xFFF0F0FF),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              content: SizedBox(
+                width: 340,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Title ──
+                      const Text(
+                        'Title',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: titleCtrl,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A3A),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          hintText: 'Chart title…',
+                          hintStyle: const TextStyle(color: Color(0x50FFFFFF)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // ── Chart Type ──
+                      const Text(
+                        'Chart Type',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'bar',
+                            Icons.bar_chart,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'line',
+                            Icons.show_chart,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'scatter',
+                            Icons.scatter_plot,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'pie',
+                            Icons.pie_chart,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'area',
+                            Icons.area_chart,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'stacked_bar',
+                            Icons.stacked_bar_chart,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'hbar',
+                            Icons.align_horizontal_left,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'radar',
+                            Icons.hexagon_outlined,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'waterfall',
+                            Icons.waterfall_chart,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                          _typeChip(
+                            ctx,
+                            setDialogState,
+                            'bubble',
+                            Icons.bubble_chart,
+                            chartType,
+                            (t) => chartType = t,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      // ── Background ──
+                      const Text(
+                        'Background',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: List.generate(bgPresets.length, (i) {
+                          final preset = bgPresets[i];
+                          final isTransparent = preset == 0x00000000;
+                          final isSelected = bgColor == preset;
+                          final displayColor =
+                              isTransparent
+                                  ? const Color(0xFF252530)
+                                  : preset != null
+                                  ? Color(preset)
+                                  : const Color(0xFF252530);
+                          return Tooltip(
+                            message: bgPresetLabels[i],
+                            child: GestureDetector(
+                              onTap:
+                                  () => setDialogState(() => bgColor = preset),
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: displayColor,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color:
+                                        isSelected
+                                            ? const Color(0xFF7C4DFF)
+                                            : const Color(0x30FFFFFF),
+                                    width: isSelected ? 2.5 : 1,
+                                  ),
+                                ),
+                                child:
+                                    isSelected
+                                        ? const Icon(
+                                          Icons.check,
+                                          color: Color(0xFF7C4DFF),
+                                          size: 16,
+                                        )
+                                        : null,
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // ── Axis Color ──
+                      const Text(
+                        'Axis Color',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final entry in <MapEntry<String, int?>>[
+                            const MapEntry('Default', null),
+                            const MapEntry('White', 0xFFFFFFFF),
+                            const MapEntry('Yellow', 0xFFFFD740),
+                            const MapEntry('Cyan', 0xFF00E5FF),
+                            const MapEntry('Green', 0xFF00E676),
+                            const MapEntry('Orange', 0xFFFF6D00),
+                            const MapEntry('Red', 0xFFFF5252),
+                          ])
+                            Tooltip(
+                              message: entry.key,
+                              child: GestureDetector(
+                                onTap:
+                                    () => setDialogState(
+                                      () => axisColor = entry.value,
+                                    ),
+                                child: Container(
+                                  width: 30,
+                                  height: 30,
+                                  decoration: BoxDecoration(
+                                    color:
+                                        entry.value != null
+                                            ? Color(entry.value!)
+                                            : const Color(0xFF2A2A3A),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color:
+                                          axisColor == entry.value
+                                              ? const Color(0xFF7C4DFF)
+                                              : const Color(0x30FFFFFF),
+                                      width: axisColor == entry.value ? 2.5 : 1,
+                                    ),
+                                  ),
+                                  child:
+                                      axisColor == entry.value
+                                          ? const Icon(
+                                            Icons.check,
+                                            color: Color(0xFF7C4DFF),
+                                            size: 14,
+                                          )
+                                          : entry.value == null
+                                          ? const Icon(
+                                            Icons.auto_awesome,
+                                            color: Color(0x60FFFFFF),
+                                            size: 14,
+                                          )
+                                          : null,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+
+                      // ── Color Palette ──
+                      const Text(
+                        'Color Palette',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: List.generate(palNames.length, (i) {
+                          final isSelected = palette == i;
+                          return Tooltip(
+                            message: palNames[i],
+                            child: GestureDetector(
+                              onTap: () => setDialogState(() => palette = i),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color:
+                                      isSelected
+                                          ? const Color(0xFF2A2A4A)
+                                          : const Color(0xFF2A2A3A),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color:
+                                        isSelected
+                                            ? const Color(0xFF7C4DFF)
+                                            : const Color(0x30FFFFFF),
+                                    width: isSelected ? 2 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    for (int c = 0; c < 4; c++)
+                                      Container(
+                                        width: 10,
+                                        height: 10,
+                                        margin: const EdgeInsets.only(right: 2),
+                                        decoration: BoxDecoration(
+                                          color: palColors[i][c],
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      palNames[i],
+                                      style: TextStyle(
+                                        color:
+                                            isSelected
+                                                ? Colors.white
+                                                : const Color(0x80FFFFFF),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // ── Chart Size ──
+                      const Text(
+                        'Chart Size',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children:
+                            ['small', 'medium', 'large'].map((s) {
+                              final label = s[0].toUpperCase() + s.substring(1);
+                              final isSelected = sizePreset == s;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: GestureDetector(
+                                  onTap:
+                                      () =>
+                                          setDialogState(() => sizePreset = s),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          isSelected
+                                              ? const Color(0xFF7C4DFF)
+                                              : const Color(0xFF2A2A3A),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color:
+                                            isSelected
+                                                ? const Color(0xFF7C4DFF)
+                                                : const Color(0x30FFFFFF),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      label,
+                                      style: TextStyle(
+                                        color:
+                                            isSelected
+                                                ? Colors.white
+                                                : const Color(0x70FFFFFF),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+
+                      // ── Display Options ──
+                      const Text(
+                        'Display Options',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      toggleRow(
+                        'Show Legend',
+                        showLegend,
+                        (v) => showLegend = v,
+                      ),
+                      toggleRow(
+                        'Show Average Line',
+                        showAvg,
+                        (v) => showAvg = v,
+                      ),
+                      toggleRow(
+                        'Show Value Labels',
+                        showValues,
+                        (v) => showValues = v,
+                      ),
+                      if (showValues) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Text(
+                              'Format:  ',
+                              style: TextStyle(
+                                color: Color(0x70FFFFFF),
+                                fontSize: 11,
+                              ),
+                            ),
+                            for (final entry in <MapEntry<String, String>>[
+                              const MapEntry('value', 'Value'),
+                              const MapEntry('percent', '%'),
+                              const MapEntry('both', 'Both'),
+                            ])
+                              Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: GestureDetector(
+                                  onTap:
+                                      () => setDialogState(
+                                        () => valueDisplay = entry.key,
+                                      ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          valueDisplay == entry.key
+                                              ? const Color(0xFF7C4DFF)
+                                              : const Color(0xFF2A2A3A),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color:
+                                            valueDisplay == entry.key
+                                                ? const Color(0xFF7C4DFF)
+                                                : const Color(0x30FFFFFF),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      entry.value,
+                                      style: TextStyle(
+                                        color:
+                                            valueDisplay == entry.key
+                                                ? Colors.white
+                                                : const Color(0x70FFFFFF),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                      if (chartType == 'scatter')
+                        toggleRow(
+                          'Show Trend Line',
+                          showTrend,
+                          (v) => showTrend = v,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Color(0x80FFFFFF)),
+                  ),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C4DFF),
+                  ),
+                  onPressed: () {
+                    final newTitle = titleCtrl.text.trim();
+                    node.chartTitle = newTitle.isNotEmpty ? newTitle : null;
+                    node.chartBgColor = bgColor;
+                    node.chartShowLegend = showLegend;
+                    node.chartShowAvg = showAvg;
+                    node.chartShowTrend = showTrend;
+                    node.chartShowValues = showValues;
+                    node.chartValueDisplay = valueDisplay;
+                    node.chartColorPalette = palette;
+                    node.chartAxisColor = axisColor;
+                    node.chartSizePreset = sizePreset;
+                    node.chartType = chartType;
+                    node.cachedLayout = null;
+                    _layerController.sceneGraph.bumpVersion();
+                    DrawingPainter.invalidateAllTiles();
+                    setState(() {});
+                    _autoSaveCanvas();
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('Apply'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Helper: chart type selection chip.
+  Widget _typeChip(
+    BuildContext ctx,
+    StateSetter setDialogState,
+    String type,
+    IconData icon,
+    String currentType,
+    void Function(String) onSelect,
+  ) {
+    final isSelected = currentType == type;
+    return GestureDetector(
+      onTap: () => setDialogState(() => onSelect(type)),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF7C4DFF) : const Color(0xFF2A2A3A),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color:
+                isSelected ? const Color(0xFF7C4DFF) : const Color(0x30FFFFFF),
+          ),
+        ),
+        child: Icon(
+          icon,
+          color: isSelected ? Colors.white : const Color(0x70FFFFFF),
+          size: 20,
+        ),
+      ),
+    );
   }
 }

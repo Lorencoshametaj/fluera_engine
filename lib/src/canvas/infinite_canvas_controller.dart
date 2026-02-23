@@ -32,6 +32,13 @@ class InfiniteCanvasController extends ChangeNotifier {
   static const double _minScale = 0.1;
   static const double _maxScale = 5.0;
 
+  /// Tracks whether we're past zoom limits (for one-shot haptic).
+  bool _wasAtZoomLimit = false;
+
+  /// Callback fired once when zoom crosses min/max boundary.
+  /// Set by the widget to trigger haptic feedback.
+  VoidCallback? onZoomLimitReached;
+
   // Getters
   Offset get offset => _offset;
   double get scale => _scale;
@@ -143,8 +150,16 @@ class InfiniteCanvasController extends ChangeNotifier {
     if (elastic && _liquidConfig.enabled && _liquidConfig.enableElasticZoom) {
       // Allow overshoot with rubber-band resistance
       _scale = _applyElasticClamp(scale);
+
+      // Fire haptic once when crossing the zoom boundary
+      final isAtLimit = scale < _minScale || scale > _maxScale;
+      if (isAtLimit && !_wasAtZoomLimit) {
+        onZoomLimitReached?.call();
+      }
+      _wasAtZoomLimit = isAtLimit;
     } else {
       _scale = scale.clamp(_minScale, _maxScale);
+      _wasAtZoomLimit = false;
     }
     notifyListeners();
   }

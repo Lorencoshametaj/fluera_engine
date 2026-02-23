@@ -529,5 +529,216 @@ void main() {
       expect(doc.pageAt(1)?.id, 'page-1');
       expect(doc.pageAt(5), isNull);
     });
+
+    test('performGridLayout populates pendingStrokeTranslations', () {
+      final doc = PdfDocumentNode(
+        id: NodeId('translate-test'),
+        documentModel: const PdfDocumentModel(
+          sourceHash: 'hash',
+          totalPages: 2,
+          pages: [],
+          gridColumns: 1,
+          gridSpacing: 10.0,
+          gridOrigin: Offset.zero,
+        ),
+      );
+
+      // Add 2 locked pages (100x100)
+      doc.add(
+        PdfPageNode(
+          id: NodeId('page-a'),
+          pageModel: const PdfPageModel(
+            pageIndex: 0,
+            originalSize: Size(100, 100),
+            annotations: ['stroke-1', 'stroke-2'],
+          ),
+        ),
+      );
+      doc.add(
+        PdfPageNode(
+          id: NodeId('page-b'),
+          pageModel: const PdfPageModel(
+            pageIndex: 1,
+            originalSize: Size(100, 100),
+            annotations: ['stroke-3'],
+          ),
+        ),
+      );
+
+      // Initial layout (columns=1)
+      doc.performGridLayout();
+      // Consume initial translations (from Offset.zero → grid position)
+      doc.pendingStrokeTranslations.clear();
+
+      // Verify initial positions: col=1, so page-0 at (0,0), page-1 at (0,110)
+      expect(doc.pageNodes[0].position, const Offset(0, 0));
+      expect(doc.pageNodes[1].position, const Offset(0, 110));
+
+      // Change to 2 columns → page-1 moves from (0,110) to (110,0)
+      doc.setGridColumns(2);
+
+      // page-0 should stay at (0,0) → delta == zero → no translation
+      // page-1 moves from (0,110) to (110,0) → delta = (110, -110)
+      expect(doc.pendingStrokeTranslations.length, 1);
+      final tx = doc.pendingStrokeTranslations.first;
+      expect(tx.delta, const Offset(110, -110));
+      expect(tx.annotationIds, ['stroke-3']);
+    });
+
+    test('reorderPage generates stroke translations', () {
+      final doc = PdfDocumentNode(
+        id: NodeId('reorder-test'),
+        documentModel: const PdfDocumentModel(
+          sourceHash: 'hash',
+          totalPages: 3,
+          pages: [],
+          gridColumns: 1,
+          gridSpacing: 10.0,
+          gridOrigin: Offset.zero,
+        ),
+      );
+
+      for (int i = 0; i < 3; i++) {
+        doc.add(
+          PdfPageNode(
+            id: NodeId('page-$i'),
+            pageModel: PdfPageModel(
+              pageIndex: i,
+              originalSize: const Size(100, 100),
+              annotations: ['stroke-$i'],
+            ),
+          ),
+        );
+      }
+
+      doc.performGridLayout();
+      doc.pendingStrokeTranslations.clear();
+
+      // Initial: page-0 at y=0, page-1 at y=110, page-2 at y=220
+      // Reorder page-2 → position-0 (move to front)
+      doc.reorderPage(2, 0);
+
+      // After reorder, pages reshuffle → some translations expected
+      expect(doc.pendingStrokeTranslations.isNotEmpty, true);
+    });
+
+    test('removePage preserves annotation IDs on removed node', () {
+      final doc = PdfDocumentNode(
+        id: NodeId('remove-test'),
+        documentModel: const PdfDocumentModel(
+          sourceHash: 'hash',
+          totalPages: 2,
+          pages: [],
+          gridColumns: 1,
+          gridSpacing: 10.0,
+        ),
+      );
+
+      doc.add(
+        PdfPageNode(
+          id: NodeId('page-keep'),
+          pageModel: const PdfPageModel(
+            pageIndex: 0,
+            originalSize: Size(100, 100),
+          ),
+        ),
+      );
+      doc.add(
+        PdfPageNode(
+          id: NodeId('page-remove'),
+          pageModel: const PdfPageModel(
+            pageIndex: 1,
+            originalSize: Size(100, 100),
+            annotations: ['stroke-on-removed-page'],
+          ),
+        ),
+      );
+
+      doc.performGridLayout();
+
+      final removed = doc.removePage(1);
+      expect(removed, isNotNull);
+      expect(removed!.pageModel.annotations, ['stroke-on-removed-page']);
+    });
+
+    test('unlinkAnnotation removes ID from all pages', () {
+      final doc = PdfDocumentNode(
+        id: NodeId('unlink-test'),
+        documentModel: const PdfDocumentModel(
+          sourceHash: 'hash',
+          totalPages: 2,
+          pages: [],
+        ),
+      );
+
+      doc.add(
+        PdfPageNode(
+          id: NodeId('p-0'),
+          pageModel: const PdfPageModel(
+            pageIndex: 0,
+            originalSize: Size(100, 100),
+            annotations: ['s-1', 's-2'],
+          ),
+        ),
+      );
+      doc.add(
+        PdfPageNode(
+          id: NodeId('p-1'),
+          pageModel: const PdfPageModel(
+            pageIndex: 1,
+            originalSize: Size(100, 100),
+            annotations: ['s-2', 's-3'],
+          ),
+        ),
+      );
+
+      // Unlink s-2 from all pages
+      doc.unlinkAnnotation('s-2');
+
+      expect(doc.pageNodes[0].pageModel.annotations, ['s-1']);
+      expect(doc.pageNodes[1].pageModel.annotations, ['s-3']);
+    });
+
+    test('pages without annotations produce no translations', () {
+      final doc = PdfDocumentNode(
+        id: NodeId('no-annot-test'),
+        documentModel: const PdfDocumentModel(
+          sourceHash: 'hash',
+          totalPages: 2,
+          pages: [],
+          gridColumns: 1,
+          gridSpacing: 10.0,
+          gridOrigin: Offset.zero,
+        ),
+      );
+
+      doc.add(
+        PdfPageNode(
+          id: NodeId('page-0'),
+          pageModel: const PdfPageModel(
+            pageIndex: 0,
+            originalSize: Size(100, 100),
+            // No annotations
+          ),
+        ),
+      );
+      doc.add(
+        PdfPageNode(
+          id: NodeId('page-1'),
+          pageModel: const PdfPageModel(
+            pageIndex: 1,
+            originalSize: Size(100, 100),
+            // No annotations
+          ),
+        ),
+      );
+
+      doc.performGridLayout();
+      doc.pendingStrokeTranslations.clear();
+
+      // Change columns — even though pages move, no translations since no annotations
+      doc.setGridColumns(2);
+      expect(doc.pendingStrokeTranslations, isEmpty);
+    });
   });
 }

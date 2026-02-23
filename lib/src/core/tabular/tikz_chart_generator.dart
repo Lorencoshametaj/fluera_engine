@@ -3,7 +3,18 @@ import 'cell_value.dart';
 import 'spreadsheet_evaluator.dart';
 
 /// Supported chart types for TikZ/pgfplots generation.
-enum TikzChartType { line, bar, scatter, pie }
+enum TikzChartType {
+  line,
+  bar,
+  scatter,
+  pie,
+  area,
+  stacked_bar,
+  hbar,
+  radar,
+  waterfall,
+  bubble,
+}
 
 /// Options for TikZ chart generation.
 class TikzChartOptions {
@@ -99,6 +110,10 @@ class TikzChartGenerator {
         return _generateScatterPlot(data, opts);
       case TikzChartType.pie:
         return _generatePieChart(data, opts);
+      default:
+        // New visual chart types (area, stacked_bar, hbar, radar, waterfall,
+        // bubble) don't have TikZ-specific generation — fall back to bar.
+        return _generateBarChart(data, opts);
     }
   }
 

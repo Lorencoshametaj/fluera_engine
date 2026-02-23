@@ -512,9 +512,11 @@ class LayerController extends NebulaLayerController {
     final wasTrackingEnabled = enableDeltaTracking;
     enableDeltaTracking = false;
 
+    final oldLayers = List<CanvasLayer>.from(_layers);
     final updatedLayers = UndoRedoManager.applyInverseDelta(_layers, delta);
     _layers.clear();
     _layers.addAll(updatedLayers);
+    _transplantExtraChildren(oldLayers, _layers);
 
     // Mark ALL layers dirty — undo can affect any layer
     for (final l in _layers) {
@@ -534,9 +536,11 @@ class LayerController extends NebulaLayerController {
     final wasTrackingEnabled = enableDeltaTracking;
     enableDeltaTracking = false;
 
+    final oldLayers = List<CanvasLayer>.from(_layers);
     final updatedLayers = UndoRedoManager.reapplyDelta(_layers, delta);
     _layers.clear();
     _layers.addAll(updatedLayers);
+    _transplantExtraChildren(oldLayers, _layers);
 
     // Mark ALL layers dirty — redo can affect any layer
     for (final l in _layers) {
@@ -561,9 +565,11 @@ class LayerController extends NebulaLayerController {
     final wasTrackingEnabled = enableDeltaTracking;
     enableDeltaTracking = false;
 
+    final oldLayers = List<CanvasLayer>.from(_layers);
     final updatedLayers = UndoRedoManager.applyInverseDelta(_layers, delta);
     _layers.clear();
     _layers.addAll(updatedLayers);
+    _transplantExtraChildren(oldLayers, _layers);
 
     for (final l in _layers) {
       _dirtyLayerIds.add(l.id);
@@ -573,6 +579,39 @@ class LayerController extends NebulaLayerController {
     _invalidateSceneGraph();
     enableDeltaTracking = wasTrackingEnabled;
     notifyListeners();
+  }
+
+  /// 🔄 Transplant extra children (TabularNode, LatexNode, PdfDocumentNode, etc.)
+  /// from old layers to new layers after undo/redo/discard.
+  ///
+  /// `CanvasLayer.copyWith()` only preserves strokes/shapes/texts/images,
+  /// silently dropping non-standard scene graph children. This method
+  /// re-attaches them to the matching new layer by ID.
+  void _transplantExtraChildren(
+    List<CanvasLayer> oldLayers,
+    List<CanvasLayer> newLayers,
+  ) {
+    final newLayerMap = {for (final l in newLayers) l.id: l};
+    for (final oldLayer in oldLayers) {
+      final newLayer = newLayerMap[oldLayer.id];
+      if (newLayer == null) continue;
+      // Skip if they're the same instance (no copyWith happened)
+      if (identical(oldLayer.node, newLayer.node)) continue;
+
+      // Collect extra children (anything not in strokes/shapes/texts/images)
+      final standardIds = <String>{
+        ...oldLayer.strokes.map((s) => s.id),
+        ...oldLayer.shapes.map((s) => s.id),
+        ...oldLayer.texts.map((t) => t.id),
+        ...oldLayer.images.map((i) => i.id),
+      };
+      for (final child in oldLayer.node.children) {
+        if (!standardIds.contains(child.id)) {
+          // This is an extra child — move it to the new layer
+          newLayer.node.add(child);
+        }
+      }
+    }
   }
 
   // ==========================================================================

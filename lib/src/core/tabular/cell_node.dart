@@ -2,6 +2,67 @@ import 'dart:ui';
 
 import 'cell_value.dart';
 
+/// 📐 Per-cell border configuration.
+///
+/// Controls which edges of a cell draw borders. `null` in [CellFormat]
+/// means "use the table default" (all borders visible).
+class CellBorders {
+  final bool top;
+  final bool bottom;
+  final bool left;
+  final bool right;
+
+  const CellBorders({
+    this.top = true,
+    this.bottom = true,
+    this.left = true,
+    this.right = true,
+  });
+
+  /// All borders visible (default).
+  static const all = CellBorders();
+
+  /// No borders.
+  static const none = CellBorders(
+    top: false,
+    bottom: false,
+    left: false,
+    right: false,
+  );
+
+  /// Whether all four borders are visible.
+  bool get hasAll => top && bottom && left && right;
+
+  /// Whether no borders are visible.
+  bool get hasNone => !top && !bottom && !left && !right;
+
+  Map<String, dynamic> toJson() => {
+    'top': top,
+    'bottom': bottom,
+    'left': left,
+    'right': right,
+  };
+
+  factory CellBorders.fromJson(Map<String, dynamic> json) => CellBorders(
+    top: json['top'] as bool? ?? true,
+    bottom: json['bottom'] as bool? ?? true,
+    left: json['left'] as bool? ?? true,
+    right: json['right'] as bool? ?? true,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CellBorders &&
+          top == other.top &&
+          bottom == other.bottom &&
+          left == other.left &&
+          right == other.right;
+
+  @override
+  int get hashCode => Object.hash(top, bottom, left, right);
+}
+
 /// 📊 Formatting options for a spreadsheet cell.
 ///
 /// All fields are optional — only non-null values override defaults.
@@ -30,6 +91,9 @@ class CellFormat {
   /// Whether text is italic.
   final bool? italic;
 
+  /// Per-cell border override. `null` = use table default.
+  final CellBorders? borders;
+
   const CellFormat({
     this.numberFormat,
     this.horizontalAlign,
@@ -39,6 +103,7 @@ class CellFormat {
     this.backgroundColor,
     this.bold,
     this.italic,
+    this.borders,
   });
 
   CellFormat copyWith({
@@ -50,6 +115,7 @@ class CellFormat {
     Color? backgroundColor,
     bool? bold,
     bool? italic,
+    CellBorders? borders,
   }) => CellFormat(
     numberFormat: numberFormat ?? this.numberFormat,
     horizontalAlign: horizontalAlign ?? this.horizontalAlign,
@@ -59,6 +125,7 @@ class CellFormat {
     backgroundColor: backgroundColor ?? this.backgroundColor,
     bold: bold ?? this.bold,
     italic: italic ?? this.italic,
+    borders: borders ?? this.borders,
   );
 
   Map<String, dynamic> toJson() => {
@@ -70,6 +137,7 @@ class CellFormat {
     if (backgroundColor != null) 'bgColor': backgroundColor!.toARGB32(),
     if (bold != null) 'bold': bold,
     if (italic != null) 'italic': italic,
+    if (borders != null) 'borders': borders!.toJson(),
   };
 
   factory CellFormat.fromJson(Map<String, dynamic> json) => CellFormat(
@@ -89,6 +157,10 @@ class CellFormat {
         json['bgColor'] != null ? Color(json['bgColor'] as int) : null,
     bold: json['bold'] as bool?,
     italic: json['italic'] as bool?,
+    borders:
+        json['borders'] != null
+            ? CellBorders.fromJson(json['borders'] as Map<String, dynamic>)
+            : null,
   );
 
   @override
@@ -102,7 +174,8 @@ class CellFormat {
           textColor == other.textColor &&
           backgroundColor == other.backgroundColor &&
           bold == other.bold &&
-          italic == other.italic;
+          italic == other.italic &&
+          borders == other.borders;
 
   @override
   int get hashCode => Object.hash(
@@ -114,6 +187,7 @@ class CellFormat {
     backgroundColor,
     bold,
     italic,
+    borders,
   );
 }
 

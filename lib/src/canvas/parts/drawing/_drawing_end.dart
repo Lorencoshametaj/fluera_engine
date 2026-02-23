@@ -227,12 +227,27 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
+    // 🧮 LatexNode drag end
+    if (_isDraggingLatex) {
+      _isDraggingLatex = false;
+      _latexDragStart = null;
+      HapticFeedback.lightImpact();
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      setState(() {});
+      _autoSaveCanvas();
+      return;
+    }
+
     // If il lasso is active, completa il lasso o termina il drag
     if (_effectiveIsLasso) {
       if (_lassoTool.isDragging) {
         _lassoTool.endDrag();
         _clearSmartGuides();
         _stopAutoScroll(); // Stop auto-scroll when drag ends
+
+        // 📄 Re-link moved strokes to their new PDF pages
+        _relinkStrokesToPdfPages(_lassoTool.selectedIds);
 
         // 🔧 FIX: Invalidate tile cache so final position is rendered correctly
         DrawingPainter.invalidateAllTiles();
@@ -292,6 +307,8 @@ extension on _NebulaCanvasScreenState {
           _eraserTool.invalidateSpatialIndex();
           _eraserTool.mergeAdjacentFragments();
           _eraserTool.persistRadius();
+          // 📄 Clean up orphaned PDF annotation IDs
+          _reconcilePdfAnnotations();
           DrawingPainter.invalidateAllTiles();
           _autoSaveCanvas();
           if (mounted) setState(() {});
@@ -317,6 +334,8 @@ extension on _NebulaCanvasScreenState {
       // + SQLite save were running synchronously and blocking >5s → ANR.
       Future.microtask(() {
         _eraserTool.mergeAdjacentFragments();
+        // 📄 Clean up orphaned PDF annotation IDs after erase
+        _reconcilePdfAnnotations();
         DrawingPainter.invalidateAllTiles();
         _autoSaveCanvas();
       });

@@ -431,7 +431,13 @@ class TabularTool extends BaseTool {
     }
 
     if (col < 0 || row < 0) return null;
-    return CellAddress(col, row);
+
+    // If the cell is hidden by a merge, redirect to the master cell.
+    final addr = CellAddress(col, row);
+    if (node.mergeManager.isHiddenByMerge(addr)) {
+      return node.mergeManager.getMasterCell(addr);
+    }
+    return addr;
   }
 }
 

@@ -29,6 +29,8 @@ import 'package:path/path.dart' as p;
 import 'nebula_storage_adapter.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
+import '../core/nodes/latex_node.dart';
+import '../core/nodes/tabular_node.dart';
 import '../core/engine_scope.dart';
 import '../core/engine_error.dart';
 import '../core/schema_version.dart';
@@ -36,7 +38,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 4;
+const int _kSchemaVersion = 6;
 
 /// Database file name.
 const String _kDatabaseName = 'nebula_canvas.db';
@@ -139,6 +141,7 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         guides_json   TEXT,
         pdf_documents_json TEXT,
         variables_json TEXT,
+        scene_nodes_json TEXT,
         schema_version INTEGER NOT NULL DEFAULT 1,
         layer_count   INTEGER NOT NULL DEFAULT 0,
         stroke_count  INTEGER NOT NULL DEFAULT 0,
@@ -189,6 +192,33 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       );
       debugPrint(
         '[NebulaStorage] Migration v3→v4: schema_version column added',
+      );
+    }
+    if (oldVersion < 5) {
+      // 📄 PDF persistence: add column for PDF document JSON sidecar.
+      // Without this migration, databases created before the column was
+      // added to _onCreate silently fail to save/restore PDF documents.
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN pdf_documents_json TEXT',
+        );
+      } catch (_) {
+        // Column may already exist if database was created with v4+ _onCreate.
+      }
+      debugPrint(
+        '[NebulaStorage] Migration v4→v5: pdf_documents_json column added',
+      );
+    }
+    if (oldVersion < 6) {
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN scene_nodes_json TEXT',
+        );
+      } catch (_) {
+        // Column may already exist if database was created with v6+ _onCreate.
+      }
+      debugPrint(
+        '[NebulaStorage] Migration v5→v6: scene_nodes_json column added',
       );
     }
   }
@@ -336,6 +366,20 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     final pdfJson =
         pdfDocumentsJson.isNotEmpty ? jsonEncode(pdfDocumentsJson) : null;
 
+    // 💾 Extract LatexNode and TabularNode from layers (binary doesn't support them).
+    final sceneNodesJson = <Map<String, dynamic>>[];
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is LatexNode) {
+          sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
+        } else if (child is TabularNode) {
+          sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
+        }
+      }
+    }
+    final sceneJson =
+        sceneNodesJson.isNotEmpty ? jsonEncode(sceneNodesJson) : null;
+
     // SQLite writes are I/O-bound and async — they don't block the main thread.
     final guidesJson = guides != null ? jsonEncode(guides) : null;
     await db.transaction((txn) async {
@@ -367,6 +411,21 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
           now,
         ],
       );
+
+      // 🧮 Save scene nodes (LatexNode, TabularNode) as a separate UPDATE
+      // to avoid breaking the main INSERT if column doesn't exist yet.
+      if (sceneJson != null) {
+        try {
+          await txn.update(
+            'canvases',
+            {'scene_nodes_json': sceneJson},
+            where: 'canvas_id = ?',
+            whereArgs: [canvasId],
+          );
+        } catch (_) {
+          // Column may not exist if migration hasn't run — safe to ignore.
+        }
+      }
 
       if (isDelta) {
         // 🚀 DELTA PATH: Only delete+re-insert dirty layers.
@@ -540,6 +599,24 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
             severity: ErrorSeverity.degraded,
             domain: ErrorDomain.storage,
             source: 'SqliteStorageAdapter.loadCanvas.variablesJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
+    }
+
+    // 🧮 Parse scene nodes JSON (LatexNode, TabularNode) if present
+    final sceneNodesStr = meta['scene_nodes_json'] as String?;
+    if (sceneNodesStr != null) {
+      try {
+        result['sceneNodes'] = jsonDecode(sceneNodesStr);
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.sceneNodesJson',
             original: e,
             stack: stack,
           ),

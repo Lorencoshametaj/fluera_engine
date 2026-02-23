@@ -345,4 +345,69 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
       }
     }
   }
+
+  /// 📄 Reconcile PDF annotation IDs with actual strokes in the scene graph.
+  ///
+  /// Removes any annotation IDs from PDF pages whose strokes no longer
+  /// exist in any layer (e.g. after erasing). This prevents orphaned
+  /// references from accumulating.
+  void _reconcilePdfAnnotations() {
+    // Build a set of all existing stroke IDs across all layers
+    final existingIds = <String>{};
+    for (final layer in _layerController.layers) {
+      for (final strokeNode in layer.node.strokeNodes) {
+        existingIds.add(strokeNode.stroke.id);
+      }
+    }
+
+    // Walk all PDF documents and remove orphaned annotation IDs
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode) {
+          for (final page in child.pageNodes) {
+            final annotations = page.pageModel.annotations;
+            if (annotations.isEmpty) continue;
+            final orphaned =
+                annotations.where((id) => !existingIds.contains(id)).toList();
+            if (orphaned.isNotEmpty) {
+              for (final id in orphaned) {
+                child.unlinkAnnotation(id);
+              }
+              debugPrint(
+                '[PDF] Unlinked ${orphaned.length} orphaned annotations from page ${page.pageModel.pageIndex}',
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// 📄 Re-link strokes to PDF pages after they have been moved (e.g. by lasso).
+  ///
+  /// Unlinks [movedStrokeIds] from their current pages, then re-links them
+  /// based on their new bounds. This ensures strokes dragged from one page
+  /// to another correctly transfer their page binding.
+  void _relinkStrokesToPdfPages(Set<String> movedStrokeIds) {
+    if (movedStrokeIds.isEmpty) return;
+
+    // Step 1: Unlink all moved strokes from their current pages
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode) {
+          for (final id in movedStrokeIds) {
+            child.unlinkAnnotation(id);
+          }
+        }
+      }
+    }
+
+    // Step 2: Re-link based on current bounds
+    for (final layer in _layerController.layers) {
+      for (final strokeNode in layer.node.strokeNodes) {
+        if (!movedStrokeIds.contains(strokeNode.stroke.id)) continue;
+        _linkStrokeToPdfPage(strokeNode.stroke);
+      }
+    }
+  }
 }
