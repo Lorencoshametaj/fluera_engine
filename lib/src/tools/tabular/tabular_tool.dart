@@ -84,13 +84,30 @@ class TabularToolState extends ChangeNotifier {
   }
 
   void selectCell(CellAddress addr) {
-    _selectedCell = addr;
-    _selectionStart = null;
-    _selectionEnd = null;
     _selectedRow = null;
     _selectedColumn = null;
     _isEditing = false;
     _editValue = '';
+
+    // Check if the cell belongs to a merge region → expand selection.
+    if (_activeNode != null) {
+      for (final region in _activeNode!.mergeManager.regions) {
+        if (addr.column >= region.startColumn &&
+            addr.column <= region.endColumn &&
+            addr.row >= region.startRow &&
+            addr.row <= region.endRow) {
+          _selectedCell = CellAddress(region.startColumn, region.startRow);
+          _selectionStart = CellAddress(region.startColumn, region.startRow);
+          _selectionEnd = CellAddress(region.endColumn, region.endRow);
+          notifyListeners();
+          return;
+        }
+      }
+    }
+
+    _selectedCell = addr;
+    _selectionStart = null;
+    _selectionEnd = null;
     notifyListeners();
   }
 

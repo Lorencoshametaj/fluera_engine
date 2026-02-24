@@ -173,7 +173,9 @@ class SelectionToLatex {
           if (merge != null) {
             final colSpan = merge.endColumn - merge.startColumn + 1;
             if (colSpan > 1) {
-              final colAlign = useBooktabs ? 'c' : '|c|';
+              final lB = _borders(merge.startColumn, r).left ? '|' : '';
+              final rB = _borders(merge.endColumn, r).right ? '|' : '';
+              final colAlign = useBooktabs ? 'c' : '${lB}c$rB';
               cells.add('\\multicolumn{$colSpan}{$colAlign}{}');
             } else {
               cells.add('');
@@ -201,13 +203,17 @@ class SelectionToLatex {
           // Build the cell content with multirow/multicolumn.
           if (colSpan > 1 && rowSpan > 1) {
             // 2D merge: \multicolumn wrapping \multirow
-            final colAlign = useBooktabs ? 'c' : '|c|';
+            final lB = _borders(col, r).left ? '|' : '';
+            final rB = _borders(clampedEndCol, r).right ? '|' : '';
+            final colAlign = useBooktabs ? 'c' : '${lB}c$rB';
             cellText =
                 '\\multicolumn{$colSpan}{$colAlign}'
                 '{\\multirow{$rowSpan}{*}{$cellText}}';
           } else if (colSpan > 1) {
             // Horizontal-only merge.
-            final colAlign = useBooktabs ? 'c' : '|c|';
+            final lB = _borders(col, r).left ? '|' : '';
+            final rB = _borders(clampedEndCol, r).right ? '|' : '';
+            final colAlign = useBooktabs ? 'c' : '${lB}c$rB';
             cellText = '\\multicolumn{$colSpan}{$colAlign}{$cellText}';
           } else if (rowSpan > 1) {
             // Vertical-only merge.
@@ -418,7 +424,7 @@ class SelectionToLatex {
         segStart ??= i;
       } else {
         if (segStart != null) {
-          buf.writeln('\\cline{${segStart + 1}-${i}');
+          buf.writeln('\\cline{${segStart + 1}-$i}');
           segStart = null;
         }
       }

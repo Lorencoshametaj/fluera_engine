@@ -11,6 +11,21 @@ extension on _NebulaCanvasScreenState {
       _broadcastCursorPosition(canvasPosition, isDrawing: false);
     }
 
+    // 📄 PDF DOCUMENT DRAG: End whole-document drag
+    if (_pdfPageDragController.isDraggingDocument) {
+      final activeLayer = _layerController.layers.firstWhere(
+        (l) => l.id == _layerController.activeLayerId,
+        orElse: () => _layerController.layers.first,
+      );
+      _pdfPageDragController.endDocumentDrag(layerNode: activeLayer.node);
+      DrawingPainter.invalidateAllTiles();
+      _pdfLayoutVersion++;
+      _isDrawingNotifier.value = false;
+      setState(() {});
+      _autoSaveCanvas();
+      return;
+    }
+
     // 📄 PDF PAGE DRAG: End drag and save position
     // Strokes were already translated in real-time during _onDrawUpdate,
     // so we only need to finalize the page position and invalidate caches.
@@ -463,6 +478,9 @@ extension on _NebulaCanvasScreenState {
     // 📄 PDF Annotation Linking: if stroke overlaps a PDF page, link it
     _linkStrokeToPdfPage(stroke);
 
+    // ✂️ Clear PDF clip rect now that the stroke is finalized
+    _activePdfClipRect = null;
+
     // 🌊 REFLOW: Incrementally update cluster cache with new stroke
     if (_clusterDetector != null) {
       final activeLayer = _layerController.layers.firstWhere(
@@ -474,7 +492,7 @@ extension on _NebulaCanvasScreenState {
         stroke,
         activeLayer.strokes,
       );
-      _lassoTool.updateClusterCache(_clusterCache);
+      _lassoTool.reflowController?.updateClusters(_clusterCache);
     }
 
     // 🚀 Incremental tile cache update: only re-rasterize affected tiles

@@ -1,6 +1,8 @@
 package com.nebulaengine.nebula_engine
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 
 /**
  * 🚀 NebulEnginePlugin - Main entry point for Nebula Engine's native capabilities
@@ -10,8 +12,9 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
  * - StylusInputPlugin: Advanced stylus metadata (hover, tilt, palm rejection)
  * - DisplayRefreshRateManager: Force 120Hz on supported devices
  * - VibrationPlugin: Advanced haptic feedback
+ * - PrintPlugin: Native PDF printing (requires Activity context)
  */
-class NebulaEnginePlugin : FlutterPlugin {
+class NebulaEnginePlugin : FlutterPlugin, ActivityAware {
 
     private var predictedTouchPlugin: PredictedTouchPlugin? = null
     private var stylusInputPlugin: StylusInputPlugin? = null
@@ -20,6 +23,8 @@ class NebulaEnginePlugin : FlutterPlugin {
     private var audioRecorderPlugin: AudioRecorderPlugin? = null
     private var pdfRendererPlugin: PdfRendererPlugin? = null
     private var latexRecognizerPlugin: LatexRecognizerPlugin? = null
+    private var sharePlugin: SharePlugin? = null
+    private var printPlugin: PrintPlugin? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         // Register predicted touch plugin
@@ -49,6 +54,14 @@ class NebulaEnginePlugin : FlutterPlugin {
         // Register LaTeX recognizer plugin (PyTorch Mobile)
         latexRecognizerPlugin = LatexRecognizerPlugin()
         latexRecognizerPlugin?.onAttachedToEngine(binding)
+
+        // Register share plugin
+        sharePlugin = SharePlugin()
+        sharePlugin?.onAttachedToEngine(binding)
+
+        // Register print plugin
+        printPlugin = PrintPlugin()
+        printPlugin?.onAttachedToEngine(binding)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -72,6 +85,28 @@ class NebulaEnginePlugin : FlutterPlugin {
 
         latexRecognizerPlugin?.onDetachedFromEngine(binding)
         latexRecognizerPlugin = null
+
+        sharePlugin?.onDetachedFromEngine(binding)
+        sharePlugin = null
+
+        printPlugin?.onDetachedFromEngine(binding)
+        printPlugin = null
+    }
+
+    // ─── ActivityAware — forward to PrintPlugin ───────────────────────
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        printPlugin?.onAttachedToActivity(binding)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        printPlugin?.onDetachedFromActivityForConfigChanges()
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        printPlugin?.onReattachedToActivityForConfigChanges(binding)
+    }
+
+    override fun onDetachedFromActivity() {
+        printPlugin?.onDetachedFromActivity()
     }
 }
-

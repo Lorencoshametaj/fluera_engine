@@ -337,12 +337,15 @@ class SelectionManager {
     }
   }
 
-  /// Scale all selected nodes from the selection center by [sx], [sy].
-  void scaleAll(double sx, double sy) {
-    final anchor = aggregateCenter;
+  /// Scale all selected nodes from [anchor] by [sx], [sy].
+  ///
+  /// If [anchor] is null, uses [aggregateCenter] as the scale pivot.
+  /// For multi-frame gestures, pass a fixed anchor to avoid drift.
+  void scaleAll(double sx, double sy, {Offset? anchor}) {
+    final pivot = anchor ?? aggregateCenter;
     for (final node in selectedNodes) {
       if (node.isLocked) continue;
-      node.scaleFrom(sx, sy, anchor);
+      node.scaleFrom(sx, sy, pivot);
     }
   }
 
@@ -354,6 +357,7 @@ class SelectionManager {
     for (final node in selectedNodes) {
       if (node.isLocked) continue;
       node.localTransform = transform.multiplied(node.localTransform);
+      node.invalidateTransformCache();
     }
   }
 

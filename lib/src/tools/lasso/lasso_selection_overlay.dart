@@ -7,6 +7,7 @@ import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
 import '../../layers/nebula_layer_controller.dart';
 import '../../canvas/infinite_canvas_controller.dart';
+import '../../core/nodes/stroke_node.dart';
 
 /// Widget overlay showing elements selected by lasso (with animation).
 ///
@@ -237,10 +238,25 @@ class _SelectionHighlightPainter extends CustomPainter {
   void _drawStrokeHighlight(Canvas canvas, ProStroke stroke) {
     if (stroke.points.isEmpty) return;
 
+    // 🚀 FIX: Look up the StrokeNode to get its localTransform offset.
+    // translateAll() modifies localTransform, not the raw point data.
+    Offset nodeOffset = Offset.zero;
+    for (final layer in layerController.sceneGraph.layers) {
+      for (final child in layer.children) {
+        if (child is StrokeNode && child.stroke.id == stroke.id) {
+          nodeOffset = child.position;
+          break;
+        }
+      }
+      if (nodeOffset != Offset.zero) break;
+    }
+
     final path = Path();
     final screenPoints =
         stroke.points
-            .map((p) => canvasController.canvasToScreen(p.position))
+            .map(
+              (p) => canvasController.canvasToScreen(p.position + nodeOffset),
+            )
             .toList();
 
     if (screenPoints.length < 2) return;

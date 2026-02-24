@@ -77,6 +77,13 @@ class SceneGraphRenderer {
   /// Set per frame in [render()].
   double _currentScale = 1.0;
 
+  /// Stroke IDs to skip during the global render pass.
+  ///
+  /// Set per frame by [DrawingPainter] to exclude PDF-linked annotation
+  /// strokes from the global pass (they are rendered clipped inside
+  /// [DrawingPainter._paintPdfPage] instead).
+  Set<String>? skipStrokeIds;
+
   // ---------------------------------------------------------------------------
   // Compiled Render Plan (GAP 1)
   // ---------------------------------------------------------------------------
@@ -395,6 +402,10 @@ class SceneGraphRenderer {
   void _renderStroke(Canvas canvas, StrokeNode node) {
     final stroke = node.stroke;
     if (stroke.points.isEmpty) return;
+
+    // Skip strokes that belong to a PDF page — they are rendered
+    // clipped inside _paintPdfPage instead of the global pass.
+    if (skipStrokeIds != null && skipStrokeIds!.contains(stroke.id)) return;
 
     // Adaptive LOD: skip sub-pixel strokes at low zoom.
     if (_currentScale < 0.5) {
@@ -1148,6 +1159,17 @@ class SceneGraphRenderer {
     final bounds = node.pageModel.originalSize;
     final rect = Rect.fromLTWH(0, 0, bounds.width, bounds.height);
 
+    // 🔄 Apply page rotation around center (matches DrawingPainter)
+    final rotation = node.pageModel.rotation;
+    if (rotation != 0) {
+      canvas.save();
+      final cx = rect.center.dx;
+      final cy = rect.center.dy;
+      canvas.translate(cx, cy);
+      canvas.rotate(rotation);
+      canvas.translate(-cx, -cy);
+    }
+
     if (node.cachedImage != null) {
       // Draw the cached raster tile, scaled to fill the page bounds.
       final srcRect = Rect.fromLTWH(
@@ -1179,6 +1201,11 @@ class SceneGraphRenderer {
         canvas,
         Offset((rect.width - tp.width) / 2, (rect.height - tp.height) / 2),
       );
+    }
+
+    // Close rotation transform
+    if (rotation != 0) {
+      canvas.restore();
     }
   }
 

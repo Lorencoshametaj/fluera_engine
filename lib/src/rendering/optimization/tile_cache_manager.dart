@@ -7,6 +7,7 @@ import '../../drawing/brushes/brushes.dart';
 import './stroke_data_manager.dart';
 import './advanced_tile_optimizer.dart';
 import './memory_managed_cache.dart';
+import './isolate_geometry_worker.dart';
 import '../../core/engine_scope.dart';
 
 /// 🚀 TILE CACHE MANAGER - Scalable tile caching for 100k+ strokes
@@ -253,6 +254,205 @@ class TileCacheManager
     _logMemoryStats('rasterizeTile-end');
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🚀 CHUNKED RASTERIZATION (Gap 5)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Maximum strokes per chunk to stay within frame budget (~4ms per chunk).
+  static const int maxStrokesPerChunk = 80;
+
+  /// Tracks in-progress chunked rasterizations: tileKey → strokesProcessedSoFar.
+  final Map<String, int> _chunkProgress = {};
+
+  /// 🚀 Rasterize a tile in chunks to avoid exceeding the frame budget.
+  ///
+  /// Each call processes at most [maxStrokesPerChunk] strokes. Returns
+  /// the number of remaining strokes. Call repeatedly (e.g., from
+  /// FrameBudgetManager) until 0 is returned.
+  ///
+  /// **Progressive LOD**: The first chunk produces a visible (partial) tile
+  /// immediately, so the viewport never shows blank space during rasterization.
+  /// Subsequent chunks composite additional strokes on top.
+  ///
+  /// Returns: number of strokes remaining (0 = complete).
+  int rasterizeTileChunked(
+    int tileX,
+    int tileY,
+    List<ProStroke> allStrokesInTile,
+    double devicePixelRatio,
+  ) {
+    if (allStrokesInTile.isEmpty) {
+      return 0;
+    }
+
+    // If total strokes fit in one chunk, use the fast full-rasterize path
+    if (allStrokesInTile.length <= maxStrokesPerChunk) {
+      rasterizeTile(tileX, tileY, allStrokesInTile, devicePixelRatio);
+      _chunkProgress.remove(_tileKey(tileX, tileY));
+      return 0;
+    }
+
+    final key = _tileKey(tileX, tileY);
+    _devicePixelRatio = devicePixelRatio;
+    final ts = currentTileSize;
+    final pixelWidth = (ts * devicePixelRatio).ceil();
+    final pixelHeight = (ts * devicePixelRatio).ceil();
+
+    // Determine chunk range
+    final processedSoFar = _chunkProgress[key] ?? 0;
+    final chunkEnd = (processedSoFar + maxStrokesPerChunk).clamp(
+      0,
+      allStrokesInTile.length,
+    );
+    final chunkStrokes = allStrokesInTile.sublist(processedSoFar, chunkEnd);
+
+    // Create recorder
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    // 1. Draw existing tile (if any) as the base layer
+    final existingImage = _tileCache[key];
+    if (existingImage != null) {
+      canvas.drawImage(existingImage, Offset.zero, Paint());
+    }
+
+    // 2. Overlay this chunk's strokes
+    canvas.scale(devicePixelRatio);
+    canvas.translate(-tileX * ts, -tileY * ts);
+
+    final optimizer = AdvancedTileOptimizer.instance;
+    final batches = optimizer.batchStrokes(chunkStrokes);
+    for (final entry in batches.entries) {
+      optimizer.drawStrokeBatch(canvas, entry.key, entry.value);
+    }
+
+    final picture = recorder.endRecording();
+    _totalPicturesCreated++;
+
+    final newImage = picture.toImageSync(pixelWidth, pixelHeight);
+    _totalImagesCreated++;
+
+    picture.dispose();
+    _totalPicturesDisposed++;
+
+    // Replace old image
+    if (existingImage != null) {
+      _tileCache.remove(key);
+      existingImage.dispose();
+      _totalImagesDisposed++;
+    } else {
+      _evictOldestTilesBeforeAdd();
+    }
+
+    if (isRefillAllowed) {
+      _tileCache[key] = newImage;
+      _tileStrokeCounts[key] = chunkEnd;
+      _dirtyTiles.remove(key);
+    }
+
+    // Update progress
+    final remaining = allStrokesInTile.length - chunkEnd;
+    if (remaining > 0) {
+      _chunkProgress[key] = chunkEnd;
+    } else {
+      _chunkProgress.remove(key);
+    }
+
+    return remaining;
+  }
+
+  /// Whether a tile has pending chunked rasterization work.
+  bool hasPendingChunks(int tileX, int tileY) {
+    return _chunkProgress.containsKey(_tileKey(tileX, tileY));
+  }
+
+  /// Clear all chunk progress tracking.
+  void clearChunkProgress() {
+    _chunkProgress.clear();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ⚡ ISOLATE-BASED ASYNC RASTERIZATION (Gap 8)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// 🚀 Rasterize a tile asynchronously, offloading geometry computation
+  /// to a background isolate.
+  ///
+  /// For tiles with [minStrokesForIsolate]+ strokes, the CPU-heavy path
+  /// building runs on a background isolate. The main thread only does
+  /// the final `canvas.drawPath()` calls (GPU-bound, fast).
+  ///
+  /// Falls back to synchronous [rasterizeTile] for small tiles where
+  /// the isolate spawn overhead exceeds computation cost.
+  Future<void> rasterizeTileAsync(
+    int tileX,
+    int tileY,
+    List<ProStroke> strokesInTile,
+    double devicePixelRatio,
+  ) async {
+    // Small tiles: sync is faster (no isolate overhead)
+    if (strokesInTile.length < minStrokesForIsolate) {
+      rasterizeTile(tileX, tileY, strokesInTile, devicePixelRatio);
+      return;
+    }
+
+    final key = _tileKey(tileX, tileY);
+    _devicePixelRatio = devicePixelRatio;
+    final ts = currentTileSize;
+    final pixelWidth = (ts * devicePixelRatio).ceil();
+    final pixelHeight = (ts * devicePixelRatio).ceil();
+
+    // 1. Serialize stroke data (fast, main thread)
+    final inputs = serializeStrokes(strokesInTile);
+
+    // 2. Compute geometry on background isolate (CPU-heavy)
+    final result = await computeGeometryOnIsolate(inputs);
+
+    // 3. Check if tile was invalidated while we were computing
+    if (_dirtyTiles.contains(key) || !isRefillAllowed) {
+      return; // Tile was invalidated — discard stale result
+    }
+
+    // 4. Dispose previous image
+    final oldImage = _tileCache[key];
+    if (oldImage != null) {
+      _tileCache.remove(key);
+      _tileStrokeCounts.remove(key);
+      oldImage.dispose();
+      _totalImagesDisposed++;
+    } else {
+      _evictOldestTilesBeforeAdd();
+    }
+
+    // 5. Record drawing using pre-computed geometry (fast, main thread)
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.scale(devicePixelRatio);
+    canvas.translate(-tileX * ts, -tileY * ts);
+
+    // Draw batched ballpoint paths (from isolate-computed Float32List)
+    drawBatchedPaths(canvas, result);
+
+    // Draw complex brush strokes (BrushEngine, main thread)
+    drawComplexSegments(canvas, result, strokesInTile);
+
+    final picture = recorder.endRecording();
+    _totalPicturesCreated++;
+
+    final image = picture.toImageSync(pixelWidth, pixelHeight);
+    _totalImagesCreated++;
+
+    picture.dispose();
+    _totalPicturesDisposed++;
+
+    // 6. Cache the result
+    if (isRefillAllowed) {
+      _tileCache[key] = image;
+      _tileStrokeCounts[key] = strokesInTile.length;
+      _dirtyTiles.remove(key);
+    }
+  }
+
   /// 🚀 INCREMENTAL UPDATE: Overlays a single stroke on an existing tile
   ///
   /// Instead of re-rasterizing ALL strokes in the tile, draws only
@@ -338,28 +538,95 @@ class TileCacheManager
   /// [canvas]: Canvas to draw on
   /// [viewport]: Current viewport in canvas coordinates
   /// [scale]: Current scale of the canvas
+  ///
+  /// 🚀 LOD CROSS-FADE: When a tile is missing at the current LOD level,
+  /// attempts to draw a fallback tile from an adjacent LOD level to prevent
+  /// visible "popping". The fallback tile is drawn at full opacity since
+  /// it will be naturally replaced when the correct LOD tile is rasterized.
   void paintVisibleTiles(Canvas canvas, Rect viewport, double scale) {
     final visibleTiles = getVisibleTiles(viewport, scale);
     final ts = currentTileSize;
+    final tilePaint = Paint()..filterQuality = FilterQuality.medium;
 
     for (final (tileX, tileY) in visibleTiles) {
       final key = _tileKey(tileX, tileY);
       final image = _tileCache[key];
 
       if (image != null) {
-        // Update access for LRU
+        // Current LOD tile exists — draw normally
         _touchTile(key);
-
-        // Calculate destination position
         final destRect = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
-
-        // Draw correctly scaled tile
         canvas.drawImageRect(
           image,
           Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
           destRect,
-          Paint()..filterQuality = FilterQuality.medium,
+          tilePaint,
         );
+      } else {
+        // 🚀 LOD CROSS-FADE: No tile at current LOD — search other levels
+        _drawFallbackTile(canvas, tileX, tileY, ts, tilePaint);
+      }
+    }
+  }
+
+  /// 🚀 LOD CROSS-FADE: Draw a fallback tile from an adjacent LOD level.
+  ///
+  /// When the current LOD tile hasn't been rasterized yet, this looks
+  /// through cached tiles at other LOD levels to find one that covers
+  /// the same spatial region. The fallback is slightly blurrier but
+  /// eliminates the "pop" visual artifact during zoom transitions.
+  void _drawFallbackTile(
+    Canvas canvas,
+    int tileX,
+    int tileY,
+    double ts,
+    Paint tilePaint,
+  ) {
+    // Spatial bounds of the missing tile in canvas coordinates
+    final missingBounds = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
+
+    // Search adjacent LOD levels (prefer closest)
+    for (final lod in _allCachedLodLevels) {
+      if (lod == _currentScaleBucket) continue;
+
+      final otherTs = baseTileSize / lod;
+      // Find which tile at this LOD level covers the center of our missing tile
+      final centerX = missingBounds.center.dx;
+      final centerY = missingBounds.center.dy;
+      final fallbackTileX = (centerX / otherTs).floor();
+      final fallbackTileY = (centerY / otherTs).floor();
+
+      final fallbackKey = _tileKeyForLod(lod, fallbackTileX, fallbackTileY);
+      final fallbackImage = _tileCache[fallbackKey];
+
+      if (fallbackImage != null) {
+        _touchTile(fallbackKey);
+
+        // The fallback tile covers a different area (different tile size).
+        // We need to draw only the portion that overlaps our missing tile.
+        final fallbackBounds = Rect.fromLTWH(
+          fallbackTileX * otherTs,
+          fallbackTileY * otherTs,
+          otherTs,
+          otherTs,
+        );
+
+        // Source rect: portion of the fallback image that overlaps
+        final overlap = missingBounds.intersect(fallbackBounds);
+        if (overlap.isEmpty) continue;
+
+        // Map overlap from canvas-space to fallback-image pixel-space
+        final imgW = fallbackImage.width.toDouble();
+        final imgH = fallbackImage.height.toDouble();
+        final srcRect = Rect.fromLTWH(
+          (overlap.left - fallbackBounds.left) / otherTs * imgW,
+          (overlap.top - fallbackBounds.top) / otherTs * imgH,
+          overlap.width / otherTs * imgW,
+          overlap.height / otherTs * imgH,
+        );
+
+        canvas.drawImageRect(fallbackImage, srcRect, overlap, tilePaint);
+        return; // Found a fallback — stop searching
       }
     }
   }

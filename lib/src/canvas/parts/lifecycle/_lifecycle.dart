@@ -477,7 +477,32 @@ extension on _NebulaCanvasScreenState {
       images: activeLayer.images,
     );
 
-    _lassoTool.updateClusterCache(_clusterCache);
+    // 🔑 FIX: Cluster bounds come from raw ProStroke data, which doesn't
+    // reflect CanvasNode.translate() offsets applied by reflow. Correct each
+    // cluster's bounds using the first stroke node's actual scene-graph offset.
+    final layerNode = activeLayer.node;
+    int corrected = 0;
+    for (final cluster in _clusterCache) {
+      if (cluster.strokeIds.isEmpty) continue;
+      // Use first stroke's node to get translation offset
+      final node = layerNode.findChild(cluster.strokeIds.first);
+      if (node == null) continue;
+      final tx = node.localTransform[12]; // dx
+      final ty = node.localTransform[13]; // dy
+      if (tx != 0.0 || ty != 0.0) {
+        final offset = Offset(tx, ty);
+        cluster.bounds = cluster.bounds.shift(offset);
+        cluster.centroid = cluster.centroid + offset;
+        corrected++;
+      }
+    }
+    if (corrected > 0) {
+      print(
+        '🌊 REFLOW: Corrected $corrected/${_clusterCache.length} cluster bounds by node transform',
+      );
+    }
+
+    _lassoTool.reflowController?.updateClusters(_clusterCache);
   }
 
   /// 🔧 Update le liste cachate da _layerController

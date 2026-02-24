@@ -539,6 +539,9 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           onPdfImportPressed: () {
             pickAndAddPdf();
           },
+          onPdfCreateBlankPressed: () {
+            _showBackgroundChooser(context);
+          },
           // 📄 PDF active state — contextual tools
           isPdfActive: _pdfPainters.isNotEmpty,
           pdfDocument: _activePdfDocument,
@@ -546,6 +549,21 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           pdfAnnotationController: _pdfAnnotationController,
           pdfSearchController: _pdfSearchController,
           pdfSelectedPageIndex: _pdfSelectedPageIndex,
+          showPdfPageNumbers: _showPdfPageNumbers,
+          onTogglePdfPageNumbers: () {
+            setState(() {
+              _showPdfPageNumbers = !_showPdfPageNumbers;
+            });
+            // Update all painters
+            for (final painter in _pdfPainters.values) {
+              // The DrawingPainter reads this from its own field
+              // which is set per-frame — no extra wiring needed
+            }
+            _pdfLayoutVersion++;
+          },
+          onPdfPageIndexChanged: (newIndex) {
+            setState(() => _pdfSelectedPageIndex = newIndex);
+          },
           onPdfDocumentChanged: (docId) {
             setState(() => _activePdfDocumentId = docId);
             // Re-attach annotation controller to newly selected document
@@ -570,6 +588,19 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
                     }
                   }
                   : null,
+          onPdfDuplicatePage:
+              _pdfPainters.isNotEmpty
+                  ? (pageIndex) {
+                    final doc = _activePdfDocument;
+                    if (doc != null) {
+                      doc.duplicatePage(pageIndex);
+                      _pdfSelectedPageIndex = pageIndex + 1;
+                      _pdfLayoutVersion++;
+                      setState(() {});
+                      _autoSaveCanvas();
+                    }
+                  }
+                  : null,
           onPdfDeletePage: (pageIndex) {
             final doc = _activePdfDocument;
             if (doc != null && doc.documentModel.totalPages > 1) {
@@ -577,6 +608,14 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               setState(() {});
               _autoSaveCanvas();
             }
+          },
+          onPdfReorderPage: (oldIndex, newIndex) {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            doc.reorderPage(oldIndex, newIndex);
+            _pdfLayoutVersion++;
+            setState(() {});
+            _autoSaveCanvas();
           },
           onPdfGoToPage: (documentId, pageIndex) {
             final doc =
@@ -597,6 +636,424 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               viewportSize.height / 2 - pageCenter.dy * scale,
             );
             _canvasController.animateOffsetTo(targetOffset);
+          },
+          onPdfNightModeToggle: () {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            doc.documentModel = doc.documentModel.copyWith(
+              nightMode: !doc.documentModel.nightMode,
+            );
+            _pdfLayoutVersion++;
+            setState(() {});
+            _autoSaveCanvas();
+          },
+          onPdfBookmarkToggle: (pageIndex) {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            final pages = doc.pageNodes;
+            if (pageIndex < 0 || pageIndex >= pages.length) return;
+            final page = pages[pageIndex];
+            page.pageModel = page.pageModel.copyWith(
+              isBookmarked: !page.pageModel.isBookmarked,
+            );
+            _pdfLayoutVersion++;
+            setState(() {});
+            _autoSaveCanvas();
+          },
+          onPdfZoomToFit: (pageIndex) {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            final pageNode = doc.pageAt(pageIndex);
+            if (pageNode == null) return;
+            final pageRect = doc.pageRectFor(pageNode);
+            final viewportSize = MediaQuery.of(context).size;
+            // Scale to fit page in viewport with padding
+            final scaleX = (viewportSize.width - 40) / pageRect.width;
+            final scaleY = (viewportSize.height - 80) / pageRect.height;
+            final targetScale = scaleX < scaleY ? scaleX : scaleY;
+            final pageCenter = pageRect.center;
+            final targetOffset = Offset(
+              viewportSize.width / 2 - pageCenter.dx * targetScale,
+              viewportSize.height / 2 - pageCenter.dy * targetScale,
+            );
+            _canvasController.animateToTransform(
+              targetOffset: targetOffset,
+              targetScale: targetScale,
+            );
+          },
+          onPdfWatermarkToggle: () {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            final current = doc.documentModel.watermarkText;
+            if (current != null) {
+              // Remove watermark
+              doc.documentModel = doc.documentModel.copyWith(
+                clearWatermarkText: true,
+              );
+            } else {
+              // Add default watermark
+              doc.documentModel = doc.documentModel.copyWith(
+                watermarkText: 'DRAFT',
+              );
+            }
+            _pdfLayoutVersion++;
+            setState(() {});
+            _autoSaveCanvas();
+          },
+          onPdfAddStamp: (pageIndex, _) {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            final pages = doc.pageNodes;
+            if (pageIndex < 0 || pageIndex >= pages.length) return;
+            final page = pages[pageIndex];
+            final hasStamps = page.pageModel.structuredAnnotations.any(
+              (a) => a.type == PdfAnnotationType.stamp,
+            );
+            // Show stamp type picker
+            showModalBottomSheet<PdfStampType?>(
+              context: context,
+              builder: (sheetCtx) {
+                final cs = Theme.of(sheetCtx).colorScheme;
+                return SafeArea(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Text(
+                          'Choose Stamp',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                      ),
+                      // 🗑️ Remove stamps option (only if stamps exist)
+                      if (hasStamps) ...[
+                        ListTile(
+                          leading: Icon(
+                            Icons.delete_outline_rounded,
+                            color: cs.error,
+                          ),
+                          title: Text(
+                            'Remove All Stamps',
+                            style: TextStyle(color: cs.error),
+                          ),
+                          onTap: () => Navigator.pop(sheetCtx), // null = remove
+                        ),
+                        const Divider(height: 1),
+                      ],
+                      ...PdfStampType.values.map((stamp) {
+                        final label =
+                            stamp.name.replaceAll('_', '').toUpperCase();
+                        final colors = <PdfStampType, Color>{
+                          PdfStampType.approved: Colors.green,
+                          PdfStampType.draft: Colors.orange,
+                          PdfStampType.confidential: Colors.red,
+                          PdfStampType.final_: Colors.blue,
+                          PdfStampType.reviewed: Colors.teal,
+                          PdfStampType.rejected: Colors.red.shade900,
+                        };
+                        return ListTile(
+                          leading: Icon(
+                            Icons.approval_rounded,
+                            color: colors[stamp],
+                          ),
+                          title: Text(label),
+                          onTap: () => Navigator.pop(sheetCtx, stamp),
+                        );
+                      }),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                );
+              },
+            ).then((stampType) {
+              if (stampType == null) {
+                // Remove all stamps from this page (user picked 'Remove')
+                // But only if stamps exist — dismiss without action otherwise
+                if (hasStamps) {
+                  page.pageModel = page.pageModel.copyWith(
+                    structuredAnnotations:
+                        page.pageModel.structuredAnnotations
+                            .where((a) => a.type != PdfAnnotationType.stamp)
+                            .toList(),
+                  );
+                  _pdfLayoutVersion++;
+                  setState(() {});
+                  _autoSaveCanvas();
+                }
+                return;
+              }
+              final pageSize = page.pageModel.originalSize;
+              final stamp = PdfAnnotation(
+                id: 'stamp_${DateTime.now().microsecondsSinceEpoch}',
+                type: PdfAnnotationType.stamp,
+                pageIndex: pageIndex,
+                rect: Rect.fromCenter(
+                  center: Offset(pageSize.width / 2, pageSize.height / 2),
+                  width: pageSize.width * 0.4,
+                  height: pageSize.height * 0.08,
+                ),
+                color: const Color(0x80E53935),
+                stampType: stampType,
+                createdAt: DateTime.now().microsecondsSinceEpoch,
+                lastModifiedAt: DateTime.now().microsecondsSinceEpoch,
+              );
+              page.pageModel = page.pageModel.copyWith(
+                structuredAnnotations: [
+                  ...page.pageModel.structuredAnnotations,
+                  stamp,
+                ],
+              );
+              _pdfLayoutVersion++;
+              setState(() {});
+              _autoSaveCanvas();
+            });
+          },
+          onPdfChangeBackground: (pageIndex) {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            final pages = doc.pageNodes;
+            if (pageIndex < 0 || pageIndex >= pages.length) return;
+            final page = pages[pageIndex];
+            // Only allow background change for blank pages
+            if (!page.pageModel.isBlank) return;
+
+            final currentBg = page.pageModel.background;
+            showModalBottomSheet<PdfPageBackground>(
+              context: context,
+              isScrollControlled: true,
+              useSafeArea: true,
+              backgroundColor: Colors.transparent,
+              builder: (sheetCtx) {
+                final cs = Theme.of(sheetCtx).colorScheme;
+                PdfPageBackground selected = currentBg;
+                return StatefulBuilder(
+                  builder: (ctx, setSheetState) {
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: cs.surface,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(28),
+                        ),
+                      ),
+                      child: SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Handle bar
+                              Container(
+                                width: 32,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: cs.onSurfaceVariant.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              Text(
+                                'Page Background',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w600,
+                                  color: cs.onSurface,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              GridView.count(
+                                crossAxisCount: 3,
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                mainAxisSpacing: 10,
+                                crossAxisSpacing: 10,
+                                childAspectRatio: 0.72,
+                                children:
+                                    PdfPageBackground.values.map((bg) {
+                                      return _PatternCard(
+                                        background: bg,
+                                        isSelected: selected == bg,
+                                        colorScheme: cs,
+                                        onTap: () {
+                                          setSheetState(() => selected = bg);
+                                        },
+                                      );
+                                    }).toList(),
+                              ),
+                              const SizedBox(height: 24),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 48,
+                                child: FilledButton.icon(
+                                  onPressed:
+                                      () => Navigator.pop(sheetCtx, selected),
+                                  icon: const Icon(
+                                    Icons.check_rounded,
+                                    size: 20,
+                                  ),
+                                  label: const Text(
+                                    'Apply',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ).then((newBg) {
+              if (newBg == null || newBg == currentBg) return;
+              page.pageModel = page.pageModel.copyWith(background: newBg);
+              _pdfLayoutVersion++;
+              setState(() {});
+              _autoSaveCanvas();
+            });
+          },
+          onPdfPrint: () async {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            final filePath = doc.documentModel.filePath;
+            if (filePath == null) return;
+            const channel = MethodChannel(
+              'com.nebulaengine.nebula_engine/print',
+            );
+            try {
+              await channel.invokeMethod('printPdf', {
+                'filePath': filePath,
+                'jobName': doc.documentModel.fileName ?? 'PDF Document',
+              });
+            } catch (e) {
+              debugPrint('Print failed: $e');
+            }
+          },
+          onPdfPresentation: () async {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+
+            // ── Pre-render pages at screen-fit resolution ──
+            NebulaPdfProvider? provider;
+            // Try multiple keys to find the provider
+            if (_activePdfDocumentId != null) {
+              provider = _pdfProviders[_activePdfDocumentId!];
+            }
+            provider ??= _pdfProviders[doc.id.value];
+            // Fallback: use first available provider
+            if (provider == null && _pdfProviders.isNotEmpty) {
+              provider = _pdfProviders.values.first;
+            }
+            debugPrint(
+              '[Present] provider found: ${provider != null}, '
+              'keys: ${_pdfProviders.keys.toList()}, '
+              'docId: ${doc.id.value}, activeId: $_activePdfDocumentId',
+            );
+            if (provider != null) {
+              final screenSize = MediaQuery.of(context).size;
+              final dpr = MediaQuery.of(context).devicePixelRatio;
+              final pgs = doc.pageNodes;
+              for (int i = 0; i < pgs.length; i++) {
+                final page = pgs[i];
+                final pSize = page.pageModel.originalSize;
+                final sx = screenSize.width / pSize.width;
+                final sy = screenSize.height / pSize.height;
+                final fitScale = (sx < sy ? sx : sy) * dpr;
+                final targetSize = Size(
+                  pSize.width * fitScale,
+                  pSize.height * fitScale,
+                );
+                debugPrint(
+                  '[Present] Rendering page $i at ${targetSize.width.toInt()}x${targetSize.height.toInt()} (scale: ${fitScale.toStringAsFixed(2)})',
+                );
+                final img = await provider.renderPage(
+                  pageIndex: page.pageModel.pageIndex,
+                  scale: fitScale,
+                  targetSize: targetSize,
+                );
+                if (img != null) {
+                  page.cachedImage?.dispose();
+                  page.cachedImage = img;
+                  page.cachedScale = fitScale;
+                  debugPrint(
+                    '[Present] Page $i rendered: ${img.width}x${img.height}',
+                  );
+                } else {
+                  // Blank/out-of-range page — create white image
+                  final w = targetSize.width.toInt();
+                  final h = targetSize.height.toInt();
+                  final recorder = ui.PictureRecorder();
+                  final c = Canvas(
+                    recorder,
+                    Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+                  );
+                  c.drawRect(
+                    Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+                    Paint()..color = Colors.white,
+                  );
+                  final pic = recorder.endRecording();
+                  final blankImg = await pic.toImage(w, h);
+                  page.cachedImage?.dispose();
+                  page.cachedImage = blankImg;
+                  page.cachedScale = fitScale;
+                  debugPrint('[Present] Page $i: blank fallback ${w}x$h');
+                }
+              }
+            }
+
+            // ── Collect strokes linked to each page ──
+            final allStrokes = <String, ProStroke>{};
+            for (final layer in _layerController.sceneGraph.layers) {
+              for (final strokeNode in layer.strokeNodes) {
+                allStrokes[strokeNode.stroke.id] = strokeNode.stroke;
+              }
+            }
+            final pageStrokes = <int, List<ProStroke>>{};
+            final pages = doc.pageNodes;
+            for (int i = 0; i < pages.length; i++) {
+              final ids = pages[i].pageModel.annotations;
+              final strokes = <ProStroke>[];
+              for (final id in ids) {
+                final s = allStrokes[id];
+                if (s != null) strokes.add(s);
+              }
+              if (strokes.isNotEmpty) pageStrokes[i] = strokes;
+            }
+            if (!mounted) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder:
+                    (_) => PdfPresentationOverlay(
+                      doc: doc,
+                      initialPage: _pdfSelectedPageIndex,
+                      pageStrokes: pageStrokes,
+                    ),
+              ),
+            );
+          },
+          // TODO(future): onPdfSignature — digital signing requires QTSP, X.509, PAdES.
+          onPdfLayoutModeChanged: (mode) {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+            doc.documentModel = doc.documentModel.copyWith(layoutMode: mode);
+            _pdfLayoutVersion++;
+            setState(() {});
+            _autoSaveCanvas();
           },
           onPdfLayoutChanged: () {
             // Bump version so DrawingPainter.shouldRepaint detects the change.
@@ -644,10 +1101,390 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               DrawingPainter.invalidateAllTiles();
             }
 
+            // 🔄 Rotate linked annotation strokes when a page is rotated.
+            // rotatePage() populates pendingStrokeRotation with the angle,
+            // center, and annotation IDs for the rotated page.
+            for (final layer in _layerController.sceneGraph.layers) {
+              for (final child in layer.children) {
+                if (child is PdfDocumentNode &&
+                    child.pendingStrokeRotation != null) {
+                  final rot = child.pendingStrokeRotation!;
+                  child.pendingStrokeRotation = null; // Consume
+
+                  if (rot.annotationIds.isNotEmpty) {
+                    final idSet = Set<String>.of(rot.annotationIds);
+                    final cosA = math.cos(rot.angleRadians);
+                    final sinA = math.sin(rot.angleRadians);
+                    final cx = rot.center.dx;
+                    final cy = rot.center.dy;
+
+                    for (final l in _layerController.layers) {
+                      for (final strokeNode in l.node.strokeNodes) {
+                        if (idSet.contains(strokeNode.stroke.id)) {
+                          final old = strokeNode.stroke;
+                          final rotated =
+                              old.points.map((p) {
+                                final dx = p.position.dx - cx;
+                                final dy = p.position.dy - cy;
+                                return p.copyWith(
+                                  position: Offset(
+                                    cx + dx * cosA - dy * sinA,
+                                    cy + dx * sinA + dy * cosA,
+                                  ),
+                                );
+                              }).toList();
+                          strokeNode.stroke = old.copyWith(points: rotated);
+                        }
+                      }
+                    }
+                    DrawingPainter.invalidateAllTiles();
+                  }
+                }
+              }
+            }
+
             setState(() {});
             _autoSaveCanvas();
           },
-          onPdfExport: null, // TODO: wire to export annotated PDF
+          onPdfExport: () async {
+            final doc = _activePdfDocument;
+            if (doc == null) return;
+
+            final pdfName =
+                doc.documentModel.fileName ?? _noteTitle ?? 'Export';
+
+            // 1. Generate first page thumbnail for preview
+            Uint8List? firstPagePreview;
+            final firstPage = doc.pageNodes.firstOrNull;
+            if (firstPage?.cachedImage != null) {
+              final byteData = await firstPage!.cachedImage!.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              if (byteData != null) {
+                firstPagePreview = byteData.buffer.asUint8List();
+              }
+            }
+
+            // 2. Show export settings dialog with PDF name pre-filled
+            final config = await PdfExportDialog.show(
+              context,
+              defaultFileName: pdfName,
+              totalPages: doc.pageNodes.length,
+              firstPagePreview: firstPagePreview,
+            );
+            if (config == null || !mounted) return;
+
+            final messenger = ScaffoldMessenger.of(context);
+            final totalPages =
+                config.onlyAnnotatedPages
+                    ? doc.pageNodes
+                        .where((p) => p.pageModel.annotations.isNotEmpty)
+                        .length
+                    : doc.pageNodes.length;
+
+            // 2. Show progress snackbar with live updates
+            int renderedCount = 0;
+            messenger.showSnackBar(
+              SnackBar(
+                content: StatefulBuilder(
+                  builder: (ctx, setSnackState) {
+                    // Store setter for updates from onProgress
+                    _exportProgressSetter = (current, total) {
+                      renderedCount = current;
+                      setSnackState(() {});
+                    };
+                    return Row(
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            value:
+                                totalPages > 0
+                                    ? renderedCount / totalPages
+                                    : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text('Exporting… $renderedCount/$totalPages pages'),
+                      ],
+                    );
+                  },
+                ),
+                duration: const Duration(seconds: 120),
+              ),
+            );
+
+            try {
+              // 3. Export annotated pages as PNG images
+              final exporter = PdfAnnotationExporter(
+                pixelRatio:
+                    config.format == PdfExportFormat.pdf
+                        ? 3.0
+                        : config.resolution.multiplier,
+                onProgress: (current, total) {
+                  _exportProgressSetter?.call(current, total);
+                },
+              );
+              final result = await exporter.exportDocument(
+                doc,
+                layers: _layerController.layers,
+                onlyAnnotatedPages: config.onlyAnnotatedPages,
+              );
+
+              if (!mounted) return;
+
+              final exportName =
+                  config.fileName?.isNotEmpty == true
+                      ? config.fileName!
+                      : pdfName.replaceAll(
+                        RegExp(r'\.pdf$', caseSensitive: false),
+                        '',
+                      );
+              final sanitizedName = exportName.replaceAll(
+                RegExp(r'[^\w\s-]'),
+                '_',
+              );
+
+              // ─── IMAGE FORMAT EXPORT (JPG/PNG) ─────────────────────────
+              if (config.format == PdfExportFormat.jpg ||
+                  config.format == PdfExportFormat.png) {
+                final tempDir = await getTemporaryDirectory();
+                final ext = config.format.extension;
+                final mimeType = config.format.mimeType;
+                final filePaths = <String>[];
+
+                for (int i = 0; i < result.pages.length; i++) {
+                  final pageResult = result.pages[i];
+                  final suffix = result.pages.length > 1 ? '_${i + 1}' : '';
+                  final filePath =
+                      '${tempDir.path}/${sanitizedName}$suffix.$ext';
+
+                  if (config.format == PdfExportFormat.jpg) {
+                    // Decode PNG bytes → re-encode as JPEG
+                    final codec = await ui.instantiateImageCodec(
+                      pageResult.bytes,
+                    );
+                    final frame = await codec.getNextFrame();
+                    final image = frame.image;
+                    final byteData = await image.toByteData(
+                      format: ui.ImageByteFormat.png,
+                    );
+                    image.dispose();
+                    codec.dispose();
+                    if (byteData != null) {
+                      await File(
+                        filePath,
+                      ).writeAsBytes(byteData.buffer.asUint8List());
+                      filePaths.add(filePath);
+                    }
+                  } else {
+                    // PNG — already in PNG format
+                    await File(filePath).writeAsBytes(pageResult.bytes);
+                    filePaths.add(filePath);
+                  }
+                }
+
+                if (!mounted) return;
+                _exportProgressSetter = null;
+                messenger.hideCurrentSnackBar();
+
+                // Share all images
+                if (filePaths.isNotEmpty) {
+                  try {
+                    const channel = MethodChannel(
+                      'com.nebulaengine.nebula_engine/share',
+                    );
+                    if (filePaths.length == 1) {
+                      await channel.invokeMethod('shareFile', {
+                        'filePath': filePaths.first,
+                        'mimeType': mimeType,
+                        'subject': exportName,
+                      });
+                    } else {
+                      await channel.invokeMethod('shareFiles', {
+                        'filePaths': filePaths,
+                        'mimeType': mimeType,
+                        'subject': exportName,
+                      });
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${ext.toUpperCase()} saved: ${filePaths.length} ${filePaths.length == 1 ? "image" : "images"}',
+                          ),
+                          action: SnackBarAction(label: 'OK', onPressed: () {}),
+                        ),
+                      );
+                    }
+                  }
+                }
+
+                if (!mounted) return;
+                ExportSuccessOverlay.show(
+                  context,
+                  format: config.format,
+                  fileName: '$sanitizedName.${config.format.extension}',
+                );
+                return;
+              }
+
+              // ─── SVG FORMAT EXPORT ─────────────────────────────
+              if (config.format == PdfExportFormat.svg) {
+                final tempDir = await getTemporaryDirectory();
+                final filePaths = <String>[];
+
+                for (int i = 0; i < result.pages.length; i++) {
+                  final pageResult = result.pages[i];
+                  final pw = pageResult.pixelSize.width.toInt();
+                  final ph = pageResult.pixelSize.height.toInt();
+                  final suffix = result.pages.length > 1 ? '_${i + 1}' : '';
+                  final filePath =
+                      '${tempDir.path}/${sanitizedName}$suffix.svg';
+
+                  final base64Png = base64Encode(pageResult.bytes);
+                  final svg = '''<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="$pw" height="$ph" viewBox="0 0 $pw $ph">
+  <image width="$pw" height="$ph" href="data:image/png;base64,$base64Png"/>
+</svg>''';
+                  await File(filePath).writeAsString(svg);
+                  filePaths.add(filePath);
+                }
+
+                if (!mounted) return;
+                _exportProgressSetter = null;
+                messenger.hideCurrentSnackBar();
+
+                if (filePaths.isNotEmpty) {
+                  try {
+                    const channel = MethodChannel(
+                      'com.nebulaengine.nebula_engine/share',
+                    );
+                    if (filePaths.length == 1) {
+                      await channel.invokeMethod('shareFile', {
+                        'filePath': filePaths.first,
+                        'mimeType': 'image/svg+xml',
+                        'subject': exportName,
+                      });
+                    } else {
+                      await channel.invokeMethod('shareFiles', {
+                        'filePaths': filePaths,
+                        'mimeType': 'image/svg+xml',
+                        'subject': exportName,
+                      });
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'SVG saved: ${filePaths.length} ${filePaths.length == 1 ? "image" : "images"}',
+                          ),
+                          action: SnackBarAction(label: 'OK', onPressed: () {}),
+                        ),
+                      );
+                    }
+                  }
+                }
+
+                if (!mounted) return;
+                ExportSuccessOverlay.show(
+                  context,
+                  format: config.format,
+                  fileName: '$sanitizedName.svg',
+                );
+                return;
+              }
+
+              // ─── PDF FORMAT EXPORT ─────────────────────────────────────
+              // 4. Assemble final PDF with PdfExportWriter
+              final writer = PdfExportWriter(
+                enableCompression: config.enableCompression,
+              );
+              config.applyToWriter(writer);
+
+              for (final pageResult in result.pages) {
+                final pw = pageResult.pixelSize.width;
+                final ph = pageResult.pixelSize.height;
+                final pageW = pw / 3.0;
+                final pageH = ph / 3.0;
+                writer.beginPage(width: pageW, height: pageH);
+
+                final codec = await ui.instantiateImageCodec(pageResult.bytes);
+                final frame = await codec.getNextFrame();
+                final image = frame.image;
+                final byteData = await image.toByteData(
+                  format: ui.ImageByteFormat.rawRgba,
+                );
+                image.dispose();
+                codec.dispose();
+
+                if (byteData != null) {
+                  final rgbaBytes = byteData.buffer.asUint8List();
+                  final xobj = writer.addRgbaXObject(
+                    rgbaBytes,
+                    pw.toInt(),
+                    ph.toInt(),
+                  );
+                  writer.drawImageXObject(xobj, 0, 0, pageW, pageH);
+                }
+              }
+
+              final pdfBytes = writer.finish(title: exportName);
+
+              // 5. Save to temp directory
+              final tempDir = await getTemporaryDirectory();
+              final filePath = '${tempDir.path}/$sanitizedName.pdf';
+              final file = File(filePath);
+              await file.writeAsBytes(pdfBytes);
+
+              if (!mounted) return;
+              _exportProgressSetter = null;
+              messenger.hideCurrentSnackBar();
+
+              // 6. Share via native platform channel (zero deps)
+              try {
+                const channel = MethodChannel(
+                  'com.nebulaengine.nebula_engine/share',
+                );
+                await channel.invokeMethod('shareFile', {
+                  'filePath': filePath,
+                  'mimeType': 'application/pdf',
+                  'subject': exportName,
+                });
+              } catch (_) {
+                // Fallback: show success snackbar if native share unavailable
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text('PDF saved: ${result.pages.length} pages'),
+                      action: SnackBarAction(label: 'OK', onPressed: () {}),
+                    ),
+                  );
+                }
+              }
+
+              if (!mounted) return;
+              ExportSuccessOverlay.show(
+                context,
+                format: config.format,
+                fileName: '$sanitizedName.pdf',
+              );
+            } catch (e) {
+              _exportProgressSetter = null;
+              if (!mounted) return;
+              messenger.hideCurrentSnackBar();
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text('Export failed: $e'),
+                  backgroundColor: Colors.red.shade700,
+                ),
+              );
+            }
+          },
           // 🎨 Design Tab — Wire to part file extensions
           onPrototypePlay: _startPrototypePreview,
           onFlowLinkAdd: _addFlowLink,

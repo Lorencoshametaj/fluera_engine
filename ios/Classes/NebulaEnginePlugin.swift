@@ -17,5 +17,6 @@ public class NebulaEnginePlugin: NSObject, FlutterPlugin {
         PerformanceMonitorPlugin.register(with: registrar)
         AudioRecorderPlugin.register(with: registrar)
         PdfRendererPlugin.register(with: registrar)
+        PrintPlugin.register(with: registrar)
     }
 }

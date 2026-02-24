@@ -12,6 +12,8 @@ import '../../l10n/nebula_localizations.dart';
 import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
+import '../../core/models/pdf_annotation_model.dart';
+import '../../core/models/pdf_document_model.dart';
 import '../../../testing/brush_testing.dart';
 import '../../storage/nebula_cloud_adapter.dart';
 import '../../core/nodes/pdf_document_node.dart';
@@ -178,6 +180,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   onShapeRecognitionSensitivityCycle; // 🔷 Long-press to cycle sensitivity
   final VoidCallback? onGhostSuggestionToggle; // 👻 Double-tap to toggle ghost
   final VoidCallback? onPdfImportPressed; // 📄 PDF import
+  final VoidCallback? onPdfCreateBlankPressed; // 📄 PDF create blank
   // 📄 PDF active state — contextual tools appear when a PDF is loaded
   final bool isPdfActive;
   final PdfDocumentNode? pdfDocument;
@@ -186,7 +189,19 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final PdfSearchController? pdfSearchController;
   final CommandHistory? pdfCommandHistory;
   final void Function(int selectedPageIndex)? onPdfInsertBlankPage;
+  final void Function(int)? onPdfDuplicatePage;
   final void Function(int)? onPdfDeletePage;
+  final void Function(int oldIndex, int newIndex)? onPdfReorderPage;
+  final VoidCallback? onPdfNightModeToggle;
+  final void Function(int)? onPdfBookmarkToggle;
+  final void Function(int)? onPdfZoomToFit;
+  final VoidCallback? onPdfWatermarkToggle;
+  final void Function(int pageIndex, PdfStampType stamp)? onPdfAddStamp;
+  final void Function(int pageIndex)? onPdfChangeBackground;
+  final VoidCallback? onPdfPrint;
+  final VoidCallback? onPdfPresentation;
+  // TODO(future): onPdfSignature — digital signing requires QTSP, X.509, PAdES.
+  final void Function(PdfLayoutMode)? onPdfLayoutModeChanged;
   final void Function(String, int)? onPdfGoToPage; // 🔍 Scroll to PDF page
   final void Function(String documentId)?
   onPdfDocumentChanged; // 📄 Switch active PDF
@@ -194,6 +209,9 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   onPdfLayoutChanged; // 📄 Notify canvas of PDF layout mutations
   final VoidCallback? onPdfExport;
   final int pdfSelectedPageIndex;
+  final bool showPdfPageNumbers;
+  final VoidCallback? onTogglePdfPageNumbers;
+  final ValueChanged<int>? onPdfPageIndexChanged;
 
   // ─────────────────────────────────────────────────────────────────────────
   // 🎨 DESIGN TAB — Callbacks and state for Design toolbar features
@@ -359,6 +377,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onShapeRecognitionSensitivityCycle, // 🔷 Sensitivity cycle
     this.onGhostSuggestionToggle, // 👻 Ghost toggle
     this.onPdfImportPressed, // 📄 PDF import
+    this.onPdfCreateBlankPressed, // 📄 PDF create blank
     this.isPdfActive = false,
     this.pdfDocument,
     this.pdfDocuments = const [],
@@ -366,12 +385,26 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.pdfSearchController,
     this.pdfCommandHistory,
     this.onPdfInsertBlankPage,
+    this.onPdfDuplicatePage,
     this.onPdfDeletePage,
+    this.onPdfReorderPage,
+    this.onPdfNightModeToggle,
+    this.onPdfBookmarkToggle,
+    this.onPdfZoomToFit,
+    this.onPdfWatermarkToggle,
+    this.onPdfAddStamp,
+    this.onPdfChangeBackground,
+    this.onPdfPrint,
+    this.onPdfPresentation,
+    this.onPdfLayoutModeChanged,
     this.onPdfGoToPage, // 🔍 Scroll to page
     this.onPdfDocumentChanged, // 📄 Switch active PDF
     this.onPdfLayoutChanged, // 📄 Layout mutation callback
     this.onPdfExport,
     this.pdfSelectedPageIndex = 0,
+    this.showPdfPageNumbers = true,
+    this.onTogglePdfPageNumbers,
+    this.onPdfPageIndexChanged,
     // 🎨 Design tab
     this.onPrototypePlay,
     this.onFlowLinkAdd,

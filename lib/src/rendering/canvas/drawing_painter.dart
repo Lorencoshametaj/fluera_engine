@@ -171,6 +171,7 @@ class DrawingPainter extends CustomPainter {
     this.pdfTextSelection, // 📝 Text selection overlay
     this.pdfSearchController, // 🔍 Full-text search highlights
     this.pdfLayoutVersion = 0, // 📄 PDF layout mutation counter
+    this.showPdfPageNumbers = true, // 📑 Page number badges
   }) : _sceneGraphVersion = sceneGraph.version,
        super(repaint: controller); // repaint on pan/zoom when controller set
 
@@ -208,6 +209,10 @@ class DrawingPainter extends CustomPainter {
     // 🚀 SHADER WARM-UP: Pre-compile all GPU shaders on the first paint frame.
     // Avoids jank on the user's first stroke. Only runs once (_warmedUp guard).
     ShaderBrushService.instance.warmUp(canvas);
+
+    // ✂️ Collect PDF annotation IDs so they are SKIPPED from the global
+    // stroke pass and only drawn clipped inside _paintPdfPage.
+    _collectPdfAnnotationIds();
 
     // ✂️ Applica clipping se abilitato (per editing immagini)
     if (enableClipping) {
@@ -293,8 +298,54 @@ class DrawingPainter extends CustomPainter {
     // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
     dirtyRegionTracker?.clearDirty();
 
+    // Clear per-frame skip set
+    _pdfAnnotationIds = null;
+    _delegateRenderer.skipStrokeIds = null;
+
     if (isViewportLevel) {
       canvas.restore();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✂️ PDF ANNOTATION ID COLLECTION
+  // ---------------------------------------------------------------------------
+
+  /// Per-frame set of stroke IDs linked to PDF pages.
+  /// Strokes in this set are SKIPPED from the global render pass
+  /// because they are drawn clipped inside [_paintPdfPage].
+  Set<String>? _pdfAnnotationIds;
+
+  /// Walk the scene graph once to collect all PDF annotation stroke IDs.
+  void _collectPdfAnnotationIds() {
+    Set<String>? ids;
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      _collectPdfAnnotationIdsFromNode(layer, ids ??= <String>{});
+    }
+    _pdfAnnotationIds = ids;
+    // Also set on the SceneGraphRenderer so it skips them in render()
+    _delegateRenderer.skipStrokeIds = ids;
+  }
+
+  /// Recursively collect annotation IDs from PDF nodes in a subtree.
+  static void _collectPdfAnnotationIdsFromNode(
+    CanvasNode node,
+    Set<String> ids,
+  ) {
+    if (node is PdfDocumentNode) {
+      for (final page in node.pageNodes) {
+        final annotations = page.pageModel.annotations;
+        if (annotations.isNotEmpty) {
+          ids.addAll(annotations);
+        }
+      }
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) {
+          _collectPdfAnnotationIdsFromNode(child, ids);
+        }
+      }
     }
   }
 
@@ -358,6 +409,44 @@ class DrawingPainter extends CustomPainter {
         final strokesInTile = _getStrokesInBounds(tileBounds);
         tcm.rasterizeTile(tileX, tileY, strokesInTile, devicePixelRatio);
         if (sw.elapsedMilliseconds >= frameBudgetMs) break;
+      }
+
+      // 🚀 VELOCITY-DIRECTED PREFETCH: spend remaining budget pre-rasterizing
+      // tiles in the pan direction to eliminate white flash on fast pan.
+      if (sw.elapsedMilliseconds < frameBudgetMs && controller != null) {
+        final panVel = controller!.panVelocity;
+        if (panVel.distance > 50) {
+          // Predict viewport center 1 frame ahead
+          final futureCenter =
+              viewport.center -
+              Offset(panVel.dx / scale, panVel.dy / scale) * 0.016;
+          final ts = tcm.currentTileSize;
+          final prefetchTileX = (futureCenter.dx / ts).floor();
+          final prefetchTileY = (futureCenter.dy / ts).floor();
+
+          // Prefetch a 3×3 grid around the predicted tile
+          for (
+            int dy = -1;
+            dy <= 1 && sw.elapsedMilliseconds < frameBudgetMs;
+            dy++
+          ) {
+            for (
+              int dx = -1;
+              dx <= 1 && sw.elapsedMilliseconds < frameBudgetMs;
+              dx++
+            ) {
+              final tx = prefetchTileX + dx;
+              final ty = prefetchTileY + dy;
+              if (!tcm.hasTileCached(tx, ty) || tcm.isTileDirty(tx, ty)) {
+                final tileBounds = tcm.getTileBounds(tx, ty, scale);
+                final strokesInTile = _getStrokesInBounds(tileBounds);
+                if (strokesInTile.isNotEmpty) {
+                  tcm.rasterizeTile(tx, ty, strokesInTile, devicePixelRatio);
+                }
+              }
+            }
+          }
+        }
       }
       sw.stop();
     }
@@ -504,7 +593,6 @@ class DrawingPainter extends CustomPainter {
     // Delegate to SceneGraphRenderer for unified tree traversal.
     // This renders ALL node types (strokes, shapes, text, images, etc.)
     // in correct z-order, with viewport culling and adaptive LOD.
-    final effectiveScale = controller?.scale ?? canvasScale;
     final hasEraserPreviewActive = eraserPreviewIds.isNotEmpty;
 
     // 🛡️ Use infinite viewport for the canvas render to prevent
@@ -513,34 +601,40 @@ class DrawingPainter extends CustomPainter {
     // The parent ClipRect widget already clips to the screen bounds.
     const fullViewport = Rect.fromLTWH(-1e6, -1e6, 2e6, 2e6);
 
-    // Render the scene graph via unified pipeline
-    _delegateRenderer.render(
-      canvas,
-      sceneGraph,
-      fullViewport,
-      scale: effectiveScale,
-    );
-
-    // Draw eraser previews on top (overlay, not part of scene graph render)
-    _drawEraserPreviews(canvas);
-
-    // 🚀 RECORD-ONCE CACHE: record a full render into a Picture for future
-    // O(1) replay. Only when enough strokes and no eraser preview.
-    // 🛡️ SAFETY: Skip cache adoption when inside a dirty-region clip —
-    // the recorded Picture would only contain clipped content, causing
-    // all elements outside the dirty rect to permanently disappear.
-    if (!hasEraserPreviewActive &&
+    // 🚀 RECORD-ONCE: render to PictureRecorder, draw the Picture,
+    // and adopt it as cache — all in a single render pass.
+    // Previously this rendered twice (live canvas + recorder). Now 1×.
+    final canCache =
+        !hasEraserPreviewActive &&
         !isDirtyClipped &&
-        _effectiveStrokes.length >= 5) {
+        _effectiveStrokes.length >= 5;
+
+    if (canCache) {
       final recorder = ui.PictureRecorder();
       final recCanvas = Canvas(recorder);
       _delegateRenderer.render(recCanvas, sceneGraph, fullViewport, scale: 1.0);
-      _strokeCache.adoptPicture(
-        recorder.endRecording(),
-        _effectiveStrokes.length,
-      );
+      final picture = recorder.endRecording();
+
+      // Draw the recorded picture on the live canvas
+      canvas.drawPicture(picture);
+
+      // Adopt for future O(1) replay
+      _strokeCache.adoptPicture(picture, _effectiveStrokes.length);
       _cachedSceneVersion = sceneGraph.version;
+    } else {
+      // Can't cache (eraser preview active, dirty-clipped, or too few strokes)
+      // — render directly without caching.
+      final effectiveScale = controller?.scale ?? canvasScale;
+      _delegateRenderer.render(
+        canvas,
+        sceneGraph,
+        fullViewport,
+        scale: effectiveScale,
+      );
     }
+
+    // Draw eraser previews on top (overlay, not part of scene graph render)
+    _drawEraserPreviews(canvas);
   }
 
   /// 🎨 Render strokes grouped by layer, each with its own blend mode.
@@ -715,7 +809,14 @@ class DrawingPainter extends CustomPainter {
         if (child is PdfPageNode && child.isVisible) {
           docPages.add(child);
           if (child.pageModel.isLocked) {
-            _paintPdfPage(canvas, child, viewport, painter, node.id);
+            _paintPdfPage(
+              canvas,
+              child,
+              viewport,
+              painter,
+              node.id,
+              node.documentModel.nightMode,
+            );
           } else {
             unlockedPages.add(child);
           }
@@ -724,7 +825,14 @@ class DrawingPainter extends CustomPainter {
 
       // Second pass: unlocked pages render on top
       for (final page in unlockedPages) {
-        _paintPdfPage(canvas, page, viewport, painter, node.id);
+        _paintPdfPage(
+          canvas,
+          page,
+          viewport,
+          painter,
+          node.id,
+          node.documentModel.nightMode,
+        );
       }
     } else if (node is GroupNode) {
       for (final child in node.children) {
@@ -810,6 +918,7 @@ class DrawingPainter extends CustomPainter {
     Rect viewport,
     PdfPagePainter? painter, [
     String? documentId,
+    bool nightMode = false,
   ]) {
     final pos = pageNode.position;
     final size = pageNode.pageModel.originalSize;
@@ -826,7 +935,26 @@ class DrawingPainter extends CustomPainter {
             : pageRect;
     if (!cullRect.overlaps(viewport)) return;
 
-    // 🔄 Apply page rotation around center
+    // Compute the effective rect accounting for rotation (for clipping/hit-test)
+    final Rect effectiveRect;
+    if (rotation != 0) {
+      final quarterTurns = (rotation / (math.pi / 2)).round() % 4;
+      if (quarterTurns == 1 || quarterTurns == 3) {
+        effectiveRect = Rect.fromCenter(
+          center: pageRect.center,
+          width: size.height,
+          height: size.width,
+        );
+      } else {
+        effectiveRect = pageRect;
+      }
+    } else {
+      effectiveRect = pageRect;
+    }
+
+    // ─── ROTATED CONTENT ────────────────────────────────────────────────
+    // Page content (shadow, background, raster, border) is painted inside
+    // the rotation transform so it visually rotates.
     if (rotation != 0) {
       canvas.save();
       final cx = pageRect.center.dx;
@@ -854,6 +982,7 @@ class DrawingPainter extends CustomPainter {
         currentZoom: controller?.scale ?? canvasScale,
         onNeedRepaint: onPdfRepaint,
         viewport: viewport,
+        nightMode: nightMode,
       );
     } else {
       // Fallback: basic placeholder with page number
@@ -881,11 +1010,56 @@ class DrawingPainter extends CustomPainter {
 
     canvas.restore();
 
-    // 📝 Annotation layer: draw strokes linked to this page, clipped to bounds
+    // Thin border
+    canvas.drawRect(pageRect, _pdfBorderPaint);
+
+    // 💧 Watermark overlay (rotated diagonal text)
+    if (documentId != null) {
+      // Find the doc node to get watermark text
+      for (final layer in sceneGraph.layers) {
+        for (final child in layer.children) {
+          if (child is PdfDocumentNode &&
+              child.id == documentId &&
+              child.documentModel.watermarkText != null) {
+            final wm = child.documentModel.watermarkText!;
+            canvas.save();
+            final cx = pageRect.center.dx;
+            final cy = pageRect.center.dy;
+            canvas.translate(cx, cy);
+            canvas.rotate(-0.5); // ~29°
+            final tp = TextPainter(
+              text: TextSpan(
+                text: wm,
+                style: TextStyle(
+                  color: const Color(0x18000000),
+                  fontSize: pageRect.width * 0.12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 8,
+                ),
+              ),
+              textDirection: TextDirection.ltr,
+            )..layout();
+            tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+            canvas.restore();
+            break;
+          }
+        }
+      }
+    }
+
+    // Close rotation transform — everything below is world-space
+    if (rotation != 0) {
+      canvas.restore();
+    }
+
+    // ─── WORLD-SPACE OVERLAYS ───────────────────────────────────────────
+    // Annotations (strokes) are in world coordinates and must NOT be rotated.
+    // Clip to the effective rotated page bounds so they only appear on the
+    // visible page area.
     final annotations = pageNode.pageModel.annotations;
     if (annotations.isNotEmpty && pageNode.pageModel.showAnnotations) {
       canvas.save();
-      canvas.clipRect(pageRect);
+      canvas.clipRect(effectiveRect);
       _paintPageAnnotations(canvas, annotations);
       canvas.restore();
     }
@@ -894,7 +1068,7 @@ class DrawingPainter extends CustomPainter {
     if (pdfTextSelection != null &&
         pdfTextSelection!.isNotEmpty &&
         pdfTextSelection!.pageIndex == pageNode.pageModel.pageIndex) {
-      _paintTextSelectionOverlay(canvas, pdfTextSelection!, pageRect);
+      _paintTextSelectionOverlay(canvas, pdfTextSelection!, effectiveRect);
     }
 
     // 📝 Structured annotations (highlights, underlines, sticky notes)
@@ -902,42 +1076,38 @@ class DrawingPainter extends CustomPainter {
     if (structuredAnnotations.isNotEmpty &&
         pageNode.pageModel.showAnnotations) {
       canvas.save();
-      canvas.clipRect(pageRect);
-      _paintStructuredAnnotations(canvas, structuredAnnotations, pageRect);
+      canvas.clipRect(effectiveRect);
+      _paintStructuredAnnotations(canvas, structuredAnnotations, effectiveRect);
       canvas.restore();
     }
 
     // 🔍 Search highlights
     if (pdfSearchController != null && pdfSearchController!.hasMatches) {
-      _paintSearchHighlights(canvas, pageNode, pageRect, documentId);
+      _paintSearchHighlights(canvas, pageNode, effectiveRect, documentId);
     }
-
-    // Thin border
-    canvas.drawRect(pageRect, _pdfBorderPaint);
 
     // 📑 Page number badge (bottom-right corner)
     if (showPdfPageNumbers) {
-      _paintPageNumberBadge(canvas, pageNode, pageRect);
+      _paintPageNumberBadge(canvas, pageNode, effectiveRect);
     }
 
-    // 🔒 Lock icon overlay (small pill at top-right)
+    // 🔒 Lock indicator (subtle bottom strip)
     if (pageNode.pageModel.isLocked) {
-      _paintLockIndicator(canvas, pageRect);
-    }
-
-    // Close rotation transform if applied
-    if (rotation != 0) {
-      canvas.restore();
+      _paintLockIndicator(canvas, effectiveRect);
     }
   }
 
   /// Whether to show page number badges on PDF pages.
-  bool showPdfPageNumbers = true;
+  final bool showPdfPageNumbers;
 
   /// Paint annotation strokes linked to a page.
   ///
   /// Looks up strokes by ID from all layer stroke lists and renders them.
   /// Assumes the canvas is already clipped to the page rect.
+  ///
+  /// NOTE: Renders directly via BrushEngine instead of [_renderStroke]
+  /// because _renderStroke skips PDF-linked strokes (they're excluded
+  /// from the global pass). Here we WANT to draw them — clipped.
   void _paintPageAnnotations(Canvas canvas, List<String> annotationIds) {
     if (layers == null) return;
 
@@ -946,7 +1116,19 @@ class DrawingPainter extends CustomPainter {
       if (!layer.isVisible) continue;
       for (final stroke in layer.strokes) {
         if (idSet.contains(stroke.id)) {
-          _renderStroke(canvas, stroke);
+          // Render directly — bypass _renderStroke's PDF skip check
+          if (stroke.isFill) {
+            _drawFillOverlay(canvas, stroke);
+          } else {
+            BrushEngine.renderStroke(
+              canvas,
+              stroke.points,
+              stroke.color,
+              stroke.baseWidth,
+              stroke.penType,
+              stroke.settings,
+            );
+          }
         }
       }
     }
@@ -1013,66 +1195,34 @@ class DrawingPainter extends CustomPainter {
     canvas.restore();
   }
 
-  // F3: Pre-allocated paints for lock indicator (avoid per-frame alloc)
-  static final Paint _lockPillPaint = Paint()..color = const Color(0x99000000);
-  static final Paint _lockBodyPaint = Paint()..color = const Color(0xFFFFFFFF);
-  static final Paint _lockShacklePaint =
-      Paint()
-        ..color = const Color(0xFFFFFFFF)
-        ..style = PaintingStyle.stroke;
+  // F3: Pre-allocated paint for lock indicator strip
+  static final Paint _lockStripPaint =
+      Paint()..color = const Color(0x262196F3); // Material Blue at ~15% opacity
+  static final Paint _badgePillPaint =
+      Paint()..color = const Color(0x99000000); // Dark pill for page badges
 
-  /// Paint a small lock indicator pill at the top-right of a page.
+  /// Paint a subtle lock indicator as a thin bottom-edge strip.
+  ///
+  /// Uses a constant screen-space height (3px) regardless of zoom,
+  /// so it never scales up to obstruct page content. Fades out at
+  /// high zoom where it would be visually distracting.
   void _paintLockIndicator(Canvas canvas, Rect pageRect) {
     final effectiveScale = controller?.scale ?? canvasScale;
-    final iconSize = 14.0 / effectiveScale;
-    final padding = 6.0 / effectiveScale;
-    final pillWidth = iconSize + padding * 2;
-    final pillHeight = iconSize + padding * 2;
 
-    final pillRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        pageRect.right - pillWidth - padding,
-        pageRect.top + padding,
-        pillWidth,
-        pillHeight,
-      ),
-      Radius.circular(pillHeight / 2),
+    // Fade out at high zoom — not needed when the user is focused on content
+    if (effectiveScale > 2.0) return;
+
+    // Constant 3px screen-space height, converted to canvas-space
+    final stripHeight = 3.0 / effectiveScale;
+
+    final stripRect = Rect.fromLTWH(
+      pageRect.left,
+      pageRect.bottom - stripHeight,
+      pageRect.width,
+      stripHeight,
     );
 
-    // Semi-transparent dark pill
-    canvas.drawRRect(pillRect, _lockPillPaint);
-
-    // Lock icon (draw a simple padlock shape)
-    final cx = pillRect.center.dx;
-    final cy = pillRect.center.dy;
-    final s = iconSize * 0.35;
-
-    // Body (rounded rect)
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(cx, cy + s * 0.2),
-          width: s * 1.6,
-          height: s * 1.4,
-        ),
-        Radius.circular(s * 0.2),
-      ),
-      _lockBodyPaint,
-    );
-
-    // Shackle (arc) — strokeWidth is dynamic so set per-call
-    _lockShacklePaint.strokeWidth = s * 0.35;
-    canvas.drawArc(
-      Rect.fromCenter(
-        center: Offset(cx, cy - s * 0.3),
-        width: s * 1.0,
-        height: s * 1.0,
-      ),
-      math.pi,
-      math.pi,
-      false,
-      _lockShacklePaint,
-    );
+    canvas.drawRect(stripRect, _lockStripPaint);
   }
 
   /// Paint a small page-number pill at the bottom-right of a page.
@@ -1116,7 +1266,7 @@ class DrawingPainter extends CustomPainter {
       const Radius.circular(6),
     );
 
-    canvas.drawRRect(badgeRect, _lockPillPaint); // reuse same dark pill paint
+    canvas.drawRRect(badgeRect, _badgePillPaint);
     tp.paint(
       canvas,
       Offset(badgeRect.left + badgePad, badgeRect.top + badgePad / 2),
@@ -1143,6 +1293,12 @@ class DrawingPainter extends CustomPainter {
   /// 🚀 DRY stroke rendering helper.
   /// Handles both fill overlays and normal strokes in one call.
   void _renderStroke(Canvas canvas, ProStroke stroke) {
+    // Skip strokes linked to PDF pages — they are drawn clipped
+    // inside _paintPdfPage, not in the global pass.
+    if (_pdfAnnotationIds != null && _pdfAnnotationIds!.contains(stroke.id)) {
+      return;
+    }
+
     if (stroke.isFill) {
       _drawFillOverlay(canvas, stroke);
     } else {
@@ -1402,6 +1558,24 @@ class DrawingPainter extends CustomPainter {
           );
           _stickyFoldPath.close();
           canvas.drawPath(_stickyFoldPath, _stickyFoldPaint);
+
+        case PdfAnnotationType.stamp:
+          // Stamp outline + label text
+          final stampPaint =
+              Paint()
+                ..color = annotation.color
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 2.0;
+          canvas.save();
+          canvas.translate(annotRect.center.dx, annotRect.center.dy);
+          canvas.rotate(-0.3);
+          final stampR = Rect.fromCenter(
+            center: Offset.zero,
+            width: annotRect.width,
+            height: annotRect.height,
+          );
+          canvas.drawRect(stampR, stampPaint);
+          canvas.restore();
       }
     }
   }

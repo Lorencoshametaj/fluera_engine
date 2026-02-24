@@ -64,8 +64,10 @@ class PdfMemoryBudget {
       return baseScale.clamp(0.25, 0.5);
     } else if (_currentBudgetMB <= 80) {
       return baseScale.clamp(0.25, 1.0);
-    } else {
+    } else if (_currentBudgetMB <= 200) {
       return baseScale.clamp(0.25, 2.0);
+    } else {
+      return baseScale.clamp(0.25, 4.0);
     }
   }
 
@@ -87,7 +89,8 @@ class PdfMemoryBudget {
     if (zoom < 0.15) return 0.25;
     if (zoom < 0.4) return 0.5;
     if (zoom < 1.0) return 1.0;
-    return 2.0;
+    if (zoom < 2.0) return 2.0;
+    return 4.0;
   }
 
   @override

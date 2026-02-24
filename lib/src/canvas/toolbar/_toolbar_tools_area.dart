@@ -131,73 +131,158 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
         child:
             widget.onPdfImportPressed != null
-                ? InkWell(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    widget.onPdfImportPressed!();
-                  },
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
+                ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        widget.onPdfImportPressed!();
+                      },
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: (isDark ? Colors.white : Colors.black)
-                            .withValues(alpha: 0.12),
-                        width: 1.5,
-                      ),
-                      color: (isDark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.03,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.picture_as_pdf_rounded,
-                          size: 26,
-                          color:
-                              isDark
-                                  ? const Color(0xFFEF9A9A)
-                                  : const Color(0xFFC62828),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
                         ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(alpha: 0.12),
+                            width: 1.5,
+                          ),
+                          color: (isDark ? Colors.white : Colors.black)
+                              .withValues(alpha: 0.03),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              l10n.pdf_importDocument,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black87,
-                              ),
+                            Icon(
+                              Icons.picture_as_pdf_rounded,
+                              size: 26,
+                              color:
+                                  isDark
+                                      ? const Color(0xFFEF9A9A)
+                                      : const Color(0xFFC62828),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Tap to select a PDF file',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark ? Colors.white38 : Colors.black38,
-                              ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  l10n.pdf_importDocument,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color:
+                                        isDark ? Colors.white : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Tap to select a PDF file',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color:
+                                        isDark
+                                            ? Colors.white38
+                                            : Colors.black38,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            Icon(
+                              Icons.add_circle_outline_rounded,
+                              size: 22,
+                              color: isDark ? Colors.white30 : Colors.black26,
                             ),
                           ],
                         ),
-                        const Spacer(),
-                        Icon(
-                          Icons.add_circle_outline_rounded,
-                          size: 22,
-                          color: isDark ? Colors.white30 : Colors.black26,
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                    // 📄 Create blank PDF document button
+                    if (widget.onPdfCreateBlankPressed != null) ...[
+                      const SizedBox(height: 10),
+                      InkWell(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          widget.onPdfCreateBlankPressed!();
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: (isDark ? Colors.white : Colors.black)
+                                  .withValues(alpha: 0.12),
+                              width: 1.5,
+                            ),
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(alpha: 0.03),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.note_add_rounded,
+                                size: 26,
+                                color:
+                                    isDark
+                                        ? const Color(0xFF90CAF9)
+                                        : const Color(0xFF1565C0),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Create Blank Document',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          isDark
+                                              ? Colors.white
+                                              : Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Empty A4 pages to annotate',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color:
+                                          isDark
+                                              ? Colors.white38
+                                              : Colors.black38,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+                              Icon(
+                                Icons.add_circle_outline_rounded,
+                                size: 22,
+                                color: isDark ? Colors.white30 : Colors.black26,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 )
                 : Center(
                   child: Text(
@@ -219,152 +304,237 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
       physics: const BouncingScrollPhysics(),
       child: Row(
         children: [
-          // 📄 PDF Import Button
-          if (widget.onPdfImportPressed != null) ...[
-            Tooltip(
-              message: l10n.pdf_importDocument,
-              waitDuration: const Duration(milliseconds: 500),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
+          // ──────── DOC SWITCHER (standalone, only 2+ PDFs) ────────
+          if (widget.pdfDocuments.length > 1) ...[
+            _PdfDocumentSwitcher(
+              documents: widget.pdfDocuments,
+              activeDocumentId: widget.pdfDocument?.id,
+              isDark: isDark,
+              onDocumentSelected: (docId) {
+                widget.onPdfDocumentChanged?.call(docId);
+              },
+            ),
+            const SizedBox(width: 10),
+          ],
+
+          if (widget.pdfDocuments.isNotEmpty && widget.pdfDocument != null) ...[
+            // ──────── NAVIGATE group ────────
+            _PdfGroup(
+              label: 'Navigate',
+              isDark: isDark,
+              children: [
+                _PdfToolbarButton(
+                  icon: Icons.file_copy_rounded,
+                  tooltip: 'Pages',
+                  badge: '${widget.pdfDocument!.documentModel.totalPages}',
+                  isDark: isDark,
+                  onTap: (anchor) {
+                    showPdfPagePopup(
+                      context: context,
+                      anchor: anchor,
+                      doc: widget.pdfDocument!,
+                      selectedPageIndex: widget.pdfSelectedPageIndex,
+                      onPageChanged: (_) {},
+                      onInsertBlankPage: widget.onPdfInsertBlankPage,
+                      onDuplicatePage: widget.onPdfDuplicatePage,
+                      onDeletePage: widget.onPdfDeletePage,
+                      onReorderPage: widget.onPdfReorderPage,
+                      onLayoutChanged: widget.onPdfLayoutChanged,
+                      onWatermarkToggle: widget.onPdfWatermarkToggle,
+                      onAddStamp: widget.onPdfAddStamp,
+                      onChangeBackground: widget.onPdfChangeBackground,
+                    );
+                  },
+                ),
+                if (widget.pdfSearchController != null)
+                  _PdfToolbarButton(
+                    icon: Icons.search_rounded,
+                    tooltip: 'Search PDF',
+                    badge:
+                        widget.pdfSearchController!.hasMatches
+                            ? '${widget.pdfSearchController!.matchCount}'
+                            : null,
+                    isDark: isDark,
+                    onTap: (anchor) {
+                      showPdfSearchPopup(
+                        context: context,
+                        anchor: anchor,
+                        docs: widget.pdfDocuments,
+                        searchController: widget.pdfSearchController!,
+                        onGoToPage: widget.onPdfGoToPage,
+                      );
+                    },
+                  ),
+                _PdfToolbarButton(
+                  icon: Icons.grid_view_rounded,
+                  tooltip: 'Layout',
+                  isDark: isDark,
+                  onTap: (anchor) {
+                    showPdfLayoutPopup(
+                      context: context,
+                      anchor: anchor,
+                      doc: widget.pdfDocument!,
+                      onLayoutChanged: widget.onPdfLayoutChanged,
+                    );
+                  },
+                ),
+              ],
+            ),
+
+            // ──────── VIEW group (1-tap toggles) ────────
+            _PdfGroup(
+              label: 'View',
+              isDark: isDark,
+              children: [
+                if (widget.onPdfNightModeToggle != null)
+                  _PdfToggleButton(
+                    icon: Icons.dark_mode_rounded,
+                    activeIcon: Icons.dark_mode,
+                    tooltip: 'Night Mode',
+                    isActive: widget.pdfDocument!.documentModel.nightMode,
+                    isDark: isDark,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onPdfNightModeToggle!();
+                    },
+                  ),
+                if (widget.onPdfBookmarkToggle != null) ...[
+                  Builder(
+                    builder: (_) {
+                      final page = widget.pdfDocument!.pageAt(
+                        widget.pdfSelectedPageIndex,
+                      );
+                      final isBookmarked =
+                          page?.pageModel.isBookmarked ?? false;
+                      return _PdfToggleButton(
+                        icon: Icons.bookmark_border_rounded,
+                        activeIcon: Icons.bookmark_rounded,
+                        tooltip:
+                            isBookmarked ? 'Remove Bookmark' : 'Bookmark Page',
+                        isActive: isBookmarked,
+                        isDark: isDark,
+                        activeColor: const Color(0xFFFFB74D),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          widget.onPdfBookmarkToggle!(
+                            widget.pdfSelectedPageIndex,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ],
+                if (widget.onPdfZoomToFit != null)
+                  _PdfToolbarButton(
+                    icon: Icons.fit_screen_rounded,
+                    tooltip: 'Zoom to Fit',
+                    isDark: isDark,
+                    onTap: (_) {
+                      HapticFeedback.selectionClick();
+                      widget.onPdfZoomToFit!(widget.pdfSelectedPageIndex);
+                    },
+                  ),
+              ],
+            ),
+
+            // ──────── ANNOTATE group ────────
+            if (widget.pdfAnnotationController != null)
+              _PdfGroup(
+                label: 'Annotate',
+                isDark: isDark,
+                children: [
+                  _PdfToolbarButton(
+                    icon: Icons.edit_note_rounded,
+                    tooltip: 'Annotate',
+                    badge:
+                        widget
+                                .pdfAnnotationController!
+                                .allAnnotations
+                                .isNotEmpty
+                            ? '${widget.pdfAnnotationController!.allAnnotations.length}'
+                            : null,
+                    isDark: isDark,
+                    onTap: (anchor) {
+                      showPdfAnnotatePopup(
+                        context: context,
+                        anchor: anchor,
+                        annotationController: widget.pdfAnnotationController!,
+                        selectedPageIndex: widget.pdfSelectedPageIndex,
+                        history: widget.pdfCommandHistory,
+                      );
+                    },
+                  ),
+                ],
+              ),
+
+            // ──────── OUTPUT group ────────
+            _PdfGroup(
+              label: 'Output',
+              isDark: isDark,
+              children: [
+                if (widget.onPdfExport != null)
+                  _PdfToolbarButton(
+                    icon: Icons.ios_share_rounded,
+                    tooltip: 'Export',
+                    isDark: isDark,
+                    onTap: (_) {
+                      widget.onPdfExport!();
+                    },
+                  ),
+                if (widget.onPdfPrint != null)
+                  _PdfToolbarButton(
+                    icon: Icons.print_rounded,
+                    tooltip: 'Print',
+                    isDark: isDark,
+                    onTap: (_) {
+                      widget.onPdfPrint!();
+                    },
+                  ),
+                if (widget.onPdfPresentation != null)
+                  _PdfToolbarButton(
+                    icon: Icons.slideshow_rounded,
+                    tooltip: 'Present',
+                    isDark: isDark,
+                    onTap: (_) {
+                      widget.onPdfPresentation!();
+                    },
+                  ),
+              ],
+            ),
+          ],
+
+          // ──────── ADD group (end — one-time actions) ────────
+          _PdfGroup(
+            label: 'Add',
+            isDark: isDark,
+            children: [
+              if (widget.onPdfImportPressed != null)
+                _PdfToolbarButton(
+                  icon: Icons.add_rounded,
+                  tooltip: l10n.pdf_importDocument,
+                  secondaryIcon: Icons.picture_as_pdf_rounded,
+                  isDark: isDark,
+                  onTap: (_) {
                     HapticFeedback.selectionClick();
                     widget.onPdfImportPressed!();
                   },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: (isDark ? Colors.white : Colors.black).withValues(
-                        alpha: 0.05,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: (isDark ? Colors.white : Colors.black)
-                            .withValues(alpha: 0.1),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.add_rounded,
-                          size: 18,
-                          color: isDark ? Colors.white70 : Colors.black54,
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          Icons.picture_as_pdf_rounded,
-                          size: 22,
-                          color: isDark ? Colors.white70 : Colors.black54,
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 12),
-          ],
-
-          // 📄 PDF CONTEXTUAL BUTTONS — only when a PDF is loaded
-          if (widget.pdfDocuments.isNotEmpty) ...[
-            // 📄 Document switcher — only when 2+ PDFs
-            if (widget.pdfDocuments.length > 1) ...[
-              _PdfDocumentSwitcher(
-                documents: widget.pdfDocuments,
-                activeDocumentId: widget.pdfDocument?.id,
-                isDark: isDark,
-                onDocumentSelected: (docId) {
-                  widget.onPdfDocumentChanged?.call(docId);
-                },
-              ),
-              const SizedBox(width: 8),
+              if (widget.onPdfCreateBlankPressed != null)
+                _PdfToolbarButton(
+                  icon: Icons.note_add_rounded,
+                  tooltip: 'New blank document',
+                  isDark: isDark,
+                  accentColor:
+                      isDark
+                          ? const Color(0xFF90CAF9)
+                          : const Color(0xFF1565C0),
+                  onTap: (_) {
+                    HapticFeedback.selectionClick();
+                    widget.onPdfCreateBlankPressed!();
+                  },
+                ),
             ],
-            // Pages
-            if (widget.pdfDocument != null)
-              _PdfToolbarButton(
-                icon: Icons.file_copy_rounded,
-                tooltip: 'Pages',
-                badge: '${widget.pdfDocument!.documentModel.totalPages}',
-                isDark: isDark,
-                onTap: (anchor) {
-                  showPdfPagePopup(
-                    context: context,
-                    anchor: anchor,
-                    doc: widget.pdfDocument!,
-                    selectedPageIndex: widget.pdfSelectedPageIndex,
-                    onPageChanged: (_) {},
-                    onInsertBlankPage: widget.onPdfInsertBlankPage,
-                    onDeletePage: widget.onPdfDeletePage,
-                    onLayoutChanged: widget.onPdfLayoutChanged,
-                    onExport: widget.onPdfExport,
-                  );
-                },
-              ),
-            const SizedBox(width: 6),
-            // Search
-            if (widget.pdfSearchController != null)
-              _PdfToolbarButton(
-                icon: Icons.search_rounded,
-                tooltip: 'Search PDF',
-                badge:
-                    widget.pdfSearchController!.hasMatches
-                        ? '${widget.pdfSearchController!.matchCount}'
-                        : null,
-                isDark: isDark,
-                onTap: (anchor) {
-                  showPdfSearchPopup(
-                    context: context,
-                    anchor: anchor,
-                    docs: widget.pdfDocuments,
-                    searchController: widget.pdfSearchController!,
-                    onGoToPage: widget.onPdfGoToPage,
-                  );
-                },
-              ),
-            const SizedBox(width: 6),
-            // Annotate
-            if (widget.pdfAnnotationController != null)
-              _PdfToolbarButton(
-                icon: Icons.edit_note_rounded,
-                tooltip: 'Annotate',
-                badge:
-                    widget.pdfAnnotationController!.allAnnotations.isNotEmpty
-                        ? '${widget.pdfAnnotationController!.allAnnotations.length}'
-                        : null,
-                isDark: isDark,
-                onTap: (anchor) {
-                  showPdfAnnotatePopup(
-                    context: context,
-                    anchor: anchor,
-                    annotationController: widget.pdfAnnotationController!,
-                    selectedPageIndex: widget.pdfSelectedPageIndex,
-                    history: widget.pdfCommandHistory,
-                  );
-                },
-              ),
-            const SizedBox(width: 6),
-            // Layout
-            _PdfToolbarButton(
-              icon: Icons.grid_view_rounded,
-              tooltip: 'Layout',
-              isDark: isDark,
-              onTap: (anchor) {
-                showPdfLayoutPopup(
-                  context: context,
-                  anchor: anchor,
-                  doc: widget.pdfDocument!,
-                  onLayoutChanged: widget.onPdfLayoutChanged,
-                );
-              },
-            ),
-          ],
-
-          // (Empty state is handled by early return above)
+          ),
         ],
       ),
     );
@@ -1438,26 +1608,152 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   }
 }
 
-/// Compact PDF toolbar button with optional badge.
-/// Captures its render box and passes the [Rect] to [onTap].
-class _PdfToolbarButton extends StatelessWidget {
+/// 📄 PDF toggle button — shows active/inactive state with icon swap and glow.
+class _PdfToggleButton extends StatelessWidget {
   final IconData icon;
+  final IconData activeIcon;
   final String tooltip;
-  final String? badge;
+  final bool isActive;
   final bool isDark;
-  final void Function(Rect anchor) onTap;
+  final Color? activeColor;
+  final VoidCallback onTap;
 
-  const _PdfToolbarButton({
+  const _PdfToggleButton({
     required this.icon,
+    required this.activeIcon,
     required this.tooltip,
-    this.badge,
+    required this.isActive,
     required this.isDark,
+    this.activeColor,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final color =
+        isActive
+            ? (activeColor ?? cs.primary)
+            : (isDark ? Colors.white54 : Colors.black45);
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color:
+                  isActive ? color.withValues(alpha: 0.15) : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color:
+                    isActive
+                        ? color.withValues(alpha: 0.3)
+                        : Colors.transparent,
+              ),
+            ),
+            child: Icon(isActive ? activeIcon : icon, size: 18, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 📄 PDF toolbar group — labelled card mirroring `_ExcelGroup`.
+class _PdfGroup extends StatelessWidget {
+  final String label;
+  final bool isDark;
+  final List<Widget> children;
+
+  const _PdfGroup({
+    required this.label,
+    required this.isDark,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Intersperse spacing between children
+    final spaced = <Widget>[];
+    for (var i = 0; i < children.length; i++) {
+      if (i > 0) spaced.add(const SizedBox(width: 4));
+      spaced.add(children[i]);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(right: 10),
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 2),
+      decoration: BoxDecoration(
+        color:
+            isDark
+                ? Colors.white.withValues(alpha: 0.04)
+                : Colors.black.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color:
+              isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06),
+          width: 0.5,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: spaced),
+          Padding(
+            padding: const EdgeInsets.only(top: 2, bottom: 1),
+            child: Text(
+              label.toUpperCase(),
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.8,
+                color:
+                    isDark
+                        ? Colors.white.withValues(alpha: 0.30)
+                        : Colors.black.withValues(alpha: 0.30),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact PDF toolbar button with optional badge.
+/// Captures its render box and passes the [Rect] to [onTap].
+class _PdfToolbarButton extends StatelessWidget {
+  final IconData icon;
+  final IconData? secondaryIcon;
+  final String tooltip;
+  final String? badge;
+  final bool isDark;
+  final Color? accentColor;
+  final void Function(Rect anchor) onTap;
+
+  const _PdfToolbarButton({
+    required this.icon,
+    this.secondaryIcon,
+    required this.tooltip,
+    this.badge,
+    required this.isDark,
+    this.accentColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final color = accentColor ?? cs.primary;
 
     return Tooltip(
       message: tooltip,
@@ -1475,14 +1771,18 @@ class _PdfToolbarButton extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
-              color: cs.primaryContainer.withValues(alpha: 0.3),
+              color: color.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+              border: Border.all(color: color.withValues(alpha: 0.15)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 18, color: cs.primary),
+                Icon(icon, size: 18, color: color),
+                if (secondaryIcon != null) ...[
+                  const SizedBox(width: 3),
+                  Icon(secondaryIcon!, size: 18, color: color),
+                ],
                 if (badge != null) ...[
                   const SizedBox(width: 4),
                   Container(
@@ -1491,7 +1791,7 @@ class _PdfToolbarButton extends StatelessWidget {
                       vertical: 1,
                     ),
                     decoration: BoxDecoration(
-                      color: cs.primary.withValues(alpha: 0.15),
+                      color: color.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -1499,7 +1799,7 @@ class _PdfToolbarButton extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
-                        color: cs.primary,
+                        color: color,
                       ),
                     ),
                   ),
@@ -1570,18 +1870,22 @@ class _PdfDocumentSwitcher extends StatelessWidget {
                             : (isDark ? Colors.white70 : Colors.black54),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    _labelFor(documents[i], i),
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight:
-                          documents[i].id == activeDocumentId
-                              ? FontWeight.w700
-                              : FontWeight.w400,
-                      color:
-                          documents[i].id == activeDocumentId
-                              ? cs.primary
-                              : null,
+                  Flexible(
+                    child: Text(
+                      _labelFor(documents[i], i),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            documents[i].id == activeDocumentId
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                        color:
+                            documents[i].id == activeDocumentId
+                                ? cs.primary
+                                : null,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1597,31 +1901,199 @@ class _PdfDocumentSwitcher extends StatelessWidget {
             ),
         ];
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: cs.primaryContainer.withValues(alpha: 0.4),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: cs.primary.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.picture_as_pdf_rounded, size: 14, color: cs.primary),
-            const SizedBox(width: 4),
-            Text(
-              activeLabel,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: cs.primary,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 160),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: cs.primaryContainer.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: cs.primary.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.picture_as_pdf_rounded, size: 14, color: cs.primary),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  activeLabel,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: cs.primary,
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(width: 2),
-            Icon(Icons.arrow_drop_down, size: 16, color: cs.primary),
-          ],
+              const SizedBox(width: 2),
+              Icon(Icons.arrow_drop_down, size: 16, color: cs.primary),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// 📄 PDF "More Actions" popup — exposes less-common functions.
+class _PdfMoreActions extends StatelessWidget {
+  final PdfDocumentNode doc;
+  final int selectedPageIndex;
+  final bool isDark;
+  final bool showPageNumbers;
+  final VoidCallback? onLayoutChanged;
+  final VoidCallback? onTogglePageNumbers;
+  final ValueChanged<int>? onPageIndexChanged;
+
+  const _PdfMoreActions({
+    required this.doc,
+    required this.selectedPageIndex,
+    required this.isDark,
+    required this.showPageNumbers,
+    this.onLayoutChanged,
+    this.onTogglePageNumbers,
+    this.onPageIndexChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final page = doc.pageAt(selectedPageIndex);
+    final annotationsVisible = page?.pageModel.showAnnotations ?? true;
+    final isUnlocked = page != null && !page.pageModel.isLocked;
+    final totalPages = doc.documentModel.totalPages;
+
+    return PopupMenuButton<String>(
+      tooltip: 'More Actions',
+      icon: Icon(
+        Icons.more_vert_rounded,
+        size: 20,
+        color: isDark ? Colors.white70 : Colors.black54,
+      ),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 8,
+      onSelected: (action) {
+        HapticFeedback.selectionClick();
+        switch (action) {
+          case 'toggle_annotations':
+            doc.togglePageAnnotations(selectedPageIndex);
+            onLayoutChanged?.call();
+          case 'return_to_grid':
+            doc.returnPageToGrid(selectedPageIndex);
+            onLayoutChanged?.call();
+          case 'move_up':
+            if (selectedPageIndex > 0) {
+              doc.reorderPage(selectedPageIndex, selectedPageIndex - 1);
+              onPageIndexChanged?.call(selectedPageIndex - 1);
+              onLayoutChanged?.call();
+            }
+          case 'move_down':
+            if (selectedPageIndex < totalPages - 1) {
+              doc.reorderPage(selectedPageIndex, selectedPageIndex + 1);
+              onPageIndexChanged?.call(selectedPageIndex + 1);
+              onLayoutChanged?.call();
+            }
+          case 'toggle_page_numbers':
+            onTogglePageNumbers?.call();
+        }
+      },
+      itemBuilder:
+          (_) => [
+            PopupMenuItem(
+              value: 'toggle_annotations',
+              child: Row(
+                children: [
+                  Icon(
+                    annotationsVisible
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
+                    size: 18,
+                    color: cs.onSurface,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    annotationsVisible
+                        ? 'Hide Annotations'
+                        : 'Show Annotations',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            if (isUnlocked)
+              PopupMenuItem(
+                value: 'return_to_grid',
+                child: Row(
+                  children: [
+                    Icon(Icons.grid_on_rounded, size: 18, color: cs.onSurface),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Return to Grid',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              enabled: selectedPageIndex > 0,
+              value: 'move_up',
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.arrow_upward_rounded,
+                    size: 18,
+                    color:
+                        selectedPageIndex > 0
+                            ? cs.onSurface
+                            : cs.onSurface.withValues(alpha: 0.3),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('Move Page Up', style: TextStyle(fontSize: 13)),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              enabled: selectedPageIndex < totalPages - 1,
+              value: 'move_down',
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.arrow_downward_rounded,
+                    size: 18,
+                    color:
+                        selectedPageIndex < totalPages - 1
+                            ? cs.onSurface
+                            : cs.onSurface.withValues(alpha: 0.3),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('Move Page Down', style: TextStyle(fontSize: 13)),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'toggle_page_numbers',
+              child: Row(
+                children: [
+                  Icon(
+                    showPageNumbers ? Icons.numbers_rounded : Icons.tag_rounded,
+                    size: 18,
+                    color: cs.onSurface,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    showPageNumbers ? 'Hide Page Numbers' : 'Show Page Numbers',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
     );
   }
 }

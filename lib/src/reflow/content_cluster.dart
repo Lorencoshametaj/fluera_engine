@@ -27,11 +27,11 @@ class ContentCluster {
   /// Image IDs (always 0 or 1 per cluster).
   final List<String> imageIds;
 
-  /// Union of all element bounds in this cluster.
-  final Rect bounds;
+  /// Union of all element bounds in this cluster (updated after reflow bake).
+  Rect bounds;
 
-  /// Mass center — used as origin for force calculations.
-  final Offset centroid;
+  /// Mass center — used as origin for force calculations (updated after bake).
+  Offset centroid;
 
   /// If true, this cluster is excluded from reflow (locked layer/element).
   final bool isPinned;

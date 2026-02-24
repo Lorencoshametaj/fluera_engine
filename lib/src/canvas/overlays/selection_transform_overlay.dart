@@ -54,7 +54,10 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
   // Handle attualmente trascinato
   _HandleType? _activeHandle;
   Offset? _dragStart;
-  Offset? _rotationCenter; // Stable center captured at gesture start
+  Offset?
+  _rotationCenter; // Stable screen-space center captured at gesture start
+  Offset?
+  _canvasAnchor; // Stable canvas-space anchor for scale (captured at gesture start)
   double _initialAngle = 0;
   double _initialDistance = 0;
 
@@ -166,7 +169,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
           child: IgnorePointer(
             child: CustomPaint(
               painter: _ReflowGhostPainter(
-                clusters: widget.lassoTool.clusterCache,
+                clusters: widget.lassoTool.reflowController?.clusterCache ?? [],
                 displacements: activeDisplacements,
                 canvasController: widget.canvasController,
                 strokes: activeLayer?.strokes ?? [],
@@ -202,7 +205,13 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
                 details.globalPosition,
               );
               widget.lassoTool.updateDrag(canvasPos);
+              // 🚀 FIX: bump version + invalidate caches
+              widget.lassoTool.layerController.sceneGraph.bumpVersion();
               DrawingPainter.invalidateAllTiles();
+              // 🚀 FIX: trigger DrawingPainter repaint via its Listenable
+              // (DrawingPainter uses repaint: controller, so markNeedsPaint
+              // directly triggers paint() without widget rebuild)
+              widget.canvasController.markNeedsPaint();
               // 🏀️ Edge auto-scroll during selection drag
               widget.onEdgeAutoScroll?.call(details.globalPosition);
               setState(() {});
@@ -211,27 +220,32 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
               // 🏀️ Stop edge auto-scroll
               widget.onEdgeAutoScrollEnd?.call();
 
+              // 🌊 FLING: Check if velocity warrants a fling animation
+              final rawVelocity = widget.lassoTool.lastDragVelocity;
+              final config = widget.canvasController.liquidConfig;
+              final willFling =
+                  rawVelocity.distance > config.nodeDragFlingThreshold &&
+                  widget.lassoTool.hasSelection;
+
               // 🌊 REFLOW: Snapshot displacements for settle animation
               final ghostSnap = Map<String, Offset>.from(
                 widget.lassoTool.reflowGhostDisplacements,
               );
 
-              widget.lassoTool.endDrag();
+              // If fling will start, defer reflow bake to fling end
+              widget.lassoTool.endDrag(skipReflow: willFling);
               DrawingPainter.invalidateAllTiles();
               widget.onTransformComplete();
 
-              // 🌊 REFLOW: Trigger settle fade-out animation
-              if (ghostSnap.isNotEmpty) {
+              // 🌊 REFLOW: Trigger settle fade-out animation (only if no fling)
+              if (!willFling && ghostSnap.isNotEmpty) {
                 _settleDisplacements = ghostSnap;
                 _settleOpacity = 1.0;
                 _settleController.forward(from: 0.0);
               }
 
               // 🌊 FLING: Launch friction fling if velocity exceeds threshold
-              final rawVelocity = widget.lassoTool.lastDragVelocity;
-              final config = widget.canvasController.liquidConfig;
-              if (rawVelocity.distance > config.nodeDragFlingThreshold &&
-                  widget.lassoTool.hasSelection) {
+              if (willFling) {
                 // 🚀 T4: Velocity clamping
                 final velocity =
                     rawVelocity.distance > config.nodeDragMaxFlingVelocity
@@ -402,8 +416,10 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
       final delta = details.globalPosition - _rotationCenter!;
       _initialAngle = atan2(delta.dy, delta.dx);
     } else {
-      // Calculate distanza iniziale per scala
-      _initialDistance = (details.globalPosition - center).distance;
+      // Calculate distanza iniziale per scala (use stable center)
+      _initialDistance = (details.globalPosition - _rotationCenter!).distance;
+      // Capture canvas-space anchor once — used as a fixed pivot for scaleAll
+      _canvasAnchor = widget.canvasController.screenToCanvas(_rotationCenter!);
     }
   }
 
@@ -439,13 +455,16 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
       // Convert stable center from screen to canvas space for the lasso tool
       final canvasCenter = widget.canvasController.screenToCanvas(stableCenter);
       widget.lassoTool.rotateSelectedByAngle(angleDelta, center: canvasCenter);
-      // 🚀 PERF: Only invalidate layer caches (not tile + stroke caches)
-      DrawingPainter.invalidateLayerCaches();
+      // 🚀 FIX: Full invalidation pipeline (same as drag) so strokes re-render
+      widget.lassoTool.layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      widget.canvasController.markNeedsPaint();
       widget.lassoTool.dragNotifier.value++;
       widget.onTransformComplete();
     } else {
-      // Scala
-      final currentDistance = (details.globalPosition - center).distance;
+      // Scala — use stable center captured at drag start
+      final stableCenter = _rotationCenter ?? center;
+      final currentDistance = (details.globalPosition - stableCenter).distance;
       if (_initialDistance > 0) {
         final scaleFactor = currentDistance / _initialDistance;
         // Clamp to avoid scale troppo estreme
@@ -455,10 +474,12 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
         _lastHandleScaleDelta = clampedFactor - 1.0;
         _lastHandleTimestamp = now;
 
-        widget.lassoTool.scaleSelected(clampedFactor);
+        widget.lassoTool.scaleSelected(clampedFactor, center: _canvasAnchor);
         _initialDistance = currentDistance;
-        // 🚀 PERF: Only invalidate layer caches (not tile + stroke caches)
-        DrawingPainter.invalidateLayerCaches();
+        // 🚀 FIX: Full invalidation pipeline (same as drag) so strokes re-render
+        widget.lassoTool.layerController.sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        widget.canvasController.markNeedsPaint();
         widget.lassoTool.dragNotifier.value++;
         widget.onTransformComplete();
       }
@@ -477,7 +498,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
       // Bake displacements into actual positions
       widget.lassoTool.bakeReflowDisplacements();
-      widget.lassoTool.reflowGhostDisplacements = {};
+      widget.lassoTool.reflowController?.clearGhosts();
 
       // Trigger settle fade-out animation
       _settleController.forward(from: 0);
@@ -541,6 +562,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
   /// Called each frame during friction fling or snap spring with accumulated offset.
   void _onFlingOrSnapUpdate(Offset currentOffset) {
+    if (!mounted) return;
     if (!(_isFlingActive || _isSnapSpringActive) ||
         !widget.lassoTool.hasSelection) {
       return;
@@ -559,7 +581,10 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
     // Apply to selected elements
     widget.lassoTool.moveSelected(delta);
-    DrawingPainter.invalidateLayerCaches();
+    // 🚀 FIX: Full invalidation pipeline (same as drag) so strokes re-render
+    widget.lassoTool.layerController.sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    widget.canvasController.markNeedsPaint();
     widget.lassoTool.dragNotifier.value++;
 
     // 🧲 T4: Mid-fling magnetic catch — check for snap guides every 4 frames
@@ -639,9 +664,26 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
   /// Called when either fling or snap spring animation finishes.
   void _onAnimationComplete() {
+    if (!mounted) return;
     if (_isFlingActive) {
-      // Fling just ended — check for post-fling snap
+      // Fling just ended — bake deferred reflow and check for post-fling snap
       _isFlingActive = false;
+
+      // 🌊 REFLOW: Bake displacements at fling-end position
+      if (widget.lassoTool.isReflowEnabled) {
+        // Snapshot ghosts for settle animation
+        final ghostSnap = Map<String, Offset>.from(
+          widget.lassoTool.reflowGhostDisplacements,
+        );
+        widget.lassoTool.bakeReflowDisplacements();
+        widget.lassoTool.reflowController?.clearGhosts();
+        if (ghostSnap.isNotEmpty) {
+          _settleDisplacements = ghostSnap;
+          _settleOpacity = 1.0;
+          _settleController.forward(from: 0.0);
+        }
+      }
+
       _tryPostFlingSnap();
       return;
     }

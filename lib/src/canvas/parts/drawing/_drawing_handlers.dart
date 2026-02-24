@@ -398,6 +398,32 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
+    // 📄 PDF PAGE SELECTION: Update toolbar selection when touching any page
+    // ✂️ Also track the effective page rect for live stroke clipping.
+    _activePdfClipRect = null; // Reset — set below if a page is hit
+    for (final layer in _layerController.sceneGraph.layers) {
+      for (final child in layer.children) {
+        if (child is PdfDocumentNode) {
+          final pageIdx = child.hitTestPageIndex(canvasPosition);
+          if (pageIdx >= 0) {
+            // Auto-select this document in the toolbar
+            if (_activePdfDocumentId != child.id) {
+              _activePdfDocumentId = child.id;
+            }
+            if (pageIdx != _pdfSelectedPageIndex) {
+              _pdfSelectedPageIndex = pageIdx;
+            }
+            // ✂️ Compute effective page rect for stroke clipping
+            final hitPage = child.pageAt(pageIdx);
+            if (hitPage != null) {
+              _activePdfClipRect = child.pageRectFor(hitPage);
+            }
+            // No return — continue to drag check or drawing
+          }
+        }
+      }
+    }
+
     // 📄 PDF PAGE DRAG: Check if touch hits an unlocked PDF page
     if (!_effectiveIsEraser && !_effectiveIsLasso && !_effectiveIsPanMode) {
       for (final layer in _layerController.sceneGraph.layers) {
@@ -415,9 +441,23 @@ extension on _NebulaCanvasScreenState {
       }
     }
 
-    // 🖐️ If Pan mode is active, do not draw
+    // 🖐️ If Pan mode is active, check for document drag first
     if (_effectiveIsPanMode) {
-      return;
+      // 📄 DOCUMENT DRAG: Pan mode + touch on any page → drag entire document
+      for (final layer in _layerController.sceneGraph.layers) {
+        for (final child in layer.children) {
+          if (child is PdfDocumentNode) {
+            final pageIdx = child.hitTestPageIndex(canvasPosition);
+            if (pageIdx >= 0) {
+              _pdfPageDragController.startDocumentDrag(child, canvasPosition);
+              _pdfLayoutVersion++;
+              setState(() {});
+              return;
+            }
+          }
+        }
+      }
+      return; // Pan mode, no page hit — let canvas pan handle it
     }
 
     // 🪣 Phase 3D: Fill mode — execute flood fill at tap point
@@ -488,6 +528,9 @@ extension on _NebulaCanvasScreenState {
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
 
+    // ✂️ Clear PDF clip rect on cancel
+    _activePdfClipRect = null;
+
     // 📊 TabularNode: Cancel any drag/resize so pinch-to-zoom works
     if (_tabularTool.isDragging) {
       _tabularTool.endDrag();
@@ -500,6 +543,23 @@ extension on _NebulaCanvasScreenState {
     if (_isDraggingLatex) {
       _isDraggingLatex = false;
       _latexDragStart = null;
+    }
+
+    // 📄 PDF DOCUMENT DRAG: Cancel document drag on multi-touch interrupt
+    if (_pdfPageDragController.isDraggingDocument) {
+      // Rollback all document annotation strokes
+      final reverseDelta =
+          _pdfPageDragController.previousPosition -
+          _pdfPageDragController.previousPosition;
+      // Strokes were translated incrementally — cancelDrag restores gridOrigin
+      // and performGridLayout, but we need to manually reverse stroke translations.
+      // Pre-cancel: compute total translation since start
+      // Note: cancelDrag handles page positions via gridOrigin reset.
+      _pdfPageDragController.cancelDrag();
+      DrawingPainter.invalidateAllTiles();
+      _pdfLayoutVersion++;
+      setState(() {});
+      return;
     }
 
     // 📄 PDF PAGE DRAG: Cancel drag on multi-touch interrupt

@@ -39,10 +39,26 @@ class InfiniteCanvasController extends ChangeNotifier {
   /// Set by the widget to trigger haptic feedback.
   VoidCallback? onZoomLimitReached;
 
+  /// 🚀 Callback fired when all physics animations settle.
+  /// Used by the canvas to trigger LOD precomputation at the new zoom level.
+  VoidCallback? onAnimationSettle;
+
   // Getters
   Offset get offset => _offset;
   double get scale => _scale;
   double get rotation => _rotation;
+
+  /// 🚀 Current pan velocity from active momentum simulation.
+  /// Returns Offset.zero if no momentum is active.
+  Offset get panVelocity {
+    if (!_isMomentumActive || _panSimX == null || _panSimY == null) {
+      return Offset.zero;
+    }
+    return Offset(
+      _panSimX!.dx(_momentumStartTime),
+      _panSimY!.dx(_momentumStartTime),
+    );
+  }
 
   // 🌀 Rotation lock (persisted)
   static const String _rotationLockKey = 'nebula_rotation_locked';
@@ -104,10 +120,17 @@ class InfiniteCanvasController extends ChangeNotifier {
   SpringSimulation? _rotationSpring;
   bool _isRotationSpringActive = false;
 
+  // — Zoom momentum state (Gap 4) —
+  FrictionSimulation? _zoomMomentumSim;
+  double _zoomMomentumStartTime = 0;
+  bool _isZoomMomentumActive = false;
+  Offset _zoomMomentumFocalPoint = Offset.zero;
+
   /// Whether any physics animation is running.
   bool get isAnimating =>
       _isMomentumActive ||
       _isZoomSpringActive ||
+      _isZoomMomentumActive ||
       _isRotationMomentumActive ||
       _isRotationSpringActive ||
       _isPanSpringActive;
@@ -283,6 +306,7 @@ class InfiniteCanvasController extends ChangeNotifier {
   void stopAnimation() {
     _isMomentumActive = false;
     _isZoomSpringActive = false;
+    _isZoomMomentumActive = false;
     _isRotationMomentumActive = false;
     _isRotationSpringActive = false;
     _isPanSpringActive = false;
@@ -290,6 +314,7 @@ class InfiniteCanvasController extends ChangeNotifier {
     _panSimX = null;
     _panSimY = null;
     _zoomSim = null;
+    _zoomMomentumSim = null;
     _rotationSim = null;
     _rotationSpring = null;
     _panSpringSimX = null;
@@ -496,6 +521,44 @@ class InfiniteCanvasController extends ChangeNotifier {
     _ensureTickerRunning();
   }
 
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Zoom Momentum (Gap 4)
+  // ============================================================================
+
+  /// Launch zoom momentum from terminal pinch velocity.
+  ///
+  /// Called on gesture end when the user was actively zooming.
+  /// Uses [FrictionSimulation] on **log-scale** for natural multiplicative
+  /// deceleration (zoom 2x→ 4x feels the same as 0.5x→0.25x).
+  /// The focal point is preserved so the momentum feels anchored.
+  void startZoomMomentum(double scaleVelocity, Offset focalPointScreen) {
+    if (!_liquidConfig.enabled) return;
+    if (_ticker == null) return;
+
+    // Don't start for small velocities (threshold in scale-units/second)
+    if (scaleVelocity.abs() < 0.3) return;
+
+    // If already past limits, skip momentum and let spring-back handle it
+    if (_scale < _minScale || _scale > _maxScale) return;
+
+    // Friction on log-scale: log(scale) + velocity → exp() back to scale.
+    // This gives multiplicative deceleration (2x→4x feels same as 0.5x→0.25x).
+    final logScale = math.log(_scale);
+    final logVelocity = scaleVelocity / _scale; // Convert to log-space velocity
+
+    _zoomMomentumSim = FrictionSimulation(
+      _liquidConfig.panFriction * 3.0, // Higher friction than pan
+      logScale,
+      logVelocity,
+    );
+
+    _zoomMomentumFocalPoint = focalPointScreen;
+    _isZoomMomentumActive = true;
+    _zoomMomentumStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
   // — Rotation spring state (for animated reset / snap) —
   double _rotationSpringStartTime = 0;
   double _rotationSpringTarget = 0.0;
@@ -659,6 +722,50 @@ class InfiniteCanvasController extends ChangeNotifier {
       }
     }
 
+    // — ZOOM MOMENTUM (Gap 4) —
+    if (_isZoomMomentumActive && _zoomMomentumSim != null) {
+      _zoomMomentumStartTime += t;
+
+      // Simulation runs in log-space; convert back to linear scale
+      final logScale = _zoomMomentumSim!.x(_zoomMomentumStartTime);
+      final newScale = math.exp(logScale);
+      final logVelocity = _zoomMomentumSim!.dx(_zoomMomentumStartTime).abs();
+
+      // Focal-point-preserving zoom (same math as spring-back)
+      final translated = _zoomMomentumFocalPoint - _offset;
+      final cosR = math.cos(-_rotation);
+      final sinR = math.sin(-_rotation);
+      final unrotated = Offset(
+        translated.dx * cosR - translated.dy * sinR,
+        translated.dx * sinR + translated.dy * cosR,
+      );
+      final focalCanvas = unrotated / _scale;
+
+      _scale = newScale;
+
+      final scaled = focalCanvas * _scale;
+      final cosRf = math.cos(_rotation);
+      final sinRf = math.sin(_rotation);
+      final rotated = Offset(
+        scaled.dx * cosRf - scaled.dy * sinRf,
+        scaled.dx * sinRf + scaled.dy * cosRf,
+      );
+      _offset = _zoomMomentumFocalPoint - rotated;
+
+      needsNotify = true;
+
+      // Stop conditions: very slow, or past limits (let spring-back handle)
+      if (logVelocity < 0.01 || newScale < _minScale || newScale > _maxScale) {
+        _isZoomMomentumActive = false;
+        _zoomMomentumSim = null;
+
+        // If past limits, trigger spring-back for seamless elastic bounce
+        if (newScale < _minScale || newScale > _maxScale) {
+          startZoomSpringBack(_zoomMomentumFocalPoint);
+        }
+      }
+    }
+
     // — ROTATION MOMENTUM —
     if (_isRotationMomentumActive && _rotationSim != null) {
       _rotationMomentumStartTime += t;
@@ -736,6 +843,8 @@ class InfiniteCanvasController extends ChangeNotifier {
     // Stop ticker if all simulations are done
     if (!isAnimating) {
       _ticker?.stop();
+      // 🚀 Notify that all animations have settled (LOD precompute, etc.)
+      onAnimationSettle?.call();
     }
   }
 

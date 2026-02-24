@@ -6,6 +6,8 @@ import 'package:flutter/scheduler.dart';
 import '../../core/engine_scope.dart';
 import '../../core/engine_error.dart';
 import '../../core/nodes/pdf_page_node.dart';
+import '../../core/models/pdf_page_model.dart';
+import '../../core/models/pdf_annotation_model.dart';
 import '../../canvas/nebula_canvas_config.dart';
 import '../../platform/native_performance_monitor.dart';
 import './pdf_memory_budget.dart';
@@ -181,15 +183,55 @@ class PdfPagePainter {
   /// Uses **progressive LOD**: if the node has a cached image at the wrong
   /// LOD scale, draws the stale image while scheduling a debounced upgrade.
   /// Only shows placeholder if no cache exists at all.
+  // Inversion color filter for night mode.
+  static final ColorFilter _invertFilter = const ColorFilter.matrix(<double>[
+    -1,
+    0,
+    0,
+    0,
+    255,
+    0,
+    -1,
+    0,
+    0,
+    255,
+    0,
+    0,
+    -1,
+    0,
+    255,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ]);
+
   void paintPage(
     Canvas canvas,
     PdfPageNode node, {
     required double currentZoom,
     VoidCallback? onNeedRepaint,
     Rect viewport = Rect.zero,
+    bool nightMode = false,
   }) {
     final pageSize = node.pageModel.originalSize;
     final pageRect = Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
+
+    // 🌙 Night mode: wrap everything in an invert layer
+    if (nightMode) {
+      canvas.saveLayer(pageRect, Paint()..colorFilter = _invertFilter);
+    }
+
+    // 📄 Blank pages: draw white with pattern + border, no native rendering
+    if (node.pageModel.isBlank) {
+      canvas.drawRect(pageRect, Paint()..color = const Color(0xFFFFFFFF));
+      _drawPageBackground(canvas, node.pageModel.background, pageRect);
+      canvas.drawRect(pageRect, _borderPaint);
+      _drawBookmarkBadge(canvas, node, pageRect);
+      if (nightMode) canvas.restore();
+      return;
+    }
 
     // Stamp LRU timestamp and track this page
     node.lastDrawnTimestamp = ++_drawCounter;
@@ -259,6 +301,15 @@ class PdfPagePainter {
         );
       }
     }
+
+    // 🖍️ Structured annotations (highlights, underlines, sticky notes)
+    _drawStructuredAnnotations(canvas, node);
+
+    // 🔖 Bookmark badge (drawn after page content)
+    _drawBookmarkBadge(canvas, node, pageRect);
+
+    // 🌙 Restore night mode layer
+    if (nightMode) canvas.restore();
   }
 
   // ---------------------------------------------------------------------------
@@ -320,6 +371,316 @@ class PdfPagePainter {
         (pageRect.height - _textPainter.height) / 2,
       ),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bookmark badge
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // 📝 Page background patterns
+  // ---------------------------------------------------------------------------
+
+  /// Line color for ruled/grid patterns — subtle light blue.
+  static final Paint _patternLinePaint =
+      Paint()
+        ..color = const Color(0xFFB3D5F5)
+        ..strokeWidth = 0.5
+        ..style = PaintingStyle.stroke;
+
+  /// Dot fill for dotted pattern.
+  static final Paint _patternDotPaint =
+      Paint()
+        ..color = const Color(0xFFB0BEC5)
+        ..style = PaintingStyle.fill;
+
+  /// Heavier line for section dividers (Cornell, Music).
+  static final Paint _patternHeavyPaint =
+      Paint()
+        ..color = const Color(0xFF90A4AE)
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke;
+
+  /// Red margin line for ruled pattern.
+  static final Paint _marginLinePaint =
+      Paint()
+        ..color = const Color(0x40E57373)
+        ..strokeWidth = 0.8
+        ..style = PaintingStyle.stroke;
+
+  /// Draw the background pattern for a blank page.
+  void _drawPageBackground(
+    Canvas canvas,
+    PdfPageBackground background,
+    Rect pageRect,
+  ) {
+    switch (background) {
+      case PdfPageBackground.blank:
+        return; // No pattern
+
+      case PdfPageBackground.ruled:
+        _drawRuledPattern(canvas, pageRect);
+
+      case PdfPageBackground.grid:
+        _drawGridPattern(canvas, pageRect);
+
+      case PdfPageBackground.dotted:
+        _drawDottedPattern(canvas, pageRect);
+
+      case PdfPageBackground.music:
+        _drawMusicPattern(canvas, pageRect);
+
+      case PdfPageBackground.cornell:
+        _drawCornellPattern(canvas, pageRect);
+    }
+  }
+
+  /// 📏 Ruled lines — horizontal lines with a red margin.
+  void _drawRuledPattern(Canvas canvas, Rect pageRect) {
+    const lineSpacing = 24.0;
+    const topMargin = 72.0; // 1 inch from top
+    const leftMargin = 72.0; // 1 inch from left
+
+    // Red margin line
+    canvas.drawLine(
+      Offset(pageRect.left + leftMargin, pageRect.top),
+      Offset(pageRect.left + leftMargin, pageRect.bottom),
+      _marginLinePaint,
+    );
+
+    // Horizontal ruled lines
+    for (
+      double y = pageRect.top + topMargin;
+      y < pageRect.bottom - 24;
+      y += lineSpacing
+    ) {
+      canvas.drawLine(
+        Offset(pageRect.left + 24, y),
+        Offset(pageRect.right - 24, y),
+        _patternLinePaint,
+      );
+    }
+  }
+
+  /// 📐 Square grid — evenly spaced horizontal and vertical lines.
+  void _drawGridPattern(Canvas canvas, Rect pageRect) {
+    const spacing = 20.0;
+    const margin = 20.0;
+
+    for (
+      double x = pageRect.left + margin;
+      x <= pageRect.right - margin;
+      x += spacing
+    ) {
+      canvas.drawLine(
+        Offset(x, pageRect.top + margin),
+        Offset(x, pageRect.bottom - margin),
+        _patternLinePaint,
+      );
+    }
+    for (
+      double y = pageRect.top + margin;
+      y <= pageRect.bottom - margin;
+      y += spacing
+    ) {
+      canvas.drawLine(
+        Offset(pageRect.left + margin, y),
+        Offset(pageRect.right - margin, y),
+        _patternLinePaint,
+      );
+    }
+  }
+
+  /// ⋯ Dotted grid — small dots at grid intersections.
+  void _drawDottedPattern(Canvas canvas, Rect pageRect) {
+    const spacing = 20.0;
+    const margin = 20.0;
+    const dotRadius = 1.2;
+
+    for (
+      double x = pageRect.left + margin;
+      x <= pageRect.right - margin;
+      x += spacing
+    ) {
+      for (
+        double y = pageRect.top + margin;
+        y <= pageRect.bottom - margin;
+        y += spacing
+      ) {
+        canvas.drawCircle(Offset(x, y), dotRadius, _patternDotPaint);
+      }
+    }
+  }
+
+  /// 🎵 Music staff — groups of 5 lines with spacing between staves.
+  void _drawMusicPattern(Canvas canvas, Rect pageRect) {
+    const staffLineSpacing = 8.0;
+    const staffSpacing = 48.0; // Space between stave groups
+    const topMargin = 60.0;
+    const sideMargin = 40.0;
+
+    double y = pageRect.top + topMargin;
+    while (y + staffLineSpacing * 4 < pageRect.bottom - 40) {
+      // Draw 5 lines per staff
+      for (int line = 0; line < 5; line++) {
+        final ly = y + line * staffLineSpacing;
+        canvas.drawLine(
+          Offset(pageRect.left + sideMargin, ly),
+          Offset(pageRect.right - sideMargin, ly),
+          _patternHeavyPaint,
+        );
+      }
+      y += staffLineSpacing * 4 + staffSpacing;
+    }
+  }
+
+  /// 📋 Cornell layout — cue column (left), notes (right), summary (bottom).
+  void _drawCornellPattern(Canvas canvas, Rect pageRect) {
+    final w = pageRect.width;
+    final h = pageRect.height;
+    const topMargin = 60.0;
+
+    // Cue column divider (left ~30%)
+    final cueX = pageRect.left + w * 0.30;
+    canvas.drawLine(
+      Offset(cueX, pageRect.top + topMargin),
+      Offset(cueX, pageRect.bottom - h * 0.20),
+      _patternHeavyPaint,
+    );
+
+    // Summary section divider (bottom ~20%)
+    final summaryY = pageRect.bottom - h * 0.20;
+    canvas.drawLine(
+      Offset(pageRect.left + 20, summaryY),
+      Offset(pageRect.right - 20, summaryY),
+      _patternHeavyPaint,
+    );
+
+    // Top header line
+    canvas.drawLine(
+      Offset(pageRect.left + 20, pageRect.top + topMargin),
+      Offset(pageRect.right - 20, pageRect.top + topMargin),
+      _patternHeavyPaint,
+    );
+
+    // Ruled lines in the notes area (right of cue column)
+    const lineSpacing = 24.0;
+    for (
+      double y = pageRect.top + topMargin + lineSpacing;
+      y < summaryY - 12;
+      y += lineSpacing
+    ) {
+      canvas.drawLine(
+        Offset(cueX + 8, y),
+        Offset(pageRect.right - 24, y),
+        _patternLinePaint,
+      );
+    }
+
+    // Ruled lines in summary area
+    for (
+      double y = summaryY + lineSpacing;
+      y < pageRect.bottom - 24;
+      y += lineSpacing
+    ) {
+      canvas.drawLine(
+        Offset(pageRect.left + 24, y),
+        Offset(pageRect.right - 24, y),
+        _patternLinePaint,
+      );
+    }
+  }
+
+  static final Paint _bookmarkPaint = Paint()..color = const Color(0xFFE53935);
+
+  /// Draw a red bookmark triangle in the top-right corner of bookmarked pages.
+  void _drawBookmarkBadge(Canvas canvas, PdfPageNode node, Rect pageRect) {
+    if (!node.pageModel.isBookmarked) return;
+    final size = 24.0;
+    final path =
+        Path()
+          ..moveTo(pageRect.right - size, pageRect.top)
+          ..lineTo(pageRect.right, pageRect.top)
+          ..lineTo(pageRect.right, pageRect.top + size)
+          ..close();
+    canvas.drawPath(path, _bookmarkPaint);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Structured annotations (highlights, underlines, sticky notes)
+  // ---------------------------------------------------------------------------
+
+  /// Draw all structured annotations (highlights, underlines, sticky notes)
+  /// on the current page. These are drawn in page-local coordinates.
+  void _drawStructuredAnnotations(Canvas canvas, PdfPageNode node) {
+    final annotations = node.pageModel.structuredAnnotations;
+    if (annotations.isEmpty) return;
+
+    for (final ann in annotations) {
+      final paint = Paint()..color = ann.color;
+      switch (ann.type) {
+        case PdfAnnotationType.highlight:
+          // Semi-transparent colored rectangle
+          canvas.drawRect(ann.rect, paint);
+          break;
+        case PdfAnnotationType.underline:
+          // Colored line at the bottom of the rect
+          final y = ann.rect.bottom;
+          canvas.drawLine(
+            Offset(ann.rect.left, y),
+            Offset(ann.rect.right, y),
+            paint
+              ..strokeWidth = 2.0
+              ..style = PaintingStyle.stroke,
+          );
+          break;
+        case PdfAnnotationType.stickyNote:
+          // Small colored square with border
+          final noteRect = Rect.fromLTWH(ann.rect.left, ann.rect.top, 24, 24);
+          canvas.drawRect(noteRect, paint);
+          canvas.drawRect(
+            noteRect,
+            Paint()
+              ..color = const Color(0x40000000)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.0,
+          );
+          break;
+        case PdfAnnotationType.stamp:
+          // Rotated stamp text
+          canvas.save();
+          final cx = ann.rect.center.dx;
+          final cy = ann.rect.center.dy;
+          canvas.translate(cx, cy);
+          canvas.rotate(-0.3); // ~17° tilt
+          final stampRect = Rect.fromCenter(
+            center: Offset.zero,
+            width: ann.rect.width,
+            height: ann.rect.height,
+          );
+          canvas.drawRect(
+            stampRect,
+            paint
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 3.0,
+          );
+          final label = ann.stampType?.name.toUpperCase() ?? 'STAMP';
+          final tp = TextPainter(
+            text: TextSpan(
+              text: label,
+              style: TextStyle(
+                color: ann.color.withValues(alpha: 1.0),
+                fontSize: ann.rect.height * 0.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+          canvas.restore();
+          break;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -430,9 +791,21 @@ class PdfPagePainter {
   void _executeRender(_RenderRequest request) {
     _activeRenders++;
 
-    final targetWidth = (request.pageRect.width * request.targetScale).toInt();
-    final targetHeight =
-        (request.pageRect.height * request.targetScale).toInt();
+    // 🛡️ Cap raster tile dimensions to prevent native provider from
+    // failing on impossibly large allocations at very high zoom.
+    // 4096px is a safe max for most mobile GPUs.
+    const int kMaxDimension = 4096;
+    var targetWidth = (request.pageRect.width * request.targetScale).toInt();
+    var targetHeight = (request.pageRect.height * request.targetScale).toInt();
+
+    if (targetWidth > kMaxDimension || targetHeight > kMaxDimension) {
+      final scaleFactor =
+          kMaxDimension /
+          (targetWidth > targetHeight ? targetWidth : targetHeight);
+      targetWidth = (targetWidth * scaleFactor).toInt();
+      targetHeight = (targetHeight * scaleFactor).toInt();
+    }
+
     final pageIndex = request.node.pageModel.pageIndex;
 
     _executeRenderAsync(request, pageIndex, targetWidth, targetHeight);

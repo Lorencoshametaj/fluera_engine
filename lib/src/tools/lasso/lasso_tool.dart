@@ -10,8 +10,8 @@ import '../../core/nodes/text_node.dart';
 import '../../core/nodes/image_node.dart';
 import '../../core/models/canvas_layer.dart';
 import '../../layers/nebula_layer_controller.dart';
+import '../../reflow/reflow_controller.dart';
 import '../../reflow/content_cluster.dart';
-import '../../reflow/reflow_physics_engine.dart';
 import '../../systems/selection_manager.dart';
 
 part '_lasso_transforms.dart';
@@ -84,7 +84,7 @@ class LassoTool {
   /// 🚀 PERF: Accumulated drag offset not yet applied to stroke data.
   Offset _pendingDragDelta = Offset.zero;
   int _lastMoveSelectedTime = 0;
-  static const int _moveSelectedThrottleMs = 32; // ~30fps for heavy work
+  static const int _moveSelectedThrottleMs = 16; // ~60fps real-time drag
 
   // 🌊 FLING: Velocity tracking during drag (exponential smoothing)
   Offset _dragVelocity = Offset.zero;
@@ -111,40 +111,21 @@ class LassoTool {
   // Additive selection mode (Shift + lasso adds to existing selection)
   bool _additiveMode = false;
 
-  // 🌊 REFLOW: Physics engine and cluster cache for content reflow
-  ReflowPhysicsEngine? _reflowEngine;
-  List<ContentCluster> _clusterCache = [];
+  // 🌊 REFLOW: Delegated to ReflowController (tool-agnostic)
+  ReflowController? reflowController;
 
   /// Current reflow cluster cache (for ghost rendering in overlay).
-  List<ContentCluster> get clusterCache => _clusterCache;
+  List<ContentCluster> get clusterCache => reflowController?.clusterCache ?? [];
 
   /// Current reflow ghost displacements (during drag, for preview rendering).
-  Map<String, Offset> reflowGhostDisplacements = {};
+  Map<String, Offset> get reflowGhostDisplacements =>
+      reflowController?.ghostDisplacements ?? {};
 
-  /// Whether content reflow is active (engine and clusters available).
-  bool get isReflowEnabled =>
-      _reflowEngine != null && _reflowEngine!.config.enabled;
+  /// Whether content reflow is active (controller attached and enabled).
+  bool get isReflowEnabled => reflowController?.isEnabled ?? false;
 
   LassoTool({required this.layerController, SelectionManager? selectionManager})
     : selectionManager = selectionManager ?? SelectionManager();
-
-  /// 🌊 REFLOW: Attach the reflow physics engine and initial cluster cache.
-  void attachReflow(ReflowPhysicsEngine engine, List<ContentCluster> clusters) {
-    _reflowEngine = engine;
-    _clusterCache = clusters;
-  }
-
-  /// 🌊 REFLOW: Update the cluster cache (called when layer content changes).
-  void updateClusterCache(List<ContentCluster> clusters) {
-    _clusterCache = clusters;
-  }
-
-  /// 🌊 REFLOW: Detach the reflow engine.
-  void detachReflow() {
-    _reflowEngine = null;
-    _clusterCache = [];
-    reflowGhostDisplacements = {};
-  }
 
   // ===========================================================================
   // Selection Query
@@ -212,6 +193,21 @@ class LassoTool {
       _lastMoveSelectedTime = now;
       selectionManager.translateAll(_pendingDragDelta.dx, _pendingDragDelta.dy);
       _pendingDragDelta = Offset.zero;
+
+      // 🌊 REFLOW: Compute ghost displacements in real-time during drag
+      if (isReflowEnabled) {
+        _calculateSelectionBounds();
+        if (_selectionBounds != null) {
+          final excludeIds = reflowController!.getClusterIdsForElements(
+            selectionManager.selectedIds,
+          );
+          reflowController!.computeGhostDisplacements(
+            disturbance: _selectionBounds!,
+            excludeIds: excludeIds,
+          );
+        }
+      }
+
       return true;
     }
     return false;
@@ -226,7 +222,7 @@ class LassoTool {
     }
   }
 
-  void endDrag() {
+  void endDrag({bool skipReflow = false}) {
     // 🚀 PERF: Flush any remaining pending drag delta
     if (_pendingDragDelta != Offset.zero) {
       selectionManager.translateAll(_pendingDragDelta.dx, _pendingDragDelta.dy);
@@ -238,10 +234,23 @@ class LassoTool {
     _lastMoveSelectedTime = 0;
 
     // 🌊 REFLOW: On drag end, do the full solve and bake displacements
-    if (isReflowEnabled && reflowGhostDisplacements.isNotEmpty) {
-      _bakeReflowDisplacements();
+    // Skip when fling is starting — reflow will be baked at fling end instead
+    if (!skipReflow && isReflowEnabled && reflowGhostDisplacements.isNotEmpty) {
+      _calculateSelectionBounds();
+      if (_selectionBounds != null) {
+        final excludeIds = reflowController!.getClusterIdsForElements(
+          selectionManager.selectedIds,
+        );
+        reflowController!.solveAndBake(
+          disturbance: _selectionBounds!,
+          excludeIds: excludeIds,
+          layerNode: _getActiveLayerNode(),
+        );
+      }
     }
-    reflowGhostDisplacements = {};
+    if (!skipReflow) {
+      reflowController?.clearGhosts();
+    }
   }
 
   // ===========================================================================
@@ -345,9 +354,10 @@ class LassoTool {
     if (isReflowEnabled) {
       _calculateSelectionBounds();
       if (_selectionBounds != null) {
-        final excludeIds = _getSelectedClusterIds();
-        reflowGhostDisplacements = _reflowEngine!.estimateDisplacements(
-          clusters: _clusterCache,
+        final excludeIds = reflowController!.getClusterIdsForElements(
+          selectionManager.selectedIds,
+        );
+        reflowController!.computeGhostDisplacements(
           disturbance: _selectionBounds!,
           excludeIds: excludeIds,
         );
@@ -355,92 +365,136 @@ class LassoTool {
     }
   }
 
-  /// 🌊 REFLOW: Get cluster IDs that contain any selected element.
-  Set<String> _getSelectedClusterIds() {
-    final allSelectedIds = selectionManager.selectedIds;
-    final ids = <String>{};
-    for (final cluster in _clusterCache) {
-      for (final elementId in allSelectedIds) {
-        if (cluster.containsElement(elementId)) {
-          ids.add(cluster.id);
-          break;
-        }
-      }
-    }
-    return ids;
-  }
-
   /// 🌊 REFLOW: Public API to bake ghost displacements into actual positions.
-  void bakeReflowDisplacements() => _bakeReflowDisplacements();
-
-  /// 🌊 REFLOW: Bake ghost displacements into actual element positions.
-  void _bakeReflowDisplacements() {
-    if (reflowGhostDisplacements.isEmpty) return;
-
+  void bakeReflowDisplacements() {
+    if (reflowController == null || reflowGhostDisplacements.isEmpty) return;
     _calculateSelectionBounds();
     if (_selectionBounds == null) return;
-
-    final excludeIds = _getSelectedClusterIds();
-    final finalDisplacements = _reflowEngine!.solve(
-      clusters: _clusterCache,
+    final excludeIds = reflowController!.getClusterIdsForElements(
+      selectionManager.selectedIds,
+    );
+    reflowController!.solveAndBake(
       disturbance: _selectionBounds!,
       excludeIds: excludeIds,
+      layerNode: _getActiveLayerNode(),
     );
-
-    if (finalDisplacements.isEmpty) return;
-
-    // Collect all element IDs that need to move
-    final affectedElementIds = <String, Offset>{};
-    for (final entry in finalDisplacements.entries) {
-      final cluster = _clusterCache.firstWhere(
-        (c) => c.id == entry.key,
-        orElse:
-            () => ContentCluster(
-              id: '',
-              strokeIds: const [],
-              bounds: Rect.zero,
-              centroid: Offset.zero,
-            ),
-      );
-      if (cluster.id.isEmpty) continue;
-      for (final id in cluster.strokeIds) {
-        affectedElementIds[id] = entry.value;
-      }
-      for (final id in cluster.shapeIds) {
-        affectedElementIds[id] = entry.value;
-      }
-      for (final id in cluster.textIds) {
-        affectedElementIds[id] = entry.value;
-      }
-      for (final id in cluster.imageIds) {
-        affectedElementIds[id] = entry.value;
-      }
-    }
-
-    if (affectedElementIds.isEmpty) return;
-
-    // Apply displacements via scene graph
-    final layerNode = _getActiveLayerNode();
-    for (final entry in affectedElementIds.entries) {
-      final node = layerNode.findChild(entry.key);
-      if (node != null && !node.isLocked) {
-        node.translate(entry.value.dx, entry.value.dy);
-      }
-    }
   }
 
   // ===========================================================================
   // Public API — Delegates
   // ===========================================================================
 
-  // Transforms
-  void rotateSelected() => selectionManager.rotateAll(pi / 2);
-  void rotateSelectedByAngle(double radians, {Offset? center}) =>
-      selectionManager.rotateAll(radians);
-  void scaleSelected(double factor, {Offset? center}) =>
-      selectionManager.scaleAll(factor, factor);
-  void flipHorizontal() => selectionManager.flipHorizontal();
-  void flipVertical() => selectionManager.flipVertical();
+  // Transforms — StrokeNodes modify actual points (renderer ignores localTransform
+  // scale/rotation). Non-stroke nodes use localTransform via SceneGraphRenderer.
+
+  void rotateSelected() {
+    _rotateSelectedByAngle(pi / 2);
+  }
+
+  void rotateSelectedByAngle(double radians, {Offset? center}) {
+    _rotateSelectedByAngle(radians, center: center);
+  }
+
+  void _rotateSelectedByAngle(double radians, {Offset? center}) {
+    final pivot = center ?? selectionManager.aggregateCenter;
+    final cosA = cos(radians);
+    final sinA = sin(radians);
+    for (final node in selectionManager.selectedNodes) {
+      if (node.isLocked) continue;
+      if (node is StrokeNode) {
+        final rotatedPoints =
+            node.stroke.points.map((p) {
+              final dx = p.position.dx - pivot.dx;
+              final dy = p.position.dy - pivot.dy;
+              return p.copyWith(
+                position: Offset(
+                  pivot.dx + dx * cosA - dy * sinA,
+                  pivot.dy + dx * sinA + dy * cosA,
+                ),
+              );
+            }).toList();
+        node.stroke = node.stroke.copyWith(points: rotatedPoints);
+        node.localTransform = Matrix4.identity();
+        node.invalidateTransformCache();
+      } else {
+        node.rotateAround(radians, pivot);
+      }
+    }
+    _selectionBounds = null;
+  }
+
+  void scaleSelected(double factor, {Offset? center}) {
+    final anchor = center ?? selectionManager.aggregateCenter;
+    for (final node in selectionManager.selectedNodes) {
+      if (node.isLocked) continue;
+      if (node is StrokeNode) {
+        final scaledPoints =
+            node.stroke.points.map((p) {
+              final dx = anchor.dx + (p.position.dx - anchor.dx) * factor;
+              final dy = anchor.dy + (p.position.dy - anchor.dy) * factor;
+              return p.copyWith(position: Offset(dx, dy));
+            }).toList();
+        final scaledWidth = node.stroke.baseWidth * factor;
+        node.stroke = node.stroke.copyWith(
+          points: scaledPoints,
+          baseWidth: scaledWidth.clamp(0.5, 200.0),
+        );
+        node.localTransform = Matrix4.identity();
+        node.invalidateTransformCache();
+      } else {
+        node.scaleFrom(factor, factor, anchor);
+      }
+    }
+    _selectionBounds = null;
+  }
+
+  void flipHorizontal() {
+    final anchor = selectionManager.aggregateCenter;
+    for (final node in selectionManager.selectedNodes) {
+      if (node.isLocked) continue;
+      if (node is StrokeNode) {
+        final flippedPoints =
+            node.stroke.points.map((p) {
+              return p.copyWith(
+                position: Offset(
+                  anchor.dx - (p.position.dx - anchor.dx),
+                  p.position.dy,
+                ),
+              );
+            }).toList();
+        node.stroke = node.stroke.copyWith(points: flippedPoints);
+        node.localTransform = Matrix4.identity();
+        node.invalidateTransformCache();
+      } else {
+        node.scaleFrom(-1, 1, anchor);
+      }
+    }
+    _selectionBounds = null;
+  }
+
+  void flipVertical() {
+    final anchor = selectionManager.aggregateCenter;
+    for (final node in selectionManager.selectedNodes) {
+      if (node.isLocked) continue;
+      if (node is StrokeNode) {
+        final flippedPoints =
+            node.stroke.points.map((p) {
+              return p.copyWith(
+                position: Offset(
+                  p.position.dx,
+                  anchor.dy - (p.position.dy - anchor.dy),
+                ),
+              );
+            }).toList();
+        node.stroke = node.stroke.copyWith(points: flippedPoints);
+        node.localTransform = Matrix4.identity();
+        node.invalidateTransformCache();
+      } else {
+        node.scaleFrom(1, -1, anchor);
+      }
+    }
+    _selectionBounds = null;
+  }
 
   // Clipboard
   void copySelected() => _copySelected();

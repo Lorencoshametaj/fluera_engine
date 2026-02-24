@@ -10,6 +10,37 @@ extension on _NebulaCanvasScreenState {
   ) {
     //  PRESENCE: Feed cursor + tool info to remote users (Phase 2)
 
+    // 📄 PDF DOCUMENT DRAG: Move entire document block + linked strokes
+    if (_pdfPageDragController.isDraggingDocument) {
+      if (_pdfPageDragController.updateDocumentDrag(canvasPosition)) {
+        // ✅ Real-time stroke translation: move ALL linked annotations across
+        // every page in the document so strokes follow the drag.
+        final delta = _pdfPageDragController.lastDelta;
+        if (delta != Offset.zero) {
+          final ids = _pdfPageDragController.allDocumentAnnotationIds;
+          if (ids.isNotEmpty) {
+            final idSet = Set<String>.of(ids);
+            for (final layer in _layerController.layers) {
+              for (final strokeNode in layer.node.strokeNodes) {
+                if (idSet.contains(strokeNode.stroke.id)) {
+                  final old = strokeNode.stroke;
+                  final translatedPoints =
+                      old.points.map((p) {
+                        return p.copyWith(position: p.position + delta);
+                      }).toList();
+                  strokeNode.stroke = old.copyWith(points: translatedPoints);
+                }
+              }
+            }
+            DrawingPainter.invalidateAllTiles();
+          }
+        }
+        _pdfLayoutVersion++;
+        setState(() {});
+      }
+      return;
+    }
+
     // 📄 PDF PAGE DRAG: Update drag position + translate linked strokes
     if (_pdfPageDragController.isDragging) {
       if (_pdfPageDragController.updateDrag(canvasPosition)) {

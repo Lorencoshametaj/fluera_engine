@@ -61,7 +61,11 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
       debugPrint('🧮 [LaTeX] InkData ready: ${inkData.totalPoints} points');
 
       // 3. Rasterize to PNG
-      final png = await InkRasterizer.rasterize(inkData, size: 512);
+      final png = await InkRasterizer.rasterize(
+        inkData,
+        width: 512,
+        height: 128,
+      );
       if (png == null || !mounted) {
         debugPrint(
           '🧮 [LaTeX] Rasterize failed (png=${png != null}, mounted=$mounted)',
@@ -69,6 +73,16 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
         return;
       }
       debugPrint('🧮 [LaTeX] Rasterized: ${png.length} bytes');
+
+      // DEBUG: Save rasterized image to inspect what the model sees
+      try {
+        final dir = await getApplicationDocumentsDirectory();
+        final debugFile = File('${dir.path}/hme_debug_input.png');
+        await debugFile.writeAsBytes(png);
+        debugPrint(
+          '🧮 [LaTeX] DEBUG: Saved rasterized image to ${debugFile.path}',
+        );
+      } catch (_) {}
 
       // 4. Recognize via HME CTC model
       debugPrint('🧮 [LaTeX] Initializing recognizer...');

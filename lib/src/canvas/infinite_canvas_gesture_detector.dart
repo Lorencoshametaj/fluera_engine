@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import './infinite_canvas_controller.dart';
 import '../drawing/input/stylus_detector.dart';
@@ -37,6 +38,10 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final bool blockPanZoom; // 🔒 Block pan/zoom when true
   final bool
   enableSingleFingerPan; // 🖐️ Enable pan with a finger instead of drawing
+  /// 📄 Optional callback: given a canvas-space position, returns true if
+  /// the single-finger pan should be intercepted and routed to draw callbacks
+  /// instead (e.g. for PDF document dragging).
+  final bool Function(Offset canvasPosition)? onPanInterceptTest;
   final bool isStylusModeEnabled; // 🖊️ Stylus mode: stylus draws, finger pans
 
   // 🌀 Image rotation callbacks (two-finger rotate + scale on selected image)
@@ -57,6 +62,7 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onLongPress,
     this.blockPanZoom = false,
     this.enableSingleFingerPan = false,
+    this.onPanInterceptTest,
     this.isStylusModeEnabled = false,
     this.onImageScaleStart,
     this.onImageTransform,
@@ -84,6 +90,8 @@ class _InfiniteCanvasGestureDetectorState
   // State per pan with a dito
   bool _isSingleFingerPanning = false;
   Offset _lastPanPosition = Offset.zero;
+  bool _panIntercepted =
+      false; // 📄 True when pan was intercepted for document drag
 
   // 🚀 State for interpolation of missing points
   Offset? _lastDrawPosition;
@@ -114,6 +122,9 @@ class _InfiniteCanvasGestureDetectorState
   // 🌊 LIQUID: Track if we were zooming (2+ fingers) vs panning
   bool _wasZooming = false;
   Offset _lastScaleEndFocalPoint = Offset.zero;
+  // 🌊 LIQUID: Zoom velocity tracking for zoom momentum (Gap 4)
+  double _zoomVelocity = 0.0;
+  double _lastGestureScale = 1.0;
 
   // 🔄 GESTURE CONTINUITY: Smooth transition when pointer count changes
   bool _gestureTransitioning = false;
@@ -143,6 +154,15 @@ class _InfiniteCanvasGestureDetectorState
   Offset _lastSingleTapPosition = Offset.zero;
   bool _pendingFirstTap =
       false; // True while waiting to see if second tap comes
+
+  // ─── 🚀 GESTURE COALESCING ──────────────────────────────────────
+  // Batch all draw updates within a single frame into one callback.
+  // This reduces repaint count from O(N) to O(1) per frame.
+  final List<Offset> _batchPositions = [];
+  final List<double> _batchPressures = [];
+  final List<double> _batchTiltsX = [];
+  final List<double> _batchTiltsY = [];
+  bool _batchFlushScheduled = false;
 
   /// 🎯 REALISM FIX: Simula pressione realistica per dito from the speed
   /// - Stylus: uses real pressure (0.0-1.0 con variazione)
@@ -274,9 +294,18 @@ class _InfiniteCanvasGestureDetectorState
     // 🚀 FIX: Start drawing IMMEDIATELY on pointer down
     // This captures the first point without waiting for onPointerMove
     // Solves the problem of losing the first points during writing
-    if (_pointerCount == 1 &&
-        _shouldEnableDrawing &&
-        !widget.enableSingleFingerPan) {
+    //
+    // 📄 PAN INTERCEPT: When pan mode is active BUT touch hits a PDF page,
+    // route to draw callbacks instead of canvas pan.
+    bool shouldDraw = !widget.enableSingleFingerPan;
+    if (widget.enableSingleFingerPan && widget.onPanInterceptTest != null) {
+      final canvasPoint = widget.controller.screenToCanvas(event.localPosition);
+      if (widget.onPanInterceptTest!(canvasPoint)) {
+        shouldDraw = true;
+        _panIntercepted = true; // Flag to route moves to draw, not pan
+      }
+    }
+    if (_pointerCount == 1 && _shouldEnableDrawing && shouldDraw) {
       // 🎯 DOUBLE-TAP CHECK: If this could be the second tap of a double-tap,
       // suppress drawing to avoid the temporary dot flash.
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -330,7 +359,10 @@ class _InfiniteCanvasGestureDetectorState
     }
 
     // 🖐️ If finger pan mode is active, pan instead of drawing
-    if (_pointerCount == 1 && widget.enableSingleFingerPan) {
+    // 📄 But NOT if pan was intercepted (e.g. PDF document drag)
+    if (_pointerCount == 1 &&
+        widget.enableSingleFingerPan &&
+        !_panIntercepted) {
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
         _lastPanPosition = event.localPosition;
@@ -464,9 +496,8 @@ class _InfiniteCanvasGestureDetectorState
               final interpolatedTiltY =
                   _lastTiltY + (currentTiltY - _lastTiltY) * t;
 
-              // 🚀 PERF: silent=true skips repaint notification.
-              // Only the final real point (below) triggers a single repaint.
-              widget.onDrawUpdate?.call(
+              // 🚀 COALESCED: Buffer point instead of dispatching immediately
+              _addToBatch(
                 interpolatedCanvas,
                 interpolatedPressure,
                 interpolatedTiltX,
@@ -483,18 +514,88 @@ class _InfiniteCanvasGestureDetectorState
         _lastTiltX = currentTiltX;
         _lastTiltY = currentTiltY;
 
-        // 🚀 Send the actual current point — this triggers the repaint
-        widget.onDrawUpdate?.call(
+        // 🚀 COALESCED: Buffer the real point and schedule batch flush
+        _addToBatch(
           canvasPoint,
           normalizedPressure,
           currentTiltX,
           currentTiltY,
         );
+        _scheduleBatchFlush();
       }
     }
   }
 
+  // ─── 🚀 GESTURE COALESCING HELPERS ─────────────────────────────────
+
+  /// Add a draw point to the intra-frame batch buffer.
+  void _addToBatch(
+    Offset position,
+    double pressure,
+    double tiltX,
+    double tiltY,
+  ) {
+    _batchPositions.add(position);
+    _batchPressures.add(pressure);
+    _batchTiltsX.add(tiltX);
+    _batchTiltsY.add(tiltY);
+  }
+
+  /// Schedule a single post-frame callback to flush all buffered points.
+  /// Idempotent — only schedules once per frame.
+  void _scheduleBatchFlush() {
+    if (_batchFlushScheduled) return;
+    _batchFlushScheduled = true;
+
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _flushBatch();
+    });
+  }
+
+  /// Flush the batch: dispatch all buffered points in one call.
+  void _flushBatch() {
+    _batchFlushScheduled = false;
+    if (_batchPositions.isEmpty) return;
+
+    if (_batchPositions.length == 1) {
+      // Single point — use the standard callback
+      widget.onDrawUpdate?.call(
+        _batchPositions[0],
+        _batchPressures[0],
+        _batchTiltsX[0],
+        _batchTiltsY[0],
+      );
+    } else if (widget.onDrawBatchUpdate != null) {
+      // 🚀 Batch callback (N points → 1 repaint)
+      widget.onDrawBatchUpdate!(
+        List<Offset>.from(_batchPositions),
+        List<double>.from(_batchPressures),
+        List<double>.from(_batchTiltsX),
+        List<double>.from(_batchTiltsY),
+      );
+    } else {
+      // Fallback: dispatch individually (last point only triggers repaint)
+      for (int i = 0; i < _batchPositions.length; i++) {
+        widget.onDrawUpdate?.call(
+          _batchPositions[i],
+          _batchPressures[i],
+          _batchTiltsX[i],
+          _batchTiltsY[i],
+        );
+      }
+    }
+
+    _batchPositions.clear();
+    _batchPressures.clear();
+    _batchTiltsX.clear();
+    _batchTiltsY.clear();
+  }
+
   void _onPointerUp(PointerUpEvent event) {
+    // 🚀 COALESCING: Flush any pending batch before finalizing the stroke.
+    // This ensures that all buffered points are dispatched before onDrawEnd.
+    _flushBatch();
+
     _previousPointerCount = _pointerCount;
     _pointerCount--;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
@@ -521,6 +622,7 @@ class _InfiniteCanvasGestureDetectorState
       }
 
       _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger
+      _panIntercepted = false; // 📄 Reset pan intercept
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
 
       if (_isDrawing && _hasMoved) {
@@ -606,6 +708,7 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
+    _flushBatch(); // 🚀 COALESCING: Flush pending points
     _pointerCount--;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
@@ -626,6 +729,7 @@ class _InfiniteCanvasGestureDetectorState
     if (_pointerCount == 0) {
       _wasMultiTouch = false;
       _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger
+      _panIntercepted = false; // 📄 Reset pan intercept
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
       _firstPointerPosition = null;
       _hasMoved = false;
@@ -686,6 +790,8 @@ class _InfiniteCanvasGestureDetectorState
     _panVelocity = Offset.zero;
     _rotationVelocity = 0.0;
     _wasZooming = false;
+    _zoomVelocity = 0.0;
+    _lastGestureScale = widget.controller.scale;
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
@@ -758,6 +864,16 @@ class _InfiniteCanvasGestureDetectorState
     // Detect if user is zooming (scale significantly changed)
     if ((details.scale - 1.0).abs() > 0.02) {
       _wasZooming = true;
+    }
+
+    // 🌊 LIQUID: Track zoom velocity (Gap 4)
+    // Scale velocity = Δscale / Δtime (in scale-units per second)
+    if (dt > 0.001) {
+      final currentScale = _initialScale * details.scale;
+      final scaleDelta = currentScale - _lastGestureScale;
+      final instantZoomV = scaleDelta / dt;
+      _zoomVelocity = _zoomVelocity * 0.6 + instantZoomV * 0.4;
+      _lastGestureScale = currentScale;
     }
 
     // 🌊 LIQUID: Allow elastic overshoot for zoom (raw, unclamped scale)
@@ -875,6 +991,14 @@ class _InfiniteCanvasGestureDetectorState
     // 🌊 LIQUID: Launch zoom spring-back if scale is beyond limits
     widget.controller.startZoomSpringBack(_lastScaleEndFocalPoint);
 
+    // 🌊 LIQUID: Launch zoom momentum if user was actively zooming (Gap 4)
+    if (_wasZooming && _zoomVelocity.abs() > 0.1) {
+      widget.controller.startZoomMomentum(
+        _zoomVelocity,
+        _lastScaleEndFocalPoint,
+      );
+    }
+
     // 🌊 LIQUID: Launch pan momentum from terminal velocity
     if (_panVelocity.distance > 0) {
       widget.controller.startMomentum(_panVelocity);
@@ -885,5 +1009,7 @@ class _InfiniteCanvasGestureDetectorState
 
     _panVelocity = Offset.zero;
     _rotationVelocity = 0.0;
+    _wasZooming = false;
+    _lastGestureScale = 1.0;
   }
 }

@@ -104,6 +104,7 @@ import '../config/adaptive_rendering_config.dart';
 import '../reflow/cluster_detector.dart';
 import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
+import '../reflow/reflow_controller.dart';
 import './smart_guides/smart_guide_engine.dart';
 import './smart_guides/smart_guide_overlay.dart';
 import '../audio/default_voice_recording_provider.dart';
@@ -112,12 +113,20 @@ import '../rendering/optimization/spatial_index.dart';
 import '../tools/pdf/pdf_import_controller.dart';
 import '../platform/native_pdf_provider.dart';
 import '../core/nodes/pdf_document_node.dart';
+import '../core/models/pdf_annotation_model.dart';
+import '../core/models/pdf_page_model.dart';
+import '../core/models/pdf_document_model.dart';
+import '../canvas/toolbar/pdf_presentation_overlay.dart';
+// TODO(future): pdf_signature_pad.dart — re-import when digital signing is implemented.
 import '../core/nodes/pdf_page_node.dart';
 import '../rendering/canvas/pdf_page_painter.dart';
 import '../rendering/canvas/pdf_memory_budget.dart';
 import './toolbar/pdf_contextual_toolbar.dart';
 import '../tools/pdf/pdf_annotation_controller.dart';
 import '../tools/pdf/pdf_search_controller.dart';
+import '../export/pdf_annotation_exporter.dart';
+import '../export/pdf_export_writer.dart';
+import '../canvas/overlays/pdf_export_settings_panel.dart';
 import 'package:file_picker/file_picker.dart';
 import './overlays/variable_manager_panel.dart';
 import './overlays/variable_property_sheet.dart';
@@ -670,8 +679,23 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   /// Currently selected PDF page index (for insert-at-position).
   int _pdfSelectedPageIndex = 0;
 
+  /// Whether to show page number badges on PDF pages.
+  bool _showPdfPageNumbers = true;
+
+  /// ✂️ Canvas-space clip rect for the PDF page the user is currently
+  /// drawing on. When non-null, [CurrentStrokePainter] clips the live
+  /// stroke to this rect so ink doesn't overflow outside the page.
+  Rect? _activePdfClipRect;
+
+  /// 🎬 Presentation mode — zoom-to-page fullscreen slideshow.
+  bool _isPresentationMode = false;
+  int _presentationPageIndex = 0;
+
   /// 📄 Drag controller for unlocked PDF pages.
   final PdfPageDragController _pdfPageDragController = PdfPageDragController();
+
+  /// 📄 Export progress callback — used by StatefulBuilder in SnackBar.
+  void Function(int current, int total)? _exportProgressSetter;
 
   /// 🌐 Rebuild the R-tree spatial index from current image elements.
   void _rebuildImageSpatialIndex() {
@@ -1013,7 +1037,12 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
         spatialThreshold: reflowConfig.clusterSpatialThreshold,
       );
       final reflowEngine = ReflowPhysicsEngine(config: reflowConfig);
-      _lassoTool.attachReflow(reflowEngine, _clusterCache);
+      _lassoTool.reflowController = ReflowController(
+        engine: reflowEngine,
+        clusters: _clusterCache,
+      );
+      // 🌊 Share reflow controller with PDF document drag
+      _pdfPageDragController.reflowController = _lassoTool.reflowController;
     }
 
     // 🖥️ DISPLAY DETECTION: Delay to avoid init contention

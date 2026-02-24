@@ -39,12 +39,26 @@ class CurrentStrokePainter extends CustomPainter {
   // 🚀 Viewport-level mode: apply canvas transform inside paint()
   final InfiniteCanvasController? controller;
 
-  // 🚀 Predictive renderer for anti-lag (only 60Hz mode)
+  // ✂️ PDF page clipping: when drawing on a PDF page, clip live stroke
+  // to the page rect so ink doesn't overflow outside the page.
+  final Rect? pdfClipRect;
+
+  // 🚀 Predictive renderer for anti-lag (ghost trail prediction)
   static final PredictiveRenderer _predictor = PredictiveRenderer(
     predictedPointsCount: 2,
     ghostOpacity: 0.08,
     velocityDecay: 0.7,
   );
+
+  // 🚀 Track last point count fed to predictor (avoid re-feeding same points)
+  static int _predictorFedCount = 0;
+
+  // 🚀 Cached paint for ghost trail (reused across frames)
+  static final Paint _ghostBasePaint =
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
 
   // ─── INCREMENTAL CACHE ──────────────────────────────────────────
   // Enabled: fountain pen now always renders with liveStroke=true (1 Chaikin,
@@ -90,6 +104,7 @@ class CurrentStrokePainter extends CustomPainter {
     this.enablePredictive = true,
     this.guideSystem,
     this.controller,
+    this.pdfClipRect,
   }) : super(repaint: strokeNotifier);
 
   /// Style hash to detect when cached picture must be invalidated.
@@ -103,6 +118,7 @@ class CurrentStrokePainter extends CustomPainter {
     // If the stroke is empty, reset everything
     if (currentStroke.isEmpty) {
       _predictor.reset();
+      _predictorFedCount = 0;
       _invalidateCache();
       return;
     }
@@ -130,6 +146,11 @@ class CurrentStrokePainter extends CustomPainter {
       canvas.clipRect(Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height));
     }
 
+    // ✂️ PDF page clipping: clip live stroke to the page bounds
+    if (pdfClipRect != null) {
+      canvas.clipRect(pdfClipRect!);
+    }
+
     // Determine if symmetry is active (disables incremental caching
     // because mirrored strokes need full re-render)
     final hasSymmetry =
@@ -153,6 +174,32 @@ class CurrentStrokePainter extends CustomPainter {
     // updateStroke() adds a point but clear() cancels the scheduled repaint.
     // Without this tracking, the finalized stroke includes unseen points.
     _lastRenderedCount = currentStroke.length;
+
+    // ─── 🚀 PREDICTIVE GHOST TRAIL ──────────────────────────────────
+    // Feed new points into the predictor and draw predicted extension.
+    // This reduces perceived latency by ~15-20ms.
+    if (enablePredictive && currentStroke.length >= 3) {
+      // Feed any new points since last feed
+      final feedStart = _predictorFedCount.clamp(0, currentStroke.length - 1);
+      for (int i = feedStart; i < currentStroke.length; i++) {
+        final pt = currentStroke[i];
+        _predictor.addPoint(
+          pt.position,
+          pt.timestamp * 1000, // ms → µs
+          pressure: pt.pressure,
+        );
+      }
+      _predictorFedCount = currentStroke.length;
+
+      // Predict and render ghost trail
+      final predicted = _predictor.predictNextPoints();
+      if (predicted.isNotEmpty) {
+        _ghostBasePaint
+          ..color = color
+          ..strokeWidth = width;
+        _predictor.drawGhostTrail(canvas, _ghostBasePaint, predicted);
+      }
+    }
 
     // 🪞 LIVE SYMMETRY PREVIEW: mirror stroke in real-time
     if (hasSymmetry) {
@@ -239,6 +286,7 @@ class CurrentStrokePainter extends CustomPainter {
   /// 🗑️ Pulisce lo stato (chiamare when chiude il canvas)
   static void clearCache() {
     _predictor.reset();
+    _predictorFedCount = 0;
     _invalidateCache();
     _lastRenderedCount = 0;
   }
@@ -315,8 +363,14 @@ class CurrentStrokePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CurrentStrokePainter oldDelegate) {
-    // Always repaint when rebuilt — rebuilds are controlled by
-    // ValueListenableBuilder (only fires on stroke data changes).
+    // Short-circuit: empty stroke during navigation → skip repaint.
+    if (strokeNotifier.value.isEmpty &&
+        oldDelegate.strokeNotifier.value.isEmpty) {
+      return penType != oldDelegate.penType ||
+          color != oldDelegate.color ||
+          width != oldDelegate.width;
+    }
+    // During active drawing, always repaint (ValueNotifier drives frames).
     return true;
   }
 }

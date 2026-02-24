@@ -40,7 +40,7 @@ except ImportError:
     HAS_SCIPY = False
     print("⚠️  scipy not found — elastic distortion disabled. Install: pip install scipy")
 from torch.utils.data import Dataset, DataLoader
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from torchvision import transforms
 try:
     from tqdm import tqdm
@@ -252,6 +252,7 @@ HANDWRITING_FONTS = {
 
 
 def download_fonts(font_dir='hw_fonts'):
+    import urllib.request
     os.makedirs(font_dir, exist_ok=True)
     downloaded = []
     for name, url in HANDWRITING_FONTS.items():
@@ -260,7 +261,7 @@ def download_fonts(font_dir='hw_fonts'):
             downloaded.append(path)
             continue
         try:
-            subprocess.run(['wget', '-q', '-O', path, url], check=True, timeout=30)
+            urllib.request.urlretrieve(url, path)
             if os.path.getsize(path) > 1000:
                 downloaded.append(path)
                 print(f"   ✅ {name}")
@@ -1348,12 +1349,13 @@ def tokenize_from_tree(node: FNode):
 
 
 class TopTierDataset(Dataset):
-    """2D formula rendering with handwriting fonts + heavy augmentation."""
+    """2D formula rendering with handwriting fonts + progressive augmentation."""
 
     def __init__(self, num_samples, fonts, augment=True):
         self.num_samples = num_samples
         self.renderer = Formula2DRenderer(fonts, augment=augment)
         self.augment = augment
+        self.epoch = 0  # Track current epoch for progressive augmentation
         self.transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5], std=[0.5]),
@@ -1368,15 +1370,19 @@ class TopTierDataset(Dataset):
             else:
                 self.formulas.append(group(_var(), text('='), _numwide()))
 
+    def set_epoch(self, epoch):
+        """Set current epoch for progressive augmentation."""
+        self.epoch = epoch
+
     def __len__(self):
         return self.num_samples
 
     def __getitem__(self, idx):
         node = self.formulas[idx]
-        base_size = random.randint(24, 44) if self.augment else 32
+        base_size = random.randint(28, 40) if self.augment else 32
         img = self.renderer.render(node, base_size=base_size)
 
-        # Extra augmentation
+        # Progressive augmentation: gentle early, stronger later
         if self.augment:
             img = self._augment(img)
 
@@ -1386,18 +1392,25 @@ class TopTierDataset(Dataset):
         return img_tensor, torch.tensor(padded[:MAX_SEQ_LEN], dtype=torch.long)
 
     def _augment(self, img):
-        # Rotation
-        img = img.rotate(random.uniform(-6, 6), fillcolor=255)
+        # Progressive augmentation based on epoch
+        # Phase 1 (epoch 1-20): minimal augmentation — let model learn clean patterns
+        # Phase 2 (epoch 20-50): moderate augmentation — add distortion
+        # Phase 3 (epoch 50+): full augmentation — max robustness
+        aug_strength = min(self.epoch / 50.0, 1.0)  # 0.0 → 1.0
 
-        # ── PERSPECTIVE / AFFINE TRANSFORM (tablet at angle) ──
-        if random.random() < 0.3:
+        # Rotation (always, but gentle early)
+        max_rot = 2 + 4 * aug_strength  # 2° → 6°
+        img = img.rotate(random.uniform(-max_rot, max_rot), fillcolor=255)
+
+        # Perspective (only after epoch 30)
+        if aug_strength > 0.6 and random.random() < 0.3:
             img = self._perspective_transform(img)
 
         arr = np.array(img, dtype=np.float32)
 
-        # ── 1. ELASTIC DISTORTION (the ink secret) ──
-        if HAS_SCIPY and random.random() < 0.5:
-            alpha = random.uniform(15, 35)
+        # Elastic distortion (only after epoch 15)
+        if HAS_SCIPY and aug_strength > 0.3 and random.random() < 0.4 * aug_strength:
+            alpha = random.uniform(10, 25 * aug_strength)
             sigma = random.uniform(3, 5)
             h, w = arr.shape
             dx = gaussian_filter(np.random.randn(h, w) * alpha, sigma)
@@ -1406,47 +1419,42 @@ class TopTierDataset(Dataset):
             indices = [np.clip(y_grid + dy, 0, h - 1), np.clip(x_grid + dx, 0, w - 1)]
             arr = map_coordinates(arr, indices, order=1, mode='constant', cval=255)
 
-        # Noise
-        arr += np.random.normal(0, random.uniform(3, 12), arr.shape)
+        # Light noise (always)
+        noise_level = 3 + 7 * aug_strength  # 3 → 10
+        arr += np.random.normal(0, random.uniform(1, noise_level), arr.shape)
         arr = np.clip(arr, 0, 255)
-
-        # Line jitter (simulates shaky hand)
-        for row in range(0, arr.shape[0], random.randint(4, 10)):
-            shift = random.randint(-1, 1)
-            if shift:
-                arr[row] = np.roll(arr[row], shift)
 
         img = Image.fromarray(arr.astype(np.uint8))
 
-        # Blur
-        if random.random() < 0.35:
-            img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.3, 1.0)))
+        # Blur (light, after epoch 20)
+        if aug_strength > 0.4 and random.random() < 0.25:
+            img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.3, 0.8)))
 
-        # Brightness variation
-        if random.random() < 0.25:
-            arr = np.array(img, dtype=np.float32) + random.uniform(-12, 12)
+        # Brightness variation (light)
+        if random.random() < 0.2:
+            arr = np.array(img, dtype=np.float32) + random.uniform(-8, 8)
             img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
-        # Erosion/dilation (stroke thickness)
-        if random.random() < 0.25:
+        # Erosion/dilation (only after epoch 30)
+        if aug_strength > 0.6 and random.random() < 0.2:
             if random.random() < 0.5:
                 img = img.filter(ImageFilter.MinFilter(3))
             else:
                 img = img.filter(ImageFilter.MaxFilter(3))
 
-        # ── RANDOM ERASING (simulates occlusion / finger covering part) ──
-        if random.random() < 0.2:
+        # ── RANDOM ERASING (only after epoch 40, and rare) ──
+        if aug_strength > 0.8 and random.random() < 0.1:
             arr2 = np.array(img, dtype=np.float32)
             h, w = arr2.shape
-            eh = random.randint(h // 8, h // 3)
-            ew = random.randint(w // 8, w // 3)
+            eh = random.randint(h // 10, h // 5)
+            ew = random.randint(w // 10, w // 5)
             ey = random.randint(0, h - eh)
             ex = random.randint(0, w - ew)
-            arr2[ey:ey+eh, ex:ex+ew] = 255  # white rectangle
+            arr2[ey:ey+eh, ex:ex+ew] = 255
             img = Image.fromarray(arr2.astype(np.uint8))
 
-        # ── BACKGROUND TEXTURES (grid, paper, dark canvas) ──
-        if random.random() < 0.4:
+        # ── BACKGROUND TEXTURES (only after epoch 25, no dark canvas) ──
+        if aug_strength > 0.5 and random.random() < 0.3:
             img = self._add_background(img)
 
         return img
@@ -1489,10 +1497,10 @@ class TopTierDataset(Dataset):
         return np.array(res).reshape(8).tolist()
 
     def _add_background(self, img):
-        """Simulate grid paper, ruled lines, or dark canvas backgrounds."""
+        """Simulate grid paper, ruled lines, or dotted backgrounds."""
         arr = np.array(img, dtype=np.float32)
         h, w = arr.shape
-        bg_type = random.choice(['grid', 'ruled', 'dots', 'dark', 'paper'])
+        bg_type = random.choice(['grid', 'ruled', 'dots', 'paper'])
 
         if bg_type == 'grid':
             # Square grid (graph paper)
@@ -1549,7 +1557,7 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
         try:
             optimizer.zero_grad()
             if scaler is not None:  # AMP enabled
-                with autocast(device_type='cuda', dtype=torch.float16):
+                with autocast('cuda', dtype=torch.float16):
                     logits = model(images, tokens[:, :-1])
                     B, S, V = logits.shape
                     loss = criterion(logits.reshape(B * S, V), tokens[:, 1:].reshape(B * S))
@@ -1587,10 +1595,18 @@ def greedy_decode(model, image, device):
     with torch.no_grad():
         features = model.encoder(image.to(device))
         tokens = [SOS_IDX]
-        for _ in range(MAX_SEQ_LEN):
+        for step in range(MAX_SEQ_LEN):
             tgt = torch.tensor([tokens], dtype=torch.long, device=device)
             logits = model.decoder(tgt, features)
-            t = logits[0, -1].argmax().item()
+            logit_vec = logits[0, -1]
+
+            # Suppress EOS/PAD/SOS in first 2 steps — force model to generate content
+            if step < 2:
+                logit_vec[EOS_IDX] = -1e9
+                logit_vec[PAD_IDX] = -1e9
+                logit_vec[SOS_IDX] = -1e9
+
+            t = logit_vec.argmax().item()
             if t == EOS_IDX:
                 break
             tokens.append(t)
@@ -1618,7 +1634,15 @@ def beam_search_decode(model, image, device, beam_width=5, length_penalty=0.6):
                     continue
                 tgt = torch.tensor([tokens], dtype=torch.long, device=device)
                 logits = model.decoder(tgt, features)
-                log_probs = torch.log_softmax(logits[0, -1], dim=-1)
+                logit_vec = logits[0, -1]
+
+                # Suppress EOS/PAD/SOS in first 2 steps
+                if step < 2:
+                    logit_vec[EOS_IDX] = -1e9
+                    logit_vec[PAD_IDX] = -1e9
+                    logit_vec[SOS_IDX] = -1e9
+
+                log_probs = torch.log_softmax(logit_vec, dim=-1)
                 top_k = log_probs.topk(beam_width)
                 for i in range(beam_width):
                     new_score = score + top_k.values[i].item()
@@ -1663,7 +1687,7 @@ def _levenshtein(s1, s2):
     return prev[-1]
 
 
-def evaluate(model, loader, device, max_samples=200, use_beam=True):
+def evaluate(model, loader, device, max_samples=500, use_beam=True):
     """Evaluate with both exact match accuracy AND Character Error Rate (CER)."""
     model.eval()
     correct, total, printed = 0, 0, 0
@@ -1722,10 +1746,10 @@ def export_onnx(model, output_dir='hme_attn_onnx'):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    EPOCHS = 200
-    TRAIN_SAMPLES = 60_000
-    VAL_SAMPLES = 3_000
-    BATCH_SIZE = 64
+    EPOCHS = 100
+    TRAIN_SAMPLES = 20_000
+    VAL_SAMPLES = 2_000
+    BATCH_SIZE = 128
     LR = 3e-4
     CHECKPOINT = 'best_hme_top_tier.pt'
 
@@ -1762,7 +1786,23 @@ if __name__ == '__main__':
 
     # ⚠️  ONLY load from OUR OWN checkpoint (100% commercial safe)
     # DO NOT load from CROHME/academic checkpoints — their license is research-only!
-    if os.path.exists(CHECKPOINT):
+    start_epoch = 1
+    resumed_best_acc = 0.0
+    resumed_best_loss = float('inf')
+
+    # Try to resume from full checkpoint first (has optimizer state)
+    if os.path.exists('checkpoint_latest.pt'):
+        try:
+            ckpt = torch.load('checkpoint_latest.pt', map_location=device)
+            model.load_state_dict(ckpt['model_state'], strict=False)
+            start_epoch = ckpt.get('epoch', 0) + 1
+            resumed_best_acc = ckpt.get('best_acc', 0.0)
+            resumed_best_loss = ckpt.get('best_loss', float('inf'))
+            print(f"📂 Resumed from checkpoint_latest.pt (epoch {start_epoch - 1}, "
+                  f"best_acc: {resumed_best_acc:.1%}, best_loss: {resumed_best_loss:.4f})")
+        except Exception as e:
+            print(f"⚠️  Could not load checkpoint_latest.pt: {e}")
+    elif os.path.exists(CHECKPOINT):
         try:
             model.load_state_dict(torch.load(CHECKPOINT, map_location=device), strict=False)
             print(f"📂 Resumed from {CHECKPOINT}")
@@ -1778,7 +1818,10 @@ if __name__ == '__main__':
     def update_ema():
         with torch.no_grad():
             for k, v in model.state_dict().items():
-                ema_state[k].mul_(ema_decay).add_(v, alpha=1 - ema_decay)
+                if v.is_floating_point():
+                    ema_state[k].mul_(ema_decay).add_(v, alpha=1 - ema_decay)
+                else:
+                    ema_state[k].copy_(v)
 
     def apply_ema():
         """Swap model weights with EMA weights for evaluation."""
@@ -1795,7 +1838,7 @@ if __name__ == '__main__':
 
     # ── AMP (Mixed Precision) — 2x speed on T4 ──
     use_amp = device.type == 'cuda'
-    scaler = GradScaler() if use_amp else None
+    scaler = GradScaler('cuda') if use_amp else None
     if use_amp:
         print("⚡ AMP enabled (float16 mixed precision)")
 
@@ -1810,21 +1853,35 @@ if __name__ == '__main__':
 
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-    best_acc = 0.0
+    best_acc = resumed_best_acc
+    best_loss = resumed_best_loss
     patience_counter = 0
     PATIENCE = 20  # Early stopping: stop if no improvement for 20 eval cycles
 
     print(f"\n🏋️ Training for {EPOCHS} epochs (DEFINITIVE TOP TIER)...")
+    print(f"   Starting from epoch {start_epoch}")
     print(f"   Features: 2D rendering, elastic distortion, perspective, warmup,")
     print(f"   label smoothing, AMP, beam search, EMA, backgrounds, {len(FORMULA_GENERATORS)} templates")
     print(f"   Early stopping patience: {PATIENCE} eval cycles\n")
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(start_epoch, EPOCHS + 1):
         t0 = time.time()
+        train_ds.set_epoch(epoch)  # Progressive augmentation
         loss = train_epoch(model, train_loader, optimizer, criterion, device, scaler)
         scheduler.step()
         update_ema()  # Update EMA weights
         elapsed = time.time() - t0
+
+        # ── ALWAYS save periodic checkpoint (never lose progress!) ──
+        if epoch % 5 == 0:
+            torch.save({
+                'epoch': epoch,
+                'model_state': model.state_dict(),
+                'ema_state': ema_state,
+                'optimizer': optimizer.state_dict(),
+                'best_acc': best_acc,
+                'best_loss': best_loss,
+            }, 'checkpoint_latest.pt')
 
         if epoch % 10 == 0 or epoch <= 5:
             # Evaluate with EMA weights
@@ -1835,12 +1892,20 @@ if __name__ == '__main__':
             lr = optimizer.param_groups[0]['lr']
             print(f"\nEpoch {epoch}/{EPOCHS} — Loss: {loss:.4f} | "
                   f"Acc: {acc:.1%} | CER: {cer:.3f} | LR: {lr:.6f} | {elapsed:.0f}s")
+
+            improved = False
             if acc > best_acc:
                 best_acc = acc
+                improved = True
+            if loss < best_loss:
+                best_loss = loss
+                improved = True
+
+            if improved:
                 patience_counter = 0
                 # Save EMA weights (better for inference)
                 torch.save(ema_state, CHECKPOINT)
-                print(f"  💾 Saved best EMA (acc: {best_acc:.1%}, CER: {cer:.3f})")
+                print(f"  💾 Saved best EMA (acc: {best_acc:.1%}, CER: {cer:.3f}, loss: {loss:.4f})")
             else:
                 patience_counter += 1
                 if patience_counter >= PATIENCE:

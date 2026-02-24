@@ -190,6 +190,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                           _pdfSearchController, // 🔍 Search highlights
                       pdfLayoutVersion:
                           _pdfLayoutVersion, // 📄 Layout mutation counter
+                      showPdfPageNumbers: _showPdfPageNumbers,
                     ),
                     size: Size.infinite,
                   ),
@@ -274,6 +275,21 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
             enableSingleFingerPan:
                 _effectiveIsPanMode ||
                 _isMultiPageEditMode, // 🖐️ Pan with a finger when active OR in multi-page edit
+            // 📄 Intercept pan on PDF pages → route to draw callbacks for document drag
+            onPanInterceptTest:
+                _effectiveIsPanMode
+                    ? (canvasPos) {
+                      for (final layer in _layerController.sceneGraph.layers) {
+                        for (final child in layer.children) {
+                          if (child is PdfDocumentNode) {
+                            if (child.hitTestPageIndex(canvasPos) >= 0)
+                              return true;
+                          }
+                        }
+                      }
+                      return false;
+                    }
+                    : null,
             isStylusModeEnabled:
                 _isMultiPageEditMode
                     ? false
@@ -397,6 +413,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                 _renderingConfig?.enablePredictiveRendering ?? true,
             guideSystem: _rulerGuideSystem,
             controller: _canvasController, // 🚀 viewport-level mode
+            pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
           ),
           size: Size.infinite,
         ),

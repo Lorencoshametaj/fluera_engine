@@ -73,6 +73,18 @@ class _ContentRadarOverlayState extends State<ContentRadarOverlay>
     // Use a generous inflation so barely-clipping content doesn't trigger glow.
     final inflated = viewport.inflate(viewport.shortestSide * 0.1);
 
+    // 🐛 FIX: If ANY content is visible in the viewport, suppress the radar.
+    // The radar should only activate when the viewport is "lost" —
+    // showing zero content. When content is on-screen, the user doesn't
+    // need directional hints.
+    for (final region in regions) {
+      final b = region.bounds;
+      if (!b.isFinite || b.isEmpty) continue;
+      if (inflated.overlaps(b)) {
+        return const _RadarData(top: 0, right: 0, bottom: 0, left: 0);
+      }
+    }
+
     double topWeight = 0;
     double rightWeight = 0;
     double bottomWeight = 0;
@@ -81,12 +93,6 @@ class _ContentRadarOverlayState extends State<ContentRadarOverlay>
     for (final region in regions) {
       final b = region.bounds;
       if (!b.isFinite || b.isEmpty) continue;
-
-      // Skip content that is even PARTIALLY visible in the viewport.
-      // Only count content that is COMPLETELY off-screen.
-      if (inflated.overlaps(b)) {
-        continue;
-      }
 
       final area = b.width * b.height;
       if (area <= 0) continue;

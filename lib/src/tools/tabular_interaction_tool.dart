@@ -80,7 +80,26 @@ class TabularInteractionTool {
   }
 
   /// Select a specific cell within the current table.
+  ///
+  /// If the cell belongs to a merge region, the selection automatically
+  /// expands to cover the entire merged area.
   void selectCell(int col, int row) {
+    // Check if this cell is part of a merge region.
+    if (_selected != null) {
+      for (final region in _selected!.mergeManager.regions) {
+        if (col >= region.startColumn &&
+            col <= region.endColumn &&
+            row >= region.startRow &&
+            row <= region.endRow) {
+          // Expand selection to full merge region.
+          _selectedCol = region.startColumn;
+          _selectedRow = region.startRow;
+          _rangeEndCol = region.endColumn;
+          _rangeEndRow = region.endRow;
+          return;
+        }
+      }
+    }
     _selectedCol = col;
     _selectedRow = row;
     _rangeEndCol = null;

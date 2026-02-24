@@ -32,10 +32,7 @@ void main() {
       test('stats returns valid map', () {
         final stats = manager.stats;
         expect(stats, containsPair('pendingTasks', 0));
-        expect(
-          stats,
-          containsPair('frameBudgetMs', FrameBudgetManager.frameBudgetMs),
-        );
+        expect(stats, containsPair('frameBudgetMs', manager.frameBudgetMs));
         expect(stats, containsPair('isScheduled', false));
       });
     });
@@ -120,13 +117,13 @@ void main() {
 
     group('configuration', () {
       test('frame budget is reasonable (8ms for 60fps)', () {
-        expect(FrameBudgetManager.frameBudgetMs, 8.0);
+        expect(manager.frameBudgetMs, 8.0);
       });
 
       test('heavy task threshold is less than frame budget', () {
         expect(
           FrameBudgetManager.heavyTaskThresholdMs,
-          lessThan(FrameBudgetManager.frameBudgetMs),
+          lessThan(manager.frameBudgetMs),
         );
       });
 

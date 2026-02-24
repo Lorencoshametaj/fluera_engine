@@ -1324,10 +1324,94 @@ extension NebulaCanvasTabularHandler on _NebulaCanvasScreenState {
       }
     }
 
+    // Clear facing borders on neighbor cells outside the selection.
+    // This ensures that presets like "inside" (outer=false) and "none"
+    // actually remove the line, since the renderer uses OR logic:
+    // a line is drawn if EITHER adjacent cell wants it.
+    _syncNeighborBorders(node, minC, maxC, minR, maxR);
+
     _layerController.sceneGraph.bumpVersion();
     DrawingPainter.invalidateAllTiles();
     setState(() {});
     _autoSaveCanvas();
+  }
+
+  /// Sync neighbor borders to match the selection's edge borders.
+  ///
+  /// For each cell on the edge of the selection, reads its outer border
+  /// value and copies it to the facing border of the neighbor cell.
+  /// This ensures that adjacent cells always agree:
+  ///  - "All"     → edge.top=true  → neighbor above gets bottom=true  (restore)
+  ///  - "Inside"  → edge.top=false → neighbor above gets bottom=false (clear)
+  ///  - "Outline" → edge.top=true  → neighbor above gets bottom=true  (restore)
+  ///  - "None"    → edge.top=false → neighbor above gets bottom=false (clear)
+  void _syncNeighborBorders(
+    dynamic node,
+    int minC,
+    int maxC,
+    int minR,
+    int maxR,
+  ) {
+    CellBorders _getBorders(int c, int r) {
+      final cell = node.model.getCell(CellAddress(c, r));
+      return cell?.format?.borders ?? CellBorders.all;
+    }
+
+    void _patchBorder(CellAddress addr, CellBorders Function(CellBorders) fn) {
+      final cell = node.model.getCell(addr);
+      final current = cell?.format?.borders ?? CellBorders.all;
+      final patched = fn(current);
+      if (cell != null) {
+        cell.format = (cell.format ?? const CellFormat()).copyWith(
+          borders: patched,
+        );
+      } else {
+        node.model.setCell(
+          addr,
+          CellNode(
+            value: const EmptyValue(),
+            format: CellFormat(borders: patched),
+          ),
+        );
+      }
+    }
+
+    // Top edge → sync with row above.
+    if (minR > 0) {
+      for (int c = minC; c <= maxC; c++) {
+        final edgeTop = _getBorders(c, minR).top;
+        _patchBorder(
+          CellAddress(c, minR - 1),
+          (b) => b.copyWith(bottom: edgeTop),
+        );
+      }
+    }
+    // Bottom edge → sync with row below.
+    for (int c = minC; c <= maxC; c++) {
+      final edgeBottom = _getBorders(c, maxR).bottom;
+      _patchBorder(
+        CellAddress(c, maxR + 1),
+        (b) => b.copyWith(top: edgeBottom),
+      );
+    }
+    // Left edge → sync with column to the left.
+    if (minC > 0) {
+      for (int r = minR; r <= maxR; r++) {
+        final edgeLeft = _getBorders(minC, r).left;
+        _patchBorder(
+          CellAddress(minC - 1, r),
+          (b) => b.copyWith(right: edgeLeft),
+        );
+      }
+    }
+    // Right edge → sync with column to the right.
+    for (int r = minR; r <= maxR; r++) {
+      final edgeRight = _getBorders(maxC, r).right;
+      _patchBorder(
+        CellAddress(maxC + 1, r),
+        (b) => b.copyWith(left: edgeRight),
+      );
+    }
   }
 
   /// Set text color for selected cells.

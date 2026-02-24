@@ -23,8 +23,10 @@ class FrameBudgetManager {
   // 📐 CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Budget massimo per frame in ms (16ms = 60 FPS, usiamo mage)
-  static const double frameBudgetMs = 8.0;
+  /// Budget massimo per frame in ms — DYNAMIC based on refresh rate.
+  /// 60Hz → 8.0ms, 120Hz → 4.0ms (50% of frame time, rest for rendering).
+  double _frameBudgetMs = 8.0;
+  double get frameBudgetMs => _frameBudgetMs;
 
   /// Soglia per considerare un task "pesante"
   static const double heavyTaskThresholdMs = 4.0;
@@ -47,6 +49,12 @@ class FrameBudgetManager {
 
   /// Flag to avoid registrazioni multiple
   bool _isScheduled = false;
+
+  /// 🚀 Refresh rate detection state (Gap 6)
+  Duration _lastFrameTimestamp = Duration.zero;
+  final List<double> _recentFrameDeltas = [];
+  static const int _maxFrameDeltaSamples = 10;
+  double _detectedRefreshRate = 60.0;
 
   /// Legacy singleton accessor — delegates to [EngineScope.current].
   static FrameBudgetManager get instance =>
@@ -131,11 +139,54 @@ class FrameBudgetManager {
 
     _stopwatch.stop();
 
+    // 🚀 REFRESH RATE DETECTION (Gap 6)
+    _updateRefreshRate(timestamp);
+
     // If there are still tasks, schedule next frame
     if (_taskQueue.isNotEmpty) {
       _scheduleFrame();
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🚀 REFRESH RATE DETECTION (Gap 6)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Auto-detect display refresh rate from frame timestamp deltas.
+  /// Updates `_frameBudgetMs` to use 50% of the detected frame time.
+  void _updateRefreshRate(Duration timestamp) {
+    if (_lastFrameTimestamp != Duration.zero) {
+      final deltaMs = (timestamp - _lastFrameTimestamp).inMicroseconds / 1000.0;
+      if (deltaMs > 2.0 && deltaMs < 50.0) {
+        // Plausible frame delta range
+        _recentFrameDeltas.add(deltaMs);
+        if (_recentFrameDeltas.length > _maxFrameDeltaSamples) {
+          _recentFrameDeltas.removeAt(0);
+        }
+
+        if (_recentFrameDeltas.length >= 5) {
+          // Median delta for robustness
+          final sorted = List<double>.from(_recentFrameDeltas)..sort();
+          final medianDelta = sorted[sorted.length ~/ 2];
+          _detectedRefreshRate = 1000.0 / medianDelta;
+
+          // Budget = 50% of frame time (conservative)
+          _frameBudgetMs = (medianDelta * 0.5).clamp(2.0, 12.0);
+        }
+      }
+    }
+    _lastFrameTimestamp = timestamp;
+  }
+
+  /// Manually set the display refresh rate.
+  /// Use when the platform provides a known refresh rate.
+  void setRefreshRate(double hz) {
+    _detectedRefreshRate = hz.clamp(30.0, 240.0);
+    _frameBudgetMs = ((1000.0 / _detectedRefreshRate) * 0.5).clamp(2.0, 12.0);
+  }
+
+  /// Current detected refresh rate (Hz).
+  double get detectedRefreshRate => _detectedRefreshRate;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ⏱️ SYNC EXECUTION (for thevoro critico)

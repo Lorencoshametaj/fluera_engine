@@ -36,6 +36,15 @@ class CellBorders {
   /// Whether no borders are visible.
   bool get hasNone => !top && !bottom && !left && !right;
 
+  /// Create a copy with selective overrides.
+  CellBorders copyWith({bool? top, bool? bottom, bool? left, bool? right}) =>
+      CellBorders(
+        top: top ?? this.top,
+        bottom: bottom ?? this.bottom,
+        left: left ?? this.left,
+        right: right ?? this.right,
+      );
+
   Map<String, dynamic> toJson() => {
     'top': top,
     'bottom': bottom,
