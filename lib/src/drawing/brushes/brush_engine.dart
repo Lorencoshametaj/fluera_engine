@@ -3,9 +3,12 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import '../models/pro_brush_settings.dart';
 import '../models/pro_drawing_point.dart';
+import '../models/surface_material.dart';
+import '../models/wetness_state.dart';
 import '../../rendering/shaders/shader_brush_service.dart';
 import '../../rendering/shaders/shader_stamp_renderer.dart';
 import '../../rendering/shaders/shader_texture_renderer.dart';
+import '../../rendering/gpu/gpu_texture_service.dart';
 import '../../rendering/shaders/shader_watercolor_renderer.dart';
 import '../../rendering/shaders/shader_marker_renderer.dart';
 import '../../rendering/shaders/shader_charcoal_renderer.dart';
@@ -13,6 +16,9 @@ import '../../rendering/shaders/shader_oil_paint_renderer.dart';
 import '../../rendering/shaders/shader_spray_paint_renderer.dart';
 import '../../rendering/shaders/shader_neon_glow_renderer.dart';
 import '../../rendering/shaders/shader_ink_wash_renderer.dart';
+import '../../systems/organic_behavior_engine.dart';
+import '../filters/organic_noise.dart';
+import '../filters/fluid_topology_engine.dart';
 import './brushes.dart';
 
 /// 🎨 Unified Brush Engine — Single point of dispatch
@@ -33,12 +39,24 @@ class BrushEngine {
   // 🚀 Pre-allocated buffer for pressure-remapped points (avoids per-frame allocation)
   static List<dynamic> _remappedPointsBuffer = List<dynamic>.filled(2048, null);
 
+  // 🚀 Pre-allocated buffer for organic-modulated points (avoids per-frame allocation)
+  static List<dynamic> _organicPointsBuffer = List<dynamic>.filled(2048, null);
+
   // 🚀 Incremental bounds tracking for live strokes
   static double _liveMinX = double.infinity;
   static double _liveMinY = double.infinity;
   static double _liveMaxX = double.negativeInfinity;
   static double _liveMaxY = double.negativeInfinity;
   static int _liveBoundsPointCount = 0;
+
+  // 🌱 Canvas surface wetness state — tracks drying over time
+  static final WetnessState _canvasWetness = WetnessState();
+
+  /// 🧬 Active canvas surface material.
+  /// Set by the canvas when the user changes surface. Used as fallback
+  /// when `renderStroke` is called without an explicit `surface` param
+  /// (tile cache, scene graph renderer, etc.).
+  static SurfaceMaterial? activeSurface;
 
   /// Reset live bounds tracking (call when stroke ends/starts).
   static void resetLiveBounds() {
@@ -108,8 +126,13 @@ class BrushEngine {
     bool isLive = false,
     ui.BlendMode? blendMode,
     int? engineVersion,
+    int drawFromIndex = 0,
+    SurfaceMaterial? surface,
   }) {
     if (points.isEmpty) return;
+
+    // 🧬 Fallback: use active canvas surface when caller doesn't pass one
+    final effectiveSurface = surface ?? activeSurface;
 
     // 🛡️ Migration routing — when an algorithm changes in the future,
     // route to the renderer of the correct version here.
@@ -120,7 +143,7 @@ class BrushEngine {
     // internally, and the fast texture overlay samples only 3 points.
     // Full quality remapping is applied on finalization (isLive = false).
     List<dynamic> effectivePoints = points;
-    if (!isLive && !settings.pressureCurve.isLinear) {
+    if (!settings.pressureCurve.isLinear) {
       final n = points.length;
       if (_remappedPointsBuffer.length < n) {
         _remappedPointsBuffer = List<dynamic>.filled(n * 2, null);
@@ -141,12 +164,57 @@ class BrushEngine {
     // 🎯 Phase 4B: Stroke stabilizer — now applied in real-time
     // via DrawingInputHandler (not post-hoc here)
 
+    // 🌱 Phase 4C: Organic micro-variation — biological tremor, fatigue,
+    // breathing. Zero-cost when OrganicBehaviorEngine.intensity == 0.
+    if (OrganicBehaviorEngine.tremorEnabled && effectivePoints.length > 3) {
+      effectivePoints = _applyOrganicModulation(
+        effectivePoints,
+        baseWidth,
+        penType,
+      );
+    }
+
+    // 🧬 Surface material: compute modifiers if surface is provided.
+    // 🌱 Include current canvas wetness for wet-on-wet interaction.
+    // 🚀 PERF: derive timestamp from points instead of DateTime.now() syscall
+    final double nowMs;
+    if (effectivePoints.length > 1) {
+      final midP = effectivePoints[effectivePoints.length ~/ 2];
+      nowMs =
+          midP is ProDrawingPoint
+              ? midP.timestamp.toDouble()
+              : DateTime.now().millisecondsSinceEpoch.toDouble();
+    } else {
+      nowMs = DateTime.now().millisecondsSinceEpoch.toDouble();
+    }
+    final currentWetness = _canvasWetness.getWetness(nowMs: nowMs);
+    final materialMods = effectiveSurface?.computeModifiers(
+      pressure: 0.5, // average pressure for compositing decision
+      velocity: 500.0,
+      wetness: currentWetness,
+    );
+    final effectiveWidth =
+        materialMods != null
+            ? baseWidth * materialMods.widthMultiplier
+            : baseWidth;
+
     // 🎨 Per-brush blend mode: wrap in saveLayer for compositing
     final effectiveBlendMode = blendMode ?? _defaultBlendMode(penType);
     // 🎨 Per-brush blend mode OR texture: wrap in saveLayer for compositing.
     // Texture overlay uses BlendMode.dstOut which needs layer isolation.
-    final hasTexture =
+    // 🧬 Surface grain also requires texture compositing.
+    final hasBrushTexture =
         settings.textureType != 'none' && settings.textureIntensity > 0;
+    // ⚠️ Surface-aware shader brushes handle grain in the fragment shader —
+    // skip the surface grain compositing layer for them to prevent
+    // live/finalized mismatch (different saveLayer bounds = different alpha).
+    final bool _shaderHandlesSurface =
+        penType == ProPenType.pencil || penType == ProPenType.charcoal;
+    final hasSurfaceGrain =
+        !_shaderHandlesSurface &&
+        effectiveSurface != null &&
+        effectiveSurface.grainTexture != 'none';
+    final hasTexture = hasBrushTexture || hasSurfaceGrain;
     final useCompositing =
         effectiveBlendMode != ui.BlendMode.srcOver || hasTexture;
 
@@ -248,9 +316,10 @@ class BrushEngine {
       // alters spacing → stroke shrinks). Fountain pen performance is
       // handled by live optimizations in FountainPenPathBuilder instead
       // (1 Chaikin pass, no feathering, no arc-length reparameterization).
-      const int _liveMaxPoints = 250;
-      const int _finalizedMaxPoints = 400;
+      const int _liveMaxPoints = 200;
+      const int _finalizedMaxPoints = 300;
       final bool _isGpuShaderPen = switch (penType) {
+        ProPenType.pencil ||
         ProPenType.watercolor ||
         ProPenType.marker ||
         ProPenType.charcoal ||
@@ -307,11 +376,12 @@ class BrushEngine {
             liveStroke: true,
             textureImage: textureImg,
             textureScale: texScale,
+            drawFromIndex: drawFromIndex,
           );
         case ProPenType.pencil:
           PencilBrush.drawStrokeWithSettings(
             canvas,
-            effectivePoints,
+            renderPoints,
             color,
             baseWidth,
             baseOpacity: settings.pencilBaseOpacity,
@@ -322,6 +392,10 @@ class BrushEngine {
             liveStroke: isLive,
             textureImage: textureImg,
             textureScale: texScale,
+            drawFromIndex: drawFromIndex,
+            surfaceRoughness: effectiveSurface?.roughness ?? 0.0,
+            surfaceAbsorption: effectiveSurface?.absorption ?? 0.0,
+            surfacePigmentRetention: effectiveSurface?.pigmentRetention ?? 1.0,
           );
         case ProPenType.highlighter:
           HighlighterBrush.drawStrokeWithSettings(
@@ -341,6 +415,7 @@ class BrushEngine {
               color,
               baseWidth,
               spread: settings.watercolorSpread,
+              wetness: currentWetness,
             );
           } else {
             WatercolorBrush.drawStroke(canvas, renderPoints, color, baseWidth);
@@ -367,6 +442,10 @@ class BrushEngine {
               color,
               baseWidth,
               grain: settings.charcoalGrain,
+              surfaceRoughness: effectiveSurface?.roughness ?? 0.0,
+              surfaceAbsorption: effectiveSurface?.absorption ?? 0.0,
+              surfacePigmentRetention:
+                  effectiveSurface?.pigmentRetention ?? 1.0,
             );
           } else {
             CharcoalBrush.drawStroke(canvas, renderPoints, color, baseWidth);
@@ -430,15 +509,45 @@ class BrushEngine {
       }
     }
 
+    // 🌱 Wetness deposit: wet brushes increase canvas wetness
+    final isWetBrush =
+        penType == ProPenType.watercolor || penType == ProPenType.inkWash;
+    if (isWetBrush && effectivePoints.length > 2) {
+      // Average pressure as deposit amount
+      double avgP = 0.5;
+      final midP = effectivePoints[effectivePoints.length ~/ 2];
+      if (midP is ProDrawingPoint) avgP = midP.pressure;
+      _canvasWetness.deposit(0.3 * avgP, nowMs: nowMs);
+
+      // 🌊 Fluid topology: deposit pigment into the spatial field
+      FluidTopologyEngine.depositStroke(
+        effectivePoints,
+        color,
+        effectiveWidth,
+        avgP,
+      );
+    }
+
     // 🎨 Phase 3A: Apply texture overlay to stroke
     // 🚀 PERF: during live drawing, only apply texture to the tail of the
     // stroke (last ~40 points). The user is looking at the pen tip, so full
     // stroke texture is unnecessary until finalization.
+    // 🧬 Surface material can override/augment texture settings.
+    // ⚠️ Skip surface→texture merge for brushes with surface-aware shaders
+    // (pencil, charcoal) — they already handle roughness/absorption in the
+    // fragment shader via uniforms. Double-dipping causes live/finalized
+    // mismatch (live = partial overlay, finalized = full overlay = darker).
+    final bool hasSurfaceShader =
+        penType == ProPenType.pencil || penType == ProPenType.charcoal;
+    final effectiveSettings =
+        hasSurfaceShader
+            ? settings
+            : _applySurfaceToSettings(settings, effectiveSurface);
     _applyTextureOverlay(
       canvas,
       effectivePoints,
-      baseWidth,
-      settings,
+      effectiveWidth,
+      effectiveSettings,
       isLive: isLive,
     );
 
@@ -475,33 +584,78 @@ class BrushEngine {
     final textureImage = BrushTexture.getCached(textureType);
     if (textureImage == null) return;
 
-    // 🚀 GPU PATH: per-pixel texture shader (preferred)
-    final shaderService = ShaderBrushService.instance;
-    if (shaderService.isTextureOverlayAvailable) {
-      // 🚀 PERF: During live drawing, use a simplified single-pass overlay
-      // covering the entire stroke bounds. This is O(1) instead of O(N)
-      // per-segment rendering, while still showing texture on the full stroke.
-      if (isLive && points.length > 30) {
-        _applyFastTextureOverlay(
-          canvas,
-          points,
-          baseWidth,
-          settings,
-          textureImage,
-        );
-      } else {
-        shaderService.renderTextureOverlay(
-          canvas,
-          points,
-          settings,
-          textureImage,
-          baseWidth,
-        );
+    // ── dart:gpu PATH ── single render pass, no accumulation ──
+    // Generates a procedural erosion mask via GPU compute, then draws
+    // with dstOut. Only for finalized strokes with enough points.
+    final gpuSvc = GpuTextureService.instance;
+    if (!isLive && gpuSvc.isAvailable && points.length > 5) {
+      // Compute stroke bounds for the mask dimensions
+      double minX = double.infinity, minY = double.infinity;
+      double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+      for (int i = 0; i < points.length; i++) {
+        final p = points[i];
+        final pos = p is Offset ? p : (p as ProDrawingPoint).position;
+        if (pos.dx < minX) minX = pos.dx;
+        if (pos.dy < minY) minY = pos.dy;
+        if (pos.dx > maxX) maxX = pos.dx;
+        if (pos.dy > maxY) maxY = pos.dy;
       }
+      final pad = baseWidth * 2.0 + 4.0;
+      final bounds = Rect.fromLTRB(
+        minX - pad,
+        minY - pad,
+        maxX + pad,
+        maxY + pad,
+      );
+
+      // Determine noise type from texture
+      final noiseType = switch (settings.textureType) {
+        'charcoal' || 'kraft' => 1, // coarse
+        'canvas' => 2, // fibrous
+        _ => 0, // fine (pencil, watercolor)
+      };
+
+      // Deterministic seed from stroke position
+      final firstP = points.first;
+      final firstPos =
+          firstP is Offset ? firstP : (firstP as ProDrawingPoint).position;
+      final seed = firstPos.dx.toInt() ^ firstPos.dy.toInt();
+
+      final mask = gpuSvc.renderErosionMask(
+        width: bounds.width.ceil(),
+        height: bounds.height.ceil(),
+        intensity: settings.textureIntensity,
+        grainScale: 50.0 * (baseWidth / 3.0).clamp(0.5, 4.0),
+        rotation: 0.0,
+        noiseType: noiseType,
+        seed: seed,
+      );
+
+      if (mask != null) {
+        canvas.drawImage(
+          mask,
+          bounds.topLeft,
+          Paint()..blendMode = ui.BlendMode.dstOut,
+        );
+        mask.dispose();
+        return;
+      }
+      // Fall through to ImageShader if GPU failed
+    }
+
+    // 🚀 FAST PATH: single drawRect with ImageShader (live + GPU fallback).
+    if (points.length > 2) {
+      _applyFastTextureOverlay(
+        canvas,
+        points,
+        baseWidth,
+        settings,
+        textureImage,
+      );
       return;
     }
 
-    // 🔄 CPU FALLBACK: per-segment drawRect (when GPU unavailable)
+    // 🔄 CPU FALLBACK: per-segment drawRect (finalized strokes only)
 
     // Scala per tipo
     final typeScale = switch (textureType) {
@@ -605,21 +759,11 @@ class BrushEngine {
     }
   }
 
-  /// 🚀 Fast single-pass texture overlay for live strokes.
+  /// 🚀 Fast single-pass texture overlay.
   ///
-  /// Enterprise-grade: ZERO allocations per frame.
-  /// All Paint/Matrix4/ImageShader objects are cached as static fields
-  /// and only rebuilt when texture type or stroke identity changes.
-  /// Cost: O(1) per frame — just one canvas.drawRect.
-
-  // ── Cached objects for fast overlay (zero alloc in paint) ──
-  static Paint? _fastTexPaint;
-  static ui.ImageShader? _fastTexShader;
-  static final Matrix4 _fastTexMatrix = Matrix4.identity();
-  static ui.Image? _fastTexCachedImage;
-  static String _fastTexCachedType = '';
-  static int _fastTexStrokeId = 0; // identifies stroke via first-point hash
-
+  /// Always computes shader fresh from deterministic parameters (firstPos RNG).
+  /// ImageShader creation costs ~0.05ms — negligible per stroke per frame.
+  /// No static caching = no texture shift between live and finalized.
   static void _applyFastTextureOverlay(
     Canvas canvas,
     List<dynamic> points,
@@ -627,91 +771,97 @@ class BrushEngine {
     ProBrushSettings settings,
     ui.Image textureImage,
   ) {
+    // Skip for very short strokes — texture is invisible and causes artifacts
+    if (points.length < 5) return;
+
     final intensity = settings.textureIntensity;
     final textureType = _textureTypeFromString(settings.textureType);
 
-    // Reuse incremental bounds (already computed by saveLayer path)
+    // Compute bounds from actual points
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (int i = 0; i < points.length; i++) {
+      final p = points[i];
+      final pos = p is Offset ? p : (p as ProDrawingPoint).position;
+      if (pos.dx < minX) minX = pos.dx;
+      if (pos.dy < minY) minY = pos.dy;
+      if (pos.dx > maxX) maxX = pos.dx;
+      if (pos.dy > maxY) maxY = pos.dy;
+    }
+    final pad = baseWidth * 2.0 + 4.0;
     final bounds = Rect.fromLTRB(
-      _liveMinX - baseWidth * 2.0 - 4.0,
-      _liveMinY - baseWidth * 2.0 - 4.0,
-      _liveMaxX + baseWidth * 2.0 + 4.0,
-      _liveMaxY + baseWidth * 2.0 + 4.0,
+      minX - pad,
+      minY - pad,
+      maxX + pad,
+      maxY + pad,
     );
 
-    // Detect stroke identity change via first-point hash
+    // Deterministic shader parameters from first point (RNG seeded by position)
     final firstP = points.first;
     final firstPos =
         firstP is Offset ? firstP : (firstP as ProDrawingPoint).position;
-    final strokeId = firstPos.dx.hashCode ^ firstPos.dy.hashCode;
 
-    // Rebuild shader only when texture/stroke changes (not per frame)
-    final needsRebuild =
-        _fastTexCachedImage != textureImage ||
-        _fastTexCachedType != settings.textureType ||
-        _fastTexStrokeId != strokeId;
+    final rng = math.Random(firstPos.dx.toInt() ^ firstPos.dy.toInt());
+    final offsetX = rng.nextDouble() * textureImage.width;
+    final offsetY = rng.nextDouble() * textureImage.height;
 
-    if (needsRebuild) {
-      _fastTexCachedImage = textureImage;
-      _fastTexCachedType = settings.textureType;
-      _fastTexStrokeId = strokeId;
+    // Texture scale — multiplied by 5 so the 640px texture tiles every
+    // ~130-320 screen pixels instead of 640-1600. This makes the texture
+    // grain visible at stroke width scale (~10px).
+    final typeScale = switch (textureType) {
+      TextureType.charcoal => 2.5,
+      TextureType.kraft => 2.0,
+      TextureType.watercolor => 1.8,
+      TextureType.canvas => 1.5,
+      TextureType.pencilGrain => 1.0,
+      _ => 1.0,
+    };
+    final widthScale = (baseWidth / 3.0).clamp(0.5, 4.0);
+    final invScale = 5.0 / (typeScale * widthScale);
 
-      // Texture scale
-      final typeScale = switch (textureType) {
-        TextureType.charcoal => 2.5,
-        TextureType.kraft => 2.0,
-        TextureType.watercolor => 1.8,
-        TextureType.canvas => 1.5,
-        TextureType.pencilGrain => 1.0,
-        _ => 1.0,
-      };
-      final widthScale = (baseWidth / 3.0).clamp(0.5, 4.0);
-      final invScale = 1.0 / (typeScale * widthScale);
-
-      // Rotation — computed once per stroke
-      final lastP = points.last;
-      final lastPos =
-          lastP is Offset ? lastP : (lastP as ProDrawingPoint).position;
-      final rng = math.Random(firstPos.dx.toInt() ^ firstPos.dy.toInt());
-      final offsetX = rng.nextDouble() * textureImage.width;
-      final offsetY = rng.nextDouble() * textureImage.height;
-
-      double rotation;
-      switch (settings.textureRotationMode) {
-        case 'fixed':
-          rotation = 0.0;
-        case 'random':
-          rotation = rng.nextDouble() * math.pi * 2;
-        case 'followStroke':
-        default:
-          final delta = lastPos - firstPos;
-          rotation =
-              delta.distance > 1.0 ? math.atan2(delta.dy, delta.dx) : 0.0;
-      }
-
-      final cosR = math.cos(rotation) * invScale;
-      final sinR = math.sin(rotation) * invScale;
-      _fastTexMatrix.setIdentity();
-      _fastTexMatrix.setEntry(0, 0, cosR);
-      _fastTexMatrix.setEntry(0, 1, -sinR);
-      _fastTexMatrix.setEntry(1, 0, sinR);
-      _fastTexMatrix.setEntry(1, 1, cosR);
-      _fastTexMatrix.setEntry(0, 3, offsetX * invScale);
-      _fastTexMatrix.setEntry(1, 3, offsetY * invScale);
-
-      _fastTexShader?.dispose();
-      _fastTexShader = ui.ImageShader(
-        textureImage,
-        ui.TileMode.repeated,
-        ui.TileMode.repeated,
-        _fastTexMatrix.storage,
-      );
-
-      _fastTexPaint =
-          Paint()
-            ..shader = _fastTexShader
-            ..colorFilter = _luminanceToAlpha
-            ..blendMode = ui.BlendMode.dstOut;
+    // Rotation — deterministic from stable early points (not lastPos which changes)
+    double rotation;
+    switch (settings.textureRotationMode) {
+      case 'fixed':
+        rotation = 0.0;
+      case 'random':
+        rotation = rng.nextDouble() * math.pi * 2;
+      case 'followStroke':
+      default:
+        // Use a stable early reference point (index ~10 or 25% of stroke).
+        // This won't change as the stroke grows or gets trimmed at the tail.
+        final refIdx = math
+            .min(10, points.length ~/ 4)
+            .clamp(1, points.length - 1);
+        final refP = points[refIdx];
+        final refPos =
+            refP is Offset ? refP : (refP as ProDrawingPoint).position;
+        final delta = refPos - firstPos;
+        rotation = delta.distance > 1.0 ? math.atan2(delta.dy, delta.dx) : 0.0;
     }
+
+    final cosR = math.cos(rotation) * invScale;
+    final sinR = math.sin(rotation) * invScale;
+    final mat = Matrix4.identity();
+    mat.setEntry(0, 0, cosR);
+    mat.setEntry(0, 1, -sinR);
+    mat.setEntry(1, 0, sinR);
+    mat.setEntry(1, 1, cosR);
+    mat.setEntry(0, 3, offsetX * invScale);
+    mat.setEntry(1, 3, offsetY * invScale);
+
+    final shader = ui.ImageShader(
+      textureImage,
+      ui.TileMode.repeated,
+      ui.TileMode.repeated,
+      mat.storage,
+    );
+
+    final paint =
+        Paint()
+          ..shader = shader
+          ..colorFilter = _luminanceToAlpha
+          ..blendMode = ui.BlendMode.dstOut;
 
     // Average pressure from 3 sampled points (zero allocation)
     double avgPressure = 0.5;
@@ -731,9 +881,10 @@ class BrushEngine {
     }
 
     final alpha = _erosionAlpha(intensity, avgPressure, 0.65);
-    _fastTexPaint!.color = ui.Color.fromARGB(alpha, 255, 255, 255);
+    paint.color = ui.Color.fromARGB(alpha, 255, 255, 255);
 
-    canvas.drawRect(bounds, _fastTexPaint!);
+    canvas.drawRect(bounds, paint);
+    shader.dispose();
   }
 
   /// Calculates average pressure and speed for a sub-segment of points.
@@ -868,6 +1019,43 @@ class BrushEngine {
     );
   }
 
+  /// 🧬 Apply surface material properties to brush settings.
+  ///
+  /// When a [SurfaceMaterial] is provided, its grain texture and roughness
+  /// augment the brush settings:
+  /// - If the brush has no texture, the surface provides one
+  /// - Surface roughness increases texture intensity
+  /// - Surface grain scale is applied
+  ///
+  /// Returns [settings] unchanged when [surface] is null (zero-cost path).
+  static ProBrushSettings _applySurfaceToSettings(
+    ProBrushSettings settings,
+    SurfaceMaterial? surface,
+  ) {
+    if (surface == null) return settings;
+
+    // Determine effective texture: brush texture wins, surface is fallback
+    final brushHasTexture = settings.textureType != 'none';
+    final surfaceHasGrain = surface.grainTexture != 'none';
+
+    if (!brushHasTexture && !surfaceHasGrain) return settings;
+
+    final effectiveTexture =
+        brushHasTexture ? settings.textureType : surface.grainTexture;
+
+    // Surface roughness adds to texture intensity
+    final surfaceGrainBoost = surface.roughness * 0.4;
+    final effectiveIntensity =
+        brushHasTexture
+            ? (settings.textureIntensity + surfaceGrainBoost).clamp(0.0, 1.0)
+            : (surface.roughness * 0.7).clamp(0.0, 1.0);
+
+    return settings.copyWith(
+      textureType: effectiveTexture,
+      textureIntensity: effectiveIntensity,
+    );
+  }
+
   /// Converts textureType string → TextureType enum
   static TextureType _textureTypeFromString(String name) {
     switch (name) {
@@ -895,6 +1083,177 @@ class BrushEngine {
       default:
         return ui.BlendMode.srcOver;
     }
+  }
+
+  /// 🌱 Per-brush organic profile: tremor amplitude and frequency multiplier.
+  ///
+  /// Different brushes have different physical characteristics:
+  /// - Pencil: fine, high-frequency tremor (rigid graphite tip)
+  /// - Fountain pen: smooth, medium-frequency (flexible nib absorbs tremor)
+  /// - Charcoal: rough, low-frequency (soft stick has more give)
+  /// - Ballpoint: minimal tremor (very rigid mechanism)
+  static ({double amplitude, double freqMult}) _organicProfile(
+    ProPenType penType,
+  ) {
+    return switch (penType) {
+      ProPenType.pencil => (amplitude: 0.25, freqMult: 1.3),
+      ProPenType.fountain => (amplitude: 0.35, freqMult: 0.8),
+      ProPenType.charcoal => (amplitude: 0.5, freqMult: 0.6),
+      ProPenType.watercolor => (amplitude: 0.4, freqMult: 0.7),
+      ProPenType.inkWash => (amplitude: 0.35, freqMult: 0.75),
+      ProPenType.marker => (amplitude: 0.2, freqMult: 1.0),
+      ProPenType.oilPaint => (amplitude: 0.3, freqMult: 0.9),
+      ProPenType.sprayPaint => (amplitude: 0.6, freqMult: 0.5),
+      ProPenType.neonGlow => (amplitude: 0.15, freqMult: 1.2),
+      ProPenType.highlighter => (amplitude: 0.1, freqMult: 1.0),
+      ProPenType.ballpoint => (amplitude: 0.1, freqMult: 1.5),
+    };
+  }
+
+  /// 🌱 Apply organic micro-variation to stroke points.
+  ///
+  /// Modulates position (lateral offset) and pressure with biologically
+  /// plausible noise:
+  /// - 1/f tremor (Simplex noise, velocity-dependent amplitude)
+  /// - Muscle fatigue (amplitude increases on long strokes)
+  /// - Breathing (ultra-slow sinusoidal pressure variation)
+  ///
+  /// 🚀 PERF: Uses pre-allocated `_organicPointsBuffer` — zero heap allocation.
+  static List<dynamic> _applyOrganicModulation(
+    List<dynamic> points,
+    double baseWidth,
+    ProPenType penType,
+  ) {
+    // 🌱 Adaptive multiplier: reduces organicity during annotation patterns
+    final adaptive = OrganicBehaviorEngine.adaptiveMultiplier;
+    final effectiveIntensity = OrganicBehaviorEngine.intensity * adaptive;
+    if (effectiveIntensity <= 0) return points;
+
+    final n = points.length;
+    // 🚀 PERF: reuse pre-allocated buffer instead of List.filled(n, null)
+    if (_organicPointsBuffer.length < n) {
+      _organicPointsBuffer = List<dynamic>.filled(n * 2, null);
+    }
+
+    // 🌱 Canvas-based seed: absolute position determines noise pattern.
+    // Overlapping strokes share the same "canvas texture" wobble.
+    // The seed is NOT per-stroke — it's per-canvas-position.
+    // (Per-stroke seed used only for minor variation via index offset)
+    final firstP = points.first;
+    final firstPos =
+        firstP is ProDrawingPoint ? firstP.position : firstP as Offset;
+
+    // 🌱 Per-brush organic profile
+    final profile = _organicProfile(penType);
+
+    // Amplitude: per-brush lateral offset, scaled by effective intensity
+    final posAmplitude = profile.amplitude * effectiveIntensity;
+    // Pressure variation: ±5% at full intensity
+    final pressureAmplitude = 0.05 * effectiveIntensity;
+
+    double arcLength = 0.0;
+    Offset prevPos = firstPos;
+
+    for (int i = 0; i < n; i++) {
+      final p = points[i];
+
+      final Offset pos;
+      final double pressure;
+      if (p is ProDrawingPoint) {
+        pos = p.position;
+        pressure = p.pressure;
+      } else {
+        pos = p as Offset;
+        pressure = 0.5;
+      }
+
+      // Accumulate arc length
+      if (i > 0) {
+        arcLength += (pos - prevPos).distance;
+      }
+      prevPos = pos;
+
+      // Skip first and last points to preserve stroke endpoints
+      if (i == 0 || i == n - 1) {
+        _organicPointsBuffer[i] = p;
+        continue;
+      }
+
+      // Velocity estimate from adjacent points
+      double velocity = 0.0;
+      if (i > 0 && p is ProDrawingPoint) {
+        final prevP = points[i - 1];
+        if (prevP is ProDrawingPoint && p.timestamp > prevP.timestamp) {
+          final dt = (p.timestamp - prevP.timestamp) / 1000000.0;
+          if (dt > 0) {
+            velocity = (pos - prevP.position).distance / dt;
+          }
+        }
+      }
+
+      // Biological tremor (1/f noise, velocity-damped)
+      // 🌱 Canvas-based: seed from absolute pos, not per-stroke
+      final canvasSeed = pos.dx * 7.3 + pos.dy * 13.7;
+      final tremor = OrganicNoise.biologicalTremor(
+        arcLength * profile.freqMult,
+        velocity,
+        seed: canvasSeed,
+      );
+
+      // Fatigue: amplitude grows after 200 points
+      final fatigue = OrganicNoise.fatigueFactor(i);
+
+      // Breathing: ultra-slow pressure modulation
+      final breath = OrganicNoise.breathingModulation(arcLength);
+
+      // Compute lateral offset direction (perpendicular to stroke)
+      Offset lateralDir;
+      if (i + 1 < n) {
+        final nextP = points[i + 1];
+        final nextPos =
+            nextP is ProDrawingPoint ? nextP.position : nextP as Offset;
+        final tangent = nextPos - pos;
+        if (tangent.distance > 0.1) {
+          lateralDir = Offset(-tangent.dy, tangent.dx) / tangent.distance;
+        } else {
+          lateralDir = Offset.zero;
+        }
+      } else {
+        lateralDir = Offset.zero;
+      }
+
+      // Apply modulation
+      final lateralOffset = tremor * posAmplitude * fatigue;
+
+      // 🌱 Tilt-dependent tremor: bias lateral offset by stylus tilt
+      // When tilted, tremor is asymmetric — biased in tilt direction
+      Offset tiltBias = Offset.zero;
+      if (p is ProDrawingPoint &&
+          (p.tiltX.abs() > 0.05 || p.tiltY.abs() > 0.05)) {
+        final tiltDir = Offset(p.tiltX, p.tiltY);
+        final tiltMag = tiltDir.distance.clamp(0.0, 1.0);
+        tiltBias = tiltDir * (tremor * posAmplitude * tiltMag * 0.5);
+      }
+
+      final newPos = pos + lateralDir * lateralOffset + tiltBias;
+      final rawPressure = (pressure +
+              tremor * pressureAmplitude * fatigue +
+              breath * pressureAmplitude * 0.3)
+          .clamp(0.05, 1.0);
+      // 🌱 Organic S-curve: softens extremes, expands mid-range
+      final newPressure = OrganicNoise.organicPressureCurve(rawPressure);
+
+      if (p is ProDrawingPoint) {
+        _organicPointsBuffer[i] = p.copyWith(
+          position: newPos,
+          pressure: newPressure,
+        );
+      } else {
+        _organicPointsBuffer[i] = newPos;
+      }
+    }
+
+    return _organicPointsBuffer.sublist(0, n);
   }
 
   /// 🚀 Decimate a point list for bounded rendering cost.

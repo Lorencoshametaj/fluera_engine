@@ -17,6 +17,7 @@ extension ShaderWatercolorRenderer on ShaderBrushService {
     double baseWidth, {
     double opacity = 0.25,
     double spread = 1.0,
+    double wetness = 0.0,
   }) {
     if (!isAvailable || watercolorShader == null || points.length < 2) return;
 
@@ -78,6 +79,7 @@ extension ShaderWatercolorRenderer on ShaderBrushService {
       shader.setFloat(idx++, vel);
       shader.setFloat(idx++, seed + k);
       shader.setFloat(idx++, spread);
+      shader.setFloat(idx++, wetness); // 🌱 uWetness uniform
 
       canvas.translate(rect.left, rect.top);
       canvas.drawRect(Rect.fromLTWH(0, 0, rect.width, rect.height), paint);

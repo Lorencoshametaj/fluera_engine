@@ -6,6 +6,8 @@ import '../../core/tabular/cell_node.dart';
 import '../../core/tabular/cell_value.dart';
 import '../../core/tabular/cell_number_formatter.dart';
 import '../../core/tabular/conditional_format.dart';
+import '../../core/tabular/spreadsheet_model.dart';
+import '../../core/tabular/tabular_hit_test_utils.dart';
 
 /// 📊 TabularRenderer — renders a [TabularNode] onto a Flutter [Canvas].
 ///
@@ -30,6 +32,27 @@ class TabularRenderer {
   /// Maximum cache size to prevent memory bloat.
   static const int _maxCacheSize = 2000;
 
+  // ── Pre-allocated Paint Objects (Zero-Allocation Rendering) ──────
+  static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _headerPaint =
+      Paint()
+        ..color = const Color(0xFF2A2A2A)
+        ..style = PaintingStyle.fill;
+  static final Paint _gridLinePaint =
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..isAntiAlias = false;
+  static final Paint _cellBgPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _validationPaint =
+      Paint()
+        ..color = const Color(0xFFFF4444)
+        ..style = PaintingStyle.fill;
+  static final Paint _frozenSeparatorPaint =
+      Paint()
+        ..color = const Color(0xFF4A90D9)
+        ..strokeWidth = 2.0
+        ..style = PaintingStyle.stroke;
+
   /// Draw the tabular node onto the canvas.
   ///
   /// [visibleRect] is the viewport in the node's local coordinate space
@@ -46,11 +69,29 @@ class TabularRenderer {
     if (cols <= 0 || rows <= 0) return;
 
     final bounds = node.localBounds;
+
+    // Early bail: table is entirely off-viewport.
+    if (visibleRect != null && !visibleRect.overlaps(bounds)) return;
+
     final effectiveVisibleRect = visibleRect ?? bounds;
 
     // Offsets for headers.
     final xOffset = node.showRowHeaders ? node.headerWidth : 0.0;
     final yOffset = node.showColumnHeaders ? node.headerHeight : 0.0;
+
+    // ── LOD: compute effective screen-space cell height ───────────────
+    // When the visible rect is much larger than the table bounds, the
+    // table is zoomed out and each cell is tiny on screen.
+    //
+    // Tiers:
+    //   screenCellH >= 8  → full render (text, formatting, validation)
+    //   4 <= screenCellH < 8 → backgrounds only (skip text)
+    //   screenCellH < 4  → grid only (skip cells, merges, frozen panes)
+    final avgCellH = rows > 0 ? model.rowOffset(rows) / rows : 24.0;
+    final viewportScale = bounds.height / effectiveVisibleRect.height;
+    final screenCellH = avgCellH * viewportScale;
+    final skipText = screenCellH < 8.0;
+    final gridOnly = screenCellH < 4.0;
 
     // 1. Background.
     _drawBackground(canvas, bounds, node);
@@ -77,15 +118,17 @@ class TabularRenderer {
       effectiveVisibleRect.bottom - yOffset,
     );
 
-    // 3. Draw headers.
-    if (node.showColumnHeaders) {
-      _drawColumnHeaders(canvas, model, node, firstCol, lastCol, xOffset);
-    }
-    if (node.showRowHeaders) {
-      _drawRowHeaders(canvas, model, node, firstRow, lastRow, yOffset);
+    // 3. Draw headers (skip at low LOD — too small to read).
+    if (!skipText) {
+      if (node.showColumnHeaders) {
+        _drawColumnHeaders(canvas, model, node, firstCol, lastCol, xOffset);
+      }
+      if (node.showRowHeaders) {
+        _drawRowHeaders(canvas, model, node, firstRow, lastRow, yOffset);
+      }
     }
 
-    // 4. Draw grid lines.
+    // 4. Draw grid lines (always visible — gives shape at any zoom).
     _drawGridLines(
       canvas,
       model,
@@ -98,6 +141,9 @@ class TabularRenderer {
       yOffset,
       bounds,
     );
+
+    // LOD: grid-only mode — skip everything below.
+    if (gridOnly) return;
 
     // 5. Draw merge region overlays (covers internal grid lines).
     _drawMergeOverlays(
@@ -112,7 +158,7 @@ class TabularRenderer {
       yOffset,
     );
 
-    // 6. Draw cell contents.
+    // 6. Draw cell contents (skip text at mid-LOD).
     _drawCells(
       canvas,
       model,
@@ -123,10 +169,13 @@ class TabularRenderer {
       lastRow,
       xOffset,
       yOffset,
+      skipText: skipText,
     );
 
-    // 6. Draw frozen panes overlay.
-    _drawFrozenPanes(canvas, model, node, xOffset, yOffset, bounds);
+    // 7. Draw frozen panes overlay (skip at low LOD).
+    if (!skipText) {
+      _drawFrozenPanes(canvas, model, node, xOffset, yOffset, bounds);
+    }
   }
 
   /// Clear the text painter cache (call on node disposal or scene change).
@@ -139,53 +188,74 @@ class TabularRenderer {
   // =========================================================================
 
   static void _drawBackground(Canvas canvas, Rect bounds, TabularNode node) {
-    final paint =
-        Paint()
-          ..color = node.backgroundColor
-          ..style = PaintingStyle.fill;
-    canvas.drawRect(bounds, paint);
+    _bgPaint.color = node.backgroundColor;
+    canvas.drawRect(bounds, _bgPaint);
   }
 
   // =========================================================================
   // Column / Row finding (viewport culling)
   // =========================================================================
 
-  static int _findFirstColumn(dynamic model, int cols, double x) {
-    double offset = 0;
-    for (int c = 0; c < cols; c++) {
-      final w = model.getColumnWidth(c) as double;
-      if (offset + w > x) return c;
-      offset += w;
+  /// Binary search for the first column whose right edge is past [x].
+  static int _findFirstColumn(SpreadsheetModel model, int cols, double x) {
+    if (cols <= 0) return 0;
+    int lo = 0, hi = cols - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      final rightEdge = model.columnOffset(mid) + model.getColumnWidth(mid);
+      if (rightEdge <= x) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
     }
-    return 0;
+    return lo;
   }
 
-  static int _findLastColumn(dynamic model, int cols, double x) {
-    double offset = 0;
-    for (int c = 0; c < cols; c++) {
-      offset += model.getColumnWidth(c) as double;
-      if (offset >= x) return c;
+  /// Binary search for the last column whose left edge is before [x].
+  static int _findLastColumn(SpreadsheetModel model, int cols, double x) {
+    if (cols <= 0) return 0;
+    int lo = 0, hi = cols - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) >> 1;
+      if (model.columnOffset(mid) < x) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
     }
-    return cols - 1;
+    return lo;
   }
 
-  static int _findFirstRow(dynamic model, int rows, double y) {
-    double offset = 0;
-    for (int r = 0; r < rows; r++) {
-      final h = model.getRowHeight(r) as double;
-      if (offset + h > y) return r;
-      offset += h;
+  /// Binary search for the first row whose bottom edge is past [y].
+  static int _findFirstRow(SpreadsheetModel model, int rows, double y) {
+    if (rows <= 0) return 0;
+    int lo = 0, hi = rows - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      final bottomEdge = model.rowOffset(mid) + model.getRowHeight(mid);
+      if (bottomEdge <= y) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
     }
-    return 0;
+    return lo;
   }
 
-  static int _findLastRow(dynamic model, int rows, double y) {
-    double offset = 0;
-    for (int r = 0; r < rows; r++) {
-      offset += model.getRowHeight(r) as double;
-      if (offset >= y) return r;
+  /// Binary search for the last row whose top edge is before [y].
+  static int _findLastRow(SpreadsheetModel model, int rows, double y) {
+    if (rows <= 0) return 0;
+    int lo = 0, hi = rows - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) >> 1;
+      if (model.rowOffset(mid) < y) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
     }
-    return rows - 1;
+    return lo;
   }
 
   // =========================================================================
@@ -194,28 +264,20 @@ class TabularRenderer {
 
   static void _drawColumnHeaders(
     Canvas canvas,
-    dynamic model,
+    SpreadsheetModel model,
     TabularNode node,
     int firstCol,
     int lastCol,
     double xOffset,
   ) {
-    final headerPaint =
-        Paint()
-          ..color = const Color(0xFF2A2A2A)
-          ..style = PaintingStyle.fill;
-
-    double x = xOffset;
-    for (int c = 0; c < firstCol; c++) {
-      x += model.getColumnWidth(c) as double;
-    }
+    double x = xOffset + model.columnOffset(firstCol);
 
     for (int c = firstCol; c <= lastCol; c++) {
-      final w = model.getColumnWidth(c) as double;
+      final w = model.getColumnWidth(c);
       final rect = Rect.fromLTWH(x, 0, w, node.headerHeight);
 
       // Background.
-      canvas.drawRect(rect, headerPaint);
+      canvas.drawRect(rect, _headerPaint);
 
       // Label.
       final addr = CellAddress(c, 0);
@@ -243,28 +305,20 @@ class TabularRenderer {
 
   static void _drawRowHeaders(
     Canvas canvas,
-    dynamic model,
+    SpreadsheetModel model,
     TabularNode node,
     int firstRow,
     int lastRow,
     double yOffset,
   ) {
-    final headerPaint =
-        Paint()
-          ..color = const Color(0xFF2A2A2A)
-          ..style = PaintingStyle.fill;
-
-    double y = yOffset;
-    for (int r = 0; r < firstRow; r++) {
-      y += model.getRowHeight(r) as double;
-    }
+    double y = yOffset + model.rowOffset(firstRow);
 
     for (int r = firstRow; r <= lastRow; r++) {
-      final h = model.getRowHeight(r) as double;
+      final h = model.getRowHeight(r);
       final rect = Rect.fromLTWH(0, y, node.headerWidth, h);
 
       // Background.
-      canvas.drawRect(rect, headerPaint);
+      canvas.drawRect(rect, _headerPaint);
 
       // Label (1-indexed row number).
       final label = '${r + 1}';
@@ -295,7 +349,7 @@ class TabularRenderer {
 
   static void _drawGridLines(
     Canvas canvas,
-    dynamic model,
+    SpreadsheetModel model,
     TabularNode node,
     int firstCol,
     int lastCol,
@@ -305,33 +359,20 @@ class TabularRenderer {
     double yOffset,
     Rect bounds,
   ) {
-    final linePaint =
-        Paint()
-          ..color = node.gridLineColor
-          ..strokeWidth = node.gridLineWidth
-          ..style = PaintingStyle.stroke
-          ..isAntiAlias = false;
+    _gridLinePaint
+      ..color = node.gridLineColor
+      ..strokeWidth = node.gridLineWidth;
 
-    // Pre-compute column X positions.
+    // Pre-compute column X positions via O(1) offsets.
     final colX = <double>[];
-    double cx = xOffset;
-    for (int c = 0; c < firstCol; c++) {
-      cx += model.getColumnWidth(c) as double;
-    }
     for (int c = firstCol; c <= lastCol + 1; c++) {
-      colX.add(cx);
-      if (c <= lastCol) cx += model.getColumnWidth(c) as double;
+      colX.add(xOffset + model.columnOffset(c));
     }
 
-    // Pre-compute row Y positions.
+    // Pre-compute row Y positions via O(1) offsets.
     final rowY = <double>[];
-    double ry = yOffset;
-    for (int r = 0; r < firstRow; r++) {
-      ry += model.getRowHeight(r) as double;
-    }
     for (int r = firstRow; r <= lastRow + 1; r++) {
-      rowY.add(ry);
-      if (r <= lastRow) ry += model.getRowHeight(r) as double;
+      rowY.add(yOffset + model.rowOffset(r));
     }
 
     // Helper to get cell borders (null format = default = all borders).
@@ -353,19 +394,19 @@ class TabularRenderer {
         if (c == firstCol) {
           // Left edge of table: draw if edge cell has .left border.
           if (_getBorders(c, r).left) {
-            canvas.drawLine(Offset(x, y1), Offset(x, y2), linePaint);
+            canvas.drawLine(Offset(x, y1), Offset(x, y2), _gridLinePaint);
           }
         } else if (c == lastCol + 1) {
           // Right edge of table: draw if edge cell has .right border.
           if (_getBorders(c - 1, r).right) {
-            canvas.drawLine(Offset(x, y1), Offset(x, y2), linePaint);
+            canvas.drawLine(Offset(x, y1), Offset(x, y2), _gridLinePaint);
           }
         } else {
           // Between col c-1 and col c: draw if c-1.right or c.left is true.
           final leftBorders = _getBorders(c - 1, r);
           final rightBorders = _getBorders(c, r);
           if (leftBorders.right || rightBorders.left) {
-            canvas.drawLine(Offset(x, y1), Offset(x, y2), linePaint);
+            canvas.drawLine(Offset(x, y1), Offset(x, y2), _gridLinePaint);
           }
         }
       }
@@ -384,19 +425,19 @@ class TabularRenderer {
         if (r == firstRow) {
           // Top edge of table: draw if edge cell has .top border.
           if (_getBorders(c, r).top) {
-            canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
+            canvas.drawLine(Offset(x1, y), Offset(x2, y), _gridLinePaint);
           }
         } else if (r == lastRow + 1) {
           // Bottom edge of table: draw if edge cell has .bottom border.
           if (_getBorders(c, r - 1).bottom) {
-            canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
+            canvas.drawLine(Offset(x1, y), Offset(x2, y), _gridLinePaint);
           }
         } else {
           // Between row r-1 and row r: draw if r-1.bottom or r.top is true.
           final topBorders = _getBorders(c, r - 1);
           final bottomBorders = _getBorders(c, r);
           if (topBorders.bottom || bottomBorders.top) {
-            canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
+            canvas.drawLine(Offset(x1, y), Offset(x2, y), _gridLinePaint);
           }
         }
       }
@@ -409,7 +450,7 @@ class TabularRenderer {
 
   static void _drawMergeOverlays(
     Canvas canvas,
-    dynamic model,
+    SpreadsheetModel model,
     TabularNode node,
     int firstCol,
     int lastCol,
@@ -421,33 +462,22 @@ class TabularRenderer {
     final regions = node.mergeManager.regions;
     if (regions.isEmpty) return;
 
-    // Pre-compute column X positions.
+    // Pre-compute column X positions via O(1) offsets.
     final colXMap = <int, double>{};
-    double cx = xOffset;
-    for (int c = 0; c <= lastCol; c++) {
-      if (c >= firstCol) colXMap[c] = cx;
-      cx += model.getColumnWidth(c) as double;
+    for (int c = firstCol; c <= lastCol; c++) {
+      colXMap[c] = xOffset + model.columnOffset(c);
     }
 
-    // Pre-compute row Y positions.
+    // Pre-compute row Y positions via O(1) offsets.
     final rowYMap = <int, double>{};
-    double ry = yOffset;
-    for (int r = 0; r <= lastRow; r++) {
-      if (r >= firstRow) rowYMap[r] = ry;
-      ry += model.getRowHeight(r) as double;
+    for (int r = firstRow; r <= lastRow; r++) {
+      rowYMap[r] = yOffset + model.rowOffset(r);
     }
 
-    final bgPaint =
-        Paint()
-          ..color = node.backgroundColor
-          ..style = PaintingStyle.fill;
-
-    final borderPaint =
-        Paint()
-          ..color = node.gridLineColor
-          ..strokeWidth = node.gridLineWidth
-          ..style = PaintingStyle.stroke
-          ..isAntiAlias = false;
+    _bgPaint.color = node.backgroundColor;
+    _gridLinePaint
+      ..color = node.gridLineColor
+      ..strokeWidth = node.gridLineWidth;
 
     for (final region in regions) {
       // Skip regions fully outside the visible range.
@@ -458,45 +488,30 @@ class TabularRenderer {
       final startCol = region.startColumn;
       final startRow = region.startRow;
 
-      // X position of the region start.
-      double regionX = xOffset;
-      for (int c = 0; c < startCol; c++) {
-        regionX += model.getColumnWidth(c) as double;
-      }
-      // Y position of the region start.
-      double regionY = yOffset;
-      for (int r = 0; r < startRow; r++) {
-        regionY += model.getRowHeight(r) as double;
-      }
-      // Width = sum of column widths in region.
-      double regionW = 0;
-      for (int c = region.startColumn; c <= region.endColumn; c++) {
-        regionW += model.getColumnWidth(c) as double;
-      }
-      // Height = sum of row heights in region.
-      double regionH = 0;
-      for (int r = region.startRow; r <= region.endRow; r++) {
-        regionH += model.getRowHeight(r) as double;
-      }
+      // Use O(1) offset lookups for region bounds.
+      final regionX = xOffset + model.columnOffset(startCol);
+      final regionY = yOffset + model.rowOffset(startRow);
+      final regionW =
+          model.columnOffset(region.endColumn + 1) -
+          model.columnOffset(region.startColumn);
+      final regionH =
+          model.rowOffset(region.endRow + 1) - model.rowOffset(region.startRow);
 
       final rect = Rect.fromLTWH(regionX, regionY, regionW, regionH);
 
       // Fill with background to cover internal grid lines.
-      canvas.drawRect(rect, bgPaint);
+      canvas.drawRect(rect, _bgPaint);
 
       // Check if the master cell has a custom background color.
       final masterAddr = CellAddress(region.startColumn, region.startRow);
       final masterCell = model.getCell(masterAddr);
       if (masterCell != null && masterCell.format?.backgroundColor != null) {
-        final cellBgPaint =
-            Paint()
-              ..color = masterCell.format!.backgroundColor!
-              ..style = PaintingStyle.fill;
-        canvas.drawRect(rect, cellBgPaint);
+        _cellBgPaint.color = masterCell.format!.backgroundColor!;
+        canvas.drawRect(rect, _cellBgPaint);
       }
 
       // Draw border around the merged region.
-      canvas.drawRect(rect, borderPaint);
+      canvas.drawRect(rect, _gridLinePaint);
     }
   }
 
@@ -506,35 +521,26 @@ class TabularRenderer {
 
   static void _drawCells(
     Canvas canvas,
-    dynamic model,
+    SpreadsheetModel model,
     TabularNode node,
     int firstCol,
     int lastCol,
     int firstRow,
     int lastRow,
     double xOffset,
-    double yOffset,
-  ) {
-    // Pre-compute row Y offsets.
+    double yOffset, {
+    bool skipText = false,
+  }) {
+    // Pre-compute row Y offsets via O(1) lookups.
     final rowYs = <double>[];
-    double y = yOffset;
-    for (int r = 0; r < firstRow; r++) {
-      y += model.getRowHeight(r) as double;
-    }
     for (int r = firstRow; r <= lastRow; r++) {
-      rowYs.add(y);
-      y += model.getRowHeight(r) as double;
+      rowYs.add(yOffset + model.rowOffset(r));
     }
 
-    // Pre-compute column X offsets.
+    // Pre-compute column X offsets via O(1) lookups.
     final colXs = <double>[];
-    double x = xOffset;
-    for (int c = 0; c < firstCol; c++) {
-      x += model.getColumnWidth(c) as double;
-    }
     for (int c = firstCol; c <= lastCol; c++) {
-      colXs.add(x);
-      x += model.getColumnWidth(c) as double;
+      colXs.add(xOffset + model.columnOffset(c));
     }
 
     final cellPadding = 4.0;
@@ -561,22 +567,16 @@ class TabularRenderer {
         double cellH;
         final mergeRegion = node.mergeManager.getRegion(addr);
         if (mergeRegion != null && node.mergeManager.isMasterCell(addr)) {
-          // Sum widths and heights of the merged region.
-          cellW = 0;
-          for (
-            int mc = mergeRegion.startColumn;
-            mc <= mergeRegion.endColumn;
-            mc++
-          ) {
-            cellW += model.getColumnWidth(mc) as double;
-          }
-          cellH = 0;
-          for (int mr = mergeRegion.startRow; mr <= mergeRegion.endRow; mr++) {
-            cellH += model.getRowHeight(mr) as double;
-          }
+          // O(1) via offset subtraction instead of summing each width/height.
+          cellW =
+              model.columnOffset(mergeRegion.endColumn + 1) -
+              model.columnOffset(mergeRegion.startColumn);
+          cellH =
+              model.rowOffset(mergeRegion.endRow + 1) -
+              model.rowOffset(mergeRegion.startRow);
         } else {
-          cellW = model.getColumnWidth(c) as double;
-          cellH = model.getRowHeight(r) as double;
+          cellW = model.getColumnWidth(c);
+          cellH = model.getRowHeight(r);
         }
 
         // Resolve effective format: static cell format + conditional overrides.
@@ -585,16 +585,19 @@ class TabularRenderer {
           addr,
           displayValue,
         );
-        final effectiveFormat = _mergeFormats(staticFormat, condFormat);
+        final effectiveFormat = CellFormat.merge(staticFormat, condFormat);
 
         // Cell background (if format specifies one).
         if (effectiveFormat?.backgroundColor != null) {
-          final bgPaint =
-              Paint()
-                ..color = effectiveFormat!.backgroundColor!
-                ..style = PaintingStyle.fill;
-          canvas.drawRect(Rect.fromLTWH(cellX, cellY, cellW, cellH), bgPaint);
+          _cellBgPaint.color = effectiveFormat!.backgroundColor!;
+          canvas.drawRect(
+            Rect.fromLTWH(cellX, cellY, cellW, cellH),
+            _cellBgPaint,
+          );
         }
+
+        // LOD: skip text rendering at mid-zoom — cells are too small to read.
+        if (skipText) continue;
 
         // Cell text.
         String text;
@@ -698,37 +701,10 @@ class TabularRenderer {
                 ..lineTo(cellX + cellW, cellY)
                 ..lineTo(cellX + cellW, cellY + triangleSize)
                 ..close();
-          canvas.drawPath(
-            path,
-            Paint()
-              ..color = const Color(0xFFFF4444)
-              ..style = PaintingStyle.fill,
-          );
+          canvas.drawPath(path, _validationPaint);
         }
       }
     }
-  }
-
-  /// Merge a static cell format with a conditional format overlay.
-  ///
-  /// Returns the effective [CellFormat] to use for rendering.
-  /// If both are null, returns null. Conditional format properties
-  /// override static format properties.
-  static CellFormat? _mergeFormats(CellFormat? staticFmt, CellFormat? condFmt) {
-    if (staticFmt == null && condFmt == null) return null;
-    if (condFmt == null) return staticFmt;
-    if (staticFmt == null) return condFmt;
-
-    return CellFormat(
-      numberFormat: condFmt.numberFormat ?? staticFmt.numberFormat,
-      horizontalAlign: condFmt.horizontalAlign ?? staticFmt.horizontalAlign,
-      verticalAlign: condFmt.verticalAlign ?? staticFmt.verticalAlign,
-      fontSize: condFmt.fontSize ?? staticFmt.fontSize,
-      textColor: condFmt.textColor ?? staticFmt.textColor,
-      backgroundColor: condFmt.backgroundColor ?? staticFmt.backgroundColor,
-      bold: condFmt.bold ?? staticFmt.bold,
-      italic: condFmt.italic ?? staticFmt.italic,
-    );
   }
 
   // =========================================================================
@@ -741,29 +717,21 @@ class TabularRenderer {
   /// providing the "pinned header" effect common in spreadsheet apps.
   static void _drawFrozenPanes(
     Canvas canvas,
-    dynamic model,
+    SpreadsheetModel model,
     TabularNode node,
     double xOffset,
     double yOffset,
     Rect bounds,
   ) {
-    final frozenCols = model.frozenColumns as int;
-    final frozenRows = model.frozenRows as int;
+    final frozenCols = model.frozenColumns;
+    final frozenRows = model.frozenRows;
 
     if (frozenCols <= 0 && frozenRows <= 0) return;
 
-    final separatorPaint =
-        Paint()
-          ..color = const Color(0xFF4A90D9)
-          ..strokeWidth = 2.0
-          ..style = PaintingStyle.stroke;
-
     // Draw frozen columns (left panel).
     if (frozenCols > 0) {
-      double frozenWidth = 0;
-      for (int c = 0; c < frozenCols; c++) {
-        frozenWidth += model.getColumnWidth(c) as double;
-      }
+      // O(1) via prefix-sum offset.
+      final frozenWidth = model.columnOffset(frozenCols);
 
       // Background to cover scrolled content.
       final frozenRect = Rect.fromLTWH(
@@ -776,11 +744,8 @@ class TabularRenderer {
       canvas.clipRect(frozenRect);
 
       // Fill background.
-      final bgPaint =
-          Paint()
-            ..color = node.backgroundColor
-            ..style = PaintingStyle.fill;
-      canvas.drawRect(frozenRect, bgPaint);
+      _bgPaint.color = node.backgroundColor;
+      canvas.drawRect(frozenRect, _bgPaint);
 
       // Draw cells in frozen columns.
       _drawCells(
@@ -801,16 +766,14 @@ class TabularRenderer {
       canvas.drawLine(
         Offset(sepX, yOffset),
         Offset(sepX, bounds.bottom),
-        separatorPaint,
+        _frozenSeparatorPaint,
       );
     }
 
     // Draw frozen rows (top panel).
     if (frozenRows > 0) {
-      double frozenHeight = 0;
-      for (int r = 0; r < frozenRows; r++) {
-        frozenHeight += model.getRowHeight(r) as double;
-      }
+      // O(1) via prefix-sum offset.
+      final frozenHeight = model.rowOffset(frozenRows);
 
       final frozenRect = Rect.fromLTWH(
         xOffset,
@@ -821,11 +784,8 @@ class TabularRenderer {
       canvas.save();
       canvas.clipRect(frozenRect);
 
-      final bgPaint =
-          Paint()
-            ..color = node.backgroundColor
-            ..style = PaintingStyle.fill;
-      canvas.drawRect(frozenRect, bgPaint);
+      _bgPaint.color = node.backgroundColor;
+      canvas.drawRect(frozenRect, _bgPaint);
 
       _drawCells(
         canvas,
@@ -845,7 +805,7 @@ class TabularRenderer {
       canvas.drawLine(
         Offset(xOffset, sepY),
         Offset(bounds.right, sepY),
-        separatorPaint,
+        _frozenSeparatorPaint,
       );
     }
   }

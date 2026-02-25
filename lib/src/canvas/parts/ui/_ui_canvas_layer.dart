@@ -191,6 +191,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
                       pdfLayoutVersion:
                           _pdfLayoutVersion, // 📄 Layout mutation counter
                       showPdfPageNumbers: _showPdfPageNumbers,
+                      surface: _activeSurface, // 🧬 Programmable materiality
                     ),
                     size: Size.infinite,
                   ),
@@ -414,6 +415,7 @@ extension NebulaCanvasLayersUI on _NebulaCanvasScreenState {
             guideSystem: _rulerGuideSystem,
             controller: _canvasController, // 🚀 viewport-level mode
             pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
+            surface: _activeSurface, // 🧬 Programmable materiality
           ),
           size: Size.infinite,
         ),

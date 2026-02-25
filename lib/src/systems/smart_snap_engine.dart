@@ -102,7 +102,9 @@ class SnapResult {
 /// ```
 class SmartSnapEngine {
   /// Distance threshold for snapping (in canvas pixels).
-  final double threshold;
+  /// Mutable so Conscious Architecture can adjust it at runtime without
+  /// recreating the engine (avoids GC churn).
+  double threshold;
 
   /// Grid spacing (0 = grid snap disabled).
   final double gridSpacing;
@@ -110,7 +112,7 @@ class SmartSnapEngine {
   /// Angle snap increment in degrees (0 = disabled).
   final double angleIncrement;
 
-  const SmartSnapEngine({
+  SmartSnapEngine({
     this.threshold = 8.0,
     this.gridSpacing = 0.0,
     this.angleIncrement = 15.0,

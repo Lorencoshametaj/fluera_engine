@@ -183,3 +183,60 @@ Motore 2D professionale costruito in 6 fasi incrementali, 100% retrocompatibile.
 | Font variable axes | 6 preset |
 | Image adjustments | 6 (brightness, contrast, saturation, hue, exposure, temperature) |
 | Unit tests | 348 |
+
+---
+
+## 🧠 Conscious Architecture — Beyond Fluidity
+
+The engine operates at **five levels of intelligence**, from raw performance to creative co-authoring.
+
+```mermaid
+graph TB
+    L4["⚡ L4 — Generative: Co-creates with the user"]
+    L3["☁️ L3 — Invisible: Technology disappears"]
+    L2["🌊 L2 — Adaptive: Tunes itself to context"]
+    L1["🔮 L1 — Anticipatory: Predicts user intent"]
+    L0["🧊 L0 — Fluid: 60 FPS, zero-alloc"]
+    L4 --> L3 --> L2 --> L1 --> L0
+```
+
+### L0 — Fluid (Complete)
+8-subsystem pipeline: tile cache, frame budget, LOD, predictive stroke, gesture coalescing, chunked raster, adaptive 1€ filter, isolate raster.
+
+### L1 — Anticipatory
+| Subsystem | File |
+|-----------|------|
+| Directional Prefetch | `anticipatory_tile_prefetch.dart` |
+| LOD Batch Precompute | `lod_manager.dart` |
+| Stroke Prediction | `predictive_renderer.dart` |
+
+### L2 — Adaptive
+| Subsystem | File |
+|-----------|------|
+| Behavior Profile | `adaptive_profile.dart` |
+| Reactivity Curve | `one_euro_filter.dart` |
+| Refresh Rate Detection | `frame_budget_manager.dart` |
+| Memory Pressure | `frame_budget_manager.dart` |
+| Liquid Physics | `liquid_canvas_config.dart` |
+
+### L3 — Invisible
+| Subsystem | File |
+|-----------|------|
+| Smart Snap | `smart_snap_engine.dart` |
+| Smart Animate | `smart_animate_engine.dart` |
+| Plugin Sandbox | `plugin_api.dart` |
+| Content Radar | `content_radar_overlay.dart` |
+| Accessibility | `accessibility_bridge.dart` |
+
+### L4 — Generative
+| Subsystem | File |
+|-----------|------|
+| LaTeX Recognizer | `onnx_latex_recognizer.dart` |
+| Design Linter | `design_linter.dart` |
+| Style Coherence | `style_coherence_engine.dart` |
+
+### Contract & Registry
+
+All intelligence subsystems implement `IntelligenceSubsystem` (see `lib/src/core/conscious_architecture.dart`). The `ConsciousArchitecture` registry coordinates lifecycle via `onContextChanged()` and `onIdle()`.
+
+Adding a new subsystem: create class → declare layer/name → implement lifecycle → register in `EngineScope`.

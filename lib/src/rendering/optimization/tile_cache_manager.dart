@@ -9,6 +9,8 @@ import './advanced_tile_optimizer.dart';
 import './memory_managed_cache.dart';
 import './isolate_geometry_worker.dart';
 import '../../core/engine_scope.dart';
+import '../../core/conscious_architecture.dart';
+import './anticipatory_tile_prefetch.dart';
 
 /// 🚀 TILE CACHE MANAGER - Scalable tile caching for 100k+ strokes
 ///
@@ -140,8 +142,29 @@ class TileCacheManager
   List<(int, int)> getVisibleTiles(Rect viewport, double scale) {
     updateScale(scale);
     final ts = getTileSize(scale);
-    // Expand viewport for preload
-    final expandedViewport = viewport.inflate(ts * preloadMargin);
+
+    // 🧠 CONSCIOUS ARCHITECTURE: Use directional margins from
+    // AnticipatoryTilePrefetch if available, otherwise fall back
+    // to the static uniform preloadMargin.
+    Rect expandedViewport;
+    try {
+      final arch = EngineScope.current.consciousArchitecture;
+      final prefetch = arch.find<AnticipatoryTilePrefetch>();
+      if (prefetch != null && prefetch.isActive) {
+        final m = prefetch.margins; // [left, top, right, bottom] in tiles
+        expandedViewport = Rect.fromLTRB(
+          viewport.left - m[0] * ts,
+          viewport.top - m[1] * ts,
+          viewport.right + m[2] * ts,
+          viewport.bottom + m[3] * ts,
+        );
+      } else {
+        expandedViewport = viewport.inflate(ts * preloadMargin);
+      }
+    } catch (_) {
+      // EngineScope not initialized yet — use uniform margin.
+      expandedViewport = viewport.inflate(ts * preloadMargin);
+    }
 
     final startX = (expandedViewport.left / ts).floor();
     final startY = (expandedViewport.top / ts).floor();

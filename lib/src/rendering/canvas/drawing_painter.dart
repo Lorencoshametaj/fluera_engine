@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../drawing/models/surface_material.dart';
+import '../../services/canvas_performance_monitor.dart';
 import 'package:flutter/scheduler.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -138,6 +140,9 @@ class DrawingPainter extends CustomPainter {
   // differs between old and new painter instances.
   final int pdfLayoutVersion;
 
+  // 🧬 Canvas surface material: passed to BrushEngine for surface-aware shaders
+  final SurfaceMaterial? surface;
+
   // 🌲 Cached materialized strokes (lazily computed once per paint frame)
   List<ProStroke>? _materializedCache;
   int _materializedVersion = -1;
@@ -172,6 +177,7 @@ class DrawingPainter extends CustomPainter {
     this.pdfSearchController, // 🔍 Full-text search highlights
     this.pdfLayoutVersion = 0, // 📄 PDF layout mutation counter
     this.showPdfPageNumbers = true, // 📑 Page number badges
+    this.surface, // 🧬 Surface material for shader-aware rendering
   }) : _sceneGraphVersion = sceneGraph.version,
        super(repaint: controller); // repaint on pan/zoom when controller set
 
@@ -206,6 +212,9 @@ class DrawingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // 🏎️ PERFORMANCE MONITORING: measure frame time
+    CanvasPerformanceMonitor.instance.startFrame();
+
     // 🚀 SHADER WARM-UP: Pre-compile all GPU shaders on the first paint frame.
     // Avoids jank on the user's first stroke. Only runs once (_warmedUp guard).
     ShaderBrushService.instance.warmUp(canvas);
@@ -305,6 +314,9 @@ class DrawingPainter extends CustomPainter {
     if (isViewportLevel) {
       canvas.restore();
     }
+
+    // 🏎️ PERFORMANCE MONITORING: end frame measurement
+    CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
   }
 
   // ---------------------------------------------------------------------------
@@ -872,7 +884,9 @@ class DrawingPainter extends CustomPainter {
       canvas.save();
       final tx = node.localTransform.getTranslation();
       canvas.translate(tx.x, tx.y);
-      TabularRenderer.drawTabularNode(canvas, node);
+      // Transform viewport into the node's local space for culling/LOD.
+      final localViewport = viewport.translate(-tx.x, -tx.y);
+      TabularRenderer.drawTabularNode(canvas, node, visibleRect: localViewport);
       canvas.restore();
     } else if (node is GroupNode) {
       for (final child in node.children) {
@@ -1309,6 +1323,7 @@ class DrawingPainter extends CustomPainter {
         stroke.baseWidth,
         stroke.penType,
         stroke.settings,
+        surface: surface,
       );
     }
   }

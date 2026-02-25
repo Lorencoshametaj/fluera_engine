@@ -1,0 +1,10 @@
+{
+    "TextureOverlayVertex": {
+        "type": "vertex",
+        "file": "shaders/gpu_texture_overlay.vert"
+    },
+    "TextureOverlayFragment": {
+        "type": "fragment",
+        "file": "shaders/gpu_texture_overlay.frag"
+    }
+}

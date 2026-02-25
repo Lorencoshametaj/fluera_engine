@@ -250,17 +250,14 @@ class TabularSelectionPainter extends CustomPainter {
     // Check if this cell is the master of a merge region.
     final mergeRegion = node.mergeManager.getRegion(addr);
     if (mergeRegion != null && node.mergeManager.isMasterCell(addr)) {
-      // Sum widths across merged columns.
-      double w = 0;
-      for (int c = mergeRegion.startColumn; c <= mergeRegion.endColumn; c++) {
-        w += node.model.getColumnWidth(c);
-      }
-      // Sum heights across merged rows.
-      double h = 0;
-      for (int r = mergeRegion.startRow; r <= mergeRegion.endRow; r++) {
-        h += node.model.getRowHeight(r);
-      }
-      return Rect.fromLTWH(topLeft.dx, topLeft.dy, w, h);
+      // O(1) via offset subtraction.
+      final w =
+          node.model.columnOffset(mergeRegion.endColumn + 1) -
+          node.model.columnOffset(mergeRegion.startColumn);
+      final h =
+          node.model.rowOffset(mergeRegion.endRow + 1) -
+          node.model.rowOffset(mergeRegion.startRow);
+      return Rect.fromLTWH(topLeft.dx, topLeft.dy, w.toDouble(), h.toDouble());
     }
 
     final w = node.model.getColumnWidth(addr.column);

@@ -301,19 +301,12 @@ class ConditionalFormatEngine {
     return matches;
   }
 
-  /// Merge two CellFormats. [base] properties are kept unless [overlay]
-  /// provides a non-null override.
+  /// Merge two CellFormats. [base] is the previously-accumulated result
+  /// (higher priority). [overlay] is the new rule's format (lower priority).
+  /// Higher-priority (base) properties take precedence.
   CellFormat _mergeFormats(CellFormat base, CellFormat overlay) {
-    return CellFormat(
-      numberFormat: base.numberFormat ?? overlay.numberFormat,
-      horizontalAlign: base.horizontalAlign ?? overlay.horizontalAlign,
-      verticalAlign: base.verticalAlign ?? overlay.verticalAlign,
-      fontSize: base.fontSize ?? overlay.fontSize,
-      textColor: base.textColor ?? overlay.textColor,
-      backgroundColor: base.backgroundColor ?? overlay.backgroundColor,
-      bold: base.bold ?? overlay.bold,
-      italic: base.italic ?? overlay.italic,
-    );
+    // overlay.mergeWith(base) → base properties override overlay
+    return overlay.mergeWith(base);
   }
 
   // -------------------------------------------------------------------------

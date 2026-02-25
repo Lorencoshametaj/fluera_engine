@@ -12,12 +12,14 @@ uniform float uPressure1;     // 6: Pressure at start
 uniform float uPressure2;     // 7: Pressure at end
 uniform float uVelocity;      // 8: Segment velocity (0–1)
 uniform float uIntensity;     // 9: Texture intensity (0–1)
-uniform float uTextureScale;  // 10: Inverse scale (1/totalScale)
-uniform float uTexOffsetX;    // 11: Random texture offset X
-uniform float uTexOffsetY;    // 12: Random texture offset Y
+uniform float uTextureScale;  // 10: 5.0 / (typeScale * widthScale)
+uniform float uTexOffsetX;    // 11: Random texture offset X [0,1]
+uniform float uTexOffsetY;    // 12: Random texture offset Y [0,1]
 uniform float uCosAngle;      // 13: Pre-computed cos(rotation)
 uniform float uSinAngle;      // 14: Pre-computed sin(rotation)
 uniform float uWetEdge;       // 15: Wet edge darkening (0–1)
+uniform float uTexWidth;      // 16: Texture image width in pixels
+uniform float uTexHeight;     // 17: Texture image height in pixels
 
 uniform sampler2D uTexture;   // sampler(0): tileable grayscale texture
 
@@ -45,37 +47,44 @@ void main() {
     }
 
     // ── Rotated texture UV ──
-    // Apply rotation matrix [cos -sin; sin cos] * scale + offset
     vec2 rotated = vec2(
         fragCoord.x * uCosAngle - fragCoord.y * uSinAngle,
         fragCoord.x * uSinAngle + fragCoord.y * uCosAngle
     );
-    vec2 uv = (rotated + vec2(uTexOffsetX, uTexOffsetY)) * uTextureScale;
+    // uTextureScale / texSize → e.g. 5.0/640 = 0.0078 UV/pixel (smooth)
+    vec2 texSize = vec2(max(uTexWidth, 1.0), max(uTexHeight, 1.0));
+    vec2 uv = fract(rotated * uTextureScale / texSize + vec2(uTexOffsetX, uTexOffsetY));
+
+    // Fix Y-axis inversion on OpenGL ES (Android/Impeller)
+    #ifdef IMPELLER_TARGET_OPENGLES
+    uv.y = 1.0 - uv.y;
+    #endif
 
     // Sample texture (grayscale — use .r channel)
     float texSample = texture(uTexture, uv).r;
 
-    // ── Pressure interpolation ──
+    // ── Pressure & velocity modulation ──
     float pressure = mix(uPressure1, uPressure2, t);
     float pressureFactor = 0.3 + pressure * 0.7;
-
-    // ── Velocity erosion ──
-    // Faster strokes → less texture (lighter touch)
     float velFactor = mix(1.0, 0.3, uVelocity);
 
     // ── Wet edge ──
-    // Edge distance ratio: 0 at center, 1 at edge
     float edgeRatio = dist / max(halfW, 0.001);
-    // Darken texture near the edges when wet edge > 0
     float wetDarken = 1.0 + uWetEdge * smoothstep(0.3, 0.9, edgeRatio) * 0.6;
 
-    // ── Final erosion alpha ──
-    // texSample: 1 = full texture, 0 = no texture
-    // We invert: bright areas of texture erode the stroke more
-    float erosion = texSample * uIntensity * pressureFactor * velFactor * wetDarken;
-    erosion = clamp(erosion * 0.7, 0.0, 1.0);
+    // ── Final erosion ──
+    // Invert: dark grain areas → high erosion, white paper → no erosion
+    float grain = 1.0 - texSample;
+    grain = sqrt(grain); // compress extremes
 
-    // Output: premultiplied alpha (BlendMode.dstOut will subtract this)
+    float erosion = grain * uIntensity * pressureFactor * velFactor * wetDarken;
+    // Direct dstOut per capsule: each capsule erodes the stroke directly.
+    // With aggressive coalescing (~8 capsules), overlap accumulates:
+    //   8 × 0.03 → total ≈ 22% erosion (1-(1-0.03)^8).
+    // This gives visible texture grain without making strokes transparent.
+    erosion = clamp(erosion * 0.15, 0.0, 0.03);
+
+    // Output: premultiplied alpha for dstOut erosion.
     float alpha = erosion * mask;
     fragColor = vec4(alpha, alpha, alpha, alpha);
 }

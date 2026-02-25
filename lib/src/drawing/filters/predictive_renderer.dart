@@ -115,6 +115,12 @@ class PredictiveRenderer {
   ) {
     if (predictedPoints.isEmpty || _recentPoints.isEmpty) return;
 
+    // 🎯 FIX: Suppress ghost trail at low speeds — it's perceptible as a
+    // "chasing" artifact during slow writing. Only show at moderate+ speed
+    // where the latency reduction is actually beneficial.
+    final velocity = _calculateVelocity();
+    if (velocity.distance < 2.0) return; // < 2 px/frame → invisible ghost
+
     final lastActualPoint = _recentPoints.last.point;
     final count = predictedPoints.length;
 
@@ -125,16 +131,14 @@ class PredictiveRenderer {
       _ghostPath.lineTo(predictedPoints[i].dx, predictedPoints[i].dy);
     }
 
-    // Single draw call with average opacity (simpler, 1 draw call instead of N)
+    // Very subtle ghost — 2% opacity, 70% width, slight blur
     _ghostPaint
-      ..color = basePaint.color.withValues(alpha: ghostOpacity * 0.7)
-      ..strokeWidth =
-          basePaint.strokeWidth *
-          0.9 // Slightly thinner
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.8);
+      ..color = basePaint.color.withValues(alpha: ghostOpacity * 0.35)
+      ..strokeWidth = basePaint.strokeWidth * 0.7
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.5);
 
     canvas.drawPath(_ghostPath, _ghostPaint);
-    _ghostPaint.maskFilter = null; // Reset
+    _ghostPaint.maskFilter = null;
   }
 
   /// Frame time in seconds used for prediction step size.

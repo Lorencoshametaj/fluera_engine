@@ -1,5 +1,6 @@
 import 'assets/asset_registry.dart';
 import 'audit/audit_event_bridge.dart';
+import 'modules/module_registry.dart';
 import 'audit/audit_log_service.dart';
 import 'rbac/permission_interceptor.dart';
 import 'rbac/permission_service.dart';
@@ -18,6 +19,7 @@ import '../history/command_journal.dart';
 import '../history/journal_recovery_middleware.dart';
 import '../drawing/services/brush_settings_service.dart';
 import '../drawing/services/stroke_persistence_service.dart';
+import '../drawing/drawing_module.dart';
 import '../rendering/shaders/shader_brush_service.dart';
 import '../rendering/render_profiler.dart';
 import '../tools/base/tool_registry.dart';
@@ -41,9 +43,14 @@ import '../history/async_command.dart';
 import '../systems/engine_theme.dart';
 import '../systems/plugin_api.dart';
 import '../rendering/cache/render_cache_scope.dart';
+import 'conscious_architecture.dart';
+import '../systems/style_coherence_engine.dart';
 import 'tabular/spreadsheet_model.dart';
 import 'tabular/spreadsheet_evaluator.dart';
 import 'tabular/tabular_latex_bridge.dart';
+import 'tabular/tabular_module.dart';
+import 'latex/latex_module.dart';
+import '../tools/pdf/pdf_module.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -196,14 +203,23 @@ class EngineScope {
       BackgroundSaveService.create();
 
   /// Brush settings storage & notification.
+  ///
+  /// **Deprecated**: Use `DrawingModule.brushSettingsService` instead.
+  @Deprecated('Use DrawingModule via moduleRegistry instead')
   late final BrushSettingsService brushSettingsService =
       BrushSettingsService.create();
 
   /// Stroke disk persistence service.
+  ///
+  /// **Deprecated**: Use `DrawingModule.strokePersistenceService` instead.
+  @Deprecated('Use DrawingModule via moduleRegistry instead')
   late final StrokePersistenceService strokePersistenceService =
       StrokePersistenceService.create();
 
   /// GPU shader brush rendering service.
+  ///
+  /// **Deprecated**: Use `DrawingModule.shaderBrushService` instead.
+  @Deprecated('Use DrawingModule via moduleRegistry instead')
   late final ShaderBrushService shaderBrushService =
       ShaderBrushService.create();
 
@@ -335,6 +351,20 @@ class EngineScope {
   /// Per-scope rendering cache state (replaces static caches).
   late final RenderCacheScope renderCacheScope = RenderCacheScope();
 
+  /// 🧠 Conscious Architecture — four intelligence layers beyond fluidity.
+  late final ConsciousArchitecture consciousArchitecture =
+      ConsciousArchitecture();
+
+  /// 🎨 Style Coherence — L4 Generative: per-document style learning.
+  late final StyleCoherenceEngine styleCoherenceEngine = StyleCoherenceEngine();
+
+  /// 📦 Module Registry — manages all canvas modules (drawing, tabular, etc.).
+  late final ModuleRegistry moduleRegistry = ModuleRegistry(
+    eventBus: eventBus,
+    commandHistory: commandHistory,
+    scope: this,
+  );
+
   /// Immutable, queryable audit trail for compliance & forensics.
   late final AuditLogService auditLog = AuditLogService();
 
@@ -348,21 +378,75 @@ class EngineScope {
   late final PermissionService permissionService = PermissionService();
 
   // ---------------------------------------------------------------------------
-  // Global Tabular Integration (P1)
+  // Global Tabular Integration (DEPRECATED — use TabularModule)
   // ---------------------------------------------------------------------------
 
-  /// Global spreadsheet model (shared logic across all tabular nodes).
+  /// Global spreadsheet model.
+  ///
+  /// **Deprecated**: Register a [TabularModule] via [moduleRegistry] and access
+  /// the model via `moduleRegistry.findModule<TabularModule>()!.spreadsheetModel`.
+  @Deprecated('Use TabularModule via moduleRegistry instead')
   late final SpreadsheetModel globalSpreadsheetModel = SpreadsheetModel();
 
   /// Global evaluator for the spreadsheet model.
+  ///
+  /// **Deprecated**: Use `TabularModule.spreadsheetEvaluator` instead.
+  @Deprecated('Use TabularModule via moduleRegistry instead')
   late final SpreadsheetEvaluator globalSpreadsheetEvaluator =
       SpreadsheetEvaluator(globalSpreadsheetModel);
 
-  /// The magical bridge that natively connects tabular data to LaTeX output.
+  /// Bridge connecting tabular data to LaTeX output.
+  ///
+  /// **Deprecated**: Use `TabularModule.tabularLatexBridge` instead.
+  @Deprecated('Use TabularModule via moduleRegistry instead')
   late final TabularLatexBridge globalTabularBridge = TabularLatexBridge(
     globalSpreadsheetEvaluator,
     invalidationGraph,
   );
+
+  /// Convenience accessor: returns the [TabularModule] if registered,
+  /// or `null` if the module hasn't been registered yet.
+  TabularModule? get tabularModule =>
+      moduleRegistry.findModule<TabularModule>();
+
+  /// Convenience accessor for the [DrawingModule].
+  DrawingModule? get drawingModule =>
+      moduleRegistry.findModule<DrawingModule>();
+
+  /// Convenience accessor for the [LaTeXModule].
+  LaTeXModule? get latexModule => moduleRegistry.findModule<LaTeXModule>();
+
+  /// Convenience accessor for the [PDFModule].
+  PDFModule? get pdfModule => moduleRegistry.findModule<PDFModule>();
+
+  // ---------------------------------------------------------------------------
+  // Module Initialization
+  // ---------------------------------------------------------------------------
+
+  bool _modulesInitialized = false;
+
+  /// Whether [initializeModules] has been called.
+  bool get modulesInitialized => _modulesInitialized;
+
+  /// Register and initialize all built-in canvas modules.
+  ///
+  /// Call this once after the scope is created (e.g. in the app's main).
+  /// Safe to call multiple times — subsequent calls are no-ops.
+  ///
+  /// ```dart
+  /// final scope = EngineScope();
+  /// EngineScope.push(scope);
+  /// await scope.initializeModules();
+  /// ```
+  Future<void> initializeModules() async {
+    if (_modulesInitialized) return;
+    _modulesInitialized = true;
+
+    await moduleRegistry.register(DrawingModule(), toolRegistry: toolRegistry);
+    await moduleRegistry.register(TabularModule(), toolRegistry: toolRegistry);
+    await moduleRegistry.register(LaTeXModule(), toolRegistry: toolRegistry);
+    await moduleRegistry.register(PDFModule(), toolRegistry: toolRegistry);
+  }
 
   // ---------------------------------------------------------------------------
   // Health Check
@@ -415,7 +499,27 @@ class EngineScope {
 
     services.add(ServiceHealth(name: 'PluginRegistry', healthy: true));
 
+    services.add(
+      ServiceHealth(
+        name: 'ConsciousArchitecture',
+        healthy: true,
+        detail:
+            'subsystems=${consciousArchitecture.subsystems.length}, '
+            'active=${consciousArchitecture.subsystems.where((s) => s.isActive).length}',
+      ),
+    );
+
     services.add(ServiceHealth(name: 'AssetRegistry', healthy: true));
+
+    services.add(
+      ServiceHealth(
+        name: 'ModuleRegistry',
+        healthy: true,
+        detail:
+            'modules=${moduleRegistry.moduleCount}, '
+            'nodeTypes=${moduleRegistry.registeredNodeTypes.length}',
+      ),
+    );
 
     services.add(
       ServiceHealth(
@@ -461,10 +565,18 @@ class EngineScope {
     _disposed = true;
 
     // ── 0. Independent Systems ──
-    globalTabularBridge.dispose();
-    globalSpreadsheetEvaluator.dispose();
+    // Only dispose legacy tabular if TabularModule is NOT registered
+    // (to avoid double-dispose).
+    if (tabularModule == null) {
+      // ignore: deprecated_member_use_from_same_package
+      globalTabularBridge.dispose();
+      // ignore: deprecated_member_use_from_same_package
+      globalSpreadsheetEvaluator.dispose();
+    }
 
     // ── 1. Leaf services (no other service depends on these) ──
+    moduleRegistry.dispose();
+    consciousArchitecture.dispose();
     pluginRegistry.dispose();
     toolRegistry.dispose();
     brushSettingsService.dispose();

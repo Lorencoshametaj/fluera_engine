@@ -335,20 +335,12 @@ extension on _NebulaCanvasScreenState {
               // 🎬 Loading overlay (splash screen during initialization)
               _buildLoadingOverlay(),
 
-              // 🎛️ Design Variables: floating toggle button (top-right)
-              Positioned(
-                right: 12,
-                top: 8,
-                child: ToolbarVariableButton(
-                  isActive: _showVariablePanel,
-                  onTap: _toggleVariablePanel,
-                  isDark: Theme.of(context).brightness == Brightness.dark,
-                  variableCount: _totalVariableCount,
-                ),
-              ),
+              // 🧠 Conscious Architecture: debug overlay (debug builds only)
+              // if (kDebugMode) const ConsciousDebugOverlay(),
 
-              // 🎛️ Design Variables: manager panel overlay
-              _buildVariableManagerOverlay(),
+              // 🏎️ Performance Monitor: frame time overlay (debug builds only)
+              if (kDebugMode)
+                CanvasPerformanceMonitor.instance.buildDebugOverlay(),
             ],
           ),
         ),

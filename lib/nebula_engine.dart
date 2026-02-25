@@ -35,6 +35,10 @@ export 'src/core/scene_graph/node_id.dart';
 export 'src/core/scene_graph/frozen_node_view.dart';
 export 'src/core/scene_graph/read_only_scene_graph.dart';
 
+// Module System
+export 'src/core/modules/canvas_module.dart';
+export 'src/core/modules/module_registry.dart';
+
 // Nodes
 export 'src/core/nodes/group_node.dart';
 export 'src/core/nodes/layer_node.dart';
@@ -89,6 +93,7 @@ export 'src/core/latex/ink_stroke_data.dart';
 export 'src/core/latex/latex_fuzzy_corrector.dart';
 export 'src/core/latex/latex_validator.dart';
 export 'src/core/latex/latex_confidence_annotator.dart';
+export 'src/core/latex/latex_module.dart';
 
 // Tabular (Spreadsheet Engine)
 export 'src/core/tabular/cell_address.dart';
@@ -116,6 +121,7 @@ export 'src/core/tabular/decimal_value.dart';
 export 'src/core/tabular/tabular_xlsx.dart';
 export 'src/core/tabular/cell_validation.dart';
 export 'src/core/tabular/conditional_format.dart';
+export 'src/core/tabular/tabular_module.dart';
 
 // Effects
 export 'src/core/effects/node_effect.dart';
@@ -202,6 +208,9 @@ export 'src/history/node_constraint_commands.dart';
 
 // ────────────────────────── DRAWING ──────────────────────────
 
+// Drawing Module
+export 'src/drawing/drawing_module.dart';
+
 // Brushes
 export 'src/drawing/brushes/brush_engine.dart';
 export 'src/drawing/brushes/brushes.dart';
@@ -282,6 +291,7 @@ export 'src/core/models/pdf_annotation_model.dart';
 export 'src/tools/tabular/tabular_tool.dart';
 export 'src/tools/tabular/tabular_selection_overlay.dart';
 export 'src/canvas/toolbar/pdf_thumbnail_sidebar.dart';
+export 'src/tools/pdf/pdf_module.dart';
 export 'src/canvas/toolbar/tabular_contextual_toolbar.dart';
 
 // ────────────────────────── RENDERING ──────────────────────────
@@ -438,6 +448,7 @@ export 'src/export/raster_image_encoder.dart';
 export 'src/export/raster_encoder_channel.dart';
 
 // ────────────────────────── AUDIO ──────────────────────────
+export 'src/audio/audio_module.dart';
 export 'src/audio/native_audio_models.dart';
 export 'src/audio/native_audio_player.dart';
 export 'src/audio/native_audio_recorder.dart';

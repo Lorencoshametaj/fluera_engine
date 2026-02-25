@@ -24,6 +24,7 @@ import '../../core/nodes/vector_network_node.dart';
 import '../../core/effects/shader_effect.dart';
 import '../../core/nodes/latex_node.dart';
 import '../../core/nodes/tabular_node.dart';
+import '../../core/nodes/material_zone_node.dart';
 import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
@@ -1251,7 +1252,11 @@ class SceneGraphRenderer {
 
   /// Render a tabular (spreadsheet) node via TabularRenderer.
   void _renderTabular(Canvas canvas, TabularNode node) {
-    TabularRenderer.drawTabularNode(canvas, node);
+    TabularRenderer.drawTabularNode(
+      canvas,
+      node,
+      visibleRect: _visitor._viewport,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1346,6 +1351,10 @@ class _RendererVisitor implements NodeVisitor<void> {
 
   @override
   void visitTabular(TabularNode node) => renderer._renderTabular(_canvas, node);
+
+  @override
+  void visitMaterialZone(MaterialZoneNode node) =>
+      renderer._renderChildren(_canvas, node, _viewport);
 }
 
 // ---------------------------------------------------------------------------

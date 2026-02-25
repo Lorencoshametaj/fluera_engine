@@ -18,6 +18,10 @@ import 'cell_value.dart';
 class MergeRegionManager {
   final List<CellRange> _regions = [];
 
+  /// Inverse index: maps every cell in a merge region to its region.
+  /// Rebuilt on every mutation for O(1) lookups.
+  Map<CellAddress, CellRange> _cellIndex = {};
+
   /// All current merge regions.
   List<CellRange> get regions => List.unmodifiable(_regions);
 
@@ -25,41 +29,36 @@ class MergeRegionManager {
   int get regionCount => _regions.length;
 
   // =========================================================================
-  // Queries
+  // Queries — all O(1) via _cellIndex
   // =========================================================================
 
   /// Whether [addr] falls within any merge region.
-  bool isMerged(CellAddress addr) {
-    return _regions.any((r) => r.contains(addr));
-  }
+  bool isMerged(CellAddress addr) => _cellIndex.containsKey(addr);
 
   /// Get the merge region containing [addr], or null if not merged.
-  CellRange? getRegion(CellAddress addr) {
-    for (final region in _regions) {
-      if (region.contains(addr)) return region;
-    }
-    return null;
-  }
+  CellRange? getRegion(CellAddress addr) => _cellIndex[addr];
 
   /// Get the top-left "master" cell of the merge region containing [addr].
   ///
   /// Returns [addr] itself if it's not merged.
   CellAddress getMasterCell(CellAddress addr) {
-    final region = getRegion(addr);
+    final region = _cellIndex[addr];
     if (region == null) return addr;
     return CellAddress(region.startColumn, region.startRow);
   }
 
   /// Whether [addr] is the master (top-left) cell of its merge region.
   bool isMasterCell(CellAddress addr) {
-    final region = getRegion(addr);
+    final region = _cellIndex[addr];
     if (region == null) return false;
     return addr.column == region.startColumn && addr.row == region.startRow;
   }
 
   /// Whether [addr] is a hidden cell (merged but not the master).
   bool isHiddenByMerge(CellAddress addr) {
-    return isMerged(addr) && !isMasterCell(addr);
+    final region = _cellIndex[addr];
+    if (region == null) return false;
+    return addr.column != region.startColumn || addr.row != region.startRow;
   }
 
   // =========================================================================
@@ -80,29 +79,34 @@ class MergeRegionManager {
       }
     }
     _regions.add(region);
+    _indexRegion(region);
   }
 
   /// Remove a merge region by matching its exact range.
   ///
   /// Returns true if the region was found and removed.
   bool removeRegion(CellRange region) {
-    return _regions.remove(region);
+    final removed = _regions.remove(region);
+    if (removed) _unindexRegion(region);
+    return removed;
   }
 
   /// Remove the merge region containing [addr].
   ///
   /// Returns the removed region, or null if [addr] was not merged.
   CellRange? removeRegionAt(CellAddress addr) {
-    for (int i = 0; i < _regions.length; i++) {
-      if (_regions[i].contains(addr)) {
-        return _regions.removeAt(i);
-      }
-    }
-    return null;
+    final region = _cellIndex[addr];
+    if (region == null) return null;
+    _regions.remove(region);
+    _unindexRegion(region);
+    return region;
   }
 
   /// Remove all merge regions.
-  void clear() => _regions.clear();
+  void clear() {
+    _regions.clear();
+    _cellIndex.clear();
+  }
 
   // =========================================================================
   // Serialization
@@ -113,14 +117,31 @@ class MergeRegionManager {
 
   void loadFromJson(List<dynamic> json) {
     _regions.clear();
+    _cellIndex.clear();
     for (final item in json) {
-      _regions.add(CellRange.fromJson(item as Map<String, dynamic>));
+      final region = CellRange.fromJson(item as Map<String, dynamic>);
+      _regions.add(region);
+      _indexRegion(region);
     }
   }
 
   // =========================================================================
   // Internal
   // =========================================================================
+
+  /// Add all cells of [region] to the inverse index.
+  void _indexRegion(CellRange region) {
+    for (final addr in region.addresses) {
+      _cellIndex[addr] = region;
+    }
+  }
+
+  /// Remove all cells of [region] from the inverse index.
+  void _unindexRegion(CellRange region) {
+    for (final addr in region.addresses) {
+      _cellIndex.remove(addr);
+    }
+  }
 
   /// Check if two ranges overlap.
   static bool _overlaps(CellRange a, CellRange b) {

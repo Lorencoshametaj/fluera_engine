@@ -8,6 +8,7 @@ import '../../utils/key_value_store.dart';
 import '../../core/tabular/cell_node.dart';
 import './formula_reference_sheet.dart';
 import './hsv_color_picker.dart';
+import '../../core/engine_scope.dart';
 import '../../l10n/nebula_localizations.dart';
 import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';

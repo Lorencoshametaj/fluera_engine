@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../l10n/nebula_localizations.dart';
 import '../rendering/canvas/paper_pattern_painter.dart';
 import '../rendering/shaders/shader_brush_service.dart';
+import '../drawing/models/surface_material.dart';
 
 /// Dialog per le impostazioni avanzate del canvas — Material Design 3
 class CanvasSettingsDialog extends StatefulWidget {
@@ -10,6 +11,8 @@ class CanvasSettingsDialog extends StatefulWidget {
   final String currentPaperType;
   final Function(Color) onBackgroundColorChanged;
   final Function(String) onPaperTypeChanged;
+  final SurfaceMaterial? currentSurface;
+  final Function(SurfaceMaterial?)? onSurfaceChanged;
 
   const CanvasSettingsDialog({
     super.key,
@@ -18,6 +21,8 @@ class CanvasSettingsDialog extends StatefulWidget {
     required this.currentPaperType,
     required this.onBackgroundColorChanged,
     required this.onPaperTypeChanged,
+    this.currentSurface,
+    this.onSurfaceChanged,
   });
 
   @override
@@ -30,6 +35,8 @@ class CanvasSettingsDialog extends StatefulWidget {
     required String currentPaperType,
     required Function(Color) onBackgroundColorChanged,
     required Function(String) onPaperTypeChanged,
+    SurfaceMaterial? currentSurface,
+    Function(SurfaceMaterial?)? onSurfaceChanged,
   }) {
     return showDialog(
       context: context,
@@ -40,6 +47,8 @@ class CanvasSettingsDialog extends StatefulWidget {
             currentPaperType: currentPaperType,
             onBackgroundColorChanged: onBackgroundColorChanged,
             onPaperTypeChanged: onPaperTypeChanged,
+            currentSurface: currentSurface,
+            onSurfaceChanged: onSurfaceChanged,
           ),
     );
   }
@@ -48,6 +57,7 @@ class CanvasSettingsDialog extends StatefulWidget {
 class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   late String _selectedPaperType;
   late Color _selectedColor;
+  late SurfaceMaterial? _selectedSurface;
   String _selectedCategory = 'basic';
 
   // Icone per i tipi di carta (per la griglia visuale)
@@ -136,6 +146,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
     super.initState();
     _selectedPaperType = widget.currentPaperType;
     _selectedColor = widget.currentBackgroundColor;
+    _selectedSurface = widget.currentSurface;
 
     // Auto-seleziona la categoria corretta
     const paperTypeToCategory = {
@@ -214,6 +225,17 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
                     ),
                     const SizedBox(height: 12),
                     _buildColorGrid(colorScheme),
+
+                    // 🧬 Surface Material
+                    const SizedBox(height: 24),
+                    _buildSectionHeader(
+                      'Surface Texture',
+                      Icons.texture_rounded,
+                      colorScheme,
+                      isDark,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildSurfaceSection(colorScheme, isDark),
 
                     // ✨ Pro Shader Toggle
                     if (ShaderBrushService.instance.isAvailable) ...[
@@ -447,6 +469,81 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SURFACE MATERIAL SECTION
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Widget _buildSurfaceSection(ColorScheme colorScheme, bool isDark) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children:
+          _surfacePresets.map((preset) {
+            final isSelected = _selectedSurface == preset.surface;
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _selectedSurface = preset.surface;
+                  });
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        isSelected
+                            ? colorScheme.secondaryContainer
+                            : (isDark
+                                ? const Color(0xFF2C2C2C)
+                                : colorScheme.surfaceContainerLow),
+                    border: Border.all(
+                      color:
+                          isSelected
+                              ? colorScheme.primary.withValues(alpha: 0.5)
+                              : (isDark
+                                  ? Colors.white.withValues(alpha: 0.06)
+                                  : colorScheme.outlineVariant.withValues(
+                                    alpha: 0.3,
+                                  )),
+                      width: isSelected ? 1.5 : 1,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(preset.emoji, style: const TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text(
+                        preset.label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.w500,
+                          color:
+                              isSelected
+                                  ? colorScheme.onSecondaryContainer
+                                  : (isDark
+                                      ? Colors.white70
+                                      : colorScheme.onSurface),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+    );
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // SECTION HEADER
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -478,8 +575,6 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Widget _buildProShaderToggle(bool isDark, ColorScheme colorScheme) {
-    final isEnabled = ShaderBrushService.instance.isProEnabled;
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -489,10 +584,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
                 : Colors.deepPurple.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color:
-              isEnabled
-                  ? Colors.deepPurple.withValues(alpha: 0.3)
-                  : Colors.transparent,
+          color: Colors.deepPurple.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -509,7 +601,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Pro Shader GPU',
+                  'GPU Shader Engine',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -517,9 +609,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
                   ),
                 ),
                 Text(
-                  isEnabled
-                      ? 'Graphite texture & ink bleed active'
-                      : 'Standard CPU rendering',
+                  'Active — per-pixel texture rendering',
                   style: TextStyle(
                     fontSize: 11,
                     color: isDark ? Colors.white38 : Colors.black38,
@@ -528,18 +618,10 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
               ],
             ),
           ),
-          Switch.adaptive(
-            value: isEnabled,
-            activeTrackColor: Colors.deepPurple,
-            onChanged: (value) {
-              setState(() {
-                if (value) {
-                  ShaderBrushService.instance.enablePro();
-                } else {
-                  ShaderBrushService.instance.disablePro();
-                }
-              });
-            },
+          Icon(
+            Icons.check_circle_rounded,
+            color: Colors.deepPurple.shade300,
+            size: 22,
           ),
         ],
       ),
@@ -578,6 +660,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
             onPressed: () {
               widget.onBackgroundColorChanged(_selectedColor);
               widget.onPaperTypeChanged(_selectedPaperType);
+              widget.onSurfaceChanged?.call(_selectedSurface);
               Navigator.of(context).pop();
             },
             style: ElevatedButton.styleFrom(
@@ -609,6 +692,28 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
     );
   }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SURFACE MATERIAL PRESETS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class _SurfacePreset {
+  final String label;
+  final String emoji;
+  final SurfaceMaterial? surface;
+
+  const _SurfacePreset(this.label, this.emoji, this.surface);
+}
+
+const _surfacePresets = [
+  _SurfacePreset('None', '❌', null),
+  _SurfacePreset('Glass', '🪟', SurfaceMaterial.glass()),
+  _SurfacePreset('Smooth', '📄', SurfaceMaterial.smoothPaper()),
+  _SurfacePreset('Watercolor', '💧', SurfaceMaterial.watercolorPaper()),
+  _SurfacePreset('Canvas', '🖼️', SurfaceMaterial.canvas()),
+  _SurfacePreset('Wood', '🪵', SurfaceMaterial.rawWood()),
+  _SurfacePreset('Chalk', '📝', SurfaceMaterial.chalkboard()),
+];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PAPER TYPE CARD — chip con icona e label

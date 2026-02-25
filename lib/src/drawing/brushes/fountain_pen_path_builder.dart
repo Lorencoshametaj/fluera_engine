@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
@@ -20,6 +21,14 @@ import 'fountain_pen_buffers.dart';
 /// - Edge feathering with semi-transparent fringe for hardware anti-aliasing
 /// - Ink grain noise for realistic per-vertex alpha variation
 abstract final class FountainPenPathBuilder {
+  // 🚀 Pre-allocated arc-length buffer (avoids per-call allocation + GC)
+  static var _arcLenBuf = Float64List(512);
+
+  // 🚀 Pre-allocated GPU vertex buffers (typed arrays for Vertices.raw())
+  static var _posBuf = Float32List(4096); // x,y pairs
+  static var _colBuf = Int32List(2048); // packed ARGB
+  static var _idxBuf = Uint16List(8192); // triangle indices
+
   /// Builds path with variable width, sharp corner filling,
   /// and Catmull-Rom spline.
   /// Draws filled circles at sharp corners to prevent white gaps.
@@ -32,6 +41,7 @@ abstract final class FountainPenPathBuilder {
     StrokeOffsetBuffer leftBuf,
     StrokeOffsetBuffer rightBuf, {
     bool liveStroke = false,
+    int drawFromIndex = 0,
   }) {
     final path = PathPool.instance.acquire();
     if (points.length < 2) return path;
@@ -45,9 +55,8 @@ abstract final class FountainPenPathBuilder {
     );
     if (smoothedPos.length >= 4) {
       const double posAlpha = 0.3;
-      // 🚀 LIVE PERF: 1 pass for live strokes, 2 for finalized
-      final smoothPasses = liveStroke ? 1 : 2;
-      for (int pass = 0; pass < smoothPasses; pass++) {
+      // Always 2 smoothing passes (same as finalized) to prevent snap
+      for (int pass = 0; pass < 2; pass++) {
         // Forward — preserve first point
         for (int i = 1; i < smoothedPos.length - 1; i++) {
           smoothedPos[i] = Offset(
@@ -87,23 +96,19 @@ abstract final class FountainPenPathBuilder {
     }
 
     // ─── Pass 0b: Arc-length re-parameterization ──────────────────
-    // Touchscreen samples at uniform TIME intervals, not SPACE.
-    // Fast movements → sparse points (visible corners).
-    // Slow movements → dense points (over-smoothing).
-    // Re-sample at uniform arc-length for consistent quality.
-    // 🚀 LIVE PERF: Skip for live strokes — O(n) allocations, minimal
-    // visual impact during drawing. Applied on finalization.
-    if (!liveStroke && smoothedPos.length >= 4) {
-      // 1. Compute cumulative arc length
-      final arcLens = List<double>.filled(smoothedPos.length, 0.0);
-      for (int i = 1; i < smoothedPos.length; i++) {
-        arcLens[i] =
-            arcLens[i - 1] + (smoothedPos[i] - smoothedPos[i - 1]).distance;
+    // Always applied (same as finalized) to prevent snap.
+    // 🚀 PERF: Skip for very short strokes (< 10 pts) — negligible benefit.
+    if (smoothedPos.length >= 10) {
+      final n = smoothedPos.length;
+      if (_arcLenBuf.length < n) _arcLenBuf = Float64List(n * 2);
+      _arcLenBuf[0] = 0.0;
+      for (int i = 1; i < n; i++) {
+        _arcLenBuf[i] =
+            _arcLenBuf[i - 1] + (smoothedPos[i] - smoothedPos[i - 1]).distance;
       }
-      final totalLen = arcLens.last;
+      final totalLen = _arcLenBuf[n - 1];
 
       if (totalLen > 1.0) {
-        // 2. Target uniform spacing: same point count but uniform distance
         final numSamples = smoothedPos.length;
         final step = totalLen / (numSamples - 1);
 
@@ -112,21 +117,17 @@ abstract final class FountainPenPathBuilder {
         resampledW.reset(numSamples);
         resampledW.add(widths[0]);
 
-        int seg = 0; // current segment index
+        int seg = 0;
         for (int s = 1; s < numSamples - 1; s++) {
           final targetLen = s * step;
-
-          // Advance segment until we bracket targetLen
-          while (seg < smoothedPos.length - 2 && arcLens[seg + 1] < targetLen) {
+          while (seg < smoothedPos.length - 2 &&
+              _arcLenBuf[seg + 1] < targetLen) {
             seg++;
           }
-
-          // Interpolate within segment [seg, seg+1]
-          final segLen = arcLens[seg + 1] - arcLens[seg];
+          final segLen = _arcLenBuf[seg + 1] - _arcLenBuf[seg];
           final frac =
-              segLen > 0.001 ? (targetLen - arcLens[seg]) / segLen : 0.0;
+              segLen > 0.001 ? (targetLen - _arcLenBuf[seg]) / segLen : 0.0;
 
-          // Lerp position
           final p0 = smoothedPos[seg];
           final p1 = smoothedPos[seg + 1];
           resampledPos.add(
@@ -136,7 +137,6 @@ abstract final class FountainPenPathBuilder {
             ),
           );
 
-          // Lerp width (map seg to original width buffer)
           final wIdx0 = (seg / (smoothedPos.length - 1) * (widths.length - 1))
               .clamp(0.0, widths.length - 1.0);
           final wIdx1 = ((seg + 1) /
@@ -151,11 +151,9 @@ abstract final class FountainPenPathBuilder {
         resampledPos.add(smoothedPos.last);
         resampledW.add(widths[widths.length - 1]);
 
-        // Replace smoothedPos and widths with resampled versions
         smoothedPos.clear();
         smoothedPos.addAll(resampledPos);
 
-        // Copy resampled widths back to widths buffer
         widths.reset(resampledW.length);
         for (int i = 0; i < resampledW.length; i++) {
           widths.add(resampledW[i]);
@@ -163,14 +161,15 @@ abstract final class FountainPenPathBuilder {
       }
     }
 
-    // Reset outline buffers to match (possibly resampled) point count
+    // Reset outline buffers to match (possibly resampled) point count.
+    // Outline is ALWAYS computed for all points — Chaikin needs full context.
     leftBuf.reset(smoothedPos.length);
     rightBuf.reset(smoothedPos.length);
 
     computeSmoothedTangentsFromOffsets(smoothedPos, tangentBuf);
     final paint = PaintPool.getFillPaint(color: color);
 
-    // ─── Pass 1: Compute all outline points ──────────────────────
+    // ─── Pass 1: Compute ALL outline points ──────────────────────
     for (int i = 0; i < smoothedPos.length; i++) {
       final current = smoothedPos[i];
       final halfWidth = widths[i] / 2;
@@ -194,9 +193,7 @@ abstract final class FountainPenPathBuilder {
     // 2 passes for finalized quality.
     if (leftBuf.length >= 4) {
       applyChaikinSubdivision(leftBuf);
-      if (!liveStroke) applyChaikinSubdivision(leftBuf); // 2nd iteration
       applyChaikinSubdivision(rightBuf);
-      if (!liveStroke) applyChaikinSubdivision(rightBuf); // 2nd iteration
     }
 
     // ─── Pass 1c: Fix crossed outlines ───────────────────────────
@@ -236,20 +233,39 @@ abstract final class FountainPenPathBuilder {
     final n = leftBuf.length;
     if (n < 2) return path;
 
-    // Estimate: body = 2n positions, each cap ≤ 12 positions
-    final positions = <Offset>[];
-    final indices = <int>[];
-    final colors = <Color>[];
+    // ═══════════════════════════════════════════════════════════
+    // 🚀 GPU VERTEX TESSELLATION — typed arrays + Vertices.raw()
+    // ═══════════════════════════════════════════════════════════
+    // Pre-allocated static buffers eliminate thousands of Offset/Color
+    // object allocations per frame. Vertices.raw() skips the internal
+    // typed-array conversion that ui.Vertices() does.
+    //
+    // Estimate vertices: body=2*tessLen, caps=2*12, feathering=2*n
+    final origLen = widths.length;
+    final tessStart =
+        drawFromIndex > 0
+            ? (drawFromIndex / origLen * n).round().clamp(0, n - 1)
+            : 0;
+    final tessLen = n - tessStart;
+    final maxVerts = 2 * tessLen + 2 * n + 30; // body + feathering + caps
+    final maxIndices =
+        6 * (tessLen - 1) +
+        6 * 2 * (n - 1) +
+        6 * 20; // body + feathering + caps
+
+    // Grow static buffers if needed
+    if (_posBuf.length < maxVerts * 2) _posBuf = Float32List(maxVerts * 3);
+    if (_colBuf.length < maxVerts) _colBuf = Int32List(maxVerts * 2);
+    if (_idxBuf.length < maxIndices) _idxBuf = Uint16List(maxIndices * 2);
+
+    int vi = 0; // vertex write index
+    int ii = 0; // index write index
 
     // Pre-compute per-outline-point alpha from width (pressure proxy).
-    // After Chaikin 2x, outline has ~4x original points.
-    // Map each outline index back to parametric t ∈ [0,1] and interpolate
-    // the original width buffer to get pressure-based alpha.
     final baseAlpha = (color.a * 255.0).round().clamp(0, 255);
     final cR = (color.r * 255.0).round().clamp(0, 255);
     final cG = (color.g * 255.0).round().clamp(0, 255);
     final cB = (color.b * 255.0).round().clamp(0, 255);
-    final origLen = widths.length;
 
     // Pre-compute max width for ink pooling normalization
     double maxW = 0.01;
@@ -261,21 +277,18 @@ abstract final class FountainPenPathBuilder {
     final noiseSeed = color.hashCode * 0.001;
 
     // ─── Body: interleave left/right into triangle strip ──────
-    for (int i = 0; i < n; i++) {
-      // Map outline index → original width buffer via parametric t
-      final t = i / (n - 1).toDouble();
+    for (int i = tessStart; i < n; i++) {
+      final t = n > 1 ? i / (n - 1) : 0.0;
       final wIdx = (t * (origLen - 1)).clamp(0.0, origLen - 1.0);
       final wLow = wIdx.floor();
       final wHigh = wIdx.ceil().clamp(0, origLen - 1);
       final wFrac = wIdx - wLow;
       final w = widths[wLow] * (1.0 - wFrac) + widths[wHigh] * wFrac;
 
-      // Ink effects: pooling + grain
       final poolFactor = 0.80 + 0.20 * (w / maxW).clamp(0.0, 1.0);
       final grainL = inkNoise(i * 2, noiseSeed);
       final grainR = inkNoise(i * 2 + 1, noiseSeed);
 
-      // Asymmetric edge depth: left=93%, right=90% (simulates nib tilt)
       final leftAlpha = (baseAlpha * poolFactor * (0.93 + grainL))
           .round()
           .clamp(0, 255);
@@ -283,79 +296,88 @@ abstract final class FountainPenPathBuilder {
           .round()
           .clamp(0, 255);
 
-      positions.add(leftBuf[i]); // index 2*i
-      colors.add(Color.fromARGB(leftAlpha, cR, cG, cB));
-      positions.add(rightBuf[i]); // index 2*i + 1
-      colors.add(Color.fromARGB(rightAlpha, cR, cG, cB));
+      // Left vertex
+      _posBuf[vi * 2] = leftBuf[i].dx;
+      _posBuf[vi * 2 + 1] = leftBuf[i].dy;
+      _colBuf[vi] = (leftAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      vi++;
+      // Right vertex
+      _posBuf[vi * 2] = rightBuf[i].dx;
+      _posBuf[vi * 2 + 1] = rightBuf[i].dy;
+      _colBuf[vi] = (rightAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      vi++;
     }
-    for (int i = 0; i < n - 1; i++) {
+    for (int i = 0; i < tessLen - 1; i++) {
       final li = 2 * i;
       final ri = 2 * i + 1;
       final lNext = 2 * (i + 1);
       final rNext = 2 * (i + 1) + 1;
-      indices.add(li);
-      indices.add(ri);
-      indices.add(lNext);
-      indices.add(ri);
-      indices.add(lNext);
-      indices.add(rNext);
+      _idxBuf[ii++] = li;
+      _idxBuf[ii++] = ri;
+      _idxBuf[ii++] = lNext;
+      _idxBuf[ii++] = ri;
+      _idxBuf[ii++] = lNext;
+      _idxBuf[ii++] = rNext;
     }
 
     // ─── Edge feathering: semi-transparent fringe for AA ──────
-    // For each edge vertex, add a fringe vertex 0.75px outward
-    // with alpha=0. GPU interpolates → smooth anti-aliased edge.
-    // 🚀 LIVE PERF: Skip for live strokes — saves ~33% vertex count.
-    // Applied on finalization for full anti-aliased quality.
+    // 🚀 LIVE PERF: Skip for live strokes.
     if (!liveStroke) {
-      const double fringeWidth = 0.75; // px outward
-      final fringeAlpha = Color.fromARGB(0, cR, cG, cB); // transparent
+      const double fringeWidth = 0.75;
+      final fringeArgb = (cR << 16) | (cG << 8) | cB; // alpha=0
 
       // Left edge fringe
-      final leftFringeStart = positions.length;
+      final leftFringeStart = vi;
       for (int i = 0; i < n; i++) {
-        // Outward normal at this point (away from stroke center)
         final center = (leftBuf[i] + rightBuf[i]) / 2.0;
         final toLeft = leftBuf[i] - center;
         final dist = toLeft.distance;
-        final outward =
-            dist > 0.01
-                ? Offset(toLeft.dx / dist, toLeft.dy / dist)
-                : const Offset(0, -1);
+        final ox = dist > 0.01 ? toLeft.dx / dist : 0.0;
+        final oy = dist > 0.01 ? toLeft.dy / dist : -1.0;
 
-        positions.add(leftBuf[i] + outward * fringeWidth);
-        colors.add(fringeAlpha);
+        _posBuf[vi * 2] = leftBuf[i].dx + ox * fringeWidth;
+        _posBuf[vi * 2 + 1] = leftBuf[i].dy + oy * fringeWidth;
+        _colBuf[vi] = fringeArgb;
+        vi++;
       }
-      // Triangle strip: edge[i] → fringe[i]
       for (int i = 0; i < n - 1; i++) {
-        final eIdx = 2 * i; // left edge vertex in body
+        final eIdx = 2 * i;
         final eNext = 2 * (i + 1);
         final fIdx = leftFringeStart + i;
         final fNext = leftFringeStart + i + 1;
-        indices.addAll([eIdx, fIdx, eNext]);
-        indices.addAll([fIdx, eNext, fNext]);
+        _idxBuf[ii++] = eIdx;
+        _idxBuf[ii++] = fIdx;
+        _idxBuf[ii++] = eNext;
+        _idxBuf[ii++] = fIdx;
+        _idxBuf[ii++] = eNext;
+        _idxBuf[ii++] = fNext;
       }
 
       // Right edge fringe
-      final rightFringeStart = positions.length;
+      final rightFringeStart = vi;
       for (int i = 0; i < n; i++) {
         final center = (leftBuf[i] + rightBuf[i]) / 2.0;
         final toRight = rightBuf[i] - center;
         final dist = toRight.distance;
-        final outward =
-            dist > 0.01
-                ? Offset(toRight.dx / dist, toRight.dy / dist)
-                : const Offset(0, 1);
+        final ox = dist > 0.01 ? toRight.dx / dist : 0.0;
+        final oy = dist > 0.01 ? toRight.dy / dist : 1.0;
 
-        positions.add(rightBuf[i] + outward * fringeWidth);
-        colors.add(fringeAlpha);
+        _posBuf[vi * 2] = rightBuf[i].dx + ox * fringeWidth;
+        _posBuf[vi * 2 + 1] = rightBuf[i].dy + oy * fringeWidth;
+        _colBuf[vi] = fringeArgb;
+        vi++;
       }
       for (int i = 0; i < n - 1; i++) {
-        final eIdx = 2 * i + 1; // right edge vertex in body
+        final eIdx = 2 * i + 1;
         final eNext = 2 * (i + 1) + 1;
         final fIdx = rightFringeStart + i;
         final fNext = rightFringeStart + i + 1;
-        indices.addAll([eIdx, fIdx, eNext]);
-        indices.addAll([fIdx, eNext, fNext]);
+        _idxBuf[ii++] = eIdx;
+        _idxBuf[ii++] = fIdx;
+        _idxBuf[ii++] = eNext;
+        _idxBuf[ii++] = fIdx;
+        _idxBuf[ii++] = eNext;
+        _idxBuf[ii++] = fNext;
       }
     }
 
@@ -371,69 +393,74 @@ abstract final class FountainPenPathBuilder {
         lastL.dx - endCenter.dx,
       );
       final capAlpha = (baseAlpha * 0.95).round().clamp(0, 255);
-      final centerIdx = positions.length;
-      positions.add(endCenter);
-      colors.add(Color.fromARGB(capAlpha, cR, cG, cB));
-      final firstArcIdx = positions.length;
+      final capArgb = (capAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      final edgeAlpha = (capAlpha * 0.90).round().clamp(0, 255);
+      final edgeArgb = (edgeAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+
+      final centerIdx = vi;
+      _posBuf[vi * 2] = endCenter.dx;
+      _posBuf[vi * 2 + 1] = endCenter.dy;
+      _colBuf[vi] = capArgb;
+      vi++;
+      final firstArcIdx = vi;
       for (int s = 0; s <= endSegs; s++) {
         final a = baseAngle - math.pi * s / endSegs;
-        positions.add(
-          Offset(
-            endCenter.dx + endRadius * math.cos(a),
-            endCenter.dy + endRadius * math.sin(a),
-          ),
-        );
-        // Slight fade toward perimeter
-        final edgeAlpha = (capAlpha * 0.90).round().clamp(0, 255);
-        colors.add(Color.fromARGB(edgeAlpha, cR, cG, cB));
+        _posBuf[vi * 2] = endCenter.dx + endRadius * math.cos(a);
+        _posBuf[vi * 2 + 1] = endCenter.dy + endRadius * math.sin(a);
+        _colBuf[vi] = edgeArgb;
+        vi++;
       }
       for (int s = 0; s < endSegs; s++) {
-        indices.add(centerIdx);
-        indices.add(firstArcIdx + s);
-        indices.add(firstArcIdx + s + 1);
+        _idxBuf[ii++] = centerIdx;
+        _idxBuf[ii++] = firstArcIdx + s;
+        _idxBuf[ii++] = firstArcIdx + s + 1;
       }
     }
 
     // ─── Start cap: semicircular fan ─────────────────────────
-    final firstL = leftBuf[0];
-    final firstR = rightBuf[0];
-    final startCenter = (firstL + firstR) / 2.0;
-    final startRadius = (firstL - firstR).distance / 2.0;
-    if (startRadius > 0.1) {
-      const int startSegs = 10;
-      final baseAngle = math.atan2(
-        firstR.dy - startCenter.dy,
-        firstR.dx - startCenter.dx,
-      );
-      final capAlpha = (baseAlpha * 0.95).round().clamp(0, 255);
-      final centerIdx = positions.length;
-      positions.add(startCenter);
-      colors.add(Color.fromARGB(capAlpha, cR, cG, cB));
-      final firstArcIdx = positions.length;
-      for (int s = 0; s <= startSegs; s++) {
-        final a = baseAngle - math.pi * s / startSegs;
-        positions.add(
-          Offset(
-            startCenter.dx + startRadius * math.cos(a),
-            startCenter.dy + startRadius * math.sin(a),
-          ),
+    if (drawFromIndex <= 0) {
+      final firstL = leftBuf[0];
+      final firstR = rightBuf[0];
+      final startCenter = (firstL + firstR) / 2.0;
+      final startRadius = (firstL - firstR).distance / 2.0;
+      if (startRadius > 0.1) {
+        const int startSegs = 10;
+        final baseAngle = math.atan2(
+          firstR.dy - startCenter.dy,
+          firstR.dx - startCenter.dx,
         );
+        final capAlpha = (baseAlpha * 0.95).round().clamp(0, 255);
+        final capArgb = (capAlpha << 24) | (cR << 16) | (cG << 8) | cB;
         final edgeAlpha = (capAlpha * 0.90).round().clamp(0, 255);
-        colors.add(Color.fromARGB(edgeAlpha, cR, cG, cB));
-      }
-      for (int s = 0; s < startSegs; s++) {
-        indices.add(centerIdx);
-        indices.add(firstArcIdx + s);
-        indices.add(firstArcIdx + s + 1);
+        final edgeArgb = (edgeAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+
+        final centerIdx = vi;
+        _posBuf[vi * 2] = startCenter.dx;
+        _posBuf[vi * 2 + 1] = startCenter.dy;
+        _colBuf[vi] = capArgb;
+        vi++;
+        final firstArcIdx = vi;
+        for (int s = 0; s <= startSegs; s++) {
+          final a = baseAngle - math.pi * s / startSegs;
+          _posBuf[vi * 2] = startCenter.dx + startRadius * math.cos(a);
+          _posBuf[vi * 2 + 1] = startCenter.dy + startRadius * math.sin(a);
+          _colBuf[vi] = edgeArgb;
+          vi++;
+        }
+        for (int s = 0; s < startSegs; s++) {
+          _idxBuf[ii++] = centerIdx;
+          _idxBuf[ii++] = firstArcIdx + s;
+          _idxBuf[ii++] = firstArcIdx + s + 1;
+        }
       }
     }
 
-    // ─── GPU draw: single call with per-vertex colors ─────────
-    final vertices = ui.Vertices(
+    // ─── GPU draw: single call with raw typed arrays ──────────
+    final vertices = ui.Vertices.raw(
       ui.VertexMode.triangles,
-      positions,
-      colors: colors,
-      indices: indices,
+      Float32List.sublistView(_posBuf, 0, vi * 2),
+      colors: Int32List.sublistView(_colBuf, 0, vi),
+      indices: Uint16List.sublistView(_idxBuf, 0, ii),
     );
     canvas.drawVertices(vertices, BlendMode.srcOver, paint);
     vertices.dispose();
@@ -474,29 +501,41 @@ abstract final class FountainPenPathBuilder {
   /// Replaces each segment with two new points at 25% and 75%,
   /// converging to a quadratic B-spline for provably smooth curves.
   /// Overwrites the buffer with the subdivided (denser) point set.
+  ///
+  /// 🚀 PERF: Uses static scratch list to avoid per-call GC allocation.
+  static List<Offset> _chaikinScratch = [];
+
   static void applyChaikinSubdivision(StrokeOffsetBuffer buf) {
     if (buf.length < 3) return;
     final n = buf.length;
-    // Build subdivided list (2*(n-1) + 1 points: keeps first & last)
-    final subdivided = <Offset>[buf[0]];
+    // Expected output size: 2*(n-1) + 2 (first + last preserved)
+    final expectedLen = 2 * (n - 1) + 2;
+    if (_chaikinScratch.length < expectedLen) {
+      _chaikinScratch = List<Offset>.filled(expectedLen * 2, Offset.zero);
+    }
+
+    int outIdx = 0;
+    _chaikinScratch[outIdx++] = buf[0];
     for (int i = 0; i < n - 1; i++) {
       final p0 = buf[i];
       final p1 = buf[i + 1];
       // Q = 0.75*P0 + 0.25*P1
-      subdivided.add(
-        Offset(p0.dx * 0.75 + p1.dx * 0.25, p0.dy * 0.75 + p1.dy * 0.25),
+      _chaikinScratch[outIdx++] = Offset(
+        p0.dx * 0.75 + p1.dx * 0.25,
+        p0.dy * 0.75 + p1.dy * 0.25,
       );
       // R = 0.25*P0 + 0.75*P1
-      subdivided.add(
-        Offset(p0.dx * 0.25 + p1.dx * 0.75, p0.dy * 0.25 + p1.dy * 0.75),
+      _chaikinScratch[outIdx++] = Offset(
+        p0.dx * 0.25 + p1.dx * 0.75,
+        p0.dy * 0.25 + p1.dy * 0.75,
       );
     }
-    subdivided.add(buf[n - 1]);
+    _chaikinScratch[outIdx++] = buf[n - 1];
 
     // Write back into buffer
-    buf.reset(subdivided.length);
-    for (final p in subdivided) {
-      buf.add(p);
+    buf.reset(outIdx);
+    for (int i = 0; i < outIdx; i++) {
+      buf.add(_chaikinScratch[i]);
     }
   }
 

@@ -477,10 +477,12 @@ void main() {
       expect(doc.pageNodes[0].pageModel.customOffset, isNotNull);
       expect(doc.pageNodes[0].pageModel.lastModifiedAt, isPositive);
 
-      // Re-lock
+      // Re-lock (lock-in-place: customOffset preserves current position)
       doc.togglePageLock(0);
       expect(doc.pageNodes[0].pageModel.isLocked, true);
-      expect(doc.pageNodes[0].pageModel.customOffset, isNull);
+      // Lock-in-place: customOffset = current position, not null.
+      // Use returnPageToGrid() to snap back to grid (clears customOffset).
+      expect(doc.pageNodes[0].pageModel.customOffset, isNotNull);
     });
 
     test('totalCachedMemoryBytes is 0 without cached images', () {

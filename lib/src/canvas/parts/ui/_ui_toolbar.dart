@@ -480,14 +480,24 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           },
           onColorChanged: (color) {
             _toolController.setColor(color);
+            // 🎨 Mark manual override to prevent auto-apply from overriding
+            EngineScope.current.styleCoherenceEngine.markManualOverride(
+              _consciousToolName(),
+            );
             setState(() {}); // Trigger rebuild
           },
           onWidthChanged: (width) {
             _toolController.setStrokeWidth(width);
+            EngineScope.current.styleCoherenceEngine.markManualOverride(
+              _consciousToolName(),
+            );
             setState(() {}); // Trigger rebuild
           },
           onOpacityChanged: (opacity) {
             _toolController.setOpacity(opacity);
+            EngineScope.current.styleCoherenceEngine.markManualOverride(
+              _consciousToolName(),
+            );
             setState(() {}); // Trigger rebuild
           },
           onShapeTypeChanged: (type) {

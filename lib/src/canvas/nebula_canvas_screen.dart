@@ -4,9 +4,12 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/semantics.dart';
 import 'package:path_provider/path_provider.dart';
 import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
@@ -14,6 +17,7 @@ import '../drawing/models/pro_brush_settings.dart';
 import '../drawing/models/pro_brush_settings_dialog.dart';
 import '../drawing/services/brush_preset_manager.dart';
 import '../drawing/models/brush_preset.dart';
+import '../drawing/models/surface_material.dart';
 
 import '../drawing/services/brush_settings_service.dart';
 import '../core/models/shape_type.dart';
@@ -21,6 +25,11 @@ import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/engine_scope.dart';
+import '../core/engine_event_bus.dart';
+import '../core/engine_event.dart';
+import '../core/conscious_architecture.dart';
+import '../core/adaptive_profile.dart';
+import '../rendering/optimization/anticipatory_tile_prefetch.dart';
 import '../core/engine_error.dart';
 import '../export/export_preset.dart';
 import '../export/saved_export_area.dart';
@@ -28,6 +37,7 @@ import '../config/multi_page_config.dart';
 import '../drawing/input/drawing_input_handler.dart';
 import '../rendering/canvas/background_painter.dart';
 import '../rendering/shaders/shader_brush_service.dart';
+import '../rendering/gpu/gpu_texture_service.dart';
 import '../rendering/canvas/drawing_painter.dart';
 import '../rendering/canvas/origin_indicator_painter.dart';
 import '../rendering/canvas/current_stroke_painter.dart';
@@ -82,6 +92,7 @@ import '../collaboration/widgets/conflict_resolution_dialog.dart';
 import './overlays/canvas_viewport_overlay.dart';
 import '../time_travel/services/time_travel_recorder.dart';
 import '../services/phase2_service_stubs.dart'; // Stub implementations for Phase 2 services
+import '../services/canvas_performance_monitor.dart'; // 🏎️ Frame time overlay
 import '../time_travel/services/time_travel_playback_engine.dart';
 import '../history/branching_manager.dart';
 import '../history/widgets/branch_explorer_sheet.dart';
@@ -179,6 +190,7 @@ import '../systems/smart_snap_engine.dart';
 import '../systems/design_linter.dart';
 import '../systems/style_system.dart';
 import '../systems/accessibility_bridge.dart';
+import '../systems/intelligence_adapters.dart';
 import '../systems/accessibility_tree.dart';
 import '../systems/nested_instance_resolver.dart';
 import '../systems/image_adjustment.dart';
@@ -219,6 +231,7 @@ import './overlays/design_quality_panel.dart';
 import './overlays/responsive_preview_panel.dart';
 import './overlays/image_adjustment_panel.dart';
 import './overlays/token_export_dialog.dart';
+import './overlays/conscious_debug_overlay.dart';
 
 // ============================================================================
 // PART FILES
@@ -243,6 +256,11 @@ part './parts/_design_variables.dart';
 part './parts/_latex_handler.dart';
 part './parts/_latex_recognition_handler.dart';
 part './parts/_tabular_handler.dart';
+part './parts/_tabular_fill_handle.dart';
+part './parts/_tabular_clipboard.dart';
+part './parts/_tabular_formatting.dart';
+part './parts/_tabular_csv_import.dart';
+part './parts/_tabular_latex_export.dart';
 
 // 🎨 Design Features
 part './parts/_prototype_animation.dart';
@@ -250,6 +268,7 @@ part './parts/_dev_handoff.dart';
 part './parts/_component_system.dart';
 part './parts/_responsive_design.dart';
 part './parts/_design_quality.dart';
+part './parts/_conscious_architecture.dart';
 part './parts/_advanced_export.dart';
 
 // ✏️ Drawing
@@ -554,6 +573,11 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
   Color _canvasBackgroundColor = Colors.white;
   String _paperType = 'blank';
 
+  /// 🧬 Active surface material for programmable materiality.
+  /// When set, strokes inherit physical surface properties (roughness,
+  /// absorption, grain texture). null = default (no surface effect).
+  SurfaceMaterial? _activeSurface;
+
   /// Undo/Redo
   final List<ProStroke> _undoStack = [];
 
@@ -681,6 +705,24 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   /// Whether to show page number badges on PDF pages.
   bool _showPdfPageNumbers = true;
+
+  // ============================================================================
+  // 🧠 CONSCIOUS ARCHITECTURE STATE
+  // ============================================================================
+
+  /// Idle detection timer for intelligence subsystems.
+  Timer? _consciousIdleTimer;
+
+  /// Timestamp of last user interaction (for idle detection).
+  DateTime? _consciousIdleStart;
+
+  /// Throttle timestamp for canvas transform → context push (ms since epoch).
+  int _consciousLastTransformPushMs = 0;
+
+  /// Last pushed transform values for the rotation-only filter (Fix 2).
+  double _consciousLastScale = 1.0;
+  double _consciousLastOffsetX = 0.0;
+  double _consciousLastOffsetY = 0.0;
 
   /// ✂️ Canvas-space clip rect for the PDF page the user is currently
   /// drawing on. When non-null, [CurrentStrokePainter] clips the live
@@ -1081,6 +1123,9 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
     StrokePointPool.instance.initialize();
     PathPool.instance.initialize();
 
+    // 🧠 CONSCIOUS ARCHITECTURE: Register subsystems + start idle timer.
+    _initConsciousArchitecture();
+
     // 🚀 SPLASH SCREEN: Run ALL heavy init in parallel (shader, isolate,
     // textures, data load). The loading overlay is shown until complete.
     _initializeCanvas();
@@ -1143,6 +1188,9 @@ class _NebulaCanvasScreenState extends State<NebulaCanvasScreen>
 
   @override
   void dispose() {
+    // 🧠 CONSCIOUS ARCHITECTURE: Stop idle timer.
+    _disposeConsciousArchitecture();
+
     // 🧭 Navigation
     _contentBoundsTracker.dispose();
 

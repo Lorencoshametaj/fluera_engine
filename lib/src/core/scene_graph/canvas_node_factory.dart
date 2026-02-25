@@ -19,13 +19,19 @@ import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
 import '../nodes/tabular_node.dart';
+import '../nodes/material_zone_node.dart';
+import '../engine_scope.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
 ///
-/// The `nodeType` field in the JSON determines which concrete class
-/// to instantiate. This centralizes the dispatch logic so that
-/// [GroupNode.loadChildrenFromJson] and [SceneGraph.fromJson] don't
-/// need to know about every node type.
+/// Uses a two-tier lookup strategy:
+/// 1. **Dynamic**: Delegates to [ModuleRegistry.createNodeFromJson] which
+///    checks registered [NodeDescriptor]s from all active modules.
+/// 2. **Hardcoded**: Falls back to the built-in switch for core node types
+///    (group, layer, etc.) that aren't owned by any module.
+///
+/// This allows new modules to register custom node types without modifying
+/// this file.
 class CanvasNodeFactory {
   /// Create a [CanvasNode] from its JSON representation.
   ///
@@ -33,6 +39,17 @@ class CanvasNodeFactory {
   static CanvasNode fromJson(Map<String, dynamic> json) {
     final nodeType = json['nodeType'] as String?;
 
+    // ── Tier 1: Dynamic module lookup ──
+    // If modules are initialized, try the module registry first.
+    // This enables extensible deserialization without hardcoded cases.
+    if (EngineScope.hasScope) {
+      final moduleNode = EngineScope.current.moduleRegistry.createNodeFromJson(
+        json,
+      );
+      if (moduleNode != null) return moduleNode;
+    }
+
+    // ── Tier 2: Built-in hardcoded fallback ──
     switch (nodeType) {
       case 'stroke':
         return StrokeNode.fromJson(json);
@@ -109,6 +126,9 @@ class CanvasNodeFactory {
 
       case 'tabular':
         return TabularNode.fromJson(json);
+
+      case 'materialZone':
+        return MaterialZoneNode.fromJson(json);
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

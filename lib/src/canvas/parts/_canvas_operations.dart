@@ -86,6 +86,7 @@ extension on _NebulaCanvasScreenState {
       isDark: isDark,
       currentBackgroundColor: _canvasBackgroundColor,
       currentPaperType: _paperType,
+      currentSurface: _activeSurface,
       onBackgroundColorChanged: (color) {
         setState(() => _canvasBackgroundColor = color);
         BackgroundPainter.clearCache();
@@ -93,6 +94,7 @@ extension on _NebulaCanvasScreenState {
         _autoSaveCanvas();
       },
       onPaperTypeChanged: _changePaperType,
+      onSurfaceChanged: _changeSurface,
     );
   }
 
@@ -109,6 +111,20 @@ extension on _NebulaCanvasScreenState {
     // Invalidate drawing tiles (paper pattern is baked into export tiles)
     DrawingPainter.invalidateAllTiles();
     // Auto-save with new paper type
+    _autoSaveCanvas();
+  }
+
+  /// 🧬 Change the active surface material.
+  void _changeSurface(SurfaceMaterial? surface) {
+    if (_activeSurface == surface) return;
+    setState(() {
+      _activeSurface = surface;
+    });
+    // 🧬 Sync static fallback so ALL renderers (tile cache, scene graph, etc.)
+    // use the correct surface without explicit parameter passing.
+    BrushEngine.activeSurface = surface;
+    // Invalidate tile cache — surface affects stroke rendering
+    DrawingPainter.invalidateAllTiles();
     _autoSaveCanvas();
   }
 }

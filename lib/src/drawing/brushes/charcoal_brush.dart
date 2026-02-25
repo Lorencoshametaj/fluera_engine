@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../rendering/optimization/optimization.dart';
+import '../filters/organic_noise.dart';
 
 /// ✏️ Charcoal Brush — Grain erosion with variable noise
 ///
@@ -113,6 +114,9 @@ class CharcoalBrush {
   }
 
   /// Draw grain noise particles along the stroke path
+  /// 🌱 Uses spatially-coherent Simplex noise instead of Random(42)
+  /// for grain that is consistent across redraws and coherent between
+  /// adjacent points.
   static void _drawGrainNoise(
     Canvas canvas,
     List<dynamic> points,
@@ -121,22 +125,48 @@ class CharcoalBrush {
     double opacity,
     double grain,
   ) {
-    final rng = math.Random(42); // Deterministic for consistency
     final grainPaint =
         Paint()
           ..color = color.withValues(alpha: opacity * 0.3 * grain * color.a)
           ..style = PaintingStyle.fill;
 
     // Scatter particles along the stroke
-    final step = math.max(2, (6 - grain * 4).round());
-    for (int i = 0; i < points.length; i += step) {
+    // 🌱 Velocity-dependent density: fast = sparse (bigger step), slow = dense
+    final baseStep = math.max(2, (6 - grain * 4).round());
+    for (int i = 0; i < points.length; i += baseStep) {
       final center = StrokeOptimizer.getOffset(points[i]);
-      final particleCount = (3 + grain * 5).round();
+
+      // Estimate local velocity from inter-point distance
+      double localVelocity = 0.0;
+      if (i > 0 && i < points.length) {
+        final prev = StrokeOptimizer.getOffset(points[math.max(0, i - 1)]);
+        localVelocity = (center - prev).distance;
+      }
+      // Fast segments: skip more particles (velocity > 3px/sample = fast)
+      if (localVelocity > 3.0 && i % 2 == 0) continue;
+
+      // Slow = more particles, fast = fewer
+      final velocityFactor = (1.0 - (localVelocity / 5.0).clamp(0.0, 0.5));
+      final particleCount = (3 + grain * 5 * velocityFactor).round();
 
       for (int j = 0; j < particleCount; j++) {
-        final dx = (rng.nextDouble() - 0.5) * width * 1.2;
-        final dy = (rng.nextDouble() - 0.5) * width * 1.2;
-        final radius = 0.3 + rng.nextDouble() * 1.2 * grain;
+        // 🌱 Spatially-coherent noise: position determines particle placement
+        final noiseX = OrganicNoise.simplexNoise2D(
+          center.dx * 0.1 + j * 17.3,
+          center.dy * 0.1 + j * 31.7,
+        );
+        final noiseY = OrganicNoise.simplexNoise2D(
+          center.dx * 0.1 + j * 23.1,
+          center.dy * 0.1 + j * 41.3,
+        );
+        final dx = noiseX * width * 0.6;
+        final dy = noiseY * width * 0.6;
+        // Radius from noise too — varies naturally across the stroke
+        final noiseR = OrganicNoise.simplexNoise2D(
+          center.dx * 0.2 + j * 7.7,
+          center.dy * 0.2,
+        );
+        final radius = 0.3 + (noiseR * 0.5 + 0.5) * 1.2 * grain;
         canvas.drawCircle(center + Offset(dx, dy), radius, grainPaint);
       }
     }

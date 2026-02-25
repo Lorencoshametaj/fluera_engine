@@ -5,6 +5,7 @@ extension on _NebulaCanvasScreenState {
   void _onDrawEnd(Offset canvasPosition) {
     // Indica che l'utente ha finito di disegnare
     _isDrawingNotifier.value = false;
+    _pushConsciousContext(); // 🧠 Notify intelligence subsystems
 
     // ☁️ PRESENCE: Clear drawing state for collaborators
     if (_isSharedCanvas && _realtimeEngine != null) {
@@ -360,8 +361,17 @@ extension on _NebulaCanvasScreenState {
     // If abbiamo completato a geometric shape
     if (_effectiveShapeType != ShapeType.freehand &&
         _currentShapeNotifier.value != null) {
-      _layerController.addShape(_currentShapeNotifier.value!);
+      final shape = _currentShapeNotifier.value!;
+      _layerController.addShape(shape);
       _currentShapeNotifier.value = null;
+
+      // 🎨 Style Coherence: learn shape style
+      EngineScope.current.styleCoherenceEngine.recordStyleUsage(
+        'shape',
+        color: shape.color,
+        strokeWidth: shape.strokeWidth,
+        opacity: _effectiveOpacity,
+      );
 
       // 💾 AUTO-SAVE after adding shape
       _autoSaveCanvas();
@@ -384,9 +394,13 @@ extension on _NebulaCanvasScreenState {
       finalPoints = _drawingHandler.endStroke();
     }
 
-    // 🎯 NOTE: Point trimming to rendered count disabled.
-    // When PointerMoveEvent and PointerUpEvent arrive in the same event batch,
-    // the last point(s) may not be visible. Re-enable if needed in the future.
+    // 🎯 SNAP FIX: Trim finalPoints to the count actually rendered on-screen.
+    // This prevents "forward snap" from unrendered tail points that arrived
+    // in the same event batch as pointer-up (never visible to the user).
+    final renderedCount = CurrentStrokePainter.lastRenderedCount;
+    if (renderedCount > 2 && renderedCount < finalPoints.length) {
+      finalPoints = List.unmodifiable(finalPoints.sublist(0, renderedCount));
+    }
 
     // 🔷 Shape Recognition: check if freehand stroke matches a geometric shape
     if (_toolController.shapeRecognitionEnabled) {
@@ -466,11 +480,29 @@ extension on _NebulaCanvasScreenState {
       widget.onExternalStrokeAdded!(stroke, strokeStartTime, strokeEndTime);
     }
 
-    // 🎯 FIX: Clear live stroke FIRST, then add completed.
-    // Previous order caused 1-frame overlap where both live (with ghost trail)
-    // and completed strokes rendered simultaneously → visual "pop" on release.
-    _currentStrokeNotifier.clear();
+    // 🎯 SNAP FIX: Add finalized stroke and update tile cache BEFORE
+    // clearing the live stroke. Previous order (clear → add → tiles)
+    // caused a 1-frame gap where neither live nor finalized was visible.
+    // New order: tiles → add → clear ensures seamless handoff.
+    // Since the rendering pipelines are now identical (no isLive
+    // differences), the 1-frame overlap is invisible.
     _layerController.addStroke(stroke);
+
+    // 🚀 Incremental tile cache update: ensure tiles contain the stroke
+    // BEFORE clearing the live version.
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    DrawingPainter.incrementalUpdateForStroke(stroke, dpr);
+
+    // NOW safe to clear the live stroke — finalized is already painted
+    _currentStrokeNotifier.clear();
+
+    // 🎨 Style Coherence: learn freehand stroke style
+    EngineScope.current.styleCoherenceEngine.recordStyleUsage(
+      _consciousToolName(),
+      color: stroke.color,
+      strokeWidth: stroke.baseWidth,
+      opacity: _effectiveOpacity,
+    );
 
     // 🔴 RT: Broadcast completed stroke to collaborators
     _broadcastStrokeAdded(stroke);
@@ -494,11 +526,6 @@ extension on _NebulaCanvasScreenState {
       );
       _lassoTool.reflowController?.updateClusters(_clusterCache);
     }
-
-    // 🚀 Incremental tile cache update: only re-rasterize affected tiles
-    // instead of invalidating the entire tile cache.
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    DrawingPainter.incrementalUpdateForStroke(stroke, dpr);
 
     // 🪞 Phase 5: Symmetry mode — mirror/kaleidoscope stroke
     if (_showRulers && _rulerGuideSystem.symmetryEnabled) {

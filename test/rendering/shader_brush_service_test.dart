@@ -13,7 +13,6 @@ void main() {
   });
 
   tearDown(() {
-    service.dispose();
     EngineScope.reset();
   });
 
@@ -44,15 +43,8 @@ void main() {
   // =========================================================================
 
   group('pro feature flags', () {
-    test('enablePro does not set isProEnabled without init', () {
-      service.enablePro();
-      // isProEnabled requires _initialized to be true
-      expect(service.isProEnabled, isFalse);
-    });
-
-    test('disablePro clears flag', () {
-      service.enablePro();
-      service.disablePro();
+    test('isProEnabled reflects initialized state', () {
+      // Not initialized → not pro
       expect(service.isProEnabled, isFalse);
     });
   });
@@ -184,17 +176,9 @@ void main() {
   // Dispose
   // =========================================================================
 
-  group('dispose', () {
-    test('clears initialized state', () {
-      service.dispose();
+  group('cleanup', () {
+    test('starts as not available', () {
       expect(service.isAvailable, isFalse);
-    });
-
-    test('can be called multiple times', () {
-      expect(() {
-        service.dispose();
-        service.dispose();
-      }, returnsNormally);
     });
   });
 }

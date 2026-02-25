@@ -534,10 +534,10 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
       );
     }
 
-    // --- Global Tabular/LaTeX Bridge Integration ---
+    // --- Module-based Tabular/LaTeX Bridge Integration ---
     if (EngineScope.hasScope) {
       if (node is LatexNode) {
-        EngineScope.current.globalTabularBridge.registerLatexNode(
+        EngineScope.current.tabularModule?.tabularLatexBridge.registerLatexNode(
           node,
           node.id.toString(),
         );
@@ -556,12 +556,11 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
       }
     }
 
-    // --- Global Tabular/LaTeX Bridge Integration ---
+    // --- Module-based Tabular/LaTeX Bridge Integration ---
     if (EngineScope.hasScope) {
       if (node is LatexNode) {
-        EngineScope.current.globalTabularBridge.unregisterLatexNode(
-          node.id.toString(),
-        );
+        EngineScope.current.tabularModule?.tabularLatexBridge
+            .unregisterLatexNode(node.id.toString());
       }
     }
 

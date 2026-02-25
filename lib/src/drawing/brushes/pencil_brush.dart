@@ -1,9 +1,11 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../rendering/optimization/optimization.dart';
 import '../../rendering/shaders/shader_brush_service.dart';
 import '../../rendering/shaders/shader_pencil_renderer.dart';
+import 'fountain_pen_path_builder.dart';
 
 /// ✏️ Pencil Brush — Realistic graphite rendering
 ///
@@ -23,6 +25,13 @@ import '../../rendering/shaders/shader_pencil_renderer.dart';
 /// - 7-point multi-tier tangent computation
 /// - Adaptive outline smoothing
 class PencilBrush {
+  // 🚀 Pre-allocated arc-length buffer (avoids per-call allocation + GC)
+  static var _arcLenBuf = Float64List(512);
+
+  // 🚀 Pre-allocated GPU vertex buffers (typed arrays for Vertices.raw())
+  static var _posBuf = Float32List(4096); // x,y pairs
+  static var _colBuf = Int32List(2048); // packed ARGB
+  static var _idxBuf = Uint16List(8192); // triangle indices
   static const String name = 'Matita';
   static const IconData icon = Icons.create;
   static const double defaultWidthMultiplier = 1.0;
@@ -88,6 +97,10 @@ class PencilBrush {
     ui.Image? textureImage,
     double textureScale = 0.0,
     bool liveStroke = false,
+    int drawFromIndex = 0,
+    double surfaceRoughness = 0.0,
+    double surfaceAbsorption = 0.0,
+    double surfacePigmentRetention = 1.0,
   }) {
     if (points.isEmpty) return;
 
@@ -107,6 +120,9 @@ class PencilBrush {
         maxPressure: maxPressure,
         textureImage: textureImage,
         textureScale: textureScale,
+        surfaceRoughness: surfaceRoughness,
+        surfaceAbsorption: surfaceAbsorption,
+        surfacePigmentRetention: surfacePigmentRetention,
       );
       return;
     }
@@ -141,8 +157,10 @@ class PencilBrush {
       // 1. Calculate widths with finger/stylus detection
       _calculateWidths(points, baseWidth, minPressure, maxPressure, widthBuf);
 
-      // 2. Tapering (entry + exit)
-      _applyTapering(widthBuf, taperEntryPoints, taperExitPoints);
+      // 2. Tapering — suppress exit taper ALWAYS (unified pipeline).
+      // Exit taper during live was already 0. Applying it only on finalization
+      // caused visible snap + visual shortening at the end of the stroke.
+      _applyTapering(widthBuf, taperEntryPoints, 0);
 
       // 3. Smooth widths in-place (forward EMA)
       _smoothWidthsInPlace(widthBuf);
@@ -168,6 +186,7 @@ class PencilBrush {
         color,
         avgOpacity,
         liveStroke,
+        drawFromIndex: drawFromIndex,
       );
     } finally {
       if (useA) _bufAInUse = false;
@@ -265,15 +284,61 @@ class PencilBrush {
   // Smoothing (in-place, no allocation)
   // ──────────────────────────────────────────────────────────
 
-  /// Forward EMA smooth in-place — no list copy.
+  /// Bidirectional EMA smooth in-place + rate-limiting.
+  /// 4 passes (F→B→F→B) eliminate discontinuities from both sides.
+  /// Matches FountainPenBrush's proven pipeline.
   static void _smoothWidthsInPlace(_WidthBuffer buf) {
     if (buf.length < 3) return;
     const double alpha = 0.4;
 
-    double smoothed = buf[0];
+    // 4 bidirectional passes
+    for (int pass = 0; pass < 4; pass++) {
+      if (pass.isEven) {
+        // Forward
+        double smoothed = buf[0];
+        for (int i = 1; i < buf.length; i++) {
+          smoothed = smoothed * alpha + buf[i] * (1.0 - alpha);
+          buf[i] = smoothed;
+        }
+      } else {
+        // Backward
+        double smoothed = buf[buf.length - 1];
+        for (int i = buf.length - 2; i >= 0; i--) {
+          smoothed = smoothed * alpha + buf[i] * (1.0 - alpha);
+          buf[i] = smoothed;
+        }
+      }
+    }
+
+    // Rate-limit: prevent jarring width jumps between consecutive points
+    const double maxChangeRate = 0.25;
+    // Forward
     for (int i = 1; i < buf.length; i++) {
-      smoothed = smoothed * alpha + buf[i] * (1.0 - alpha);
-      buf[i] = smoothed;
+      final prev = buf[i - 1];
+      buf[i] = buf[i].clamp(
+        prev * (1.0 - maxChangeRate),
+        prev * (1.0 + maxChangeRate),
+      );
+    }
+    // Backward
+    for (int i = buf.length - 2; i >= 0; i--) {
+      final next = buf[i + 1];
+      buf[i] = buf[i].clamp(
+        next * (1.0 - maxChangeRate),
+        next * (1.0 + maxChangeRate),
+      );
+    }
+
+    // Post-smooth: clean residual steps from rate-limiting
+    double s = buf[0];
+    for (int i = 1; i < buf.length; i++) {
+      s = s * alpha + buf[i] * (1.0 - alpha);
+      buf[i] = s;
+    }
+    s = buf[buf.length - 1];
+    for (int i = buf.length - 2; i >= 0; i--) {
+      s = s * alpha + buf[i] * (1.0 - alpha);
+      buf[i] = s;
     }
   }
 
@@ -293,8 +358,9 @@ class PencilBrush {
     _OffsetBuffer tangentBuf,
     Color color,
     double avgOpacity,
-    bool liveStroke,
-  ) {
+    bool liveStroke, {
+    int drawFromIndex = 0,
+  }) {
     if (points.length < 2) return;
     final n = points.length;
 
@@ -304,32 +370,123 @@ class PencilBrush {
       smoothedPos.add(StrokeOptimizer.getOffset(points[i]));
     }
 
-    if (n >= 3) {
-      const double alpha = 0.35;
-      // Forward pass
-      for (int i = 1; i < n; i++) {
-        smoothedPos[i] = Offset(
-          smoothedPos[i - 1].dx * alpha + smoothedPos[i].dx * (1.0 - alpha),
-          smoothedPos[i - 1].dy * alpha + smoothedPos[i].dy * (1.0 - alpha),
-        );
+    if (n >= 4) {
+      const double posAlpha = 0.3;
+      // Always 2 smoothing passes (same as finalized) to prevent snap
+      for (int pass = 0; pass < 2; pass++) {
+        // Forward — preserve first point
+        for (int i = 1; i < smoothedPos.length - 1; i++) {
+          smoothedPos[i] = Offset(
+            smoothedPos[i - 1].dx * posAlpha +
+                smoothedPos[i].dx * (1.0 - posAlpha),
+            smoothedPos[i - 1].dy * posAlpha +
+                smoothedPos[i].dy * (1.0 - posAlpha),
+          );
+        }
+        // Backward — preserve last point
+        for (int i = smoothedPos.length - 2; i > 0; i--) {
+          smoothedPos[i] = Offset(
+            smoothedPos[i + 1].dx * posAlpha +
+                smoothedPos[i].dx * (1.0 - posAlpha),
+            smoothedPos[i + 1].dy * posAlpha +
+                smoothedPos[i].dy * (1.0 - posAlpha),
+          );
+        }
       }
-      // Backward pass
-      for (int i = n - 2; i >= 0; i--) {
-        smoothedPos[i] = Offset(
-          smoothedPos[i + 1].dx * alpha + smoothedPos[i].dx * (1.0 - alpha),
-          smoothedPos[i + 1].dy * alpha + smoothedPos[i].dy * (1.0 - alpha),
-        );
+
+      // Curvature-adaptive pass: smooth extra at sharp turns
+      for (int i = 2; i < smoothedPos.length - 2; i++) {
+        final v1 = smoothedPos[i] - smoothedPos[i - 1];
+        final v2 = smoothedPos[i + 1] - smoothedPos[i];
+        final cross = (v1.dx * v2.dy - v1.dy * v2.dx).abs();
+        final dot = v1.dx * v2.dx + v1.dy * v2.dy;
+        final angle = math.atan2(cross, dot);
+        final blend = (angle / math.pi).clamp(0.0, 1.0) * 0.4;
+        if (blend > 0.02) {
+          final avg = (smoothedPos[i - 1] + smoothedPos[i + 1]) / 2.0;
+          smoothedPos[i] = Offset(
+            smoothedPos[i].dx * (1.0 - blend) + avg.dx * blend,
+            smoothedPos[i].dy * (1.0 - blend) + avg.dy * blend,
+          );
+        }
+      }
+    }
+
+    // ─── B5: Arc-length reparameterization ──────────────────
+    // Always applied (same as finalized) to prevent snap.
+    // 🚀 PERF: Skip for very short strokes (< 10 pts).
+    if (smoothedPos.length >= 10) {
+      final n = smoothedPos.length;
+      if (_arcLenBuf.length < n) _arcLenBuf = Float64List(n * 2);
+      _arcLenBuf[0] = 0.0;
+      for (int i = 1; i < n; i++) {
+        _arcLenBuf[i] =
+            _arcLenBuf[i - 1] + (smoothedPos[i] - smoothedPos[i - 1]).distance;
+      }
+      final totalLen = _arcLenBuf[n - 1];
+
+      if (totalLen > 1.0) {
+        final numSamples = smoothedPos.length;
+        final step = totalLen / (numSamples - 1);
+
+        final resampledPos = <Offset>[smoothedPos.first];
+        final resampledW = _WidthBuffer();
+        resampledW.reset(numSamples);
+        resampledW.add(widths[0]);
+
+        int seg = 0;
+        for (int s = 1; s < numSamples - 1; s++) {
+          final targetLen = s * step;
+          while (seg < smoothedPos.length - 2 &&
+              _arcLenBuf[seg + 1] < targetLen) {
+            seg++;
+          }
+          final segLen = _arcLenBuf[seg + 1] - _arcLenBuf[seg];
+          final frac =
+              segLen > 0.001 ? (targetLen - _arcLenBuf[seg]) / segLen : 0.0;
+
+          final p0 = smoothedPos[seg];
+          final p1 = smoothedPos[seg + 1];
+          resampledPos.add(
+            Offset(
+              p0.dx + (p1.dx - p0.dx) * frac,
+              p0.dy + (p1.dy - p0.dy) * frac,
+            ),
+          );
+
+          final wIdx0 = (seg / (smoothedPos.length - 1) * (widths.length - 1))
+              .clamp(0.0, widths.length - 1.0);
+          final wIdx1 = ((seg + 1) /
+                  (smoothedPos.length - 1) *
+                  (widths.length - 1))
+              .clamp(0.0, widths.length - 1.0);
+          final w0 = widths[wIdx0.floor().clamp(0, widths.length - 1)];
+          final w1 = widths[wIdx1.ceil().clamp(0, widths.length - 1)];
+          resampledW.add(w0 + (w1 - w0) * frac);
+        }
+
+        resampledPos.add(smoothedPos.last);
+        resampledW.add(widths[widths.length - 1]);
+
+        smoothedPos.clear();
+        smoothedPos.addAll(resampledPos);
+
+        widths.reset(resampledW.length);
+        for (int i = 0; i < resampledW.length; i++) {
+          widths.add(resampledW[i]);
+        }
       }
     }
 
     // ─── 7-point tangent computation ──────────────────────
     _computeSmoothedTangents(smoothedPos, tangentBuf);
 
-    // ─── Compute outline points ──────────────────────────
-    leftBuf.reset(n);
-    rightBuf.reset(n);
+    // ─── Compute ALL outline points ──────────────────────────
+    // Outline is ALWAYS full — Chaikin needs global context.
+    leftBuf.reset(smoothedPos.length);
+    rightBuf.reset(smoothedPos.length);
 
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < smoothedPos.length; i++) {
       final current = smoothedPos[i];
       final halfWidth = widths[i] / 2;
       final tangent = tangentBuf[i];
@@ -348,6 +505,25 @@ class PencilBrush {
     _smoothOutlinePoints(leftBuf, avgWidth);
     _smoothOutlinePoints(rightBuf, avgWidth);
 
+    // ─── B3: Chaikin corner-cutting subdivision ──────────
+    if (leftBuf.length >= 4) {
+      _applyChaikinSubdivision(leftBuf);
+      _applyChaikinSubdivision(rightBuf);
+    }
+
+    // ─── B4: Fix crossed outlines at sharp corners ───────
+    for (int i = 1; i < leftBuf.length; i++) {
+      final currCenter = (leftBuf[i] + rightBuf[i]) / 2.0;
+      final prevLR = rightBuf[i - 1] - leftBuf[i - 1];
+      final currLR = rightBuf[i] - leftBuf[i];
+      final cross = prevLR.dx * currLR.dy - prevLR.dy * currLR.dx;
+      final dot = prevLR.dx * currLR.dx + prevLR.dy * currLR.dy;
+      if (dot < 0 || cross.abs() > (prevLR.distance * currLR.distance * 0.95)) {
+        leftBuf[i] = currCenter;
+        rightBuf[i] = currCenter;
+      }
+    }
+
     // ═══════════════════════════════════════════════════════
     // GPU VERTEX TESSELLATION — triangle strip + semicircular caps
     // ═══════════════════════════════════════════════════════
@@ -355,55 +531,76 @@ class PencilBrush {
     final outN = leftBuf.length;
     if (outN < 2) return;
 
-    final positions = <Offset>[];
-    final indices = <int>[];
-    final colors = <Color>[];
+    // ═══════════════════════════════════════════════════════════
+    // 🚀 GPU VERTEX TESSELLATION — typed arrays + Vertices.raw()
+    // ═══════════════════════════════════════════════════════════
+    final origLen = widths.length;
+    final tessStart =
+        drawFromIndex > 0
+            ? (drawFromIndex / origLen * outN).round().clamp(0, outN - 1)
+            : 0;
+    final tessLen = outN - tessStart;
+    final maxVerts = 2 * tessLen + 30; // body + caps (no feathering for pencil)
+    final maxIndices = 6 * (tessLen - 1) + 6 * 20;
+
+    // Grow static buffers if needed
+    if (_posBuf.length < maxVerts * 2) _posBuf = Float32List(maxVerts * 3);
+    if (_colBuf.length < maxVerts) _colBuf = Int32List(maxVerts * 2);
+    if (_idxBuf.length < maxIndices) _idxBuf = Uint16List(maxIndices * 2);
+
+    int vi = 0; // vertex write index
+    int ii = 0; // index write index
 
     final strokeColor = color.withValues(alpha: avgOpacity * color.a);
     final baseAlpha = (strokeColor.a * 255.0).round().clamp(0, 255);
     final cR = (strokeColor.r * 255.0).round().clamp(0, 255);
     final cG = (strokeColor.g * 255.0).round().clamp(0, 255);
     final cB = (strokeColor.b * 255.0).round().clamp(0, 255);
-    final origLen = widths.length;
+
+    // B1: Pre-compute maxW once instead of per-vertex O(N²)
+    double maxW = 0.01;
+    for (int j = 0; j < origLen; j++) {
+      if (widths[j] > maxW) maxW = widths[j];
+    }
 
     // ─── Body: interleave left/right into triangle strip ──
-    for (int i = 0; i < outN; i++) {
-      final t = i / (outN - 1).toDouble();
+    for (int i = tessStart; i < outN; i++) {
+      final t = outN > 1 ? i / (outN - 1) : 0.0;
       final wIdx = (t * (origLen - 1)).clamp(0.0, origLen - 1.0);
       final wLow = wIdx.floor();
       final wHigh = wIdx.ceil().clamp(0, origLen - 1);
       final wFrac = wIdx - wLow;
       final w = widths[wLow] * (1.0 - wFrac) + widths[wHigh] * wFrac;
 
-      // Pressure-based alpha: wider = more graphite = darker
-      double maxW = 0.01;
-      for (int j = 0; j < origLen; j++) {
-        if (widths[j] > maxW) maxW = widths[j];
-      }
       final pressureAlpha = (0.85 + 0.15 * (w / maxW).clamp(0.0, 1.0));
-
-      // Edge AA: 92%
-      final leftAlpha = (baseAlpha * pressureAlpha * 0.92).round().clamp(
+      final vertAlpha = (baseAlpha * pressureAlpha * 0.92).round().clamp(
         0,
         255,
       );
-      final rightAlpha = (baseAlpha * pressureAlpha * 0.92).round().clamp(
-        0,
-        255,
-      );
+      final argb = (vertAlpha << 24) | (cR << 16) | (cG << 8) | cB;
 
-      positions.add(leftBuf[i]);
-      colors.add(Color.fromARGB(leftAlpha, cR, cG, cB));
-      positions.add(rightBuf[i]);
-      colors.add(Color.fromARGB(rightAlpha, cR, cG, cB));
+      // Left vertex
+      _posBuf[vi * 2] = leftBuf[i].dx;
+      _posBuf[vi * 2 + 1] = leftBuf[i].dy;
+      _colBuf[vi] = argb;
+      vi++;
+      // Right vertex
+      _posBuf[vi * 2] = rightBuf[i].dx;
+      _posBuf[vi * 2 + 1] = rightBuf[i].dy;
+      _colBuf[vi] = argb;
+      vi++;
     }
-    for (int i = 0; i < outN - 1; i++) {
+    for (int i = 0; i < tessLen - 1; i++) {
       final li = 2 * i;
       final ri = 2 * i + 1;
       final lNext = 2 * (i + 1);
       final rNext = 2 * (i + 1) + 1;
-      indices.addAll([li, ri, lNext]);
-      indices.addAll([ri, lNext, rNext]);
+      _idxBuf[ii++] = li;
+      _idxBuf[ii++] = ri;
+      _idxBuf[ii++] = lNext;
+      _idxBuf[ii++] = ri;
+      _idxBuf[ii++] = lNext;
+      _idxBuf[ii++] = rNext;
     }
 
     // ─── End cap: semicircular fan ────────────────────────
@@ -418,68 +615,107 @@ class PencilBrush {
         lastL.dx - endCenter.dx,
       );
       final capAlpha = (baseAlpha * 0.90).round().clamp(0, 255);
-      final centerIdx = positions.length;
-      positions.add(endCenter);
-      colors.add(Color.fromARGB(capAlpha, cR, cG, cB));
-      final firstArcIdx = positions.length;
+      final capArgb = (capAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      final edgeAlpha = (capAlpha * 0.85).round().clamp(0, 255);
+      final edgeArgb = (edgeAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+
+      final centerIdx = vi;
+      _posBuf[vi * 2] = endCenter.dx;
+      _posBuf[vi * 2 + 1] = endCenter.dy;
+      _colBuf[vi] = capArgb;
+      vi++;
+      final firstArcIdx = vi;
       for (int s = 0; s <= endSegs; s++) {
         final a = baseAngle - math.pi * s / endSegs;
-        positions.add(
-          Offset(
-            endCenter.dx + endRadius * math.cos(a),
-            endCenter.dy + endRadius * math.sin(a),
-          ),
-        );
-        final edgeAlpha = (capAlpha * 0.85).round().clamp(0, 255);
-        colors.add(Color.fromARGB(edgeAlpha, cR, cG, cB));
+        _posBuf[vi * 2] = endCenter.dx + endRadius * math.cos(a);
+        _posBuf[vi * 2 + 1] = endCenter.dy + endRadius * math.sin(a);
+        _colBuf[vi] = edgeArgb;
+        vi++;
       }
       for (int s = 0; s < endSegs; s++) {
-        indices.addAll([centerIdx, firstArcIdx + s, firstArcIdx + s + 1]);
+        _idxBuf[ii++] = centerIdx;
+        _idxBuf[ii++] = firstArcIdx + s;
+        _idxBuf[ii++] = firstArcIdx + s + 1;
       }
     }
 
     // ─── Start cap: semicircular fan ─────────────────────
-    final firstL = leftBuf[0];
-    final firstR = rightBuf[0];
-    final startCenter = (firstL + firstR) / 2.0;
-    final startRadius = (firstL - firstR).distance / 2.0;
-    if (startRadius > 0.1) {
-      const int startSegs = 8;
-      final baseAngle = math.atan2(
-        firstR.dy - startCenter.dy,
-        firstR.dx - startCenter.dx,
-      );
-      final capAlpha = (baseAlpha * 0.90).round().clamp(0, 255);
-      final centerIdx = positions.length;
-      positions.add(startCenter);
-      colors.add(Color.fromARGB(capAlpha, cR, cG, cB));
-      final firstArcIdx = positions.length;
-      for (int s = 0; s <= startSegs; s++) {
-        final a = baseAngle - math.pi * s / startSegs;
-        positions.add(
-          Offset(
-            startCenter.dx + startRadius * math.cos(a),
-            startCenter.dy + startRadius * math.sin(a),
-          ),
+    if (drawFromIndex <= 0) {
+      final firstL = leftBuf[0];
+      final firstR = rightBuf[0];
+      final startCenter = (firstL + firstR) / 2.0;
+      final startRadius = (firstL - firstR).distance / 2.0;
+      if (startRadius > 0.1) {
+        const int startSegs = 8;
+        final baseAngle = math.atan2(
+          firstR.dy - startCenter.dy,
+          firstR.dx - startCenter.dx,
         );
+        final capAlpha = (baseAlpha * 0.90).round().clamp(0, 255);
+        final capArgb = (capAlpha << 24) | (cR << 16) | (cG << 8) | cB;
         final edgeAlpha = (capAlpha * 0.85).round().clamp(0, 255);
-        colors.add(Color.fromARGB(edgeAlpha, cR, cG, cB));
-      }
-      for (int s = 0; s < startSegs; s++) {
-        indices.addAll([centerIdx, firstArcIdx + s, firstArcIdx + s + 1]);
+        final edgeArgb = (edgeAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+
+        final centerIdx = vi;
+        _posBuf[vi * 2] = startCenter.dx;
+        _posBuf[vi * 2 + 1] = startCenter.dy;
+        _colBuf[vi] = capArgb;
+        vi++;
+        final firstArcIdx = vi;
+        for (int s = 0; s <= startSegs; s++) {
+          final a = baseAngle - math.pi * s / startSegs;
+          _posBuf[vi * 2] = startCenter.dx + startRadius * math.cos(a);
+          _posBuf[vi * 2 + 1] = startCenter.dy + startRadius * math.sin(a);
+          _colBuf[vi] = edgeArgb;
+          vi++;
+        }
+        for (int s = 0; s < startSegs; s++) {
+          _idxBuf[ii++] = centerIdx;
+          _idxBuf[ii++] = firstArcIdx + s;
+          _idxBuf[ii++] = firstArcIdx + s + 1;
+        }
       }
     }
 
-    // ─── GPU draw ────────────────────────────────────────
+    // ─── GPU draw: single call with raw typed arrays ──────
     final paint = PaintPool.getFillPaint(color: strokeColor);
-    final vertices = ui.Vertices(
+    final vertices = ui.Vertices.raw(
       ui.VertexMode.triangles,
-      positions,
-      colors: colors,
-      indices: indices,
+      Float32List.sublistView(_posBuf, 0, vi * 2),
+      colors: Int32List.sublistView(_colBuf, 0, vi),
+      indices: Uint16List.sublistView(_idxBuf, 0, ii),
     );
     canvas.drawVertices(vertices, BlendMode.srcOver, paint);
     vertices.dispose();
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Chaikin Subdivision (B3)
+  // ──────────────────────────────────────────────────────────
+
+  /// Chaikin corner-cutting subdivision (1 iteration).
+  /// Replaces each segment with two new points at 25% and 75%,
+  /// converging to a quadratic B-spline for provably smooth curves.
+  static void _applyChaikinSubdivision(_OffsetBuffer buf) {
+    if (buf.length < 3) return;
+    final n = buf.length;
+    final subdivided = <Offset>[buf[0]];
+    for (int i = 0; i < n - 1; i++) {
+      final p0 = buf[i];
+      final p1 = buf[i + 1];
+      subdivided.add(
+        Offset(p0.dx * 0.75 + p1.dx * 0.25, p0.dy * 0.75 + p1.dy * 0.25),
+      );
+      subdivided.add(
+        Offset(p0.dx * 0.25 + p1.dx * 0.75, p0.dy * 0.25 + p1.dy * 0.75),
+      );
+    }
+    subdivided.add(buf[n - 1]);
+
+    buf.reset(subdivided.length);
+    for (final p in subdivided) {
+      buf.add(p);
+    }
   }
 
   // ──────────────────────────────────────────────────────────
@@ -520,16 +756,24 @@ class PencilBrush {
   // ──────────────────────────────────────────────────────────
 
   static void _smoothOutlinePoints(_OffsetBuffer buf, double avgWidth) {
-    if (buf.length < 3) return;
-    // Wider strokes → stronger smoothing
-    final alpha = (0.25 + (avgWidth / 20.0).clamp(0.0, 0.25)).clamp(0.0, 0.5);
-    final passes = avgWidth > 4 ? 3 : 2;
+    if (buf.length < 4) return;
+    // Adaptive: thin strokes (1-3px) → alpha 0.35, thick (15+px) → alpha 0.65
+    final double alpha = (0.35 + (avgWidth / 40.0).clamp(0.0, 0.30));
+    final int passes = avgWidth > 8.0 ? 3 : 2;
 
     for (int pass = 0; pass < passes; pass++) {
+      // Forward
       for (int i = 1; i < buf.length - 1; i++) {
         buf[i] = Offset(
           buf[i - 1].dx * alpha + buf[i].dx * (1.0 - alpha),
           buf[i - 1].dy * alpha + buf[i].dy * (1.0 - alpha),
+        );
+      }
+      // Backward
+      for (int i = buf.length - 2; i > 0; i--) {
+        buf[i] = Offset(
+          buf[i + 1].dx * alpha + buf[i].dx * (1.0 - alpha),
+          buf[i + 1].dy * alpha + buf[i].dy * (1.0 - alpha),
         );
       }
     }

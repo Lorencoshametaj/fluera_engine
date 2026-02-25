@@ -153,6 +153,7 @@ class FountainPenBrush {
     double? nibStrength,
     ui.Image? textureImage,
     double textureScale = 0.0,
+    int drawFromIndex = 0,
   }) {
     if (points.isEmpty) return;
 
@@ -193,8 +194,10 @@ class FountainPenBrush {
         nibStrength: nibStrength,
       );
 
-      // 2. Tapering
-      _applyTapering(widthBuf, taperEntry, taperExit);
+      // 2. Tapering — suppress exit taper ALWAYS (unified pipeline).
+      // Exit taper during live was already 0. Applying it only on finalization
+      // caused visible snap + visual shortening at the end of the stroke.
+      _applyTapering(widthBuf, taperEntry, 0);
 
       // 3. Smooth — bidirectional EMA (4 passes for ultra-smooth contours)
       _smoothWidths(widthBuf, forward: true);
@@ -232,6 +235,7 @@ class FountainPenBrush {
         leftBuf,
         rightBuf,
         liveStroke: liveStroke,
+        drawFromIndex: drawFromIndex,
       );
 
       // 6. Render

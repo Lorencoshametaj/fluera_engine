@@ -13,6 +13,7 @@ extension on _NebulaCanvasScreenState {
 
     // Indica che l'utente sta disegnando (per opacity layer panel)
     _isDrawingNotifier.value = true;
+    _pushConsciousContext(); // 🧠 Notify intelligence subsystems
 
     // ☁️ PRESENCE: Broadcast drawing state to collaborators
     if (_isSharedCanvas && _realtimeEngine != null) {
@@ -490,9 +491,11 @@ extension on _NebulaCanvasScreenState {
     }
 
     // 🆕 Disegno a mano libera - usa processor appropriato
+    // 🎯 Reset rendered count to prevent stale values from previous stroke
+    // being used for trimming when strokes arrive in the same event batch.
+    CurrentStrokePainter.resetForNewStroke();
     if (_is120HzMode && _rawInputProcessor120Hz != null) {
-      // 🚀 120Hz MODE: Raw processor for thetenza minima
-      // Buildi ProDrawingPoint direttamente (zero processing)
+      // 🚀 120Hz MODE: Raw processor per latenza minima
       final point = ProDrawingPoint(
         position: canvasPosition,
         pressure: pressure.clamp(0.0, 1.0),

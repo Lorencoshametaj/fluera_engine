@@ -12,6 +12,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # flutter_gpu:              # TODO(gpu): Uncomment when flutter_gpu lands in stable
+  #   sdk: flutter
 
   flutter_riverpod: ^3.0.3
   # Storage & IO
@@ -32,6 +34,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # flutter_gpu_shaders: ^0.3.0 # TODO(gpu): Uncomment when flutter_gpu lands in stable
+  # native_assets_cli: ^0.13.0  # TODO(gpu): Required by hook/build.dart
 
 flutter:
   plugin:
@@ -56,6 +60,7 @@ flutter:
   assets:
     - assets/textures/
     - assets/textures/images/
+    # - build/shaderbundles/   # TODO(gpu): Uncomment when flutter_gpu lands in stable
     # TODO(prod): Replace bundled PyTorch models (~117MB) with on-demand download
     # from CDN/Firebase Storage at first launch to reduce APK/IPA size.
     - assets/models/pix2tex/

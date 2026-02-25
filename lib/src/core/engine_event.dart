@@ -52,6 +52,9 @@ enum EventDomain {
 
   /// Animation playback events.
   animation,
+
+  /// Intelligence subsystem events (Conscious Architecture cross-layer).
+  intelligence,
 }
 
 // =============================================================================
@@ -330,4 +333,40 @@ class AnimationFrameEvent extends EngineEvent {
 
   AnimationFrameEvent({required this.time})
     : super(source: 'AnimationPlayer', domain: EventDomain.animation);
+}
+
+// =============================================================================
+// INTELLIGENCE EVENTS (Conscious Architecture)
+// =============================================================================
+
+/// AdaptiveProfile recommendations changed after context updates.
+class ProfileRecommendationsChangedEvent extends EngineEvent {
+  /// Current stabilizer level recommendation (0-3).
+  final int stabilizerLevel;
+
+  /// Current tile prefetch bias.
+  final double prefetchBias;
+
+  ProfileRecommendationsChangedEvent({
+    required this.stabilizerLevel,
+    required this.prefetchBias,
+  }) : super(source: 'ConsciousArchitecture', domain: EventDomain.intelligence);
+}
+
+/// DesignLinter completed a lint pass and found violations.
+class LintCompletedEvent extends EngineEvent {
+  /// Number of violations found.
+  final int violationCount;
+
+  LintCompletedEvent({required this.violationCount})
+    : super(source: 'ConsciousArchitecture', domain: EventDomain.intelligence);
+}
+
+/// SmartSnap threshold was adapted by the Conscious Architecture.
+class SnapThresholdChangedEvent extends EngineEvent {
+  /// New threshold in canvas pixels.
+  final double threshold;
+
+  SnapThresholdChangedEvent({required this.threshold})
+    : super(source: 'ConsciousArchitecture', domain: EventDomain.intelligence);
 }

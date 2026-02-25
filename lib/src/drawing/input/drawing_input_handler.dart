@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/pro_drawing_point.dart';
 import '../filters/one_euro_filter.dart';
 import '../filters/stroke_stabilizer.dart';
+import '../filters/physics_ink_simulator.dart';
+import '../../systems/organic_behavior_engine.dart';
 // SDK: AI filters removed — use optional callback via NebulaToolbarConfig
 import './predicted_touch_service.dart';
 
@@ -30,6 +32,35 @@ class DrawingInputHandler {
 
   /// 🎯 SAI-style stroke stabilizer — smooths hand tremor in real-time
   final StrokeStabilizer _stabilizer = StrokeStabilizer();
+
+  /// 🌱 Physics ink simulator — spring-based inertial following
+  final PhysicsInkSimulator _inkSimulator = PhysicsInkSimulator(
+    damping: 0.2,
+    stiffness: 350.0,
+    mass: 0.8,
+  );
+
+  /// 🌱 Per-brush physics ink profile
+  /// Returns (blendFactor, trailingCount) for each pen type.
+  static ({double blend, int trailing}) _inkProfile(ProPenType? penType) {
+    return switch (penType) {
+      ProPenType.fountain => (blend: 0.25, trailing: 5),
+      ProPenType.charcoal => (blend: 0.20, trailing: 3),
+      ProPenType.watercolor => (blend: 0.20, trailing: 3),
+      ProPenType.inkWash => (blend: 0.18, trailing: 4),
+      ProPenType.oilPaint => (blend: 0.15, trailing: 3),
+      ProPenType.pencil => (blend: 0.12, trailing: 2),
+      ProPenType.marker => (blend: 0.10, trailing: 2),
+      ProPenType.sprayPaint => (blend: 0.08, trailing: 1),
+      ProPenType.neonGlow => (blend: 0.05, trailing: 1),
+      ProPenType.ballpoint => (blend: 0.0, trailing: 0),
+      ProPenType.highlighter => (blend: 0.0, trailing: 0),
+      null => (blend: 0.15, trailing: 3),
+    };
+  }
+
+  /// 🌱 Current pen type for physics ink profile (set by caller)
+  ProPenType? currentPenType;
 
   /// Flag per abilitare/disabilitare OneEuroFilter
   bool enableOneEuroFilter;
@@ -155,6 +186,7 @@ class DrawingInputHandler {
     // Reset filtri per nuovo tratto
     _oneEuroFilter.reset();
     _stabilizer.reset();
+    _inkSimulator.reset();
 
     // 🚀 PERF: Replace with new list to preserve old reference if still held
     _currentStroke = [];
@@ -227,9 +259,29 @@ class DrawingInputHandler {
             ? _oneEuroFilter.filter(docPosition, ts)
             : docPosition;
 
+    // 🌱 Phase 4C: Physics ink simulation — inertial following
+    final inkProfile = _inkProfile(currentPenType);
+    if (OrganicBehaviorEngine.physicsInkEnabled && inkProfile.blend > 0) {
+      // 🌱 Pressure → mass: heavy strokes = more inertia, light = agile
+      _inkSimulator.mass = 0.5 + pressure * 1.0; // 0.5 at zero, 1.5 at full
+      _inkSimulator.updateTarget(
+        filteredPosition,
+        DateTime.fromMillisecondsSinceEpoch(ts),
+      );
+      final physicsPos = _inkSimulator.getSimulatedPosition();
+      final blend = inkProfile.blend;
+      filteredPosition = Offset(
+        filteredPosition.dx * (1.0 - blend) + physicsPos.dx * blend,
+        filteredPosition.dy * (1.0 - blend) + physicsPos.dy * blend,
+      );
+    }
+
     // 🎯 Phase 4B: Apply stroke stabilizer smoothing (real-time)
     if (_stabilizer.level > 0) {
-      filteredPosition = _stabilizer.stabilize(filteredPosition);
+      filteredPosition = _stabilizer.stabilize(
+        filteredPosition,
+        timestampUs: ts * 1000, // ms → μs
+      );
     }
 
     // 2. Normalize pressure for stability (clamp + smoothing)
@@ -306,7 +358,10 @@ class DrawingInputHandler {
 
       // 2. Stabilizer
       if (_stabilizer.level > 0) {
-        filteredPosition = _stabilizer.stabilize(filteredPosition);
+        filteredPosition = _stabilizer.stabilize(
+          filteredPosition,
+          timestampUs: ts * 1000, // ms → μs
+        );
       }
 
       // 3. Pressure normalization
@@ -335,6 +390,37 @@ class DrawingInputHandler {
   ///
   /// Returns: Final list of points (immutable)
   List<ProDrawingPoint> endStroke() {
+    // 🌱 Inertial trailing: append physics-simulated ending points
+    final inkProfile = _inkProfile(currentPenType);
+    if (OrganicBehaviorEngine.physicsInkEnabled &&
+        inkProfile.trailing > 0 &&
+        _currentStroke.length >= 3) {
+      final lastPoint = _currentStroke.last;
+      final trailingPositions = _inkSimulator.simulateEnding(
+        lastPoint: lastPoint.position,
+        steps: inkProfile.trailing + 2,
+        decayRate: 0.7,
+      );
+      // Add per-brush trailing points with decaying pressure
+      final trailCount = trailingPositions.length.clamp(0, inkProfile.trailing);
+      for (int i = 0; i < trailCount; i++) {
+        final t = (i + 1) / (trailCount + 1);
+        _currentStroke.add(
+          ProDrawingPoint(
+            position: trailingPositions[i],
+            pressure: lastPoint.pressure * (1.0 - t * 0.6),
+            tiltX: lastPoint.tiltX,
+            tiltY: lastPoint.tiltY,
+            orientation: lastPoint.orientation,
+            timestamp: lastPoint.timestamp + (i + 1) * 8, // ~8ms per point
+          ),
+        );
+      }
+    }
+
+    // 🌱 Notify pattern tracker for adaptive intensity
+    OrganicBehaviorEngine.notifyStrokeCompleted(_currentStroke.length);
+
     // Create copia defensiva to avoid modifiche future
     final finalPoints = List<ProDrawingPoint>.unmodifiable(_currentStroke);
 
@@ -365,12 +451,21 @@ class DrawingInputHandler {
   int get stabilizerLevel => _stabilizer.level;
   set stabilizerLevel(int value) => _stabilizer.level = value;
 
+  /// Apply stabilizer smoothing to a raw position (for 120Hz path).
+  /// Returns the smoothed position. O(1) per call.
+  Offset applyStabilizer(Offset rawPosition) =>
+      _stabilizer.stabilize(rawPosition);
+
+  /// Reset stabilizer state for a new stroke (for 120Hz path).
+  void resetStabilizer() => _stabilizer.reset();
+
   /// Complete reset of the handler
   void reset() {
     _currentStroke = [];
     _nativePredictedPoints.clear();
     _oneEuroFilter.reset();
     _stabilizer.reset();
+    _inkSimulator.reset();
   }
 
   /// 🚀 Cleanup resources

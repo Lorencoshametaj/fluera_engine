@@ -2,14 +2,11 @@ part of '../../nebula_canvas_screen.dart';
 
 /// 📦 Lifecycle & Initialization — extracted from _NebulaCanvasScreenState
 extension on _NebulaCanvasScreenState {
-  /// ✨ Initialize Pro shader brushes with subscription gating
+  /// ✨ Initialize GPU shader brushes
   Future<void> _initProShaders() async {
     await ShaderBrushService.instance.initialize();
-    // Check Pro subscription — if user has Pro, enable GPU shaders
-    final isPro = _config.subscriptionTier == NebulaSubscriptionTier.pro;
-    if (isPro) {
-      ShaderBrushService.instance.enablePro();
-    }
+    // 🎯 dart:gpu low-level render pipeline (texture overlay PoC)
+    GpuTextureService.instance.initialize();
   }
 
   // Tool state changes are handled by UnifiedToolController (ChangeNotifier)
@@ -184,6 +181,10 @@ extension on _NebulaCanvasScreenState {
         setState(() {
           _isLoading = false;
         });
+        // 🏎️ Auto-enable performance overlay in debug builds
+        if (kDebugMode) {
+          CanvasPerformanceMonitor.instance.setEnabled(true);
+        }
       } else {
         _isLoading = false;
       }

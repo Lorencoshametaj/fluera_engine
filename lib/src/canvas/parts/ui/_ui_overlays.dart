@@ -349,21 +349,22 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
               return Stack(
                 children: [
                   // Ripple flash on recently filled cells.
-                  if (NebulaCanvasTabularHandler
+                  if (NebulaCanvasTabularFillHandle
                           ._lastFilledAddresses
                           .isNotEmpty &&
-                      NebulaCanvasTabularHandler._lastFillTime != null)
+                      NebulaCanvasTabularFillHandle._lastFillTime != null)
                     Builder(
                       builder: (ctx) {
                         final elapsed =
                             DateTime.now()
                                 .difference(
-                                  NebulaCanvasTabularHandler._lastFillTime!,
+                                  NebulaCanvasTabularFillHandle._lastFillTime!,
                                 )
                                 .inMilliseconds;
                         if (elapsed > 600) {
                           // Animation complete — clear.
-                          NebulaCanvasTabularHandler._lastFilledAddresses = [];
+                          NebulaCanvasTabularFillHandle._lastFilledAddresses =
+                              [];
                           return const SizedBox.shrink();
                         }
                         final opacity =
@@ -374,7 +375,7 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
                         return Stack(
                           children: [
                             for (final addr
-                                in NebulaCanvasTabularHandler
+                                in NebulaCanvasTabularFillHandle
                                     ._lastFilledAddresses)
                               Builder(
                                 builder: (_) {

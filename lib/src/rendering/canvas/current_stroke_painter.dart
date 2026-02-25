@@ -39,6 +39,9 @@ class CurrentStrokePainter extends CustomPainter {
   // 🚀 Viewport-level mode: apply canvas transform inside paint()
   final InfiniteCanvasController? controller;
 
+  // 🧬 Surface material — applied to BrushEngine for programmable materiality
+  final SurfaceMaterial? surface;
+
   // ✂️ PDF page clipping: when drawing on a PDF page, clip live stroke
   // to the page rect so ink doesn't overflow outside the page.
   final Rect? pdfClipRect;
@@ -60,38 +63,28 @@ class CurrentStrokePainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round;
 
-  // ─── INCREMENTAL CACHE ──────────────────────────────────────────
-  // Enabled: fountain pen now always renders with liveStroke=true (1 Chaikin,
-  // no feathering), so the overlap zone between cached body and tail has
-  // only opaque core vertices — no semi-transparent fringe that would cause
-  // visible alpha accumulation. This bounds per-frame cost to O(overlap + new)
-  // instead of O(total_stroke_length).
+  // ─── FULL-STROKE PICTURE CACHE ──────────────────────────────────
+  // Rebuild Picture on every new point. Replay on idle frames (free).
+  // Context-dependent smoothing prevents body+tail sub-stroke approach.
   static const bool _enableIncrementalCache = true;
   static const int _cacheThreshold = 20;
 
-  /// How many new points to accumulate before refreshing the cache.
-  static const int _cacheRefreshInterval = 15;
-
-  /// Overlap points between cache and tail for seamless smoothing context.
-  /// Must be large enough for the brushes' smoothing window (EMA passes,
-  /// tangent computation, Chaikin subdivision context).
-  static const int _overlapPoints = 20;
-
-  /// Cached picture of the stroke body.
+  /// Cached Picture of the full stroke.
   static ui.Picture? _cachedPicture;
-
-  /// Number of points baked into _cachedPicture.
   static int _cachedPointCount = 0;
-
-  /// Style fingerprint to detect style changes that invalidate the cache.
   static int _cachedStyleHash = 0;
 
   /// Number of points rendered in the last paint() call.
-  /// Used to trim unseen trailing points on finalization.
   static int _lastRenderedCount = 0;
-
-  /// Returns how many points were in the last paint().
   static int get lastRenderedCount => _lastRenderedCount;
+
+  /// Reset rendered count for a new stroke. Must be called from _onDrawStart
+  /// to prevent stale values from a previous stroke being used for trimming.
+  static void resetForNewStroke() {
+    _lastRenderedCount = 0;
+    _predictor.reset();
+    _predictorFedCount = 0;
+  }
 
   CurrentStrokePainter({
     required this.strokeNotifier,
@@ -105,6 +98,7 @@ class CurrentStrokePainter extends CustomPainter {
     this.guideSystem,
     this.controller,
     this.pdfClipRect,
+    this.surface,
   }) : super(repaint: strokeNotifier);
 
   /// Style hash to detect when cached picture must be invalidated.
@@ -179,13 +173,12 @@ class CurrentStrokePainter extends CustomPainter {
     // Feed new points into the predictor and draw predicted extension.
     // This reduces perceived latency by ~15-20ms.
     if (enablePredictive && currentStroke.length >= 3) {
-      // Feed any new points since last feed
       final feedStart = _predictorFedCount.clamp(0, currentStroke.length - 1);
       for (int i = feedStart; i < currentStroke.length; i++) {
         final pt = currentStroke[i];
         _predictor.addPoint(
           pt.position,
-          pt.timestamp * 1000, // ms → µs
+          pt.timestamp * 1000,
           pressure: pt.pressure,
         );
       }
@@ -225,57 +218,46 @@ class CurrentStrokePainter extends CustomPainter {
     }
   }
 
-  /// Incremental rendering: replay cached body + render only new tail.
+  /// Full-stroke Picture cache: rebuild on every new point, replay on idle.
+  ///
+  /// Incremental body+delta approaches DON'T work due to THREE compounding
+  /// issues that cannot be individually solved:
+  ///   1. Arc-length resampling: redistributes ALL points globally
+  ///   2. Backward EMA: shifts smoothed positions when new points are added
+  ///   3. srcOver + per-vertex alpha: double-rendering in overlap zone
+  ///      causes visible brightening/darkening artifacts
   void _paintIncremental(Canvas canvas, List<ProDrawingPoint> stroke) {
     final currentStyle = _styleHash;
     final pointCount = stroke.length;
 
-    // Invalidate cache if style changed
     if (currentStyle != _cachedStyleHash) {
       _invalidateCache();
     }
 
-    // Determine if we should refresh the cache
-    final newPointsSinceCache = pointCount - _cachedPointCount;
-    final needsRefresh =
-        _cachedPicture == null || newPointsSinceCache >= _cacheRefreshInterval;
-
-    if (needsRefresh) {
-      // Bake current body (all but last _overlapPoints) into a Picture.
-      // We leave _overlapPoints un-cached so the tail overlaps seamlessly
-      // with enough smoothing context for EMA/tangent/Chaikin passes.
-      final cacheEnd = pointCount - _overlapPoints;
-      if (cacheEnd > 0) {
-        final bodyPoints = stroke.sublist(0, cacheEnd);
-        final recorder = ui.PictureRecorder();
-        final recordCanvas = Canvas(recorder);
-        _drawStroke(recordCanvas, bodyPoints, color, width, penType, settings);
-        _cachedPicture?.dispose();
-        _cachedPicture = recorder.endRecording();
-        _cachedPointCount = cacheEnd;
-        _cachedStyleHash = currentStyle;
-      }
+    // 🎯 Detect new stroke: if cache is empty but we have points,
+    // reset _lastRenderedCount to avoid stale values from previous stroke.
+    if (_cachedPicture == null && pointCount > 0) {
+      _lastRenderedCount = 0;
     }
 
-    // 1. Replay cached body
+    final needsRefresh =
+        _cachedPicture == null || pointCount != _cachedPointCount;
+
+    if (needsRefresh) {
+      final recorder = ui.PictureRecorder();
+      _drawStroke(Canvas(recorder), stroke, color, width, penType, settings);
+      _cachedPicture?.dispose();
+      _cachedPicture = recorder.endRecording();
+      _cachedPointCount = pointCount;
+      _cachedStyleHash = currentStyle;
+    }
+
     if (_cachedPicture != null) {
       canvas.drawPicture(_cachedPicture!);
     }
-
-    // 2. Render tail (overlap + new points) with full stroke context.
-    // The large overlap (20 points) ensures smoothing/tangent computation
-    // produces the same geometry as if the full stroke were rendered.
-    final tailStart = (_cachedPointCount - _overlapPoints).clamp(
-      0,
-      pointCount - 1,
-    );
-    if (tailStart < pointCount) {
-      final tailPoints = stroke.sublist(tailStart);
-      _drawStroke(canvas, tailPoints, color, width, penType, settings);
-    }
   }
 
-  /// Invalidate the dirty region cache.
+  /// Invalidate cache.
   static void _invalidateCache() {
     _cachedPicture?.dispose();
     _cachedPicture = null;
@@ -348,8 +330,9 @@ class CurrentStrokePainter extends CustomPainter {
     Color color,
     double width,
     ProPenType penType,
-    ProBrushSettings settings,
-  ) {
+    ProBrushSettings settings, {
+    int drawFromIndex = 0,
+  }) {
     BrushEngine.renderStroke(
       canvas,
       points,
@@ -358,6 +341,8 @@ class CurrentStrokePainter extends CustomPainter {
       penType,
       settings,
       isLive: true,
+      drawFromIndex: drawFromIndex,
+      surface: surface,
     );
   }
 

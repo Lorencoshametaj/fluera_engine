@@ -17,6 +17,9 @@ extension ShaderCharcoalRenderer on ShaderBrushService {
     double baseWidth, {
     double opacity = 0.6,
     double grain = 0.5,
+    double surfaceRoughness = 0.0,
+    double surfaceAbsorption = 0.0,
+    double surfacePigmentRetention = 1.0,
   }) {
     if (!isAvailable || charcoalShader == null || points.length < 2) return;
 
@@ -27,7 +30,22 @@ extension ShaderCharcoalRenderer on ShaderBrushService {
     final seed = random.nextDouble() * 100.0;
     final charcoalWidth = baseWidth * 2.0;
 
-    for (int k = 0; k < offsets.length - 1; k++) {
+    // 🚀 LOD: skip segments when zoomed out (sub-pixel)
+    int segStep = 1;
+    if (offsets.length > 4) {
+      final strokeExtent = (offsets.last - offsets.first).distance;
+      if (strokeExtent > 0) {
+        final avgSegScreenLen = strokeExtent / offsets.length;
+        if (avgSegScreenLen < 0.8) {
+          segStep = (0.8 / avgSegScreenLen).ceil().clamp(1, 6);
+        }
+      }
+    }
+
+    // 🚀 Adaptive padding: narrower when no halo/scatter needed
+    final paddingScale = surfaceAbsorption > 0.01 ? 0.8 : 0.55;
+
+    for (int k = 0; k < offsets.length - 1; k += segStep) {
       var p1 = offsets[k];
       var p2 = offsets[k + 1];
       final rawSegLen = (p2 - p1).distance;
@@ -47,7 +65,7 @@ extension ShaderCharcoalRenderer on ShaderBrushService {
       }
 
       final maxW = math.max(w1, w2);
-      final padding = maxW * 0.5 + 3.0;
+      final padding = maxW * paddingScale + 3.0;
       final rect = Rect.fromPoints(
         Offset(
           math.min(p1.dx, p2.dx) - padding,
@@ -78,6 +96,10 @@ extension ShaderCharcoalRenderer on ShaderBrushService {
       shader.setFloat(idx++, vel);
       shader.setFloat(idx++, seed + k);
       shader.setFloat(idx++, grain);
+      // 🧬 Surface material uniforms
+      shader.setFloat(idx++, surfaceRoughness);
+      shader.setFloat(idx++, surfaceAbsorption);
+      shader.setFloat(idx++, surfacePigmentRetention);
 
       canvas.translate(rect.left, rect.top);
       canvas.drawRect(Rect.fromLTWH(0, 0, rect.width, rect.height), paint);

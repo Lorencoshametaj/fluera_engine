@@ -108,3 +108,21 @@ Localizzazione: `NebulaLocalizations.of(context).x`. MAI hardcodare stringhe.
 - ⛔ MAI modificare senza richiesta esplicita. ⛔ MAI "migliorare" codice funzionante.
 - ✅ OK: aggiungere test, nuovi file che importano blindati, fix bug con test che falliscono.
 - 🔧 Prima di toccare: chiedere conferma, spiegare impatto.
+---
+## 9. ARCHITETTURA CONSAPEVOLE
+### Cinque Livelli di Intelligenza
+- **L0 — Fluido**: 60 FPS, 8 sottosistemi (§8 Fluidity Pipeline). COMPLETO.
+- **L1 — Anticipatorio**: Predice l'intento utente. File: `anticipatory_tile_prefetch.dart`, `predictive_renderer.dart`, `lod_manager.dart`.
+- **L2 — Adattivo**: Si regola al contesto. File: `adaptive_profile.dart`, `one_euro_filter.dart`, `frame_budget_manager.dart`, `liquid_canvas_config.dart`.
+- **L3 — Invisibile**: La tecnologia scompare. File: `smart_snap_engine.dart`, `smart_animate_engine.dart`, `plugin_api.dart`, `accessibility_bridge.dart`.
+- **L4 — Generativo**: Co-crea con l'utente. File: `onnx_latex_recognizer.dart`, `design_linter.dart`.
+### Contratto
+- Ogni sottosistema implementa `IntelligenceSubsystem` (`conscious_architecture.dart`).
+- Registro: `ConsciousArchitecture` in `EngineScope.consciousArchitecture`.
+- Lifecycle: `onContextChanged(EngineContext)` + `onIdle(Duration)` + `dispose()`.
+### Aggiungere un Sottosistema
+1. Classe → `extends IntelligenceSubsystem`
+2. Dichiarare `layer` e `name`
+3. Implementare `onContextChanged()` e `onIdle()`
+4. Registrare in `EngineScope` o all'inizializzazione del canvas
+5. Aggiornare `ARCHITECTURE.md`
