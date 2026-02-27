@@ -37,6 +37,10 @@ class PdfDocumentNode extends GroupNode {
   ({double angleRadians, Offset center, List<String> annotationIds})?
   pendingStrokeRotation;
 
+  /// 📡 Callback fired after any mutation (for real-time broadcast).
+  /// Parameters: (subAction, data)
+  void Function(String subAction, Map<String, dynamic> data)? onMutation;
+
   PdfDocumentNode({
     required super.id,
     required this.documentModel,
@@ -234,6 +238,11 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
     performGridLayout();
+
+    onMutation?.call('pageLocked', {
+      'pageIndex': pageIndex,
+      'locked': pageNode.pageModel.isLocked,
+    });
   }
 
   /// Return a locked page to its default grid position.
@@ -260,6 +269,8 @@ class PdfDocumentNode extends GroupNode {
     _syncTotalPages();
     // performGridLayout() now auto-populates pendingStrokeTranslations
     performGridLayout();
+
+    onMutation?.call('returnedToGrid', {'pageIndex': pageIndex});
 
     // Return the translation for this specific page (if any)
     if (pendingStrokeTranslations.isNotEmpty) {
@@ -362,6 +373,10 @@ class PdfDocumentNode extends GroupNode {
     // 🔑 Invalidate bounds so viewport culling and grid layout use fresh
     // values. Row heights may change when a portrait page becomes landscape.
     invalidateBoundsCache();
+
+    // NOTE: onMutation NOT called here for rotation — broadcast happens
+    // at the call site AFTER the pending rotation is consumed by
+    // onLayoutChanged. This prevents interference with the rotation flow.
   }
 
   // ---------------------------------------------------------------------------
@@ -414,6 +429,11 @@ class PdfDocumentNode extends GroupNode {
       showAnnotations: !page.pageModel.showAnnotations,
       lastModifiedAt: DateTime.now().microsecondsSinceEpoch,
     );
+
+    onMutation?.call('annotationsToggled', {
+      'pageIndex': pageIndex,
+      'visible': page.pageModel.showAnnotations,
+    });
   }
 
   /// Get the canvas-space rect for a page, accounting for rotation.
@@ -530,6 +550,11 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
     performGridLayout();
+
+    onMutation?.call('pageReordered', {
+      'fromIndex': fromIndex,
+      'toIndex': toIndex,
+    });
   }
 
   /// Insert a blank page at [afterIndex] (0-based) or at the end if null.
@@ -588,6 +613,12 @@ class PdfDocumentNode extends GroupNode {
     _syncTotalPages();
     performGridLayout();
 
+    onMutation?.call('pageAdded', {
+      'afterIndex': afterIndex,
+      'pageWidth': pageSize.width,
+      'pageHeight': pageSize.height,
+    });
+
     return blankPage;
   }
 
@@ -636,6 +667,8 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
     performGridLayout();
+
+    onMutation?.call('pageDuplicated', {'pageIndex': pageIndex});
 
     return dupPage;
   }
@@ -718,6 +751,8 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
     performGridLayout();
+
+    onMutation?.call('pageRemoved', {'pageIndex': pageIndex});
 
     return page;
   }

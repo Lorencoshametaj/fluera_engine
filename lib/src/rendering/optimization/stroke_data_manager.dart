@@ -44,7 +44,7 @@ class StrokeDataManager {
   /// Last access timestamp for each stroke
   static final Map<String, int> _lastAccessTime = {};
 
-  /// Callback for loading points from storage (impostato da NebulaLayerController)
+  /// Callback for loading points from storage (impostato da FlueraLayerController)
   static Future<List<ProDrawingPoint>> Function(String strokeId)? _pointsLoader;
 
   /// Storage locale of points per strokes (usato come fallback)
@@ -55,7 +55,7 @@ class StrokeDataManager {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Sets il loader to load points on-demand
-  /// This is called by NebulaLayerController when needed
+  /// This is called by FlueraLayerController when needed
   static void setPointsLoader(
     Future<List<ProDrawingPoint>> Function(String strokeId) loader,
   ) {

@@ -47,7 +47,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   // --------------------------------------------------------------------------
 
   Widget _buildMainTools(BuildContext context, bool isDark) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -60,6 +60,95 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             children: [
               // 🖊️ PEN TYPE / BRUSH PRESETS
               _buildPenTypeSection(isDark, l10n),
+
+              // ── Moved from Scientific tab (hidden in V1) ──
+
+              // ✒️ Vector Pen Tool
+              if (widget.onPenToolToggle != null &&
+                  !widget.isImageEditingMode) ...[
+                const SizedBox(width: 12),
+                ToolbarPenToolButton(
+                  isActive: widget.isPenToolActive,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onPenToolToggle?.call();
+                  },
+                  isDark: isDark,
+                ),
+              ],
+
+              // 🔷 Shape Recognition
+              if (widget.onShapeRecognitionToggle != null) ...[
+                const SizedBox(width: 12),
+                Tooltip(
+                  message: 'Shape Recognition',
+                  waitDuration: const Duration(milliseconds: 500),
+                  child: ToolbarShapeRecognitionButton(
+                    isActive: widget.shapeRecognitionEnabled,
+                    sensitivityIndex: widget.shapeRecognitionSensitivityIndex,
+                    ghostEnabled: widget.ghostSuggestionEnabled,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onShapeRecognitionToggle!();
+                    },
+                    onLongPress:
+                        widget.onShapeRecognitionSensitivityCycle != null
+                            ? () {
+                              HapticFeedback.mediumImpact();
+                              widget.onShapeRecognitionSensitivityCycle!();
+                            }
+                            : null,
+                    onDoubleTap:
+                        widget.onGhostSuggestionToggle != null
+                            ? () {
+                              HapticFeedback.lightImpact();
+                              widget.onGhostSuggestionToggle!();
+                            }
+                            : null,
+                    isDark: isDark,
+                  ),
+                ),
+              ],
+
+              // 📏 Ruler
+              if (!widget.isImageEditingMode) ...[
+                const SizedBox(width: 12),
+                ToolbarRulerButton(
+                  isActive: widget.isRulerActive,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onRulerToggle?.call();
+                  },
+                  isDark: isDark,
+                ),
+              ],
+
+              // 🗺️ Minimap
+              if (!widget.isImageEditingMode) ...[
+                const SizedBox(width: 8),
+                ToolbarMinimapButton(
+                  isActive: widget.isMinimapVisible,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onMinimapToggle?.call();
+                  },
+                  isDark: isDark,
+                ),
+              ],
+
+              // 📐 Section
+              if (widget.onSectionToggle != null &&
+                  !widget.isImageEditingMode) ...[
+                const SizedBox(width: 8),
+                ToolbarSectionButton(
+                  isActive: widget.isSectionActive,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onSectionToggle?.call();
+                  },
+                  isDark: isDark,
+                ),
+              ],
 
               const SizedBox(width: 12),
 
@@ -123,7 +212,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   // --------------------------------------------------------------------------
 
   Widget _buildPdfTools(BuildContext context, bool isDark) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
 
     // 📄 Empty state — beautiful CTA when no PDF is loaded
     if (widget.pdfDocuments.isEmpty) {
@@ -343,6 +432,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                       onWatermarkToggle: widget.onPdfWatermarkToggle,
                       onAddStamp: widget.onPdfAddStamp,
                       onChangeBackground: widget.onPdfChangeBackground,
+                      onDeleteDocument: widget.onPdfDeleteDocument,
                     );
                   },
                 ),
@@ -545,7 +635,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   // --------------------------------------------------------------------------
 
   Widget _buildScientificTools(BuildContext context, bool isDark) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -668,6 +758,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               ToolbarRecordingButton(
                 isActive: widget.isRecordingActive,
                 duration: widget.recordingDuration,
+                amplitudeLevel: widget.recordingAmplitude,
                 onTap: () {
                   HapticFeedback.selectionClick();
                   widget.onRecordingPressed();
@@ -1332,7 +1423,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   /// The old _buildToolsArea is kept as a fallback / reference but no longer
   /// called from the build method — dispatching is handled by _buildActiveToolbar.
 
-  Widget _buildPenTypeSection(bool isDark, NebulaLocalizations l10n) {
+  Widget _buildPenTypeSection(bool isDark, FlueraLocalizations l10n) {
     return ToolbarToolSection(
       title: l10n.proCanvas_pen,
       icon: Icons.edit_rounded,
@@ -1435,7 +1526,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
 
   Widget _buildShapeSection(bool isDark) {
     return ToolbarToolSection(
-      title: NebulaLocalizations.of(context).proCanvas_shapes.toUpperCase(),
+      title: FlueraLocalizations.of(context).proCanvas_shapes.toUpperCase(),
       icon: Icons.category_rounded,
       isDark: isDark,
       child: ToolbarShapeTypeSelector(
@@ -1449,7 +1540,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
     );
   }
 
-  Widget _buildColorSection(bool isDark, NebulaLocalizations l10n) {
+  Widget _buildColorSection(bool isDark, FlueraLocalizations l10n) {
     return ToolbarToolSection(
       title: l10n.proCanvas_color,
       icon: Icons.palette_rounded,
@@ -1467,7 +1558,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
     );
   }
 
-  Widget _buildWidthSection(bool isDark, NebulaLocalizations l10n) {
+  Widget _buildWidthSection(bool isDark, FlueraLocalizations l10n) {
     return ToolbarToolSection(
       title: l10n.proCanvas_thickness,
       icon: Icons.line_weight,
@@ -1480,7 +1571,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
     );
   }
 
-  Widget _buildOpacitySection(bool isDark, NebulaLocalizations l10n) {
+  Widget _buildOpacitySection(bool isDark, FlueraLocalizations l10n) {
     return ToolbarToolSection(
       title: l10n.proCanvas_opacity,
       icon: Icons.opacity_rounded,
@@ -1493,7 +1584,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
     );
   }
 
-  Widget _buildShapesToggleButton(bool isDark, NebulaLocalizations l10n) {
+  Widget _buildShapesToggleButton(bool isDark, FlueraLocalizations l10n) {
     return Tooltip(
       message: l10n.proCanvas_geometricShapes,
       waitDuration: const Duration(milliseconds: 500),
@@ -1583,7 +1674,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                         _isShapesExpanded ? FontWeight.w700 : FontWeight.w500,
                     fontSize: 13,
                   ),
-                  child: Text(NebulaLocalizations.of(context).proCanvas_shapes),
+                  child: Text(FlueraLocalizations.of(context).proCanvas_shapes),
                 ),
                 const SizedBox(width: 4),
                 AnimatedRotation(

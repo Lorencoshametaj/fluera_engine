@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/schema_version.dart';
+import 'package:fluera_engine/src/core/schema_version.dart';
 
 void main() {
   // ===========================================================================

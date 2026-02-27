@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/rendering/optimization/memory_budget_controller.dart';
-import 'package:nebula_engine/src/rendering/optimization/memory_managed_cache.dart';
-import 'package:nebula_engine/src/rendering/optimization/memory_event.dart';
-import 'package:nebula_engine/src/rendering/optimization/frame_budget_manager.dart';
+import 'package:fluera_engine/src/rendering/optimization/memory_budget_controller.dart';
+import 'package:fluera_engine/src/rendering/optimization/memory_managed_cache.dart';
+import 'package:fluera_engine/src/rendering/optimization/memory_event.dart';
+import 'package:fluera_engine/src/rendering/optimization/frame_budget_manager.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MOCK CACHE for testing

@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
-import 'package:path_provider/path_provider.dart';
+import '../utils/safe_path_provider.dart';
 import '../utils/key_value_store.dart';
 import '../core/engine_scope.dart';
 import '../core/engine_error.dart';
@@ -54,7 +54,8 @@ class ImageCacheService
     if (_initialized) return;
 
     try {
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getSafeDocumentsDirectory();
+      if (appDir == null) return; // Web: no filesystem
       _cacheDirectory = Directory('${appDir.path}/$_diskCacheDir');
 
       if (!await _cacheDirectory!.exists()) {

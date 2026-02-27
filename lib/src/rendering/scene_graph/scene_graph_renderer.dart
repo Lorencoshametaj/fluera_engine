@@ -25,6 +25,7 @@ import '../../core/effects/shader_effect.dart';
 import '../../core/nodes/latex_node.dart';
 import '../../core/nodes/tabular_node.dart';
 import '../../core/nodes/material_zone_node.dart';
+import '../../core/nodes/section_node.dart';
 import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
@@ -338,6 +339,10 @@ class SceneGraphRenderer {
     }
     if (node is FrameNode) {
       _renderFrame(canvas, node, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
+      return;
+    }
+    if (node is SectionNode) {
+      _renderSection(canvas, node, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
       return;
     }
     if (node is AdvancedMaskNode) {
@@ -1141,6 +1146,370 @@ class SceneGraphRenderer {
     }
   }
 
+  /// Render a section (named canvas area) with background, label, border,
+  /// optional grid, and children.
+  void _renderSection(Canvas canvas, SectionNode node, Rect viewport) {
+    final bounds = node.localBounds;
+
+    // Compute inverse scale for zoom-adaptive sizing.
+    // This ensures labels, borders, and shadows stay legible at any zoom.
+    final scale = _currentScale;
+    final invScale = 1.0 / scale;
+
+    // ── 1. Subtle drop shadow for depth ──
+    final cr = node.cornerRadius;
+    final shadowRect = bounds.shift(Offset(2 * invScale, 2 * invScale));
+    final shadowPaint =
+        Paint()
+          ..color = const Color(0x12000000)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 * invScale);
+    if (cr > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(shadowRect, Radius.circular(cr)),
+        shadowPaint,
+      );
+    } else {
+      canvas.drawRect(shadowRect, shadowPaint);
+    }
+
+    // ── 2. Background fill ──
+    if (node.backgroundColor != null) {
+      final fillPaint = Paint()..color = node.backgroundColor!;
+      if (cr > 0) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(bounds, Radius.circular(cr)),
+          fillPaint,
+        );
+      } else {
+        canvas.drawRect(bounds, fillPaint);
+      }
+    }
+
+    // ── 3. Internal grid ──
+    if (node.showGrid && node.gridSpacing > 0) {
+      final gridPaint =
+          Paint()
+            ..color = const Color(0x1A000000)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.5 * invScale;
+
+      for (
+        double x = node.gridSpacing;
+        x < bounds.width;
+        x += node.gridSpacing
+      ) {
+        canvas.drawLine(Offset(x, 0), Offset(x, bounds.height), gridPaint);
+      }
+      for (
+        double y = node.gridSpacing;
+        y < bounds.height;
+        y += node.gridSpacing
+      ) {
+        canvas.drawLine(Offset(0, y), Offset(bounds.width, y), gridPaint);
+      }
+    }
+
+    // ── 3b. Subdivision dividers (notebook-style) ──
+    if (node.subdivisionRows > 1 || node.subdivisionColumns > 1) {
+      final divPaint =
+          Paint()
+            ..color = node.subdivisionColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2 * invScale;
+
+      // Horizontal dividers
+      if (node.subdivisionRows > 1) {
+        final cellH = bounds.height / node.subdivisionRows;
+        for (int r = 1; r < node.subdivisionRows; r++) {
+          final y = cellH * r;
+          _drawDashedLine(
+            canvas,
+            Offset(0, y),
+            Offset(bounds.width, y),
+            divPaint,
+            8.0 * invScale,
+            4.0 * invScale,
+          );
+        }
+      }
+
+      // Vertical dividers
+      if (node.subdivisionColumns > 1) {
+        final cellW = bounds.width / node.subdivisionColumns;
+        for (int c = 1; c < node.subdivisionColumns; c++) {
+          final x = cellW * c;
+          _drawDashedLine(
+            canvas,
+            Offset(x, 0),
+            Offset(x, bounds.height),
+            divPaint,
+            8.0 * invScale,
+            4.0 * invScale,
+          );
+        }
+      }
+    }
+
+    // ── 4. Clip children ──
+    if (node.clipContent) {
+      canvas.save();
+      if (cr > 0) {
+        canvas.clipRRect(RRect.fromRectAndRadius(bounds, Radius.circular(cr)));
+      } else {
+        canvas.clipRect(bounds);
+      }
+    }
+
+    // Render children.
+    _renderChildren(canvas, node, viewport);
+
+    if (node.clipContent) {
+      canvas.restore();
+    }
+
+    // ── 5. Border (zoom-adaptive width) ──
+    if (node.borderWidth > 0) {
+      final borderPaint =
+          Paint()
+            ..color = node.borderColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = node.borderWidth * invScale;
+      if (cr > 0) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(bounds, Radius.circular(cr)),
+          borderPaint,
+        );
+      } else {
+        canvas.drawRect(bounds, borderPaint);
+      }
+    }
+
+    // ── 5b. Subdivision cell labels (A1, B2, etc.) ──
+    if (node.subdivisionRows > 1 || node.subdivisionColumns > 1) {
+      final cellW =
+          bounds.width /
+          (node.subdivisionColumns < 1 ? 1 : node.subdivisionColumns);
+      final cellH =
+          bounds.height / (node.subdivisionRows < 1 ? 1 : node.subdivisionRows);
+      final cellFontSize = 10.0 * invScale;
+      final cellLabelColor = node.subdivisionColor.withValues(alpha: 0.6);
+
+      for (int r = 0; r < node.subdivisionRows; r++) {
+        for (int c = 0; c < node.subdivisionColumns; c++) {
+          // Generate label: A1, A2, B1, B2, ...
+          final rowLabel = String.fromCharCode(65 + r); // A, B, C, ...
+          final colLabel = '${c + 1}'; // 1, 2, 3, ...
+          final cellLabel = '$rowLabel$colLabel';
+
+          final tp = TextPainter(
+            text: TextSpan(
+              text: cellLabel,
+              style: TextStyle(
+                color: cellLabelColor,
+                fontSize: cellFontSize,
+                fontWeight: FontWeight.w500,
+                fontFamily: 'monospace',
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+
+          tp.paint(
+            canvas,
+            Offset(c * cellW + 4 * invScale, r * cellH + 2 * invScale),
+          );
+        }
+      }
+    }
+
+    // ── 6. Premium label badge ──
+    final fontSize = 12.0 * invScale;
+    final dimsFontSize = 10.0 * invScale;
+    final labelPadH = 8.0 * invScale;
+    final labelPadV = 4.0 * invScale;
+    final iconSize = 14.0 * invScale;
+    final labelGap = 4.0 * invScale;
+    final badgeRadius = 6.0 * invScale;
+    final labelY = -(SectionNode.labelHeight * invScale) + 2 * invScale;
+
+    // Main label text
+    final namePainter = TextPainter(
+      text: TextSpan(
+        text: node.sectionName,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: bounds.width * 0.6);
+
+    // Dimensions badge
+    final dimsText =
+        '${node.sectionSize.width.round()} × ${node.sectionSize.height.round()}';
+    final dimsPainter = TextPainter(
+      text: TextSpan(
+        text: dimsText,
+        style: TextStyle(
+          color: const Color(0x99FFFFFF),
+          fontSize: dimsFontSize,
+          fontWeight: FontWeight.w400,
+          fontFamily: 'monospace',
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final totalLabelW =
+        iconSize +
+        labelGap +
+        namePainter.width +
+        labelGap * 2 +
+        dimsPainter.width +
+        labelPadH * 2;
+    final labelH = namePainter.height + labelPadV * 2;
+
+    // Badge background
+    final labelRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, labelY, totalLabelW, labelH),
+      Radius.circular(badgeRadius),
+    );
+    canvas.drawRRect(labelRect, Paint()..color = const Color(0xDD1E1E2E));
+
+    // Icon (section dashboard icon approximation — draw a small grid)
+    final iconX = labelPadH;
+    final iconY = labelY + (labelH - iconSize) / 2;
+    _drawSectionIcon(canvas, Offset(iconX, iconY), iconSize, invScale);
+
+    // Name text
+    namePainter.paint(
+      canvas,
+      Offset(iconX + iconSize + labelGap, labelY + labelPadV),
+    );
+
+    // Separator dot
+    final dotX = iconX + iconSize + labelGap + namePainter.width + labelGap;
+    final dotY = labelY + labelH / 2;
+    canvas.drawCircle(
+      Offset(dotX, dotY),
+      1.5 * invScale,
+      Paint()..color = const Color(0x66FFFFFF),
+    );
+
+    // Dimensions text
+    dimsPainter.paint(
+      canvas,
+      Offset(
+        dotX + labelGap,
+        labelY + labelPadV + (namePainter.height - dimsPainter.height) / 2,
+      ),
+    );
+  }
+
+  /// Draw a small section icon (2×2 grid squares).
+  void _drawSectionIcon(
+    Canvas canvas,
+    Offset topLeft,
+    double size,
+    double invScale,
+  ) {
+    final paint =
+        Paint()
+          ..color = const Color(0xFF64B5F6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0 * invScale
+          ..strokeCap = StrokeCap.round;
+
+    final half = size / 2;
+    final gap = 1.5 * invScale;
+    final r = 1.5 * invScale;
+
+    // Top-left rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(topLeft.dx, topLeft.dy, half - gap, half - gap),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+    // Top-right rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          topLeft.dx + half + gap,
+          topLeft.dy,
+          half - gap,
+          half - gap,
+        ),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+    // Bottom-left rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          topLeft.dx,
+          topLeft.dy + half + gap,
+          half - gap,
+          half - gap,
+        ),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+    // Bottom-right rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          topLeft.dx + half + gap,
+          topLeft.dy + half + gap,
+          half - gap,
+          half - gap,
+        ),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+  }
+
+  /// Draw a dashed line between two points.
+  void _drawDashedLine(
+    Canvas canvas,
+    Offset start,
+    Offset end,
+    Paint paint,
+    double dashLen,
+    double gapLen,
+  ) {
+    final dx = end.dx - start.dx;
+    final dy = end.dy - start.dy;
+    final length = Offset(dx, dy).distance;
+    if (length < 1) return;
+    final ux = dx / length;
+    final uy = dy / length;
+
+    double drawn = 0;
+    bool drawing = true;
+    while (drawn < length) {
+      final segLen = drawing ? dashLen : gapLen;
+      final remaining = length - drawn;
+      final len = segLen < remaining ? segLen : remaining;
+
+      if (drawing) {
+        canvas.drawLine(
+          Offset(start.dx + ux * drawn, start.dy + uy * drawn),
+          Offset(start.dx + ux * (drawn + len), start.dy + uy * (drawn + len)),
+          paint,
+        );
+      }
+      drawn += len;
+      drawing = !drawing;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // PDF Node rendering
   // ---------------------------------------------------------------------------
@@ -1355,6 +1724,10 @@ class _RendererVisitor implements NodeVisitor<void> {
   @override
   void visitMaterialZone(MaterialZoneNode node) =>
       renderer._renderChildren(_canvas, node, _viewport);
+
+  @override
+  void visitSection(SectionNode node) =>
+      renderer._renderSection(_canvas, node, _viewport);
 }
 
 // ---------------------------------------------------------------------------

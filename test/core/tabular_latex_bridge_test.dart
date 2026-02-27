@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/tabular/cell_address.dart';
-import 'package:nebula_engine/src/core/tabular/cell_node.dart';
-import 'package:nebula_engine/src/core/tabular/cell_value.dart';
-import 'package:nebula_engine/src/core/tabular/spreadsheet_evaluator.dart';
-import 'package:nebula_engine/src/core/tabular/spreadsheet_model.dart';
-import 'package:nebula_engine/src/core/tabular/tabular_latex_bridge.dart';
-import 'package:nebula_engine/src/core/nodes/latex_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/utils/uid.dart';
+import 'package:fluera_engine/src/core/tabular/cell_address.dart';
+import 'package:fluera_engine/src/core/tabular/cell_node.dart';
+import 'package:fluera_engine/src/core/tabular/cell_value.dart';
+import 'package:fluera_engine/src/core/tabular/spreadsheet_evaluator.dart';
+import 'package:fluera_engine/src/core/tabular/spreadsheet_model.dart';
+import 'package:fluera_engine/src/core/tabular/tabular_latex_bridge.dart';
+import 'package:fluera_engine/src/core/nodes/latex_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/utils/uid.dart';
 
 void main() {
   late SpreadsheetModel model;

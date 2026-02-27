@@ -1,6 +1,6 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/rendering/optimization/spatial_index.dart';
+import 'package:fluera_engine/src/rendering/optimization/spatial_index.dart';
 
 // =============================================================================
 // Helpers

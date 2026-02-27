@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../l10n/nebula_localizations.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../core/models/shape_type.dart';
 
 // ============================================================================
@@ -33,7 +33,7 @@ class ToolbarShapeTypeSelector extends StatelessWidget {
     ShapeType.hexagon: Icons.hexagon_outlined,
   };
 
-  static String getShapeName(ShapeType type, NebulaLocalizations l10n) {
+  static String getShapeName(ShapeType type, FlueraLocalizations l10n) {
     switch (type) {
       case ShapeType.freehand:
         return l10n.proCanvas_shapeFreehand;
@@ -62,7 +62,7 @@ class ToolbarShapeTypeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children:

@@ -1,10 +1,10 @@
 nohup: input ignorato
-/home/lorenzo/development/nebula_engine/.venv/lib/python3.14/site-packages/albumentations/__init__.py:24: UserWarning: A new version of Albumentations is available: 2.0.8 (you have 1.4.24). Upgrade using: pip install -U albumentations. To disable automatic update checks, set the environment variable NO_ALBUMENTATIONS_UPDATE to 1.
+/home/lorenzo/development/fluera_engine/.venv/lib/python3.14/site-packages/albumentations/__init__.py:24: UserWarning: A new version of Albumentations is available: 2.0.8 (you have 1.4.24). Upgrade using: pip install -U albumentations. To disable automatic update checks, set the environment variable NO_ALBUMENTATIONS_UPDATE to 1.
   check_for_updates()
-/home/lorenzo/development/nebula_engine/.venv/lib/python3.14/site-packages/pydantic/_internal/_serializers.py:44: UserWarning: Pydantic serializer warnings:
+/home/lorenzo/development/fluera_engine/.venv/lib/python3.14/site-packages/pydantic/_internal/_serializers.py:44: UserWarning: Pydantic serializer warnings:
   PydanticSerializationUnexpectedValue(Expected `dict[str, any]` - serialized value may not be as expected [field_name='noise_params', input_value=UniformParams(noise_type=... 0.058823529411764705)]), input_type=UniformParams])
   v = handler(item, index)
-/home/lorenzo/development/nebula_engine/.venv/lib/python3.14/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+/home/lorenzo/development/fluera_engine/.venv/lib/python3.14/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
   PydanticSerializationUnexpectedValue(Expected `dict[str, any]` - serialized value may not be as expected [field_name='noise_params', input_value=UniformParams(noise_type=... 0.058823529411764705)]), input_type=UniformParams])
   return self.__pydantic_serializer__.to_python(
 🖥  Device: cuda

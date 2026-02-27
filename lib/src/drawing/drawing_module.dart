@@ -10,7 +10,7 @@ import '../tools/pen/pen_tool.dart';
 // DRAWING MODULE
 // =============================================================================
 
-/// 🎨 Self-contained drawing module for the Nebula Engine canvas.
+/// 🎨 Self-contained drawing module for the Fluera Engine canvas.
 ///
 /// Encapsulates all freehand drawing functionality:
 /// - [StrokeNode]: scene graph node for ink strokes

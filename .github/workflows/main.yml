@@ -1,4 +1,4 @@
-name: Nebula Engine CI
+name: Fluera Engine CI
 
 on:
   push:

@@ -1,21 +1,21 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/vector/anchor_point.dart';
-import 'package:nebula_engine/src/core/nodes/path_node.dart';
-import 'package:nebula_engine/src/tools/pen/pen_tool.dart';
-import 'package:nebula_engine/src/tools/base/tool_context.dart';
-import 'package:nebula_engine/src/layers/adapters/canvas_adapter.dart';
-import 'package:nebula_engine/src/layers/nebula_layer_controller.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
-import 'package:nebula_engine/src/core/models/shape_type.dart';
-import 'package:nebula_engine/src/core/models/digital_text_element.dart';
-import 'package:nebula_engine/src/core/models/image_element.dart';
-import 'package:nebula_engine/src/core/models/canvas_layer.dart';
-import 'package:nebula_engine/src/rendering/optimization/spatial_index.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
+import 'package:fluera_engine/src/core/vector/anchor_point.dart';
+import 'package:fluera_engine/src/core/nodes/path_node.dart';
+import 'package:fluera_engine/src/tools/pen/pen_tool.dart';
+import 'package:fluera_engine/src/tools/base/tool_context.dart';
+import 'package:fluera_engine/src/layers/adapters/canvas_adapter.dart';
+import 'package:fluera_engine/src/layers/fluera_layer_controller.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/core/models/shape_type.dart';
+import 'package:fluera_engine/src/core/models/digital_text_element.dart';
+import 'package:fluera_engine/src/core/models/image_element.dart';
+import 'package:fluera_engine/src/core/models/canvas_layer.dart';
+import 'package:fluera_engine/src/rendering/optimization/spatial_index.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph.dart';
 
 /// Helper: create a PenTool and load anchors into it via editPathNode.
 PenTool _toolWithAnchors(List<AnchorPoint> anchors) {
@@ -572,17 +572,17 @@ class _StubAdapter extends CanvasAdapter {
   bool isPointInBounds(Offset canvasPosition) => true;
 
   @override
-  void addStroke(NebulaLayerController c, ProStroke s) {}
+  void addStroke(FlueraLayerController c, ProStroke s) {}
   @override
-  void removeStroke(NebulaLayerController c, String id) {}
+  void removeStroke(FlueraLayerController c, String id) {}
   @override
-  List<ProStroke> getStrokesInViewport(NebulaLayerController c, Rect v) => [];
+  List<ProStroke> getStrokesInViewport(FlueraLayerController c, Rect v) => [];
   @override
-  void addShape(NebulaLayerController c, GeometricShape s) {}
+  void addShape(FlueraLayerController c, GeometricShape s) {}
   @override
-  void removeShape(NebulaLayerController c, String id) {}
+  void removeShape(FlueraLayerController c, String id) {}
   @override
-  List<GeometricShape> getShapesInViewport(NebulaLayerController c, Rect v) =>
+  List<GeometricShape> getShapesInViewport(FlueraLayerController c, Rect v) =>
       [];
   @override
   void addTextElement(DigitalTextElement e) {}
@@ -607,7 +607,7 @@ class _StubAdapter extends CanvasAdapter {
 }
 
 /// Stub layer controller — minimal implementation for tests.
-class _StubLayerController extends NebulaLayerController {
+class _StubLayerController extends FlueraLayerController {
   @override
   List<CanvasLayer> get layers => [];
   @override

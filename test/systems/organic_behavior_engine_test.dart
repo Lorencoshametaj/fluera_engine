@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/organic_behavior_engine.dart';
-import 'package:nebula_engine/src/core/conscious_architecture.dart';
+import 'package:fluera_engine/src/systems/organic_behavior_engine.dart';
+import 'package:fluera_engine/src/core/conscious_architecture.dart';
 
 void main() {
   group('OrganicBehaviorEngine', () {

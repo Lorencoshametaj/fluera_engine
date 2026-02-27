@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui' as ui;
 import 'dart:math' as math;
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 import '../core/models/image_element.dart';
 import 'image_editor_models.dart';
 import 'image_editor_preview.dart';
@@ -21,6 +21,7 @@ class ImageEditorDialog extends StatefulWidget {
   final ui.Image image;
   final Function(ImageElement) onSave;
   final VoidCallback onDelete;
+  final int initialTab;
 
   const ImageEditorDialog({
     super.key,
@@ -28,6 +29,7 @@ class ImageEditorDialog extends StatefulWidget {
     required this.image,
     required this.onSave,
     required this.onDelete,
+    this.initialTab = 0,
   });
 
   @override
@@ -69,7 +71,11 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
     _flipH = e.flipHorizontal;
     _flipV = e.flipVertical;
     _cropRect = e.cropRect;
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTab.clamp(0, 2),
+    );
   }
 
   @override
@@ -199,7 +205,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
     final discard = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final l10n = NebulaLocalizations.of(ctx);
+        final l10n = FlueraLocalizations.of(ctx);
         final cs = Theme.of(ctx).colorScheme;
         return AlertDialog(
           title: Text(l10n.proCanvas_discardChanges),
@@ -301,7 +307,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  NebulaLocalizations.of(context).proCanvas_professionalEditor,
+                  FlueraLocalizations.of(context).proCanvas_professionalEditor,
                   style: tt.titleLarge?.copyWith(color: cs.onSurface),
                 ),
                 Text(
@@ -345,7 +351,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildPreview(ColorScheme cs) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Column(
       children: [
         Container(
@@ -415,7 +421,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   }
 
   Widget _buildTabBar(ColorScheme cs) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return TabBar(
       controller: _tabController,
       labelColor: cs.primary,
@@ -445,7 +451,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildTransformTab(ColorScheme cs, TextTheme tt) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       children: [
@@ -566,7 +572,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildColorTab(ColorScheme cs, TextTheme tt) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       children: [
@@ -684,7 +690,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildFiltersTab(ColorScheme cs, TextTheme tt) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -831,7 +837,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildActions(ColorScheme cs, TextTheme tt) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Row(

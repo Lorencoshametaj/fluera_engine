@@ -1,9 +1,9 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/conscious_architecture.dart';
-import 'package:nebula_engine/src/core/adaptive_profile.dart';
-import 'package:nebula_engine/src/rendering/optimization/anticipatory_tile_prefetch.dart';
+import 'package:fluera_engine/src/core/conscious_architecture.dart';
+import 'package:fluera_engine/src/core/adaptive_profile.dart';
+import 'package:fluera_engine/src/rendering/optimization/anticipatory_tile_prefetch.dart';
 
 // =============================================================================
 // Test Subsystem (for testing registration and lifecycle)

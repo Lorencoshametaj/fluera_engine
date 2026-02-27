@@ -1,9 +1,9 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 🛠️ Standard Overlays — lasso, selection, pen tool, ruler, digital text,
 /// remote viewports / presence.
-/// Extracted from _NebulaCanvasScreenState._buildImpl
-extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
+/// Extracted from _FlueraCanvasScreenState._buildImpl
+extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
   /// Remote overlays: viewport, presence (shared canvas only).
   /// Phase 2: will be re-implemented with new collaboration system.
   List<Widget> _buildRemoteOverlays(BuildContext context) {
@@ -349,21 +349,21 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
               return Stack(
                 children: [
                   // Ripple flash on recently filled cells.
-                  if (NebulaCanvasTabularFillHandle
+                  if (FlueraCanvasTabularFillHandle
                           ._lastFilledAddresses
                           .isNotEmpty &&
-                      NebulaCanvasTabularFillHandle._lastFillTime != null)
+                      FlueraCanvasTabularFillHandle._lastFillTime != null)
                     Builder(
                       builder: (ctx) {
                         final elapsed =
                             DateTime.now()
                                 .difference(
-                                  NebulaCanvasTabularFillHandle._lastFillTime!,
+                                  FlueraCanvasTabularFillHandle._lastFillTime!,
                                 )
                                 .inMilliseconds;
                         if (elapsed > 600) {
                           // Animation complete — clear.
-                          NebulaCanvasTabularFillHandle._lastFilledAddresses =
+                          FlueraCanvasTabularFillHandle._lastFilledAddresses =
                               [];
                           return const SizedBox.shrink();
                         }
@@ -375,7 +375,7 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
                         return Stack(
                           children: [
                             for (final addr
-                                in NebulaCanvasTabularFillHandle
+                                in FlueraCanvasTabularFillHandle
                                     ._lastFilledAddresses)
                               Builder(
                                 builder: (_) {
@@ -652,15 +652,16 @@ extension NebulaCanvasOverlaysUI on _NebulaCanvasScreenState {
   List<Widget> _buildToolOverlays(BuildContext context) {
     return [
       // 📏 Phase 3C: Interactive Ruler & Guide Overlay
-      // Always present so the corner menu remains accessible
-      Positioned.fill(
-        child: RulerInteractiveOverlay(
-          guideSystem: _rulerGuideSystem,
-          canvasController: _canvasController,
-          isDark: Theme.of(context).brightness == Brightness.dark,
-          onChanged: () => setState(() {}),
+      // Only shown when the user activates the ruler toggle
+      if (_showRulers)
+        Positioned.fill(
+          child: RulerInteractiveOverlay(
+            guideSystem: _rulerGuideSystem,
+            canvasController: _canvasController,
+            isDark: Theme.of(context).brightness == Brightness.dark,
+            onChanged: () => setState(() {}),
+          ),
         ),
-      ),
 
       // Digital Text Elements - Rendering dei testi
       ..._digitalTextElements.map((textElement) {

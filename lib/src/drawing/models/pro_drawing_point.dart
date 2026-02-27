@@ -1,3 +1,4 @@
+import 'dart:convert' as convert;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import './pro_brush_settings.dart';
@@ -17,52 +18,103 @@ class ProDrawingPoint {
     this.tiltX = 0.0,
     this.tiltY = 0.0,
     this.orientation = 0.0,
-    required this.timestamp,
+    this.timestamp = 0,
   });
 
   /// Getter per compatibility con OptimizedPathBuilder
   Offset get offset => position;
 
-  /// Serialize con precisione ottimizzata per storage
+  /// Serialize as compact array: [x, y, p?, tx?, ty?, o?]
   ///
-  /// 🚀 OTTIMIZZAZIONE v2: 4 decimali per coordinate (era 2)
-  /// - Coordinate: 0.0001px → preserva curve Catmull-Rom smooth
-  /// - Pressure: 0.01 (2 decimals sufficient for 100 levels)
-  /// - Tilt/Orientation: 2 decimals (adequate angular precision)
+  /// 🚀 OTTIMIZZAZIONE v4: Array format + 3 decimal coordinates
+  /// - Array: no key overhead (saves ~40% vs object keys)
+  /// - 3 decimali: 0.001px precision — visually identical, Catmull-Rom safe
+  /// - Trailing optional fields omitted if zero/default
   ///
-  /// 🎯 FIX: 2 decimals caused rough curves after load because
-  /// le piccole differenze tra punti adiacenti venivano quantizzate,
-  /// corrompendo i control points del Catmull-Rom spline.
-  Map<String, dynamic> toJson() => {
-    'x': _round4(position.dx),
-    'y': _round4(position.dy),
-    'pressure': _round2(pressure),
-    // Omit tilt/orientation if they are 0 (default) to save space
-    if (tiltX != 0.0) 'tiltX': _round2(tiltX),
-    if (tiltY != 0.0) 'tiltY': _round2(tiltY),
-    if (orientation != 0.0) 'orientation': _round2(orientation),
-    'timestamp': timestamp,
-  };
+  /// Risultato: ~17 bytes/punto (era ~70 in v1) → -75% storage
+  dynamic toJson() {
+    // Build from the end, trimming trailing defaults
+    final hasO = orientation != 0.0;
+    final hasTY = tiltY != 0.0 || hasO;
+    final hasTX = tiltX != 0.0 || hasTY;
+    final hasP = pressure != 1.0 || hasTX;
 
-  /// Round to 4 decimals (for coordinates — preserves smoothness)
-  static double _round4(double value) =>
-      (value * 10000).roundToDouble() / 10000;
+    if (hasO) {
+      return [
+        _r3(position.dx),
+        _r3(position.dy),
+        _r2(pressure),
+        _r2(tiltX),
+        _r2(tiltY),
+        _r2(orientation),
+      ];
+    } else if (hasTY) {
+      return [
+        _r3(position.dx),
+        _r3(position.dy),
+        _r2(pressure),
+        _r2(tiltX),
+        _r2(tiltY),
+      ];
+    } else if (hasTX) {
+      return [_r3(position.dx), _r3(position.dy), _r2(pressure), _r2(tiltX)];
+    } else if (hasP) {
+      return [_r3(position.dx), _r3(position.dy), _r2(pressure)];
+    }
+    return [_r3(position.dx), _r3(position.dy)];
+  }
 
-  /// Round to 2 decimals (for pressure, tilt, orientation)
-  static double _round2(double value) => (value * 100).roundToDouble() / 100;
+  /// Round to 3 decimals (coordinates — 0.001px, smooth enough)
+  static double _r3(double v) => (v * 1000).roundToDouble() / 1000;
 
-  factory ProDrawingPoint.fromJson(Map<String, dynamic> json) =>
-      ProDrawingPoint(
+  /// Round to 2 decimals (pressure, tilt, orientation)
+  static double _r2(double v) => (v * 100).roundToDouble() / 100;
+
+  /// Parse from array [x, y, p?, tx?, ty?, o?] or legacy object {x, y, ...}
+  factory ProDrawingPoint.fromJson(dynamic json) {
+    // 🚀 v4: Compact array format
+    if (json is List) {
+      return ProDrawingPoint(
         position: Offset(
-          (json['x'] as num).toDouble(),
-          (json['y'] as num).toDouble(),
+          (json[0] as num).toDouble(),
+          (json[1] as num).toDouble(),
         ),
-        pressure: (json['pressure'] as num).toDouble(),
-        tiltX: (json['tiltX'] as num?)?.toDouble() ?? 0.0,
-        tiltY: (json['tiltY'] as num?)?.toDouble() ?? 0.0,
-        orientation: (json['orientation'] as num?)?.toDouble() ?? 0.0,
-        timestamp: json['timestamp'] as int,
+        pressure: json.length > 2 ? (json[2] as num).toDouble() : 1.0,
+        tiltX: json.length > 3 ? (json[3] as num).toDouble() : 0.0,
+        tiltY: json.length > 4 ? (json[4] as num).toDouble() : 0.0,
+        orientation: json.length > 5 ? (json[5] as num).toDouble() : 0.0,
       );
+    }
+
+    // Legacy: object format {x, y, pressure/p, tiltX/tx, ...}
+    final map =
+        json is Map<String, dynamic>
+            ? json
+            : Map<String, dynamic>.from(json as Map);
+    return ProDrawingPoint(
+      position: Offset(
+        (map['x'] as num).toDouble(),
+        (map['y'] as num).toDouble(),
+      ),
+      pressure:
+          (map['p'] as num?)?.toDouble() ??
+          (map['pressure'] as num?)?.toDouble() ??
+          1.0,
+      tiltX:
+          (map['tx'] as num?)?.toDouble() ??
+          (map['tiltX'] as num?)?.toDouble() ??
+          0.0,
+      tiltY:
+          (map['ty'] as num?)?.toDouble() ??
+          (map['tiltY'] as num?)?.toDouble() ??
+          0.0,
+      orientation:
+          (map['o'] as num?)?.toDouble() ??
+          (map['orientation'] as num?)?.toDouble() ??
+          0.0,
+      timestamp: (map['timestamp'] as int?) ?? 0,
+    );
+  }
 
   ProDrawingPoint copyWith({
     Offset? position,
@@ -100,6 +152,11 @@ class ProStroke {
   /// Incrementare when modifica il comportamento di un brush.
   final int engineVersion;
 
+  /// 🖼️ Image scale at the time this stroke was drawn.
+  /// Used to proportionally scale strokes when the image is resized.
+  /// Defaults to 1.0 for canvas strokes or legacy image strokes.
+  final double referenceScale;
+
   /// Current rendering engine version
   static const int currentEngineVersion = 2;
 
@@ -131,6 +188,7 @@ class ProStroke {
     required this.createdAt,
     ProBrushSettings? settings,
     int? engineVersion,
+    this.referenceScale = 1.0,
     this.fillOverlay,
     this.fillBounds,
   }) : points = List.unmodifiable(points),
@@ -183,22 +241,30 @@ class ProStroke {
     'createdAt': createdAt.toIso8601String(),
     // 🎛️ Save settings only thef not sono i default (ottimizza storage)
     if (!settings.isDefault) 'settings': settings.toJson(),
+    if (referenceScale != 1.0) 'rs': referenceScale,
   };
 
   factory ProStroke.fromJson(Map<String, dynamic> json) => ProStroke(
     id: json['id'] as String,
     // 🛡️ Old strokes without 'ev' are version 1 (pre-versioning)
     engineVersion: (json['ev'] as int?) ?? 1,
-    points:
-        (json['points'] as List)
-            .map(
-              (p) => ProDrawingPoint.fromJson(
-                p is Map<String, dynamic>
-                    ? p
-                    : Map<String, dynamic>.from(p as Map),
-              ),
-            )
-            .toList(),
+    points: () {
+      final raw = json['points'];
+      List pointsList;
+      if (raw is List) {
+        pointsList = raw;
+      } else if (raw is String) {
+        // Firestore may serialize List as JSON string
+        try {
+          pointsList = convert.jsonDecode(raw) as List;
+        } catch (_) {
+          pointsList = [];
+        }
+      } else {
+        pointsList = [];
+      }
+      return pointsList.map((p) => ProDrawingPoint.fromJson(p)).toList();
+    }(),
     color: Color(json['color'] as int),
     baseWidth: (json['baseWidth'] as num).toDouble(),
     penType: ProPenType.values.firstWhere(
@@ -211,6 +277,7 @@ class ProStroke {
           ? Map<String, dynamic>.from(json['settings'] as Map)
           : null,
     ),
+    referenceScale: (json['rs'] as num?)?.toDouble() ?? 1.0,
   );
 
   ProStroke copyWith({
@@ -222,6 +289,7 @@ class ProStroke {
     DateTime? createdAt,
     ProBrushSettings? settings,
     int? engineVersion,
+    double? referenceScale,
   }) {
     return ProStroke(
       id: id ?? this.id,
@@ -232,6 +300,7 @@ class ProStroke {
       createdAt: createdAt ?? this.createdAt,
       settings: settings ?? this.settings,
       engineVersion: engineVersion ?? this.engineVersion,
+      referenceScale: referenceScale ?? this.referenceScale,
     );
   }
 }

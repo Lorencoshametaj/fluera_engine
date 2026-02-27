@@ -1,6 +1,6 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/models/pdf_page_model.dart';
+import 'package:fluera_engine/src/core/models/pdf_page_model.dart';
 
 void main() {
   // ===========================================================================

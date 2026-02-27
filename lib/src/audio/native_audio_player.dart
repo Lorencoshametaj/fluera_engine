@@ -2,13 +2,24 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import './native_audio_models.dart';
 import './platform_channels/audio_player_channel.dart';
+import '../core/engine_scope.dart';
 
 /// 🎵 NATIVE AUDIO PLAYER
 ///
 /// Player audio nativo completo che sostituisce just_audio
 /// con implementazione diretta iOS/Android via Platform Channels
 class NativeAudioPlayer {
-  final NativeAudioPlayerChannel _channel = NativeAudioPlayerChannel.instance;
+  late final NativeAudioPlayerChannel _channel;
+
+  NativeAudioPlayer({NativeAudioPlayerChannel? channel})
+    : _channel =
+          channel ??
+          (EngineScope.hasScope
+              ? EngineScope.current.audioModule?.player ??
+                  NativeAudioPlayerChannel.create()
+              : NativeAudioPlayerChannel.create()) {
+    _initialize();
+  }
 
   bool _isInitialized = false;
   AudioPlayerStateInfo _currentState = AudioPlayerStateInfo(
@@ -27,10 +38,6 @@ class NativeAudioPlayer {
   final _positionController = StreamController<Duration>.broadcast();
   final _durationController = StreamController<Duration?>.broadcast();
   final _playingController = StreamController<bool>.broadcast();
-
-  NativeAudioPlayer() {
-    _initialize();
-  }
 
   /// Initializes il player
   Future<void> _initialize() async {
@@ -94,6 +101,12 @@ class NativeAudioPlayer {
   double get volume => _currentState.volume;
   double get speed => _currentState.speed;
   AudioLoopMode get loopMode => _currentState.loopMode;
+
+  /// 🎵 Get position via method channel (reliable polling).
+  Future<Duration> getPositionAsync() => _channel.getPosition();
+
+  /// 🎵 Get duration via method channel (reliable polling).
+  Future<Duration?> getDurationAsync() => _channel.getDuration();
 
   /// Ensure initialized
   Future<void> _ensureInitialized() async {

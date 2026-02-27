@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'dart:ui';
-import 'package:nebula_engine/src/rendering/optimization/advanced_tile_optimizer.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/rendering/optimization/advanced_tile_optimizer.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
 
 ProStroke _makeStroke(String id) {
   return ProStroke(

@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/platform/native_vibration.dart';
+import 'package:fluera_engine/src/platform/native_vibration.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -11,7 +11,7 @@ void main() {
     log = [];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-          const MethodChannel('nebulaengine.vibration/method'),
+          const MethodChannel('flueraengine.vibration/method'),
           (MethodCall methodCall) async {
             log.add(methodCall);
             switch (methodCall.method) {
@@ -31,7 +31,7 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-          const MethodChannel('nebulaengine.vibration/method'),
+          const MethodChannel('flueraengine.vibration/method'),
           null,
         );
   });
@@ -50,7 +50,7 @@ void main() {
     test('returns null on platform exception', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-            const MethodChannel('nebulaengine.vibration/method'),
+            const MethodChannel('flueraengine.vibration/method'),
             (_) => throw PlatformException(code: 'UNAVAILABLE'),
           );
       final result = await NativeVibration.hasVibrator();

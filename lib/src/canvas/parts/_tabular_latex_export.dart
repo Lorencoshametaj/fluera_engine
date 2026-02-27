@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📊 Tabular LaTeX Export — LaTeX tables, TikZ charts, LaTeX import, .tex export.
-extension NebulaCanvasTabularLatexExport on _NebulaCanvasScreenState {
+extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
   // ── Excel-to-LaTeX Integration ────────────────────────────────────────
 
   /// Generate a LateX table from the selected spreadsheet range.
@@ -503,7 +503,7 @@ extension NebulaCanvasTabularLatexExport on _NebulaCanvasScreenState {
     final texContent = exporter.exportDocument(
       _layerController.sceneGraph,
       options: const TexExportOptions(
-        title: 'Nebula Engine — LaTeX Export',
+        title: 'Fluera Engine — LaTeX Export',
         addComments: true,
       ),
     );

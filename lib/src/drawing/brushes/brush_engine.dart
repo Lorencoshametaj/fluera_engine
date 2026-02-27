@@ -6,6 +6,7 @@ import '../models/pro_drawing_point.dart';
 import '../models/surface_material.dart';
 import '../models/wetness_state.dart';
 import '../../rendering/shaders/shader_brush_service.dart';
+import '../../core/engine_scope.dart';
 import '../../rendering/shaders/shader_stamp_renderer.dart';
 import '../../rendering/shaders/shader_texture_renderer.dart';
 import '../../rendering/gpu/gpu_texture_service.dart';
@@ -131,6 +132,12 @@ class BrushEngine {
   }) {
     if (points.isEmpty) return;
 
+    // Resolve shader service once — module-first, avoids repeated singleton calls
+    final _shaderSvc =
+        EngineScope.hasScope
+            ? EngineScope.current.drawingModule?.shaderBrushService
+            : null;
+
     // 🧬 Fallback: use active canvas surface when caller doesn't pass one
     final effectiveSurface = surface ?? activeSurface;
 
@@ -242,7 +249,7 @@ class BrushEngine {
 
     // 🖌️ Stamp-based rendering (Procreate-style)
     if (settings.stampEnabled &&
-        ShaderBrushService.instance.isStampAvailable &&
+        (_shaderSvc?.isStampAvailable ?? false) &&
         effectivePoints.length >= 2 &&
         (penType == ProPenType.pencil || penType == ProPenType.fountain)) {
       // Resolve dual brush texture
@@ -252,7 +259,7 @@ class BrushEngine {
         dualImg = BrushTexture.getCached(dualType);
       }
 
-      ShaderBrushService.instance.renderStampBrush(
+      _shaderSvc!.renderStampBrush(
         canvas,
         effectivePoints,
         color,
@@ -311,15 +318,12 @@ class BrushEngine {
       );
     } else {
       // 🚀 LIVE PERF: For GPU shader pens, decimate points to bound
-      // per-frame cost. NOT applied to fountain pen — its velocity-based
-      // width calculation depends on original point spacing (decimation
-      // alters spacing → stroke shrinks). Fountain pen performance is
-      // handled by live optimizations in FountainPenPathBuilder instead
-      // (1 Chaikin pass, no feathering, no arc-length reparameterization).
+      // per-frame cost. NOT applied to fountain pen or pencil — their
+      // velocity-based width calculations depend on original point spacing
+      // (decimation alters spacing → stroke shrinks visibly).
       const int _liveMaxPoints = 200;
       const int _finalizedMaxPoints = 300;
       final bool _isGpuShaderPen = switch (penType) {
-        ProPenType.pencil ||
         ProPenType.watercolor ||
         ProPenType.marker ||
         ProPenType.charcoal ||
@@ -389,7 +393,9 @@ class BrushEngine {
             blurRadius: settings.pencilBlurRadius,
             minPressure: settings.pencilMinPressure,
             maxPressure: settings.pencilMaxPressure,
-            liveStroke: isLive,
+            // 🚀 Always use live-quality rendering: eliminates visual
+            // "shrink" on pointer-up (same approach as fountain pen).
+            liveStroke: true,
             textureImage: textureImg,
             textureScale: texScale,
             drawFromIndex: drawFromIndex,
@@ -407,8 +413,10 @@ class BrushEngine {
             widthMultiplier: settings.highlighterWidthMultiplier,
           );
         case ProPenType.watercolor:
-          final wSvc = ShaderBrushService.instance;
-          if (wSvc.isAvailable && wSvc.watercolorShader != null) {
+          final wSvc = _shaderSvc;
+          if (wSvc != null &&
+              wSvc.isAvailable &&
+              wSvc.watercolorShader != null) {
             wSvc.renderWatercolorPro(
               canvas,
               renderPoints,
@@ -421,8 +429,8 @@ class BrushEngine {
             WatercolorBrush.drawStroke(canvas, renderPoints, color, baseWidth);
           }
         case ProPenType.marker:
-          final mSvc = ShaderBrushService.instance;
-          if (mSvc.isAvailable && mSvc.markerShader != null) {
+          final mSvc = _shaderSvc;
+          if (mSvc != null && mSvc.isAvailable && mSvc.markerShader != null) {
             mSvc.renderMarkerPro(
               canvas,
               renderPoints,
@@ -434,8 +442,8 @@ class BrushEngine {
             MarkerBrush.drawStroke(canvas, renderPoints, color, baseWidth);
           }
         case ProPenType.charcoal:
-          final cSvc = ShaderBrushService.instance;
-          if (cSvc.isAvailable && cSvc.charcoalShader != null) {
+          final cSvc = _shaderSvc;
+          if (cSvc != null && cSvc.isAvailable && cSvc.charcoalShader != null) {
             cSvc.renderCharcoalPro(
               canvas,
               renderPoints,
@@ -451,8 +459,8 @@ class BrushEngine {
             CharcoalBrush.drawStroke(canvas, renderPoints, color, baseWidth);
           }
         case ProPenType.oilPaint:
-          final oSvc = ShaderBrushService.instance;
-          if (oSvc.isAvailable && oSvc.oilPaintShader != null) {
+          final oSvc = _shaderSvc;
+          if (oSvc != null && oSvc.isAvailable && oSvc.oilPaintShader != null) {
             oSvc.renderOilPaintPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(
@@ -465,8 +473,10 @@ class BrushEngine {
             );
           }
         case ProPenType.sprayPaint:
-          final sSvc = ShaderBrushService.instance;
-          if (sSvc.isAvailable && sSvc.sprayPaintShader != null) {
+          final sSvc = _shaderSvc;
+          if (sSvc != null &&
+              sSvc.isAvailable &&
+              sSvc.sprayPaintShader != null) {
             sSvc.renderSprayPaintPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(
@@ -479,8 +489,8 @@ class BrushEngine {
             );
           }
         case ProPenType.neonGlow:
-          final nSvc = ShaderBrushService.instance;
-          if (nSvc.isAvailable && nSvc.neonGlowShader != null) {
+          final nSvc = _shaderSvc;
+          if (nSvc != null && nSvc.isAvailable && nSvc.neonGlowShader != null) {
             nSvc.renderNeonGlowPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(
@@ -493,8 +503,8 @@ class BrushEngine {
             );
           }
         case ProPenType.inkWash:
-          final iSvc = ShaderBrushService.instance;
-          if (iSvc.isAvailable && iSvc.inkWashShader != null) {
+          final iSvc = _shaderSvc;
+          if (iSvc != null && iSvc.isAvailable && iSvc.inkWashShader != null) {
             iSvc.renderInkWashPro(canvas, renderPoints, color, baseWidth);
           } else {
             BallpointBrush.drawStrokeWithSettings(

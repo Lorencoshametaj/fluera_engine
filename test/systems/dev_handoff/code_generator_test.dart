@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/dev_handoff/inspect_engine.dart';
-import 'package:nebula_engine/src/systems/dev_handoff/code_generator.dart';
+import 'package:fluera_engine/src/systems/dev_handoff/inspect_engine.dart';
+import 'package:fluera_engine/src/systems/dev_handoff/code_generator.dart';
 import 'dart:ui';
 
 void main() {

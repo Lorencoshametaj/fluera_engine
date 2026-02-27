@@ -1,7 +1,7 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 📦 Drawing Auxiliary — auto-scroll, flood fill, rasterization, eraser particles, pinch
-extension on _NebulaCanvasScreenState {
+extension on _FlueraCanvasScreenState {
   // ============================================================================
   // 🏎️ EDGE AUTO-SCROLL — Proportional, rotation-aware
   // ============================================================================
@@ -19,8 +19,8 @@ extension on _NebulaCanvasScreenState {
     // Cancel existing timer
     _autoScrollTimer?.cancel();
 
-    const double edgeZone = _NebulaCanvasScreenState._edgeScrollThreshold;
-    const double maxSpeed = _NebulaCanvasScreenState._scrollSpeed;
+    const double edgeZone = _FlueraCanvasScreenState._edgeScrollThreshold;
+    const double maxSpeed = _FlueraCanvasScreenState._scrollSpeed;
 
     // Calculate how deep into each edge zone the pointer is (0 = outside, 1 = at edge)
     final distLeft = screenPosition.dx;

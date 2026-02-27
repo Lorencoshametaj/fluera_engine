@@ -5,7 +5,7 @@ import '../filters/one_euro_filter.dart';
 import '../filters/stroke_stabilizer.dart';
 import '../filters/physics_ink_simulator.dart';
 import '../../systems/organic_behavior_engine.dart';
-// SDK: AI filters removed — use optional callback via NebulaToolbarConfig
+// SDK: AI filters removed — use optional callback via FlueraToolbarConfig
 import './predicted_touch_service.dart';
 
 /// 🎨 DRAWING INPUT HANDLER

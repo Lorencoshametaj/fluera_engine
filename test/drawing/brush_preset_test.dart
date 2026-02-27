@@ -1,8 +1,8 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/drawing/models/brush_preset.dart';
-import 'package:nebula_engine/src/drawing/models/pro_brush_settings.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/drawing/models/brush_preset.dart';
+import 'package:fluera_engine/src/drawing/models/pro_brush_settings.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
 
 void main() {
   // ===========================================================================

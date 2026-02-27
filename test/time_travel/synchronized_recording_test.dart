@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/time_travel/models/synchronized_recording.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/time_travel/models/synchronized_recording.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
 
 /// Helper: create a test stroke with N points.
 ProStroke _testStroke(String id, {int pointCount = 5}) {

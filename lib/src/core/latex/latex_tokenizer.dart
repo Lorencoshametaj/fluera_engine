@@ -38,11 +38,11 @@ class LatexTokenizer {
   Future<void> load({String assetPath = defaultAssetPath}) async {
     if (isLoaded) return;
 
-    // Try package-prefixed path first (for host apps using nebula_engine as dep)
+    // Try package-prefixed path first (for host apps using fluera_engine as dep)
     String? jsonStr;
     try {
       jsonStr = await rootBundle.loadString(
-        'packages/nebula_engine/$assetPath',
+        'packages/fluera_engine/$assetPath',
       );
     } catch (_) {
       // Fall back to raw path (for engine's own test harness)

@@ -1,11 +1,11 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📄 PDF Features — pick and import PDF documents onto the canvas.
-extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
+extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
   /// 📄 Pick a PDF file and import it onto the canvas.
   ///
   /// Uses [FilePicker] to let the user select a PDF, then feeds the bytes
-  /// to [PdfImportController] via a [NativeNebulaPdfProvider].
+  /// to [PdfImportController] via a [NativeFlueraPdfProvider].
   Future<void> pickAndAddPdf() async {
     // 🔒 VIEWER GUARD
     if (_checkViewerGuard()) return;
@@ -58,20 +58,27 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
   /// [pageSize] (defaults to A4: 595×842 pts) and inserts it at the center
   /// of the current viewport.
   ///
-  /// Blank pages have no backing [NebulaPdfProvider] — the painter renders
+  /// Blank pages have no backing [FlueraPdfProvider] — the painter renders
   /// them as white rectangles. Users can draw strokes on them which will
   /// be linked as annotations, just like imported PDFs.
   void createBlankPdfDocument({
     int pageCount = 1,
     Size pageSize = const Size(595, 842), // A4
     PdfPageBackground background = PdfPageBackground.blank,
+    bool broadcast = true,
+    Offset? position, // If null, uses viewport center
+    String?
+    documentId, // If null, generates a new ID (remote sync passes sender's ID)
   }) {
     // 🔒 VIEWER GUARD
     if (_checkViewerGuard()) return;
 
-    debugPrint('[PDF] createBlankPdfDocument: background=$background');
+    debugPrint(
+      '[PDF] createBlankPdfDocument: background=$background, broadcast=$broadcast, rtEngine=${_realtimeEngine != null}',
+    );
 
-    final documentId = 'pdf_blank_${DateTime.now().microsecondsSinceEpoch}';
+    final docId =
+        documentId ?? 'pdf_blank_${DateTime.now().microsecondsSinceEpoch}';
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Create page models and nodes
@@ -89,12 +96,22 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
       pageModels.add(pageModel);
 
       final pageNode = PdfPageNode(
-        id: NodeId('${documentId}_page_$i'),
+        id: NodeId('${docId}_page_$i'),
         pageModel: pageModel,
         name: 'Page ${i + 1}',
       );
       pageNodes.add(pageNode);
     }
+
+    // Use provided position (remote sync) or calculate from viewport center
+    final gridOrigin =
+        position ??
+        _canvasController.screenToCanvas(
+          Offset(
+            MediaQuery.of(context).size.width / 2,
+            MediaQuery.of(context).size.height / 2,
+          ),
+        );
 
     // Create document model
     final documentModel = PdfDocumentModel(
@@ -103,12 +120,7 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
       pages: pageModels,
       gridColumns: 1,
       gridSpacing: 20.0,
-      gridOrigin: _canvasController.screenToCanvas(
-        Offset(
-          MediaQuery.of(context).size.width / 2,
-          MediaQuery.of(context).size.height / 2,
-        ),
-      ),
+      gridOrigin: gridOrigin,
       createdAt: now,
       lastModifiedAt: now,
       fileName: 'Blank Document',
@@ -116,10 +128,21 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
 
     // Create document node
     final docNode = PdfDocumentNode(
-      id: NodeId(documentId),
+      id: NodeId(docId),
       documentModel: documentModel,
       name: 'Blank Document',
     );
+
+    // 📡 Wire real-time broadcast callback
+    if (_realtimeEngine != null) {
+      docNode.onMutation = (subAction, data) {
+        _realtimeEngine!.broadcastPdfUpdated(
+          documentId: docId,
+          subAction: subAction,
+          data: data,
+        );
+      };
+    }
 
     // Add page nodes as children
     for (final page in pageNodes) {
@@ -138,82 +161,109 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
     final activeLayer = _layerController.activeLayer;
     if (activeLayer != null) {
       activeLayer.node.add(docNode);
+
+      // 📄 Retroactively link strokes that arrived before this PDF (race condition)
+      if (!broadcast) _retroactiveLinkStrokesToPdf(docNode);
     }
 
+    // 📄 Create painter for background pattern rendering
+    _pdfPainters[docId] = PdfPagePainter(
+      provider: null,
+      memoryBudget: PdfMemoryBudget(),
+      documentId: docId,
+    );
+
     // 📄 Auto-select newly created PDF in toolbar
-    _activePdfDocumentId = documentId;
+    _activePdfDocumentId = docId;
 
     // Trigger rebuild + auto-save
     if (mounted) setState(() {});
     _autoSaveCanvas();
 
-    HapticFeedback.mediumImpact();
+    // 📄 Auto-scroll and haptic (LOCAL creation only — never on remote sync)
+    if (broadcast) {
+      HapticFeedback.mediumImpact();
+      final firstPage = docNode.pageNodes.firstOrNull;
+      if (firstPage != null) {
+        final pagePos = firstPage.position;
+        final pSize = firstPage.pageModel.originalSize;
+        final pageCenter = Offset(
+          pagePos.dx + pSize.width / 2,
+          pagePos.dy + pSize.height / 2,
+        );
+        final screenSize = MediaQuery.of(context).size;
+        final scale = _canvasController.scale;
+        _canvasController.setOffset(
+          Offset(
+            screenSize.width / 2 - pageCenter.dx * scale,
+            screenSize.height / 2 - pageCenter.dy * scale,
+          ),
+        );
+      }
+    }
 
-    // 📄 Auto-scroll to center on first page
-    final firstPage = docNode.pageNodes.firstOrNull;
-    if (firstPage != null) {
-      final pagePos = firstPage.position;
-      final pSize = firstPage.pageModel.originalSize;
-      final pageCenter = Offset(
-        pagePos.dx + pSize.width / 2,
-        pagePos.dy + pSize.height / 2,
+    // 📡 Broadcast to collaborators
+    if (broadcast && _realtimeEngine != null) {
+      _realtimeEngine!.broadcastPdfBlankCreated(
+        documentId: docId,
+        fileName: 'Blank Document',
+        pageCount: pageCount,
+        pageWidth: pageSize.width,
+        pageHeight: pageSize.height,
+        background: background.name,
+        positionX: gridOrigin.dx,
+        positionY: gridOrigin.dy,
       );
-      final screenSize = MediaQuery.of(context).size;
-      final scale = _canvasController.scale;
-      _canvasController.setOffset(
-        Offset(
-          screenSize.width / 2 - pageCenter.dx * scale,
-          screenSize.height / 2 - pageCenter.dy * scale,
-        ),
-      );
+      debugPrint('[RT] 📄 Broadcast pdfBlankCreated: $documentId');
     }
   }
 
   /// Internal: import PDF from bytes using native provider.
-  Future<void> _importPdfBytes(Uint8List bytes, {String? fileName}) async {
-    final documentId = 'pdf_${DateTime.now().microsecondsSinceEpoch}';
+  ///
+  /// Set [broadcast] to false when importing from a remote collaboration event
+  /// to avoid re-broadcasting.
+  Future<void> _importPdfBytes(
+    Uint8List bytes, {
+    String? fileName,
+    bool broadcast = true,
+    String? documentId, // Remote sync passes sender's ID
+    Offset? position, // Remote sync passes sender's position
+  }) async {
+    final docId = documentId ?? 'pdf_${DateTime.now().microsecondsSinceEpoch}';
 
     // 💾 Save PDF bytes to local cache for persistence
-    final appDir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${appDir.path}/nebula_pdf_cache');
+    final appDir = await getSafeDocumentsDirectory();
+    if (appDir == null) return; // Web: no filesystem
+    final cacheDir = Directory('${appDir.path}/fluera_pdf_cache');
     if (!await cacheDir.exists()) {
       await cacheDir.create(recursive: true);
     }
-    final pdfFile = File('${cacheDir.path}/$documentId.pdf');
+    final pdfFile = File('${cacheDir.path}/$docId.pdf');
     await pdfFile.writeAsBytes(bytes);
 
-    // ☁️ Upload PDF to cloud storage for cross-device access
-    if (_syncEngine != null) {
-      try {
-        await _syncEngine!.adapter.uploadAsset(
-          _canvasId,
-          documentId,
-          bytes,
-          mimeType: 'application/pdf',
-        );
-        debugPrint('☁️ PDF uploaded to cloud: $documentId');
-      } catch (e) {
-        debugPrint('☁️ PDF cloud upload failed (local only): $e');
-      }
-    }
+    // ☁️ Cloud upload moved to AFTER local import — see below.
+    // PDF is shown locally first for instant feedback.
 
     // Create a native provider for this document
-    final provider = NativeNebulaPdfProvider(documentId: documentId);
+    final provider = NativeFlueraPdfProvider(documentId: docId);
 
     // Import via PdfImportController
     final controller = PdfImportController(provider: provider);
 
-    // Calculate center of viewport for placement
-    final screenCenter = Offset(
-      MediaQuery.of(context).size.width / 2,
-      MediaQuery.of(context).size.height / 2,
-    );
-    final viewportCenter = _canvasController.screenToCanvas(screenCenter);
+    // Use sender's position (remote sync) or calculate from viewport center
+    final insertPosition =
+        position ??
+        _canvasController.screenToCanvas(
+          Offset(
+            MediaQuery.of(context).size.width / 2,
+            MediaQuery.of(context).size.height / 2,
+          ),
+        );
 
     final docNode = await controller.importDocument(
-      documentId: documentId,
+      documentId: docId,
       bytes: bytes,
-      insertPosition: viewportCenter,
+      insertPosition: insertPosition,
       gridColumns: 1, // 📄 Single column: natural reading flow
     );
 
@@ -244,12 +294,23 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
     }
 
     // 📄 Store provider and create LOD-aware painter for this document
-    _pdfProviders[documentId] = provider;
-    _pdfPainters[documentId] = PdfPagePainter(
+    _pdfProviders[docId] = provider;
+    _pdfPainters[docId] = PdfPagePainter(
       provider: provider,
       memoryBudget: PdfMemoryBudget(),
-      documentId: documentId,
+      documentId: docId,
     );
+
+    // 📡 Wire real-time broadcast callback
+    if (_realtimeEngine != null) {
+      docNode.onMutation = (subAction, data) {
+        _realtimeEngine!.broadcastPdfUpdated(
+          documentId: docId,
+          subAction: subAction,
+          data: data,
+        );
+      };
+    }
 
     // 📄 Initialize annotation controller for toolbar
     _pdfAnnotationController?.dispose();
@@ -259,7 +320,7 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
     // 📄 Register document in search controller (multi-doc aware)
     _pdfSearchController ??= PdfSearchController();
     _pdfSearchController!.registerDocument(
-      documentId,
+      docId,
       Uint8List.fromList(bytes),
       provider: provider,
     );
@@ -274,19 +335,22 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
     final activeLayer = _layerController.activeLayer;
     if (activeLayer != null) {
       activeLayer.node.add(docNode);
+
+      // 📄 Retroactively link strokes that arrived before this PDF (race condition)
+      if (!broadcast) _retroactiveLinkStrokesToPdf(docNode);
     }
 
     // 📄 Auto-select newly imported PDF in toolbar
-    _activePdfDocumentId = documentId;
+    _activePdfDocumentId = docId;
 
     // Trigger rebuild + auto-save
     if (mounted) setState(() {});
     _autoSaveCanvas();
 
-    HapticFeedback.mediumImpact();
+    if (broadcast) HapticFeedback.mediumImpact();
 
     // 🔥 Background warm-up: pre-render all pages at low LOD
-    final painter = _pdfPainters[documentId];
+    final painter = _pdfPainters[docId];
     if (painter != null) {
       painter.warmUpAllPages(
         docNode.pageNodes,
@@ -296,28 +360,165 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
       );
     }
 
-    // 📄 Auto-scroll to center on first page
-    final firstPage = docNode.pageNodes.firstOrNull;
-    if (firstPage != null) {
-      final pagePos = firstPage.position;
-      final pageSize = firstPage.pageModel.originalSize;
-      final pageCenter = Offset(
-        pagePos.dx + pageSize.width / 2,
-        pagePos.dy + pageSize.height / 2,
-      );
-      final screenSize = MediaQuery.of(context).size;
-      final scale = _canvasController.scale;
-      _canvasController.setOffset(
-        Offset(
-          screenSize.width / 2 - pageCenter.dx * scale,
-          screenSize.height / 2 - pageCenter.dy * scale,
-        ),
-      );
+    // 📄 Auto-scroll to center on first page (LOCAL imports only —
+    // never shift the other device's viewport on remote sync)
+    if (broadcast) {
+      final firstPage = docNode.pageNodes.firstOrNull;
+      if (firstPage != null) {
+        final pagePos = firstPage.position;
+        final pageSize = firstPage.pageModel.originalSize;
+        final pageCenter = Offset(
+          pagePos.dx + pageSize.width / 2,
+          pagePos.dy + pageSize.height / 2,
+        );
+        final screenSize = MediaQuery.of(context).size;
+        final scale = _canvasController.scale;
+        _canvasController.setOffset(
+          Offset(
+            screenSize.width / 2 - pageCenter.dx * scale,
+            screenSize.height / 2 - pageCenter.dy * scale,
+          ),
+        );
+      }
     }
 
     debugPrint(
-      '[PDF] Imported "$documentId" — ${docNode.documentModel.totalPages} pages',
+      '[PDF] Imported "$docId" — ${docNode.documentModel.totalPages} pages',
     );
+
+    // 📡 Broadcast to collaborators — two-phase:
+    // Phase 1: Immediately broadcast pdfLoading (placeholder on remote)
+    // Phase 2: Background upload + broadcast pdfAdded (with gzip bytes)
+    if (broadcast && _realtimeEngine != null) {
+      // Get first page size for placeholder
+      final firstPageSize =
+          docNode.pageNodes.firstOrNull?.pageModel.originalSize ??
+          const Size(595, 842);
+
+      // 📸 Capture first-page thumbnail (~50px wide, ~2KB PNG)
+      String? thumbnailBase64;
+      try {
+        final thumbScale = 50.0 / firstPageSize.width;
+        final thumbImage = await provider.renderPage(
+          pageIndex: 0,
+          scale: thumbScale,
+          targetSize: Size(50, 50 * firstPageSize.height / firstPageSize.width),
+        );
+        if (thumbImage != null) {
+          final byteData = await thumbImage.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          if (byteData != null) {
+            thumbnailBase64 = base64Encode(byteData.buffer.asUint8List());
+          }
+          thumbImage.dispose();
+        }
+      } catch (e) {
+        debugPrint('[RT] 📸 Thumbnail capture failed (non-fatal): $e');
+      }
+
+      // 🛡️ RTDB payload guard: drop thumbnail if too large (>50KB base64)
+      if (thumbnailBase64 != null && thumbnailBase64.length > 50000) {
+        debugPrint(
+          '[RT] 📸 Thumbnail too large (${thumbnailBase64.length}B), skipping',
+        );
+        thumbnailBase64 = null;
+      }
+
+      // Phase 1: Immediate placeholder notification (with thumbnail)
+      _realtimeEngine!.broadcastPdfLoading(
+        documentId: docId,
+        pageCount: docNode.documentModel.totalPages,
+        pageWidth: firstPageSize.width,
+        pageHeight: firstPageSize.height,
+        positionX: insertPosition.dx,
+        positionY: insertPosition.dy,
+        fileName: fileName,
+        thumbnailBase64: thumbnailBase64,
+      );
+      debugPrint(
+        '[RT] 📄 Broadcast pdfLoading: $docId'
+        '${thumbnailBase64 != null ? ' (with thumbnail)' : ''}',
+      );
+
+      // Phase 2: Background upload + gzip broadcast (fire-and-forget)
+      final uploadFuture = Future(() async {
+        bool uploadOk = false;
+
+        // Upload to cloud storage with REAL progress from Firebase
+        if (_syncEngine != null) {
+          try {
+            await _syncEngine!.adapter.uploadAsset(
+              _canvasId,
+              docId,
+              bytes,
+              mimeType: 'application/pdf',
+              onProgress: (p) {
+                // Scale upload progress to 0–70% of total
+                _realtimeEngine?.broadcastPdfProgress(
+                  documentId: docId,
+                  progress: p * 0.7,
+                );
+              },
+            );
+            uploadOk = true;
+            debugPrint('☁️ PDF uploaded to cloud: $docId');
+          } catch (e) {
+            debugPrint('☁️ PDF cloud upload failed (local only): $e');
+          }
+        }
+
+        // Broadcast pdfAdded — skip inline bytes for large PDFs (>10MB)
+        // RTDB has ~16MB write limit, gzip+base64 can exceed this for large files.
+        // Receivers will download from Cloud Storage instead.
+        try {
+          String? b64;
+          if (bytes.length <= 10 * 1024 * 1024) {
+            // Small PDF: include inline gzip+base64 as fallback
+            _realtimeEngine?.broadcastPdfProgress(
+              documentId: docId,
+              progress: 0.8,
+            );
+            final compressed = GZipCodec().encode(bytes);
+            _realtimeEngine?.broadcastPdfProgress(
+              documentId: docId,
+              progress: 0.9,
+            );
+            b64 = base64Encode(compressed);
+            debugPrint(
+              '[RT] 📄 Broadcast pdfAdded: $docId '
+              '(${bytes.length} → ${compressed.length} gzip → ${b64.length} b64)',
+            );
+          } else {
+            // Large PDF: cloud-only transfer, no inline bytes
+            debugPrint(
+              '[RT] 📄 Broadcast pdfAdded (cloud-only): $docId '
+              '(${bytes.length} bytes, too large for inline)',
+            );
+          }
+
+          _realtimeEngine?.broadcastPdfAdded(
+            documentId: docId,
+            fileName: fileName,
+            pageCount: docNode.documentModel.totalPages,
+            positionX: insertPosition.dx,
+            positionY: insertPosition.dy,
+            pdfBytesBase64: b64,
+          );
+        } catch (e) {
+          debugPrint('[RT] ❌ PDF broadcast failed: $e');
+          if (!uploadOk) {
+            _realtimeEngine?.broadcastPdfLoadingFailed(documentId: docId);
+          }
+        }
+
+        // Remove from active uploads
+        _activePdfUploads.remove(docId);
+      });
+
+      // Track active upload for cancel support
+      _activePdfUploads[docId] = uploadFuture;
+    }
   }
 
   /// 📄 Restore PDF documents from saved metadata on canvas load.
@@ -339,7 +540,8 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
         if (filePath == null || filePath.isEmpty) {
           if (docNode.documentModel.sourceHash == 'blank') {
             docNode.performGridLayout();
-            if (docNode.name.isEmpty && docNode.documentModel.fileName != null) {
+            if (docNode.name.isEmpty &&
+                docNode.documentModel.fileName != null) {
               docNode.name = docNode.documentModel.fileName!;
             }
             // Attach to correct layer
@@ -356,6 +558,17 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
               memoryBudget: PdfMemoryBudget(),
               documentId: documentId,
             );
+
+            // 📡 Wire real-time broadcast callback
+            if (_realtimeEngine != null) {
+              docNode.onMutation = (subAction, data) {
+                _realtimeEngine!.broadcastPdfUpdated(
+                  documentId: documentId,
+                  subAction: subAction,
+                  data: data,
+                );
+              };
+            }
 
             _pdfAnnotationController?.dispose();
             _pdfAnnotationController = PdfAnnotationController();
@@ -399,7 +612,7 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
 
         // Create a new native provider and load the PDF bytes
         final documentId = docNode.id;
-        final provider = NativeNebulaPdfProvider(documentId: documentId);
+        final provider = NativeFlueraPdfProvider(documentId: documentId);
         final bytes = await pdfFile.readAsBytes();
         final loaded = await provider.loadDocument(bytes);
 
@@ -416,6 +629,17 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
           memoryBudget: PdfMemoryBudget(),
           documentId: documentId,
         );
+
+        // 📡 Wire real-time broadcast callback
+        if (_realtimeEngine != null) {
+          docNode.onMutation = (subAction, data) {
+            _realtimeEngine!.broadcastPdfUpdated(
+              documentId: documentId,
+              subAction: subAction,
+              data: data,
+            );
+          };
+        }
 
         // Re-layout and attach to the correct layer
         docNode.performGridLayout();
@@ -508,6 +732,50 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
           }
         }
       }
+    }
+  }
+
+  /// 📄 Retroactively link existing strokes to a newly-created PDF document.
+  ///
+  /// Fixes race condition: when collaborating, strokes may arrive BEFORE
+  /// the PDF creation event. Those strokes aren't linked because no PDF
+  /// existed at `_linkStrokeToPdfPage` time. After the PDF is created,
+  /// we scan all existing strokes and link any that overlap the new pages.
+  void _retroactiveLinkStrokesToPdf(PdfDocumentNode doc) {
+    int linked = 0;
+    for (final layer in _layerController.layers) {
+      for (final strokeNode in layer.node.strokeNodes) {
+        final stroke = strokeNode.stroke;
+        final bounds = stroke.bounds;
+        if (bounds.isEmpty) continue;
+
+        // Check if this stroke is ALREADY linked to any page in any doc
+        bool alreadyLinked = false;
+        for (final child in layer.node.children) {
+          if (child is PdfDocumentNode) {
+            for (final page in child.pageNodes) {
+              if (page.pageModel.annotations.contains(stroke.id)) {
+                alreadyLinked = true;
+                break;
+              }
+            }
+          }
+          if (alreadyLinked) break;
+        }
+        if (alreadyLinked) continue;
+
+        // Try to link this unlinked stroke to the new PDF's pages
+        final pageIdx = doc.linkAnnotation(stroke.id, bounds);
+        if (pageIdx >= 0) {
+          linked++;
+          debugPrint(
+            '[PDF] Retroactive link ${stroke.id.substring(0, 8)} → page $pageIdx',
+          );
+        }
+      }
+    }
+    if (linked > 0) {
+      debugPrint('[PDF] Retroactively linked $linked strokes to ${doc.id}');
     }
   }
 
@@ -606,6 +874,11 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
             doc.documentModel = doc.documentModel.copyWith(
               fileName: title.trim(),
             );
+            _realtimeEngine?.broadcastPdfUpdated(
+              documentId: doc.id.toString(),
+              subAction: 'documentRenamed',
+              data: {'fileName': title.trim()},
+            );
             if (mounted) setState(() {});
           }
         }
@@ -623,6 +896,98 @@ extension NebulaCanvasPdfFeatures on _NebulaCanvasScreenState {
       }
     }
     return null;
+  }
+
+  /// 🗑️ Remove an entire PDF document from the canvas.
+  ///
+  /// Cleans up: native provider, painter, annotations, scene graph node,
+  /// annotation controller, active selection, and broadcasts to collaborators.
+  void removePdfDocument(String documentId, {bool broadcast = true}) {
+    final docNode = _findPdfDocumentNode(documentId);
+    if (docNode == null) {
+      debugPrint('[PDF] ⚠️ Document $documentId not found for removal');
+      return;
+    }
+
+    // 1️⃣ Close native provider (releases platform resources)
+    final provider = _pdfProviders.remove(documentId);
+    provider?.dispose();
+
+    // 2️⃣ Remove painter
+    _pdfPainters.remove(documentId);
+
+    // 3️⃣ Remove from scene graph
+    for (final layer in _layerController.layers) {
+      layer.node.children.removeWhere(
+        (child) =>
+            child is PdfDocumentNode && child.id.toString() == documentId,
+      );
+    }
+
+    // 4️⃣ Reset active PDF if this was selected
+    if (_activePdfDocumentId == documentId) {
+      _activePdfDocumentId = null;
+      _pdfAnnotationController?.dispose();
+      _pdfAnnotationController = null;
+    }
+
+    // 6️⃣ Cancel any active upload for this PDF
+    _activePdfUploads.remove(documentId);
+
+    // 7️⃣ Broadcast to collaborators
+    if (broadcast && _realtimeEngine != null) {
+      _realtimeEngine!.broadcastPdfRemoved(documentId: documentId);
+    }
+
+    // 8️⃣ Auto-save + rebuild UI
+    _autoSaveCanvas();
+    if (mounted) setState(() {});
+
+    debugPrint('[PDF] 🗑️ Removed document: $documentId');
+  }
+
+  /// 🗑️ Show confirmation dialog before deleting a PDF document.
+  void showDeletePdfConfirmation(BuildContext context, String documentId) {
+    final docNode = _findPdfDocumentNode(documentId);
+    final fileName = docNode?.documentModel.fileName ?? 'this document';
+    final pageCount = docNode?.documentModel.totalPages ?? 0;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          icon: Icon(Icons.delete_forever_rounded, color: cs.error, size: 32),
+          title: const Text('Delete PDF'),
+          content: Text(
+            'Delete "$fileName" ($pageCount pages)?\n\n'
+            'All annotations on this document will be unlinked. '
+            'This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                removePdfDocument(documentId);
+                HapticFeedback.mediumImpact();
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: cs.error,
+                foregroundColor: cs.onError,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 

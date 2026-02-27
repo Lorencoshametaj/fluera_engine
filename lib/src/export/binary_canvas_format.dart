@@ -294,6 +294,14 @@ class BinaryCanvasFormat {
     builder.add(_encodeFloat32(image.rotation));
     builder.add(_encodeFloat32(image.opacity));
     builder.add(_encodeUint16(image.pageIndex));
+    // 🌐 v3.1: Cloud URLs for cross-device image loading
+    _writeString(builder, image.storageUrl ?? '');
+    _writeString(builder, image.thumbnailUrl ?? '');
+    // 🖊️ v3.1: Drawing strokes attached to this image
+    builder.add(_encodeUint32(image.drawingStrokes.length));
+    for (final stroke in image.drawingStrokes) {
+      _writeStroke(builder, stroke);
+    }
   }
 
   static ImageElement _readImage(_BinaryReader reader) {
@@ -305,15 +313,36 @@ class BinaryCanvasFormat {
     final opacity = reader.readFloat32();
     final pageIndex = reader.readUint16();
 
+    // 🌐 v3.1: Read cloud URLs if available (backward compat: catch EOF)
+    String? storageUrl;
+    String? thumbnailUrl;
+    List<ProStroke> drawingStrokes = [];
+    try {
+      final url = reader.readString();
+      if (url.isNotEmpty) storageUrl = url;
+      final thumb = reader.readString();
+      if (thumb.isNotEmpty) thumbnailUrl = thumb;
+      // 🖊️ v3.1: Read drawing strokes attached to this image
+      final strokeCount = reader.readUint32();
+      for (int i = 0; i < strokeCount; i++) {
+        drawingStrokes.add(_readStroke(reader));
+      }
+    } catch (_) {
+      // Old binary data without URLs/strokes — safe to ignore
+    }
+
     return ImageElement(
       id: id,
       imagePath: path,
+      storageUrl: storageUrl,
+      thumbnailUrl: thumbnailUrl,
       position: pos,
       scale: scale,
       rotation: rotation,
       opacity: opacity,
       pageIndex: pageIndex,
       createdAt: DateTime.now(),
+      drawingStrokes: drawingStrokes,
     );
   }
 

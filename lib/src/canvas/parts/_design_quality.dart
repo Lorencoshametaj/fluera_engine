@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // ✅ DESIGN QUALITY — Wire smart snap, lint, styles, a11y, selection query
 // ============================================================================
 
-extension DesignQualityFeatures on _NebulaCanvasScreenState {
+extension DesignQualityFeatures on _FlueraCanvasScreenState {
   /// Toggle smart snap engine.
   /// Wires: smart_snap_engine
   void _toggleSmartSnap() {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/tabular/latex_table_parser.dart';
+import 'package:fluera_engine/src/core/tabular/latex_table_parser.dart';
 
 void main() {
   late LatexTableParser parser;

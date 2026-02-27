@@ -24,7 +24,7 @@ import 'package:flutter/services.dart';
 /// Uses the platform's native image codecs (Core Graphics on iOS,
 /// Android Bitmap on Android) for high-quality, efficient encoding.
 class RasterEncoderChannel {
-  static const _channel = MethodChannel('nebula_engine/image_encoder');
+  static const _channel = MethodChannel('fluera_engine/image_encoder');
 
   /// Whether the native encoder is available.
   ///

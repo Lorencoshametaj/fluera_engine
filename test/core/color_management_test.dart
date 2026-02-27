@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/color/color_space_converter.dart';
-import 'package:nebula_engine/src/core/color/color_blindness_simulator.dart';
-import 'package:nebula_engine/src/core/color/soft_proof_engine.dart';
-import 'package:nebula_engine/src/core/color/color_palette_store.dart';
+import 'package:fluera_engine/src/core/color/color_space_converter.dart';
+import 'package:fluera_engine/src/core/color/color_blindness_simulator.dart';
+import 'package:fluera_engine/src/core/color/soft_proof_engine.dart';
+import 'package:fluera_engine/src/core/color/color_palette_store.dart';
 
 void main() {
   // ===========================================================================

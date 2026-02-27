@@ -1,7 +1,6 @@
-import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/collaboration/conflict_resolution.dart';
-import 'package:nebula_engine/src/collaboration/nebula_realtime_adapter.dart';
+import 'package:fluera_engine/src/collaboration/conflict_resolution.dart';
+import 'package:fluera_engine/src/collaboration/fluera_realtime_adapter.dart';
 
 void main() {
   // ═══════════════════════════════════════════════════════════════════════════

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../nebula_realtime_adapter.dart';
+import '../fluera_realtime_adapter.dart';
 
 /// 👥 Connected Users Toolbar Widget
 ///
@@ -9,7 +9,7 @@ import '../nebula_realtime_adapter.dart';
 /// Designed to be placed in the toolbar or app bar.
 class ConnectedUsersStrip extends StatelessWidget {
   /// The realtime engine providing remote cursor data.
-  final NebulaRealtimeEngine? engine;
+  final FlueraRealtimeEngine? engine;
 
   /// Callback fired when a user avatar is tapped (for follow mode).
   final void Function(String userId)? onTapUser;

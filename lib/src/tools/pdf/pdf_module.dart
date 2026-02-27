@@ -7,7 +7,7 @@ import '../base/tool_interface.dart';
 // PDF MODULE
 // =============================================================================
 
-/// 📄 Self-contained PDF module for the Nebula Engine canvas.
+/// 📄 Self-contained PDF module for the Fluera Engine canvas.
 ///
 /// Encapsulates all PDF functionality:
 /// - [PdfPageNode]: scene graph node for a single PDF page

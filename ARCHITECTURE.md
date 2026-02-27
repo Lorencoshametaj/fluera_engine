@@ -240,3 +240,77 @@ graph TB
 All intelligence subsystems implement `IntelligenceSubsystem` (see `lib/src/core/conscious_architecture.dart`). The `ConsciousArchitecture` registry coordinates lifecycle via `onContextChanged()` and `onIdle()`.
 
 Adding a new subsystem: create class → declare layer/name → implement lifecycle → register in `EngineScope`.
+
+---
+
+## 📦 Module System — Platform + Plugins
+
+L'engine usa un'architettura **platform + modules** dove `EngineScope` è la piattaforma e i sottosistemi funzionali sono moduli plugin indipendenti.
+
+### Architettura
+
+```mermaid
+graph TD
+    ES["EngineScope (Platform)"] --> MR["ModuleRegistry"]
+    MR --> DM["DrawingModule"]
+    MR --> TM["TabularModule"]
+    MR --> LM["LaTeXModule"]
+    MR --> PM["PDFModule"]
+    MR --> AM["AudioModule"]
+```
+
+### Contratto `CanvasModule`
+
+```dart
+abstract class CanvasModule {
+  String get moduleId;
+  String get displayName;
+  List<NodeDescriptor> get nodeDescriptors;  // node types owned
+  List<DrawingTool> createTools();            // tools provided
+  Future<void> initialize(ModuleContext ctx);
+  Future<void> dispose();
+}
+```
+
+### Moduli registrati
+
+| Modulo | ID | Node Types | Servizi |
+|--------|----|-----------|---------|
+| `DrawingModule` | `drawing` | `StrokeNode` | BrushSettings, Shaders, StrokePersistence |
+| `TabularModule` | `tabular` | `TabularNode` | SpreadsheetModel, Evaluator, TabularLatexBridge |
+| `LaTeXModule` | `latex` | `LatexNode` | Unified recognizer: ONNX → HME → Pix2Tex |
+| `PDFModule` | `pdf` | `PdfPageNode`, `PdfDocumentNode` | On-demand controllers |
+| `AudioModule` | `audio` | — | NativeAudioPlayer, NativeAudioRecorder |
+
+### Factory a due livelli
+
+`CanvasNodeFactory.fromJson()` usa un lookup a due livelli:
+1. **Tier 1 (Dynamic)**: `ModuleRegistry.createNodeFromJson()` — cerca nei `NodeDescriptor` registrati
+2. **Tier 2 (Hardcoded)**: switch/case legacy per nodi core (group, layer, etc.)
+
+Nuovi moduli possono registrare node types senza toccare la factory.
+
+### Inizializzazione
+
+```dart
+final scope = EngineScope();
+EngineScope.push(scope);
+await scope.initializeModules();  // registra tutti i 5 moduli built-in
+```
+
+### Accessor di convenienza
+
+```dart
+scope.drawingModule   // DrawingModule?
+scope.tabularModule   // TabularModule?
+scope.latexModule     // LaTeXModule?
+scope.pdfModule       // PDFModule?
+scope.audioModule     // AudioModule?
+```
+
+### Aggiungere un nuovo modulo
+
+1. Creare `class MyModule extends CanvasModule`
+2. Implementare `moduleId`, `nodeDescriptors`, `createTools()`, `initialize()`, `dispose()`
+3. Registrare in `initializeModules()` dentro `EngineScope`
+4. Aggiungere barrel export in `fluera_engine.dart`

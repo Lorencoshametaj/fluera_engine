@@ -1,7 +1,7 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 📦 Drawing Update — continuous pointer-move handling during draw
-extension on _NebulaCanvasScreenState {
+extension on _FlueraCanvasScreenState {
   void _onDrawUpdate(
     Offset canvasPosition,
     double pressure,
@@ -9,6 +9,19 @@ extension on _NebulaCanvasScreenState {
     double tiltY,
   ) {
     //  PRESENCE: Feed cursor + tool info to remote users (Phase 2)
+
+    // 📌 PIN DRAG: Route drag updates to pin handler
+    if (_draggingPinId != null) {
+      _handleRecordingPinDragUpdate(canvasPosition);
+      return;
+    }
+
+    // 📐 SECTION MODE: Update section rectangle end point
+    if (_isSectionActive && _sectionStartPoint != null) {
+      _sectionCurrentEndPoint = canvasPosition;
+      setState(() {});
+      return;
+    }
 
     // 📄 PDF DOCUMENT DRAG: Move entire document block + linked strokes
     if (_pdfPageDragController.isDraggingDocument) {
@@ -72,65 +85,13 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🎨 PRIORITÀ 1: Se siamo in editing mode immagine
-    if (_imageInEditMode != null) {
-      final image = _loadedImages[_imageInEditMode!.imagePath];
-      if (image != null) {
-        // Check if the point is still inside the image
-        if (_isPointInsideImage(canvasPosition, _imageInEditMode!, image)) {
-          // If gomma attiva, continua a cancellare
-          if (_effectiveIsEraser) {
-            _eraseFromImageEditingStrokes(canvasPosition);
-            return;
-          }
-
-          // ⚠️ Azzera lo stroke of the canvas normale to avoid duplicazioni
-          _currentStrokeNotifier.clear();
-
-          // Continue drawing on top of the image only if we are drawing
-          if (_drawingHandler.hasStroke) {
-            _drawingHandler.updateStroke(
-              position: canvasPosition,
-              pressure: pressure,
-              tiltX: tiltX,
-              tiltY: tiltY,
-              orientation: 0.0,
-            );
-
-            // 🚀 Fix 1: incremental conversion — only convert the newest point
-            if (_drawingHandler.currentStroke.isNotEmpty) {
-              final latestRaw = _drawingHandler.currentStroke.last;
-              _editingConvertedPoints.add(
-                _convertSinglePointToImageSpace(latestRaw, _imageInEditMode!),
-              );
-            }
-            // Re-notify with same list reference (triggers rebuild via notifier)
-            _currentEditingStrokeNotifier.value = ProStroke(
-              id: 'temp',
-              points: _editingConvertedPoints,
-              color: _effectiveColor,
-              baseWidth: _effectiveWidth,
-              penType: _effectivePenType,
-              createdAt: _editingStrokeCreatedAt,
-              settings: _brushSettings,
-            );
-          }
-          return;
-        } else {
-          // If esce dai confini, termina il current stroke
-          if (_drawingHandler.hasStroke) {
-            _onDrawEnd(canvasPosition);
-          }
-          return;
-        }
-      }
-    }
-
-    // 🖼️ If there is a saved initial position (tap on image), check movement
-    if (_initialTapPosition != null && _imageTool.selectedImage != null) {
+    // 🖼️ If there is a saved initial position (tap on image in pan mode), check movement
+    if (_effectiveIsPanMode &&
+        _initialTapPosition != null &&
+        _imageTool.selectedImage != null) {
       final distance = (canvasPosition - _initialTapPosition!).distance;
 
-      if (distance > _NebulaCanvasScreenState._dragThreshold) {
+      if (distance > _FlueraCanvasScreenState._dragThreshold) {
         // Movement detected! Clear timer and start drag
         _imageLongPressTimer?.cancel();
         _imageLongPressEditorTimer?.cancel();
@@ -151,20 +112,29 @@ extension on _NebulaCanvasScreenState {
         // Movement too small, wait for timer
         return;
       }
-    } // 🌀 Handle single-finger rotation via rotation handle
-    if (_imageTool.isHandleRotating) {
+    } // 🌀 Handle single-finger rotation via rotation handle (pan mode only)
+    if (_effectiveIsPanMode && _imageTool.isHandleRotating) {
       final updated = _imageTool.updateHandleRotation(canvasPosition);
       if (updated != null) {
         final index = _imageElements.indexWhere((e) => e.id == updated.id);
         if (index != -1) _imageElements[index] = updated;
         _imageVersion++;
         _imageRepaintNotifier.value++;
+        // 🔴 RT: Throttled rotation broadcast for live collaboration
+        if (_isSharedCanvas) {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (now - _lastDragSyncTime >=
+              _FlueraCanvasScreenState._dragSyncThrottleMs) {
+            _lastDragSyncTime = now;
+            _broadcastImageUpdate(updated);
+          }
+        }
       }
       return;
     }
 
-    // 🖼️ ALWAYS handle resize/drag of images (max priority)
-    if (_imageTool.isResizing) {
+    // 🖼️ Handle resize/drag of images (pan mode only)
+    if (_effectiveIsPanMode && _imageTool.isResizing) {
       final updated = _imageTool.updateResize(canvasPosition);
       if (updated != null) {
         // Find and update in the list
@@ -185,11 +155,20 @@ extension on _NebulaCanvasScreenState {
         // ImagePainter reads _imageElements directly and repaints via controller.
         _imageVersion++;
         _imageRepaintNotifier.value++;
+        // 🔴 RT: Throttled resize broadcast for live collaboration
+        if (_isSharedCanvas) {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (now - _lastDragSyncTime >=
+              _FlueraCanvasScreenState._dragSyncThrottleMs) {
+            _lastDragSyncTime = now;
+            _broadcastImageUpdate(updated);
+          }
+        }
       }
       return;
     }
 
-    if (_imageTool.isDragging) {
+    if (_effectiveIsPanMode && _imageTool.isDragging) {
       final updated = _imageTool.updateDrag(canvasPosition);
       if (updated != null) {
         // 🚀 PERF: Direct list update + repaint — zero overhead path
@@ -202,12 +181,14 @@ extension on _NebulaCanvasScreenState {
         if (_isSharedCanvas) {
           final now = DateTime.now().millisecondsSinceEpoch;
           if (now - _lastDragSyncTime >=
-              _NebulaCanvasScreenState._dragSyncThrottleMs) {
+              _FlueraCanvasScreenState._dragSyncThrottleMs) {
             _lastDragSyncTime = now;
             final wasTracking = _layerController.enableDeltaTracking;
             _layerController.enableDeltaTracking = false;
             _layerController.updateImage(updated);
             _layerController.enableDeltaTracking = wasTracking;
+            // 🔴 RT: Live drag broadcast so collaborators see movement
+            _broadcastImageUpdate(updated);
           }
         }
 
@@ -479,9 +460,7 @@ extension on _NebulaCanvasScreenState {
       }
 
       // 🎯 V3: Continuous path interpolation — erase along the entire path
-      if (_imageInEditMode != null) {
-        _eraseFromImageEditingStrokes(canvasPosition);
-      } else {
+      {
         // V6: Ruler-guided eraser — constrain position to nearest guide line
         var erasePosition = canvasPosition;
         if (_rulerGuideSystem.horizontalGuides.isNotEmpty ||
@@ -524,6 +503,11 @@ extension on _NebulaCanvasScreenState {
         } else {
           bool didEraseAny = false;
 
+          // 🚀 PERF: Single batch for the entire interpolation loop.
+          // Previously each eraseAt() had its own batch → 30 version bumps/frame.
+          // Now: 1 version bump for all removals in this frame.
+          _layerController.beginBatch();
+
           if (_lastEraserCanvasPosition != null) {
             final from = _lastEraserCanvasPosition!;
             final to = erasePosition;
@@ -559,11 +543,22 @@ extension on _NebulaCanvasScreenState {
             }
           }
 
+          // 🚀 Flush batch — single version bump for all removals
+          _layerController.endBatch();
+
           if (didEraseAny) {
             _eraserGestureEraseCount = _eraserTool.currentGestureEraseCount;
             _eraserPulseController.forward(from: 0);
+
+            // 🚀 PERF: Targeted tile invalidation instead of ALL tiles.
+            // Only re-rasterize tiles that overlap the erased area.
+            final eraseBounds = _eraserTool.lastEraseBounds;
+            if (eraseBounds != null) {
+              DrawingPainter.invalidateTilesInBounds(eraseBounds);
+            } else {
+              DrawingPainter.invalidateTileCacheOnly();
+            }
             _eraserTool.lastEraseBounds = null;
-            DrawingPainter.invalidateAllTiles();
           }
         }
       } // close outer image-edit else
@@ -620,6 +615,27 @@ extension on _NebulaCanvasScreenState {
         tiltY: tiltY,
         orientation: 0.0,
       );
+    }
+
+    // ☁️ REALTIME: Stream live stroke points to collaborators (throttled)
+    if (_realtimeEngine != null) {
+      final points = _currentStrokeNotifier.value;
+      // Throttle: broadcast every 10th point to avoid RTDB rate limiting
+      if (points.isNotEmpty && points.length % 10 == 0) {
+        final latest = points.sublist(
+          (points.length - 5).clamp(0, points.length),
+        );
+        _broadcastStrokePoints(
+          strokeId: 'live_${_canvasId}_${points.first.timestamp}',
+          newPoints:
+              latest
+                  .map((p) => {'x': p.position.dx, 'y': p.position.dy})
+                  .toList(),
+          penType: _effectivePenType.name,
+          color: _effectiveColor.toARGB32(),
+          strokeWidth: _effectiveWidth,
+        );
+      }
     }
   }
 

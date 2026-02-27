@@ -4,7 +4,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:onnxruntime_v2/onnxruntime_v2.dart';
+import 'onnx_stub_web.dart'
+    if (dart.library.ffi) 'package:onnxruntime_v2/onnxruntime_v2.dart';
 
 import '../core/latex/ink_stroke_data.dart';
 import '../core/latex/latex_tokenizer.dart';
@@ -84,7 +85,7 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
   static const int _maxCacheSize = 32;
 
   /// Package name for asset resolution from host apps.
-  static const String _packageName = 'nebula_engine';
+  static const String _packageName = 'fluera_engine';
 
   OnnxLatexRecognizer({
     this.encoderAssetPath = 'assets/models/comer/encoder.onnx',
@@ -271,7 +272,7 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
 
   /// Load asset with package prefix fallback.
   ///
-  /// Tries `packages/nebula_engine/<path>` first (for host apps),
+  /// Tries `packages/fluera_engine/<path>` first (for host apps),
   /// then raw `<path>` (for engine tests).
   Future<Uint8List?> _loadAsset(String assetPath) async {
     // Try package-prefixed path first (required when loaded from a host app)

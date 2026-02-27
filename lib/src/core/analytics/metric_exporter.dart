@@ -28,13 +28,13 @@ class PrometheusExporter {
   /// Format a telemetry snapshot as Prometheus text.
   ///
   /// ```
-  /// # HELP nebula_counter_integrity_repairs Total repairs
-  /// # TYPE nebula_counter_integrity_repairs counter
-  /// nebula_counter_integrity_repairs 42
+  /// # HELP fluera_counter_integrity_repairs Total repairs
+  /// # TYPE fluera_counter_integrity_repairs counter
+  /// fluera_counter_integrity_repairs 42
   /// ```
   static String format(
     Map<String, dynamic> snapshot, {
-    String prefix = 'nebula',
+    String prefix = 'fluera',
     Map<String, String>? globalLabels,
   }) {
     final buffer = StringBuffer();

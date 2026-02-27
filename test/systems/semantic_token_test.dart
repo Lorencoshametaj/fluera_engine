@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/semantic_token.dart';
-import 'package:nebula_engine/src/systems/design_variables.dart';
+import 'package:fluera_engine/src/systems/semantic_token.dart';
+import 'package:fluera_engine/src/systems/design_variables.dart';
 
 void main() {
   group('SemanticTokenRegistry Tests', () {

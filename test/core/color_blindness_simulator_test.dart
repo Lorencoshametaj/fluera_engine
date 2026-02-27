@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/color/color_blindness_simulator.dart';
+import 'package:fluera_engine/src/core/color/color_blindness_simulator.dart';
 
 void main() {
   const sim = ColorBlindnessSimulator();

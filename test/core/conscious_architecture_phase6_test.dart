@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nebula_engine/src/core/conscious_architecture.dart';
-import 'package:nebula_engine/src/core/adaptive_profile.dart';
-import 'package:nebula_engine/src/core/engine_event.dart';
-import 'package:nebula_engine/src/systems/smart_snap_engine.dart';
-import 'package:nebula_engine/src/rendering/optimization/anticipatory_tile_prefetch.dart';
-import 'package:nebula_engine/src/systems/intelligence_adapters.dart';
+import 'package:fluera_engine/src/core/conscious_architecture.dart';
+import 'package:fluera_engine/src/core/adaptive_profile.dart';
+import 'package:fluera_engine/src/core/engine_event.dart';
+import 'package:fluera_engine/src/systems/smart_snap_engine.dart';
+import 'package:fluera_engine/src/rendering/optimization/anticipatory_tile_prefetch.dart';
+import 'package:fluera_engine/src/systems/intelligence_adapters.dart';
 
 void main() {
   group('SmartSnapEngine mutable threshold (Fix 1)', () {

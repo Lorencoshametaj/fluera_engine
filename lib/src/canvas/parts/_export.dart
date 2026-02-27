@@ -1,11 +1,11 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📦 Export & Multi-Page — generic SDK implementation.
 ///
 /// Multi-page canvas math is kept in-SDK (pure state operations).
 /// Export UI and actual file generation are delegated to the host app
 /// via `_config.onShowExportDialog`.
-extension ExportExtension on _NebulaCanvasScreenState {
+extension ExportExtension on _FlueraCanvasScreenState {
   /// Enter export mode — directly opens multi-page editing.
   void _enterExportMode() {
     _enterMultiPageEditMode(
@@ -195,7 +195,7 @@ extension ExportExtension on _NebulaCanvasScreenState {
           content: Text(
             'Maximum of ${_multiPageConfig.maxPages} pages reached',
           ),
-          backgroundColor: Colors.orange[700],
+          backgroundColor: const Color(0xFFF57C00),
         ),
       );
       return;
@@ -286,7 +286,7 @@ extension ExportExtension on _NebulaCanvasScreenState {
     final multiPageConfig =
         _multiPageConfig.pageCount > 0 ? _multiPageConfig : null;
 
-    final exportData = NebulaExportData(
+    final exportData = FlueraExportData(
       canvasId: _canvasId,
       layers: _layerController.layers,
       backgroundColor: _canvasBackgroundColor,

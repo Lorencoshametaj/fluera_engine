@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// Centralized logging utility for the Nebula Engine.
+/// Centralized logging utility for the Fluera Engine.
 ///
 /// Provides leveled logging (debug, info, warning, error) with consistent
 /// formatting and optional stack traces. In release mode, only warnings

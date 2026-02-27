@@ -1,8 +1,8 @@
 ---
-description: Regole permanenti per lo sviluppo su nebula_engine — motore grafico 2D professionale Flutter
+description: Regole permanenti per lo sviluppo su fluera_engine — motore grafico 2D professionale Flutter
 ---
 
-# 🎨 NEBULA ENGINE — Regole di Sviluppo
+# 🎨 FLUERA ENGINE — Regole di Sviluppo
 ## 1. ARCHITETTURA
 ### Scene Graph (core/)
 - **Base**: `CanvasNode` — 13 tipi. Aggiungi: sottoclasse → `CanvasNodeFactory.fromJson()` → `SceneGraphRenderer` → `NodeVisitor`.
@@ -11,7 +11,7 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 - **Observer**: `SceneGraphObserver`. **Concurrency**: `_guardedMutation()`, `snapshotVersion()`+`assertUnchanged()`.
 - **Integrity**: 7 checks, 3 auto-repairs. `validate()` puro, `validateAndRepair()` → `ErrorRecoveryService`.
 ### Dependency Inversion
-- **MAI** importare Firebase/auth/servizi app dentro `nebula_engine`. DI via `NebulaCanvasConfig`.
+- **MAI** importare Firebase/auth/servizi app dentro `fluera_engine`. DI via `FlueraCanvasConfig`.
 ### Tool System (tools/)
 - Implementa `DrawingTool`. Tool **stateless** — logica in `ToolContext`/`CanvasAdapter`. Registra in `ToolRegistry`.
 ### Selection (`SelectionManager`)
@@ -45,7 +45,7 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 - `part`+extension per State privati, standalone per logica pura. UI: Material 3. Toolbar: `library`+`part`+extensions.
 ---
 ## 2. CONVENZIONI
-- **File**: `snake_case.dart`, prefisso `nebula_` (API), `pro_` (modelli). **Classi**: `PascalCase`, prefisso `Nebula` pubbliche.
+- **File**: `snake_case.dart`, prefisso `fluera_` (API), `pro_` (modelli). **Classi**: `PascalCase`, prefisso `Fluera` pubbliche.
 - **ALL code in English**. No Italian in new code.
 - **Serialization**: `toJson()`→`Map<String,dynamic>`, factory `fromJson()`. Campi opzionali con fallback.
 - **Schema**: `kCurrentSchemaVersion`, `migrateDocument()`, `SchemaVersionException`. SQLite: colonna `schema_version`.
@@ -61,21 +61,21 @@ description: Regole permanenti per lo sviluppo su nebula_engine — motore grafi
 ---
 ## 4. INTEGRAZIONE
 ```dart
-NebulaCanvasScreen(config: NebulaCanvasConfig(
+FlueraCanvasScreen(config: FlueraCanvasConfig(
   layerController: ctrl, auth: MyAuth(), storage: MyStorage(), sync: MySync(),
 ))
 ```
-Aggiungere feature: core in `nebula_engine/lib/src/`, Firebase/app via interfaccia astratta, export in barrel.
-Localizzazione: `NebulaLocalizations.of(context).x`. MAI hardcodare stringhe.
+Aggiungere feature: core in `fluera_engine/lib/src/`, Firebase/app via interfaccia astratta, export in barrel.
+Localizzazione: `FlueraLocalizations.of(context).x`. MAI hardcodare stringhe.
 ---
 ## 5. CRITICAL FILES
 | File | Role |
 |------|------|
-| `nebula_canvas_screen.dart` | Canvas entry point + parts |
+| `fluera_canvas_screen.dart` | Canvas entry point + parts |
 | `canvas_node.dart` | Base class scene graph |
 | `brush_engine.dart` | Unified brush dispatch |
 | `drawing_input_handler.dart` | 120Hz input pipeline |
-| `nebula_canvas_config.dart` | DI config |
+| `fluera_canvas_config.dart` | DI config |
 | `layer_controller.dart` | Layer management |
 | `predictive_renderer.dart` | Quadratic stroke prediction |
 | `one_euro_filter.dart` | Adaptive 1€ filter |
@@ -86,7 +86,7 @@ Localizzazione: `NebulaLocalizations.of(context).x`. MAI hardcodare stringhe.
 ---
 ## 6. CHECKLIST PRE-COMMIT
 - [ ] `flutter analyze` clean
-- [ ] No import Firebase/app in nebula_engine
+- [ ] No import Firebase/app in fluera_engine
 - [ ] Nuovi file esportati nel barrel
 - [ ] JSON retrocompatibile
 - [ ] Zero allocazioni nel hot path

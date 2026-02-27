@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/rendering/render_profiler.dart';
+import 'package:fluera_engine/src/rendering/render_profiler.dart';
 
 void main() {
   late RenderProfiler profiler;

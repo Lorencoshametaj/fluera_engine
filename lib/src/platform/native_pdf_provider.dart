@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import '../canvas/nebula_canvas_config.dart';
+import '../canvas/fluera_canvas_config.dart';
 import '../core/models/ocr_result.dart';
 import '../core/models/pdf_text_rect.dart';
 
@@ -21,15 +21,15 @@ import '../core/models/pdf_text_rect.dart';
 ///
 /// Usage:
 /// ```dart
-/// final provider = NativeNebulaPdfProvider(documentId: 'doc_123');
-/// final config = NebulaCanvasConfig(
+/// final provider = NativeFlueraPdfProvider(documentId: 'doc_123');
+/// final config = FlueraCanvasConfig(
 ///   pdfProvider: provider,
 ///   // ...
 /// );
 /// ```
-class NativeNebulaPdfProvider implements NebulaPdfProvider {
+class NativeFlueraPdfProvider implements FlueraPdfProvider {
   static const MethodChannel _channel = MethodChannel(
-    'com.nebulaengine/pdf_renderer',
+    'com.flueraengine/pdf_renderer',
   );
 
   /// Unique identifier for this document on the native side.
@@ -39,7 +39,7 @@ class NativeNebulaPdfProvider implements NebulaPdfProvider {
   final Map<int, Size> _pageSizeCache = {};
   bool _isDisposed = false;
 
-  NativeNebulaPdfProvider({required this.documentId});
+  NativeFlueraPdfProvider({required this.documentId});
 
   // ===========================================================================
   // Load Document

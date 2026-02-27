@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
+import '../../utils/safe_path_provider.dart';
 import '../../core/engine_scope.dart';
 import '../../core/engine_error.dart';
 
@@ -34,8 +34,9 @@ class PdfDiskCache {
   /// Initialize the cache directory and populate the manifest.
   Future<void> _ensureInit() async {
     if (_cacheDir != null) return;
-    final temp = await getTemporaryDirectory();
-    _cacheDir = Directory('${temp.path}/nebula_pdf_cache');
+    final temp = await getSafeTempDirectory();
+    if (temp == null) return; // Web: no filesystem
+    _cacheDir = Directory('${temp.path}/fluera_pdf_cache');
     if (!await _cacheDir!.exists()) {
       await _cacheDir!.create(recursive: true);
     }

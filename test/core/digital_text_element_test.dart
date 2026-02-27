@@ -1,7 +1,7 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/models/digital_text_element.dart';
+import 'package:fluera_engine/src/core/models/digital_text_element.dart';
 
 void main() {
   DigitalTextElement _createElement({

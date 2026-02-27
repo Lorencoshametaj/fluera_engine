@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/nodes/material_zone_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/drawing/models/surface_material.dart';
+import 'package:fluera_engine/src/core/nodes/material_zone_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/drawing/models/surface_material.dart';
 
 void main() {
   // ===========================================================================

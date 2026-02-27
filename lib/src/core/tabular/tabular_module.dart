@@ -11,7 +11,7 @@ import '../../tools/tabular/tabular_tool.dart';
 // TABULAR MODULE
 // =============================================================================
 
-/// 📊 Self-contained spreadsheet module for the Nebula Engine canvas.
+/// 📊 Self-contained spreadsheet module for the Fluera Engine canvas.
 ///
 /// Encapsulates all tabular functionality:
 /// - [SpreadsheetModel]: sparse cell storage with formulas

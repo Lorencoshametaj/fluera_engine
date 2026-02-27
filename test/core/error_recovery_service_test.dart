@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/engine_error.dart';
-import 'package:nebula_engine/src/core/error_recovery_service.dart';
+import 'package:fluera_engine/src/core/engine_error.dart';
+import 'package:fluera_engine/src/core/error_recovery_service.dart';
 
 void main() {
   late ErrorRecoveryService service;

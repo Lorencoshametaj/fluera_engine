@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'dart:ui';
 
-import 'package:nebula_engine/src/rendering/scene_graph/render_plan.dart';
-import 'package:nebula_engine/src/rendering/optimization/occlusion_culler.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/nodes/shape_node.dart';
-import 'package:nebula_engine/src/core/models/shape_type.dart';
+import 'package:fluera_engine/src/rendering/scene_graph/render_plan.dart';
+import 'package:fluera_engine/src/rendering/optimization/occlusion_culler.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/nodes/shape_node.dart';
+import 'package:fluera_engine/src/core/models/shape_type.dart';
 
 GeometricShape _makeRect(double x, double y, double w, double h, {String? id}) {
   return GeometricShape(

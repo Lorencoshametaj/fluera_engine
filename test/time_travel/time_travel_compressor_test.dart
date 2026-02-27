@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/time_travel/services/time_travel_compressor.dart';
+import 'package:fluera_engine/src/time_travel/services/time_travel_compressor.dart';
 
 void main() {
   // ===========================================================================

@@ -1,7 +1,6 @@
 import 'package:flutter/services.dart';
 import 'dart:async';
 import '../native_audio_models.dart';
-import '../../core/engine_scope.dart';
 
 // =============================================================================
 // 🎤 NATIVE AUDIO RECORDER CHANNEL
@@ -16,17 +15,13 @@ import '../../core/engine_scope.dart';
 /// Uses MethodChannel for commands and EventChannel for state/amplitude updates.
 class NativeAudioRecorderChannel {
   static const MethodChannel _channel = MethodChannel(
-    'nebulaengine.audio/recorder',
+    'flueraengine.audio/recorder',
   );
   static const EventChannel _eventChannel = EventChannel(
-    'nebulaengine.audio/recorder_events',
+    'flueraengine.audio/recorder_events',
   );
 
-  /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static NativeAudioRecorderChannel get instance =>
-      EngineScope.current.audioRecorderChannel;
-
-  /// Creates a new instance (used by [EngineScope]).
+  /// Creates a new instance (used by modules).
   NativeAudioRecorderChannel.create();
 
   Stream<Map<String, dynamic>>? _eventStream;
@@ -168,6 +163,33 @@ class NativeAudioRecorderChannel {
       return result ?? false;
     } catch (e) {
       throw Exception('Failed to request permission: $e');
+    }
+  }
+
+  /// 🎛️ Apply full audio processing pipeline to a recorded file.
+  ///
+  /// Runs: high-pass filter → RNNoise → compressor → normalization.
+  /// Returns the processed file path (same file, processed in-place).
+  Future<String?> applyAudioProcessing({
+    required String filePath,
+    required int sampleRate,
+    int highPassFilterHz = 100,
+    bool compressor = true,
+    bool normalization = true,
+  }) async {
+    try {
+      final result = await _channel
+          .invokeMethod<String>('applyAudioProcessing', {
+            'filePath': filePath,
+            'sampleRate': sampleRate,
+            'highPassFilterHz': highPassFilterHz,
+            'compressor': compressor,
+            'normalization': normalization,
+          });
+      return result;
+    } catch (e) {
+      // Non-fatal — return original file if processing fails
+      return filePath;
     }
   }
 

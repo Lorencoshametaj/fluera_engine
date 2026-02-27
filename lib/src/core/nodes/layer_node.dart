@@ -29,14 +29,34 @@ class LayerNode extends GroupNode {
   });
 
   // ---------------------------------------------------------------------------
-  // Typed convenience getters (read-only views)
+  // 🚀 Cached typed getters (invalidated on child add/remove/reorder)
+  // ---------------------------------------------------------------------------
+
+  List<StrokeNode>? _cachedStrokeNodes;
+  List<ShapeNode>? _cachedShapeNodes;
+  List<ProStroke>? _cachedStrokes;
+  List<GeometricShape>? _cachedShapes;
+
+  @override
+  void invalidateTypedCaches() {
+    super.invalidateTypedCaches();
+    _cachedStrokeNodes = null;
+    _cachedShapeNodes = null;
+    _cachedStrokes = null;
+    _cachedShapes = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Typed convenience getters (cached)
   // ---------------------------------------------------------------------------
 
   /// All stroke nodes in this layer.
-  List<StrokeNode> get strokeNodes => childrenOfType<StrokeNode>();
+  List<StrokeNode> get strokeNodes =>
+      _cachedStrokeNodes ??= childrenOfType<StrokeNode>();
 
   /// All shape nodes in this layer.
-  List<ShapeNode> get shapeNodes => childrenOfType<ShapeNode>();
+  List<ShapeNode> get shapeNodes =>
+      _cachedShapeNodes ??= childrenOfType<ShapeNode>();
 
   /// All text nodes in this layer.
   List<TextNode> get textNodes => childrenOfType<TextNode>();
@@ -45,10 +65,12 @@ class LayerNode extends GroupNode {
   List<ImageNode> get imageNodes => childrenOfType<ImageNode>();
 
   /// All ProStroke objects in this layer (convenience for rendering).
-  List<ProStroke> get strokes => strokeNodes.map((n) => n.stroke).toList();
+  List<ProStroke> get strokes =>
+      _cachedStrokes ??= strokeNodes.map((n) => n.stroke).toList();
 
   /// All GeometricShape objects in this layer.
-  List<GeometricShape> get shapes => shapeNodes.map((n) => n.shape).toList();
+  List<GeometricShape> get shapes =>
+      _cachedShapes ??= shapeNodes.map((n) => n.shape).toList();
 
   /// All DigitalTextElement objects in this layer.
   List<DigitalTextElement> get texts =>

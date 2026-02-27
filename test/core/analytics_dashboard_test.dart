@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/analytics/usage_analytics.dart';
-import 'package:nebula_engine/src/core/analytics/metric_exporter.dart';
-import 'package:nebula_engine/src/core/analytics/dashboard_endpoint.dart';
-import 'package:nebula_engine/src/core/analytics/feature_flag_service.dart';
+import 'package:fluera_engine/src/core/analytics/usage_analytics.dart';
+import 'package:fluera_engine/src/core/analytics/metric_exporter.dart';
+import 'package:fluera_engine/src/core/analytics/dashboard_endpoint.dart';
+import 'package:fluera_engine/src/core/analytics/feature_flag_service.dart';
 
 void main() {
   // ===========================================================================
@@ -107,9 +107,9 @@ void main() {
 
     test('Prometheus format contains metric lines', () {
       final output = PrometheusExporter.format(snapshot);
-      expect(output, contains('nebula_counter_repairs 42'));
-      expect(output, contains('# TYPE nebula_gauge_memory_mb gauge'));
-      expect(output, contains('nebula_histogram_frame_ms_count'));
+      expect(output, contains('fluera_counter_repairs 42'));
+      expect(output, contains('# TYPE fluera_gauge_memory_mb gauge'));
+      expect(output, contains('fluera_histogram_frame_ms_count'));
     });
 
     test('Prometheus with labels', () {
@@ -125,7 +125,7 @@ void main() {
         'counters': {'my.weird-name': 1},
       };
       final output = PrometheusExporter.format(dirty);
-      expect(output, contains('nebula_counter_my_weird_name'));
+      expect(output, contains('fluera_counter_my_weird_name'));
     });
 
     test('JSON Lines format generates lines', () {

@@ -1,5 +1,5 @@
 import 'dart:ui';
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 
 // ============================================================================
 // Image Editor — Data Models & Constants
@@ -8,7 +8,7 @@ import '../l10n/nebula_localizations.dart';
 /// Named filter preset with pre-computed color matrix values.
 class FilterPreset {
   final String id;
-  final String Function(NebulaLocalizations) labelFn;
+  final String Function(FlueraLocalizations) labelFn;
   final double brightness;
   final double contrast;
   final double saturation;
@@ -63,13 +63,13 @@ const kFilterPresets = <FilterPreset>[
   ),
 ];
 
-String _labelNone(NebulaLocalizations l) => l.proCanvas_filterNone;
-String _labelBW(NebulaLocalizations l) => l.proCanvas_filterBW;
-String _labelSepia(NebulaLocalizations l) => l.proCanvas_filterSepia;
-String _labelVintage(NebulaLocalizations l) => l.proCanvas_filterVintage;
-String _labelCool(NebulaLocalizations l) => l.proCanvas_filterCool;
-String _labelWarm(NebulaLocalizations l) => l.proCanvas_filterWarm;
-String _labelDramatic(NebulaLocalizations l) => l.proCanvas_filterDramatic;
+String _labelNone(FlueraLocalizations l) => l.proCanvas_filterNone;
+String _labelBW(FlueraLocalizations l) => l.proCanvas_filterBW;
+String _labelSepia(FlueraLocalizations l) => l.proCanvas_filterSepia;
+String _labelVintage(FlueraLocalizations l) => l.proCanvas_filterVintage;
+String _labelCool(FlueraLocalizations l) => l.proCanvas_filterCool;
+String _labelWarm(FlueraLocalizations l) => l.proCanvas_filterWarm;
+String _labelDramatic(FlueraLocalizations l) => l.proCanvas_filterDramatic;
 
 /// Snapshot of all editor state values for undo/redo.
 class EditorSnapshot {

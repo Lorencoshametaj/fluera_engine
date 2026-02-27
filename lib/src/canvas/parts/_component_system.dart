@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🧩 COMPONENT SYSTEM — Wire component states and nested instances
 // ============================================================================
 
-extension ComponentSystemFeatures on _NebulaCanvasScreenState {
+extension ComponentSystemFeatures on _FlueraCanvasScreenState {
   /// Show the component state machine editor.
   /// Wires: component_state_machine, component_state_resolver
   void _showComponentStateMachine() {

@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 📐 RESPONSIVE DESIGN — Wire breakpoints, variants, constraint propagation
 // ============================================================================
 
-extension ResponsiveDesignFeatures on _NebulaCanvasScreenState {
+extension ResponsiveDesignFeatures on _FlueraCanvasScreenState {
   /// Show breakpoint picker and preview at selected size.
   /// Wires: responsive_breakpoint, responsive_variant,
   ///        resizeWithConstraintPropagation

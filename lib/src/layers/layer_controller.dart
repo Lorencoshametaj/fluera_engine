@@ -11,7 +11,7 @@ import '../rendering/optimization/spatial_index.dart';
 import '../history/canvas_delta_tracker.dart';
 import '../history/undo_redo_manager.dart';
 import '../rendering/optimization/dirty_region_tracker.dart';
-import './nebula_layer_controller.dart';
+import './fluera_layer_controller.dart';
 
 part 'layer_element_operations.dart';
 part 'layer_spatial_index.dart';
@@ -34,7 +34,7 @@ typedef TimeTravelEventCallback =
 /// Heavy element CRUD is in [layer_element_operations.dart],
 /// spatial index in [layer_spatial_index.dart], and scene graph
 /// in [layer_scene_graph.dart].
-class LayerController extends NebulaLayerController {
+class LayerController extends FlueraLayerController {
   final List<CanvasLayer> _layers = [];
   String? _activeLayerId;
 
@@ -60,6 +60,10 @@ class LayerController extends NebulaLayerController {
   /// Scene graph (lazy-rebuilt from layers).
   SceneGraph _sceneGraph = SceneGraph();
   bool _sceneGraphDirty = true;
+
+  /// 🚀 Batch mode: defer version bumps during bulk operations (erasing).
+  int _batchDepth = 0;
+  bool _batchNeedsBump = false;
 
   /// Flag to enable/disable delta tracking.
   /// Disable during batch operations (e.g., load from storage).
@@ -97,6 +101,41 @@ class LayerController extends NebulaLayerController {
   void dispose() {
     _undoRedoManager.removeListener(_onUndoRedoChanged);
     super.dispose();
+  }
+
+  // ==========================================================================
+  // 🚀 Batch mode (used by eraser for deferred version bumps)
+  // ==========================================================================
+
+  /// Begin a batch of mutations. Version bumps are deferred until [endBatch].
+  ///
+  /// Nestable — only the outermost [endBatch] triggers the version bump.
+  void beginBatch() {
+    _batchDepth++;
+  }
+
+  /// End a batch of mutations and flush any deferred version bump.
+  void endBatch() {
+    assert(_batchDepth > 0, 'endBatch called without matching beginBatch');
+    _batchDepth--;
+    if (_batchDepth == 0 && _batchNeedsBump) {
+      _batchNeedsBump = false;
+      if (!_sceneGraphDirty) {
+        _sceneGraph.bumpVersion();
+      }
+    }
+  }
+
+  /// Whether we are inside a batch.
+  bool get _isBatching => _batchDepth > 0;
+
+  /// Bump scene graph version (deferred if batching).
+  void _bumpVersionOrDefer() {
+    if (_isBatching) {
+      _batchNeedsBump = true;
+    } else if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
+    }
   }
 
   // ==========================================================================

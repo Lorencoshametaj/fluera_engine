@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/export/pdf_export_writer.dart';
+import 'package:fluera_engine/src/export/pdf_export_writer.dart';
 
 void main() {
   group('PdfExportWriter', () {
@@ -344,8 +344,8 @@ void main() {
 
       expect(text, contains('/Title (Test Document)'));
       expect(text, contains('/Author (Test Author)'));
-      expect(text, contains('/Creator (Nebula Engine)'));
-      expect(text, contains('/Producer (Nebula Engine PDF Writer)'));
+      expect(text, contains('/Creator (Fluera Engine)'));
+      expect(text, contains('/Producer (Fluera Engine PDF Writer)'));
       expect(text, contains('/CreationDate'));
       expect(text, contains('/Info'));
     });

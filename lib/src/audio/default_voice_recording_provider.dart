@@ -1,16 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
+import '../utils/safe_path_provider.dart';
 import './native_audio_recorder.dart';
 import './native_audio_player.dart';
 import './native_audio_models.dart';
-import '../canvas/nebula_canvas_config.dart';
+import '../canvas/fluera_canvas_config.dart';
 
 // =============================================================================
 // 🎤 DEFAULT VOICE RECORDING PROVIDER
 //
-// Built-in implementation of [NebulaVoiceRecordingProvider] that uses
+// Built-in implementation of [FlueraVoiceRecordingProvider] that uses
 // the SDK's native audio recorder and player. Provides zero-config
 // recording capability — just press the mic button.
 // =============================================================================
@@ -20,11 +20,14 @@ import '../canvas/nebula_canvas_config.dart';
 /// Uses [NativeAudioRecorder] for capture and [NativeAudioPlayer] for playback.
 /// Records in M4A format (AAC, 44100 Hz, 128kbps mono) to temporary storage.
 ///
-/// This provider is used automatically when no custom [NebulaVoiceRecordingProvider]
-/// is passed via [NebulaCanvasConfig.voiceRecording].
-class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
+/// This provider is used automatically when no custom [FlueraVoiceRecordingProvider]
+/// is passed via [FlueraCanvasConfig.voiceRecording].
+class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
   late final NativeAudioRecorder _recorder;
   late final NativeAudioPlayer _player;
+
+  /// Access the underlying recorder (for setting pen intervals before stop).
+  NativeAudioRecorder get recorder => _recorder;
 
   final _durationController = StreamController<Duration>.broadcast();
   final _playbackCompletedController = StreamController<void>.broadcast();
@@ -53,11 +56,11 @@ class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
   }
 
   // ===========================================================================
-  // NebulaVoiceRecordingProvider implementation
+  // FlueraVoiceRecordingProvider implementation
   // ===========================================================================
 
   @override
-  Future<void> startRecording() async {
+  Future<void> startRecording({AudioRecordConfig? config}) async {
     // Check and request permission first
     var hasPermission = await _recorder.checkPermission();
     if (!hasPermission) {
@@ -70,7 +73,7 @@ class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
       }
     }
 
-    await _recorder.start();
+    await _recorder.start(config: config ?? AudioRecordConfig.high);
   }
 
   @override
@@ -83,6 +86,12 @@ class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
 
   @override
   Stream<Duration> get recordingDuration => _durationController.stream;
+
+  /// 🎵 Live amplitude stream for waveform visualization during recording.
+  Stream<AudioAmplitude> get amplitudeStream => _recorder.amplitudeStream;
+
+  /// 🎵 Current amplitude snapshot.
+  AudioAmplitude get currentAmplitude => _recorder.amplitude;
 
   @override
   Future<void> playRecording(String path) async {
@@ -103,8 +112,83 @@ class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
     }
   }
 
+  /// 🎵 Pause playback.
+  Future<void> pausePlayback() async {
+    try {
+      await _player.pause();
+    } catch (e) {
+      debugPrint('[DefaultVoiceRecordingProvider] Pause failed: $e');
+    }
+  }
+
+  /// 🎵 Resume playback.
+  Future<void> resumePlayback() async {
+    try {
+      await _player.play();
+    } catch (e) {
+      debugPrint('[DefaultVoiceRecordingProvider] Resume failed: $e');
+    }
+  }
+
+  /// 🎵 Seek to position.
+  Future<void> seekPlayback(Duration position) async {
+    try {
+      await _player.seek(position);
+    } catch (e) {
+      debugPrint('[DefaultVoiceRecordingProvider] Seek failed: $e');
+    }
+  }
+
+  /// 🎵 Whether the player is currently playing.
+  bool get isPlaying => _player.isPlaying;
+
+  /// 🎵 Set playback speed.
+  Future<void> setSpeed(double speed) async {
+    try {
+      await _player.setSpeed(speed);
+    } catch (e) {
+      debugPrint('[DefaultVoiceRecordingProvider] Set speed failed: $e');
+    }
+  }
+
+  /// 🔊 Set playback volume (0.0–1.0).
+  Future<void> setVolume(double volume) async {
+    try {
+      await _player.setVolume(volume.clamp(0.0, 1.0));
+    } catch (e) {
+      debugPrint('[DefaultVoiceRecordingProvider] Set volume failed: $e');
+    }
+  }
+
   @override
   Stream<void> get playbackCompleted => _playbackCompletedController.stream;
+
+  /// 🎵 Position stream for playback progress tracking.
+  Stream<Duration> get positionStream => _player.positionStream;
+
+  /// 🎵 Duration stream — emits when the player resolves the media duration.
+  Stream<Duration?> get durationStream => _player.durationStream;
+
+  /// 🎵 Get the current playback duration.
+  Duration? getDuration() => _player.duration;
+
+  /// 🎵 Get the playback position via method channel (reliable polling).
+  Future<Duration> getPositionAsync() async {
+    try {
+      return await _player.getPositionAsync();
+    } catch (_) {
+      return _player.position;
+    }
+  }
+
+  /// 🎵 Get the media duration via method channel (reliable polling).
+  Future<Duration?> getDurationAsync() async {
+    try {
+      return await _player.getDurationAsync();
+    } catch (_) {
+      return _player.duration;
+    }
+  }
 
   // ===========================================================================
   // Lifecycle
@@ -130,7 +214,7 @@ class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
   /// Delete old temporary recording files from the cache directory.
   ///
   /// Call periodically or on app start to prevent temp files from accumulating.
-  /// Only deletes files matching the `nebula_recording_*` pattern.
+  /// Only deletes files matching the `fluera_recording_*` pattern.
   static Future<int> cleanupTempRecordings({
     Duration olderThan = const Duration(hours: 24),
   }) async {
@@ -147,7 +231,7 @@ class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
       await for (final entity in dir.list()) {
         if (entity is File) {
           final name = entity.path.split('/').last;
-          if (name.startsWith('nebula_recording_')) {
+          if (name.startsWith('fluera_recording_')) {
             final stat = await entity.stat();
             if (stat.modified.isBefore(cutoff)) {
               await entity.delete();
@@ -171,12 +255,21 @@ class DefaultVoiceRecordingProvider implements NebulaVoiceRecordingProvider {
 
   static Future<String?> _getTempDir() async {
     try {
-      // Use path_provider for cross-platform temp dir resolution.
-      // On iOS: NSTemporaryDirectory, on Android: Context.getCacheDir
-      final dir = await getTemporaryDirectory();
-      return dir.path;
+      // 🔧 FIX: Recordings are now in filesDir/recordings (persistent)
+      // instead of cacheDir (volatile). Use app support dir which maps to
+      // Context.getFilesDir on Android.
+      final dir = await getSafeAppSupportDirectory();
+      if (dir == null) {
+        // Fallback: try temp dir for legacy files
+        final tempDir = await getSafeTempDirectory();
+        return tempDir?.path;
+      }
+      final recordingsDir = Directory('${dir.path}/recordings');
+      if (!recordingsDir.existsSync()) {
+        recordingsDir.createSync(recursive: true);
+      }
+      return recordingsDir.path;
     } catch (_) {
-      // Fallback to system temp (may not match native recorder output on Android)
       try {
         return Directory.systemTemp.path;
       } catch (_) {

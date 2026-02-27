@@ -15,8 +15,8 @@ class MarkerBrush {
   static const IconData icon = Icons.format_paint_rounded;
   static const double baseWidthMultiplier = 2.5;
   static const double baseOpacity = 0.7;
-  static const StrokeCap strokeCap = StrokeCap.butt;
-  static const StrokeJoin strokeJoin = StrokeJoin.bevel;
+  static const StrokeCap strokeCap = StrokeCap.round;
+  static const StrokeJoin strokeJoin = StrokeJoin.round;
 
   /// Draw marker stroke with default settings
   static void drawStroke(
@@ -68,24 +68,24 @@ class MarkerBrush {
       return;
     }
 
-    final path = OptimizedPathBuilder.buildLinearPath(points);
+    // 🎯 Use smooth Catmull-Rom path instead of linear segments.
+    final path = OptimizedPathBuilder.buildSmoothPath(points);
     final bounds = path.getBounds().inflate(markerWidth);
 
-    // Use saveLayer with darken for alpha accumulation
-    canvas.saveLayer(bounds, Paint()..blendMode = ui.BlendMode.darken);
-
-    // LAYER 1: Edge ink pooling (slightly wider, subtle)
-    final edgePaint = PaintPool.getStrokePaint(
-      color: color.withValues(alpha: opacity * 0.15 * color.a),
-      strokeWidth: markerWidth * 1.1,
-      strokeCap: strokeCap,
-      strokeJoin: strokeJoin,
+    // 🎯 FIX: Draw at FULL opacity inside a saveLayer with the desired alpha.
+    // When a thick semi-transparent stroke curves tightly, the stroke's
+    // width causes self-overlap. Drawing with semi-transparent paint
+    // directly would accumulate alpha in the overlap zone → visible bumps.
+    // By drawing opaque inside a translucent layer, self-overlap is
+    // invisible (the GPU composites the layer as a single unit).
+    final layerAlpha = (opacity * color.a).clamp(0.0, 1.0);
+    canvas.saveLayer(
+      bounds,
+      Paint()..color = Color.fromRGBO(0, 0, 0, layerAlpha),
     );
-    canvas.drawPath(path, edgePaint);
 
-    // LAYER 2: Main marker body
     final bodyPaint = PaintPool.getStrokePaint(
-      color: color.withValues(alpha: opacity * color.a),
+      color: color.withValues(alpha: 1.0), // Full opacity inside layer
       strokeWidth: markerWidth,
       strokeCap: strokeCap,
       strokeJoin: strokeJoin,

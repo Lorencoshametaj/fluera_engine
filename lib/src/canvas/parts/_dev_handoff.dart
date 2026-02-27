@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🛠️ DEV HANDOFF — Wire inspect engine, redline calculator, code generator
 // ============================================================================
 
-extension DevHandoffFeatures on _NebulaCanvasScreenState {
+extension DevHandoffFeatures on _FlueraCanvasScreenState {
   /// Toggle inspect mode.
   /// Wires: inspect_engine
   void _toggleInspectMode() {

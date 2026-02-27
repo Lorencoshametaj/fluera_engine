@@ -19,8 +19,8 @@ import '../services/phase2_service_stubs.dart';
 /// **v1 Scope**: Branches are **private-only** (no RTDB sync).
 /// **v2**: Cloud sync via [BranchCloudSyncService] for multi-device + Pro collaboration.
 class BranchingManager {
-  final NebulaTimeTravelStorage _storage;
-  final NebulaBranchCloudSync _cloudSync;
+  final FlueraTimeTravelStorage _storage;
+  final FlueraBranchCloudSync _cloudSync;
 
   /// Whether cloud sync is enabled (Plus/Pro tier)
   bool _cloudSyncEnabled = false;
@@ -36,8 +36,8 @@ class BranchingManager {
   List<CanvasBranch> get branches => List.unmodifiable(_branches);
 
   BranchingManager({
-    required NebulaTimeTravelStorage storage,
-    required NebulaBranchCloudSync cloudSync,
+    required FlueraTimeTravelStorage storage,
+    required FlueraBranchCloudSync cloudSync,
   }) : _storage = storage,
        _cloudSync = cloudSync;
 

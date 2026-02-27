@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/layers/layer_controller.dart';
+import 'package:fluera_engine/src/layers/layer_controller.dart';
 
 void main() {
   late LayerController controller;

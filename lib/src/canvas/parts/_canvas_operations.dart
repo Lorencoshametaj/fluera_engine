@@ -1,21 +1,8 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Canvas Operations (Undo/Redo/Clear) — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
+/// 📦 Canvas Operations (Undo/Redo/Clear) — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
   void _undo() {
-    // In mode editing immagine, undo sugli strokes of the image
-    if (_imageInEditMode != null) {
-      if (_imageEditingStrokes.isEmpty) return;
-
-      setState(() {
-        final removed = _imageEditingStrokes.removeLast();
-        _imageEditingUndoStack.add(removed);
-      });
-
-      HapticFeedback.lightImpact();
-      return;
-    }
-
     // ⏪ Command-based undo (variable ops, node ops, etc.)
     if (_commandHistory.canUndo) {
       _commandHistory.undo();
@@ -34,19 +21,6 @@ extension on _NebulaCanvasScreenState {
   }
 
   void _redo() {
-    // In mode editing immagine, redo sugli strokes of the image
-    if (_imageInEditMode != null) {
-      if (_imageEditingUndoStack.isEmpty) return;
-
-      setState(() {
-        final restored = _imageEditingUndoStack.removeLast();
-        _imageEditingStrokes.add(restored);
-      });
-
-      HapticFeedback.lightImpact();
-      return;
-    }
-
     // ⏪ Command-based redo (variable ops, node ops, etc.)
     if (_commandHistory.canRedo) {
       _commandHistory.redo();

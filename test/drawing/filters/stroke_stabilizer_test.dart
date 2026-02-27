@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'dart:ui';
-import 'package:nebula_engine/src/drawing/filters/stroke_stabilizer.dart';
+import 'package:fluera_engine/src/drawing/filters/stroke_stabilizer.dart';
 
 void main() {
   group('StrokeStabilizer', () {

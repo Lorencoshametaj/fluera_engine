@@ -61,7 +61,7 @@ class InfiniteCanvasController extends ChangeNotifier {
   }
 
   // 🌀 Rotation lock (persisted)
-  static const String _rotationLockKey = 'nebula_rotation_locked';
+  static const String _rotationLockKey = 'fluera_rotation_locked';
   bool _rotationLocked = false;
   bool get rotationLocked => _rotationLocked;
   set rotationLocked(bool value) {

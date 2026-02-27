@@ -24,7 +24,7 @@ class VibrationPlugin: NSObject, FlutterPlugin {
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
-            name: "nebulaengine.vibration/method",
+            name: "flueraengine.vibration/method",
             binaryMessenger: registrar.messenger()
         )
         let instance = VibrationPlugin()

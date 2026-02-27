@@ -29,7 +29,7 @@ import 'ink_rasterizer.dart';
 class NativeLatexRecognizer implements LatexRecognitionBridge {
   /// Platform channel for communicating with native ML inference code.
   static const MethodChannel _channel = MethodChannel(
-    'nebula_engine/latex_recognition',
+    'fluera_engine/latex_recognition',
   );
 
   bool _initialized = false;

@@ -1,5 +1,6 @@
 import 'dart:collection';
 import 'dart:isolate';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/engine_scope.dart';
@@ -325,8 +326,8 @@ class LODManager with MemoryManagedCacheMixin implements MemoryManagedCache {
   ) async {
     if (points.length <= 2 || tolerance <= 0) return points;
 
-    // For small point counts (<200), synchronous is faster (no isolate overhead)
-    if (points.length < 200) {
+    // On web or for small point counts, synchronous is faster
+    if (kIsWeb || points.length < 200) {
       return simplifyPoints(points, tolerance);
     }
 

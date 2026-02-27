@@ -19,6 +19,7 @@ import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
 import '../nodes/tabular_node.dart';
 import '../nodes/material_zone_node.dart';
+import '../nodes/section_node.dart';
 
 /// Double-dispatch visitor for type-safe scene graph traversal.
 ///
@@ -56,6 +57,7 @@ abstract class NodeVisitor<R> {
   R visitLatex(LatexNode node);
   R visitTabular(TabularNode node);
   R visitMaterialZone(MaterialZoneNode node);
+  R visitSection(SectionNode node);
 }
 
 /// Default implementation that returns a fallback value for every node type.
@@ -117,4 +119,6 @@ class DefaultNodeVisitor<R> implements NodeVisitor<R> {
   R visitTabular(TabularNode node) => defaultValue;
   @override
   R visitMaterialZone(MaterialZoneNode node) => defaultValue;
+  @override
+  R visitSection(SectionNode node) => defaultValue;
 }

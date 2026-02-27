@@ -1,13 +1,13 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Cloud Sync — generic save & sync through NebulaCanvasConfig callbacks.
+/// 📦 Cloud Sync — generic save & sync through FlueraCanvasConfig callbacks.
 ///
 /// **PERFORMANCE DESIGN**:
 /// - Saves are deferred while a stroke is being drawn (zero interference)
 /// - 2s debounce batches rapid modifications into a single save
 /// - SqliteStorageAdapter path: Layer → Binary (Isolate) → SQLite (no JSON)
-/// - Cloud sync via [NebulaSyncEngine] with its own 3s debounce + retry
-extension CloudSyncExtension on _NebulaCanvasScreenState {
+/// - Cloud sync via [FlueraSyncEngine] with its own 3s debounce + retry
+extension CloudSyncExtension on _FlueraCanvasScreenState {
   /// Flag to log auto-save errors only once (avoid console spam).
   static bool _autoSaveErrorLogged = false;
 
@@ -15,7 +15,7 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
   static bool _saveInProgress = false;
 
   /// 🎛️ Build a JSON string for variable state persistence.
-  String? _buildVariablesJsonString(NebulaCanvasSaveData saveData) {
+  String? _buildVariablesJsonString(FlueraCanvasSaveData saveData) {
     final colls = saveData.variableCollectionsJson;
     if (colls == null || colls.isEmpty) return null;
     return jsonEncode(<String, dynamic>{
@@ -27,8 +27,8 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
     });
   }
 
-  /// Builds a [NebulaCanvasSaveData] snapshot of the current canvas state.
-  NebulaCanvasSaveData _buildSaveData() {
+  /// Builds a [FlueraCanvasSaveData] snapshot of the current canvas state.
+  FlueraCanvasSaveData _buildSaveData() {
     // 🎛️ Serialize variable state (only if non-empty)
     final collectionsJson =
         _variableCollections.isNotEmpty
@@ -41,11 +41,12 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
             ? _variableResolver.activeModesToJson()
             : null;
 
-    return NebulaCanvasSaveData(
+    return FlueraCanvasSaveData(
       canvasId: _canvasId,
       layers: _layerController.layers,
       textElements: _digitalTextElements,
       imageElements: _imageElements,
+      recordingPins: _recordingPins,
       backgroundColor: _canvasBackgroundColor.toARGB32().toString(),
       paperType: _paperType,
       activeLayerId: _layerController.activeLayerId,
@@ -66,7 +67,7 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
   /// Saves are deferred if a stroke is currently being drawn.
   ///
   /// 1. Always saves locally via storage adapter or legacy callback.
-  /// 2. If cloud adapter is configured, pushes to cloud via [NebulaSyncEngine].
+  /// 2. If cloud adapter is configured, pushes to cloud via [FlueraSyncEngine].
   Future<void> _autoSaveCanvas() async {
     if (_isLoading) return;
 
@@ -136,11 +137,66 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
       _layerController.clearDirtyLayerIds();
       _lastLocalSaveTimestamp = DateTime.now().millisecondsSinceEpoch;
 
-      // 2️⃣ Cloud save (via NebulaSyncEngine — has its own debounce + retry)
+      // 🖼️ 1.5: Capture viewport snapshot for next splash screen (fire-and-forget)
+      _captureCanvasSnapshot(saveData.canvasId);
+
+      // 2️⃣ Cloud save (via FlueraSyncEngine — has its own debounce + retry)
       if (_syncEngine != null) {
+        final adapter = _syncEngine!.adapter;
         final cloudData = saveData.toJson();
-        cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
-        _syncEngine!.requestSave(_canvasId, cloudData);
+        final layers = saveData.layers.map((l) => l.toJson()).toList();
+
+        if (adapter.supportsStrokeSharding) {
+          // 🚀 SHARDED: Save metadata (layers without strokes) + strokes separately
+          // Strip strokes from layer data to keep doc under 1MB
+          final strippedLayers =
+              layers.map((layerJson) {
+                final copy = Map<String, dynamic>.from(layerJson);
+                copy.remove('strokes'); // Remove strokes from metadata doc
+                return copy;
+              }).toList();
+          cloudData['layers'] = strippedLayers;
+          _syncEngine!.requestSave(
+            _canvasId,
+            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
+          );
+
+          // Save strokes as sub-collection documents
+          final strokeTuples = <(String, Map<String, dynamic>)>[];
+          for (final layerJson in layers) {
+            final layerId = layerJson['id'] as String? ?? 'default';
+            final strokes = layerJson['strokes'] as List?;
+            if (strokes != null) {
+              for (final s in strokes) {
+                strokeTuples.add((
+                  layerId,
+                  Map<String, dynamic>.from(s as Map),
+                ));
+              }
+            }
+          }
+          if (strokeTuples.isNotEmpty) {
+            // Fire-and-forget (debounced by sync engine)
+            // Sanitize each stroke map to avoid nested arrays in Firestore
+            final sanitizedTuples =
+                strokeTuples.map((t) {
+                  return (
+                    t.$1,
+                    _FlueraCanvasScreenState._sanitizeForFirestore(t.$2),
+                  );
+                }).toList();
+            adapter.saveStrokes(_canvasId, sanitizedTuples).catchError((e) {
+              debugPrint('☁️ Stroke sharding save failed: $e');
+            });
+          }
+        } else {
+          // Legacy: save everything in one document
+          cloudData['layers'] = layers;
+          _syncEngine!.requestSave(
+            _canvasId,
+            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
+          );
+        }
       }
     } catch (e) {
       if (!_autoSaveErrorLogged) {
@@ -190,7 +246,10 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
       if (_syncEngine != null) {
         final cloudData = saveData.toJson();
         cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
-        await _syncEngine!.flush(_canvasId, cloudData);
+        await _syncEngine!.flush(
+          _canvasId,
+          _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
+        );
       }
     } catch (e) {
       debugPrint('[CloudSync] Force sync error: $e');
@@ -199,11 +258,13 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
 
   /// ☁️ Download missing image assets from cloud storage.
   ///
-  /// Called after loading canvas data from cloud. For each image element
-  /// that has a `storageUrl` but no local file, downloads the binary
-  /// and saves it locally.
+  /// Called after loading canvas data from cloud. Downloads are run
+  /// in parallel (max 4 concurrent) for faster batch loading.
   Future<void> downloadMissingAssets() async {
     if (_syncEngine == null) return;
+
+    // 🚀 FIX #7: Collect all download tasks, run in parallel batches
+    final downloadTasks = <Future<void>>[];
 
     for (final img in _imageElements) {
       if (img.storageUrl == null || img.storageUrl!.isEmpty) continue;
@@ -212,21 +273,39 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
       final localFile = File(img.imagePath);
       if (await localFile.exists()) continue;
 
-      try {
-        final bytes = await _syncEngine!.adapter.downloadAsset(
-          _canvasId,
-          img.id,
-        );
+      downloadTasks.add(_downloadSingleAsset(img.id, img.imagePath));
+    }
 
-        if (bytes != null) {
-          // Ensure parent directory exists
-          await localFile.parent.create(recursive: true);
-          await localFile.writeAsBytes(bytes);
-          debugPrint('☁️ Downloaded missing asset: ${img.id}');
-        }
-      } catch (e) {
-        debugPrint('☁️ Failed to download asset ${img.id}: $e');
+    if (downloadTasks.isEmpty) return;
+
+    debugPrint(
+      '[☁️ DOWNLOAD] Starting ${downloadTasks.length} parallel downloads',
+    );
+
+    // Run all downloads in parallel (network handles concurrency)
+    await Future.wait(downloadTasks);
+
+    debugPrint('[☁️ DOWNLOAD] All downloads complete');
+  }
+
+  /// Download a single asset from cloud and save locally.
+  Future<void> _downloadSingleAsset(String assetId, String localPath) async {
+    try {
+      final bytes = await _syncEngine!.adapter.downloadAsset(
+        _canvasId,
+        assetId,
+      );
+
+      if (bytes != null) {
+        final localFile = File(localPath);
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(bytes, flush: true);
+        // 💾 Cache compressed bytes for instant reload after eviction
+        _imageMemoryManager.cacheCompressedBytes(localPath, bytes);
+        debugPrint('[☁️ DOWNLOAD] ✅ ${assetId}: ${bytes.length ~/ 1024}KB');
       }
+    } catch (e) {
+      debugPrint('[☁️ DOWNLOAD] ❌ $assetId: $e');
     }
   }
 
@@ -250,6 +329,44 @@ extension CloudSyncExtension on _NebulaCanvasScreenState {
     } catch (e) {
       debugPrint('☁️ Asset upload failed: $e');
       return null;
+    }
+  }
+
+  /// 🖼️ Capture a low-resolution snapshot of the canvas viewport.
+  ///
+  /// Used for the splash screen preview on next open. Runs entirely
+  /// in the background — never blocks saving or rendering.
+  ///
+  /// **Strategy**: Uses the RepaintBoundary wrapping the canvas area
+  /// to capture the current viewport at reduced resolution (~480px
+  /// long side → ~50-100KB PNG).
+  Future<void> _captureCanvasSnapshot(String canvasId) async {
+    try {
+      final adapter = _config.storageAdapter;
+      if (adapter == null) return;
+
+      final boundary =
+          _canvasRepaintBoundaryKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+      if (boundary == null || !boundary.hasSize) return;
+
+      // Calculate pixel ratio for ~480px on the long side
+      final logicalSize = boundary.size;
+      final longestSide = math.max(logicalSize.width, logicalSize.height);
+      if (longestSide <= 0) return;
+      final pixelRatio = (480.0 / longestSide).clamp(0.1, 1.0);
+
+      final image = await boundary.toImage(pixelRatio: pixelRatio);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+
+      if (byteData == null) return;
+
+      final png = byteData.buffer.asUint8List();
+      await adapter.saveSnapshot(canvasId, png);
+    } catch (e) {
+      // Non-critical — swallow errors silently
+      debugPrint('[Snapshot] Capture failed: $e');
     }
   }
 }

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/latex/latex_tokenizer.dart';
+import 'package:fluera_engine/src/core/latex/latex_tokenizer.dart';
 
 void main() {
   late LatexTokenizer tokenizer;

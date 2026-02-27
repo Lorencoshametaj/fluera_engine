@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui' as ui;
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 import 'image_editor_models.dart';
 
 // ============================================================================
@@ -51,7 +51,7 @@ class _CropEditorDialogState extends State<CropEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
 
     return Dialog(
       backgroundColor: cs.surfaceContainerHighest,

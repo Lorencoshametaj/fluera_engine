@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/text_auto_resize.dart';
+import 'package:fluera_engine/src/systems/text_auto_resize.dart';
 import 'package:flutter/painting.dart';
-import 'dart:ui';
 
 // In testing, Flutter's TextPainter needs a valid font to get accurate metrics.
 // For pure unit testing without asset loading, we use basic TextStyle.

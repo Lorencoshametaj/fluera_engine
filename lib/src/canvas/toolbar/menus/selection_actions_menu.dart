@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../l10n/nebula_localizations.dart';
+import '../../../l10n/fluera_localizations.dart';
 import './compact_action_button.dart';
 
 /// Grouped action categories for the selection menu
@@ -252,7 +252,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.delete_rounded,
             color: Colors.red,
-            tooltip: NebulaLocalizations.of(context).proCanvas_delete,
+            tooltip: FlueraLocalizations.of(context).proCanvas_delete,
             onTap: widget.onDelete,
           ),
 
@@ -260,7 +260,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.close_rounded,
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
-            tooltip: NebulaLocalizations.of(context).proCanvas_close,
+            tooltip: FlueraLocalizations.of(context).proCanvas_close,
             onTap: widget.onClearSelection,
           ),
 
@@ -442,13 +442,13 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
         CompactActionButton(
           icon: Icons.flip,
           color: Colors.orange,
-          tooltip: NebulaLocalizations.of(context).proCanvas_flipHorizontal,
+          tooltip: FlueraLocalizations.of(context).proCanvas_flipHorizontal,
           onTap: widget.onFlipHorizontal,
         ),
         CompactActionButton(
           icon: Icons.flip,
           color: Colors.teal,
-          tooltip: NebulaLocalizations.of(context).proCanvas_flipVertical,
+          tooltip: FlueraLocalizations.of(context).proCanvas_flipVertical,
           rotation: 90,
           onTap: widget.onFlipVertical,
         ),
@@ -643,7 +643,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.text_fields_rounded,
             color: Colors.deepPurple,
-            tooltip: NebulaLocalizations.of(context).proCanvas_convertToText,
+            tooltip: FlueraLocalizations.of(context).proCanvas_convertToText,
             onTap: widget.onConvertToText,
           ),
         ],

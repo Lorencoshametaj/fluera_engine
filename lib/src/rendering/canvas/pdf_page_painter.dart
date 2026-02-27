@@ -8,7 +8,7 @@ import '../../core/engine_error.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/models/pdf_page_model.dart';
 import '../../core/models/pdf_annotation_model.dart';
-import '../../canvas/nebula_canvas_config.dart';
+import '../../canvas/fluera_canvas_config.dart';
 import '../../platform/native_performance_monitor.dart';
 import './pdf_memory_budget.dart';
 import './pdf_disk_cache.dart';
@@ -33,7 +33,7 @@ import './pdf_render_stats.dart';
 /// - **Budget auto-refresh**: Refreshed from [NativePerformanceMonitor] every 60 frames
 /// - **Queue flush**: Stale queue entries purged on each paint cycle
 class PdfPagePainter {
-  final NebulaPdfProvider? _provider;
+  final FlueraPdfProvider? _provider;
   final PdfMemoryBudget _memoryBudget;
   final PdfDiskCache? _diskCache;
 
@@ -166,7 +166,7 @@ class PdfPagePainter {
   );
 
   PdfPagePainter({
-    required NebulaPdfProvider? provider,
+    required FlueraPdfProvider? provider,
     required PdfMemoryBudget memoryBudget,
     String? documentId,
   }) : _provider = provider,
@@ -1225,7 +1225,7 @@ class PdfPagePainter {
   /// visible pages. Falls back to pure LRU if all cached pages are visible.
   void _evictLruPage(String excludeId) {
     PdfPageNode? bestCandidate;
-    int lowestTimestamp = 0x7FFFFFFFFFFFFFFF;
+    int lowestTimestamp = 0x7FFFFFFF; // JS-safe max int for LRU comparison
     bool bestIsOffViewport = false;
 
     for (final page in _knownPages) {

@@ -1,16 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node_factory.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/nodes/stroke_node.dart';
-import 'package:nebula_engine/src/core/nodes/shape_node.dart';
-import 'package:nebula_engine/src/core/nodes/text_node.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/nodes/layer_node.dart';
-import 'package:nebula_engine/src/core/nodes/path_node.dart';
-import 'package:nebula_engine/src/core/nodes/rich_text_node.dart';
-import 'package:nebula_engine/src/core/nodes/frame_node.dart';
-import 'package:nebula_engine/src/core/nodes/latex_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node_factory.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/nodes/stroke_node.dart';
+import 'package:fluera_engine/src/core/nodes/shape_node.dart';
+import 'package:fluera_engine/src/core/nodes/text_node.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/nodes/layer_node.dart';
+import 'package:fluera_engine/src/core/nodes/path_node.dart';
+import 'package:fluera_engine/src/core/nodes/rich_text_node.dart';
+import 'package:fluera_engine/src/core/nodes/frame_node.dart';
+import 'package:fluera_engine/src/core/nodes/latex_node.dart';
 
 import '../helpers/test_helpers.dart';
 

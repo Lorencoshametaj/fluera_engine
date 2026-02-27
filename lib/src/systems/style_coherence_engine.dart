@@ -36,7 +36,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:path_provider/path_provider.dart';
+import '../utils/safe_path_provider.dart';
 
 import '../core/conscious_architecture.dart';
 import '../core/engine_event.dart';
@@ -419,8 +419,9 @@ class StyleCoherenceEngine extends IntelligenceSubsystem {
   static const String _prefsDirName = 'style_coherence';
 
   /// Compute the file path for the current document's style data.
-  Future<File> _prefsFile() async {
-    final dir = await getApplicationSupportDirectory();
+  Future<File?> _prefsFile() async {
+    final dir = await getSafeAppSupportDirectory();
+    if (dir == null) return null; // Web: no filesystem
     final subdir = Directory('${dir.path}/$_prefsDirName');
     if (!await subdir.exists()) await subdir.create(recursive: true);
     // Use canvasId if available, or a default for global fallback.
@@ -434,6 +435,7 @@ class StyleCoherenceEngine extends IntelligenceSubsystem {
   Future<void> saveToPrefs() async {
     try {
       final file = await _prefsFile();
+      if (file == null) return; // Web: no filesystem
       final data = <String, dynamic>{
         'profiles': {
           for (final e in _profiles.entries) e.key: e.value._toCountersMap(),
@@ -451,6 +453,7 @@ class StyleCoherenceEngine extends IntelligenceSubsystem {
   Future<void> restoreFromPrefs() async {
     try {
       final file = await _prefsFile();
+      if (file == null) return; // Web: no filesystem
       if (await file.exists()) {
         final raw = await file.readAsString();
         final data = jsonDecode(raw) as Map<String, dynamic>;

@@ -1,6 +1,7 @@
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../drawing/brushes/brushes.dart';
@@ -193,6 +194,10 @@ StrokeGeometryResult _computeGeometry(List<StrokeGeometryInput> inputs) {
 Future<StrokeGeometryResult> computeGeometryOnIsolate(
   List<StrokeGeometryInput> inputs,
 ) {
+  if (kIsWeb) {
+    // Web: synchronous fallback (no isolate support)
+    return Future.value(_computeGeometry(inputs));
+  }
   return Isolate.run(() => _computeGeometry(inputs));
 }
 

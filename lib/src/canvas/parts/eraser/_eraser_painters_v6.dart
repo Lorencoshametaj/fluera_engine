@@ -1,4 +1,4 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 // V6 PAINTERS
@@ -30,7 +30,7 @@ class _DissolveParticlesPainter extends CustomPainter {
         final alpha = (1.0 - dist / 22.0).clamp(0.0, 1.0);
         final paint =
             Paint()
-              ..color = (isDark ? Colors.red[200]! : Colors.red[400]!)
+              ..color = (isDark ? const Color(0xFFEF9A9A) : const Color(0xFFEF5350))
                   .withValues(alpha: alpha * 0.6)
               ..style = PaintingStyle.fill;
         canvas.drawCircle(Offset(px, py), 1.5 + rng.nextDouble(), paint);
@@ -62,8 +62,8 @@ class _HeatmapTrailPainter extends CustomPainter {
       // Cold (blue) → warm (yellow) → hot (red)
       final color =
           Color.lerp(
-            Color.lerp(Colors.blue[300]!, Colors.yellow[600]!, intensity),
-            Colors.red[500]!,
+            Color.lerp(const Color(0xFF64B5F6), const Color(0xFFFDD835), intensity),
+            const Color(0xFFF44336),
             (intensity - 0.5).clamp(0.0, 1.0) * 2,
           )!;
       final age = i / trail.length; // 0=oldest, 1=newest
@@ -117,7 +117,7 @@ class _EraserMaskPreviewPainter extends CustomPainter {
     // Subtle ring around the clear zone
     final ringPaint =
         Paint()
-          ..color = (isDark ? Colors.red[200]! : Colors.red[400]!).withValues(
+          ..color = (isDark ? const Color(0xFFEF9A9A) : const Color(0xFFEF5350)).withValues(
             alpha: 0.3,
           )
           ..style = PaintingStyle.stroke
@@ -156,7 +156,7 @@ class _AutoCleanHighlightPainter extends CustomPainter {
 
       final highlightPaint =
           Paint()
-            ..color = (isDark ? Colors.amber[300]! : Colors.amber[600]!)
+            ..color = (isDark ? const Color(0xFFFFD54F) : const Color(0xFFFFB300))
                 .withValues(alpha: 0.5)
             ..strokeWidth = 4.0
             ..style = PaintingStyle.stroke
@@ -194,7 +194,7 @@ class _EraserHistoryTimelinePainter extends CustomPainter {
     // Background track
     final trackPaint =
         Paint()
-          ..color = (isDark ? Colors.grey[800]! : Colors.grey[200]!).withValues(
+          ..color = (isDark ? const Color(0xFF424242) : const Color(0xFFEEEEEE)).withValues(
             alpha: 0.6,
           )
           ..style = PaintingStyle.fill;
@@ -222,8 +222,8 @@ class _EraserHistoryTimelinePainter extends CustomPainter {
       final barPaint =
           Paint()
             ..color = Color.lerp(
-              Colors.green[400]!,
-              Colors.red[400]!,
+              const Color(0xFF66BB6A),
+              const Color(0xFFEF5350),
               1.0 - ratio, // More red when fewer strokes (more erased)
             )!.withValues(alpha: 0.7)
             ..style = PaintingStyle.fill;
@@ -242,7 +242,7 @@ class _EraserHistoryTimelinePainter extends CustomPainter {
       text: TextSpan(
         text: '${snapshots.length} snapshots',
         style: TextStyle(
-          color: isDark ? Colors.grey[500] : Colors.grey[600],
+          color: isDark ? const Color(0xFF9E9E9E) : const Color(0xFF757575),
           fontSize: 8,
         ),
       ),

@@ -20,6 +20,7 @@ import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
 import '../nodes/tabular_node.dart';
 import '../nodes/material_zone_node.dart';
+import '../nodes/section_node.dart';
 import '../engine_scope.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
@@ -129,6 +130,16 @@ class CanvasNodeFactory {
 
       case 'materialZone':
         return MaterialZoneNode.fromJson(json);
+
+      case 'section':
+        final section = SectionNode.fromJson(json);
+        if (json['children'] != null) {
+          section.loadChildrenFromJson(
+            json['children'] as List<dynamic>,
+            fromJson,
+          );
+        }
+        return section;
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

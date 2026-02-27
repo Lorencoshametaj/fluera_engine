@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/rbac/permission_service.dart';
-import 'package:nebula_engine/src/core/rbac/engine_permission.dart';
+import 'package:fluera_engine/src/core/rbac/permission_service.dart';
+import 'package:fluera_engine/src/core/rbac/engine_permission.dart';
 
 void main() {
   late PermissionService service;

@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/nebula_engine.dart';
+import 'package:fluera_engine/fluera_engine.dart';
 
 void main() {
   // =========================================================================

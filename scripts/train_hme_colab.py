@@ -14,7 +14,7 @@ After training, download:
   - hme_vocab.json
   - best_hme_model.pt
 
-Then copy them to: nebula_engine/assets/models/hme/
+Then copy them to: fluera_engine/assets/models/hme/
 """
 
 # %% [Cell 1] Install dependencies
@@ -645,4 +645,4 @@ if __name__ == '__main__':
         print(f"   📦 {ONNX_PATH}.data")
     print(f"   📝 {vocab_path}")
     print(f"   💾 {CHECKPOINT}")
-    print(f"\nCopy these to: nebula_engine/assets/models/hme/")
+    print(f"\nCopy these to: fluera_engine/assets/models/hme/")

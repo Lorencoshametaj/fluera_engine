@@ -45,7 +45,7 @@ class FluidTopologyRenderer {
     _initAttempted = true;
 
     try {
-      const prefix = 'packages/nebula_engine/shaders';
+      const prefix = 'packages/fluera_engine/shaders';
       _program = await ui.FragmentProgram.fromAsset(
         '$prefix/fluid_topology.frag',
       );

@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🔧 PHASE 2 STUBS
@@ -12,7 +12,7 @@ part of '../nebula_canvas_screen.dart';
 // These will be properly implemented when Phase 2 features are added.
 // ============================================================================
 
-extension Phase2Stubs on _NebulaCanvasScreenState {
+extension Phase2Stubs on _FlueraCanvasScreenState {
   // ─── From _cloud_sync.dart ── NOW IN parts/_cloud_sync.dart ──────────
 
   // ─── From _collaboration.dart ── NOW IN parts/_collaboration.dart ────

@@ -6,7 +6,7 @@ import '../unified_tools.dart';
 import '../text/digital_text_tool.dart';
 import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
-import '../../layers/nebula_layer_controller.dart';
+import '../../layers/fluera_layer_controller.dart';
 
 import '../unified_tool_controller.dart';
 import '../../layers/adapters/canvas_adapter.dart';
@@ -32,7 +32,7 @@ import '../../layers/adapters/infinite_canvas_adapter.dart';
 /// ```
 class ToolSystemBridge {
   /// Layer controller for strokes/shapes
-  final NebulaLayerController layerController;
+  final FlueraLayerController layerController;
 
   /// Unified tool controller for state
   final UnifiedToolController toolController;

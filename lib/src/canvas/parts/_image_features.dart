@@ -1,9 +1,14 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Image Features — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
-  /// 🖼️ Apre la galleria e aggiunge un'immagine al canvas
-  /// 🖼️ Seleziona immagine from the galleria e aggiungila al canvas (Pubblico per multiview)
+/// 📦 Image Features — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
+  /// 🖼️ Pick an image from gallery and add it to the canvas.
+  ///
+  /// **Optimized sync flow:**
+  /// - Single file read (bytes used for both decode and upload)
+  /// - Non-blocking upload (image appears instantly, cloud sync in background)
+  /// - Upload progress tracking via onProgress callback
+  /// - Retry with backoff (3 attempts)
   Future<void> pickAndAddImage() async {
     // 🔒 VIEWER GUARD
     if (_checkViewerGuard()) return;
@@ -14,10 +19,9 @@ extension on _NebulaCanvasScreenState {
 
       if (imagePath == null) return; // Utente ha annullato
 
-      // Load l'immagine in memoria
-      final image = await ImageService.loadImageFromPath(imagePath);
-
-      if (image == null) {
+      // 🚀 FIX #2: Read bytes ONCE — used for both decode and upload
+      final imageBytes = await ImageMemoryManager.readFileOnIsolate(imagePath);
+      if (imageBytes == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -29,6 +33,23 @@ extension on _NebulaCanvasScreenState {
         return;
       }
 
+      // Decode image from the already-read bytes
+      final image = await _decodeImageCapped(imageBytes);
+      if (image == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error decoding image'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 💾 Cache compressed bytes for instant reload after eviction
+      _imageMemoryManager.cacheCompressedBytes(imagePath, imageBytes);
+
       // Calculate position centrale of the viewport in canvas coordinates
       final screenCenter = Offset(
         MediaQuery.of(context).size.width / 2,
@@ -37,56 +58,32 @@ extension on _NebulaCanvasScreenState {
       final viewportCenter = _canvasController.screenToCanvas(screenCenter);
 
       // 📏 Calculate initial scale to have reasonable size on screen.
-      // Target: ~400px on screen, regardless of current canvas zoom.
       final screenWidth = MediaQuery.of(context).size.width;
-      final targetScreenWidth = screenWidth * 0.45; // ~45% of screen width
+      final targetScreenWidth = screenWidth * 0.45;
       final imageWidth = image.width.toDouble();
       final canvasZoom = _canvasController.scale;
-
-      // Convert from screen pixels to canvas units, then scale to image pixels
       double initialScale = (targetScreenWidth / canvasZoom) / imageWidth;
-
-      // Clamp to sane range
       initialScale = initialScale.clamp(0.05, 3.0);
 
-      // 🌐 Upload to Cloud Storage (cross-device access)
-      String? storageUrl;
-      String? thumbnailUrl;
       final imageId = generateUid();
 
-      if (_syncEngine != null) {
-        try {
-          final imageBytes = await File(imagePath).readAsBytes();
-          storageUrl = await _syncEngine!.adapter.uploadAsset(
-            _canvasId,
-            imageId,
-            imageBytes,
-            mimeType: 'image/png',
-          );
-          debugPrint('☁️ Image uploaded to cloud: $imageId');
-        } catch (e) {
-          debugPrint('☁️ Image cloud upload failed (local only): $e');
-          // Non-fatal: image works locally, just won't sync cross-device
-        }
-      }
-
-      // Create image element
+      // Create image element IMMEDIATELY (no blocking on upload)
       final newImage = ImageElement(
         id: imageId,
         imagePath: imagePath,
-        storageUrl: storageUrl, // 📸 Cloud URL for remote access
-        thumbnailUrl: thumbnailUrl, // 📸 Thumbnail for fast preview
+        storageUrl: null, // Will be updated after background upload
+        thumbnailUrl: null,
         position: viewportCenter,
-        scale: initialScale, // 📏 Scale calcolato
+        scale: initialScale,
         rotation: 0.0,
         createdAt: DateTime.now(),
-        pageIndex: 0, // Professional canvas non ha pagine multiple
+        pageIndex: 0,
       );
 
       setState(() {
         _imageElements.add(newImage);
-        _loadedImages[imagePath] = image; // Add alla cache
-        _imageTool.selectImage(newImage); // Seleziona automaticamente
+        _loadedImages[imagePath] = image;
+        _imageTool.selectImage(newImage);
         _imageVersion++;
         _rebuildImageSpatialIndex();
       });
@@ -94,13 +91,22 @@ extension on _NebulaCanvasScreenState {
       // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addImage(newImage);
 
-      // 🔴 RT: Broadcast new image to collaborators
-      _broadcastImageUpdate(newImage, isNew: true);
-
-      // 💾 Auto-save after adding image
+      // 💾 Auto-save locally (instant — before cloud upload)
       _autoSaveCanvas();
 
       HapticFeedback.mediumImpact();
+
+      // 🚀 FIX #3: Non-blocking upload — runs in background after local add
+      if (_syncEngine != null) {
+        _uploadImageInBackground(
+          imageId: imageId,
+          imagePath: imagePath,
+          imageBytes: imageBytes,
+        );
+      } else {
+        // No cloud — just broadcast locally with no storageUrl
+        _broadcastImageUpdate(newImage, isNew: true);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -113,223 +119,132 @@ extension on _NebulaCanvasScreenState {
     }
   }
 
-  /// 🎨 Enamong then mode editing for a'immagine
-  void _enterImageEditMode(ImageElement imageElement) {
-    // Cancel timer
-    _imageLongPressTimer?.cancel();
-    _imageLongPressEditorTimer?.cancel();
+  /// 🚀 Upload image to cloud in background with retry, cancellation, and offline queue.
+  ///
+  /// Features:
+  /// - **Cancellation**: checks `_pendingUploads` at each retry; if image is deleted, bails.
+  /// - **Offline queue**: failed uploads queued in `_offlineUploadQueue` for later retry.
+  /// - **MIME detection**: correct Content-Type from magic bytes.
+  /// - **Resize**: caps at 4096px before upload.
+  Future<void> _uploadImageInBackground({
+    required String imageId,
+    required String imagePath,
+    required Uint8List imageBytes,
+  }) async {
+    // #7: Track pending upload for cancellation
+    _pendingUploads.add(imageId);
+    String? storageUrl;
 
-    // Ferma drag se attivo
-    if (_imageTool.isDragging) {
-      _imageTool.endDrag();
-    }
+    // 🔍 Detect actual MIME type (JPEG vs PNG vs WebP)
+    final mimeType = ImageMemoryManager.detectMimeType(imageBytes);
 
-    // 🔥 IMPORTANT: Clear any stroke in progress
-    // (the long press might have started a stroke on the normal canvas)
-    if (_drawingHandler.hasStroke) {
-      _drawingHandler.cancelStroke();
-    }
+    // 📐 Resize large images before upload (max 4096px)
+    final uploadBytes = await ImageMemoryManager.resizeForUpload(imageBytes);
 
-    // Feedback haptic
-    HapticFeedback.mediumImpact();
-
-    setState(() {
-      _imageInEditMode = imageElement;
-      _imageTool.clearSelection(); // Deseleziona to avoid handles
-
-      // NON caricare gli strokes esistenti - verranno visualizzati automaticamente
-      // _imageEditingStrokes contains ONLY the new strokes during this session
-      _imageEditingStrokes.clear();
-    });
-  }
-
-  /// 🎨 Esce from the mode editing immagine e salva gli strokes
-  void _exitImageEditMode() {
-    if (_imageInEditMode == null) return;
-
-    // Update l'immagine con gli strokes disegnati
-    final index = _imageElements.indexWhere(
-      (e) => e.id == _imageInEditMode!.id,
-    );
-    if (index != -1) {
-      // Combine gli strokes esistenti con quelli nuovi
-      final allStrokes = [
-        ..._imageInEditMode!.drawingStrokes,
-        ..._imageEditingStrokes,
-      ];
-
-      final updatedImage = _imageInEditMode!.copyWith(
-        drawingStrokes: allStrokes,
-      );
-      _imageElements[index] = updatedImage;
-      _imageVersion++;
-      _rebuildImageSpatialIndex();
-
-      // 🔄 Sync: notify delta tracker for synchronization
-      _layerController.updateImage(updatedImage);
-    }
-
-    setState(() {
-      _imageInEditMode = null;
-      _imageEditingStrokes.clear();
-      _imageEditingUndoStack.clear();
-      _currentEditingStrokeNotifier.value = null;
-    });
-
-    // Feedback haptic
-    HapticFeedback.lightImpact();
-
-    // 💾 Auto-save after image editing
-    _autoSaveCanvas();
-  }
-
-  /// 🧹 Delete strokes dall'immagine in editing mode
-  void _eraseFromImageEditingStrokes(Offset canvasPosition) {
-    if (_imageInEditMode == null) return;
-
-    final image = _loadedImages[_imageInEditMode!.imagePath];
-    if (image == null) return;
-
-    // Convert la position da canvas space a image space
-    final imageSpacePos = _canvasToImageSpace(
-      canvasPosition,
-      _imageInEditMode!,
-    );
-
-    // Raggio gomma in image space
-    const eraserRadius = 100.0;
-
-    bool somethingErased = false;
-
-    setState(() {
-      // Processa strokes NUOVI — early-exit per stroke
-      final strokesToRemove = <ProStroke>[];
-      for (final stroke in _imageEditingStrokes) {
-        for (final point in stroke.points) {
-          if ((point.position - imageSpacePos).distance <= eraserRadius) {
-            strokesToRemove.add(stroke);
-            somethingErased = true;
-            break; // ⚡ Early exit: no need to check remaining points
-          }
-        }
+    // 🔄 Retry with exponential backoff (3 attempts)
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      // #7: Check if image was deleted during upload
+      if (!_pendingUploads.contains(imageId)) {
+        debugPrint('[☁️ UPLOAD] 🛑 Cancelled (image deleted): $imageId');
+        return;
       }
 
-      _imageEditingStrokes.removeWhere((s) => strokesToRemove.contains(s));
-
-      // Processa strokes ESISTENTI — early-exit per stroke
-      final index = _imageElements.indexWhere(
-        (e) => e.id == _imageInEditMode!.id,
-      );
-      if (index != -1) {
-        final existingStrokes = List<ProStroke>.from(
-          _imageInEditMode!.drawingStrokes,
+      try {
+        storageUrl = await _syncEngine!.adapter.uploadAsset(
+          _canvasId,
+          imageId,
+          uploadBytes,
+          mimeType: mimeType,
+          onProgress: (progress) {
+            debugPrint('[☁️ UPLOAD] $imageId: ${(progress * 100).toInt()}%');
+          },
         );
-        final existingStrokesToRemove = <ProStroke>[];
-
-        for (final stroke in existingStrokes) {
-          for (final point in stroke.points) {
-            if ((point.position - imageSpacePos).distance <= eraserRadius) {
-              existingStrokesToRemove.add(stroke);
-              somethingErased = true;
-              break; // ⚡ Early exit
-            }
-          }
-        }
-
-        if (existingStrokesToRemove.isNotEmpty) {
-          existingStrokes.removeWhere(
-            (s) => existingStrokesToRemove.contains(s),
-          );
-
-          _imageInEditMode = _imageInEditMode!.copyWith(
-            drawingStrokes: existingStrokes,
-          );
-          _imageElements[index] = _imageInEditMode!;
-          _imageVersion++;
-          _rebuildImageSpatialIndex();
+        debugPrint(
+          '[☁️ UPLOAD] ✅ Success on attempt $attempt: $imageId ($mimeType, ${uploadBytes.length ~/ 1024}KB)',
+        );
+        break;
+      } catch (e) {
+        debugPrint('[☁️ UPLOAD] ❌ Attempt $attempt/3 failed: $e');
+        if (attempt < 3) {
+          await Future.delayed(Duration(seconds: attempt));
         }
       }
-
-      // 🧠 Fix 8: erasing invalidates redo history
-      if (somethingErased) {
-        _imageEditingUndoStack.clear();
-      }
-    });
-
-    if (somethingErased) {
-      HapticFeedback.lightImpact();
     }
+
+    // #7: Remove from pending set
+    _pendingUploads.remove(imageId);
+
+    if (!mounted) return;
+
+    if (storageUrl == null) {
+      // #4: Queue for offline retry
+      _offlineUploadQueue[imageId] = _OfflineUploadEntry(
+        imageId: imageId,
+        imagePath: imagePath,
+        bytes: uploadBytes,
+        mimeType: mimeType,
+      );
+      debugPrint(
+        '[☁️ OFFLINE] Queued $imageId for retry (${_offlineUploadQueue.length} pending)',
+      );
+      return;
+    }
+
+    // Update the ImageElement with the storageUrl
+    final idx = _imageElements.indexWhere((e) => e.id == imageId);
+    if (idx != -1) {
+      final updated = _imageElements[idx].copyWith(storageUrl: storageUrl);
+      setState(() {
+        _imageElements[idx] = updated;
+      });
+      _layerController.updateImage(updated);
+
+      // 🔴 RT: Broadcast to collaborators WITH storageUrl
+      _broadcastImageUpdate(updated, isNew: true);
+
+      // 💾 Re-save with storageUrl
+      _autoSaveCanvas();
+    }
+
+    // #4: Try draining offline queue on successful upload (connection is good)
+    _drainOfflineUploadQueue();
   }
 
-  /// 🔄 Convert a single canvas-space point to image-space.
-  /// Central method — all coordinate conversion goes through here.
-  Offset _canvasToImageSpace(Offset canvasPoint, ImageElement imageElement) {
-    // Translate relative to image center
-    var p = canvasPoint - imageElement.position;
+  /// #7: Set of image IDs currently being uploaded (for cancellation).
+  static final Set<String> _pendingUploads = {};
 
-    // Inverse rotation
-    if (imageElement.rotation != 0) {
-      final cos = math.cos(-imageElement.rotation);
-      final sin = math.sin(-imageElement.rotation);
-      p = Offset(p.dx * cos - p.dy * sin, p.dx * sin + p.dy * cos);
-    }
+  /// #4: Offline upload queue — failed uploads queued for retry.
+  static final Map<String, _OfflineUploadEntry> _offlineUploadQueue = {};
 
-    // Inverse scale
-    if (imageElement.scale != 1.0) {
-      p = p / imageElement.scale;
-    }
+  /// #4: Drain the offline retry queue (called after a successful upload).
+  Future<void> _drainOfflineUploadQueue() async {
+    if (_offlineUploadQueue.isEmpty || _syncEngine == null) return;
 
-    // Inverse flip
-    if (imageElement.flipHorizontal || imageElement.flipVertical) {
-      p = Offset(
-        imageElement.flipHorizontal ? -p.dx : p.dx,
-        imageElement.flipVertical ? -p.dy : p.dy,
+    final entries = Map.of(_offlineUploadQueue);
+    _offlineUploadQueue.clear();
+    debugPrint('[☁️ OFFLINE] Retrying ${entries.length} queued uploads');
+
+    for (final entry in entries.values) {
+      if (!mounted) break;
+      // Check if image still exists on canvas
+      if (!_imageElements.any((e) => e.id == entry.imageId)) {
+        debugPrint('[☁️ OFFLINE] Skipped (deleted): ${entry.imageId}');
+        continue;
+      }
+      await _uploadImageInBackground(
+        imageId: entry.imageId,
+        imagePath: entry.imagePath,
+        imageBytes: entry.bytes,
       );
     }
-
-    return p;
   }
 
-  /// 🔄 Batch-convert drawing points from canvas space to image space.
-  List<ProDrawingPoint> _convertPointsToImageSpace(
-    List<ProDrawingPoint> points,
+  /// 🎨 Apre editor professionale per modificare immagine (mantenuto per compatibility)
+  void _openImageEditor(
     ImageElement imageElement,
-  ) {
-    return points.map((point) {
-      final converted = _canvasToImageSpace(point.position, imageElement);
-      return point.copyWith(position: converted);
-    }).toList();
-  }
-
-  /// 🔄 Convert a single drawing point from canvas space to image space.
-  ProDrawingPoint _convertSinglePointToImageSpace(
-    ProDrawingPoint point,
-    ImageElement imageElement,
-  ) {
-    final converted = _canvasToImageSpace(point.position, imageElement);
-    return point.copyWith(position: converted);
-  }
-
-  /// ✔️ Check if a canvas-space point is inside the image bounds.
-  bool _isPointInsideImage(
-    Offset canvasPosition,
-    ImageElement imageElement,
-    ui.Image image,
-  ) {
-    // Uses unified conversion (includes flip — Fix 2)
-    final p = _canvasToImageSpace(canvasPosition, imageElement);
-
-    final halfWidth = image.width.toDouble() / 2;
-    final halfHeight = image.height.toDouble() / 2;
-
-    return p.dx >= -halfWidth &&
-        p.dx <= halfWidth &&
-        p.dy >= -halfHeight &&
-        p.dy <= halfHeight;
-  }
-
-  /// �🎨 Apre editor professionale per modificare immagine (mantenuto per compatibility)
-  void _openImageEditor(ImageElement imageElement, ui.Image image) {
+    ui.Image image, {
+    int initialTab = 0,
+  }) {
     // Cancel timer
     _imageLongPressTimer?.cancel();
     _imageLongPressEditorTimer?.cancel();
@@ -337,19 +252,6 @@ extension on _NebulaCanvasScreenState {
     // 🎨 Prepara elemento with all gli strokes aggiornati
     ImageElement elementToEdit = imageElement;
 
-    // If siamo in editing mode, combina gli strokes esistenti + nuovi
-    if (_imageInEditMode != null && _imageInEditMode!.id == imageElement.id) {
-      final allStrokes = [
-        ..._imageInEditMode!.drawingStrokes,
-        ..._imageEditingStrokes,
-      ];
-
-      elementToEdit = imageElement.copyWith(drawingStrokes: allStrokes);
-
-      // Exit editing mode after saving strokes
-      _exitImageEditMode();
-    }
-
     // Ferma drag se attivo
     if (_imageTool.isDragging) {
       _imageTool.endDrag();
@@ -357,6 +259,18 @@ extension on _NebulaCanvasScreenState {
 
     // Feedback haptic
     HapticFeedback.mediumImpact();
+
+    // #1: Acquire element lock for this image (prevents concurrent edits)
+    final hasLock = _realtimeEngine?.lockElement(imageElement.id) ?? true;
+    if (hasLock == false) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Image is being edited by another collaborator'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
 
     // Open dialog
     showDialog(
@@ -366,9 +280,8 @@ extension on _NebulaCanvasScreenState {
           (context) => ImageEditorDialog(
             imageElement: elementToEdit,
             image: image,
+            initialTab: initialTab,
             onSave: (updated) {
-              // 🎨 Debug: verifica strokes ricevuti
-
               // Update element in the list
               final index = _imageElements.indexWhere(
                 (e) => e.id == updated.id,
@@ -384,29 +297,125 @@ extension on _NebulaCanvasScreenState {
                 // 🔄 Sync: notify delta tracker for synchronization
                 _layerController.updateImage(updated);
 
+                // 🔴 RT: Broadcast image changes to collaborators
+                _broadcastImageUpdate(updated);
+
                 // 💾 Auto-save after image modification
                 _autoSaveCanvas();
               }
               HapticFeedback.lightImpact();
             },
             onDelete: () {
-              // Elimina elemento
-              setState(() {
-                _imageElements.removeWhere((e) => e.id == imageElement.id);
-                _imageTool.clearSelection();
-                _imageVersion++;
-                _rebuildImageSpatialIndex();
-              });
-
-              // 🔄 Sync: notify delta tracker for synchronization
-              _layerController.removeImage(imageElement.id);
-
-              // 💾 Auto-save after image deletion
-              _autoSaveCanvas();
-
-              HapticFeedback.mediumImpact();
+              // Use centralized removal with broadcast
+              removeImage(imageElement.id);
             },
+          ),
+    ).then((_) {
+      // #1: Release element lock when dialog closes
+      _realtimeEngine?.unlockElement(imageElement.id);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🗑️ Image Removal — centralized cleanup with collaboration broadcast
+  // ---------------------------------------------------------------------------
+
+  /// 🗑️ Remove an image from the canvas.
+  ///
+  /// Cleans up: selection, spatial index, layer controller, and broadcasts
+  /// to collaborators. Set [broadcast] to false for remote-triggered removals.
+  void removeImage(String imageId, {bool broadcast = true}) {
+    // #7: Cancel any pending upload for this image
+    _pendingUploads.remove(imageId);
+    _offlineUploadQueue.remove(imageId);
+
+    // Clear selection if this image is selected
+    if (_imageTool.selectedImage?.id == imageId) {
+      _imageTool.clearSelection();
+    }
+
+    setState(() {
+      _imageElements.removeWhere((e) => e.id == imageId);
+      _imageVersion++;
+      _rebuildImageSpatialIndex();
+    });
+
+    // 🔄 Sync: notify delta tracker
+    _layerController.removeImage(imageId);
+
+    // 🔴 RT: Broadcast removal to collaborators
+    if (broadcast) {
+      _broadcastImageRemoved(imageId);
+    }
+
+    // 💾 Auto-save
+    _autoSaveCanvas();
+
+    HapticFeedback.mediumImpact();
+  }
+
+  /// 🗑️ Show confirmation dialog before deleting an image.
+  void showDeleteImageConfirmation(BuildContext context, String imageId) {
+    final cs = Theme.of(context).colorScheme;
+
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            backgroundColor: cs.surface,
+            icon: Icon(Icons.delete_forever_rounded, color: cs.error, size: 36),
+            title: Text(
+              'Delete Image?',
+              style: TextStyle(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+              ),
+            ),
+            content: Text(
+              'This action cannot be undone. The image and all '
+              'drawings on it will be permanently removed.',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(color: cs.onSurfaceVariant),
+                ),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  removeImage(imageId);
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: cs.error,
+                  foregroundColor: cs.onError,
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
           ),
     );
   }
+}
+
+/// #4: Data class for queued offline uploads.
+class _OfflineUploadEntry {
+  final String imageId;
+  final String imagePath;
+  final Uint8List bytes;
+  final String mimeType;
+
+  const _OfflineUploadEntry({
+    required this.imageId,
+    required this.imagePath,
+    required this.bytes,
+    required this.mimeType,
+  });
 }

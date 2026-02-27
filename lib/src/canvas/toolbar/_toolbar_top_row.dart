@@ -7,7 +7,7 @@ part of 'professional_canvas_toolbar.dart';
 
 extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
   Widget _buildTopRow(BuildContext context, bool isDark) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.only(left: 0, right: 8, top: 8, bottom: 8),
       child: SingleChildScrollView(
@@ -37,7 +37,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onCanvasLayoutPressed != null)
                   ToolbarLayoutButton(
                     icon: Icons.gesture_rounded,
-                    label: NebulaLocalizations.of(context).proCanvas_canvasMode,
+                    label: FlueraLocalizations.of(context).proCanvas_canvasMode,
                     onPressed: widget.onCanvasLayoutPressed!,
                     isDark: isDark,
                     color: Colors.grey,
@@ -49,7 +49,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onHSplitLayoutPressed != null)
                   ToolbarLayoutButton(
                     icon: Icons.view_sidebar_rounded,
-                    label: NebulaLocalizations.of(context).proCanvas_hSplit,
+                    label: FlueraLocalizations.of(context).proCanvas_hSplit,
                     onPressed: widget.onHSplitLayoutPressed!,
                     isDark: isDark,
                     color: Colors.blue,
@@ -61,7 +61,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onVSplitLayoutPressed != null)
                   ToolbarLayoutButton(
                     icon: Icons.view_agenda_rounded,
-                    label: NebulaLocalizations.of(context).proCanvas_vSplit,
+                    label: FlueraLocalizations.of(context).proCanvas_vSplit,
                     onPressed: widget.onVSplitLayoutPressed!,
                     isDark: isDark,
                     color: Colors.indigo,
@@ -85,7 +85,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onAdvancedSplitPressed != null)
                   ToolbarLayoutButton(
                     icon: Icons.view_quilt_rounded,
-                    label: NebulaLocalizations.of(context).proCanvas_splitPro,
+                    label: FlueraLocalizations.of(context).proCanvas_splitPro,
                     onPressed: widget.onAdvancedSplitPressed!,
                     isDark: isDark,
                     color: Colors.deepPurple,
@@ -188,10 +188,10 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                     ),
                     // ☁️ Cloud sync status indicator
                     if (widget.cloudSyncState != null)
-                      ValueListenableBuilder<NebulaSyncState>(
+                      ValueListenableBuilder<FlueraSyncState>(
                         valueListenable: widget.cloudSyncState!,
                         builder: (context, state, _) {
-                          if (state == NebulaSyncState.idle) {
+                          if (state == FlueraSyncState.idle) {
                             return const SizedBox.shrink();
                           }
                           return Padding(

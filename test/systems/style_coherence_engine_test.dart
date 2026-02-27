@@ -1,10 +1,10 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/conscious_architecture.dart';
-import 'package:nebula_engine/src/core/engine_event.dart';
-import 'package:nebula_engine/src/core/engine_event_bus.dart';
-import 'package:nebula_engine/src/systems/style_coherence_engine.dart';
+import 'package:fluera_engine/src/core/conscious_architecture.dart';
+import 'package:fluera_engine/src/core/engine_event.dart';
+import 'package:fluera_engine/src/core/engine_event_bus.dart';
+import 'package:fluera_engine/src/systems/style_coherence_engine.dart';
 
 void main() {
   group('StyleCoherenceEngine', () {

@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/rbac/engine_permission.dart';
-import 'package:nebula_engine/src/core/rbac/permission_interceptor.dart';
-import 'package:nebula_engine/src/core/rbac/permission_policy.dart';
-import 'package:nebula_engine/src/core/rbac/permission_service.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph_interceptor.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/core/rbac/engine_permission.dart';
+import 'package:fluera_engine/src/core/rbac/permission_interceptor.dart';
+import 'package:fluera_engine/src/core/rbac/permission_policy.dart';
+import 'package:fluera_engine/src/core/rbac/permission_service.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph_interceptor.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 import '../helpers/test_helpers.dart';
 

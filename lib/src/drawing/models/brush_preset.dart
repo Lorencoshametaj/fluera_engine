@@ -210,9 +210,23 @@ class BrushPreset {
     ),
   ];
 
+  /// GPU pen types hidden in V1 — re-enable post-launch.
+  static const _hiddenV1PenTypes = {
+    ProPenType.watercolor,
+    ProPenType.marker,
+    ProPenType.charcoal,
+    ProPenType.oilPaint,
+    ProPenType.sprayPaint,
+    ProPenType.neonGlow,
+    ProPenType.inkWash,
+  };
+
   /// All built-in presets for the toolbar strip.
-  /// The strip handles category filtering (Writing / Artistic) internally.
-  static const List<BrushPreset> defaultPresets = builtInPresets;
+  /// V1: GPU pens filtered out — code stays in codebase.
+  static List<BrushPreset> get defaultPresets =>
+      builtInPresets
+          .where((p) => !_hiddenV1PenTypes.contains(p.penType))
+          .toList();
 
   /// Writing-focused presets.
   static List<BrushPreset> get writingPresets =>

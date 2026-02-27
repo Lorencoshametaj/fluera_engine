@@ -1,10 +1,10 @@
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/services/phase2_service_stubs.dart';
-import 'package:nebula_engine/src/time_travel/services/time_travel_playback_engine.dart';
-import 'package:nebula_engine/src/time_travel/models/time_travel_session.dart';
-import 'package:nebula_engine/src/core/models/canvas_layer.dart';
-import 'package:nebula_engine/src/history/canvas_delta_tracker.dart';
+import 'package:fluera_engine/src/services/phase2_service_stubs.dart';
+import 'package:fluera_engine/src/time_travel/services/time_travel_playback_engine.dart';
+import 'package:fluera_engine/src/time_travel/models/time_travel_session.dart';
+import 'package:fluera_engine/src/core/models/canvas_layer.dart';
+import 'package:fluera_engine/src/history/canvas_delta_tracker.dart';
 
 void main() {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -328,7 +328,7 @@ void _setupFakeSession(
 }
 
 /// In-memory fake storage for testing the PlaybackEngine.
-class _FakeTimeTravelStorage implements NebulaTimeTravelStorage {
+class _FakeTimeTravelStorage implements FlueraTimeTravelStorage {
   List<TimeTravelSession> sessionIndex = [];
   Map<String, List<TimeTravelEvent>> sessionEventsMap = {};
   Map<int, (List<CanvasLayer>, int)> snapshotMap = {};

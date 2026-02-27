@@ -1,7 +1,7 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 📦 Drawing Handlers — pointer-down start & cancel
-extension on _NebulaCanvasScreenState {
+extension on _FlueraCanvasScreenState {
   void _onDrawStart(
     Offset canvasPosition,
     double pressure,
@@ -11,8 +11,30 @@ extension on _NebulaCanvasScreenState {
     // 🔒 VIEWER GUARD: Prevent all editing on shared canvas if viewer
     if (_checkViewerGuard()) return;
 
-    // Indica che l'utente sta disegnando (per opacity layer panel)
-    _isDrawingNotifier.value = true;
+    // 📌 PIN PLACEMENT MODE: Single tap places pin, then exit
+    if (_isPinPlacementMode) {
+      _completePinPlacement(_canvasController.canvasToScreen(canvasPosition));
+      return;
+    }
+
+    // 📐 SECTION MODE: Start drawing a section rectangle
+    if (_isSectionActive) {
+      _sectionStartPoint = canvasPosition;
+      _sectionCurrentEndPoint = canvasPosition;
+      setState(() {});
+      return;
+    }
+
+    // 📌 PIN DRAG: In pan mode, try to start dragging a pin
+    if (_effectiveIsPanMode && _recordingPins.isNotEmpty) {
+      if (_handleRecordingPinDragStart(canvasPosition)) {
+        return;
+      }
+    }
+
+    // 🐛 FIX: _isDrawingNotifier is set AFTER image interaction checks.
+    //    Setting it here hid the Image Actions toolbar during selection.
+    //    It's now deferred to after the image/text/PDF handling sections.
     _pushConsciousContext(); // 🧠 Notify intelligence subsystems
 
     // ☁️ PRESENCE: Broadcast drawing state to collaborators
@@ -23,127 +45,102 @@ extension on _NebulaCanvasScreenState {
     // 🎤 Traccia tempo inizio (per recording esterno)
     _lastStrokeStartTime = DateTime.now();
 
-    // 🎨 PRIORITÀ 1: Se siamo in editing mode immagine
-    if (_imageInEditMode != null) {
-      final image = _loadedImages[_imageInEditMode!.imagePath];
-      if (image != null) {
-        // Check if the point is inside the image
-        if (_isPointInsideImage(canvasPosition, _imageInEditMode!, image)) {
-          // If gomma attiva, cancella invece di disegnare
-          if (_effectiveIsEraser) {
-            _eraseFromImageEditingStrokes(canvasPosition);
-            return;
-          }
-
-          // ⚠️ Azzera lo stroke of the canvas normale to avoid duplicazioni
-          _currentStrokeNotifier.clear();
-
-          // Start drawing on top of the image
-          _drawingHandler.startStroke(
-            position: canvasPosition,
-            pressure: pressure,
-            tiltX: tiltX,
-            tiltY: tiltY,
-            orientation: 0.0,
-          );
-
-          // 🚀 Fix 1: incremental conversion — init accumulator with first point
-          _editingConvertedPoints.clear();
-          _editingStrokeCreatedAt = DateTime.now();
-          if (_drawingHandler.currentStroke.isNotEmpty) {
-            _editingConvertedPoints.add(
-              _convertSinglePointToImageSpace(
-                _drawingHandler.currentStroke.last,
-                _imageInEditMode!,
-              ),
-            );
-          }
-          _currentEditingStrokeNotifier.value = ProStroke(
-            id: 'temp',
-            points: _editingConvertedPoints,
-            color: _effectiveColor,
-            baseWidth: _effectiveWidth,
-            penType: _effectivePenType,
-            createdAt: _editingStrokeCreatedAt,
-            settings: _brushSettings,
-          );
-          return;
-        } else {
-          // Touch outside the image -> exit editing mode
-          _exitImageEditMode();
-          return;
-        }
-      }
-    } // 🖼️ ALWAYS check interaction with images (max priority)
-    if (_imageTool.selectedImage != null) {
-      // Check resize handle
-      final imageSize =
-          _loadedImages[_imageTool.selectedImage!.imagePath]?.width != null
-              ? Size(
-                _loadedImages[_imageTool.selectedImage!.imagePath]!.width
-                    .toDouble(),
-                _loadedImages[_imageTool.selectedImage!.imagePath]!.height
-                    .toDouble(),
-              )
-              : Size.zero;
-
-      // 🌀 Check rotation handle first (above the image)
-      if (_imageTool.hitTestRotationHandle(canvasPosition, imageSize)) {
-        _imageTool.startHandleRotation(canvasPosition);
-        setState(() {});
-        return;
-      }
-
-      final handle = _imageTool.hitTestResizeHandle(canvasPosition, imageSize);
-      if (handle != null) {
-        _imageTool.startResize(handle, canvasPosition);
-        setState(() {});
-        return;
-      }
+    // 🖼️ AUTO-DESELECT IMAGE: When starting any draw action (pen, eraser, etc.)
+    // outside pan mode, clear the image selection so the blue outline disappears.
+    if (!_effectiveIsPanMode && _imageTool.selectedImage != null) {
+      _imageTool.clearSelection();
+      _imageRepaintNotifier.value++;
+      setState(() {});
     }
 
-    // Check hit test su immagini
-    for (final imageElement in _imageElements.reversed) {
-      final image = _loadedImages[imageElement.imagePath];
-      if (image != null) {
-        final imageSize = Size(image.width.toDouble(), image.height.toDouble());
+    // 🖼️ Image interaction only when PAN (hand) tool is active
+    if (_effectiveIsPanMode) {
+      if (_imageTool.selectedImage != null) {
+        // Check resize handle
+        final rawImage = _loadedImages[_imageTool.selectedImage!.imagePath];
+        final imageSize =
+            rawImage != null
+                ? () {
+                  final crop = _imageTool.selectedImage!.cropRect;
+                  final w = rawImage.width.toDouble();
+                  final h = rawImage.height.toDouble();
+                  return crop != null
+                      ? Size(
+                        (crop.right - crop.left) * w,
+                        (crop.bottom - crop.top) * h,
+                      )
+                      : Size(w, h);
+                }()
+                : Size.zero;
 
-        if (_imageTool.hitTest(imageElement, canvasPosition, imageSize)) {
-          // 🌀 DOUBLE-TAP RESET: If tapping already-selected image quickly, reset rotation
-          final now = DateTime.now().millisecondsSinceEpoch;
-          if (_imageTool.selectedImage?.id == imageElement.id &&
-              imageElement.rotation != 0.0 &&
-              now - _lastImageTapTime < 350) {
-            // Reset rotation
-            final resetImage = imageElement.copyWith(rotation: 0.0);
-            _imageTool.selectImage(resetImage);
-            final idx = _imageElements.indexWhere((e) => e.id == resetImage.id);
-            if (idx != -1) _imageElements[idx] = resetImage;
-            _layerController.updateImage(resetImage);
-            _imageVersion++;
-            _imageRepaintNotifier.value++;
-            HapticFeedback.mediumImpact();
-            _lastImageTapTime = 0; // Prevent triple-tap
-            setState(() {});
-            return;
-          }
-          _lastImageTapTime = now;
-
-          // Select the image but do NOT start dragging yet
-          _imageTool.selectImage(imageElement);
-
-          // 📍 Save initial position to detect movement
-          _initialTapPosition = canvasPosition;
-
+        // 🌀 Check rotation handle first (above the image)
+        if (_imageTool.hitTestRotationHandle(canvasPosition, imageSize)) {
+          _imageTool.startHandleRotation(canvasPosition);
           setState(() {});
-          return; // 🛑 Block other tools when touching image
+          return;
+        }
+
+        final handle = _imageTool.hitTestResizeHandle(
+          canvasPosition,
+          imageSize,
+        );
+        if (handle != null) {
+          _imageTool.startResize(handle, canvasPosition);
+          setState(() {});
+          return;
         }
       }
-    } // If tocco area vuota con selected image, deseleziona
-    if (_imageTool.selectedImage != null) {
-      _imageTool.clearSelection();
-      setState(() {});
-      // Do not return - continua con gli altri tool
+
+      // Check hit test su immagini
+      for (final imageElement in _imageElements.reversed) {
+        final image = _loadedImages[imageElement.imagePath];
+        if (image != null) {
+          final imageSize = Size(
+            image.width.toDouble(),
+            image.height.toDouble(),
+          );
+
+          if (_imageTool.hitTest(imageElement, canvasPosition, imageSize)) {
+            // 🌀 DOUBLE-TAP RESET: If tapping already-selected image quickly, reset rotation
+            final now = DateTime.now().millisecondsSinceEpoch;
+            if (_imageTool.selectedImage?.id == imageElement.id &&
+                imageElement.rotation != 0.0 &&
+                now - _lastImageTapTime < 350) {
+              // Reset rotation
+              final resetImage = imageElement.copyWith(rotation: 0.0);
+              _imageTool.selectImage(resetImage);
+              final idx = _imageElements.indexWhere(
+                (e) => e.id == resetImage.id,
+              );
+              if (idx != -1) _imageElements[idx] = resetImage;
+              _layerController.updateImage(resetImage);
+              _imageVersion++;
+              _imageRepaintNotifier.value++;
+              HapticFeedback.mediumImpact();
+              // 🔴 RT: Broadcast rotation reset to collaborators
+              _broadcastImageUpdate(resetImage);
+              _lastImageTapTime = 0; // Prevent triple-tap
+              setState(() {});
+              return;
+            }
+            _lastImageTapTime = now;
+
+            // Select the image but do NOT start dragging yet
+            _imageTool.selectImage(imageElement);
+
+            // 📍 Save initial position to detect movement
+            _initialTapPosition = canvasPosition;
+
+            setState(() {});
+            return; // 🛑 Block other tools when touching image in pan mode
+          }
+        }
+      } // If tocco area vuota con selected image, deseleziona
+      if (_imageTool.selectedImage != null) {
+        _imageTool.clearSelection();
+        setState(() {});
+        // Do not return - continua con gli altri tool
+      }
     }
 
     // 🎯 Always check text element interaction (regardless of active tool)
@@ -287,6 +284,10 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
+    // 🐛 FIX: Set drawing flag ONLY when actual drawing/erasing starts,
+    // not during image/text/table selection — keeps Image Actions visible.
+    _isDrawingNotifier.value = true;
+
     // If l'eraser is active, cancella at the point
     if (_effectiveIsEraser) {
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -384,16 +385,11 @@ extension on _NebulaCanvasScreenState {
       // 🎯 Compute preview (highlight strokes under eraser)
       _eraserPreviewIds = _eraserTool.getPreviewStrokeIds(snappedPos);
 
-      // In mode editing immagine, cancella dagli strokes of the image
-      if (_imageInEditMode != null) {
-        _eraseFromImageEditingStrokes(snappedPos);
-      } else {
-        final didErase = _eraserTool.eraseAt(snappedPos);
-        if (didErase) {
-          _eraserGestureEraseCount = _eraserTool.currentGestureEraseCount;
-          _eraserPulseController.forward(from: 0);
-          _spawnEraserParticles(snappedPos, now);
-        }
+      final didErase = _eraserTool.eraseAt(snappedPos);
+      if (didErase) {
+        _eraserGestureEraseCount = _eraserTool.currentGestureEraseCount;
+        _eraserPulseController.forward(from: 0);
+        _spawnEraserParticles(snappedPos, now);
       }
       setState(() {}); // 🏗️ Forza rebuild per eraser cursor overlay
       return;
@@ -531,6 +527,24 @@ extension on _NebulaCanvasScreenState {
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
 
+    // 📐 SECTION MODE: Cancel section drawing on multi-touch interrupt
+    if (_isSectionActive && _sectionStartPoint != null) {
+      _sectionStartPoint = null;
+      _sectionCurrentEndPoint = null;
+      setState(() {});
+      return;
+    }
+
+    // 📌 PIN DRAG CANCEL: Cancel pin drag on multi-touch interrupt
+    if (_draggingPinId != null) {
+      setState(() {
+        _draggingPinId = null;
+        _draggingPinOffset = null;
+        _pinDragStartCanvasPos = null;
+      });
+      return;
+    }
+
     // ✂️ Clear PDF clip rect on cancel
     _activePdfClipRect = null;
 
@@ -651,6 +665,8 @@ extension on _NebulaCanvasScreenState {
   void _onImageScaleEnd() {
     if (_imageTool.selectedImage != null) {
       _layerController.updateImage(_imageTool.selectedImage!);
+      // 🔴 RT: Broadcast two-finger scale/rotate to collaborators
+      _broadcastImageUpdate(_imageTool.selectedImage!);
       _imageTool.endRotation();
     }
   }

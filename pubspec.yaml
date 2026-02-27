@@ -1,9 +1,18 @@
-name: nebula_engine
+name: fluera_engine
 description: >
-  A professional 2D canvas engine for Flutter.
-  Provides drawing tools, brushes, layers, shapes, text, 
-  images, and a complete scene graph system.
+  A professional 2D canvas engine for Flutter. Pressure-sensitive brushes,
+  infinite canvas, scene graph, real-time collaboration, PDF annotation,
+  export pipeline, and 60 FPS rendering with GPU shaders.
 version: 1.0.0
+homepage: https://fluera.dev
+repository: https://github.com/looponia/fluera_engine
+issue_tracker: https://github.com/looponia/fluera_engine/issues
+topics:
+  - canvas
+  - drawing
+  - 2d-engine
+  - graphics
+  - scene-graph
 
 environment:
   sdk: ^3.7.0
@@ -12,8 +21,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # flutter_gpu:              # TODO(gpu): Uncomment when flutter_gpu lands in stable
-  #   sdk: flutter
 
   flutter_riverpod: ^3.0.3
   # Storage & IO
@@ -25,26 +32,25 @@ dependencies:
   file_picker: ^8.0.0
   # Utilities
   crypto: ^3.0.6
-  # On-device ML inference — primary: PyTorch Mobile via platform channels
-  # (native deps in ios/nebula_engine.podspec and android/build.gradle)
-  # Fallback: ONNX Runtime (used by OnnxLatexRecognizer)
+  meta: ^1.11.0
+  vector_math: ^2.1.4
+  logging: ^1.2.0
+  sqflite_common: ^2.5.4
+  # ONNX Runtime — used internally by LaTeX add-on module source files.
   onnxruntime_v2: ^1.23.2
-
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  # flutter_gpu_shaders: ^0.3.0 # TODO(gpu): Uncomment when flutter_gpu lands in stable
-  # native_assets_cli: ^0.13.0  # TODO(gpu): Required by hook/build.dart
 
 flutter:
   plugin:
     platforms:
       android:
-        package: com.nebulaengine.nebula_engine
-        pluginClass: NebulaEnginePlugin
+        package: com.flueraengine.fluera_engine
+        pluginClass: FlueraEnginePlugin
       ios:
-        pluginClass: NebulaEnginePlugin
+        pluginClass: FlueraEnginePlugin
   shaders:
     - shaders/pencil_pro.frag
     - shaders/fountain_pen_pro.frag
@@ -60,8 +66,3 @@ flutter:
   assets:
     - assets/textures/
     - assets/textures/images/
-    # - build/shaderbundles/   # TODO(gpu): Uncomment when flutter_gpu lands in stable
-    # TODO(prod): Replace bundled PyTorch models (~117MB) with on-demand download
-    # from CDN/Firebase Storage at first launch to reduce APK/IPA size.
-    - assets/models/pix2tex/
-    - assets/models/hme/

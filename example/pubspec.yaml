@@ -1,5 +1,5 @@
-name: nebula_engine_example
-description: Demo app for the Nebula Engine canvas SDK.
+name: fluera_engine_example
+description: Demo app for the Fluera Engine canvas SDK.
 
 publish_to: 'none'
 version: 1.0.0
@@ -11,5 +11,5 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  nebula_engine:
+  fluera_engine:
     path: ../

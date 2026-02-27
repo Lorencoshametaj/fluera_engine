@@ -10,7 +10,7 @@ import '../scene_graph/canvas_node_factory.dart';
 /// Canvas layer — thin adapter around [LayerNode].
 ///
 /// This preserves the existing public API so that all consumers
-/// (NebulaLayerController, DrawingPainter, storage services, sync, etc.)
+/// (FlueraLayerController, DrawingPainter, storage services, sync, etc.)
 /// continue compiling without changes during the migration.
 /// Internally, all data is stored in the [LayerNode] scene graph tree.
 class CanvasLayer {

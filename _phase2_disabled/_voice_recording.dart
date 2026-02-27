@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Voice Recording — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
+/// 📦 Voice Recording — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
   /// � Mostra popup per scegliere tipo di registrazione audio
   Future<void> _showRecordingChoiceDialog() async {
     HapticFeedback.mediumImpact();

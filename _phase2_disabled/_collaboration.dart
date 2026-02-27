@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Collaboration & Sync — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
+/// 📦 Collaboration & Sync — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
   /// 🔄 Initialize real-time collaboration (sharing + presence)
   /// Checks if canvas is shared and starts listeners accordingly.
   Future<void> _initRealtimeCollaboration() async {

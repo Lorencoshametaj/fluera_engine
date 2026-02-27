@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import '../../utils/platform_guard.dart';
 import 'package:flutter/services.dart';
 import '../../core/engine_scope.dart';
 import '../../core/engine_error.dart';
@@ -29,12 +29,12 @@ class PredictedTouchService {
 
   // EventChannel for receiving predicted touches from native
   static const EventChannel _eventChannel = EventChannel(
-    'com.nebulaengine/predicted_touches',
+    'com.flueraengine/predicted_touches',
   );
 
   // MethodChannel for control
   static const MethodChannel _methodChannel = MethodChannel(
-    'com.nebulaengine/predicted_touches_control',
+    'com.flueraengine/predicted_touches_control',
   );
 
   // Stream controller for predicted touches
@@ -63,7 +63,7 @@ class PredictedTouchService {
     if (_isInitialized) return;
 
     // Supported on iOS and Android
-    if (!Platform.isIOS && !Platform.isAndroid) {
+    if (!PlatformGuard.isIOS && !PlatformGuard.isAndroid) {
       _isSupported = false;
       _isInitialized = true;
       return;
@@ -82,7 +82,7 @@ class PredictedTouchService {
           onError: _handleError,
         );
 
-        final platform = Platform.isIOS ? 'iOS' : 'Android';
+        final platform = PlatformGuard.isIOS ? 'iOS' : 'Android';
       } else {}
 
       _isInitialized = true;

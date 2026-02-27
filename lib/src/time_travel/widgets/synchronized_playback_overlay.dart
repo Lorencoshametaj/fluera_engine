@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as dart_ui;
 import 'package:flutter/material.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../controllers/synchronized_playback_controller.dart';
@@ -9,7 +10,7 @@ import '../../drawing/brushes/brushes.dart';
 /// Widget overlay showing synchronized stroke playback
 /// while the audio is being played. The strokes "draw" progressively
 /// following the original recording timing.
-class SynchronizedPlaybackOverlay extends StatelessWidget {
+class SynchronizedPlaybackOverlay extends StatefulWidget {
   final SynchronizedPlaybackController controller;
   final Offset canvasOffset;
   final double canvasScale;
@@ -32,15 +33,47 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
     this.onNavigateToPage,
     this.showControls = true,
     this.forcePageIndex,
+    this.onAutoFollow,
   });
+
+  /// 🧭 Auto-follow: callback to pan canvas to a specific position
+  final void Function(Offset canvasPosition)? onAutoFollow;
+
+  @override
+  State<SynchronizedPlaybackOverlay> createState() =>
+      _SynchronizedPlaybackOverlayState();
+}
+
+class _SynchronizedPlaybackOverlayState
+    extends State<SynchronizedPlaybackOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _tipPulse;
+  Offset? _lastAutoFollowPos;
+  static const _autoFollowThrottleMs = 500; // Don't follow faster than 2Hz
+  int _lastAutoFollowTime = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _tipPulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _tipPulse.dispose();
+    super.dispose();
+  }
 
   /// 🧭 Calculate if the current drawing point is visible in the viewport
   bool _isDrawingVisible(Offset? drawingPos, Size viewportSize) {
     if (drawingPos == null) return true;
 
     // Convert position canvas in position schermo
-    final screenX = drawingPos.dx * canvasScale + canvasOffset.dx;
-    final screenY = drawingPos.dy * canvasScale + canvasOffset.dy;
+    final screenX = drawingPos.dx * widget.canvasScale + widget.canvasOffset.dx;
+    final screenY = drawingPos.dy * widget.canvasScale + widget.canvasOffset.dy;
 
     // Margin to consider "visible" (slightly inside the screen)
     const margin = 50.0;
@@ -53,18 +86,12 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
 
   /// 🧭 Calculate the angle of an arrow towards the drawing point
   double _calculateArrowAngle(Offset drawingPos, Size viewportSize) {
-    // Center of the viewport
     final centerX = viewportSize.width / 2;
     final centerY = viewportSize.height / 2;
-
-    // Position of the drawing in screen coordinates
-    final screenX = drawingPos.dx * canvasScale + canvasOffset.dx;
-    final screenY = drawingPos.dy * canvasScale + canvasOffset.dy;
-
-    // Calculate angolo dal centro verso il punto
+    final screenX = drawingPos.dx * widget.canvasScale + widget.canvasOffset.dx;
+    final screenY = drawingPos.dy * widget.canvasScale + widget.canvasOffset.dy;
     final dx = screenX - centerX;
     final dy = screenY - centerY;
-
     return math.atan2(dy, dx);
   }
 
@@ -72,14 +99,23 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
   double _calculateDistance(Offset drawingPos, Size viewportSize) {
     final centerX = viewportSize.width / 2;
     final centerY = viewportSize.height / 2;
-
-    final screenX = drawingPos.dx * canvasScale + canvasOffset.dx;
-    final screenY = drawingPos.dy * canvasScale + canvasOffset.dy;
-
+    final screenX = drawingPos.dx * widget.canvasScale + widget.canvasOffset.dx;
+    final screenY = drawingPos.dy * widget.canvasScale + widget.canvasOffset.dy;
     final dx = screenX - centerX;
     final dy = screenY - centerY;
-
     return math.sqrt(dx * dx + dy * dy);
+  }
+
+  /// 🧭 Auto-follow: pan canvas to keep the active stroke visible
+  void _autoFollowIfNeeded(Offset? drawingPos, Size viewportSize) {
+    if (drawingPos == null || widget.onAutoFollow == null) return;
+    if (!widget.controller.isPlaying) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastAutoFollowTime < _autoFollowThrottleMs) return;
+    if (!_isDrawingVisible(drawingPos, viewportSize)) {
+      _lastAutoFollowTime = now;
+      widget.onAutoFollow!(drawingPos);
+    }
   }
 
   @override
@@ -89,17 +125,20 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
         final viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
 
         return ListenableBuilder(
-          listenable: controller,
+          listenable: widget.controller,
           builder: (context, _) {
-            // 📄 Retrieve specific strokes for the page (if forced) or current
             final activeStrokes =
-                forcePageIndex != null
-                    ? controller.getActiveStrokesForPage(forcePageIndex!)
-                    : controller.activeStrokes;
+                widget.forcePageIndex != null
+                    ? widget.controller.getActiveStrokesForPage(
+                      widget.forcePageIndex!,
+                    )
+                    : widget.controller.activeStrokes;
             final ghostStrokes =
-                forcePageIndex != null
-                    ? controller.getGhostStrokesForPage(forcePageIndex!)
-                    : controller.ghostStrokes;
+                widget.forcePageIndex != null
+                    ? widget.controller.getGhostStrokesForPage(
+                      widget.forcePageIndex!,
+                    )
+                    : widget.controller.ghostStrokes;
 
             // 🧭 Calculate drawing position using same activeStrokes as rendering
             // This fix ensures that l'indicator works even con forcePageIndex (split view)
@@ -112,27 +151,40 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
             }
             final isVisible = _isDrawingVisible(drawingPos, viewportSize);
 
+            // 🧭 Auto-follow camera
+            _autoFollowIfNeeded(drawingPos, viewportSize);
+
+            // 🔴 Calculate screen position of active tip
+            Offset? tipScreenPos;
+            if (drawingPos != null && isVisible) {
+              tipScreenPos = Offset(
+                drawingPos.dx * widget.canvasScale + widget.canvasOffset.dx,
+                drawingPos.dy * widget.canvasScale + widget.canvasOffset.dy,
+              );
+            }
+
             return Stack(
               children: [
                 // 🎨 Layer tratti con sfondo to cover i original strokes
                 // Use IgnorePointer to allow touches on the canvas below
                 Positioned.fill(
                   child: IgnorePointer(
-                    ignoring: true, // Forza passthrough di tutti gli eventi
+                    ignoring: true,
                     child: RepaintBoundary(
                       child: CustomPaint(
                         painter: _SyncedStrokesPainter(
                           activeStrokes: activeStrokes,
                           ghostStrokes: ghostStrokes,
-                          canvasOffset: canvasOffset,
-                          canvasScale: canvasScale,
-                          backgroundColor: backgroundColor,
-                          ghostOpacity:
-                              controller
-                                  .ghostOpacity, // 🎚️ Opacity controllabile
+                          canvasOffset: widget.canvasOffset,
+                          canvasScale: widget.canvasScale,
+                          backgroundColor: widget.backgroundColor,
+                          ghostOpacity: widget.controller.ghostOpacity,
+                          positionMs: widget.controller.positionMs,
+                          completedStrokeCount:
+                              widget.controller.completedStrokeCount,
                         ),
                         size: Size.infinite,
-                        willChange: true, // Optimization for animations
+                        willChange: true,
                       ),
                     ),
                   ),
@@ -144,15 +196,51 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
                     child: _StrokeCompass(
                       angle: _calculateArrowAngle(drawingPos, viewportSize),
                       distance: _calculateDistance(drawingPos, viewportSize),
-                      onTap: onNavigateToDrawing,
+                      onTap: widget.onNavigateToDrawing,
+                    ),
+                  ),
+
+                // 🔴 ACTIVE TIP INDICATOR - pulsing dot at the tip of the stroke being drawn
+                if (tipScreenPos != null && widget.controller.isPlaying)
+                  Positioned(
+                    left: tipScreenPos.dx - 6,
+                    top: tipScreenPos.dy - 6,
+                    child: IgnorePointer(
+                      child: AnimatedBuilder(
+                        animation: _tipPulse,
+                        builder: (context, _) {
+                          final scale = 1.0 + _tipPulse.value * 0.5;
+                          final opacity = 0.4 + _tipPulse.value * 0.6;
+                          return Transform.scale(
+                            scale: scale,
+                            child: Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Theme.of(context).colorScheme.primary
+                                    .withValues(alpha: opacity),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Theme.of(context).colorScheme.primary
+                                        .withValues(alpha: 0.3),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
 
                 // 📄 INDICATORE PAGINA - mostra on which page sta la riproduzione
                 // NON mostrare per registrazioni 'note'
-                if (showControls &&
-                    controller.isPlayingOnDifferentPage &&
-                    controller.recording?.recordingType ==
+                if (widget.showControls &&
+                    widget.controller.isPlayingOnDifferentPage &&
+                    widget.controller.recording?.recordingType ==
                         'note') // Filter by type
                   Positioned(
                     top: 80,
@@ -160,11 +248,14 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
                     right: 0,
                     child: Center(
                       child: _PageIndicatorBadge(
-                        pageNumber: (controller.activeDrawingPage ?? 0) + 1,
+                        pageNumber:
+                            (widget.controller.activeDrawingPage ?? 0) + 1,
                         onTap: () {
-                          final activePage = controller.activeDrawingPage;
-                          if (activePage != null && onNavigateToPage != null) {
-                            onNavigateToPage!(activePage);
+                          final activePage =
+                              widget.controller.activeDrawingPage;
+                          if (activePage != null &&
+                              widget.onNavigateToPage != null) {
+                            widget.onNavigateToPage!(activePage);
                           }
                         },
                       ),
@@ -173,14 +264,14 @@ class SynchronizedPlaybackOverlay extends StatelessWidget {
 
                 // 🎛️ Barra controlli: Questa SÌ deve essere interattiva
                 // Positionta in modo da non coprire troppo il canvas
-                if (showControls)
+                if (widget.showControls)
                   Positioned(
                     left: 16,
                     right: 16,
                     bottom: 16,
                     child: _PlaybackControlsBar(
-                      controller: controller,
-                      onClose: onClose,
+                      controller: widget.controller,
+                      onClose: widget.onClose,
                     ),
                   ),
               ],
@@ -364,6 +455,8 @@ class _SyncedStrokesPainter extends CustomPainter {
   final double canvasScale;
   final Color backgroundColor;
   final double ghostOpacity; // 🎚️ Opacity glow ghost controllabile
+  final int positionMs; // ⚡ Cheap int for shouldRepaint comparison
+  final int completedStrokeCount; // ⚡ For Picture caching
 
   _SyncedStrokesPainter({
     required this.activeStrokes,
@@ -372,25 +465,56 @@ class _SyncedStrokesPainter extends CustomPainter {
     required this.canvasScale,
     required this.backgroundColor,
     required this.ghostOpacity,
+    required this.positionMs,
+    required this.completedStrokeCount,
   });
+
+  // ⚡ Static Picture cache for completed strokes
+  static dart_ui.Picture? _completedPicture;
+  static int _cachedCompletedCount = -1;
+  static Offset _cachedOffset = Offset.zero;
+  static double _cachedScale = 1.0;
 
   @override
   void paint(Canvas canvas, Size size) {
-    // ❌ NIENTE sfondo - il canvas originale resta visibile e interattivo!
-
-    // Applica trasformazione canvas (pan/zoom)
     canvas.save();
     canvas.translate(canvasOffset.dx, canvasOffset.dy);
     canvas.scale(canvasScale);
 
-    // 1. Draw ghost strokes with GLOW to distinguish them from original strokes
+    // 1. Ghost strokes (simple, semi-transparent)
     for (final stroke in ghostStrokes) {
       _drawStrokeWithGlow(canvas, stroke, isGhost: true);
     }
 
-    // 2. Draw active strokes con GLOW more intenso
-    for (final stroke in activeStrokes) {
-      _drawStrokeWithGlow(canvas, stroke, isGhost: false);
+    // 2. ⚡ Split active strokes: completed (cacheable) vs in-progress
+    final completedCount = completedStrokeCount.clamp(0, activeStrokes.length);
+    final hasNewCompleted =
+        completedCount != _cachedCompletedCount ||
+        canvasOffset != _cachedOffset ||
+        canvasScale != _cachedScale;
+
+    if (completedCount > 0) {
+      if (hasNewCompleted) {
+        // Rebuild cache: record completed strokes into a Picture
+        final recorder = dart_ui.PictureRecorder();
+        final recCanvas = Canvas(recorder);
+        for (int i = 0; i < completedCount; i++) {
+          _drawStroke(recCanvas, activeStrokes[i]);
+        }
+        _completedPicture = recorder.endRecording();
+        _cachedCompletedCount = completedCount;
+        _cachedOffset = canvasOffset;
+        _cachedScale = canvasScale;
+      }
+      // Draw cached completed strokes in one call
+      if (_completedPicture != null) {
+        canvas.drawPicture(_completedPicture!);
+      }
+    }
+
+    // 3. In-progress strokes (partial — changes every frame)
+    for (int i = completedCount; i < activeStrokes.length; i++) {
+      _drawStrokeWithGlow(canvas, activeStrokes[i], isGhost: false);
     }
 
     canvas.restore();
@@ -404,19 +528,17 @@ class _SyncedStrokesPainter extends CustomPainter {
   }) {
     if (stroke.points.isEmpty) return;
 
-    // 🌟 GLOW: draw a luminous outline first
-    // L'opacity ghost is controllata dallo slider nel player!
-    // ⚠️ Clamp to ensure opacity is always in the 0.0-1.0 range
+    // 🌟 Subtle glow — just enough to indicate playback, not overwhelming
     final glowColor =
         isGhost
             ? Colors.blue.withValues(
-              alpha: ghostOpacity.clamp(0.0, 1.0),
-            ) // Ghost: glow blu (opacity variabile)
-            : Colors.amber.withValues(
-              alpha: (0.6 + ghostOpacity).clamp(0.0, 1.0),
-            ); // Active: glow dorato more intenso
+              alpha: (ghostOpacity * 0.5).clamp(0.0, 1.0),
+            ) // Ghost: faint blue hint
+            : stroke.color.withValues(
+              alpha: 0.2,
+            ); // Active: subtle glow using stroke's own color
 
-    final glowWidth = stroke.baseWidth + (isGhost ? 6.0 : 10.0);
+    final glowWidth = stroke.baseWidth + (isGhost ? 3.0 : 4.0);
 
     // Draw il glow (contorno esterno)
     _drawStrokeSimple(canvas, stroke.points, glowColor, glowWidth);
@@ -440,11 +562,7 @@ class _SyncedStrokesPainter extends CustomPainter {
           ..strokeWidth = width
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round
-          ..style = PaintingStyle.stroke
-          ..maskFilter = const MaskFilter.blur(
-            BlurStyle.normal,
-            3.0,
-          ); // Blur per effetto glow
+          ..style = PaintingStyle.stroke;
 
     final path = Path();
     path.moveTo(points.first.position.dx, points.first.position.dy);
@@ -512,8 +630,9 @@ class _SyncedStrokesPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SyncedStrokesPainter oldDelegate) {
-    return oldDelegate.activeStrokes != activeStrokes ||
-        oldDelegate.ghostStrokes != ghostStrokes ||
+    // ⚡ positionMs is a cheap int comparison — avoids rebuilding
+    // when the controller notified but the position hasn't changed
+    return oldDelegate.positionMs != positionMs ||
         oldDelegate.canvasOffset != canvasOffset ||
         oldDelegate.canvasScale != canvasScale;
   }
@@ -714,7 +833,7 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                     overlayShape: const RoundSliderOverlayShape(
                       overlayRadius: 16,
                     ),
-                    activeTrackColor: Colors.blue[400],
+                    activeTrackColor: const Color(0xFF42A5F5),
                     inactiveTrackColor: Colors.white24,
                     thumbColor: Colors.white,
                     overlayColor: Colors.blue.withValues(alpha: 0.2),
@@ -763,7 +882,7 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                           // Pulsante play/pause
                           Container(
                             decoration: BoxDecoration(
-                              color: Colors.blue[600],
+                              color: const Color(0xFF1E88E5),
                               shape: BoxShape.circle,
                             ),
                             child: IconButton(
@@ -824,7 +943,7 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                         // Play/pause button (Main)
                         Container(
                           decoration: BoxDecoration(
-                            color: Colors.blue[600],
+                            color: const Color(0xFF1E88E5),
                             shape: BoxShape.circle,
                           ),
                           child: IconButton(
@@ -848,6 +967,45 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                           icon: const Icon(Icons.stop, color: Colors.white70),
                           onPressed: () => widget.controller.stop(),
                           tooltip: 'Stop',
+                        ),
+
+                        // 🏎️ Speed control
+                        GestureDetector(
+                          onTap: () {
+                            const speeds = [0.5, 0.75, 1.0, 1.5, 2.0];
+                            final current = widget.controller.speed;
+                            final idx = speeds.indexWhere(
+                              (s) => (s - current).abs() < 0.01,
+                            );
+                            final next = speeds[(idx + 1) % speeds.length];
+                            widget.controller.setSpeed(next);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  widget.controller.speed != 1.0
+                                      ? const Color(
+                                        0xFF1E88E5,
+                                      ).withValues(alpha: 0.3)
+                                      : Colors.white.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${widget.controller.speed}x',
+                              style: TextStyle(
+                                color:
+                                    widget.controller.speed != 1.0
+                                        ? const Color(0xFF42A5F5)
+                                        : Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ),
 
                         const Spacer(),
@@ -892,7 +1050,7 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                       onChanged:
                           (value) =>
                               widget.controller.setShowGhostStrokes(value),
-                      activeThumbColor: Colors.blue[400],
+                      activeThumbColor: const Color(0xFF42A5F5),
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                   ],
@@ -989,18 +1147,18 @@ class SyncedRecordingListItem extends StatelessWidget {
       ),
       subtitle: Row(
         children: [
-          Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
+          Icon(Icons.access_time, size: 14, color: const Color(0xFF757575)),
           const SizedBox(width: 4),
           Text(
             _formatDuration(duration),
-            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            style: TextStyle(color: const Color(0xFF757575), fontSize: 12),
           ),
           const SizedBox(width: 12),
-          Icon(Icons.gesture, size: 14, color: Colors.grey[600]),
+          Icon(Icons.gesture, size: 14, color: const Color(0xFF757575)),
           const SizedBox(width: 4),
           Text(
             '$strokeCount tratti',
-            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            style: TextStyle(color: const Color(0xFF757575), fontSize: 12),
           ),
         ],
       ),
@@ -1036,7 +1194,7 @@ class SyncedRecordingListItem extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.delete_outline, size: 20),
               onPressed: onDelete,
-              color: Colors.red[400],
+              color: const Color(0xFFEF5350),
             ),
           ],
         ],

@@ -13,7 +13,7 @@ public class PrintPlugin: NSObject, FlutterPlugin {
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
-            name: "com.nebulaengine.nebula_engine/print",
+            name: "com.flueraengine.fluera_engine/print",
             binaryMessenger: registrar.messenger()
         )
         let instance = PrintPlugin()

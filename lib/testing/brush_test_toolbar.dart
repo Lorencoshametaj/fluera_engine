@@ -43,7 +43,7 @@ class BrushTestToolbar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? Colors.grey[850] : Colors.white,
+        color: isDark ? const Color(0xFF303030) : Colors.white,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha:  isDark ? 0.2 : 0.05),
@@ -65,7 +65,7 @@ class BrushTestToolbar extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.grey[400] : Colors.black54,
+                  color: isDark ? const Color(0xFFBDBDBD) : Colors.black54,
                 ),
               ),
               // 🎛️ Pulsante Settings
@@ -74,7 +74,7 @@ class BrushTestToolbar extends StatelessWidget {
                 icon: const Icon(Icons.tune),
                 tooltip: 'Parametri Pennello',
                 style: IconButton.styleFrom(
-                  backgroundColor: isDark ? Colors.grey[700] : Colors.grey[100],
+                  backgroundColor: isDark ? const Color(0xFF616161) : const Color(0xFFF5F5F5),
                   foregroundColor: isDark ? Colors.white : Colors.black87,
                 ),
               ),
@@ -103,7 +103,7 @@ class BrushTestToolbar extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: isDark ? Colors.grey[400] : Colors.black54,
+              color: isDark ? const Color(0xFFBDBDBD) : Colors.black54,
             ),
           ),
           const SizedBox(height: 8),
@@ -118,7 +118,7 @@ class BrushTestToolbar extends StatelessWidget {
                 'Width: ',
                 style: TextStyle(
                   fontSize: 12,
-                  color: isDark ? Colors.grey[400] : Colors.black54,
+                  color: isDark ? const Color(0xFFBDBDBD) : Colors.black54,
                 ),
               ),
               Text(
@@ -148,7 +148,7 @@ class BrushTestToolbar extends StatelessWidget {
                 'Opacity: ',
                 style: TextStyle(
                   fontSize: 12,
-                  color: isDark ? Colors.grey[400] : Colors.black54,
+                  color: isDark ? const Color(0xFFBDBDBD) : Colors.black54,
                 ),
               ),
               Text(
@@ -191,13 +191,13 @@ class BrushTestToolbar extends StatelessWidget {
           color:
               isSelected
                   ? Colors.blue
-                  : (isDark ? Colors.grey[700] : Colors.grey[100]),
+                  : (isDark ? const Color(0xFF616161) : const Color(0xFFF5F5F5)),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color:
                 isSelected
                     ? Colors.blue
-                    : (isDark ? Colors.grey[600]! : Colors.grey[300]!),
+                    : (isDark ? const Color(0xFF757575) : const Color(0xFFE0E0E0)),
             width: 2,
           ),
         ),
@@ -209,7 +209,7 @@ class BrushTestToolbar extends StatelessWidget {
               color:
                   isSelected
                       ? Colors.white
-                      : (isDark ? Colors.grey[300] : Colors.black54),
+                      : (isDark ? const Color(0xFFE0E0E0) : Colors.black54),
               size: 24,
             ),
             const SizedBox(height: 4),
@@ -220,7 +220,7 @@ class BrushTestToolbar extends StatelessWidget {
                 color:
                     isSelected
                         ? Colors.white
-                        : (isDark ? Colors.grey[300] : Colors.black54),
+                        : (isDark ? const Color(0xFFE0E0E0) : Colors.black54),
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
               textAlign: TextAlign.center,
@@ -261,7 +261,7 @@ class BrushTestToolbar extends StatelessWidget {
                     color:
                         isSelected
                             ? (isDark ? Colors.white : Colors.black)
-                            : (isDark ? Colors.grey[600]! : Colors.grey[300]!),
+                            : (isDark ? const Color(0xFF757575) : const Color(0xFFE0E0E0)),
                     width: isSelected ? 3 : 1,
                   ),
                 ),

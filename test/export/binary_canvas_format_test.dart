@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/export/binary_canvas_format.dart';
-import 'package:nebula_engine/src/core/models/canvas_layer.dart';
+import 'package:fluera_engine/src/export/binary_canvas_format.dart';
+import 'package:fluera_engine/src/core/models/canvas_layer.dart';
 
 void main() {
   // ===========================================================================

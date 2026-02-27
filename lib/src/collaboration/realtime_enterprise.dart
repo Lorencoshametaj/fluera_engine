@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'nebula_realtime_adapter.dart';
+import 'fluera_realtime_adapter.dart';
 
 // =============================================================================
 // ⭐ ENTERPRISE REAL-TIME COLLABORATION — Top-Tier Modules
@@ -276,6 +276,12 @@ enum AuditAction {
   /// Settings were changed.
   settingsChange,
 
+  /// PDF was added.
+  pdfAdd,
+
+  /// PDF was removed.
+  pdfRemove,
+
   /// Undo was performed.
   undo,
 
@@ -399,6 +405,30 @@ class SessionAuditLog {
         return AuditAction.settingsChange;
       case RealtimeEventType.strokePointsStreamed:
         return AuditAction.strokeAdd; // Live streaming is a sub-action
+      case RealtimeEventType.pdfAdded:
+        return AuditAction.pdfAdd;
+      case RealtimeEventType.pdfLoading:
+        return AuditAction.pdfAdd;
+      case RealtimeEventType.pdfProgress:
+        return AuditAction.pdfAdd;
+      case RealtimeEventType.pdfLoadingFailed:
+        return AuditAction.pdfAdd;
+      case RealtimeEventType.pdfBlankCreated:
+        return AuditAction.pdfAdd;
+      case RealtimeEventType.pdfUpdated:
+        return AuditAction.pdfAdd;
+      case RealtimeEventType.pdfRemoved:
+        return AuditAction.pdfRemove;
+      case RealtimeEventType.recordingAdded:
+        return AuditAction.unknown;
+      case RealtimeEventType.recordingRemoved:
+        return AuditAction.unknown;
+      case RealtimeEventType.recordingRenamed:
+        return AuditAction.unknown;
+      case RealtimeEventType.recordingPinAdded:
+        return AuditAction.unknown;
+      case RealtimeEventType.recordingPinRemoved:
+        return AuditAction.unknown;
     }
   }
 
@@ -429,6 +459,30 @@ class SessionAuditLog {
         return 'Changed canvas settings';
       case RealtimeEventType.strokePointsStreamed:
         return 'Streaming stroke$elementPart';
+      case RealtimeEventType.pdfAdded:
+        return 'Added PDF$elementPart';
+      case RealtimeEventType.pdfLoading:
+        return 'Loading PDF$elementPart';
+      case RealtimeEventType.pdfProgress:
+        return 'PDF upload progress$elementPart';
+      case RealtimeEventType.pdfLoadingFailed:
+        return 'PDF loading failed$elementPart';
+      case RealtimeEventType.pdfBlankCreated:
+        return 'Created blank PDF$elementPart';
+      case RealtimeEventType.pdfUpdated:
+        return 'Updated PDF$elementPart';
+      case RealtimeEventType.pdfRemoved:
+        return 'Removed PDF$elementPart';
+      case RealtimeEventType.recordingAdded:
+        return 'Added recording$elementPart';
+      case RealtimeEventType.recordingRemoved:
+        return 'Removed recording$elementPart';
+      case RealtimeEventType.recordingRenamed:
+        return 'Renamed recording$elementPart';
+      case RealtimeEventType.recordingPinAdded:
+        return 'Pinned recording$elementPart';
+      case RealtimeEventType.recordingPinRemoved:
+        return 'Unpinned recording$elementPart';
     }
   }
 }
@@ -469,16 +523,16 @@ abstract class RealtimeEncryptionProvider {
   Future<Uint8List> decrypt(Uint8List ciphertext);
 }
 
-/// Wraps a [NebulaRealtimeAdapter] to add transparent E2E encryption.
+/// Wraps a [FlueraRealtimeAdapter] to add transparent E2E encryption.
 ///
 /// Events are serialized to JSON → UTF-8 → encrypted → base64 before
 /// broadcast, and reversed on receive.
-class EncryptedRealtimeAdapter implements NebulaRealtimeAdapter {
-  final NebulaRealtimeAdapter _inner;
+class EncryptedRealtimeAdapter implements FlueraRealtimeAdapter {
+  final FlueraRealtimeAdapter _inner;
   final RealtimeEncryptionProvider _crypto;
 
   EncryptedRealtimeAdapter({
-    required NebulaRealtimeAdapter inner,
+    required FlueraRealtimeAdapter inner,
     required RealtimeEncryptionProvider crypto,
   }) : _inner = inner,
        _crypto = crypto;
@@ -774,7 +828,7 @@ class UndoRedoEvent {
   }
 }
 
-/// Extension on [NebulaRealtimeEngine] to add undo/redo broadcasting.
+/// Extension on [FlueraRealtimeEngine] to add undo/redo broadcasting.
 ///
 /// Usage:
 /// ```dart
@@ -785,7 +839,7 @@ class UndoRedoEvent {
 /// });
 /// ```
 class UndoRedoBroadcastManager {
-  final NebulaRealtimeEngine _engine;
+  final FlueraRealtimeEngine _engine;
   final String _localUserId;
 
   /// Stream of incoming undo/redo operations from remote users.
@@ -795,7 +849,7 @@ class UndoRedoBroadcastManager {
   StreamSubscription<CanvasRealtimeEvent>? _subscription;
 
   UndoRedoBroadcastManager({
-    required NebulaRealtimeEngine engine,
+    required FlueraRealtimeEngine engine,
     required String localUserId,
   }) : _engine = engine,
        _localUserId = localUserId {

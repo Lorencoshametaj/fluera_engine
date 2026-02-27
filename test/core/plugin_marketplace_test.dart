@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/marketplace/plugin_manifest_schema.dart';
-import 'package:nebula_engine/src/core/marketplace/semver_resolver.dart';
-import 'package:nebula_engine/src/core/marketplace/plugin_signing_service.dart';
-import 'package:nebula_engine/src/core/marketplace/plugin_update_manager.dart';
+import 'package:fluera_engine/src/core/marketplace/plugin_manifest_schema.dart';
+import 'package:fluera_engine/src/core/marketplace/semver_resolver.dart';
+import 'package:fluera_engine/src/core/marketplace/plugin_signing_service.dart';
+import 'package:fluera_engine/src/core/marketplace/plugin_update_manager.dart';
 
 void main() {
   // ===========================================================================

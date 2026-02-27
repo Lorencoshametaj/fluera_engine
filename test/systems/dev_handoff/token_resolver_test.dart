@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/dev_handoff/token_resolver.dart';
-import 'package:nebula_engine/src/systems/design_variables.dart';
-import 'package:nebula_engine/src/core/nodes/frame_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/systems/dev_handoff/token_resolver.dart';
+import 'package:fluera_engine/src/systems/design_variables.dart';
+import 'package:fluera_engine/src/core/nodes/frame_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 
 void main() {

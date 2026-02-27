@@ -1,10 +1,10 @@
 import 'dart:ui' show Color, Rect;
 import 'package:flutter/material.dart' show FontWeight;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_visitor.dart';
-import 'package:nebula_engine/src/systems/engine_theme.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_visitor.dart';
+import 'package:fluera_engine/src/systems/engine_theme.dart';
 
 // =============================================================================
 // Helpers
@@ -219,15 +219,15 @@ void main() {
   group('EngineThemeData', () {
     test('light factory creates valid theme', () {
       final theme = EngineThemeData.light();
-      expect(theme.id, 'nebula_light');
-      expect(theme.name, 'Nebula Light');
+      expect(theme.id, 'fluera_light');
+      expect(theme.name, 'Fluera Light');
       expect(theme.brightness, ThemeBrightness.light);
       expect(theme.colors.primary, const Color(0xFF6750A4));
     });
 
     test('dark factory creates valid theme', () {
       final theme = EngineThemeData.dark();
-      expect(theme.id, 'nebula_dark');
+      expect(theme.id, 'fluera_dark');
       expect(theme.brightness, ThemeBrightness.dark);
       expect(theme.colors.primary, const Color(0xFFD0BCFF));
     });
@@ -258,8 +258,8 @@ void main() {
 
     test('toJson includes all top-level fields', () {
       final json = EngineThemeData.light().toJson();
-      expect(json['id'], 'nebula_light');
-      expect(json['name'], 'Nebula Light');
+      expect(json['id'], 'fluera_light');
+      expect(json['name'], 'Fluera Light');
       expect(json['brightness'], 'light');
       expect(json.containsKey('colors'), isTrue);
       expect(json.containsKey('typography'), isTrue);
@@ -273,16 +273,16 @@ void main() {
   group('EngineThemeManager', () {
     test('is initialized with light theme active', () {
       final manager = EngineThemeManager();
-      expect(manager.activeTheme.id, 'nebula_light');
-      expect(manager.themeIds, contains('nebula_light'));
-      expect(manager.themeIds, contains('nebula_dark'));
+      expect(manager.activeTheme.id, 'fluera_light');
+      expect(manager.themeIds, contains('fluera_light'));
+      expect(manager.themeIds, contains('fluera_dark'));
     });
 
     test('setActiveTheme switches theme', () {
       final manager = EngineThemeManager();
-      final ok = manager.setActiveTheme('nebula_dark');
+      final ok = manager.setActiveTheme('fluera_dark');
       expect(ok, isTrue);
-      expect(manager.activeTheme.id, 'nebula_dark');
+      expect(manager.activeTheme.id, 'fluera_dark');
       expect(manager.activeTheme.brightness, ThemeBrightness.dark);
     });
 
@@ -290,7 +290,7 @@ void main() {
       final manager = EngineThemeManager();
       final ok = manager.setActiveTheme('non_existent');
       expect(ok, isFalse);
-      expect(manager.activeTheme.id, 'nebula_light'); // unchanged
+      expect(manager.activeTheme.id, 'fluera_light'); // unchanged
     });
 
     test('registerTheme and getTheme', () {
@@ -306,7 +306,7 @@ void main() {
 
     test('removeTheme cannot remove active theme', () {
       final manager = EngineThemeManager();
-      expect(manager.removeTheme('nebula_light'), isFalse);
+      expect(manager.removeTheme('fluera_light'), isFalse);
     });
 
     test('removeTheme removes non-active theme', () {
@@ -348,7 +348,7 @@ void main() {
       final manager = EngineThemeManager();
       int notifyCount = 0;
       manager.addListener(() => notifyCount++);
-      manager.setActiveTheme('nebula_dark');
+      manager.setActiveTheme('fluera_dark');
       expect(notifyCount, 1);
     });
   });
@@ -376,15 +376,15 @@ void main() {
       final manager = EngineThemeManager();
       final node = _TestNode(id: NodeId('n1'));
       final resolved = manager.resolver.resolve(node);
-      expect(resolved.id, 'nebula_light');
+      expect(resolved.id, 'fluera_light');
     });
 
     test('resolve applies node-level themeId override', () {
       final manager = EngineThemeManager();
       final node = _TestNode(id: NodeId('n1'));
-      manager.setOverride('n1', const ThemeOverride(themeId: 'nebula_dark'));
+      manager.setOverride('n1', const ThemeOverride(themeId: 'fluera_dark'));
       final resolved = manager.resolver.resolve(node);
-      expect(resolved.id, 'nebula_dark');
+      expect(resolved.id, 'fluera_dark');
     });
 
     test('resolve applies partial color override', () {

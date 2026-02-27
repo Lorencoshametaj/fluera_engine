@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/tabular/cell_value.dart';
-import 'package:nebula_engine/src/core/tabular/formula_functions.dart';
+import 'package:fluera_engine/src/core/tabular/cell_value.dart';
+import 'package:fluera_engine/src/core/tabular/formula_functions.dart';
 
 /// Helper: invoke a formula function by name with CellValue args.
 CellValue call(String name, List<CellValue> args) {

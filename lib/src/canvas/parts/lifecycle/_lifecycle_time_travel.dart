@@ -1,18 +1,18 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 // ============================================================================
 // ⏱️ TIME TRAVEL LIFECYCLE
 // Extracted from _lifecycle.dart — init, enter/exit, flush, export, recovery
 // ============================================================================
 
-extension on _NebulaCanvasScreenState {
+extension on _FlueraCanvasScreenState {
   /// ⏱️ Initialize il Time Travel Recorder (solo per utenti Pro)
   ///
   /// Called after the canvas loading. The recorder is a listener
   /// passivo che accumula eventi in memoria con 0ms di overhead sul disegno.
   /// Also ensures a "main" branch exists for branch-first architecture.
   Future<void> _initTimeTravelRecorder() async {
-    final isProUser = _config.subscriptionTier == NebulaSubscriptionTier.pro;
+    final isProUser = _config.subscriptionTier == FlueraSubscriptionTier.pro;
 
     if (!isProUser) {
       debugPrint('🎬 [TimeTravel] Feature not available (not Pro)');

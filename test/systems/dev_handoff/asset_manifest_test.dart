@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/dev_handoff/asset_manifest.dart';
+import 'package:fluera_engine/src/systems/dev_handoff/asset_manifest.dart';
 
 void main() {
   group('AssetManifest Tests', () {

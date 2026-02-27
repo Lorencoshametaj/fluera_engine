@@ -9,7 +9,7 @@ import '../models/pdf_text_rect.dart';
 /// 📄 Scene graph node representing a single PDF page on the canvas.
 ///
 /// Wraps a [PdfPageModel] and holds the rasterized [ui.Image] cache.
-/// The actual PDF decoding is handled externally via [NebulaPdfProvider];
+/// The actual PDF decoding is handled externally via [FlueraPdfProvider];
 /// this node simply draws the cached image or a placeholder.
 ///
 /// DESIGN PRINCIPLES:

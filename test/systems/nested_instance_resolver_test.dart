@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/nodes/symbol_system.dart';
-import 'package:nebula_engine/src/systems/nested_instance_resolver.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/nodes/symbol_system.dart';
+import 'package:fluera_engine/src/systems/nested_instance_resolver.dart';
 
 void main() {
   late SymbolRegistry registry;

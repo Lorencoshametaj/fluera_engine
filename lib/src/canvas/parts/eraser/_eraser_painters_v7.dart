@@ -1,4 +1,4 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 // V7 PAINTERS
@@ -81,7 +81,7 @@ class _EraserShapeCursorPainter extends CustomPainter {
   void paint(ui.Canvas canvas, Size size) {
     final paint =
         Paint()
-          ..color = (isDark ? Colors.cyan[300]! : Colors.blue[400]!).withValues(
+          ..color = (isDark ? const Color(0xFF4DD0E1) : const Color(0xFF42A5F5)).withValues(
             alpha: 0.6,
           )
           ..strokeWidth = 1.5
@@ -123,7 +123,7 @@ class _EraserShapeCursorPainter extends CustomPainter {
         // End caps
         final dotPaint =
             Paint()
-              ..color = isDark ? Colors.cyan[200]! : Colors.blue[300]!
+              ..color = isDark ? const Color(0xFF80DEEA) : const Color(0xFF64B5F6)
               ..style = PaintingStyle.fill;
         canvas.drawCircle(Offset(-lineLen, 0), 3, dotPaint);
         canvas.drawCircle(Offset(lineLen, 0), 3, dotPaint);
@@ -162,14 +162,14 @@ class _EdgeAwareHighlightPainter extends CustomPainter {
 
     final glowPaint =
         Paint()
-          ..color = (isDark ? Colors.cyan[300]! : Colors.teal[400]!).withValues(
+          ..color = (isDark ? const Color(0xFF4DD0E1) : const Color(0xFF26A69A)).withValues(
             alpha: 0.4,
           )
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
 
     final dotPaint =
         Paint()
-          ..color = isDark ? Colors.cyan[200]! : Colors.teal[300]!
+          ..color = isDark ? const Color(0xFF80DEEA) : const Color(0xFF4DB6AC)
           ..style = PaintingStyle.fill;
 
     for (final entry in edgePoints.entries) {
@@ -285,7 +285,7 @@ class _LayerPreviewDimPainter extends CustomPainter {
       text: TextSpan(
         text: 'Active layer only',
         style: TextStyle(
-          color: isDark ? Colors.cyan[300] : Colors.blue[600],
+          color: isDark ? const Color(0xFF4DD0E1) : const Color(0xFF1E88E5),
           fontSize: 10,
           fontWeight: FontWeight.w600,
         ),
@@ -316,12 +316,12 @@ class _PressureCurveEditorPainter extends CustomPainter {
     // Background
     final bgPaint =
         Paint()
-          ..color = (isDark ? Colors.grey[900]! : Colors.white).withValues(
+          ..color = (isDark ? const Color(0xFF212121) : Colors.white).withValues(
             alpha: 0.9,
           );
     final borderPaint =
         Paint()
-          ..color = isDark ? Colors.grey[700]! : Colors.grey[300]!
+          ..color = isDark ? const Color(0xFF616161) : const Color(0xFFE0E0E0)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1;
 
@@ -337,7 +337,7 @@ class _PressureCurveEditorPainter extends CustomPainter {
     // Draw grid
     final gridPaint =
         Paint()
-          ..color = (isDark ? Colors.grey[800]! : Colors.grey[200]!)
+          ..color = (isDark ? const Color(0xFF424242) : const Color(0xFFEEEEEE))
           ..strokeWidth = 0.5;
     for (int i = 1; i < 4; i++) {
       final x = size.width * i / 4;
@@ -365,7 +365,7 @@ class _PressureCurveEditorPainter extends CustomPainter {
     // Control point lines
     final cpLinePaint =
         Paint()
-          ..color = (isDark ? Colors.grey[600]! : Colors.grey[400]!).withValues(
+          ..color = (isDark ? const Color(0xFF757575) : const Color(0xFFBDBDBD)).withValues(
             alpha: 0.5,
           )
           ..strokeWidth = 1;
@@ -379,7 +379,7 @@ class _PressureCurveEditorPainter extends CustomPainter {
 
     final curvePaint =
         Paint()
-          ..color = isDark ? Colors.cyan[300]! : Colors.blue[500]!
+          ..color = isDark ? const Color(0xFF4DD0E1) : const Color(0xFF2196F3)
           ..strokeWidth = 2
           ..style = PaintingStyle.stroke;
     canvas.drawPath(path, curvePaint);
@@ -397,7 +397,7 @@ class _PressureCurveEditorPainter extends CustomPainter {
       text: TextSpan(
         text: 'Pressure curve',
         style: TextStyle(
-          color: isDark ? Colors.grey[500] : Colors.grey[600],
+          color: isDark ? const Color(0xFF9E9E9E) : const Color(0xFF757575),
           fontSize: 7,
         ),
       ),

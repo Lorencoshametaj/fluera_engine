@@ -6,6 +6,7 @@ import '../../core/models/image_element.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../tools/image/image_tool.dart';
 import '../../drawing/brushes/brushes.dart';
+import '../../drawing/brushes/brush_engine.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 import '../optimization/spatial_index.dart';
 import 'image_memory_manager.dart';
@@ -41,10 +42,8 @@ class ImagePainter extends CustomPainter {
   final ImageElement? selectedImage;
   final ImageTool imageTool;
 
-  // 🎨 Editing mode
-  final ImageElement? imageInEditMode;
-  final List<ProStroke> imageEditingStrokes;
-  final ProStroke? currentEditingStroke;
+  // 🖊️ Canvas-space strokes: rendered on top of overlapping images (PDF-like z-order)
+  final List<ProStroke> canvasStrokes;
 
   // 🔄 Loading animation value (0.0 - 1.0 for pulse effect)
   final double loadingPulse;
@@ -155,9 +154,8 @@ class ImagePainter extends CustomPainter {
     required this.loadedImages,
     required this.selectedImage,
     required this.imageTool,
-    this.imageInEditMode,
-    this.imageEditingStrokes = const [],
-    this.currentEditingStroke,
+    this.canvasStrokes = const [],
+
     this.loadingPulse = 0.0,
     this.controller,
     this.imageVersion = 0,
@@ -231,9 +229,8 @@ class ImagePainter extends CustomPainter {
       );
     }
 
-    // 🎨 Global dynamic flags (editing mode affects all images)
-    final globalDynamic =
-        imageInEditMode != null || currentEditingStroke != null;
+    // 🎨 Global dynamic flags
+    const globalDynamic = false;
 
     // 🖼️ Per-image rendering with cache
     for (final imageElement in visibleImages) {
@@ -248,9 +245,7 @@ class ImagePainter extends CustomPainter {
       }
 
       // 🚀 Per-image dynamic check
-      final isThisImageActive =
-          selectedImage?.id == imageElement.id ||
-          imageInEditMode?.id == imageElement.id;
+      final isThisImageActive = selectedImage?.id == imageElement.id;
       final isDragging = isThisImageActive && imageTool.isDragging;
       final isResizing = isThisImageActive && imageTool.isResizing;
       final isRotating = isThisImageActive && imageTool.isRotating;
@@ -297,7 +292,7 @@ class ImagePainter extends CustomPainter {
         canvas.restore();
 
         // Selection overlay (handles need to track position)
-        if (selectedImage?.id == liveImage.id && imageInEditMode == null) {
+        if (selectedImage?.id == liveImage.id) {
           _drawSelection(canvas, liveImage, image);
         }
         continue;
@@ -324,7 +319,7 @@ class ImagePainter extends CustomPainter {
       if (isRotating) {
         final liveImage = imageTool.selectedImage!;
         _renderSingleImage(canvas, liveImage, image);
-        if (selectedImage?.id == liveImage.id && imageInEditMode == null) {
+        if (selectedImage?.id == liveImage.id) {
           _drawSelection(canvas, liveImage, image);
         }
         continue;
@@ -484,8 +479,16 @@ class ImagePainter extends CustomPainter {
     }
 
     // Calculate dimensions (considering crop)
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
+    // 🐛 FIX: Use cached ORIGINAL dimensions for dstRect so visual size
+    //    stays consistent across LOD swaps (thumbnail → full-res).
+    //    srcRect always covers the entire decoded texture.
+    final decodedW = image.width.toDouble();
+    final decodedH = image.height.toDouble();
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final originalW = cachedSize?.width ?? decodedW;
+    final originalH = cachedSize?.height ?? decodedH;
 
     Rect srcRect;
     Rect dstRect;
@@ -493,22 +496,23 @@ class ImagePainter extends CustomPainter {
     if (imageElement.cropRect != null) {
       final crop = imageElement.cropRect!;
       srcRect = Rect.fromLTRB(
-        crop.left * imageWidth,
-        crop.top * imageHeight,
-        crop.right * imageWidth,
-        crop.bottom * imageHeight,
+        crop.left * decodedW,
+        crop.top * decodedH,
+        crop.right * decodedW,
+        crop.bottom * decodedH,
       );
+      // Use original proportions for dst so size doesn't jump
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: srcRect.width,
-        height: srcRect.height,
+        width: crop.right * originalW - crop.left * originalW,
+        height: crop.bottom * originalH - crop.top * originalH,
       );
     } else {
-      srcRect = Rect.fromLTWH(0, 0, imageWidth, imageHeight);
+      srcRect = Rect.fromLTWH(0, 0, decodedW, decodedH);
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: imageWidth,
-        height: imageHeight,
+        width: originalW,
+        height: originalH,
       );
     }
 
@@ -540,33 +544,45 @@ class ImagePainter extends CustomPainter {
       _drawVignette(canvas, dstRect, imageElement.vignette);
     }
 
-    // 🎨 Always draw saved strokes on the image
-    if (imageElement.drawingStrokes.isNotEmpty) {
-      for (final stroke in imageElement.drawingStrokes) {
-        _drawStroke(canvas, stroke, imageElement.scale);
-      }
-    }
-
-    // 🎨 If this image is in editing mode, draw temporary strokes
-    if (imageInEditMode?.id == imageElement.id) {
-      for (final stroke in imageEditingStrokes) {
-        _drawStroke(canvas, stroke, imageElement.scale);
-      }
-      if (currentEditingStroke != null) {
-        _drawStroke(canvas, currentEditingStroke!, imageElement.scale);
-      }
-    }
-
-    // Restore state
+    // Restore state (end of image transform: translate → rotate → scale)
     canvas.restore();
 
-    // 🎨 Editing overlay (absolute coordinates)
-    if (imageInEditMode?.id == imageElement.id) {
-      _drawEditingOverlayBorder(canvas, imageElement, image);
+    // 🎨 Draw image-attached strokes in translate + rotate space (NO scale).
+    // 🐛 FIX: Strokes are stored in un-translated, un-rotated canvas space
+    //    (NOT un-scaled) to preserve inter-point distances for velocity-based
+    //    brushes (fountain pen, etc.). Rendering applies only translate + rotate.
+    // 🖼️ Scale ratio: strokes scale proportionally when image is resized.
+    //    At draw time, referenceScale == imageElement.scale → ratio = 1.0.
+    //    After resize, ratio ≠ 1.0 → strokes scale with the image.
+    if (imageElement.drawingStrokes.isNotEmpty) {
+      canvas.save();
+      canvas.translate(imageElement.position.dx, imageElement.position.dy);
+      if (imageElement.rotation != 0) {
+        canvas.rotate(imageElement.rotation);
+      }
+      for (final stroke in imageElement.drawingStrokes) {
+        final scaleRatio = imageElement.scale / stroke.referenceScale;
+        if (scaleRatio != 1.0) {
+          canvas.save();
+          canvas.scale(scaleRatio);
+        }
+        _drawStroke(canvas, stroke, 1.0);
+        if (scaleRatio != 1.0) {
+          canvas.restore();
+        }
+      }
+      canvas.restore();
     }
 
-    // Selection border (only if NOT editing)
-    if (selectedImage?.id == imageElement.id && imageInEditMode == null) {
+    // 🐛 FIX Bug 1: REMOVED canvas-space stroke overlay.
+    // Previously this block iterated ALL canvasStrokes and drew any stroke
+    // whose first point was inside imageRect ON TOP of the image. This caused
+    // pre-existing canvas strokes to falsely appear on top when the image was
+    // moved to their location. Image-attached strokes are already stored in
+    // imageElement.drawingStrokes and rendered above.
+
+    // Selection border
+    if (selectedImage?.id == imageElement.id) {
       _drawSelection(canvas, imageElement, image);
     }
   }
@@ -600,8 +616,14 @@ class ImagePainter extends CustomPainter {
     }
 
     // Calculate dimensions (considering crop)
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
+    // 🐛 FIX: Use cached ORIGINAL dimensions for dstRect (same as primary path)
+    final decodedW = image.width.toDouble();
+    final decodedH = image.height.toDouble();
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final originalW = cachedSize?.width ?? decodedW;
+    final originalH = cachedSize?.height ?? decodedH;
 
     Rect srcRect;
     Rect dstRect;
@@ -609,22 +631,22 @@ class ImagePainter extends CustomPainter {
     if (imageElement.cropRect != null) {
       final crop = imageElement.cropRect!;
       srcRect = Rect.fromLTRB(
-        crop.left * imageWidth,
-        crop.top * imageHeight,
-        crop.right * imageWidth,
-        crop.bottom * imageHeight,
+        crop.left * decodedW,
+        crop.top * decodedH,
+        crop.right * decodedW,
+        crop.bottom * decodedH,
       );
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: srcRect.width,
-        height: srcRect.height,
+        width: crop.right * originalW - crop.left * originalW,
+        height: crop.bottom * originalH - crop.top * originalH,
       );
     } else {
-      srcRect = Rect.fromLTWH(0, 0, imageWidth, imageHeight);
+      srcRect = Rect.fromLTWH(0, 0, decodedW, decodedH);
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: imageWidth,
-        height: imageHeight,
+        width: originalW,
+        height: originalH,
       );
     }
 
@@ -649,13 +671,32 @@ class ImagePainter extends CustomPainter {
       _drawVignette(canvas, dstRect, imageElement.vignette);
     }
 
-    if (imageElement.drawingStrokes.isNotEmpty) {
-      for (final stroke in imageElement.drawingStrokes) {
-        _drawStroke(canvas, stroke, imageElement.scale);
-      }
-    }
-
+    // Restore image transform (translate → rotate → scale)
     canvas.restore();
+
+    // 🐛 FIX: Render strokes in translate + rotate space (NO scale)
+    //    to match the un-scaled coordinate conversion.
+    if (imageElement.drawingStrokes.isNotEmpty) {
+      canvas.save();
+      // Note: _renderImageContent is called with translate already removed
+      // (content is rendered relative to origin, then replayed with translate).
+      // So we only need rotate here.
+      if (imageElement.rotation != 0) {
+        canvas.rotate(imageElement.rotation);
+      }
+      for (final stroke in imageElement.drawingStrokes) {
+        final scaleRatio = imageElement.scale / stroke.referenceScale;
+        if (scaleRatio != 1.0) {
+          canvas.save();
+          canvas.scale(scaleRatio);
+        }
+        _drawStroke(canvas, stroke, 1.0);
+        if (scaleRatio != 1.0) {
+          canvas.restore();
+        }
+      }
+      canvas.restore();
+    }
   }
 
   // ===========================================================================
@@ -825,8 +866,28 @@ class ImagePainter extends CustomPainter {
     canvas.translate(imageElement.position.dx, imageElement.position.dy);
     canvas.rotate(imageElement.rotation);
 
-    final scaledWidth = image.width.toDouble() * imageElement.scale;
-    final scaledHeight = image.height.toDouble() * imageElement.scale;
+    // 🐛 FIX: Use cached original dimensions so selection matches visual size
+    //    (image is rendered at originalW×originalH, not decodedW×decodedH).
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final imageWidth = cachedSize?.width ?? image.width.toDouble();
+    final imageHeight = cachedSize?.height ?? image.height.toDouble();
+
+    // 🔧 Use cropped dimensions when cropRect is set
+    final visibleWidth =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.right - imageElement.cropRect!.left) *
+                imageWidth
+            : imageWidth;
+    final visibleHeight =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.bottom - imageElement.cropRect!.top) *
+                imageHeight
+            : imageHeight;
+
+    final scaledWidth = visibleWidth * imageElement.scale;
+    final scaledHeight = visibleHeight * imageElement.scale;
 
     final rect = Rect.fromCenter(
       center: Offset.zero,
@@ -911,8 +972,23 @@ class ImagePainter extends CustomPainter {
     canvas.translate(imageElement.position.dx, imageElement.position.dy);
     canvas.rotate(imageElement.rotation);
 
-    final scaledWidth = image.width.toDouble() * imageElement.scale;
-    final scaledHeight = image.height.toDouble() * imageElement.scale;
+    final imageWidth = image.width.toDouble();
+    final imageHeight = image.height.toDouble();
+
+    // 🔧 Use cropped dimensions when cropRect is set
+    final visibleWidth =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.right - imageElement.cropRect!.left) *
+                imageWidth
+            : imageWidth;
+    final visibleHeight =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.bottom - imageElement.cropRect!.top) *
+                imageHeight
+            : imageHeight;
+
+    final scaledWidth = visibleWidth * imageElement.scale;
+    final scaledHeight = visibleHeight * imageElement.scale;
 
     final rect = Rect.fromCenter(
       center: Offset.zero,
@@ -939,56 +1015,50 @@ class ImagePainter extends CustomPainter {
   void _drawStroke(Canvas canvas, ProStroke stroke, [double scale = 1.0]) {
     if (stroke.points.isEmpty) return;
 
-    final scaledBaseWidth = stroke.baseWidth / scale;
+    // 🎨 Use unified BrushEngine for consistent rendering with
+    // DrawingPainter and CurrentStrokePainter — eliminates visual
+    // mismatch between live and finalized strokes on images.
+    // 🐛 FIX: Pass isLive: true so rendering matches CurrentStrokePainter
+    //    (same saveLayer bounds, same point decimation, same texture path).
+    //    Without this, finalized strokes use different quality settings
+    //    that produce a visible "shrink" on pointer-up.
+    BrushEngine.renderStroke(
+      canvas,
+      stroke.points,
+      stroke.color,
+      stroke.baseWidth / scale,
+      stroke.penType,
+      stroke.settings,
+      isLive: true,
+    );
+  }
 
-    switch (stroke.penType) {
-      case ProPenType.ballpoint:
-        BallpointBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.fountain:
-        FountainPenBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.pencil:
-        PencilBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.highlighter:
-        HighlighterBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.watercolor:
-      case ProPenType.marker:
-      case ProPenType.charcoal:
-      case ProPenType.oilPaint:
-      case ProPenType.sprayPaint:
-      case ProPenType.neonGlow:
-      case ProPenType.inkWash:
-        BallpointBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
+  /// 🖊️ Compute axis-aligned bounding box of image in canvas space.
+  Rect _getImageCanvasBounds(ImageElement imageElement, ui.Image image) {
+    final crop = imageElement.cropRect;
+    final double w, h;
+    if (crop != null) {
+      w = (crop.right - crop.left) * image.width;
+      h = (crop.bottom - crop.top) * image.height;
+    } else {
+      w = image.width.toDouble();
+      h = image.height.toDouble();
     }
+    final halfW = w * imageElement.scale / 2;
+    final halfH = h * imageElement.scale / 2;
+    return Rect.fromCenter(
+      center: imageElement.position,
+      width: halfW * 2,
+      height: halfH * 2,
+    );
+  }
+
+  /// 🖊️ Check if a stroke STARTED inside the image (intent-based).
+  /// Only strokes that begin on the image appear on top — strokes drawn
+  /// on blank canvas that happen to pass near the image stay below.
+  bool _strokeStartedOnImage(ProStroke stroke, Rect imageRect) {
+    if (stroke.points.isEmpty) return false;
+    return imageRect.contains(stroke.points.first.position);
   }
 
   // ===========================================================================
@@ -1006,8 +1076,13 @@ class ImagePainter extends CustomPainter {
       canvas.scale(imageElement.scale);
     }
 
-    const placeholderWidth = 200.0;
-    const placeholderHeight = 150.0;
+    // 📏 #5: Use cached dimensions for correct aspect ratio
+    //    Falls back to 200x150 if never loaded before.
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final placeholderWidth = cachedSize?.width ?? 200.0;
+    final placeholderHeight = cachedSize?.height ?? 150.0;
     final rect = Rect.fromCenter(
       center: Offset.zero,
       width: placeholderWidth,
@@ -1101,18 +1176,13 @@ class ImagePainter extends CustomPainter {
     // Always repaint during interactive operations
     if (imageTool.isDragging || imageTool.isResizing) return true;
 
-    // Always repaint in editing mode
-    if (imageInEditMode != null || oldDelegate.imageInEditMode != null) {
-      return true;
-    }
-
     // Version counter: single integer comparison replaces expensive list checks
     if (imageVersion != oldDelegate.imageVersion) return true;
 
     // 🚀 Improvement 5: identity check detects new image loads (same count, different map)
     return selectedImage != oldDelegate.selectedImage ||
         !identical(loadedImages, oldDelegate.loadedImages) ||
-        currentEditingStroke != oldDelegate.currentEditingStroke ||
+        !identical(canvasStrokes, oldDelegate.canvasStrokes) ||
         loadingPulse != oldDelegate.loadingPulse;
   }
 }

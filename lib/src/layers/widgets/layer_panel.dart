@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui' as ui;
-import '../../l10n/nebula_localizations.dart';
-import '../nebula_layer_controller.dart';
+import '../../l10n/fluera_localizations.dart';
+import '../fluera_layer_controller.dart';
 import '../../core/models/canvas_layer.dart';
 
 /// Stati del layer panel
@@ -15,7 +15,7 @@ enum LayerPanelVisibility {
 /// Pannello laterale per gestire i layer
 /// Opens/closes from the left or right edge of the screen
 class LayerPanel extends StatefulWidget {
-  final NebulaLayerController controller;
+  final FlueraLayerController controller;
   final bool isDark;
   final ValueNotifier<bool> isDrawingNotifier;
   final bool isRightSide; // true if the pannello is sul lato destro
@@ -195,14 +195,14 @@ class LayerPanelState extends State<LayerPanel>
                                       decoration: BoxDecoration(
                                         color:
                                             widget.isDark
-                                                ? Colors.grey[900]
+                                                ? const Color(0xFF212121)
                                                 : Colors.white,
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
                                           color:
                                               widget.isDark
                                                   ? Colors.white24
-                                                  : Colors.grey[300]!,
+                                                  : const Color(0xFFE0E0E0),
                                           width: 1,
                                         ),
                                         boxShadow: [
@@ -265,7 +265,7 @@ class LayerPanelState extends State<LayerPanel>
         width: 32,
         height: 80,
         decoration: BoxDecoration(
-          color: widget.isDark ? Colors.grey[800] : Colors.grey[200],
+          color: widget.isDark ? const Color(0xFF424242) : const Color(0xFFEEEEEE),
           // Inverti bordi arrotondati if it is sul lato destro
           borderRadius:
               widget.isRightSide
@@ -278,7 +278,7 @@ class LayerPanelState extends State<LayerPanel>
                     bottomRight: Radius.circular(12),
                   ),
           border: Border.all(
-            color: widget.isDark ? Colors.white24 : Colors.grey[300]!,
+            color: widget.isDark ? Colors.white24 : const Color(0xFFE0E0E0),
             width: 1,
           ),
           boxShadow: [
@@ -333,10 +333,10 @@ class LayerPanelState extends State<LayerPanel>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: widget.isDark ? Colors.grey[850] : Colors.grey[100],
+        color: widget.isDark ? const Color(0xFF303030) : const Color(0xFFF5F5F5),
         border: Border(
           bottom: BorderSide(
-            color: widget.isDark ? Colors.white24 : Colors.grey[300]!,
+            color: widget.isDark ? Colors.white24 : const Color(0xFFE0E0E0),
             width: 1,
           ),
         ),
@@ -350,7 +350,7 @@ class LayerPanelState extends State<LayerPanel>
           ),
           const SizedBox(width: 4),
           Text(
-            NebulaLocalizations.of(context).proCanvas_layers,
+            FlueraLocalizations.of(context).proCanvas_layers,
             style: TextStyle(
               color: widget.isDark ? Colors.white : Colors.black87,
               fontSize: 12,
@@ -382,13 +382,13 @@ class LayerPanelState extends State<LayerPanel>
       decoration: BoxDecoration(
         color:
             isActive
-                ? (widget.isDark ? Colors.purple[900] : Colors.purple[50])
+                ? (widget.isDark ? const Color(0xFF4A148C) : const Color(0xFFF3E5F5))
                 : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color:
               isActive
-                  ? (widget.isDark ? Colors.purple : Colors.purple[300]!)
+                  ? (widget.isDark ? Colors.purple : const Color(0xFFBA68C8))
                   : Colors.transparent,
           width: 1.5,
         ),
@@ -465,7 +465,7 @@ class LayerPanelState extends State<LayerPanel>
                         constraints: const BoxConstraints(),
                         color:
                             layer.isLocked
-                                ? (widget.isDark ? Colors.red[300] : Colors.red)
+                                ? (widget.isDark ? const Color(0xFFE57373) : Colors.red)
                                 : (widget.isDark
                                     ? Colors.white70
                                     : Colors.black87),
@@ -488,7 +488,7 @@ class LayerPanelState extends State<LayerPanel>
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                         itemBuilder: (ctx) {
-                          final l10n = NebulaLocalizations.of(ctx);
+                          final l10n = FlueraLocalizations.of(ctx);
                           return [
                             PopupMenuItem(
                               value: 'rename',
@@ -579,7 +579,7 @@ class LayerPanelState extends State<LayerPanel>
                           style: TextStyle(
                             color:
                                 widget.isDark
-                                    ? Colors.purple[200]
+                                    ? const Color(0xFFCE93D8)
                                     : Colors.purple,
                             fontSize: 8,
                             fontWeight: FontWeight.w500,
@@ -647,7 +647,7 @@ class LayerPanelState extends State<LayerPanel>
 
   void _showRenameDialog(CanvasLayer layer) {
     final controller = TextEditingController(text: layer.name);
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
 
     showDialog(
       context: context,
@@ -739,14 +739,14 @@ class LayerPanelState extends State<LayerPanel>
   }
 
   Widget _buildActions() {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: widget.isDark ? Colors.grey[850] : Colors.grey[100],
+        color: widget.isDark ? const Color(0xFF303030) : const Color(0xFFF5F5F5),
         border: Border(
           top: BorderSide(
-            color: widget.isDark ? Colors.white24 : Colors.grey[300]!,
+            color: widget.isDark ? Colors.white24 : const Color(0xFFE0E0E0),
             width: 1,
           ),
         ),
@@ -766,7 +766,7 @@ class LayerPanelState extends State<LayerPanel>
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor:
-                    widget.isDark ? Colors.purple[700] : Colors.purple,
+                    widget.isDark ? const Color(0xFF7B1FA2) : Colors.purple,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                 shape: RoundedRectangleBorder(

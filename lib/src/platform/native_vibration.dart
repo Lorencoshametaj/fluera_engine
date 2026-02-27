@@ -32,7 +32,7 @@ import 'package:flutter/services.dart';
 class NativeVibration {
   // Method Channel
   static const MethodChannel _channel = MethodChannel(
-    'nebulaengine.vibration/method',
+    'flueraengine.vibration/method',
   );
 
   // Private constructor

@@ -645,7 +645,7 @@ class _LatexCommandReferenceState extends State<LatexCommandReference>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Nebula Engine — Native LaTeX Renderer',
+                  'Fluera Engine — Native LaTeX Renderer',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: cs.onSurface,

@@ -7,20 +7,17 @@ import 'platform_channels/audio_recorder_channel.dart';
 // AUDIO MODULE
 // =============================================================================
 
-/// 🎵 Self-contained audio module for the Nebula Engine canvas.
+/// 🎵 Self-contained audio module for the Fluera Engine canvas.
 ///
 /// Encapsulates all audio functionality:
-/// - [AudioPlayerChannel]: native platform audio playback
-/// - [AudioRecorderChannel]: native platform audio recording
-/// - Audio node types (future: AudioNode in scene graph)
+/// - [NativeAudioPlayerChannel]: native platform audio playback
+/// - [NativeAudioRecorderChannel]: native platform audio recording
 ///
 /// ## Usage
 ///
 /// ```dart
-/// await EngineScope.current.moduleRegistry.register(AudioModule());
-///
-/// final audio = EngineScope.current.moduleRegistry.findModule<AudioModule>()!;
-/// await audio.player.play('asset://sounds/click.wav');
+/// final audio = EngineScope.current.audioModule!;
+/// await audio.player.play();
 /// ```
 class AudioModule extends CanvasModule {
   @override
@@ -34,10 +31,10 @@ class AudioModule extends CanvasModule {
   // ---------------------------------------------------------------------------
 
   /// Native audio playback channel.
-  late final AudioPlayerChannel player;
+  late final NativeAudioPlayerChannel player;
 
   /// Native audio recording channel.
-  late final AudioRecorderChannel recorder;
+  late final NativeAudioRecorderChannel recorder;
 
   // ---------------------------------------------------------------------------
   // CanvasModule contract
@@ -57,8 +54,8 @@ class AudioModule extends CanvasModule {
   Future<void> initialize(ModuleContext context) async {
     if (_initialized) return;
 
-    player = AudioPlayerChannel();
-    recorder = AudioRecorderChannel();
+    player = NativeAudioPlayerChannel.create();
+    recorder = NativeAudioRecorderChannel.create();
 
     _initialized = true;
   }
@@ -66,8 +63,8 @@ class AudioModule extends CanvasModule {
   @override
   Future<void> dispose() async {
     if (!_initialized) return;
-    player.dispose();
-    recorder.dispose();
+    await player.dispose();
+    await recorder.dispose();
     _initialized = false;
   }
 }

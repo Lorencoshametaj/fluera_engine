@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'nebula_realtime_adapter.dart';
+import 'fluera_realtime_adapter.dart';
 import 'realtime_enterprise.dart';
 
 // =============================================================================

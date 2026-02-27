@@ -48,12 +48,10 @@ class StrokePersistenceService {
   String? _currentCanvasId;
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 🔧 SINGLETON
+  // 🔧 CONSTRUCTION
   // ═══════════════════════════════════════════════════════════════════════════
-  /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static StrokePersistenceService get instance => EngineScope.current.strokePersistenceService;
 
-  /// Creates a new instance (used by [EngineScope]).
+  /// Creates a new instance (used by modules).
   StrokePersistenceService.create();
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -65,13 +63,11 @@ class StrokePersistenceService {
     _currentCanvasId = canvasId;
     _totalStrokeCount = 0;
     _diskStorageActive = false;
-
   }
 
   /// Attiva disk storage (chiamato automaticamente @ 10k strokes)
   Future<void> _activateDiskStorage() async {
     if (_diskStorageActive || _currentCanvasId == null) return;
-
 
     _diskManager = DiskStrokeManager.instance;
     await _diskManager!.initialize(_currentCanvasId!);
@@ -117,7 +113,6 @@ class StrokePersistenceService {
   /// Uses chunked processing to avoid ANR on very large batches
   Future<void> saveStrokesBatch(List<ProStroke> strokes) async {
     if (strokes.isEmpty) return;
-
 
     // Incrementa contatore
     _totalStrokeCount += strokes.length;
@@ -167,7 +162,6 @@ class StrokePersistenceService {
       // Singola chiamata batch invece di 10k chiamate individuali!
       await _diskManager!.saveStrokesBatch(strokeIds, pointsList, boundsList);
     }
-
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

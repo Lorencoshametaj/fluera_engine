@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📊 Tabular Fill Handle — auto-fill, smart sequences, formula shifting.
-extension NebulaCanvasTabularFillHandle on _NebulaCanvasScreenState {
+extension FlueraCanvasTabularFillHandle on _FlueraCanvasScreenState {
   // ── Fill handle state ─────────────────────────────────────────────────
 
   /// Known smart sequences for auto-fill.

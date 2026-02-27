@@ -33,13 +33,10 @@ import '../../core/engine_error.dart';
 /// - [ShaderInkWashRenderer] in `shader_ink_wash_renderer.dart`
 class ShaderBrushService {
   // ═══════════════════════════════════════════════════════════════════════════
-  // SINGLETON
+  // CONSTRUCTION
   // ═══════════════════════════════════════════════════════════════════════════
-  /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static ShaderBrushService get instance =>
-      EngineScope.current.shaderBrushService;
 
-  /// Creates a new instance (used by [EngineScope]).
+  /// Creates a new instance (used by modules).
   ShaderBrushService.create();
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -140,14 +137,14 @@ class ShaderBrushService {
     if (_initAttempted) return;
     _initAttempted = true;
 
-    // 🎨 GPU shaders enabled — path fix: packages/nebula_engine/shaders/
+    // 🎨 GPU shaders enabled — path fix: packages/fluera_engine/shaders/
 
     try {
       // Load all shaders in parallel
-      // 🎯 Package-prefixed paths: required when nebula_engine is a
+      // 🎯 Package-prefixed paths: required when fluera_engine is a
       // dependency (not the root app). Flutter resolves shader assets
       // via 'packages/<package_name>/<path>' for package dependencies.
-      const prefix = 'packages/nebula_engine/shaders';
+      const prefix = 'packages/fluera_engine/shaders';
       final results = await Future.wait([
         ui.FragmentProgram.fromAsset('$prefix/pencil_pro.frag'),
         ui.FragmentProgram.fromAsset('$prefix/fountain_pen_pro.frag'),

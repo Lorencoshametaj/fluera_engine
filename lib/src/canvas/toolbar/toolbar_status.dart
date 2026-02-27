@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../storage/nebula_cloud_adapter.dart';
+import '../../storage/fluera_cloud_adapter.dart';
 
 // ============================================================================
 // TOOLBAR STATUS WIDGETS — Compact actions, tool sections, time travel, cloud
@@ -138,7 +138,7 @@ class ToolbarToolSection extends StatelessWidget {
 
 /// Compact cloud sync status indicator with animated icon + progress ring
 class ToolbarCloudSyncIndicator extends StatefulWidget {
-  final NebulaSyncState state;
+  final FlueraSyncState state;
   final double progress;
   const ToolbarCloudSyncIndicator({
     super.key,
@@ -166,7 +166,7 @@ class _ToolbarCloudSyncIndicatorState extends State<ToolbarCloudSyncIndicator>
     _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-    if (widget.state != NebulaSyncState.error) {
+    if (widget.state != FlueraSyncState.error) {
       _pulseController.repeat(reverse: true);
     }
   }
@@ -174,7 +174,7 @@ class _ToolbarCloudSyncIndicatorState extends State<ToolbarCloudSyncIndicator>
   @override
   void didUpdateWidget(covariant ToolbarCloudSyncIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.state == NebulaSyncState.error) {
+    if (widget.state == FlueraSyncState.error) {
       _pulseController.stop();
       _pulseController.value = 1.0;
     } else if (!_pulseController.isAnimating) {
@@ -192,15 +192,15 @@ class _ToolbarCloudSyncIndicatorState extends State<ToolbarCloudSyncIndicator>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final iconData = switch (widget.state) {
-      NebulaSyncState.syncing => Icons.cloud_upload_rounded,
-      NebulaSyncState.error => Icons.cloud_off_rounded,
-      NebulaSyncState.idle => Icons.cloud_done_rounded,
+      FlueraSyncState.syncing => Icons.cloud_upload_rounded,
+      FlueraSyncState.error => Icons.cloud_off_rounded,
+      FlueraSyncState.idle => Icons.cloud_done_rounded,
     };
 
     final color =
-        widget.state == NebulaSyncState.error ? Colors.amber : cs.primary;
+        widget.state == FlueraSyncState.error ? Colors.amber : cs.primary;
 
-    final isActive = widget.state == NebulaSyncState.syncing;
+    final isActive = widget.state == FlueraSyncState.syncing;
 
     return SizedBox(
       width: 20,

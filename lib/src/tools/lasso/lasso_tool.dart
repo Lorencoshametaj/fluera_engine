@@ -9,7 +9,7 @@ import '../../core/nodes/shape_node.dart';
 import '../../core/nodes/text_node.dart';
 import '../../core/nodes/image_node.dart';
 import '../../core/models/canvas_layer.dart';
-import '../../layers/nebula_layer_controller.dart';
+import '../../layers/fluera_layer_controller.dart';
 import '../../reflow/reflow_controller.dart';
 import '../../reflow/content_cluster.dart';
 import '../../systems/selection_manager.dart';
@@ -41,7 +41,7 @@ const double _kSelectionBoundsPadding = 20.0;
 /// Transforms, alignment, clipboard, and z-ordering all delegate
 /// to [CanvasNode] APIs — no flat-layer duplication.
 class LassoTool {
-  final NebulaLayerController layerController;
+  final FlueraLayerController layerController;
 
   /// The single source of truth for selection state.
   final SelectionManager selectionManager;

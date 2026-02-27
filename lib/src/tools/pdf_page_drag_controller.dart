@@ -21,6 +21,9 @@ class PdfPageDragController {
   /// The parent document of the dragging page.
   PdfDocumentNode? _parentDocument;
 
+  /// The parent document being dragged (for broadcast).
+  PdfDocumentNode? get parentDocument => _parentDocument;
+
   /// Page position at drag start (for cancel/undo).
   Offset _dragStartPosition = Offset.zero;
 

@@ -1,10 +1,13 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
-/// 📦 Lifecycle & Initialization — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
+/// 📦 Lifecycle & Initialization — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
   /// ✨ Initialize GPU shader brushes
   Future<void> _initProShaders() async {
-    await ShaderBrushService.instance.initialize();
+    final drawingModule = EngineScope.current.drawingModule;
+    if (drawingModule != null) {
+      await drawingModule.shaderBrushService.initialize();
+    }
     // 🎯 dart:gpu low-level render pipeline (texture overlay PoC)
     GpuTextureService.instance.initialize();
   }
@@ -53,7 +56,7 @@ extension on _NebulaCanvasScreenState {
         EngineError(
           severity: ErrorSeverity.transient,
           domain: ErrorDomain.network,
-          source: '_NebulaCanvasScreenState._loadBackgroundImage',
+          source: '_FlueraCanvasScreenState._loadBackgroundImage',
           original: e,
           stack: stack,
         ),
@@ -63,7 +66,8 @@ extension on _NebulaCanvasScreenState {
 
   /// 🎛️ Load brush settings persistenti dal servizio
   void _loadBrushSettings() {
-    final service = BrushSettingsService.instance;
+    final service = EngineScope.current.drawingModule?.brushSettingsService;
+    if (service == null) return;
     if (service.isInitialized) {
       setState(() {
         _brushSettings = service.settings;
@@ -78,7 +82,9 @@ extension on _NebulaCanvasScreenState {
   void _onBrushSettingsServiceUpdated() {
     if (mounted) {
       setState(() {
-        _brushSettings = BrushSettingsService.instance.settings;
+        _brushSettings =
+            EngineScope.current.drawingModule?.brushSettingsService.settings ??
+            _brushSettings;
       });
     }
   }
@@ -92,6 +98,10 @@ extension on _NebulaCanvasScreenState {
   ///
   /// The loading overlay is visible during this entire operation.
   Future<void> _initializeCanvas() async {
+    // 🖼️ EAGER: Load splash snapshot BEFORE heavy init so it's visible
+    // immediately on the loading screen. This is a tiny BLOB read (~50KB).
+    await _loadSplashSnapshot();
+
     // These are all independent — run them in parallel
     await Future.wait([
       // 1. GPU shader compilation (~50-200ms on first run)
@@ -109,6 +119,235 @@ extension on _NebulaCanvasScreenState {
       // 5. 🎤 Load saved recordings from SQLite
       _loadSavedRecordings(),
     ]);
+
+    // 🖼️ Wire staggered thumbnail queue callback
+    _wireImageMemoryManagerCallbacks();
+
+    // 🕐 Start proactive image eviction after init completes
+    _imageEvictionTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _runImageEvictionCycle(),
+    );
+  }
+
+  /// 🧠 Proactive image eviction cycle.
+  ///
+  /// Runs every 5s. Features:
+  /// - Proactive eviction (off-viewport > 5s)
+  /// - Auto-reload when evicted images scroll back into view
+  /// - Multi-level LOD (256/512/1024/full based on zoom)
+  /// - Staggered thumbnail queue (serial processing)
+  /// - Adaptive budget (adjusts maxImages based on RSS)
+  void _runImageEvictionCycle() {
+    if (!mounted || _imageElements.isEmpty) return;
+
+    // 📏 Adaptive budget: adjust maxImages based on current RSS
+    _imageMemoryManager.adjustBudgetFromMemory();
+
+    // Compute viewport rect in canvas coordinates
+    final scale = _canvasController.scale;
+    final offset = _canvasController.offset;
+    final ctx = context;
+    final size = MediaQuery.of(ctx).size;
+    final viewportRect = Rect.fromLTWH(
+      -offset.dx / scale,
+      -offset.dy / scale,
+      size.width / scale,
+      size.height / scale,
+    );
+
+    // 🔮 PREDICTIVE: Track scroll velocity and expand viewport in scroll direction
+    _imageMemoryManager.updateScrollVelocity(offset);
+    final predictiveViewport = _imageMemoryManager.getPredictiveViewport(
+      viewportRect,
+    );
+
+    // Margin + predictive expansion
+    const margin = 500.0;
+    final expandedViewport = predictiveViewport.inflate(margin);
+
+    // Find which image paths are currently visible
+    final visiblePaths = <String>{};
+    for (final img in _imageElements) {
+      final loadedImg = _loadedImages[img.imagePath];
+      final w = loadedImg?.width.toDouble() ?? 200.0;
+      final h = loadedImg?.height.toDouble() ?? 150.0;
+      final halfW = w * img.scale / 2;
+      final halfH = h * img.scale / 2;
+      final imgRect = Rect.fromCenter(
+        center: img.position,
+        width: halfW * 2,
+        height: halfH * 2,
+      );
+      if (expandedViewport.overlaps(imgRect)) {
+        visiblePaths.add(img.imagePath);
+      }
+    }
+
+    // Run proactive eviction (off-viewport > 5s → dispose, keep compressed)
+    if (_loadedImages.isNotEmpty) {
+      final evicted = _imageMemoryManager.proactiveEviction(
+        _loadedImages,
+        visiblePaths,
+      );
+      if (evicted.isNotEmpty) {
+        debugPrint(
+          '[🧠 EVICT] Evicted ${evicted.length} images '
+          '(budget: ${_imageMemoryManager.maxImages}, '
+          'compressed cache: ${_imageMemoryManager.stats['compressedCacheEntries']})',
+        );
+        for (final path in evicted) {
+          for (final img in _imageElements) {
+            if (img.imagePath == path) {
+              ImagePainter.invalidateImageCache(img.id);
+            }
+          }
+        }
+        _thumbnailPaths.removeAll(evicted);
+        if (mounted) setState(() => _imageVersion++);
+      }
+    }
+
+    // Reload evicted images that are now back in viewport
+    for (final img in _imageElements) {
+      if (visiblePaths.contains(img.imagePath) &&
+          !_loadedImages.containsKey(img.imagePath)) {
+        debugPrint(
+          '[🧠 RELOAD] ${img.imagePath.split('/').last} '
+          '(cached bytes: ${_imageMemoryManager.hasCompressedBytes(img.imagePath)})',
+        );
+        _preloadImage(
+          img.imagePath,
+          storageUrl: img.storageUrl,
+          thumbnailUrl: img.thumbnailUrl,
+        );
+      }
+    }
+
+    // 🖼️ MULTI-LEVEL LOD: Determine optimal resolution tier for current zoom
+    final optimalTier = _imageMemoryManager.getOptimalLodTier(scale);
+
+    if (optimalTier != null) {
+      // Zoom is low — downscale visible images to optimal LOD tier
+      for (final img in _imageElements) {
+        final path = img.imagePath;
+        if (!visiblePaths.contains(path)) continue;
+        if (!_loadedImages.containsKey(path)) continue;
+
+        final currentLod = _imageMemoryManager.getCurrentLodLevel(path);
+        if (currentLod == optimalTier.name) continue; // Already at correct LOD
+
+        final currentImage = _loadedImages[path]!;
+        // Only downscale if the image is large enough to benefit
+        if (currentImage.width <= optimalTier.maxDimension &&
+            currentImage.height <= optimalTier.maxDimension) {
+          _imageMemoryManager.setLodLevel(path, optimalTier.name);
+          continue;
+        }
+
+        // 🔄 DOUBLE-BUFFER: Skip if a LOD swap is already in progress
+        if (_imageMemoryManager.isLodSwapPending(path)) continue;
+
+        // Use compressed cache for staggered thumbnail (old image stays visible)
+        final bytes = _imageMemoryManager.getCompressedBytes(path);
+        if (bytes != null) {
+          _imageMemoryManager.markLodSwapPending(path);
+          _imageMemoryManager.enqueueThumbnail(
+            path,
+            bytes,
+            optimalTier.maxDimension,
+          );
+        }
+      }
+    } else if (_thumbnailPaths.isNotEmpty) {
+      // Zoom is back to normal (above highest LOD threshold) — reload full-res
+      final toUpgrade = _thumbnailPaths.toList();
+      for (final path in toUpgrade) {
+        if (_loadedImages.containsKey(path)) {
+          debugPrint('[🖼️ UPGRADE] Full-res: ${path.split('/').last}');
+          _thumbnailPaths.remove(path);
+          _imageMemoryManager.setLodLevel(path, null);
+          final imgEl =
+              _imageElements.where((e) => e.imagePath == path).firstOrNull;
+          if (imgEl != null) {
+            final oldThumb = _loadedImages.remove(path);
+            oldThumb?.dispose();
+            _preloadImage(
+              path,
+              storageUrl: imgEl.storageUrl,
+              thumbnailUrl: imgEl.thumbnailUrl,
+            );
+          }
+        } else {
+          _thumbnailPaths.remove(path);
+          _imageMemoryManager.setLodLevel(path, null);
+        }
+      }
+    }
+  }
+
+  /// 🖼️ Wire up the staggered thumbnail callback from ImageMemoryManager.
+  ///
+  /// Called once during init to connect the serial thumbnail queue
+  /// to the canvas state (swap decoded thumbnail into _loadedImages).
+  void _wireImageMemoryManagerCallbacks() {
+    _imageMemoryManager.onThumbnailReady = (path, thumbnail) {
+      if (!mounted) {
+        thumbnail.dispose();
+        return;
+      }
+
+      // 🔄 DOUBLE-BUFFER: New image is decoded → swap atomically
+      final oldImage = _loadedImages[path];
+      _loadedImages[path] = thumbnail;
+      _thumbnailPaths.add(path);
+      _imageMemoryManager.markLodSwapComplete(path);
+      oldImage?.dispose(); // Old stays visible until this point
+
+      // Update LOD level tracking
+      final currentLod = _imageMemoryManager.getCurrentLodLevel(path);
+      if (currentLod != null) {
+        _imageMemoryManager.setLodLevel(path, currentLod);
+      }
+
+      // Invalidate per-image Picture cache
+      for (final img in _imageElements) {
+        if (img.imagePath == path) {
+          ImagePainter.invalidateImageCache(img.id);
+        }
+      }
+
+      debugPrint(
+        '[🖼️ LOD] Swapped to ${thumbnail.width}x${thumbnail.height}: '
+        '${path.split('/').last}',
+      );
+
+      if (mounted) setState(() => _imageVersion++);
+    };
+  }
+
+  /// 🖼️ Load the splash screen snapshot from storage.
+  ///
+  /// Called at the very start of `_initializeCanvas` so the snapshot
+  /// appears on the loading overlay before any heavy init starts.
+  Future<void> _loadSplashSnapshot() async {
+    try {
+      final adapter = _config.storageAdapter;
+      if (adapter == null) return;
+
+      // Ensure adapter is initialized (may already be from a previous run)
+      await adapter.initialize();
+
+      final png = await adapter.loadSnapshot(_canvasId);
+      if (png != null && mounted) {
+        setState(() {
+          _splashSnapshot = png;
+        });
+      }
+    } catch (e) {
+      // Non-critical — the loading screen will show logo fallback
+      debugPrint('[Snapshot] Load failed: $e');
+    }
   }
 
   /// 🆕 Load dati canvas — LOCAL FIRST per display istantaneo
@@ -153,6 +392,30 @@ extension on _NebulaCanvasScreenState {
               '☁️ No local data — loaded from cloud '
               '(${data.keys.length} keys)',
             );
+
+            // 🚀 SHARDING FIX: Reassemble strokes from sub-collection
+            // into layers. Without this, new users see empty canvas because
+            // the main document's layers have no strokes when sharded.
+            final adapter = _syncEngine!.adapter;
+            if (adapter.supportsStrokeSharding) {
+              final strokesByLayer = await adapter.loadStrokes(_canvasId);
+              final layers = data['layers'] as List?;
+              if (layers != null && strokesByLayer.isNotEmpty) {
+                for (final layerData in layers) {
+                  if (layerData is Map) {
+                    final layerId = layerData['id'] as String?;
+                    if (layerId != null &&
+                        strokesByLayer.containsKey(layerId)) {
+                      layerData['strokes'] = strokesByLayer[layerId];
+                    }
+                  }
+                }
+                debugPrint(
+                  '☁️ Reassembled ${strokesByLayer.values.fold<int>(0, (a, b) => a + b.length)} '
+                  'sharded strokes into ${strokesByLayer.length} layers',
+                );
+              }
+            }
           } else {
             debugPrint('☁️ No local data & no cloud data — fresh canvas');
           }
@@ -178,13 +441,40 @@ extension on _NebulaCanvasScreenState {
     } finally {
       // 🔄 Reveal canvas: setState triggers AnimatedOpacity fade-out
       if (mounted) {
+        // 🎨 FORCE CACHE INVALIDATION: the stroke cache and layer caches
+        // are EngineScope singletons that may retain stale state from the
+        // empty-canvas painter created before data was loaded.
+        DrawingPainter.invalidateLayerCaches();
+        if (EngineScope.hasScope) {
+          EngineScope.current.renderCacheScope.strokeCache.invalidateCache();
+        }
+
         setState(() {
           _isLoading = false;
         });
+
         // 🏎️ Auto-enable performance overlay in debug builds
         if (kDebugMode) {
           CanvasPerformanceMonitor.instance.setEnabled(true);
         }
+
+        // 🎨 FORCE REPAINT: The DrawingPainter repaints via two mechanisms:
+        // 1. ListenableBuilder(listenable: _layerController) → widget rebuild
+        // 2. super(repaint: controller) → direct repaint signal
+        //
+        // After loading, mechanism (1) may fire while the overlay is still
+        // opaque, and the rendering system may optimize away the paint.
+        // We use BOTH mechanisms with a delay to guarantee the painter
+        // renders with the loaded data after the overlay fades out.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          // Bump scene graph version to invalidate any stale caches
+          _layerController.sceneGraph.bumpVersion();
+          // Force widget rebuild (creates new DrawingPainter with fresh data)
+          setState(() {});
+          // Direct repaint signal to the DrawingPainter via its repaint listenable
+          _canvasController.markNeedsPaint();
+        });
       } else {
         _isLoading = false;
       }
@@ -201,7 +491,23 @@ extension on _NebulaCanvasScreenState {
   ///
   /// Loads data from cloud and applies it ONLY if more recent than local.
   /// Does not block the UI — the user can already draw.
+  /// 🐛 FIX C: Reentrancy guard prevents double-apply on rapid reconnect.
+  static bool _isSyncingFirebase = false;
   Future<void> _syncFirebaseInBackground() async {
+    // 🐛 FIX C: Prevent concurrent sync (rapid reconnect → double apply)
+    if (_isSyncingFirebase) {
+      debugPrint('☁️ Background sync: already in progress, skipping');
+      return;
+    }
+    _isSyncingFirebase = true;
+    try {
+      await _syncFirebaseInBackgroundImpl();
+    } finally {
+      _isSyncingFirebase = false;
+    }
+  }
+
+  Future<void> _syncFirebaseInBackgroundImpl() async {
     // 💎 TIER GATE: Only Plus/Pro users sync canvas from the cloud
     if (!_hasCloudSync) return;
     if (_syncEngine == null) return;
@@ -211,7 +517,14 @@ extension on _NebulaCanvasScreenState {
       if (cloudData == null) return;
 
       // 🔒 Conflict detection: compare timestamps
-      final cloudUpdatedAt = cloudData['updatedAt'] as int?;
+      // Firestore stores Timestamp objects, not raw ints — handle both.
+      final rawUpdatedAt = cloudData['updatedAt'];
+      final cloudUpdatedAt =
+          rawUpdatedAt is int
+              ? rawUpdatedAt
+              : (rawUpdatedAt != null
+                  ? (rawUpdatedAt as dynamic).millisecondsSinceEpoch as int?
+                  : null);
       final localUpdatedAt = _lastLocalSaveTimestamp;
 
       if (cloudUpdatedAt != null && localUpdatedAt != null) {
@@ -227,11 +540,31 @@ extension on _NebulaCanvasScreenState {
       // Cloud data is newer — apply it
       if (mounted) {
         debugPrint('☁️ Background sync: applying newer cloud data');
+
+        // 🚀 SHARDING: Reassemble strokes from sub-collection into layers
+        final adapter = _syncEngine!.adapter;
+        if (adapter.supportsStrokeSharding) {
+          final strokesByLayer = await adapter.loadStrokes(_canvasId);
+          final rawLayers = cloudData['layers'];
+          final layers = rawLayers is List ? rawLayers : null;
+          if (layers != null && strokesByLayer.isNotEmpty) {
+            for (final layerData in layers) {
+              if (layerData is Map) {
+                final layerId = layerData['id'] as String?;
+                if (layerId != null && strokesByLayer.containsKey(layerId)) {
+                  layerData['strokes'] = strokesByLayer[layerId];
+                }
+              }
+            }
+          }
+        }
+
         await _applyCanvasData(cloudData);
         downloadMissingAssets();
       }
-    } catch (e) {
+    } catch (e, st) {
       debugPrint('☁️ Background sync failed: $e');
+      debugPrint('☁️ Stack trace: $st');
     }
   }
 
@@ -246,7 +579,8 @@ extension on _NebulaCanvasScreenState {
       }
 
       // Load text elements
-      final textJson = data['textElements'] as List<dynamic>?;
+      final rawText = data['textElements'];
+      final textJson = rawText is List ? rawText : null;
       if (textJson != null) {
         _digitalTextElements.clear();
         _digitalTextElements.addAll(
@@ -261,7 +595,8 @@ extension on _NebulaCanvasScreenState {
       }
 
       // Load image elements
-      final imageJson = data['imageElements'] as List<dynamic>?;
+      final rawImages = data['imageElements'];
+      final imageJson = rawImages is List ? rawImages : null;
       if (imageJson != null) {
         _imageElements.clear();
         _imageElements.addAll(
@@ -274,6 +609,21 @@ extension on _NebulaCanvasScreenState {
         );
         _imageVersion++;
         _rebuildImageSpatialIndex();
+      }
+
+      // 📌 Load recording pins
+      final rawPins = data['recordingPins'];
+      final pinsJson = rawPins is List ? rawPins : null;
+      if (pinsJson != null) {
+        _recordingPins.clear();
+        _recordingPins.addAll(
+          pinsJson
+              .map(
+                (p) =>
+                    RecordingPin.fromJson(Map<String, dynamic>.from(p as Map)),
+              )
+              .toList(),
+        );
       }
 
       // Load settings — supports both:
@@ -382,6 +732,9 @@ extension on _NebulaCanvasScreenState {
         layerImageIds.add(img.id);
       }
     }
+    debugPrint(
+      '[🖼️ RESTORE] Found ${_imageElements.length} images to preload',
+    );
     for (final imageElement in _imageElements) {
       if (!layerImageIds.contains(imageElement.id)) {
         // Image exists in _imageElements but not in any layer — add to active layer
@@ -391,10 +744,18 @@ extension on _NebulaCanvasScreenState {
         _layerController.addImage(imageElement);
         _layerController.enableDeltaTracking = wasTracking;
       }
-      _preloadImage(
-        imageElement.imagePath,
-        storageUrl: imageElement.storageUrl,
-        thumbnailUrl: imageElement.thumbnailUrl,
+    }
+
+    // 🚀 #2: Batch preload — all images in parallel instead of sequential
+    if (_imageElements.isNotEmpty) {
+      await Future.wait(
+        _imageElements.map(
+          (img) => _preloadImage(
+            img.imagePath,
+            storageUrl: img.storageUrl,
+            thumbnailUrl: img.thumbnailUrl,
+          ),
+        ),
       );
     }
 
@@ -443,9 +804,16 @@ extension on _NebulaCanvasScreenState {
     // (sceneGraph getter triggers _rebuildSceneGraphImpl → addLayer →
     //  bumpVersion + notifyNodeAdded, which corrupts state if called
     //  synchronously inside _onLayerChanged.)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _contentBoundsTracker.update();
-    });
+    //
+    // 🚀 THROTTLE: Skip during active drawing — the current in-progress
+    // stroke isn't in the layer yet (it's in CurrentStrokePainter), so
+    // updating the minimap mid-stroke is wasted work. The update fires
+    // on stroke end when _isDrawingNotifier becomes false.
+    if (!_isDrawingNotifier.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _contentBoundsTracker.update();
+      });
+    }
 
     // 🔧 FIX ZOOM LAG: Update list cache
     _refreshCachedLists();
@@ -677,12 +1045,49 @@ extension on _NebulaCanvasScreenState {
   }) async {
     if (_loadedImages.containsKey(imagePath)) return;
 
+    // 🚀 FAST PATH: If compressed bytes are cached from a previous eviction,
+    // decode from memory (~5ms) instead of reading from disk (~50ms).
+    final cachedBytes = _imageMemoryManager.getCompressedBytes(imagePath);
+    if (cachedBytes != null) {
+      debugPrint(
+        '[🖼️ PRELOAD] ⚡ Fast reload from compressed cache: ${imagePath.split('/').last}',
+      );
+      final image = await _decodeImageCapped(cachedBytes);
+      if (mounted && image != null) {
+        setState(() {
+          _loadedImages[imagePath] = image;
+          _imageVersion++;
+          _rebuildImageSpatialIndex();
+        });
+        _imageMemoryManager.markAccessed(imagePath);
+        _stopLoadingPulseIfDone();
+      }
+      return;
+    }
+
+    debugPrint(
+      '[🖼️ PRELOAD] imagePath=$imagePath, '
+      'storageUrl=${storageUrl?.substring(0, (storageUrl.length).clamp(0, 60))}, '
+      'thumbnailUrl=${thumbnailUrl != null ? "set" : "null"}',
+    );
+
     try {
-      final file = File(imagePath);
-      if (await file.exists()) {
-        final bytes = await file.readAsBytes();
+      // 🚀 ISOLATE I/O: Read file bytes on background isolate (zero UI jank)
+      final bytes = await ImageMemoryManager.readFileOnIsolate(imagePath);
+      if (bytes != null) {
+        debugPrint(
+          '[🖼️ PRELOAD] ✅ Loaded via isolate: ${imagePath.split('/').last}',
+        );
+        // 💾 Cache compressed bytes for instant reload after eviction
+        _imageMemoryManager.cacheCompressedBytes(imagePath, bytes);
         final image = await _decodeImageCapped(bytes);
         if (mounted && image != null) {
+          // 📏 #5: Cache dimensions for placeholder sizing
+          _imageMemoryManager.cacheImageDimensions(
+            imagePath,
+            image.width,
+            image.height,
+          );
           setState(() {
             _loadedImages[imagePath] = image;
             _imageVersion++;
@@ -693,6 +1098,11 @@ extension on _NebulaCanvasScreenState {
         }
         return;
       }
+
+      debugPrint(
+        '[🖼️ PRELOAD] ❌ Local file NOT found, '
+        'storageUrl=${storageUrl != null ? "available" : "NULL!"}',
+      );
 
       // 🌐 Local file not found — try downloading from storageUrl
       if (storageUrl != null && storageUrl.isNotEmpty) {
@@ -726,8 +1136,32 @@ extension on _NebulaCanvasScreenState {
           Uri.parse(storageUrl),
         ).load(storageUrl);
         final bytes = response.buffer.asUint8List();
+
+        // 💾 FIX #1: Persist downloaded bytes to local disk.
+        // Without this, every restart re-downloads from cloud.
+        try {
+          final localFile = File(imagePath);
+          await localFile.parent.create(recursive: true);
+          await localFile.writeAsBytes(bytes, flush: true);
+          debugPrint(
+            '[🖼️ PRELOAD] 💾 Saved ${bytes.length ~/ 1024}KB to disk: ${imagePath.split('/').last}',
+          );
+        } catch (e) {
+          debugPrint('[🖼️ PRELOAD] ⚠️ Failed to persist locally: $e');
+          // Non-fatal: image works from memory, just won't survive restart
+        }
+
+        // 💾 Cache compressed bytes for instant reload after eviction
+        _imageMemoryManager.cacheCompressedBytes(imagePath, bytes);
+
         final image = await _decodeImageCapped(bytes);
         if (mounted && image != null) {
+          // 📏 #5: Cache dimensions for placeholder sizing
+          _imageMemoryManager.cacheImageDimensions(
+            imagePath,
+            image.width,
+            image.height,
+          );
           // Dispose old thumbnail if it was loaded
           final oldImage = _loadedImages[imagePath];
           setState(() {
@@ -766,8 +1200,9 @@ extension on _NebulaCanvasScreenState {
       final originalHeight = frame.image.height;
 
       // If within limits, use as-is
-      if (originalWidth <= _NebulaCanvasScreenState._maxImageDimension &&
-          originalHeight <= _NebulaCanvasScreenState._maxImageDimension) {
+      if (originalWidth <= _FlueraCanvasScreenState._maxImageDimension &&
+          originalHeight <= _FlueraCanvasScreenState._maxImageDimension) {
+        codec.dispose(); // 🐛 FIX A: Dispose codec to prevent GPU handle leak
         return frame.image;
       }
 
@@ -779,17 +1214,17 @@ extension on _NebulaCanvasScreenState {
       int targetWidth;
       int targetHeight;
       if (originalWidth >= originalHeight) {
-        targetWidth = _NebulaCanvasScreenState._maxImageDimension;
+        targetWidth = _FlueraCanvasScreenState._maxImageDimension;
         targetHeight =
             (originalHeight *
-                    _NebulaCanvasScreenState._maxImageDimension /
+                    _FlueraCanvasScreenState._maxImageDimension /
                     originalWidth)
                 .round();
       } else {
-        targetHeight = _NebulaCanvasScreenState._maxImageDimension;
+        targetHeight = _FlueraCanvasScreenState._maxImageDimension;
         targetWidth =
             (originalWidth *
-                    _NebulaCanvasScreenState._maxImageDimension /
+                    _FlueraCanvasScreenState._maxImageDimension /
                     originalHeight)
                 .round();
       }
@@ -883,9 +1318,10 @@ extension on _NebulaCanvasScreenState {
         }
 
         audioFiles.add(recording.audioPath);
-        if (recording.hasStrokes) {
-          loadedSyncRecordings.add(recording);
-        }
+        // Bug fix #4: Add ALL recordings to _syncedRecordings
+        // (not just those with strokes) — audio-only recordings
+        // also have noteTitle and totalDuration for the UI.
+        loadedSyncRecordings.add(recording);
       }
 
       if (mounted) {

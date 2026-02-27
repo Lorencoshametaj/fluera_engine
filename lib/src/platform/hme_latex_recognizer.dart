@@ -6,8 +6,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:onnxruntime_v2/onnxruntime_v2.dart';
-import 'package:path_provider/path_provider.dart';
+import 'onnx_stub_web.dart'
+    if (dart.library.ffi) 'package:onnxruntime_v2/onnxruntime_v2.dart';
+import '../utils/safe_path_provider.dart';
 
 import '../core/latex/ink_stroke_data.dart';
 import 'ink_rasterizer.dart';
@@ -30,7 +31,7 @@ import 'latex_recognition_bridge.dart';
 /// ```
 class HmeLatexRecognizer implements LatexRecognitionBridge {
   static const String _tag = 'HmeLatexRecognizer';
-  static const String _packageName = 'nebula_engine';
+  static const String _packageName = 'fluera_engine';
 
   /// Model input dimensions (must match training).
   static const int _imgHeight = 128;
@@ -247,7 +248,8 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
   /// Write model files to disk (ORT needs file path).
   Future<(String, String)?> _writeModelsToDisk() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = await getSafeDocumentsDirectory();
+      if (dir == null) return null; // Web: no filesystem
       final modelDir = Directory('${dir.path}/hme_attn_models_v$_modelVersion');
       if (!modelDir.existsSync()) {
         modelDir.createSync(recursive: true);

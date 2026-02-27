@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   tearDown(() {
@@ -69,36 +69,16 @@ void main() {
       expect(EngineScope.current.undoRedoManager, isNotNull);
     });
 
-    test('brushSettingsService is available', () {
-      expect(EngineScope.current.brushSettingsService, isNotNull);
+    test('drawingModule is null before module registration', () {
+      expect(EngineScope.current.drawingModule, isNull);
     });
 
-    test('toolRegistry is available', () {
-      expect(EngineScope.current.toolRegistry, isNotNull);
+    test('audioModule is null before module registration', () {
+      expect(EngineScope.current.audioModule, isNull);
     });
 
-    test('pathPool is available', () {
-      expect(EngineScope.current.pathPool, isNotNull);
-    });
-
-    test('strokePointPool is available', () {
-      expect(EngineScope.current.strokePointPool, isNotNull);
-    });
-
-    test('displayLinkService is available', () {
-      expect(EngineScope.current.displayLinkService, isNotNull);
-    });
-
-    test('predictedTouchService is available', () {
-      expect(EngineScope.current.predictedTouchService, isNotNull);
-    });
-
-    test('audioPlayerChannel is available', () {
-      expect(EngineScope.current.audioPlayerChannel, isNotNull);
-    });
-
-    test('audioRecorderChannel is available', () {
-      expect(EngineScope.current.audioRecorderChannel, isNotNull);
+    test('enterpriseModule is null before module registration', () {
+      expect(EngineScope.current.enterpriseModule, isNull);
     });
 
     test('imageCacheService is available', () {
@@ -150,7 +130,6 @@ void main() {
       final scope = EngineScope();
       // Access some services to trigger lazy init
       scope.undoRedoManager;
-      scope.brushSettingsService;
       scope.toolRegistry;
       expect(() => scope.dispose(), returnsNormally);
     });

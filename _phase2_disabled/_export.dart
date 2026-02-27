@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Export & Multi-Page — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
+/// 📦 Export & Multi-Page — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
   /// Entra in modalità export - va direttamente a "Personalizza Pagine"
   void _enterExportMode() {
     // Entra direttamente in modalità personalizza pagine

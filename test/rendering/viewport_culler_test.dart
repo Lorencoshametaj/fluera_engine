@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/rendering/optimization/viewport_culler.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/rendering/optimization/viewport_culler.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
 
 ProStroke _makeStroke({required Rect bounds, String id = 'mock'}) {
   // Build a stroke whose .bounds will match the given rect.

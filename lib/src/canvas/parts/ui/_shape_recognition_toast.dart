@@ -1,11 +1,11 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 🔷 Shape Recognition Feedback — toast + morph animation overlay.
 ///
 /// Shows a brief confirmation toast with shape name and confidence,
 /// and optionally animates the freehand stroke morphing into the
 /// recognized shape.
-extension ShapeRecognitionFeedbackUI on _NebulaCanvasScreenState {
+extension ShapeRecognitionFeedbackUI on _FlueraCanvasScreenState {
   // ──────────────────────────────────────────────────────────────────
   // Toast Widget Builder
   // ──────────────────────────────────────────────────────────────────

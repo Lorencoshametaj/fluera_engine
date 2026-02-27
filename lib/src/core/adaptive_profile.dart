@@ -28,7 +28,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:path_provider/path_provider.dart';
+import '../utils/safe_path_provider.dart';
 import '../core/conscious_architecture.dart';
 
 /// L2 Intelligence: session-based behavior profiling and parameter tuning.
@@ -238,7 +238,8 @@ class AdaptiveProfile extends IntelligenceSubsystem {
   /// Save the current profile counters to a JSON file in app support dir.
   Future<void> saveToPrefs() async {
     try {
-      final dir = await getApplicationSupportDirectory();
+      final dir = await getSafeAppSupportDirectory();
+      if (dir == null) return; // Web: no filesystem
       final file = File('${dir.path}/$_prefsKey.json');
       await file.writeAsString(jsonEncode(_toCountersMap()));
     } catch (_) {
@@ -250,7 +251,8 @@ class AdaptiveProfile extends IntelligenceSubsystem {
   /// current state.
   Future<void> restoreFromPrefs() async {
     try {
-      final dir = await getApplicationSupportDirectory();
+      final dir = await getSafeAppSupportDirectory();
+      if (dir == null) return; // Web: no filesystem
       final file = File('${dir.path}/$_prefsKey.json');
       if (await file.exists()) {
         final raw = await file.readAsString();

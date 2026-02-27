@@ -9,14 +9,14 @@ import '../../core/tabular/cell_node.dart';
 import './formula_reference_sheet.dart';
 import './hsv_color_picker.dart';
 import '../../core/engine_scope.dart';
-import '../../l10n/nebula_localizations.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/models/pdf_annotation_model.dart';
 import '../../core/models/pdf_document_model.dart';
 import '../../../testing/brush_testing.dart';
-import '../../storage/nebula_cloud_adapter.dart';
+import '../../storage/fluera_cloud_adapter.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../tools/pdf/pdf_annotation_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
@@ -62,6 +62,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final bool isPanModeActive; // 🖐️ Modalità Pan
   final bool isStylusModeActive; // 🖊️ Modalità Stylus
   final bool isRulerActive; // 📏 Ruler/guide overlay
+  final bool isMinimapVisible; // 🗺️ Minimap overlay
+  final bool isSectionActive; // 📐 Section tool
   final bool isPenToolActive; // ✏️ Vector Pen Tool
   final bool isLatexActive; // 🧮 LaTeX editor
   final bool isTabularActive; // 📊 Tabular spreadsheet
@@ -107,6 +109,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final bool hasFrozenRow; // Whether header row is frozen
   final VoidCallback? onToggleFreezeRow;
   final Duration recordingDuration;
+  final double recordingAmplitude; // 🎵 Live amplitude for waveform bars
   final String? noteTitle;
   // 🎨 Preset-based brush selection
   final List<BrushPreset> brushPresets;
@@ -140,6 +143,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback onPanModeToggle; // 🖐️ Callback Pan Mode
   final VoidCallback onStylusModeToggle; // 🖊️ Callback Stylus Mode
   final VoidCallback? onRulerToggle; // 📏 Callback Ruler toggle
+  final VoidCallback? onMinimapToggle; // 🗺️ Callback Minimap toggle
+  final VoidCallback? onSectionToggle; // 📐 Callback Section toggle
   final VoidCallback? onPenToolToggle; // ✏️ Callback Pen Tool toggle
   final VoidCallback? onLatexToggle; // 🧮 Callback LaTeX toggle
   final VoidCallback? onTabularToggle; // 📊 Callback Tabular toggle (compat)
@@ -209,6 +214,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback?
   onPdfLayoutChanged; // 📄 Notify canvas of PDF layout mutations
   final VoidCallback? onPdfExport;
+  final VoidCallback? onPdfDeleteDocument; // 🗑️ Delete entire PDF
   final int pdfSelectedPageIndex;
   final bool showPdfPageNumbers;
   final VoidCallback? onTogglePdfPageNumbers;
@@ -251,7 +257,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final ValueChanged<String>? onTokenExport;
 
   /// ☁️ Cloud sync state notifier — drives the toolbar sync indicator.
-  final ValueListenable<NebulaSyncState>? cloudSyncState;
+  final ValueListenable<FlueraSyncState>? cloudSyncState;
 
   const ProfessionalCanvasToolbar({
     super.key,
@@ -271,6 +277,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.isPanModeActive,
     required this.isStylusModeActive,
     this.isRulerActive = false,
+    this.isMinimapVisible = true,
+    this.isSectionActive = false,
     this.isPenToolActive = false,
     this.isLatexActive = false,
     this.isTabularActive = false,
@@ -312,6 +320,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.hasFrozenRow = false,
     this.onToggleFreezeRow,
     required this.recordingDuration,
+    this.recordingAmplitude = 0.0,
     this.isImageEditingMode = false,
     this.noteTitle,
     this.brushPresets = const [],
@@ -342,6 +351,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.onPanModeToggle,
     required this.onStylusModeToggle,
     this.onRulerToggle,
+    this.onMinimapToggle,
+    this.onSectionToggle,
     this.onPenToolToggle,
     this.onLatexToggle,
     this.onTabularToggle,
@@ -402,6 +413,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onPdfDocumentChanged, // 📄 Switch active PDF
     this.onPdfLayoutChanged, // 📄 Layout mutation callback
     this.onPdfExport,
+    this.onPdfDeleteDocument, // 🗑️ Delete entire PDF
     this.pdfSelectedPageIndex = 0,
     this.showPdfPageNumbers = true,
     this.onTogglePdfPageNumbers,
@@ -449,8 +461,9 @@ class _ProfessionalCanvasToolbarState
     final tabs = [ToolbarTab.main];
     // Always show PDF tab — even without documents, the import button is there
     tabs.add(ToolbarTab.pdf);
-    tabs.add(ToolbarTab.scientific);
-    tabs.add(ToolbarTab.excel);
+    // V1: LaTeX & Excel hidden — tools stay in codebase, re-enable post-launch
+    // tabs.add(ToolbarTab.scientific);
+    // tabs.add(ToolbarTab.excel);
     tabs.add(ToolbarTab.media);
     // Design tab: SDK-only, not exposed in Looponia (see dev.md)
     return tabs;
@@ -501,7 +514,7 @@ class _ProfessionalCanvasToolbarState
     showDialog(
       context: context,
       builder: (context) {
-        final l10n = NebulaLocalizations.of(context);
+        final l10n = FlueraLocalizations.of(context);
         return AlertDialog(
           title: Text(l10n.proCanvas_chooseColor),
           content: SingleChildScrollView(

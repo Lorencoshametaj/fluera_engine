@@ -1,11 +1,11 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 📤 ADVANCED EXPORT — Wire token export, raster, CRDT, file format,
 //    image adjustment, image fill mode, text auto-resize, plugins
 // ============================================================================
 
-extension AdvancedExportFeatures on _NebulaCanvasScreenState {
+extension AdvancedExportFeatures on _FlueraCanvasScreenState {
   /// Export design tokens in platform format.
   /// Wires: design_token_exporter (CSS/Kotlin/Swift), exportToString
   void _exportTokensToFormat(String format) {
@@ -121,10 +121,10 @@ extension AdvancedExportFeatures on _NebulaCanvasScreenState {
     debugPrint('[Design] CRDT sync enabled');
   }
 
-  /// Save as binary Nebula format.
-  /// Wires: nebula_file_format, binary_canvas_format
-  void _saveAsNebulaFormat() {
-    debugPrint('[Design] Saving as Nebula binary format');
+  /// Save as binary Fluera format.
+  /// Wires: fluera_file_format, binary_canvas_format
+  void _saveAsFlueraFormat() {
+    debugPrint('[Design] Saving as Fluera binary format');
   }
 
   /// Export timelapse recording.

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/tabular/cell_validation.dart';
-import 'package:nebula_engine/src/core/tabular/cell_value.dart';
+import 'package:fluera_engine/src/core/tabular/cell_validation.dart';
+import 'package:fluera_engine/src/core/tabular/cell_value.dart';
 
 void main() {
   // ===========================================================================

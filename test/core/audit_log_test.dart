@@ -1,15 +1,15 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/audit/audit_entry.dart';
-import 'package:nebula_engine/src/core/audit/audit_event_bridge.dart';
-import 'package:nebula_engine/src/core/audit/audit_exporter.dart';
-import 'package:nebula_engine/src/core/audit/audit_log_service.dart';
-import 'package:nebula_engine/src/core/engine_error.dart';
-import 'package:nebula_engine/src/core/engine_event.dart';
-import 'package:nebula_engine/src/core/engine_event_bus.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/audit/audit_entry.dart';
+import 'package:fluera_engine/src/core/audit/audit_event_bridge.dart';
+import 'package:fluera_engine/src/core/audit/audit_exporter.dart';
+import 'package:fluera_engine/src/core/audit/audit_log_service.dart';
+import 'package:fluera_engine/src/core/engine_error.dart';
+import 'package:fluera_engine/src/core/engine_event.dart';
+import 'package:fluera_engine/src/core/engine_event_bus.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 
 import '../helpers/test_helpers.dart';
 
@@ -850,7 +850,7 @@ void main() {
       expect(report['report']['documentId'], 'doc-001');
       expect(report['report']['generatedBy'], 'admin@co.com');
       expect(report['report']['version'], '1.0.0');
-      expect(report['report']['format'], 'nebula-audit-report');
+      expect(report['report']['format'], 'fluera-audit-report');
 
       // Summary
       final summary = report['summary'] as Map<String, dynamic>;

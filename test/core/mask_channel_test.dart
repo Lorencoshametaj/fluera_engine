@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/editing/mask_channel.dart';
+import 'package:fluera_engine/src/core/editing/mask_channel.dart';
 
 void main() {
   // ===========================================================================

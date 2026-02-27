@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 🧠 CONSCIOUS ARCHITECTURE — Production wiring for the five intelligence
 /// layers into the canvas lifecycle.
@@ -20,7 +20,7 @@ part of '../nebula_canvas_screen.dart';
 /// - Transform listener skips rotation-only changes
 /// - EventBus integration for subsystem outputs
 /// - AdaptiveProfile persistence (save/restore via path_provider)
-extension ConsciousArchitectureWiring on _NebulaCanvasScreenState {
+extension ConsciousArchitectureWiring on _FlueraCanvasScreenState {
   // ─────────────────────────────────────────────────────────────────────────
   // Init — called from initState()
   // ─────────────────────────────────────────────────────────────────────────

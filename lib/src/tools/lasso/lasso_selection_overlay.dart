@@ -5,7 +5,7 @@ import '../../core/models/shape_type.dart';
 import '../../core/models/canvas_layer.dart';
 import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
-import '../../layers/nebula_layer_controller.dart';
+import '../../layers/fluera_layer_controller.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 import '../../core/nodes/stroke_node.dart';
 
@@ -16,7 +16,7 @@ import '../../core/nodes/stroke_node.dart';
 class LassoSelectionOverlay extends StatefulWidget {
   /// Unified set of all selected element IDs.
   final Set<String> selectedIds;
-  final NebulaLayerController layerController;
+  final FlueraLayerController layerController;
   final InfiniteCanvasController canvasController;
   final bool isDragging;
 
@@ -98,11 +98,11 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
                 child: const SizedBox.expand(),
               ),
             ),
-            // 🧮 Convert-to-LaTeX FAB
-            if (widget.onConvertToLatex != null &&
-                !widget.isDragging &&
-                _hasSelectedStrokes())
-              _buildConvertToLatexFab(),
+            // V1: LaTeX hidden — re-enable post-launch
+            // if (widget.onConvertToLatex != null &&
+            //     !widget.isDragging &&
+            //     _hasSelectedStrokes())
+            //   _buildConvertToLatexFab(),
           ],
         );
       },
@@ -186,7 +186,7 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
 /// Determines element type dynamically from the active layer's typed lists.
 class _SelectionHighlightPainter extends CustomPainter {
   final Set<String> selectedIds;
-  final NebulaLayerController layerController;
+  final FlueraLayerController layerController;
   final double animationValue;
   final InfiniteCanvasController canvasController;
   final bool isDragging;

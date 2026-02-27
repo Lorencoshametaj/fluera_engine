@@ -1,4 +1,4 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 📦 Build UI — orchestrator that delegates to:
 ///   • [_ui_toolbar.dart]      → _buildToolbar()
@@ -6,7 +6,7 @@ part of '../../nebula_canvas_screen.dart';
 ///   • [_ui_eraser.dart]       → _buildEraserOverlays()
 ///   • [_ui_overlays.dart]     → _buildRemoteOverlays(), _buildStandardOverlays(), _buildToolOverlays()
 ///   • [_ui_menus.dart]        → _buildMenus()
-extension on _NebulaCanvasScreenState {
+extension on _FlueraCanvasScreenState {
   // ============================================================================
   // BUILD — Main entry point
   // ============================================================================
@@ -167,7 +167,10 @@ extension on _NebulaCanvasScreenState {
                   Expanded(
                     child: Stack(
                       children: [
-                        _buildCanvasArea(context),
+                        RepaintBoundary(
+                          key: _canvasRepaintBoundaryKey,
+                          child: _buildCanvasArea(context),
+                        ),
 
                         // 🔵 Navigation: Dot grid (orientation & alignment)
                         if (_showDotGrid)
@@ -212,9 +215,14 @@ extension on _NebulaCanvasScreenState {
                               return CanvasMinimap(
                                 controller: _canvasController,
                                 boundsTracker: _contentBoundsTracker,
+                                layerController: _layerController,
                                 viewportSize: MediaQuery.of(context).size,
                                 visible: _showMinimap && hasContent,
                                 canvasBackground: _canvasBackgroundColor,
+                                isDrawing: _isDrawingNotifier,
+                                currentStroke: _currentStrokeNotifier,
+                                currentStrokeColor: _effectiveColor,
+                                remoteCursors: _realtimeEngine?.remoteCursors,
                               );
                             },
                           ),

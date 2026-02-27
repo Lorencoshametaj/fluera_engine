@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-/// Unified telemetry bus for the Nebula Engine.
+/// Unified telemetry bus for the Fluera Engine.
 ///
 /// Collects performance data from all subsystems via 6 primitives:
 /// - **Counter**: monotonic count (e.g. `integrity.repairs`)

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/analytics/feature_flag_service.dart';
+import 'package:fluera_engine/src/core/analytics/feature_flag_service.dart';
 
 void main() {
   late FeatureFlagService service;

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/design_linter.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/systems/design_linter.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
 
 import '../helpers/test_helpers.dart';
 

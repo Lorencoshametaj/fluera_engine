@@ -40,14 +40,14 @@ public class PredictedTouchPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     private func setupChannels(messenger: FlutterBinaryMessenger) {
         // EventChannel for streaming predicted touches
         let eventChannel = FlutterEventChannel(
-            name: "com.nebulaengine/predicted_touches",
+            name: "com.flueraengine/predicted_touches",
             binaryMessenger: messenger
         )
         eventChannel.setStreamHandler(self)
         
         // MethodChannel for control
         methodChannel = FlutterMethodChannel(
-            name: "com.nebulaengine/predicted_touches_control",
+            name: "com.flueraengine/predicted_touches_control",
             binaryMessenger: messenger
         )
     }

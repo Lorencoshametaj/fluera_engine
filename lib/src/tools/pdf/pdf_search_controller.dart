@@ -4,7 +4,7 @@ import '../../core/nodes/pdf_document_node.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/models/ocr_result.dart';
 import '../../core/models/pdf_text_rect.dart';
-import '../../canvas/nebula_canvas_config.dart';
+import '../../canvas/fluera_canvas_config.dart';
 import '../../core/engine_scope.dart';
 import '../../core/engine_error.dart';
 import '../../core/engine_telemetry.dart';
@@ -63,7 +63,7 @@ class _DocState {
   /// Raw PDF bytes. Nullable: cleared after full Dart text extraction
   /// succeeds to free RAM (Issue 6).
   Uint8List? bytes;
-  final NebulaPdfProvider? provider;
+  final FlueraPdfProvider? provider;
   List<ExtractedPageText>? extractedPages;
   final Map<int, String> textCache = {};
 
@@ -207,7 +207,7 @@ class PdfSearchController extends ChangeNotifier {
   void registerDocument(
     String documentId,
     Uint8List bytes, {
-    NebulaPdfProvider? provider,
+    FlueraPdfProvider? provider,
   }) {
     _documents[documentId] = _DocState(bytes: bytes, provider: provider);
   }

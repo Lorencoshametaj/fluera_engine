@@ -49,13 +49,92 @@ class AudioRecordConfig {
   final int sampleRate;
   final int bitRate;
   final int numChannels;
+  final bool noiseSuppression;
+  final bool echoCancellation;
+  final bool autoGain;
+
+  /// High-pass filter cutoff frequency in Hz (0 = disabled).
+  /// Cuts low-frequency noise like pen/finger contact on screen.
+  final int highPassFilterHz;
+
+  /// Compressor — evens out volume dynamics (quiet ↑, loud ↓).
+  final bool compressor;
+
+  /// Normalization — brings overall volume to a standard level (-3dB).
+  final bool normalization;
 
   const AudioRecordConfig({
     this.format = AudioFormat.m4a,
-    this.sampleRate = 44100,
-    this.bitRate = 128000,
+    this.sampleRate = 48000,
+    this.bitRate = 256000,
     this.numChannels = 1,
+    this.noiseSuppression = true,
+    this.echoCancellation = true,
+    this.autoGain = true,
+    this.highPassFilterHz = 250,
+    this.compressor = true,
+    this.normalization = true,
   });
+
+  /// 🎙️ Standard quality (smaller files, basic noise reduction)
+  static const standard = AudioRecordConfig(
+    sampleRate: 44100,
+    bitRate: 128000,
+    noiseSuppression: true,
+    echoCancellation: false,
+    autoGain: false,
+    highPassFilterHz: 0,
+    compressor: false,
+    normalization: false,
+  );
+
+  /// 🎵 High quality (recommended — balanced quality + noise reduction)
+  static const high = AudioRecordConfig(
+    sampleRate: 48000,
+    bitRate: 256000,
+    noiseSuppression: true,
+    echoCancellation: true,
+    autoGain: true,
+  );
+
+  /// 🎤 Studio quality (maximum fidelity, all filters enabled)
+  static const studio = AudioRecordConfig(
+    sampleRate: 48000,
+    bitRate: 320000,
+    noiseSuppression: true,
+    echoCancellation: true,
+    autoGain: true,
+  );
+
+  /// Whether any post-processing is needed.
+  bool get needsPostProcessing =>
+      highPassFilterHz > 0 || compressor || normalization;
+
+  AudioRecordConfig copyWith({
+    AudioFormat? format,
+    int? sampleRate,
+    int? bitRate,
+    int? numChannels,
+    bool? noiseSuppression,
+    bool? echoCancellation,
+    bool? autoGain,
+    int? highPassFilterHz,
+    bool? compressor,
+    bool? normalization,
+  }) {
+    return AudioRecordConfig(
+      format: format ?? this.format,
+      sampleRate: sampleRate ?? this.sampleRate,
+      bitRate: bitRate ?? this.bitRate,
+      numChannels: numChannels ?? this.numChannels,
+      noiseSuppression: noiseSuppression ?? this.noiseSuppression,
+      echoCancellation: echoCancellation ?? this.echoCancellation,
+      autoGain: autoGain ?? this.autoGain,
+      highPassFilterHz: highPassFilterHz ?? this.highPassFilterHz,
+      compressor: compressor ?? this.compressor,
+      normalization: normalization ?? this.normalization,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -63,6 +142,12 @@ class AudioRecordConfig {
       'sampleRate': sampleRate,
       'bitRate': bitRate,
       'numChannels': numChannels,
+      'noiseSuppression': noiseSuppression,
+      'echoCancellation': echoCancellation,
+      'autoGain': autoGain,
+      'highPassFilterHz': highPassFilterHz,
+      'compressor': compressor,
+      'normalization': normalization,
     };
   }
 
@@ -72,9 +157,15 @@ class AudioRecordConfig {
         (e) => e.name == map['format'],
         orElse: () => AudioFormat.m4a,
       ),
-      sampleRate: map['sampleRate'] ?? 44100,
-      bitRate: map['bitRate'] ?? 128000,
+      sampleRate: map['sampleRate'] ?? 48000,
+      bitRate: map['bitRate'] ?? 256000,
       numChannels: map['numChannels'] ?? 1,
+      noiseSuppression: map['noiseSuppression'] ?? true,
+      echoCancellation: map['echoCancellation'] ?? true,
+      autoGain: map['autoGain'] ?? true,
+      highPassFilterHz: map['highPassFilterHz'] ?? 250,
+      compressor: map['compressor'] ?? true,
+      normalization: map['normalization'] ?? true,
     );
   }
 }

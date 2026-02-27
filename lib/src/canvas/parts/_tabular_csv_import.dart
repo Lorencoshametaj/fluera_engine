@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📊 Tabular CSV — import/export and frozen header toggle.
-extension NebulaCanvasTabularCsv on _NebulaCanvasScreenState {
+extension FlueraCanvasTabularCsv on _FlueraCanvasScreenState {
   // ── CSV import ───────────────────────────────────────────────────────
 
   /// Show file picker and import CSV into a new table.

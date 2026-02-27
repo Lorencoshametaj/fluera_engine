@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:collection';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../core/engine_scope.dart';
 import '../export/binary_canvas_format.dart'; // 💾 Phase 2
@@ -67,8 +68,10 @@ class BackgroundSaveService {
   bool _isSaving = false;
   final Queue<dynamic> _pendingQueue = Queue();
 
-  /// Initializes background isolate
+  /// Initializes background isolate.
+  /// On web, this is a no-op (no isolate or filesystem).
   Future<void> initialize() async {
+    if (kIsWeb) return; // No isolate/filesystem on web
     if (_isolate != null) return; // Already initialized
 
     _receivePort = ReceivePort();
@@ -109,6 +112,7 @@ class BackgroundSaveService {
   /// 🚀 APPEND: Save delta in background (fast, ~5KB, O(1), 0ms UI lag)
   /// ✅ v2.2: WAL always uncompressed for O(1) performance!
   Future<void> saveDelta(BackgroundDeltaSaveParams params) async {
+    if (kIsWeb) return; // No filesystem on web
     // Ensure isolate is ready
     if (_sendPort == null) {
       await initialize();
@@ -135,6 +139,7 @@ class BackgroundSaveService {
   /// 📦 OVERWRITE: Save full checkpoint (heavy, ~12MB, ~3s, 0ms UI lag)
   /// ✅ v4.4: JSON encoding moved to background isolate (prevent 11s freeze!)
   Future<void> saveCheckpoint(BackgroundCheckpointParams params) async {
+    if (kIsWeb) return; // No filesystem on web
     // Ensure isolate is ready
     if (_sendPort == null) {
       await initialize();

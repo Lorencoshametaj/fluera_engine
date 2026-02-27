@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../rendering/optimization/optimization.dart';
 import '../../rendering/shaders/shader_brush_service.dart';
+import '../../core/engine_scope.dart';
 import '../../rendering/shaders/shader_pencil_renderer.dart';
 import 'fountain_pen_path_builder.dart';
 
@@ -105,11 +106,13 @@ class PencilBrush {
     if (points.isEmpty) return;
 
     // GPU Pro path
-    final useGpu = isPro || ShaderBrushService.instance.isProEnabled;
-    if (useGpu &&
-        ShaderBrushService.instance.isAvailable &&
-        points.length >= 2) {
-      ShaderBrushService.instance.renderPencilPro(
+    final _shaderSvc =
+        EngineScope.hasScope
+            ? EngineScope.current.drawingModule?.shaderBrushService
+            : null;
+    final useGpu = isPro || (_shaderSvc?.isProEnabled ?? false);
+    if (useGpu && (_shaderSvc?.isAvailable ?? false) && points.length >= 2) {
+      _shaderSvc!.renderPencilPro(
         canvas,
         points,
         color,

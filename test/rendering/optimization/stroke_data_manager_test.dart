@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'dart:ui';
-import 'package:nebula_engine/src/rendering/optimization/stroke_data_manager.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/rendering/optimization/stroke_data_manager.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
 
 List<ProDrawingPoint> _makePoints(int count) {
   return List.generate(

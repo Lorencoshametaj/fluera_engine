@@ -10,7 +10,7 @@ import Vision
 /// - Rendering pages as raw RGBA pixel buffers
 /// - Extracting text geometry for selection
 ///
-/// Channel: com.nebulaengine/pdf_renderer
+/// Channel: com.flueraengine/pdf_renderer
 public class PdfRendererPlugin: NSObject, FlutterPlugin {
     
     private var methodChannel: FlutterMethodChannel?
@@ -24,7 +24,7 @@ public class PdfRendererPlugin: NSObject, FlutterPlugin {
         let instance = PdfRendererPlugin()
         
         let methodChannel = FlutterMethodChannel(
-            name: "com.nebulaengine/pdf_renderer",
+            name: "com.flueraengine/pdf_renderer",
             binaryMessenger: registrar.messenger()
         )
         instance.methodChannel = methodChannel

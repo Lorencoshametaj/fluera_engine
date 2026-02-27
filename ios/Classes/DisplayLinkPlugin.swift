@@ -40,14 +40,14 @@ public class DisplayLinkPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private func setupChannels(messenger: FlutterBinaryMessenger) {
         // EventChannel for frame timing
         let eventChannel = FlutterEventChannel(
-            name: "com.nebulaengine/display_link",
+            name: "com.flueraengine/display_link",
             binaryMessenger: messenger
         )
         eventChannel.setStreamHandler(self)
         
         // MethodChannel for control
         methodChannel = FlutterMethodChannel(
-            name: "com.nebulaengine/display_link_control",
+            name: "com.flueraengine/display_link_control",
             binaryMessenger: messenger
         )
     }

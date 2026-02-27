@@ -1,8 +1,8 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📊 Tabular Clipboard — copy/cut/paste, sorting, row/col ops, merge,
 /// keyboard navigation, and cell clearing.
-extension NebulaCanvasTabularClipboard on _NebulaCanvasScreenState {
+extension FlueraCanvasTabularClipboard on _FlueraCanvasScreenState {
   // ── Row / Column management ──────────────────────────────────────────
 
   /// Insert a row after the currently selected row (or at end).

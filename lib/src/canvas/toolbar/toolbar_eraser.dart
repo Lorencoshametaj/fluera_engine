@@ -148,17 +148,17 @@ class ToolbarEraseModeToggle extends StatelessWidget {
             decoration: BoxDecoration(
               color:
                   isDark
-                      ? Colors.red[900]!.withValues(alpha: 0.3)
-                      : Colors.red[50],
+                      ? const Color(0xFFB71C1C).withValues(alpha: 0.3)
+                      : const Color(0xFFFFEBEE),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: isDark ? Colors.red[800]! : Colors.red[200]!,
+                color: isDark ? const Color(0xFFC62828) : const Color(0xFFEF9A9A),
               ),
             ),
             child: Icon(
               isWholeStroke ? Icons.delete_sweep_rounded : Icons.content_cut,
               size: 16,
-              color: isDark ? Colors.red[300] : Colors.red[600],
+              color: isDark ? const Color(0xFFE57373) : const Color(0xFFE53935),
             ),
           ),
         ),
@@ -188,16 +188,16 @@ class ToolbarEraserSizeSlider extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color:
-            isDark ? Colors.red[900]!.withValues(alpha: 0.3) : Colors.red[50],
+            isDark ? const Color(0xFFB71C1C).withValues(alpha: 0.3) : const Color(0xFFFFEBEE),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: isDark ? Colors.red[800]! : Colors.red[200]!),
+        border: Border.all(color: isDark ? const Color(0xFFC62828) : const Color(0xFFEF9A9A)),
       ),
       child: Row(
         children: [
           Icon(
             Icons.circle,
             size: 8,
-            color: isDark ? Colors.red[300] : Colors.red[400],
+            color: isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350),
           ),
           Expanded(
             child: SliderTheme(
@@ -205,9 +205,9 @@ class ToolbarEraserSizeSlider extends StatelessWidget {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                 trackHeight: 3,
-                activeTrackColor: isDark ? Colors.red[300] : Colors.red[400],
-                inactiveTrackColor: isDark ? Colors.red[900] : Colors.red[100],
-                thumbColor: isDark ? Colors.red[200] : Colors.red[600],
+                activeTrackColor: isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350),
+                inactiveTrackColor: isDark ? const Color(0xFFB71C1C) : const Color(0xFFFFCDD2),
+                thumbColor: isDark ? const Color(0xFFEF9A9A) : const Color(0xFFE53935),
               ),
               child: Slider(
                 value: radius,
@@ -224,7 +224,7 @@ class ToolbarEraserSizeSlider extends StatelessWidget {
           Icon(
             Icons.circle,
             size: 14,
-            color: isDark ? Colors.red[300] : Colors.red[400],
+            color: isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350),
           ),
         ],
       ),

@@ -1,7 +1,7 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
-/// 🛠️ Toolbar — extracted from _NebulaCanvasScreenState._buildImpl
-extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
+/// 🛠️ Toolbar — extracted from _FlueraCanvasScreenState._buildImpl
+extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
   /// Builds the professional canvas toolbar.
   /// Hidden during multiview, multi-page edit, time travel, and placement mode.
   Widget _buildToolbar(BuildContext context) {
@@ -20,14 +20,8 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
         final elementCount = activeLayer?.elementCount ?? 0;
 
         // 🔄 Phase 2: Use LayerController undo/redo (delta-based)
-        final canUndo =
-            _imageInEditMode != null
-                ? _imageEditingStrokes.isNotEmpty
-                : _layerController.canUndo;
-        final canRedo =
-            _imageInEditMode != null
-                ? _imageEditingUndoStack.isNotEmpty
-                : _layerController.canRedo;
+        final canUndo = _layerController.canUndo;
+        final canRedo = _layerController.canRedo;
 
         return ProfessionalCanvasToolbar(
           selectedPenType: _effectivePenType,
@@ -49,9 +43,11 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           isRulerActive: _showRulers, // 📏 Ruler overlay
           isPenToolActive: _toolController.isPenToolMode, // ✒️ Vector Pen Tool
           recordingDuration: _recordingDuration,
-          isImageEditingMode:
-              _imageInEditMode !=
-              null, // 🎨 Modalità editing interno (non da infinite canvas)
+          recordingAmplitude:
+              VoiceRecordingExtension._liveAmplitudes.isNotEmpty
+                  ? VoiceRecordingExtension._liveAmplitudes.last
+                  : 0.0,
+          isImageEditingMode: false,
           noteTitle: _noteTitle, // 🆕 Pass note title
           // 🎨 Preset-based brush selection
           brushPresets: BrushPreset.defaultPresets,
@@ -66,7 +62,8 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             _toolController.setColor(preset.color);
             _toolController.resetToDrawingMode();
             _digitalTextTool.deselectElement();
-            BrushSettingsService.instance.updateSettings(preset.settings);
+            EngineScope.current.drawingModule?.brushSettingsService
+                .updateSettings(preset.settings);
           },
           onUndo: () {
             // 🎤 FIX: If recording with strokes, track stroke removal
@@ -114,7 +111,8 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
                 });
                 // 🎯 Keep stabilizer in sync with settings
                 _drawingHandler.stabilizerLevel = newSettings.stabilizerLevel;
-                BrushSettingsService.instance.updateSettings(newSettings);
+                EngineScope.current.drawingModule?.brushSettingsService
+                    .updateSettings(newSettings);
               },
             );
           },
@@ -184,6 +182,23 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           onRulerToggle: () {
             setState(() => _showRulers = !_showRulers);
             HapticFeedback.lightImpact();
+          },
+          isMinimapVisible: _showMinimap,
+          onMinimapToggle: () {
+            setState(() => _showMinimap = !_showMinimap);
+            HapticFeedback.lightImpact();
+          },
+          isSectionActive: _isSectionActive,
+          onSectionToggle: () {
+            setState(() => _isSectionActive = !_isSectionActive);
+            if (_isSectionActive) {
+              // Deselect conflicting tools
+              _toolController.resetToDrawingMode();
+              _digitalTextTool.deselectElement();
+              _lassoTool.clearSelection();
+              _eraserCursorPosition = null;
+            }
+            HapticFeedback.selectionClick();
           },
           onPenToolToggle: () {
             final wasActive = _toolController.isPenToolMode;
@@ -416,16 +431,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             // 🖼️ Open gallery and add image
             pickAndAddImage();
           },
-          onImageEditorPressed:
-              _imageInEditMode != null
-                  ? () {
-                    // 🎨 Apri editor avanzato per l'immagine in editing
-                    final image = _loadedImages[_imageInEditMode!.imagePath];
-                    if (image != null) {
-                      _openImageEditor(_imageInEditMode!, image);
-                    }
-                  }
-                  : null,
+          onImageEditorPressed: null,
           onRecordingPressed: () {
             // 🎤 Se sta registrando, ferma la registrazione
             if (_isRecordingAudio) {
@@ -441,12 +447,12 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           },
           // ⏱️ Time Travel (solo Pro)
           onTimeTravelPressed:
-              (_subscriptionTier == NebulaSubscriptionTier.pro)
+              (_subscriptionTier == FlueraSubscriptionTier.pro)
                   ? _enterTimeTravelMode
                   : null,
           // 🌿 Branch Explorer (solo Pro)
           onBranchExplorerPressed:
-              (_subscriptionTier == NebulaSubscriptionTier.pro)
+              (_subscriptionTier == FlueraSubscriptionTier.pro)
                   ? _openBranchExplorer
                   : null,
           activeBranchName: _activeBranchName,
@@ -619,6 +625,11 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               _autoSaveCanvas();
             }
           },
+          onPdfDeleteDocument:
+              _activePdfDocumentId != null
+                  ? () =>
+                      showDeletePdfConfirmation(context, _activePdfDocumentId!)
+                  : null,
           onPdfReorderPage: (oldIndex, newIndex) {
             final doc = _activePdfDocument;
             if (doc == null) return;
@@ -650,8 +661,14 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
           onPdfNightModeToggle: () {
             final doc = _activePdfDocument;
             if (doc == null) return;
+            final newNightMode = !doc.documentModel.nightMode;
             doc.documentModel = doc.documentModel.copyWith(
-              nightMode: !doc.documentModel.nightMode,
+              nightMode: newNightMode,
+            );
+            _realtimeEngine?.broadcastPdfUpdated(
+              documentId: doc.id.toString(),
+              subAction: 'nightModeToggled',
+              data: {'enabled': newNightMode},
             );
             _pdfLayoutVersion++;
             setState(() {});
@@ -663,8 +680,14 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             final pages = doc.pageNodes;
             if (pageIndex < 0 || pageIndex >= pages.length) return;
             final page = pages[pageIndex];
+            final newBookmarked = !page.pageModel.isBookmarked;
             page.pageModel = page.pageModel.copyWith(
-              isBookmarked: !page.pageModel.isBookmarked,
+              isBookmarked: newBookmarked,
+            );
+            _realtimeEngine?.broadcastPdfUpdated(
+              documentId: doc.id.toString(),
+              subAction: 'bookmarkToggled',
+              data: {'pageIndex': pageIndex, 'isBookmarked': newBookmarked},
             );
             _pdfLayoutVersion++;
             setState(() {});
@@ -700,10 +723,20 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               doc.documentModel = doc.documentModel.copyWith(
                 clearWatermarkText: true,
               );
+              _realtimeEngine?.broadcastPdfUpdated(
+                documentId: doc.id.toString(),
+                subAction: 'watermarkChanged',
+                data: {'clear': true},
+              );
             } else {
               // Add default watermark
               doc.documentModel = doc.documentModel.copyWith(
                 watermarkText: 'DRAFT',
+              );
+              _realtimeEngine?.broadcastPdfUpdated(
+                documentId: doc.id.toString(),
+                subAction: 'watermarkChanged',
+                data: {'watermarkText': 'DRAFT'},
               );
             }
             _pdfLayoutVersion++;
@@ -932,6 +965,11 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             ).then((newBg) {
               if (newBg == null || newBg == currentBg) return;
               page.pageModel = page.pageModel.copyWith(background: newBg);
+              _realtimeEngine?.broadcastPdfUpdated(
+                documentId: doc.id.toString(),
+                subAction: 'pageBackgroundChanged',
+                data: {'pageIndex': pageIndex, 'background': newBg.name},
+              );
               _pdfLayoutVersion++;
               setState(() {});
               _autoSaveCanvas();
@@ -943,7 +981,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             final filePath = doc.documentModel.filePath;
             if (filePath == null) return;
             const channel = MethodChannel(
-              'com.nebulaengine.nebula_engine/print',
+              'com.flueraengine.fluera_engine/print',
             );
             try {
               await channel.invokeMethod('printPdf', {
@@ -959,7 +997,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             if (doc == null) return;
 
             // ── Pre-render pages at screen-fit resolution ──
-            NebulaPdfProvider? provider;
+            FlueraPdfProvider? provider;
             // Try multiple keys to find the provider
             if (_activePdfDocumentId != null) {
               provider = _pdfProviders[_activePdfDocumentId!];
@@ -1061,6 +1099,11 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
             final doc = _activePdfDocument;
             if (doc == null) return;
             doc.documentModel = doc.documentModel.copyWith(layoutMode: mode);
+            _realtimeEngine?.broadcastPdfUpdated(
+              documentId: doc.id.toString(),
+              subAction: 'layoutModeChanged',
+              data: {'layoutMode': mode.name},
+            );
             _pdfLayoutVersion++;
             setState(() {});
             _autoSaveCanvas();
@@ -1260,7 +1303,8 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               // ─── IMAGE FORMAT EXPORT (JPG/PNG) ─────────────────────────
               if (config.format == PdfExportFormat.jpg ||
                   config.format == PdfExportFormat.png) {
-                final tempDir = await getTemporaryDirectory();
+                final tempDir = await getSafeTempDirectory();
+                if (tempDir == null) return; // Web: no filesystem
                 final ext = config.format.extension;
                 final mimeType = config.format.mimeType;
                 final filePaths = <String>[];
@@ -1304,7 +1348,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
                 if (filePaths.isNotEmpty) {
                   try {
                     const channel = MethodChannel(
-                      'com.nebulaengine.nebula_engine/share',
+                      'com.flueraengine.fluera_engine/share',
                     );
                     if (filePaths.length == 1) {
                       await channel.invokeMethod('shareFile', {
@@ -1344,7 +1388,8 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
 
               // ─── SVG FORMAT EXPORT ─────────────────────────────
               if (config.format == PdfExportFormat.svg) {
-                final tempDir = await getTemporaryDirectory();
+                final tempDir = await getSafeTempDirectory();
+                if (tempDir == null) return; // Web: no filesystem
                 final filePaths = <String>[];
 
                 for (int i = 0; i < result.pages.length; i++) {
@@ -1371,7 +1416,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
                 if (filePaths.isNotEmpty) {
                   try {
                     const channel = MethodChannel(
-                      'com.nebulaengine.nebula_engine/share',
+                      'com.flueraengine.fluera_engine/share',
                     );
                     if (filePaths.length == 1) {
                       await channel.invokeMethod('shareFile', {
@@ -1446,7 +1491,8 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               final pdfBytes = writer.finish(title: exportName);
 
               // 5. Save to temp directory
-              final tempDir = await getTemporaryDirectory();
+              final tempDir = await getSafeTempDirectory();
+              if (tempDir == null) return; // Web: no filesystem
               final filePath = '${tempDir.path}/$sanitizedName.pdf';
               final file = File(filePath);
               await file.writeAsBytes(pdfBytes);
@@ -1458,7 +1504,7 @@ extension NebulaCanvasToolbarUI on _NebulaCanvasScreenState {
               // 6. Share via native platform channel (zero deps)
               try {
                 const channel = MethodChannel(
-                  'com.nebulaengine.nebula_engine/share',
+                  'com.flueraengine.fluera_engine/share',
                 );
                 await channel.invokeMethod('shareFile', {
                   'filePath': filePath,

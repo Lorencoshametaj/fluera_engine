@@ -1,15 +1,15 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📊 Tabular Handler — core node creation, cell editing, formula bar,
 /// value detection, and linked LaTeX refresh.
 ///
 /// Related extensions:
-///  • [NebulaCanvasTabularFillHandle]  — _tabular_fill_handle.dart
-///  • [NebulaCanvasTabularClipboard]   — _tabular_clipboard.dart
-///  • [NebulaCanvasTabularFormatting]  — _tabular_formatting.dart
-///  • [NebulaCanvasTabularCsv]         — _tabular_csv_import.dart
-///  • [NebulaCanvasTabularLatexExport] — _tabular_latex_export.dart
-extension NebulaCanvasTabularHandler on _NebulaCanvasScreenState {
+///  • [FlueraCanvasTabularFillHandle]  — _tabular_fill_handle.dart
+///  • [FlueraCanvasTabularClipboard]   — _tabular_clipboard.dart
+///  • [FlueraCanvasTabularFormatting]  — _tabular_formatting.dart
+///  • [FlueraCanvasTabularCsv]         — _tabular_csv_import.dart
+///  • [FlueraCanvasTabularLatexExport] — _tabular_latex_export.dart
+extension FlueraCanvasTabularHandler on _FlueraCanvasScreenState {
   /// Create a new [TabularNode] at the current viewport center and add it
   /// to the scene graph via the command history (undo/redo support).
   ///

@@ -1,8 +1,8 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 🎯 Menus & Panels — selection actions, image actions, layer panel, Phase 2 stubs.
-/// Extracted from _NebulaCanvasScreenState._buildImpl
-extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
+/// Extracted from _FlueraCanvasScreenState._buildImpl
+extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
   /// Builds menus that sit in the MAIN Stack (outside the canvas area).
   List<Widget> _buildMenus(BuildContext context) {
     return [
@@ -221,73 +221,191 @@ extension NebulaCanvasMenusUI on _NebulaCanvasScreenState {
           ),
         ),
 
-      // 🖼️ Action menu for selected image
+      // 🖼️ Action menu for selected image — opens contextual popup
       if (_imageTool.selectedImage != null && !_isDrawingNotifier.value)
         Positioned(
           bottom: 100,
           left: 0,
           right: 0,
           child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color:
-                    Theme.of(context).brightness == Brightness.dark
-                        ? Colors.grey[850]
-                        : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Pulsante Apri Editor
-                  ImageActionButton(
-                    icon: Icons.edit,
-                    label: 'Edit',
-                    color: Colors.blue,
+            child: Builder(
+              builder: (btnContext) {
+                final cs = Theme.of(btnContext).colorScheme;
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
                     onTap: () {
+                      HapticFeedback.lightImpact();
+                      final box = btnContext.findRenderObject() as RenderBox;
+                      final pos = box.localToGlobal(Offset.zero);
+                      final anchor = Rect.fromLTWH(
+                        pos.dx,
+                        pos.dy,
+                        box.size.width,
+                        box.size.height,
+                      );
                       final imageElement = _imageTool.selectedImage!;
                       final image = _loadedImages[imageElement.imagePath];
-                      if (image != null) {
-                        _openImageEditor(imageElement, image);
-                      }
+                      showImageActionsPopup(
+                        context: btnContext,
+                        anchor: anchor,
+                        image: imageElement,
+                        onEdit: () {
+                          if (image != null) {
+                            _openImageEditor(imageElement, image);
+                          }
+                        },
+                        onCrop: () async {
+                          if (image == null) return;
+                          // 🐛 FIX: Open crop editor directly, skip full editor
+                          final cropResult = await showDialog<Rect?>(
+                            context: btnContext,
+                            barrierDismissible: false,
+                            builder:
+                                (_) => CropEditorDialog(
+                                  image: image,
+                                  initialCropRect: imageElement.cropRect,
+                                ),
+                          );
+                          if (cropResult != null) {
+                            final idx = _imageElements.indexWhere(
+                              (e) => e.id == imageElement.id,
+                            );
+                            if (idx != -1) {
+                              final updated = imageElement.copyWith(
+                                cropRect: cropResult,
+                              );
+                              setState(() {
+                                _imageElements[idx] = updated;
+                                _imageTool.selectImage(updated);
+                                _imageVersion++;
+                                _rebuildImageSpatialIndex();
+                              });
+                              _layerController.updateImage(updated);
+                              _broadcastImageUpdate(updated);
+                              _autoSaveCanvas();
+                            }
+                          }
+                        },
+                        onAdjust: () {
+                          if (image != null) {
+                            _openImageEditor(
+                              imageElement,
+                              image,
+                              initialTab: 1,
+                            );
+                          }
+                        },
+                        onFlipH: () {
+                          final idx = _imageElements.indexWhere(
+                            (e) => e.id == imageElement.id,
+                          );
+                          if (idx != -1) {
+                            final updated = imageElement.copyWith(
+                              flipHorizontal: !imageElement.flipHorizontal,
+                            );
+                            setState(() {
+                              _imageElements[idx] = updated;
+                              _imageTool.selectImage(updated);
+                              _imageVersion++;
+                              _rebuildImageSpatialIndex();
+                            });
+                            _layerController.updateImage(updated);
+                            _broadcastImageUpdate(updated);
+                            _autoSaveCanvas();
+                          }
+                        },
+                        onFlipV: () {
+                          final idx = _imageElements.indexWhere(
+                            (e) => e.id == imageElement.id,
+                          );
+                          if (idx != -1) {
+                            final updated = imageElement.copyWith(
+                              flipVertical: !imageElement.flipVertical,
+                            );
+                            setState(() {
+                              _imageElements[idx] = updated;
+                              _imageTool.selectImage(updated);
+                              _imageVersion++;
+                              _rebuildImageSpatialIndex();
+                            });
+                            _layerController.updateImage(updated);
+                            _broadcastImageUpdate(updated);
+                            _autoSaveCanvas();
+                          }
+                        },
+                        onDuplicate: () {
+                          final newImage = imageElement.copyWith(
+                            id: generateUid(),
+                            position:
+                                imageElement.position + const Offset(30, 30),
+                            createdAt: DateTime.now(),
+                          );
+                          setState(() {
+                            _imageElements.add(newImage);
+                            _imageTool.selectImage(newImage);
+                            _imageVersion++;
+                            _rebuildImageSpatialIndex();
+                          });
+                          _layerController.addImage(newImage);
+                          _broadcastImageUpdate(newImage, isNew: true);
+                          _autoSaveCanvas();
+                          HapticFeedback.mediumImpact();
+                        },
+                        onDelete: () {
+                          showDeleteImageConfirmation(
+                            btnContext,
+                            imageElement.id,
+                          );
+                        },
+                      );
                     },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHigh,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.image_rounded,
+                            size: 18,
+                            color: cs.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Image Actions',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.expand_more_rounded,
+                            size: 18,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  // Pulsante Elimina
-                  ImageActionButton(
-                    icon: Icons.delete,
-                    label: '*',
-                    color: Colors.red,
-                    onTap: () {
-                      final imageElement = _imageTool.selectedImage!;
-                      setState(() {
-                        _imageElements.removeWhere(
-                          (e) => e.id == imageElement.id,
-                        );
-                        _imageTool.clearSelection();
-                        _imageVersion++;
-                        _rebuildImageSpatialIndex();
-                      });
-                      // 🗑️ Prune per-image cache for the deleted image
-                      ImagePainter.invalidateImageCache(imageElement.id);
-
-                      // 🔄 Sync: notify delta tracker for synchronization
-                      _layerController.removeImage(imageElement.id);
-
-                      _autoSaveCanvas();
-                      HapticFeedback.mediumImpact();
-                    },
-                  ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ),

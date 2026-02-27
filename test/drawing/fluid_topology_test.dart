@@ -1,10 +1,10 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/conscious_architecture.dart';
-import 'package:nebula_engine/src/drawing/models/fluid_topology_config.dart';
-import 'package:nebula_engine/src/drawing/models/fluid_grid.dart';
-import 'package:nebula_engine/src/drawing/filters/fluid_topology_engine.dart';
+import 'package:fluera_engine/src/core/conscious_architecture.dart';
+import 'package:fluera_engine/src/drawing/models/fluid_topology_config.dart';
+import 'package:fluera_engine/src/drawing/models/fluid_grid.dart';
+import 'package:fluera_engine/src/drawing/filters/fluid_topology_engine.dart';
 
 void main() {
   // ===========================================================================

@@ -1,6 +1,5 @@
-import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/drawing/filters/predictive_renderer.dart';
+import 'package:fluera_engine/src/drawing/filters/predictive_renderer.dart';
 
 void main() {
   // ===========================================================================

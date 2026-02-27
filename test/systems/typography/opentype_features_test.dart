@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/opentype_features.dart';
+import 'package:fluera_engine/src/systems/opentype_features.dart';
 import 'dart:ui' show FontFeature;
 
 void main() {

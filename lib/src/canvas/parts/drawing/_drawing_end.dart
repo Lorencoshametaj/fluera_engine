@@ -1,11 +1,42 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 📦 Drawing End — pointer-up finalization, stroke save, symmetry mirror
-extension on _NebulaCanvasScreenState {
+extension on _FlueraCanvasScreenState {
   void _onDrawEnd(Offset canvasPosition) {
     // Indica che l'utente ha finito di disegnare
     _isDrawingNotifier.value = false;
     _pushConsciousContext(); // 🧠 Notify intelligence subsystems
+
+    // 📌 PIN DRAG END: Finalize pin position
+    if (_draggingPinId != null) {
+      _handleRecordingPinDragEnd(canvasPosition);
+      return;
+    }
+
+    // 📐 SECTION MODE: Show customization dialog then commit
+    if (_isSectionActive && _sectionStartPoint != null) {
+      final start = _sectionStartPoint!;
+      final end = _sectionCurrentEndPoint ?? canvasPosition;
+      final sectionRect = Rect.fromPoints(start, end);
+
+      // Clear preview immediately
+      _sectionStartPoint = null;
+      _sectionCurrentEndPoint = null;
+      setState(() {});
+
+      // Minimum size check — if large enough, create new section
+      if (sectionRect.width >= 20 && sectionRect.height >= 20) {
+        _showSectionCustomizationSheet(sectionRect);
+      } else {
+        // Small gesture = tap — try to select an existing section
+        final tappedSection = _findSectionAtPoint(canvasPosition);
+        if (tappedSection != null) {
+          HapticFeedback.selectionClick();
+          _showSectionEditSheet(tappedSection);
+        }
+      }
+      return;
+    }
 
     // ☁️ PRESENCE: Clear drawing state for collaborators
     if (_isSharedCanvas && _realtimeEngine != null) {
@@ -14,6 +45,7 @@ extension on _NebulaCanvasScreenState {
 
     // 📄 PDF DOCUMENT DRAG: End whole-document drag
     if (_pdfPageDragController.isDraggingDocument) {
+      final parentDoc = _pdfPageDragController.parentDocument;
       final activeLayer = _layerController.layers.firstWhere(
         (l) => l.id == _layerController.activeLayerId,
         orElse: () => _layerController.layers.first,
@@ -22,6 +54,17 @@ extension on _NebulaCanvasScreenState {
       DrawingPainter.invalidateAllTiles();
       _pdfLayoutVersion++;
       _isDrawingNotifier.value = false;
+
+      // 📡 Broadcast document move to collaborators
+      if (_realtimeEngine != null && parentDoc != null) {
+        final origin = parentDoc.documentModel.gridOrigin;
+        _realtimeEngine!.broadcastPdfUpdated(
+          documentId: parentDoc.id.toString(),
+          subAction: 'documentMoved',
+          data: {'originX': origin.dx, 'originY': origin.dy},
+        );
+      }
+
       setState(() {});
       _autoSaveCanvas();
       return;
@@ -31,12 +74,29 @@ extension on _NebulaCanvasScreenState {
     // Strokes were already translated in real-time during _onDrawUpdate,
     // so we only need to finalize the page position and invalidate caches.
     if (_pdfPageDragController.isDragging) {
+      final draggedPage = _pdfPageDragController.draggingPage;
       _pdfPageDragController.endDrag();
       // Invalidate tile cache to prevent ghost copies (stale tiles showing
       // the page at its pre-drag position after re-lock).
       DrawingPainter.invalidateAllTiles();
       _pdfLayoutVersion++;
       _isDrawingNotifier.value = false;
+
+      // 📡 Broadcast page move to collaborators
+      if (_realtimeEngine != null && draggedPage != null) {
+        final pos = draggedPage.position;
+        _realtimeEngine!.broadcastPdfUpdated(
+          documentId:
+              (draggedPage.parent as PdfDocumentNode?)?.id.toString() ?? '',
+          subAction: 'pageMoved',
+          data: {
+            'pageIndex': draggedPage.pageModel.pageIndex,
+            'dx': pos.dx,
+            'dy': pos.dy,
+          },
+        );
+      }
+
       setState(() {});
       _autoSaveCanvas();
       return;
@@ -48,61 +108,8 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🎨 PRIORITÀ 1: Se siamo in editing mode immagine
-    if (_imageInEditMode != null) {
-      // ⚠️ Azzera lo stroke of the canvas normale to avoid duplicazioni
-      _currentStrokeNotifier.clear();
-
-      // If gomma attiva, non fare nulla (abbiamo already cancellato in Start/Update)
-      if (_effectiveIsEraser) {
-        return;
-      }
-
-      // Only if we have a stroke to save
-      if (_drawingHandler.hasStroke) {
-        // Complete the stroke on the image
-        _drawingHandler.endStroke();
-
-        // 🚀 Fix 1: use pre-accumulated converted points (O(1) instead of O(n))
-        // These are the exact points the user saw during drawing.
-        final relativePoints = List<ProDrawingPoint>.from(
-          _editingConvertedPoints,
-        );
-
-        final stroke = ProStroke(
-          id: generateUid(),
-          points: relativePoints,
-          color: _effectiveColor,
-          baseWidth: _effectiveWidth,
-          penType: _effectivePenType,
-          createdAt: _editingStrokeCreatedAt,
-          settings: _brushSettings,
-        );
-
-        setState(() {
-          _imageEditingStrokes.add(stroke);
-          // 🧠 Fix 7: new stroke invalidates redo history
-          _imageEditingUndoStack.clear();
-        });
-
-        // Clean up accumulator
-        _editingConvertedPoints.clear();
-        _currentEditingStrokeNotifier.value = null;
-
-        // 🎤 NOTIFICA ESTERNA (per Sync Recording)
-        if (widget.onExternalStrokeAdded != null) {
-          final endTime = DateTime.now();
-          final startTime = _lastStrokeStartTime ?? endTime;
-          widget.onExternalStrokeAdded!(stroke, startTime, endTime);
-        }
-
-        // Do not fare auto-save qui, lo faremo when esce from the mode editing
-      }
-      return;
-    }
-
-    // 🌀 End single-finger handle rotation
-    if (_imageTool.isHandleRotating) {
+    // 🌀 End single-finger handle rotation (pan mode only)
+    if (_effectiveIsPanMode && _imageTool.isHandleRotating) {
       _imageTool.endHandleRotation();
       _imageVersion++;
       _rebuildImageSpatialIndex();
@@ -115,35 +122,29 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🖼️ ALWAYS handle end of resize/drag of images (max priority)
-    if (_imageTool.isResizing) {
+    // 🖼️ ALWAYS handle end of resize/drag of images (pan mode only)
+    if (_effectiveIsPanMode && _imageTool.isResizing) {
       _imageTool.endResize();
       _stopAutoScroll();
       HapticFeedback.lightImpact();
-      // 🧠 Cache coherency: bump version + rebuild R-tree after resize
       _imageVersion++;
       _rebuildImageSpatialIndex();
-      // 🔄 Sync: notify delta tracker of image update
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
-        // 🔴 RT: Broadcast image resize to collaborators
         _broadcastImageUpdate(_imageTool.selectedImage!);
       }
       setState(() {});
       _autoSaveCanvas();
       return;
-    } else if (_imageTool.isDragging) {
+    } else if (_effectiveIsPanMode && _imageTool.isDragging) {
       _imageTool.endDrag();
       _stopAutoScroll();
       _clearSmartGuides();
       HapticFeedback.lightImpact();
-      // 🧠 Cache coherency: bump version + rebuild R-tree after drag
       _imageVersion++;
       _rebuildImageSpatialIndex();
-      // 🔄 Sync: notify delta tracker of image update
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
-        // 🔴 RT: Broadcast image drag to collaborators
         _broadcastImageUpdate(_imageTool.selectedImage!);
       }
       setState(() {});
@@ -151,20 +152,14 @@ extension on _NebulaCanvasScreenState {
       return;
     }
 
-    // 🖼️ If we have an initial position but never started drag,
-    // significa che was un tap → enamong then editing mode
-    if (_initialTapPosition != null &&
+    // 🖼️ If we have an initial position but never started drag (pan mode),
+    // it was a tap — clear and reset
+    if (_effectiveIsPanMode &&
+        _initialTapPosition != null &&
         !_imageTool.isDragging &&
         _imageTool.selectedImage != null) {
-      // Find l'selected image
-      final selectedImage = _imageTool.selectedImage!;
-      final image = _loadedImages[selectedImage.imagePath];
-
-      if (image != null) {
-        _enterImageEditMode(selectedImage);
-        _initialTapPosition = null;
-        return;
-      }
+      _initialTapPosition = null;
+      return;
     }
 
     // Reset initial tap position
@@ -483,10 +478,89 @@ extension on _NebulaCanvasScreenState {
     // 🎯 SNAP FIX: Add finalized stroke and update tile cache BEFORE
     // clearing the live stroke. Previous order (clear → add → tiles)
     // caused a 1-frame gap where neither live nor finalized was visible.
-    // New order: tiles → add → clear ensures seamless handoff.
-    // Since the rendering pipelines are now identical (no isLive
-    // differences), the 1-frame overlap is invisible.
-    _layerController.addStroke(stroke);
+    // New order: add → tiles → clear ensures seamless handoff.
+    // The SNAP FIX (trim to renderedCount above) prevents elongation
+    // from unrendered tail points.
+
+    // 🖼️ IMAGE STROKE ROUTING: If stroke started on an image, attach it
+    // to the image's drawingStrokes instead of the canvas layer.
+    ImageElement? targetImage;
+    if (stroke.points.isNotEmpty) {
+      final firstPoint = stroke.points.first.position;
+      for (int i = 0; i < _imageElements.length; i++) {
+        final img = _imageElements[i];
+        final loadedImg = _loadedImages[img.imagePath];
+        if (loadedImg == null) continue;
+        final w = loadedImg.width.toDouble();
+        final h = loadedImg.height.toDouble();
+        final halfW = w * img.scale / 2;
+        final halfH = h * img.scale / 2;
+        // position is CENTER of the image (matches ImagePainter)
+        final imageRect = Rect.fromCenter(
+          center: img.position,
+          width: halfW * 2,
+          height: halfH * 2,
+        );
+        if (imageRect.contains(firstPoint)) {
+          targetImage = img;
+          break;
+        }
+      }
+    }
+
+    if (targetImage != null) {
+      // 🖼️ Stroke belongs to the image — convert to image-local coordinates
+      final idx = _imageElements.indexWhere((e) => e.id == targetImage!.id);
+      if (idx != -1) {
+        final img = _imageElements[idx];
+        // Transform: canvas → image-local
+        // 🐛 FIX: Only un-translate + un-rotate, do NOT apply invScale!
+        //    Velocity-based brushes (fountain pen) compute width from
+        //    inter-point distances. Multiplying positions by invScale
+        //    inflates distances (e.g., 8.6× for scale=0.116), causing
+        //    the brush to over-thin the stroke. Strokes are stored in
+        //    un-translated, un-rotated canvas space and rendered with
+        //    translate + rotate only (no canvas.scale for strokes).
+        final cosR = math.cos(-img.rotation);
+        final sinR = math.sin(-img.rotation);
+
+        debugPrint(
+          '[🐛 IMG-STROKE] canvas baseWidth=${stroke.baseWidth}, imgScale=${img.scale}',
+        );
+
+        final localPoints =
+            stroke.points.map((p) {
+              // 1. Un-translate
+              final dx = p.position.dx - img.position.dx;
+              final dy = p.position.dy - img.position.dy;
+              // 2. Un-rotate
+              final rx = dx * cosR - dy * sinR;
+              final ry = dx * sinR + dy * cosR;
+              // 3. NO invScale — preserve canvas-space distances
+              return p.copyWith(position: Offset(rx, ry));
+            }).toList();
+
+        final localStroke = stroke.copyWith(
+          points: localPoints,
+          baseWidth: stroke.baseWidth, // NO invScale
+          referenceScale: img.scale, // 🖼️ Store image scale at draw time
+        );
+        final updated = _imageElements[idx].copyWith(
+          drawingStrokes: [..._imageElements[idx].drawingStrokes, localStroke],
+        );
+        _imageElements[idx] = updated;
+        _layerController.updateImage(updated);
+        _imageVersion++;
+        _imageRepaintNotifier.value++;
+        // 🔴 RT: Broadcast as image update (includes drawingStrokes)
+        _broadcastImageUpdate(updated);
+      }
+    } else {
+      // Regular canvas stroke
+      _layerController.addStroke(stroke);
+      // 🔴 RT: Broadcast completed stroke to collaborators
+      _broadcastStrokeAdded(stroke);
+    }
 
     // 🚀 Incremental tile cache update: ensure tiles contain the stroke
     // BEFORE clearing the live version.
@@ -503,9 +577,6 @@ extension on _NebulaCanvasScreenState {
       strokeWidth: stroke.baseWidth,
       opacity: _effectiveOpacity,
     );
-
-    // 🔴 RT: Broadcast completed stroke to collaborators
-    _broadcastStrokeAdded(stroke);
 
     // 📄 PDF Annotation Linking: if stroke overlaps a PDF page, link it
     _linkStrokeToPdfPage(stroke);
@@ -590,8 +661,10 @@ extension on _NebulaCanvasScreenState {
 
     // 💾 Defer persistence to microtask (non blocca pen-up frame)
     Future.microtask(() {
-      StrokePersistenceService.instance.saveStroke(stroke).then((_) {
-        final tier = StrokePersistenceService.instance.currentTier;
+      final strokeSvc =
+          EngineScope.current.drawingModule?.strokePersistenceService;
+      strokeSvc?.saveStroke(stroke).then((_) {
+        final tier = strokeSvc.currentTier;
         if (tier == 'TIER 4 (DISK)') {}
       });
     });
@@ -696,5 +769,1116 @@ extension on _NebulaCanvasScreenState {
         }
       }
     }
+  }
+
+  // ===========================================================================
+  // 📐 SECTION SELECTION — Find and edit existing sections
+  // ===========================================================================
+
+  /// Walk the scene graph and return the first SectionNode whose world bounds
+  /// contain [canvasPoint], or null.
+  SectionNode? _findSectionAtPoint(Offset canvasPoint) {
+    final sceneGraph = _layerController.sceneGraph;
+    for (final layer in sceneGraph.layers) {
+      for (final child in layer.children.reversed) {
+        if (child is SectionNode && child.isVisible) {
+          final inverse = Matrix4.tryInvert(child.worldTransform);
+          if (inverse == null) continue;
+          final local = MatrixUtils.transformPoint(inverse, canvasPoint);
+          if (child.localBounds.contains(local)) return child;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Show an edit sheet for an existing section.
+  void _showSectionEditSheet(SectionNode section) {
+    final nameController = TextEditingController(text: section.sectionName);
+
+    // Same color presets as creation
+    const colorPresets = <Color?>[
+      null,
+      Color(0xFFFFFFFF),
+      Color(0xFFF5F5F5),
+      Color(0xFF1E1E2E),
+      Color(0x1A2196F3),
+      Color(0x1AFF9800),
+      Color(0x1A4CAF50),
+      Color(0x1AE91E63),
+      Color(0x1A9C27B0),
+      Color(0x1A00BCD4),
+    ];
+
+    Color? selectedColor = section.backgroundColor;
+    bool showGrid = section.showGrid;
+    bool clipContent = section.clipContent;
+    int subdivRows = section.subdivisionRows;
+    int subdivColumns = section.subdivisionColumns;
+    int sectionCornerRadius = section.cornerRadius.round();
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final cs = Theme.of(ctx).colorScheme;
+            final isDark = cs.brightness == Brightness.dark;
+            final bgColor =
+                isDark ? const Color(0xFF1E1E2E) : const Color(0xFFF5F5F5);
+            final textColor = isDark ? Colors.white : Colors.black87;
+            final muted = textColor.withValues(alpha: 0.4);
+
+            Widget sectionLabel(String text) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                text,
+                style: TextStyle(
+                  color: muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            );
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.75,
+                ),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Drag handle
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12, bottom: 8),
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: textColor.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+
+                    // Scrollable content
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // ── Header ──
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.edit_outlined,
+                                  color: Color(0xFF2196F3),
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Edit Section',
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: textColor.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '${section.sectionSize.width.round()} × ${section.sectionSize.height.round()}',
+                                    style: TextStyle(
+                                      color: textColor.withValues(alpha: 0.5),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+
+                            // ── Name ──
+                            sectionLabel('NAME'),
+                            TextField(
+                              controller: nameController,
+                              autofocus: false,
+                              style: TextStyle(color: textColor, fontSize: 15),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: textColor.withValues(alpha: 0.06),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Background Color ──
+                            sectionLabel('BACKGROUND'),
+                            SizedBox(
+                              height: 40,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: colorPresets.length,
+                                separatorBuilder:
+                                    (_, __) => const SizedBox(width: 8),
+                                itemBuilder: (_, i) {
+                                  final color = colorPresets[i];
+                                  final isSelected = selectedColor == color;
+                                  final isTransparent = color == null;
+
+                                  return GestureDetector(
+                                    onTap: () {
+                                      setSheetState(
+                                        () => selectedColor = color,
+                                      );
+                                      HapticFeedback.selectionClick();
+                                    },
+                                    child: AnimatedContainer(
+                                      duration: const Duration(
+                                        milliseconds: 150,
+                                      ),
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color:
+                                            isTransparent
+                                                ? Colors.transparent
+                                                : color,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color:
+                                              isSelected
+                                                  ? const Color(0xFF2196F3)
+                                                  : textColor.withValues(
+                                                    alpha: 0.15,
+                                                  ),
+                                          width: isSelected ? 2.5 : 1.0,
+                                        ),
+                                      ),
+                                      child:
+                                          isTransparent
+                                              ? Icon(
+                                                Icons.block_rounded,
+                                                size: 18,
+                                                color: textColor.withValues(
+                                                  alpha: 0.3,
+                                                ),
+                                              )
+                                              : null,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Options ──
+                            sectionLabel('OPTIONS'),
+                            _sectionOptionRow(
+                              icon: Icons.grid_4x4_rounded,
+                              label: 'Show Grid',
+                              value: showGrid,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => showGrid = v),
+                            ),
+                            const SizedBox(height: 4),
+                            _sectionOptionRow(
+                              icon: Icons.content_cut_rounded,
+                              label: 'Clip Content',
+                              value: clipContent,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => clipContent = v),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Subdivisions ──
+                            sectionLabel('SUBDIVISIONS'),
+                            _sectionStepperRow(
+                              icon: Icons.table_rows_outlined,
+                              label: 'Rows',
+                              value: subdivRows,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => subdivRows = v),
+                            ),
+                            const SizedBox(height: 4),
+                            _sectionStepperRow(
+                              icon: Icons.view_column_outlined,
+                              label: 'Columns',
+                              value: subdivColumns,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => subdivColumns = v),
+                            ),
+                            const SizedBox(height: 4),
+                            _sectionStepperRow(
+                              icon: Icons.rounded_corner_rounded,
+                              label: 'Corner Radius',
+                              value: sectionCornerRadius,
+                              min: 0,
+                              max: 32,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(
+                                    () => sectionCornerRadius = v,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // ── Action buttons ──
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: Row(
+                        children: [
+                          // Delete button
+                          IconButton(
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              _deleteSection(section);
+                            },
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            color: const Color(0xFFE53935),
+                            style: IconButton.styleFrom(
+                              backgroundColor: const Color(
+                                0xFFE53935,
+                              ).withValues(alpha: 0.1),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Cancel
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  color: textColor.withValues(alpha: 0.5),
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Apply
+                          Expanded(
+                            flex: 2,
+                            child: FilledButton(
+                              onPressed: () {
+                                Navigator.of(ctx).pop();
+                                _applySectionEdits(
+                                  section: section,
+                                  name:
+                                      nameController.text.trim().isEmpty
+                                          ? section.sectionName
+                                          : nameController.text.trim(),
+                                  backgroundColor: selectedColor,
+                                  showGrid: showGrid,
+                                  clipContent: clipContent,
+                                  subdivisionRows: subdivRows,
+                                  subdivisionColumns: subdivColumns,
+                                  cornerRadius: sectionCornerRadius.toDouble(),
+                                );
+                              },
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF2196F3),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                'Apply Changes',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Apply edits to an existing section.
+  void _applySectionEdits({
+    required SectionNode section,
+    required String name,
+    Color? backgroundColor,
+    bool showGrid = false,
+    bool clipContent = false,
+    int subdivisionRows = 1,
+    int subdivisionColumns = 1,
+    double cornerRadius = 0,
+  }) {
+    section.sectionName = name;
+    section.name = name;
+    section.backgroundColor = backgroundColor;
+    section.showGrid = showGrid;
+    section.clipContent = clipContent;
+    section.subdivisionRows = subdivisionRows;
+    section.subdivisionColumns = subdivisionColumns;
+    section.cornerRadius = cornerRadius;
+
+    _layerController.sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    HapticFeedback.mediumImpact();
+    setState(() {});
+    _autoSaveCanvas();
+  }
+
+  /// Delete a section from the scene graph.
+  void _deleteSection(SectionNode section) {
+    final sceneGraph = _layerController.sceneGraph;
+    for (final layer in sceneGraph.layers) {
+      if (layer.children.contains(section)) {
+        layer.remove(section);
+        break;
+      }
+    }
+    sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    HapticFeedback.heavyImpact();
+    setState(() {});
+    _autoSaveCanvas();
+  }
+
+  // ===========================================================================
+  // 📐 SECTION CUSTOMIZATION — Bottom sheet for name & color
+
+  /// Show a bottom sheet to let the user name the section, pick a color,
+  /// select a preset, and toggle grid/clip options.
+  void _showSectionCustomizationSheet(Rect sectionRect) {
+    final defaultName = 'Section ${_sectionCounter}';
+    final nameController = TextEditingController(text: defaultName);
+
+    // Curated color presets (null = transparent / no background)
+    const colorPresets = <Color?>[
+      null, // transparent
+      Color(0xFFFFFFFF), // white
+      Color(0xFFF5F5F5), // light grey
+      Color(0xFF1E1E2E), // dark navy
+      Color(0x1A2196F3), // blue tint
+      Color(0x1AFF9800), // orange tint
+      Color(0x1A4CAF50), // green tint
+      Color(0x1AE91E63), // pink tint
+      Color(0x1A9C27B0), // purple tint
+      Color(0x1A00BCD4), // cyan tint
+    ];
+
+    // Preset categories for organized display
+    const presetCategories = <String, List<SectionPreset>>{
+      '📱 Devices': [
+        SectionPreset.iphone16,
+        SectionPreset.iphone16Pro,
+        SectionPreset.iphone16ProMax,
+        SectionPreset.ipadPro11,
+        SectionPreset.ipadPro13,
+      ],
+      '🖥 Desktop': [
+        SectionPreset.macbook14,
+        SectionPreset.desktop1080p,
+        SectionPreset.desktop4k,
+      ],
+      '📄 Paper': [
+        SectionPreset.a4Portrait,
+        SectionPreset.a4Landscape,
+        SectionPreset.a3Portrait,
+        SectionPreset.letterPortrait,
+        SectionPreset.letterLandscape,
+      ],
+      '📸 Social': [
+        SectionPreset.instagramPost,
+        SectionPreset.instagramStory,
+        SectionPreset.twitterPost,
+      ],
+      '🎬 Presentation': [
+        SectionPreset.presentation16x9,
+        SectionPreset.presentation4x3,
+      ],
+    };
+
+    Color? selectedColor;
+    SectionPreset? selectedPreset;
+    bool showGrid = false;
+    bool clipContent = false;
+    int subdivRows = 1;
+    int subdivColumns = 1;
+    int sectionCornerRadius = 0;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final cs = Theme.of(ctx).colorScheme;
+            final isDark = cs.brightness == Brightness.dark;
+            final bgColor =
+                isDark ? const Color(0xFF1E1E2E) : const Color(0xFFF5F5F5);
+            final textColor = isDark ? Colors.white : Colors.black87;
+            final muted = textColor.withValues(alpha: 0.4);
+
+            // Current effective size
+            final effectiveSize =
+                selectedPreset != null
+                    ? selectedPreset!.size
+                    : sectionRect.size;
+
+            Widget sectionLabel(String text) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                text,
+                style: TextStyle(
+                  color: muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            );
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.75,
+                ),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Drag handle
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12, bottom: 8),
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: textColor.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+
+                    // Scrollable content
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // ── Header ──
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.dashboard_outlined,
+                                  color: Color(0xFF2196F3),
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'New Section',
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const Spacer(),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Container(
+                                    key: ValueKey(effectiveSize),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: textColor.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '${effectiveSize.width.round()} × ${effectiveSize.height.round()}',
+                                      style: TextStyle(
+                                        color: textColor.withValues(alpha: 0.5),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+
+                            // ── Name ──
+                            sectionLabel('NAME'),
+                            TextField(
+                              controller: nameController,
+                              autofocus: true,
+                              style: TextStyle(color: textColor, fontSize: 15),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: textColor.withValues(alpha: 0.06),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
+                                hintText: 'Section name...',
+                                hintStyle: TextStyle(
+                                  color: textColor.withValues(alpha: 0.3),
+                                ),
+                              ),
+                              onSubmitted: (_) {
+                                Navigator.of(ctx).pop();
+                                _commitSectionWithOptions(
+                                  sectionRect: sectionRect,
+                                  name:
+                                      nameController.text.trim().isEmpty
+                                          ? defaultName
+                                          : nameController.text.trim(),
+                                  backgroundColor: selectedColor,
+                                  showGrid: showGrid,
+                                  clipContent: clipContent,
+                                  preset: selectedPreset,
+                                  subdivisionRows: subdivRows,
+                                  subdivisionColumns: subdivColumns,
+                                  cornerRadius: sectionCornerRadius.toDouble(),
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Presets ──
+                            sectionLabel('PRESET SIZE'),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                // Custom (freehand) chip
+                                _sectionPresetChip(
+                                  label: '✏️ Custom',
+                                  isSelected: selectedPreset == null,
+                                  textColor: textColor,
+                                  onTap: () {
+                                    setSheetState(() => selectedPreset = null);
+                                    HapticFeedback.selectionClick();
+                                  },
+                                ),
+                                // All presets
+                                for (final entry in presetCategories.entries)
+                                  for (final preset in entry.value)
+                                    _sectionPresetChip(
+                                      label: preset.label,
+                                      isSelected: selectedPreset == preset,
+                                      textColor: textColor,
+                                      subtitle:
+                                          '${preset.width.round()}×${preset.height.round()}',
+                                      onTap: () {
+                                        setSheetState(() {
+                                          selectedPreset = preset;
+                                          nameController.text = preset.label;
+                                        });
+                                        HapticFeedback.selectionClick();
+                                      },
+                                    ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Background Color ──
+                            sectionLabel('BACKGROUND'),
+                            SizedBox(
+                              height: 40,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: colorPresets.length,
+                                separatorBuilder:
+                                    (_, __) => const SizedBox(width: 8),
+                                itemBuilder: (_, i) {
+                                  final color = colorPresets[i];
+                                  final isSelected = selectedColor == color;
+                                  final isTransparent = color == null;
+
+                                  return GestureDetector(
+                                    onTap: () {
+                                      setSheetState(
+                                        () => selectedColor = color,
+                                      );
+                                      HapticFeedback.selectionClick();
+                                    },
+                                    child: AnimatedContainer(
+                                      duration: const Duration(
+                                        milliseconds: 150,
+                                      ),
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color:
+                                            isTransparent
+                                                ? Colors.transparent
+                                                : color,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color:
+                                              isSelected
+                                                  ? const Color(0xFF2196F3)
+                                                  : textColor.withValues(
+                                                    alpha: 0.15,
+                                                  ),
+                                          width: isSelected ? 2.5 : 1.0,
+                                        ),
+                                      ),
+                                      child:
+                                          isTransparent
+                                              ? Icon(
+                                                Icons.block_rounded,
+                                                size: 18,
+                                                color: textColor.withValues(
+                                                  alpha: 0.3,
+                                                ),
+                                              )
+                                              : null,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Options ──
+                            sectionLabel('OPTIONS'),
+                            _sectionOptionRow(
+                              icon: Icons.grid_4x4_rounded,
+                              label: 'Show Grid',
+                              value: showGrid,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => showGrid = v),
+                            ),
+                            const SizedBox(height: 4),
+                            _sectionOptionRow(
+                              icon: Icons.content_cut_rounded,
+                              label: 'Clip Content',
+                              value: clipContent,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => clipContent = v),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Subdivisions ──
+                            sectionLabel('SUBDIVISIONS'),
+                            _sectionStepperRow(
+                              icon: Icons.table_rows_outlined,
+                              label: 'Rows',
+                              value: subdivRows,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => subdivRows = v),
+                            ),
+                            const SizedBox(height: 4),
+                            _sectionStepperRow(
+                              icon: Icons.view_column_outlined,
+                              label: 'Columns',
+                              value: subdivColumns,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(() => subdivColumns = v),
+                            ),
+                            const SizedBox(height: 4),
+                            _sectionStepperRow(
+                              icon: Icons.rounded_corner_rounded,
+                              label: 'Corner Radius',
+                              value: sectionCornerRadius,
+                              min: 0,
+                              max: 32,
+                              textColor: textColor,
+                              onChanged:
+                                  (v) => setSheetState(
+                                    () => sectionCornerRadius = v,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // ── Action buttons (pinned at bottom) ──
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  color: textColor.withValues(alpha: 0.5),
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: FilledButton(
+                              onPressed: () {
+                                Navigator.of(ctx).pop();
+                                _commitSectionWithOptions(
+                                  sectionRect: sectionRect,
+                                  name:
+                                      nameController.text.trim().isEmpty
+                                          ? defaultName
+                                          : nameController.text.trim(),
+                                  backgroundColor: selectedColor,
+                                  showGrid: showGrid,
+                                  clipContent: clipContent,
+                                  preset: selectedPreset,
+                                  subdivisionRows: subdivRows,
+                                  subdivisionColumns: subdivColumns,
+                                  cornerRadius: sectionCornerRadius.toDouble(),
+                                );
+                              },
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF2196F3),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                'Create Section',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Selectable preset chip widget.
+  Widget _sectionPresetChip({
+    required String label,
+    required bool isSelected,
+    required Color textColor,
+    required VoidCallback onTap,
+    String? subtitle,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color:
+              isSelected
+                  ? const Color(0xFF2196F3).withValues(alpha: 0.15)
+                  : textColor.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color:
+                isSelected
+                    ? const Color(0xFF2196F3)
+                    : textColor.withValues(alpha: 0.1),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color:
+                    isSelected
+                        ? const Color(0xFF2196F3)
+                        : textColor.withValues(alpha: 0.7),
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(width: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: textColor.withValues(alpha: 0.3),
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Toggle row for grid/clip options.
+  Widget _sectionOptionRow({
+    required IconData icon,
+    required String label,
+    required bool value,
+    required Color textColor,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: textColor.withValues(alpha: 0.4)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: textColor.withValues(alpha: 0.7),
+              fontSize: 14,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 28,
+          child: Switch.adaptive(
+            value: value,
+            onChanged: (v) {
+              onChanged(v);
+              HapticFeedback.selectionClick();
+            },
+            activeColor: const Color(0xFF2196F3),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Commit the SectionNode with all user-chosen options.
+  /// Stepper row for numeric values (rows/columns).
+  Widget _sectionStepperRow({
+    required IconData icon,
+    required String label,
+    required int value,
+    required Color textColor,
+    required ValueChanged<int> onChanged,
+    int min = 1,
+    int max = 12,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: textColor.withValues(alpha: 0.4)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: textColor.withValues(alpha: 0.7),
+              fontSize: 14,
+            ),
+          ),
+        ),
+        // Minus button
+        GestureDetector(
+          onTap:
+              value > min
+                  ? () {
+                    onChanged(value - 1);
+                    HapticFeedback.selectionClick();
+                  }
+                  : null,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: textColor.withValues(alpha: value > min ? 0.1 : 0.04),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              Icons.remove_rounded,
+              size: 16,
+              color: textColor.withValues(alpha: value > min ? 0.6 : 0.2),
+            ),
+          ),
+        ),
+        // Value
+        SizedBox(
+          width: 32,
+          child: Center(
+            child: Text(
+              '$value',
+              style: TextStyle(
+                color: textColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        // Plus button
+        GestureDetector(
+          onTap:
+              value < max
+                  ? () {
+                    onChanged(value + 1);
+                    HapticFeedback.selectionClick();
+                  }
+                  : null,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: textColor.withValues(alpha: value < max ? 0.1 : 0.04),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              Icons.add_rounded,
+              size: 16,
+              color: textColor.withValues(alpha: value < max ? 0.6 : 0.2),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Commit the SectionNode with all user-chosen options.
+  void _commitSectionWithOptions({
+    required Rect sectionRect,
+    required String name,
+    Color? backgroundColor,
+    bool showGrid = false,
+    bool clipContent = false,
+    SectionPreset? preset,
+    int subdivisionRows = 1,
+    int subdivisionColumns = 1,
+    double cornerRadius = 0,
+  }) {
+    final effectiveSize =
+        preset != null
+            ? preset.size
+            : Size(sectionRect.width, sectionRect.height);
+
+    final section = SectionNode(
+      id: NodeId(generateUid()),
+      sectionName: name,
+      sectionSize: effectiveSize,
+      backgroundColor: backgroundColor,
+      showGrid: showGrid,
+      clipContent: clipContent,
+      preset: preset,
+      subdivisionRows: subdivisionRows,
+      subdivisionColumns: subdivisionColumns,
+      cornerRadius: cornerRadius,
+    );
+    section.setPosition(sectionRect.left, sectionRect.top);
+
+    final sceneGraph = _layerController.sceneGraph;
+    final activeLayer =
+        sceneGraph.layers.isNotEmpty ? sceneGraph.layers.first : null;
+    if (activeLayer != null) {
+      activeLayer.add(section);
+      sceneGraph.bumpVersion();
+    }
+
+    _sectionCounter++;
+    DrawingPainter.invalidateAllTiles();
+    HapticFeedback.mediumImpact();
+    setState(() {});
+    _autoSaveCanvas();
   }
 }

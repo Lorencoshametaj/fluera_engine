@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/export/export_pipeline.dart';
-import 'package:nebula_engine/src/export/raster_image_encoder.dart';
+import 'package:fluera_engine/src/export/export_pipeline.dart';
+import 'package:fluera_engine/src/export/raster_image_encoder.dart';
 
 void main() {
   group('ExportFormat', () {

@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Cloud Sync — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
+/// 📦 Cloud Sync — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
   /// 💾 AUTO-SAVE canvas su disco (chiamato ad ogni modifica)
   Future<void> _autoSaveCanvas() async {
     // Non salvare se stiamo caricando

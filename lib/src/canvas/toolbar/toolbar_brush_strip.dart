@@ -32,32 +32,13 @@ class ToolbarBrushStrip extends StatefulWidget {
 }
 
 class _ToolbarBrushStripState extends State<ToolbarBrushStrip> {
-  BrushCategory _activeCategory = BrushCategory.writing;
+  // V1: category toggle removed — all non-GPU presets shown in a flat list.
+  // Re-enable _CategoryToggle post-launch when GPU pens are ready.
 
   List<BrushPreset> get _displayPresets {
-    final all =
-        widget.presets.isNotEmpty ? widget.presets : BrushPreset.defaultPresets;
-    return all.where((p) => p.category == _activeCategory).toList();
-  }
-
-  /// Whether the selected brush belongs to the OTHER (non-active) category.
-  bool get _selectedInOtherCategory {
-    if (widget.selectedPresetId == null) return false;
-    final all =
-        widget.presets.isNotEmpty ? widget.presets : BrushPreset.defaultPresets;
-    final selected = all.where((p) => p.id == widget.selectedPresetId);
-    if (selected.isEmpty) return false;
-    return selected.first.category != _activeCategory;
-  }
-
-  /// Category of the currently selected brush.
-  BrushCategory? get _selectedCategory {
-    if (widget.selectedPresetId == null) return null;
-    final all =
-        widget.presets.isNotEmpty ? widget.presets : BrushPreset.defaultPresets;
-    final selected = all.where((p) => p.id == widget.selectedPresetId);
-    if (selected.isEmpty) return null;
-    return selected.first.category;
+    return widget.presets.isNotEmpty
+        ? widget.presets
+        : BrushPreset.defaultPresets;
   }
 
   @override
@@ -73,49 +54,20 @@ class _ToolbarBrushStripState extends State<ToolbarBrushStrip> {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          // ── Inline category toggle ──
-          _CategoryToggle(
-            activeCategory: _activeCategory,
-            selectedInOtherCategory: _selectedInOtherCategory,
-            selectedCategory: _selectedCategory,
-            isDark: widget.isDark,
-            onCategoryChanged: (cat) => setState(() => _activeCategory = cat),
-          ),
-          // ── Thin separator ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Container(
-              width: 1,
-              height: 22,
-              color: cs.outlineVariant.withValues(alpha: 0.5),
-            ),
-          ),
-          // ── Animated pill row ──
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: Row(
-              key: ValueKey(_activeCategory),
-              mainAxisSize: MainAxisSize.min,
-              children:
-                  _displayPresets.map((preset) {
-                    return ToolbarBrushPill(
-                      preset: preset,
-                      isSelected: widget.selectedPresetId == preset.id,
-                      isPenActive: widget.isPenActive,
-                      isDark: widget.isDark,
-                      onTap: () => widget.onPresetSelected(preset),
-                      onLongPress:
-                          widget.selectedPresetId == preset.id
-                              ? widget.onLongPress
-                              : null,
-                    );
-                  }).toList(),
-            ),
-          ),
-        ],
+        children:
+            _displayPresets.map((preset) {
+              return ToolbarBrushPill(
+                preset: preset,
+                isSelected: widget.selectedPresetId == preset.id,
+                isPenActive: widget.isPenActive,
+                isDark: widget.isDark,
+                onTap: () => widget.onPresetSelected(preset),
+                onLongPress:
+                    widget.selectedPresetId == preset.id
+                        ? widget.onLongPress
+                        : null,
+              );
+            }).toList(),
       ),
     );
   }

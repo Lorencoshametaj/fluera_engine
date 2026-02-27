@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 🧮 LaTeX Recognition Handler — converts lasso-selected strokes to LatexNode.
 ///
@@ -8,7 +8,7 @@ part of '../nebula_canvas_screen.dart';
 /// 3. Recognize via Pix2TexRecognizer
 /// 4. Show confirmation dialog with preview
 /// 5. On confirm: delete strokes + insert LatexNode at same position
-extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
+extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
   /// Convert the current lasso selection to a LatexNode via OCR recognition.
   Future<void> _convertSelectionToLatex() async {
     debugPrint('🧮 [LaTeX] _convertSelectionToLatex called');
@@ -76,7 +76,8 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
 
       // DEBUG: Save rasterized image to inspect what the model sees
       try {
-        final dir = await getApplicationDocumentsDirectory();
+        final dir = await getSafeDocumentsDirectory();
+        if (dir == null) return; // Web: no filesystem
         final debugFile = File('${dir.path}/hme_debug_input.png');
         await debugFile.writeAsBytes(png);
         debugPrint(
@@ -86,11 +87,11 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
 
       // 4. Recognize via HME CTC model
       debugPrint('🧮 [LaTeX] Initializing recognizer...');
-      if (NebulaCanvasLatexHandler._latexRecognizer == null) {
-        NebulaCanvasLatexHandler._latexRecognizer = HmeLatexRecognizer();
-        await NebulaCanvasLatexHandler._latexRecognizer!.initialize();
+      if (FlueraCanvasLatexHandler._latexRecognizer == null) {
+        FlueraCanvasLatexHandler._latexRecognizer = HmeLatexRecognizer();
+        await FlueraCanvasLatexHandler._latexRecognizer!.initialize();
       }
-      final recognizer = NebulaCanvasLatexHandler._latexRecognizer!;
+      final recognizer = FlueraCanvasLatexHandler._latexRecognizer!;
       if (!mounted) return;
       debugPrint('🧮 [LaTeX] Recognizer ready, calling recognizeImage...');
 

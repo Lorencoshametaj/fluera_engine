@@ -687,6 +687,28 @@ class TileCacheManager
     }
   }
 
+  /// 🚀 Paint a single cached tile by coordinates.
+  ///
+  /// Used during hybrid rendering (eraser) to composite individual clean
+  /// tiles while dirty tiles are rendered inline.
+  void paintSingleTile(Canvas canvas, int tileX, int tileY) {
+    final key = _tileKey(tileX, tileY);
+    final image = _tileCache[key];
+    if (image == null) return;
+
+    _touchTile(key);
+    final ts = currentTileSize;
+    final destRect = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
+    final tilePaint = Paint()..filterQuality = FilterQuality.medium;
+
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      destRect,
+      tilePaint,
+    );
+  }
+
   /// Updates LRU order for a tile
   void _touchTile(String key) {
     if (_tileCache.containsKey(key)) {

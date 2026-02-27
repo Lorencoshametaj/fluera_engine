@@ -1,9 +1,9 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/latex/latex_parser.dart';
-import 'package:nebula_engine/src/core/latex/latex_layout_engine.dart';
-import 'package:nebula_engine/src/core/latex/latex_draw_command.dart';
-import 'package:nebula_engine/src/core/latex/latex_layout_cache.dart';
+import 'package:fluera_engine/src/core/latex/latex_parser.dart';
+import 'package:fluera_engine/src/core/latex/latex_layout_engine.dart';
+import 'package:fluera_engine/src/core/latex/latex_draw_command.dart';
+import 'package:fluera_engine/src/core/latex/latex_layout_cache.dart';
 
 void main() {
   const testColor = Color(0xFFFFFFFF);

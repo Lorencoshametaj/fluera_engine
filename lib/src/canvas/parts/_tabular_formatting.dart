@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📊 Tabular Formatting — bold, italic, alignment, borders, colors, clear.
-extension NebulaCanvasTabularFormatting on _NebulaCanvasScreenState {
+extension FlueraCanvasTabularFormatting on _FlueraCanvasScreenState {
   // ── Cell formatting ──────────────────────────────────────────────────
 
   /// Get the format of the currently selected cell (for toolbar state).

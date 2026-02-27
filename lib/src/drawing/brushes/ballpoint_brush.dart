@@ -97,12 +97,9 @@ class BallpointBrush {
       strokeJoin: strokeJoin,
     );
 
-    // 🚀 USE OPTIMIZED PATH BUILDER for unified path
-    // During live drawing, use incremental builder (O(ΔN) instead of O(N))
-    final path =
-        isLive
-            ? OptimizedPathBuilder.buildSmoothPathIncremental(points)
-            : OptimizedPathBuilder.buildSmoothPath(points);
+    // 🚀 Always use incremental path builder: eliminates the visual
+    // "shrink" on pointer-up (same approach as fountain pen and pencil).
+    final path = OptimizedPathBuilder.buildSmoothPathIncremental(points);
 
     // 🚀 A SINGLE drawPath()!
     canvas.drawPath(path, paint);

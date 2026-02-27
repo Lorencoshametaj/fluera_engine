@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/rendering/optimization/frame_budget_manager.dart';
+import 'package:fluera_engine/src/rendering/optimization/frame_budget_manager.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

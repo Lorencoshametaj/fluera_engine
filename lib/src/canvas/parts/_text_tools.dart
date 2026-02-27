@@ -1,7 +1,7 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
-/// 📦 Text Tools & Settings — extracted from _NebulaCanvasScreenState
-extension on _NebulaCanvasScreenState {
+/// 📦 Text Tools & Settings — extracted from _FlueraCanvasScreenState
+extension on _FlueraCanvasScreenState {
   void _showSettings() {
     // Phase 2: CanvasSettingsDialog will be re-added
     // For now, use a minimal color-picker dialog
@@ -25,8 +25,8 @@ extension on _NebulaCanvasScreenState {
                       [
                             Colors.white,
                             Colors.black,
-                            Colors.grey[200]!,
-                            Colors.grey[900]!,
+                            const Color(0xFFEEEEEE),
+                            const Color(0xFF212121),
                           ]
                           .map(
                             (color) => GestureDetector(
@@ -145,6 +145,9 @@ extension on _NebulaCanvasScreenState {
   void _onLongPress(Offset canvasPosition) {
     // 🔒 VIEWER GUARD
     if (_checkViewerGuard()) return;
+
+    // 📌 Check recording pins first
+    if (_handleRecordingPinLongPress(canvasPosition)) return;
 
     // Check if pressed on a text element
     final hitElement = _digitalTextTool.hitTest(

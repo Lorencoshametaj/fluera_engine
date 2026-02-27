@@ -1,11 +1,11 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🌿 CREATIVE BRANCHING LIFECYCLE
 // Extracted from _lifecycle.dart — branch create, switch, merge, delete, explore
 // ============================================================================
 
-extension on _NebulaCanvasScreenState {
+extension on _FlueraCanvasScreenState {
   /// 🌿 Lazy-init BranchingManager (reuses existing StorageService)
   BranchingManager _getOrCreateBranchingManager() {
     _branchingManager ??= BranchingManager(

@@ -1,0 +1,57 @@
+[
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise_jni.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise_jni.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise_jni.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/denoise.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/denoise.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/denoise.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/nnet.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/nnet.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet_default.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/nnet_default.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/nnet_default.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnn.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/rnn.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/rnn.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_data.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/rnnoise_data.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/rnnoise_data.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_tables.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/rnnoise_tables.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/rnnoise_tables.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/pitch.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/pitch.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/pitch.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/kiss_fft.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/kiss_fft.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/kiss_fft.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/celt_lpc.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/celt_lpc.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/celt_lpc.c"
+},
+{
+  "directory": "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/35385u3f/x86_64",
+  "command": "/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android21 --sysroot=/home/lorenzo/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DHAVE_CONFIG_H -Dfluera_rnnoise_EXPORTS -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/include -I/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -Os -fvisibility=hidden -o CMakeFiles/fluera_rnnoise.dir/rnnoise/src/parse_lpcnet_weights.c.o -c /home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/parse_lpcnet_weights.c",
+  "file": "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp/rnnoise/src/parse_lpcnet_weights.c"
+}
+]

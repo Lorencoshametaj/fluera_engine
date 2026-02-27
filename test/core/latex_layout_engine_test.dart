@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/latex/latex_ast.dart';
-import 'package:nebula_engine/src/core/latex/latex_layout_engine.dart';
+import 'package:fluera_engine/src/core/latex/latex_ast.dart';
+import 'package:fluera_engine/src/core/latex/latex_layout_engine.dart';
 
 void main() {
   const fontSize = 24.0;

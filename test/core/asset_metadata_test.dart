@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/assets/asset_metadata.dart';
+import 'package:fluera_engine/src/core/assets/asset_metadata.dart';
 
 void main() {
   // ===========================================================================

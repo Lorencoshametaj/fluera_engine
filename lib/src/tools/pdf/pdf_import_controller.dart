@@ -1,26 +1,26 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../core/models/pdf_page_model.dart';
 import '../../core/models/pdf_document_model.dart';
-import '../../canvas/nebula_canvas_config.dart';
+import '../../canvas/fluera_canvas_config.dart';
 
 /// 📥 Controller for importing PDF documents onto the canvas.
 ///
 /// Orchestrates the full import pipeline:
 /// 1. Accept raw PDF bytes
-/// 2. Load via [NebulaPdfProvider]
+/// 2. Load via [FlueraPdfProvider]
 /// 3. Create [PdfDocumentNode] with child [PdfPageNode]s
 /// 4. Insert into the scene graph at the specified position
 ///
 /// This controller does NOT handle file picking — that's the host app's
 /// responsibility. It only processes bytes → scene graph nodes.
 class PdfImportController {
-  final NebulaPdfProvider? _provider;
+  final FlueraPdfProvider? _provider;
 
-  PdfImportController({NebulaPdfProvider? provider}) : _provider = provider;
+  PdfImportController({FlueraPdfProvider? provider}) : _provider = provider;
 
   /// Whether PDF import is available (provider is configured).
   bool get isAvailable => _provider != null;

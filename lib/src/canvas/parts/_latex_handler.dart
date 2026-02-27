@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 🧮 LaTeX Handler — manages the LaTeX editor sheet lifecycle.
 ///
 /// Shows [LatexEditorSheet] as a bottom sheet, handles node creation
 /// via the command history system, and wires up the ML recognizer warm-up.
-extension NebulaCanvasLatexHandler on _NebulaCanvasScreenState {
+extension FlueraCanvasLatexHandler on _FlueraCanvasScreenState {
   /// Lazily-initialized OCR recognizer for camera mode.
   static HmeLatexRecognizer? _latexRecognizer;
 

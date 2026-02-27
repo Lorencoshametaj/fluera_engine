@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/services/adaptive_debouncer_service.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/services/adaptive_debouncer_service.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   late AdaptiveDebouncerService debouncer;

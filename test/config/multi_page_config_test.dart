@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/config/multi_page_config.dart';
-import 'package:nebula_engine/src/export/export_preset.dart';
+import 'package:fluera_engine/src/config/multi_page_config.dart';
+import 'package:fluera_engine/src/export/export_preset.dart';
 
 void main() {
   late MultiPageConfig config;

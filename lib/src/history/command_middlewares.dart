@@ -1,4 +1,4 @@
-/// Built-in [CommandMiddleware] implementations for the Nebula Engine.
+/// Built-in [CommandMiddleware] implementations for the Fluera Engine.
 ///
 /// These middlewares bridge the command system to other engine subsystems:
 /// - [EventBusCommandMiddleware] — emits [CommandExecutedEngineEvent] and

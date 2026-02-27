@@ -2,9 +2,9 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
+import '../utils/safe_path_provider.dart';
 import 'package:path/path.dart' as path;
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 
 /// 🖼️ IMAGE SERVICE
 /// Handles selezione e caricamento immagini from the galleria
@@ -26,7 +26,8 @@ class ImageService {
       if (pickedFile == null) return null;
 
       // Save the image in the app directory
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getSafeDocumentsDirectory();
+      if (appDir == null) return null; // Web: no filesystem
       final imagesDir = Directory('${appDir.path}/canvas_images');
 
       // Create directory if not esiste
@@ -46,7 +47,7 @@ class ImageService {
       return savedPath;
     } catch (e) {
       if (context.mounted) {
-        final l10n = NebulaLocalizations.of(context);
+        final l10n = FlueraLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(l10n.proCanvas_errorLoadingImage(e.toString())),
@@ -122,14 +123,14 @@ class ImageService {
       if (await file.exists()) {
         await file.delete();
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   /// Clears tutte le immagini non utilizzate
   static Future<void> cleanupUnusedImages(List<String> usedPaths) async {
     try {
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getSafeDocumentsDirectory();
+      if (appDir == null) return; // Web: no filesystem
       final imagesDir = Directory('${appDir.path}/canvas_images');
 
       if (!await imagesDir.exists()) return;
@@ -143,7 +144,6 @@ class ImageService {
           }
         }
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 }

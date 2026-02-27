@@ -76,7 +76,7 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
         maxHeight: MediaQuery.of(context).size.height * 0.65,
       ),
       decoration: BoxDecoration(
-        color: isDark ? Colors.grey[900] : Colors.white,
+        color: isDark ? const Color(0xFF212121) : Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
@@ -241,7 +241,7 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
           (ctx) => StatefulBuilder(
             builder:
                 (ctx, setDialogState) => AlertDialog(
-                  backgroundColor: isDark ? Colors.grey[850] : Colors.white,
+                  backgroundColor: isDark ? const Color(0xFF303030) : Colors.white,
                   title: Text(
                     'Save Preset',
                     style: TextStyle(
@@ -354,7 +354,7 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            backgroundColor: isDark ? Colors.grey[850] : Colors.white,
+            backgroundColor: isDark ? const Color(0xFF303030) : Colors.white,
             title: Text(
               'Delete "${preset.name}"?',
               style: TextStyle(color: isDark ? Colors.white : Colors.black87),
@@ -380,7 +380,7 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                     });
                   }
                 },
-                style: FilledButton.styleFrom(backgroundColor: Colors.red[700]),
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD32F2F)),
                 child: const Text('Delete'),
               ),
             ],
@@ -425,7 +425,7 @@ class _PresetCard extends StatelessWidget {
                       : Colors.teal.withValues(alpha: 0.08))
                   : (isDark
                       ? Colors.white.withValues(alpha: 0.05)
-                      : Colors.grey[100]),
+                      : const Color(0xFFF5F5F5)),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color:

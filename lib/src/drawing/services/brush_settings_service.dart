@@ -15,11 +15,7 @@ import '../../core/engine_scope.dart';
 class BrushSettingsService extends ChangeNotifier {
   static const String _prefsKey = 'brush_settings_v1';
 
-  /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static BrushSettingsService get instance =>
-      EngineScope.current.brushSettingsService;
-
-  /// Creates a new instance (used by [EngineScope]).
+  /// Creates a new instance (used by modules).
   BrushSettingsService.create();
 
   // Settings correnti

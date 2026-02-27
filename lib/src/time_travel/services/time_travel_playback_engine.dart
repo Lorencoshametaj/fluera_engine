@@ -39,7 +39,7 @@ class TimeTravelPlaybackEngine {
   static const int _inverseThreshold = 5;
 
   /// Storage service for loading sessions and snapshots
-  final NebulaTimeTravelStorage _storage;
+  final FlueraTimeTravelStorage _storage;
 
   // ============================================================================
   // STATE
@@ -197,7 +197,7 @@ class TimeTravelPlaybackEngine {
   // CONSTRUCTOR
   // ============================================================================
 
-  TimeTravelPlaybackEngine({required NebulaTimeTravelStorage storage})
+  TimeTravelPlaybackEngine({required FlueraTimeTravelStorage storage})
     : _storage = storage;
 
   // ============================================================================

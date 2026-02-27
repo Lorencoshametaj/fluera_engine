@@ -1,12 +1,12 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/effects/paint_stack.dart';
-import 'package:nebula_engine/src/core/scene_graph/paint_stack_mixin.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/nodes/path_node.dart';
-import 'package:nebula_engine/src/core/vector/vector_path.dart';
+import 'package:fluera_engine/src/core/effects/paint_stack.dart';
+import 'package:fluera_engine/src/core/scene_graph/paint_stack_mixin.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/nodes/path_node.dart';
+import 'package:fluera_engine/src/core/vector/vector_path.dart';
 
 /// Create a minimal PathNode for testing paint stack operations.
 PathNode _testPathNode(String id) =>

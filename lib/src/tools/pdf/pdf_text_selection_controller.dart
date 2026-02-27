@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import '../../core/models/pdf_text_rect.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
-import '../../canvas/nebula_canvas_config.dart';
+import '../../canvas/fluera_canvas_config.dart';
 
 // =============================================================================
 // 📝 PDF TEXT SELECTION — Controller & model for text selection on PDF pages
@@ -98,12 +98,12 @@ class PdfTextSelection {
 /// - Long-press + drag → extend selection across spans
 /// - Activate / deactivate selection mode
 /// - Copy selected text to clipboard
-/// - Lazy text geometry loading via [NebulaPdfProvider]
+/// - Lazy text geometry loading via [FlueraPdfProvider]
 ///
 /// DESIGN: Works in page-local coordinates. The canvas converts screen
 /// coordinates to page-local before calling methods here.
 class PdfTextSelectionController extends ChangeNotifier {
-  final NebulaPdfProvider? _provider;
+  final FlueraPdfProvider? _provider;
 
   /// Whether text selection mode is active.
   bool _isActive = false;
@@ -123,7 +123,7 @@ class PdfTextSelectionController extends ChangeNotifier {
   /// Pages currently loading text geometry (prevents concurrent dups).
   final Set<int> _loadingPages = {};
 
-  PdfTextSelectionController({NebulaPdfProvider? provider})
+  PdfTextSelectionController({FlueraPdfProvider? provider})
     : _provider = provider;
 
   // ---------------------------------------------------------------------------

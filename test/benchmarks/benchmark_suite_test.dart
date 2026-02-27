@@ -3,15 +3,15 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/vector/vector_network.dart';
-import 'package:nebula_engine/src/core/vector/spatial_index.dart';
-import 'package:nebula_engine/src/core/vector/exact_boolean_ops.dart';
-import 'package:nebula_engine/src/core/vector/boolean_ops.dart';
-import 'package:nebula_engine/src/core/vector/vector_path.dart';
-import 'package:nebula_engine/src/core/vector/anchor_point.dart';
-import 'package:nebula_engine/src/core/tabular/cell_address.dart';
-import 'package:nebula_engine/src/reflow/reflow_physics_engine.dart';
-import 'package:nebula_engine/src/reflow/content_cluster.dart';
+import 'package:fluera_engine/src/core/vector/vector_network.dart';
+import 'package:fluera_engine/src/core/vector/spatial_index.dart';
+import 'package:fluera_engine/src/core/vector/exact_boolean_ops.dart';
+import 'package:fluera_engine/src/core/vector/boolean_ops.dart';
+import 'package:fluera_engine/src/core/vector/vector_path.dart';
+import 'package:fluera_engine/src/core/vector/anchor_point.dart';
+import 'package:fluera_engine/src/core/tabular/cell_address.dart';
+import 'package:fluera_engine/src/reflow/reflow_physics_engine.dart';
+import 'package:fluera_engine/src/reflow/content_cluster.dart';
 
 /// ═══════════════════════════════════════════════════════════════════════════
 /// 🏎️ DETERMINISTIC BENCHMARK SUITE

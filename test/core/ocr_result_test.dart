@@ -1,6 +1,6 @@
 import 'dart:ui' show Rect;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/models/ocr_result.dart';
+import 'package:fluera_engine/src/core/models/ocr_result.dart';
 
 void main() {
   // ===========================================================================

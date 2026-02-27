@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/engine_event.dart';
-import 'package:nebula_engine/src/core/engine_error.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/engine_event.dart';
+import 'package:fluera_engine/src/core/engine_error.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 
 void main() {
   group('EventDomain', () {

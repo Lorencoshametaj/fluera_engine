@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/assets/asset_dependency_graph.dart';
-import 'package:nebula_engine/src/core/assets/asset_handle.dart';
-import 'package:nebula_engine/src/core/assets/asset_metadata.dart';
-import 'package:nebula_engine/src/core/assets/asset_validator.dart';
+import 'package:fluera_engine/src/core/assets/asset_dependency_graph.dart';
+import 'package:fluera_engine/src/core/assets/asset_handle.dart';
+import 'package:fluera_engine/src/core/assets/asset_metadata.dart';
+import 'package:fluera_engine/src/core/assets/asset_validator.dart';
 
 void main() {
   // ===========================================================================

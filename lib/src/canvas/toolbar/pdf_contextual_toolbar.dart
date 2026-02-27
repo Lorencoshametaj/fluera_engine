@@ -32,6 +32,7 @@ void showPdfPagePopup({
   VoidCallback? onWatermarkToggle,
   void Function(int pageIndex, PdfStampType stamp)? onAddStamp,
   void Function(int pageIndex)? onChangeBackground,
+  VoidCallback? onDeleteDocument,
 }) {
   showMenu<void>(
     context: context,
@@ -78,6 +79,10 @@ void showPdfPagePopup({
           onAddStamp: onAddStamp,
           onChangeBackground: onChangeBackground,
         ),
+      ],
+      if (onDeleteDocument != null) ...[
+        _PopupDivider(),
+        _PdfDeleteDocItem(onDeleteDocument: onDeleteDocument),
       ],
     ],
   );
@@ -279,6 +284,11 @@ class _PdfPageNavItemState extends State<_PdfPageNavItem> {
           _miniBtn(Icons.rotate_left_rounded, cs, () {
             widget.doc.rotatePage(_page, angleDegrees: -90);
             widget.onLayoutChanged?.call();
+            // 📡 Broadcast AFTER onLayoutChanged consumed pendingStrokeRotation
+            widget.doc.onMutation?.call('pageRotated', {
+              'pageIndex': _page,
+              'angleDegrees': -90.0,
+            });
             setState(() {});
           }),
           const SizedBox(width: 4),
@@ -327,6 +337,11 @@ class _PdfPageNavItemState extends State<_PdfPageNavItem> {
           _miniBtn(Icons.rotate_right_rounded, cs, () {
             widget.doc.rotatePage(_page, angleDegrees: 90);
             widget.onLayoutChanged?.call();
+            // 📡 Broadcast AFTER onLayoutChanged consumed pendingStrokeRotation
+            widget.doc.onMutation?.call('pageRotated', {
+              'pageIndex': _page,
+              'angleDegrees': 90.0,
+            });
             setState(() {});
           }),
           const SizedBox(width: 4),
@@ -717,6 +732,55 @@ class _PdfProActionsItemState extends State<_PdfProActionsItem> {
               widget.onChangeBackground!(widget.selectedPageIndex);
             }),
         ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 🗑️ DELETE DOCUMENT — Destructive action
+// =============================================================================
+
+class _PdfDeleteDocItem extends PopupMenuEntry<void> {
+  final VoidCallback onDeleteDocument;
+
+  const _PdfDeleteDocItem({required this.onDeleteDocument});
+
+  @override
+  double get height => 48;
+
+  @override
+  bool represents(void value) => false;
+
+  @override
+  State<_PdfDeleteDocItem> createState() => _PdfDeleteDocItemState();
+}
+
+class _PdfDeleteDocItemState extends State<_PdfDeleteDocItem> {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).pop(); // Close popup first
+        widget.onDeleteDocument();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.delete_forever_rounded, color: cs.error, size: 20),
+            const SizedBox(width: 12),
+            Text(
+              'Delete Document',
+              style: TextStyle(
+                color: cs.error,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

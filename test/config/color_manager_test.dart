@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/config/color_manager.dart';
+import 'package:fluera_engine/src/config/color_manager.dart';
 
 void main() {
   group('ColorManager', () {

@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/rendering/optimization/frame_budget_manager.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/rendering/optimization/frame_budget_manager.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

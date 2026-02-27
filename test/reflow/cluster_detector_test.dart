@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'dart:ui';
-import 'package:nebula_engine/src/reflow/cluster_detector.dart';
-import 'package:nebula_engine/src/reflow/content_cluster.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
-import 'package:nebula_engine/src/core/models/shape_type.dart';
-import 'package:nebula_engine/src/core/models/digital_text_element.dart';
-import 'package:nebula_engine/src/core/models/image_element.dart';
+import 'package:fluera_engine/src/reflow/cluster_detector.dart';
+import 'package:fluera_engine/src/reflow/content_cluster.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/core/models/shape_type.dart';
+import 'package:fluera_engine/src/core/models/digital_text_element.dart';
+import 'package:fluera_engine/src/core/models/image_element.dart';
 
 /// Helper to create a minimal ProStroke with given bounds and creation time.
 ProStroke _makeStroke({

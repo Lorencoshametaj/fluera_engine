@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🎬 PROTOTYPE & ANIMATION — Wire prototype flow, timeline, smart animate
 // ============================================================================
 
-extension PrototypeAnimationFeatures on _NebulaCanvasScreenState {
+extension PrototypeAnimationFeatures on _FlueraCanvasScreenState {
   /// Start interactive prototype preview.
   /// Wires: prototype_flow, smart_animate_engine
   void _startPrototypePreview() {

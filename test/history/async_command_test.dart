@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/history/async_command.dart';
+import 'package:fluera_engine/src/history/async_command.dart';
 
 /// Minimal test command that completes immediately.
 class _InstantCommand extends AsyncCommand {

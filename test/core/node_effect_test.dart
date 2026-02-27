@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/effects/node_effect.dart';
+import 'package:fluera_engine/src/core/effects/node_effect.dart';
 
 void main() {
   // ===========================================================================

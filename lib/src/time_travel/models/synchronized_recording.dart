@@ -354,6 +354,9 @@ class SynchronizedRecordingBuilder {
   /// Checks if there are strokes
   bool get hasStrokes => _strokes.isNotEmpty;
 
+  /// Access the strokes list (read-only, for pen interval extraction).
+  List<SyncedStroke> get strokes => _strokes;
+
   /// Builds the final recording.
   /// [duration] - total duration of the audio recording
   SynchronizedRecording build(Duration duration) {

@@ -27,7 +27,7 @@ import '../../export/pdf_export_writer.dart';
 ///
 /// For byte-level merge/split of arbitrary PDFs (preserving fonts, images,
 /// etc.), a full PDF object parser would be needed. This implementation
-/// focuses on Nebula Engine's own exported PDFs (well-formed PDF 1.4).
+/// focuses on Fluera Engine's own exported PDFs (well-formed PDF 1.4).
 class PdfDocumentOperations {
   PdfDocumentOperations._();
 

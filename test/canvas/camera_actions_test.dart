@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
-import 'package:nebula_engine/src/canvas/navigation/camera_actions.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/nodes/layer_node.dart';
-import 'package:nebula_engine/src/core/nodes/shape_node.dart';
-import 'package:nebula_engine/src/core/models/shape_type.dart';
-import 'package:nebula_engine/src/tools/shape/shape_recognizer.dart';
-import 'package:nebula_engine/src/canvas/infinite_canvas_controller.dart';
+import 'package:fluera_engine/src/canvas/navigation/camera_actions.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/nodes/layer_node.dart';
+import 'package:fluera_engine/src/core/nodes/shape_node.dart';
+import 'package:fluera_engine/src/core/models/shape_type.dart';
+import 'package:fluera_engine/src/tools/shape/shape_recognizer.dart';
+import 'package:fluera_engine/src/canvas/infinite_canvas_controller.dart';
 
 void main() {
   group('CameraActions', () {

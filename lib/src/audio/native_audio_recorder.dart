@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import './native_audio_models.dart';
 import './platform_channels/audio_recorder_channel.dart';
+import '../core/engine_scope.dart';
 
 // =============================================================================
 // 🎤 NATIVE AUDIO RECORDER
@@ -24,14 +25,24 @@ import './platform_channels/audio_recorder_channel.dart';
 /// final path = await recorder.stop(); // returns file path
 /// ```
 class NativeAudioRecorder {
-  final NativeAudioRecorderChannel _channel =
-      NativeAudioRecorderChannel.instance;
+  late final NativeAudioRecorderChannel _channel;
+
+  NativeAudioRecorder({NativeAudioRecorderChannel? channel})
+    : _channel =
+          channel ??
+          (EngineScope.hasScope
+              ? EngineScope.current.audioModule?.recorder ??
+                  NativeAudioRecorderChannel.create()
+              : NativeAudioRecorderChannel.create()) {
+    _initialize();
+  }
 
   bool _isInitialized = false;
   Completer<void>? _initCompleter; // Guard against concurrent init
   AudioRecorderState _currentState = AudioRecorderState.idle;
   Duration _currentDuration = Duration.zero;
   AudioAmplitude _currentAmplitude = const AudioAmplitude(current: 0.0);
+  AudioRecordConfig? _lastConfig;
 
   // Stream subscriptions
   StreamSubscription? _stateSubscription;
@@ -43,10 +54,6 @@ class NativeAudioRecorder {
   final _stateController = StreamController<AudioRecorderState>.broadcast();
   final _amplitudeController = StreamController<AudioAmplitude>.broadcast();
   final _durationController = StreamController<Duration>.broadcast();
-
-  NativeAudioRecorder() {
-    _initialize();
-  }
 
   /// Initialize the recorder (guarded against concurrent calls)
   Future<void> _initialize() async {
@@ -125,11 +132,15 @@ class NativeAudioRecorder {
 
   /// Start recording with optional configuration.
   ///
-  /// Default config: M4A format, 44100 Hz sample rate, 128kbps, mono.
+  /// Default config: M4A format, 48000 Hz sample rate, 256kbps, mono.
   Future<void> start({AudioRecordConfig? config}) async {
     await _ensureInitialized();
     try {
       final recordConfig = config ?? const AudioRecordConfig();
+      _lastConfig = recordConfig;
+      debugPrint(
+        '🎤 _lastConfig set: hpf=${recordConfig.highPassFilterHz} comp=${recordConfig.compressor} norm=${recordConfig.normalization} needsPost=${recordConfig.needsPostProcessing}',
+      );
       await _channel.startRecording(recordConfig);
       _currentState = AudioRecorderState.recording;
       _currentDuration = Duration.zero;
@@ -142,12 +153,34 @@ class NativeAudioRecorder {
 
   /// Stop recording and return the file path.
   ///
+  /// If the last config has any post-processing enabled, it is
+  /// automatically applied before returning the path.
+  ///
   /// Returns `null` if recording was not active or failed.
   Future<String?> stop() async {
     await _ensureInitialized();
     try {
-      final path = await _channel.stopRecording();
+      var path = await _channel.stopRecording();
       _currentState = AudioRecorderState.stopped;
+
+      // 🎛️ Auto-apply audio processing pipeline if configured
+      debugPrint(
+        '🎛️ stop() check: path=$path _lastConfig=${_lastConfig != null} needsPost=${_lastConfig?.needsPostProcessing}',
+      );
+      if (path != null &&
+          _lastConfig != null &&
+          _lastConfig!.needsPostProcessing) {
+        debugPrint('🎛️ Applying audio processing pipeline...');
+        path = await _channel.applyAudioProcessing(
+          filePath: path,
+          sampleRate: _lastConfig!.sampleRate,
+          highPassFilterHz: _lastConfig!.highPassFilterHz,
+          compressor: _lastConfig!.compressor,
+          normalization: _lastConfig!.normalization,
+        );
+        debugPrint('🎛️ Audio processing complete');
+      }
+
       debugPrint('⏹️ Recording stopped: $path');
       return path;
     } catch (e) {

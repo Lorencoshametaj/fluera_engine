@@ -1,8 +1,7 @@
-import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/vector/exact_boolean_ops.dart';
-import 'package:nebula_engine/src/core/vector/boolean_ops.dart';
-import 'package:nebula_engine/src/core/vector/vector_network.dart';
+import 'package:fluera_engine/src/core/vector/exact_boolean_ops.dart';
+import 'package:fluera_engine/src/core/vector/boolean_ops.dart';
+import 'package:fluera_engine/src/core/vector/vector_network.dart';
 
 void main() {
   // Helper: create a simple rectangular VectorNetwork

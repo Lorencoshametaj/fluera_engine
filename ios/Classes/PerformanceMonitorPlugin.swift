@@ -8,8 +8,8 @@ import UIKit
 /// - **Thermal**: Current thermal state (nominal → critical)
 /// - **Display**: Frame rate, refresh rate, GPU utilization hint
 ///
-/// Channel: com.nebulaengine/performance_monitor
-/// Control: com.nebulaengine/performance_monitor_control
+/// Channel: com.flueraengine/performance_monitor
+/// Control: com.flueraengine/performance_monitor_control
 public class PerformanceMonitorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     
     private var methodChannel: FlutterMethodChannel?
@@ -25,14 +25,14 @@ public class PerformanceMonitorPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         let instance = PerformanceMonitorPlugin()
         
         let methodChannel = FlutterMethodChannel(
-            name: "com.nebulaengine/performance_monitor_control",
+            name: "com.flueraengine/performance_monitor_control",
             binaryMessenger: registrar.messenger()
         )
         instance.methodChannel = methodChannel
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
         
         let eventChannel = FlutterEventChannel(
-            name: "com.nebulaengine/performance_monitor",
+            name: "com.flueraengine/performance_monitor",
             binaryMessenger: registrar.messenger()
         )
         instance.eventChannel = eventChannel

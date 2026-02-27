@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/testing/pixel_diff_engine.dart';
+import 'package:fluera_engine/src/core/testing/pixel_diff_engine.dart';
 
 void main() {
   late PixelDiffEngine engine;

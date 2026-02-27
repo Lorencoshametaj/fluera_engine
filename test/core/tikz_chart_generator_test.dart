@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/tabular/cell_address.dart';
-import 'package:nebula_engine/src/core/tabular/cell_value.dart';
-import 'package:nebula_engine/src/core/tabular/spreadsheet_evaluator.dart';
-import 'package:nebula_engine/src/core/tabular/spreadsheet_model.dart';
-import 'package:nebula_engine/src/core/tabular/tikz_chart_generator.dart';
+import 'package:fluera_engine/src/core/tabular/cell_address.dart';
+import 'package:fluera_engine/src/core/tabular/cell_value.dart';
+import 'package:fluera_engine/src/core/tabular/spreadsheet_evaluator.dart';
+import 'package:fluera_engine/src/core/tabular/spreadsheet_model.dart';
+import 'package:fluera_engine/src/core/tabular/tikz_chart_generator.dart';
 
 void main() {
   late SpreadsheetModel model;

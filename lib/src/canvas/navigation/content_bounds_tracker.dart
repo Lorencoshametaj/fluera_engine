@@ -19,6 +19,10 @@ import '../../rendering/optimization/viewport_culler.dart';
 /// - Always recalculates when [update] is called (max once per frame via
 ///   `postFrameCallback`).
 /// - Emits changes via [ValueNotifier] for reactive consumers.
+///
+/// MINIMAP PATH DATA:
+/// - For strokes, emits a decimated polyline (max [_kMaxMinimapPoints] points)
+///   alongside the bounding rect for richer minimap rendering.
 class ContentBoundsTracker {
   final LayerController layerController;
 
@@ -29,12 +33,26 @@ class ContentBoundsTracker {
   final ValueNotifier<List<ContentRegion>> regions =
       ValueNotifier<List<ContentRegion>>(const []);
 
+  /// Maximum points kept per stroke for minimap polyline.
+  /// Higher = more detail but more memory; 8 is enough for a good silhouette.
+  static const int _kMaxMinimapPoints = 8;
+
+  /// Hash of the last content state — used to skip redundant rebuilds.
+  /// Computed from element counts (strokes, shapes, texts, images, nodes).
+  int _lastContentHash = 0;
+
   ContentBoundsTracker({required this.layerController});
 
   /// Recalculate bounds from the current layer content.
   ///
   /// Called at most once per frame (via `addPostFrameCallback`).
+  /// Uses a fast hash to skip full rebuilds when nothing changed.
   bool update() {
+    // ── Fast dirty check: compute content hash from element counts ──────
+    final contentHash = _computeContentHash();
+    if (contentHash == _lastContentHash) return false;
+    _lastContentHash = contentHash;
+
     Rect? combined;
     final regionList = <ContentRegion>[];
 
@@ -46,8 +64,16 @@ class ContentBoundsTracker {
         final b = stroke.bounds;
         if (b == Rect.zero || !b.isFinite) continue;
         combined = combined == null ? b : combined.expandToInclude(b);
+
+        // Build decimated polyline for minimap rendering.
+        final polyline = _decimatePoints(stroke.points, _kMaxMinimapPoints);
         regionList.add(
-          ContentRegion(bounds: b, nodeType: ContentNodeType.stroke),
+          ContentRegion(
+            bounds: b,
+            nodeType: ContentNodeType.stroke,
+            minimapPolyline: polyline,
+            strokeColor: stroke.color,
+          ),
         );
       }
 
@@ -83,8 +109,6 @@ class ContentBoundsTracker {
     }
 
     // ── Scene graph nodes (TabularNode, PdfDocumentNode) ───────────────────
-    // These live in the scene graph, not in CanvasLayer lists.
-    // Use worldBounds which applies localTransform (position) to localBounds.
     try {
       for (final node in layerController.sceneGraph.allNodes) {
         if (!node.isVisible) continue;
@@ -110,16 +134,61 @@ class ContentBoundsTracker {
     }
 
     final newBounds = combined ?? Rect.zero;
-    final changed =
-        bounds.value != newBounds || regions.value.length != regionList.length;
     bounds.value = newBounds;
     regions.value = regionList;
-    return changed;
+    return true;
+  }
+
+  /// Fast content fingerprint: combines element counts per layer +
+  /// the bounding corners of first/last stroke to detect changes.
+  /// O(L) where L = number of layers (NOT strokes).
+  int _computeContentHash() {
+    int hash = 0;
+    for (final layer in layerController.layers) {
+      if (!layer.isVisible) continue;
+      hash = Object.hash(
+        hash,
+        layer.strokes.length,
+        layer.shapes.length,
+        layer.texts.length,
+        layer.images.length,
+      );
+      // Include boundary corners of first/last stroke for position changes.
+      if (layer.strokes.isNotEmpty) {
+        hash = Object.hash(
+          hash,
+          layer.strokes.first.bounds,
+          layer.strokes.last.bounds,
+        );
+      }
+    }
+    return hash;
+  }
+
+  /// Decimate a list of drawing points to at most [maxPoints] offsets.
+  ///
+  /// Uses uniform sampling (every Nth point) for O(n) performance.
+  /// Returns world-space offsets suitable for minimap polyline rendering.
+  static List<Offset> _decimatePoints(List<dynamic> points, int maxPoints) {
+    if (points.isEmpty) return const [];
+    if (points.length <= maxPoints) {
+      return points.map<Offset>((p) => p.position as Offset).toList();
+    }
+
+    final result = <Offset>[];
+    final step = points.length / maxPoints;
+    for (int i = 0; i < maxPoints; i++) {
+      final idx = (i * step).floor().clamp(0, points.length - 1);
+      result.add(points[idx].position as Offset);
+    }
+    // Always include the last point for continuity.
+    result.add(points.last.position as Offset);
+    return result;
   }
 
   /// Force a full recalculation on the next [update] call.
   void invalidate() {
-    // No-op now since we always recalculate, but kept for API compatibility.
+    _lastContentHash = 0; // Reset hash → forces rebuild.
   }
 
   void dispose() {
@@ -136,5 +205,18 @@ class ContentRegion {
   final Rect bounds;
   final ContentNodeType nodeType;
 
-  const ContentRegion({required this.bounds, required this.nodeType});
+  /// Decimated polyline for stroke preview on the minimap.
+  /// Null for non-stroke regions. Contains world-space offsets.
+  final List<Offset>? minimapPolyline;
+
+  /// Original stroke color (used for minimap stroke rendering).
+  /// Null for non-stroke regions.
+  final Color? strokeColor;
+
+  const ContentRegion({
+    required this.bounds,
+    required this.nodeType,
+    this.minimapPolyline,
+    this.strokeColor,
+  });
 }

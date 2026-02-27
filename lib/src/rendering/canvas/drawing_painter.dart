@@ -217,7 +217,7 @@ class DrawingPainter extends CustomPainter {
 
     // 🚀 SHADER WARM-UP: Pre-compile all GPU shaders on the first paint frame.
     // Avoids jank on the user's first stroke. Only runs once (_warmedUp guard).
-    ShaderBrushService.instance.warmUp(canvas);
+    EngineScope.current.drawingModule?.shaderBrushService.warmUp(canvas);
 
     // ✂️ Collect PDF annotation IDs so they are SKIPPED from the global
     // stroke pass and only drawn clipped inside _paintPdfPage.
@@ -472,9 +472,28 @@ class DrawingPainter extends CustomPainter {
       // ✅ All tiles cached — pure GPU bitmap compositing (fastest path)
       tcm.paintAllCachedTiles(canvas);
     } else {
-      // 🔄 Tiles still warming up — use vectorial cache as fallback
-      // (O(1) replay, no lag). Request another frame to continue warming.
-      _paintDirect(canvas, viewport);
+      // 🚀 HYBRID: composite cached tiles + render dirty tiles inline.
+      // NEVER fall back to _paintDirect — that rebuilds the entire vectorial
+      // cache from scratch, which is the #1 cause of eraser lag (O(N) strokes).
+      for (final (tileX, tileY) in allContentTiles) {
+        if (tcm.hasTileCached(tileX, tileY) && !tcm.isTileDirty(tileX, tileY)) {
+          // ✅ Clean cached tile — composite as bitmap (O(1))
+          tcm.paintSingleTile(canvas, tileX, tileY);
+        } else {
+          // 🎨 Dirty/missing tile — render strokes directly with clipping
+          final tileBounds = tcm.getTileBounds(tileX, tileY, scale);
+          final strokesInTile = _getStrokesInBounds(tileBounds);
+          if (strokesInTile.isNotEmpty) {
+            canvas.save();
+            canvas.clipRect(tileBounds);
+            for (final stroke in strokesInTile) {
+              _renderStroke(canvas, stroke);
+            }
+            canvas.restore();
+          }
+        }
+      }
+      // Request another frame to continue rasterizing remaining dirty tiles
       SchedulerBinding.instance.scheduleFrame();
     }
   }
@@ -538,7 +557,7 @@ class DrawingPainter extends CustomPainter {
     final totalStrokes = _effectiveStrokes.length;
     final hasEraserPreview = eraserPreviewIds.isNotEmpty;
 
-    // Cache invalidation: scene graph version changed (non-stroke changes)
+    // Cache invalidation: scene graph version changed
     if (_cachedSceneVersion != sceneGraph.version) {
       _strokeCache.invalidateCache();
       invalidateLayerCaches();
@@ -1397,6 +1416,27 @@ class DrawingPainter extends CustomPainter {
       EngineScope.current.renderCacheScope.strokeCache.invalidateCache();
     }
     invalidateLayerCaches();
+  }
+
+  /// 🚀 Invalidate ONLY the tile cache (bitmap raster).
+  ///
+  /// Use during eraser gestures where scene graph version bump already
+  /// handles vectorial/layer cache invalidation via the version check
+  /// in [_paintDirect]. Avoids redundant O(1) cache dispose calls.
+  static void invalidateTileCacheOnly() {
+    if (EngineScope.hasScope) {
+      EngineScope.current.tileCacheManager.invalidateAll();
+    }
+  }
+
+  /// 🚀 Invalidate only tiles that overlap [bounds].
+  ///
+  /// During erasing, only a small area is affected per frame. This re-rasterizes
+  /// 2–4 tiles instead of all tiles on the canvas.
+  static void invalidateTilesInBounds(Rect bounds) {
+    if (EngineScope.hasScope) {
+      EngineScope.current.tileCacheManager.invalidateTilesInBounds(bounds);
+    }
   }
 
   /// 🚀 Clear all caches and free memory (call when leaving the canvas)

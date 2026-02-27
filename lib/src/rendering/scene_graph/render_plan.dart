@@ -7,6 +7,7 @@ import '../../core/nodes/group_node.dart';
 import '../../core/nodes/layer_node.dart';
 import '../../core/nodes/clip_group_node.dart';
 import '../../core/nodes/frame_node.dart';
+import '../../core/nodes/section_node.dart';
 import '../../core/nodes/advanced_mask_node.dart';
 import '../../core/effects/node_effect.dart';
 import '../optimization/occlusion_culler.dart';
@@ -330,6 +331,8 @@ class RenderPlanCompiler {
       _compileClipGroup(commands, node, viewport, scale);
     } else if (node is FrameNode) {
       _compileFrame(commands, node, viewport, scale);
+    } else if (node is SectionNode) {
+      _compileSection(commands, node, viewport, scale);
     } else if (node is AdvancedMaskNode) {
       _compileAdvancedMask(commands, node, viewport, scale);
     } else if (node is GroupNode) {
@@ -404,6 +407,19 @@ class RenderPlanCompiler {
     double scale,
   ) {
     // Frame rendering is complex (fill, border, clip, layout) —
+    // delegate to direct rendering for correctness.
+    commands.add(RenderCommand.drawNode(node));
+    _drawCount++;
+  }
+
+  /// Compile a SectionNode.
+  void _compileSection(
+    List<RenderCommand> commands,
+    SectionNode node,
+    Rect viewport,
+    double scale,
+  ) {
+    // Section rendering is complex (fill, border, label, grid, clip) —
     // delegate to direct rendering for correctness.
     commands.add(RenderCommand.drawNode(node));
     _drawCount++;

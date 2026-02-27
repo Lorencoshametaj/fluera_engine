@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // =============================================================================
 // 🎛️ DESIGN VARIABLES — Canvas integration part
@@ -10,7 +10,7 @@ part of '../nebula_canvas_screen.dart';
 // All mutations go through CommandHistory for full undo/redo support.
 // =============================================================================
 
-extension DesignVariablesUI on _NebulaCanvasScreenState {
+extension DesignVariablesUI on _FlueraCanvasScreenState {
   // ---------------------------------------------------------------------------
   // Panel toggle
   // ---------------------------------------------------------------------------

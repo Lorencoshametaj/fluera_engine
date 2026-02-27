@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../src/l10n/nebula_localizations.dart';
+import '../src/l10n/fluera_localizations.dart';
 import './brush_test_screen.dart';
 
 /// 🎛️ Modello per i parametri personalizzabili di un pennello
@@ -244,7 +244,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey[400],
+              color: const Color(0xFFBDBDBD),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -353,7 +353,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // FOUNTAIN PEN SETTINGS
   // =====================
   Widget _buildFountainPenSettings() {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -554,7 +554,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // PENCIL SETTINGS
   // ================
   Widget _buildPencilSettings() {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -619,7 +619,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // HIGHLIGHTER SETTINGS
   // =====================
   Widget _buildHighlighterSettings() {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -653,7 +653,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // BALLPOINT SETTINGS
   // ===================
   Widget _buildBallpointSettings() {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -763,7 +763,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
             padding: const EdgeInsets.only(top: 2),
             child: Text(
               description,
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 11, color: const Color(0xFF757575)),
             ),
           ),
         Slider(

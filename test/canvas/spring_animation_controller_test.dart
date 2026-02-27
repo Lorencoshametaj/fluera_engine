@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/canvas/spring_animation_controller.dart';
+import 'package:fluera_engine/src/canvas/spring_animation_controller.dart';
 
 void main() {
   group('SpringAnimationController — Scalar Spring', () {

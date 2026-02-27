@@ -1547,7 +1547,7 @@ class PdfExportWriter {
     int? infoId;
     if (title != null || author != null) {
       infoId = _allocId();
-      final infoParts = <String>['/Creator (Nebula Engine)'];
+      final infoParts = <String>['/Creator (Fluera Engine)'];
       if (title != null) infoParts.add('/Title (${_escapeText(title)})');
       if (author != null) infoParts.add('/Author (${_escapeText(author)})');
       // PDF date format: D:YYYYMMDDHHmmSS
@@ -1561,7 +1561,7 @@ class PdfExportWriter {
           '${now.second.toString().padLeft(2, '0')}';
       infoParts.add('/CreationDate ($dateStr)');
       infoParts.add('/ModDate ($dateStr)');
-      infoParts.add('/Producer (Nebula Engine PDF Writer)');
+      infoParts.add('/Producer (Fluera Engine PDF Writer)');
 
       _objects.add(
         _PdfObject(
@@ -1786,8 +1786,8 @@ class PdfExportWriter {
           '  xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">\n'
           '  <pdfaid:part>1</pdfaid:part>\n'
           '  <pdfaid:conformance>B</pdfaid:conformance>\n'
-          '  <pdf:Producer>Nebula Engine PDF Writer</pdf:Producer>\n'
-          '  <dc:title><rdf:Alt><rdf:li xml:lang="x-default">Nebula Export</rdf:li></rdf:Alt></dc:title>\n'
+          '  <pdf:Producer>Fluera Engine PDF Writer</pdf:Producer>\n'
+          '  <dc:title><rdf:Alt><rdf:li xml:lang="x-default">Fluera Export</rdf:li></rdf:Alt></dc:title>\n'
           '</rdf:Description>\n'
           '</rdf:RDF>\n'
           '</x:xmpmeta>\n'

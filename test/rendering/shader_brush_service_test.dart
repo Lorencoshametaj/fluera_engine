@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/rendering/shaders/shader_brush_service.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/rendering/shaders/shader_brush_service.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

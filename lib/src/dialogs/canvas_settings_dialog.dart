@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 import '../rendering/canvas/paper_pattern_painter.dart';
-import '../rendering/shaders/shader_brush_service.dart';
+import '../core/engine_scope.dart';
 import '../drawing/models/surface_material.dart';
 
 /// Dialog per le impostazioni avanzate del canvas — Material Design 3
@@ -87,7 +87,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
 
   // Paper types organized by category
   Map<String, Map<String, String>> _getPaperTypesByCategory(
-    NebulaLocalizations l10n,
+    FlueraLocalizations l10n,
   ) {
     return {
       'basic': {
@@ -117,7 +117,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   }
 
   // Category names
-  Map<String, String> _getCategoryNames(NebulaLocalizations l10n) {
+  Map<String, String> _getCategoryNames(FlueraLocalizations l10n) {
     return {
       'basic': l10n.proCanvas_categoryBasic,
       'grid': l10n.proCanvas_categoryGrid,
@@ -218,7 +218,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
 
                     // 🎨 Background Color
                     _buildSectionHeader(
-                      NebulaLocalizations.of(context).proCanvas_backgroundColor,
+                      FlueraLocalizations.of(context).proCanvas_backgroundColor,
                       Icons.palette_rounded,
                       colorScheme,
                       isDark,
@@ -238,7 +238,13 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
                     _buildSurfaceSection(colorScheme, isDark),
 
                     // ✨ Pro Shader Toggle
-                    if (ShaderBrushService.instance.isAvailable) ...[
+                    if (EngineScope.hasScope &&
+                        (EngineScope
+                                .current
+                                .drawingModule
+                                ?.shaderBrushService
+                                .isAvailable ??
+                            false)) ...[
                       const SizedBox(height: 24),
                       _buildProShaderToggle(isDark, colorScheme),
                     ],
@@ -263,7 +269,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
     ColorScheme colorScheme,
     bool isDark,
   ) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 24, 16, 16),
       child: Row(
@@ -373,7 +379,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Widget _buildCategorySegments(ColorScheme colorScheme, bool isDark) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     final categoryNames = _getCategoryNames(l10n);
 
     return SizedBox(
@@ -415,7 +421,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Widget _buildPaperTypeGrid(ColorScheme colorScheme, bool isDark) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     final paperTypesByCategory = _getPaperTypesByCategory(l10n);
     final currentTypes = paperTypesByCategory[_selectedCategory]!;
 
@@ -637,7 +643,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
     ColorScheme colorScheme,
     bool isDark,
   ) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
       child: Row(

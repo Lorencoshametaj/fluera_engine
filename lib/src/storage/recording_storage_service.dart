@@ -98,6 +98,40 @@ class RecordingStorageService {
       orderBy: 'created_at ASC',
     );
 
+    return _decodeRows(rows);
+  }
+
+  /// Load ALL recordings regardless of canvas ID.
+  ///
+  /// Used as fallback when canvas_id is auto-generated and changes each run.
+  Future<List<SynchronizedRecording>> loadAllRecordings() async {
+    _ensureInitialized();
+
+    final rows = await _db!.query(_kRecordingsTable, orderBy: 'created_at ASC');
+
+    return _decodeRows(rows);
+  }
+
+  /// Load a single recording by its ID.
+  ///
+  /// Returns `null` if a recording with the given [id] doesn't exist.
+  /// More efficient than [loadAllRecordings] when only one recording is needed.
+  Future<SynchronizedRecording?> loadRecordingById(String id) async {
+    _ensureInitialized();
+
+    final rows = await _db!.query(
+      _kRecordingsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+
+    final decoded = _decodeRows(rows);
+    return decoded.isNotEmpty ? decoded.first : null;
+  }
+
+  /// Decode database rows into SynchronizedRecording objects.
+  List<SynchronizedRecording> _decodeRows(List<Map<String, Object?>> rows) {
     final recordings = <SynchronizedRecording>[];
 
     for (final row in rows) {
@@ -135,10 +169,7 @@ class RecordingStorageService {
       }
     }
 
-    debugPrint(
-      '[RecordingStorage] Loaded ${recordings.length} recordings '
-      'for canvas $canvasId',
-    );
+    debugPrint('[RecordingStorage] Loaded ${recordings.length} recordings');
     return recordings;
   }
 

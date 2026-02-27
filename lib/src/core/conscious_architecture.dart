@@ -1,6 +1,6 @@
 /// 🧠 CONSCIOUS ARCHITECTURE — Four intelligence layers beyond fluidity.
 ///
-/// The Nebula Engine operates at five levels of intelligence:
+/// The Fluera Engine operates at five levels of intelligence:
 ///
 /// - **L0 — Fluid**        : 60 FPS, zero-alloc, 8-subsystem pipeline (complete)
 /// - **L1 — Anticipatory** : Predicts user intent, pre-fetches/pre-computes

@@ -1,18 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/history/branching_manager.dart';
-import 'package:nebula_engine/src/history/models/canvas_branch.dart';
-import 'package:nebula_engine/src/history/models/branch_merge_result.dart';
-import 'package:nebula_engine/src/core/models/canvas_layer.dart';
-import 'package:nebula_engine/src/services/phase2_service_stubs.dart';
-import 'package:nebula_engine/src/time_travel/models/time_travel_session.dart';
+import 'package:fluera_engine/src/history/branching_manager.dart';
+import 'package:fluera_engine/src/history/models/canvas_branch.dart';
+import 'package:fluera_engine/src/history/models/branch_merge_result.dart';
+import 'package:fluera_engine/src/core/models/canvas_layer.dart';
+import 'package:fluera_engine/src/services/phase2_service_stubs.dart';
+import 'package:fluera_engine/src/time_travel/models/time_travel_session.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TEST STORAGE — uses a temp directory instead of /tmp/nebula_tt
+// TEST STORAGE — uses a temp directory instead of /tmp/fluera_tt
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _TestTimeTravelStorage implements NebulaTimeTravelStorage {
+class _TestTimeTravelStorage implements FlueraTimeTravelStorage {
   final String basePath;
   _TestTimeTravelStorage(this.basePath);
 
@@ -60,7 +60,7 @@ void main() {
   const userId = 'user_1';
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('nebula_branching_test_');
+    tempDir = await Directory.systemTemp.createTemp('fluera_branching_test_');
     storage = _TestTimeTravelStorage(tempDir.path);
     manager = BranchingManager(
       storage: storage,

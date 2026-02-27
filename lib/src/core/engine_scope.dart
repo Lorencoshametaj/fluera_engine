@@ -17,10 +17,7 @@ import '../history/undo_redo_manager.dart';
 import '../history/background_checkpoint_service.dart';
 import '../history/command_journal.dart';
 import '../history/journal_recovery_middleware.dart';
-import '../drawing/services/brush_settings_service.dart';
-import '../drawing/services/stroke_persistence_service.dart';
 import '../drawing/drawing_module.dart';
-import '../rendering/shaders/shader_brush_service.dart';
 import '../rendering/render_profiler.dart';
 import '../tools/base/tool_registry.dart';
 import '../rendering/optimization/tile_cache_manager.dart';
@@ -36,8 +33,7 @@ import '../platform/display_link_service.dart';
 import '../drawing/input/predicted_touch_service.dart';
 import '../platform/native_stylus_input.dart';
 import '../platform/native_performance_monitor.dart';
-import '../audio/platform_channels/audio_player_channel.dart';
-import '../audio/platform_channels/audio_recorder_channel.dart';
+
 import '../services/image_cache_service.dart';
 import '../history/async_command.dart';
 import '../systems/engine_theme.dart';
@@ -45,12 +41,12 @@ import '../systems/plugin_api.dart';
 import '../rendering/cache/render_cache_scope.dart';
 import 'conscious_architecture.dart';
 import '../systems/style_coherence_engine.dart';
-import 'tabular/spreadsheet_model.dart';
-import 'tabular/spreadsheet_evaluator.dart';
-import 'tabular/tabular_latex_bridge.dart';
+
 import 'tabular/tabular_module.dart';
 import 'latex/latex_module.dart';
 import '../tools/pdf/pdf_module.dart';
+import '../audio/audio_module.dart';
+import 'enterprise/enterprise_module.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -86,7 +82,7 @@ class _ScopeEntry {
 // Engine Scope
 // ---------------------------------------------------------------------------
 
-/// Scoped dependency container for the Nebula Engine.
+/// Scoped dependency container for the Fluera Engine.
 ///
 /// Replaces global singletons with a composable, testable scope.
 /// Each [EngineScope] owns a complete set of engine services, enabling:
@@ -168,12 +164,6 @@ class EngineScope {
     entry.scope.dispose();
   }
 
-  /// Bind a scope as the active scope (backward-compatible alias for [push]).
-  ///
-  /// Prefer [push]/[pop] for new code — they provide ownership safety.
-  @Deprecated('Use push()/pop() for safe multi-canvas scope management')
-  static void bind(EngineScope scope) => push(scope);
-
   /// Reset the global scope, disposing ALL scopes on the stack.
   static void reset() {
     for (final entry in _stack.reversed) {
@@ -201,27 +191,6 @@ class EngineScope {
   /// Background save service for WAL persistence.
   late final BackgroundSaveService backgroundSaveService =
       BackgroundSaveService.create();
-
-  /// Brush settings storage & notification.
-  ///
-  /// **Deprecated**: Use `DrawingModule.brushSettingsService` instead.
-  @Deprecated('Use DrawingModule via moduleRegistry instead')
-  late final BrushSettingsService brushSettingsService =
-      BrushSettingsService.create();
-
-  /// Stroke disk persistence service.
-  ///
-  /// **Deprecated**: Use `DrawingModule.strokePersistenceService` instead.
-  @Deprecated('Use DrawingModule via moduleRegistry instead')
-  late final StrokePersistenceService strokePersistenceService =
-      StrokePersistenceService.create();
-
-  /// GPU shader brush rendering service.
-  ///
-  /// **Deprecated**: Use `DrawingModule.shaderBrushService` instead.
-  @Deprecated('Use DrawingModule via moduleRegistry instead')
-  late final ShaderBrushService shaderBrushService =
-      ShaderBrushService.create();
 
   /// Tool registration and selection.
   late final ToolRegistry toolRegistry = ToolRegistry.create();
@@ -271,14 +240,6 @@ class EngineScope {
   /// Native performance monitor (memory, thermal, battery).
   late final NativePerformanceMonitor performanceMonitor =
       NativePerformanceMonitor.create();
-
-  /// Native audio player platform channel.
-  late final NativeAudioPlayerChannel audioPlayerChannel =
-      NativeAudioPlayerChannel.create();
-
-  /// Native audio recorder platform channel.
-  late final NativeAudioRecorderChannel audioRecorderChannel =
-      NativeAudioRecorderChannel.create();
 
   /// Image loading and LRU caching service.
   late final ImageCacheService imageCacheService = ImageCacheService.create();
@@ -377,35 +338,11 @@ class EngineScope {
   /// RBAC/ABAC permission service.
   late final PermissionService permissionService = PermissionService();
 
-  // ---------------------------------------------------------------------------
-  // Global Tabular Integration (DEPRECATED — use TabularModule)
-  // ---------------------------------------------------------------------------
-
-  /// Global spreadsheet model.
-  ///
-  /// **Deprecated**: Register a [TabularModule] via [moduleRegistry] and access
-  /// the model via `moduleRegistry.findModule<TabularModule>()!.spreadsheetModel`.
-  @Deprecated('Use TabularModule via moduleRegistry instead')
-  late final SpreadsheetModel globalSpreadsheetModel = SpreadsheetModel();
-
-  /// Global evaluator for the spreadsheet model.
-  ///
-  /// **Deprecated**: Use `TabularModule.spreadsheetEvaluator` instead.
-  @Deprecated('Use TabularModule via moduleRegistry instead')
-  late final SpreadsheetEvaluator globalSpreadsheetEvaluator =
-      SpreadsheetEvaluator(globalSpreadsheetModel);
-
-  /// Bridge connecting tabular data to LaTeX output.
-  ///
-  /// **Deprecated**: Use `TabularModule.tabularLatexBridge` instead.
-  @Deprecated('Use TabularModule via moduleRegistry instead')
-  late final TabularLatexBridge globalTabularBridge = TabularLatexBridge(
-    globalSpreadsheetEvaluator,
-    invalidationGraph,
-  );
-
   /// Convenience accessor: returns the [TabularModule] if registered,
   /// or `null` if the module hasn't been registered yet.
+  ///
+  /// NOTE: TabularModule is not registered by default in the core SDK.
+  /// Register it manually via `moduleRegistry.register(TabularModule())`.
   TabularModule? get tabularModule =>
       moduleRegistry.findModule<TabularModule>();
 
@@ -414,10 +351,21 @@ class EngineScope {
       moduleRegistry.findModule<DrawingModule>();
 
   /// Convenience accessor for the [LaTeXModule].
+  ///
+  /// NOTE: LaTeXModule is not registered by default in the core SDK.
   LaTeXModule? get latexModule => moduleRegistry.findModule<LaTeXModule>();
 
   /// Convenience accessor for the [PDFModule].
   PDFModule? get pdfModule => moduleRegistry.findModule<PDFModule>();
+
+  /// Convenience accessor for the [AudioModule].
+  AudioModule? get audioModule => moduleRegistry.findModule<AudioModule>();
+
+  /// Convenience accessor for the [EnterpriseModule].
+  ///
+  /// NOTE: EnterpriseModule is not registered by default in the core SDK.
+  EnterpriseModule? get enterpriseModule =>
+      moduleRegistry.findModule<EnterpriseModule>();
 
   // ---------------------------------------------------------------------------
   // Module Initialization
@@ -443,9 +391,17 @@ class EngineScope {
     _modulesInitialized = true;
 
     await moduleRegistry.register(DrawingModule(), toolRegistry: toolRegistry);
-    await moduleRegistry.register(TabularModule(), toolRegistry: toolRegistry);
-    await moduleRegistry.register(LaTeXModule(), toolRegistry: toolRegistry);
     await moduleRegistry.register(PDFModule(), toolRegistry: toolRegistry);
+    await moduleRegistry.register(AudioModule(), toolRegistry: toolRegistry);
+
+    // NOTE: TabularModule, LaTeXModule, and EnterpriseModule are available
+    // as separate add-on packages. Register them manually if needed:
+    //   await moduleRegistry.register(TabularModule(), toolRegistry: toolRegistry);
+    //   await moduleRegistry.register(LaTeXModule(), toolRegistry: toolRegistry);
+    //   await moduleRegistry.register(
+    //     EnterpriseModule(permissionService: permissionService),
+    //     toolRegistry: toolRegistry,
+    //   );
   }
 
   // ---------------------------------------------------------------------------
@@ -564,24 +520,13 @@ class EngineScope {
     if (_disposed) return;
     _disposed = true;
 
-    // ── 0. Independent Systems ──
-    // Only dispose legacy tabular if TabularModule is NOT registered
-    // (to avoid double-dispose).
-    if (tabularModule == null) {
-      // ignore: deprecated_member_use_from_same_package
-      globalTabularBridge.dispose();
-      // ignore: deprecated_member_use_from_same_package
-      globalSpreadsheetEvaluator.dispose();
-    }
-
     // ── 1. Leaf services (no other service depends on these) ──
+    // Modules (drawing, audio, tabular, etc.) dispose their own services.
     moduleRegistry.dispose();
     consciousArchitecture.dispose();
     pluginRegistry.dispose();
     toolRegistry.dispose();
-    brushSettingsService.dispose();
     themeManager.dispose();
-    shaderBrushService.dispose();
     renderCacheScope.dispose();
 
     // ── 2. Mid-tier (depend on infra, depended on by leaves) ──

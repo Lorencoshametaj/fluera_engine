@@ -118,17 +118,17 @@ extension _LayerElementOps on LayerController {
       final layer = _layers[i];
       if (layer.isLocked) continue;
 
-      final strokeIndex = layer.strokes.indexWhere((s) => s.id == strokeId);
-      if (strokeIndex != -1) {
+      // 🚀 O(1) direct scene graph mutation — same pattern as addStroke.
+      // Previously used copyWith(strokes: List.from(...).removeAt()), which
+      // created a brand new CanvasLayer + LayerNode + re-added ALL children.
+      // With 500 strokes × 30 interpolation steps = 15,000 copies per frame.
+      if (layer.node.removeStrokeById(strokeId)) {
         if (enableDeltaTracking) {
           _deltaTracker.recordStrokeRemoved(layer.id, strokeId);
         }
         _emitTT(CanvasDeltaType.strokeRemoved, layer.id, elementId: strokeId);
 
-        final updatedStrokes = List<ProStroke>.from(layer.strokes)
-          ..removeAt(strokeIndex);
-        _layers[i] = layer.copyWith(strokes: updatedStrokes);
-        _dirtyLayerIds.add(layer.id); // Added
+        _dirtyLayerIds.add(layer.id);
         removed = true;
         break;
       }
@@ -136,7 +136,7 @@ extension _LayerElementOps on LayerController {
 
     if (removed) {
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+      _bumpVersionOrDefer();
     }
   }
 
@@ -189,17 +189,14 @@ extension _LayerElementOps on LayerController {
       final layer = _layers[i];
       if (layer.isLocked) continue;
 
-      final shapeIndex = layer.shapes.indexWhere((s) => s.id == shapeId);
-      if (shapeIndex != -1) {
+      // 🚀 O(1) direct scene graph mutation (same pattern as _removeStrokeImpl)
+      if (layer.node.removeShapeById(shapeId)) {
         if (enableDeltaTracking) {
           _deltaTracker.recordShapeRemoved(layer.id, shapeId);
         }
         _emitTT(CanvasDeltaType.shapeRemoved, layer.id, elementId: shapeId);
 
-        final updatedShapes = List<GeometricShape>.from(layer.shapes)
-          ..removeAt(shapeIndex);
-        _layers[i] = layer.copyWith(shapes: updatedShapes);
-        _dirtyLayerIds.add(layer.id); // Added
+        _dirtyLayerIds.add(layer.id);
         removed = true;
         break;
       }
@@ -207,7 +204,7 @@ extension _LayerElementOps on LayerController {
 
     if (removed) {
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+      _bumpVersionOrDefer();
     }
   }
 
@@ -432,22 +429,25 @@ extension _LayerElementOps on LayerController {
       if (enableDeltaTracking) {
         _deltaTracker.recordShapeRemoved(layer.id, shapeToRemove.id);
       }
-      final updatedShapes = List<GeometricShape>.from(layer.shapes)
-        ..removeLast();
-      _layers[index] = layer.copyWith(shapes: updatedShapes);
+      // 🚀 O(1) direct scene graph mutation
+      layer.node.removeShapeById(shapeToRemove.id);
       _dirtyLayerIds.add(layer.id);
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+      if (!_sceneGraphDirty) {
+        _sceneGraph.bumpVersion();
+      }
     } else if (layer.strokes.isNotEmpty) {
       final strokeToRemove = layer.strokes.last;
       if (enableDeltaTracking) {
         _deltaTracker.recordStrokeRemoved(layer.id, strokeToRemove.id);
       }
-      final updatedStrokes = List<ProStroke>.from(layer.strokes)..removeLast();
-      _layers[index] = layer.copyWith(strokes: updatedStrokes);
+      // 🚀 O(1) direct scene graph mutation
+      layer.node.removeStrokeById(strokeToRemove.id);
       _dirtyLayerIds.add(layer.id);
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+      if (!_sceneGraphDirty) {
+        _sceneGraph.bumpVersion();
+      }
     }
   }
 

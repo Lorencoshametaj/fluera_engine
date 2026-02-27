@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/smart_snap_engine.dart';
+import 'package:fluera_engine/src/systems/smart_snap_engine.dart';
 
 import '../helpers/test_helpers.dart';
 

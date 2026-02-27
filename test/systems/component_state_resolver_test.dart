@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/component_state_machine.dart';
-import 'package:nebula_engine/src/systems/component_state_resolver.dart';
-import 'package:nebula_engine/src/core/nodes/symbol_system.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/nodes/variant_property.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/systems/component_state_machine.dart';
+import 'package:fluera_engine/src/systems/component_state_resolver.dart';
+import 'package:fluera_engine/src/core/nodes/symbol_system.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/nodes/variant_property.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 
 // Mock SymbolDefinition that returns a GroupNode with name matching selections
 class MockSymbolDefinition extends SymbolDefinition {

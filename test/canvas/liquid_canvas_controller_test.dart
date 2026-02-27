@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/canvas/infinite_canvas_controller.dart';
-import 'package:nebula_engine/src/canvas/liquid_canvas_config.dart';
+import 'package:fluera_engine/src/canvas/infinite_canvas_controller.dart';
+import 'package:fluera_engine/src/canvas/liquid_canvas_config.dart';
 
 void main() {
   group('InfiniteCanvasController — Core API', () {
