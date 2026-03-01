@@ -246,7 +246,14 @@ class ImageMemoryManager {
 
     final offViewport = loadedImages.keys.toSet().difference(viewportPaths);
     for (final path in offViewport) {
-      final lastVisible = _lastVisibleTimestamps[path] ?? 0;
+      final lastVisible = _lastVisibleTimestamps[path];
+      if (lastVisible == null) {
+        // 🛡️ First encounter: image was just added. Give it a cooldown
+        // grace period before it can be evicted. Without this, newly
+        // added images get immediately evicted (lastVisible=0 → instant eviction).
+        _lastVisibleTimestamps[path] = now;
+        continue;
+      }
       if (now - lastVisible > cooldownMs) {
         _evictImage(loadedImages, path);
         evicted.add(path);

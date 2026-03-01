@@ -10,13 +10,16 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
       // 🔒 ClipRect prevents canvas from invading the toolbar
       child: Stack(
         children: [
-          _buildBackgroundLayer(),
-          _buildDrawingLayer(),
-          _buildImageLayer(),
-          _buildGestureDetectorLayer(context),
-          _buildCurrentStrokeLayer(),
-          _buildRemoteLiveStrokesLayer(),
-          _buildPdfLoadingPlaceholdersLayer(),
+          // 🚀 STRUCTURAL FIX: Use cached widget hosts — identical() skips
+          // these entire sub-trees on parent setState, eliminating ~90% of
+          // the widget reconstruction cost (700+ widgets × 293 setState calls).
+          // 🚀 LAYER MERGE: Background is now rendered inline by DrawingPainter
+          _drawingLayerHost,
+          _imageLayerHost,
+          _gestureLayerHost,
+          _currentStrokeHost,
+          _remoteLiveStrokesHost,
+          _pdfPlaceholdersHost,
 
           // 📐 SECTION PREVIEW OVERLAY
           if (_isSectionActive &&
@@ -34,6 +37,24 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 ),
               ),
             ),
+
+          // 📐 SECTION DRAG/RESIZE HIGHLIGHT OVERLAY
+          if (_draggingSectionNode != null || _resizingSectionNode != null)
+            IgnorePointer(
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _SectionHighlightPainter(
+                    section: _draggingSectionNode ?? _resizingSectionNode!,
+                    controller: _canvasController,
+                    isResizing: _resizingSectionNode != null,
+                  ),
+                  size: Size.infinite,
+                ),
+              ),
+            ),
+
+          // 🗺️ SECTION NAVIGATOR PANEL
+          if (_isSectionActive) _buildSectionNavigator(),
 
           // 📌 RECORDING PINS OVERLAY
           if (_recordingPins.isNotEmpty || _isPinPlacementMode)
@@ -164,6 +185,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
 
   /// 🎨 LAYER 0: SFONDO VIEWPORT-LEVEL
   Widget _buildBackgroundLayer() {
+    // ✅ KEEP RepaintBoundary — BackgroundPainter repaints on every pan/zoom
+    // (via _canvasController listenable). Without RPB, repaint cascades to
+    // ALL sibling layers in the Stack → catastrophic overdraw.
     return RepaintBoundary(
       child: IgnorePointer(
         child: CustomPaint(
@@ -216,7 +240,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                           _pdfLayoutVersion, // 📄 Layout mutation counter
                       showPdfPageNumbers: _showPdfPageNumbers,
                       surface: _activeSurface, // 🧬 Programmable materiality
+                      paperType: _paperType, // 🚀 LAYER MERGE
+                      backgroundColor: _canvasBackgroundColor, // 🚀 LAYER MERGE
                     ),
+                    isComplex:
+                        true, // 🚀 RASTER: hint to cache raster output aggressively
+                    willChange:
+                        false, // Only changes at stroke end, not every frame
                     size: Size.infinite,
                   ),
                 ),
@@ -244,6 +274,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     return ListenableBuilder(
       listenable: _layerController,
       builder: (context, _) {
+        // 🚀 LAYER MERGE #2: Skip entire RPB layer when no images
+        if (_imageElements.isEmpty) return const SizedBox.shrink();
+
         final dpr = MediaQuery.of(context).devicePixelRatio;
         // 🔧 FIX: Listen to _currentEditingStrokeNotifier so ImagePainter
         // repaints on every pen move during image editing mode.
@@ -317,13 +350,46 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             onPanInterceptTest:
                 _effectiveIsPanMode
                     ? (canvasPos) {
-                      // 🐛 FIX: When an image is selected, ALL touches must
-                      // go through _onDrawStart to handle:
-                      //   • Rotation handle hit test → start rotation
-                      //   • Resize handle hit test → start resize
-                      //   • Tap on another image → select it
-                      //   • Tap on empty space → deselect current image
-                      if (_imageTool.selectedImage != null) return true;
+                      // 🖼️ If an image is selected, check if touch hits the
+                      // image, its handles, or another image. Return false for
+                      // empty space so canvas pan still works.
+                      if (_imageTool.selectedImage != null) {
+                        final sel = _imageTool.selectedImage!;
+                        final rawImage = _loadedImages[sel.imagePath];
+                        if (rawImage != null) {
+                          final crop = sel.cropRect;
+                          final w = rawImage.width.toDouble();
+                          final h = rawImage.height.toDouble();
+                          final imageSize =
+                              crop != null
+                                  ? Size(
+                                    (crop.right - crop.left) * w,
+                                    (crop.bottom - crop.top) * h,
+                                  )
+                                  : Size(w, h);
+                          // Check rotation handle
+                          if (_imageTool.hitTestRotationHandle(
+                            canvasPos,
+                            imageSize,
+                          )) {
+                            return true;
+                          }
+                          // Check resize handles
+                          if (_imageTool.hitTestResizeHandle(
+                                canvasPos,
+                                imageSize,
+                              ) !=
+                              null) {
+                            return true;
+                          }
+                          // Check if touch hits the selected image body
+                          if (_imageTool.hitTest(sel, canvasPos, imageSize)) {
+                            return true;
+                          }
+                        }
+                        // Touch is on empty space — fall through to check
+                        // other images and PDFs below
+                      }
 
                       // Check images
                       for (final imageElement in _imageElements.reversed) {
@@ -377,13 +443,21 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 _imageTool.isRotating ||
                 _tabularTool.isDragging ||
                 _tabularTool.isResizing ||
-                (_effectiveIsPanMode &&
-                    _imageTool.selectedImage !=
-                        null), // 🌀 Block canvas zoom when image selected in pan mode
+                _imageTool
+                    .isHandleRotating, // 🌀 Block only during active image manipulation
             // 🌀 IMAGE ROTATION: Two-finger rotate + scale on selected image (pan mode only)
-            onImageScaleStart: _effectiveIsPanMode ? _onImageScaleStart : null,
-            onImageTransform: _effectiveIsPanMode ? _onImageTransform : null,
-            onImageScaleEnd: _effectiveIsPanMode ? _onImageScaleEnd : null,
+            onImageScaleStart:
+                (_effectiveIsPanMode && _imageTool.selectedImage != null)
+                    ? _onImageScaleStart
+                    : null,
+            onImageTransform:
+                (_effectiveIsPanMode && _imageTool.selectedImage != null)
+                    ? _onImageTransform
+                    : null,
+            onImageScaleEnd:
+                (_effectiveIsPanMode && _imageTool.selectedImage != null)
+                    ? _onImageScaleEnd
+                    : null,
             // 🚀 PERF FIX: Content builders OUTSIDE AnimatedBuilder.
             child: ValueListenableBuilder<GeometricShape?>(
               valueListenable: _currentShapeNotifier,
@@ -584,6 +658,166 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 );
               },
             ),
+      ),
+    );
+  }
+
+  /// 🗺️ Floating section navigator panel — lists all sections.
+  Widget _buildSectionNavigator() {
+    final sceneGraph = _layerController.sceneGraph;
+    final sections = <SectionNode>[];
+    for (final layer in sceneGraph.layers) {
+      for (final child in layer.children) {
+        if (child is SectionNode && child.isVisible) {
+          sections.add(child);
+        }
+      }
+    }
+    if (sections.isEmpty) return const SizedBox.shrink();
+
+    return Positioned(
+      top: 100,
+      right: 16,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            width: 180,
+            constraints: const BoxConstraints(maxHeight: 280),
+            decoration: BoxDecoration(
+              color: const Color(0xCC1A1A2E),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.dashboard_rounded,
+                        size: 14,
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Sections',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${sections.length}',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.3),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                // Section list
+                Flexible(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    shrinkWrap: true,
+                    itemCount: sections.length,
+                    itemBuilder: (ctx, idx) {
+                      final s = sections[idx];
+                      final bg = s.backgroundColor ?? const Color(0xFF2A2A3E);
+                      final dims =
+                          '${s.sectionSize.width.round()}×${s.sectionSize.height.round()}';
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          final tx = s.worldTransform.getTranslation();
+                          final sectionRect = Rect.fromLTWH(
+                            tx.x,
+                            tx.y,
+                            s.sectionSize.width,
+                            s.sectionSize.height,
+                          );
+                          // Direct camera jump (bypass animation)
+                          final vp = MediaQuery.of(context).size;
+                          final scaleX = (vp.width * 0.8) / sectionRect.width;
+                          final scaleY = (vp.height * 0.8) / sectionRect.height;
+                          final targetScale = scaleX < scaleY ? scaleX : scaleY;
+                          final cx = sectionRect.left + sectionRect.width / 2;
+                          final cy = sectionRect.top + sectionRect.height / 2;
+                          final ox = vp.width / 2 - cx * targetScale;
+                          final oy = vp.height / 2 - cy * targetScale;
+                          _canvasController.setScale(targetScale);
+                          _canvasController.setOffset(Offset(ox, oy));
+                          setState(() {});
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  color: bg,
+                                  borderRadius: BorderRadius.circular(3),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.15),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  s.sectionName,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.85),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (s.isLocked) ...[
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.lock_rounded,
+                                  size: 10,
+                                  color: Colors.white.withValues(alpha: 0.3),
+                                ),
+                              ],
+                              const SizedBox(width: 6),
+                              Text(
+                                dims,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.3),
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1028,4 +1262,140 @@ class _SectionPreviewPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SectionPreviewPainter oldDelegate) =>
       startPoint != oldDelegate.startPoint || endPoint != oldDelegate.endPoint;
+}
+
+/// Highlight painter for section drag/resize visual feedback.
+class _SectionHighlightPainter extends CustomPainter {
+  final SectionNode section;
+  final InfiniteCanvasController controller;
+  final bool isResizing;
+
+  _SectionHighlightPainter({
+    required this.section,
+    required this.controller,
+    required this.isResizing,
+  });
+
+  static const _accentColor = Color(0xFF2196F3);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.translate(controller.offset.dx, controller.offset.dy);
+    canvas.scale(controller.scale);
+
+    final tx = section.worldTransform.getTranslation();
+    final rect = Rect.fromLTWH(
+      tx.x,
+      tx.y,
+      section.sectionSize.width,
+      section.sectionSize.height,
+    );
+    final invScale = 1.0 / controller.scale;
+    final cr = section.cornerRadius;
+
+    // 1. Translucent highlight fill
+    final fillPaint =
+        Paint()
+          ..color = _accentColor.withValues(alpha: 0.05)
+          ..style = PaintingStyle.fill;
+    if (cr > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(cr)),
+        fillPaint,
+      );
+    } else {
+      canvas.drawRect(rect, fillPaint);
+    }
+
+    // 2. Glowing blue border
+    final borderPaint =
+        Paint()
+          ..color = _accentColor.withValues(alpha: 0.7)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0 * invScale
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3.0 * invScale);
+    if (cr > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(cr)),
+        borderPaint,
+      );
+    } else {
+      canvas.drawRect(rect, borderPaint);
+    }
+
+    // Solid border on top
+    final solidPaint =
+        Paint()
+          ..color = _accentColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5 * invScale;
+    if (cr > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(cr)),
+        solidPaint,
+      );
+    } else {
+      canvas.drawRect(rect, solidPaint);
+    }
+
+    // 3. Corner handles highlighted during resize
+    if (isResizing) {
+      final handleRadius = 5.0 * invScale;
+      final handlePaint = Paint()..color = _accentColor;
+      final handleRing =
+          Paint()
+            ..color = Colors.white
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5 * invScale;
+      for (final corner in [
+        rect.topLeft,
+        rect.topRight,
+        rect.bottomRight,
+        rect.bottomLeft,
+      ]) {
+        canvas.drawCircle(corner, handleRadius, handlePaint);
+        canvas.drawCircle(corner, handleRadius, handleRing);
+      }
+    }
+
+    // 4. Real-time dimension badge
+    final w = rect.width.round();
+    final h = rect.height.round();
+    final label = isResizing ? '↔ $w × $h' : '✥ ${section.sectionName}';
+    final labelFontSize = 11.0 * invScale;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: labelFontSize,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final labelX = rect.center.dx - tp.width / 2;
+    final labelY = rect.bottom + 8.0 * invScale;
+    final padH = 8.0 * invScale;
+    final padV = 4.0 * invScale;
+    final badgeRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        labelX - padH,
+        labelY - padV,
+        tp.width + padH * 2,
+        tp.height + padV * 2,
+      ),
+      Radius.circular(6.0 * invScale),
+    );
+    canvas.drawRRect(badgeRect, Paint()..color = _accentColor);
+    tp.paint(canvas, Offset(labelX, labelY));
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _SectionHighlightPainter oldDelegate) => true;
 }

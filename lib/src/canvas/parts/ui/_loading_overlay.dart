@@ -7,34 +7,40 @@ part of '../../fluera_canvas_screen.dart';
 /// 2. The Fluera logo with a pulsing animation (fallback)
 ///
 /// Both variants show a thin progress bar. The overlay fades out smoothly
-/// when loading completes (`_isLoading` → `false`).
+/// when loading completes (`_isLoadingNotifier` → `false`).
 extension LoadingOverlayExtension on _FlueraCanvasScreenState {
   /// Builds the loading overlay. Returns [SizedBox.shrink] after fade-out.
+  /// 🚀 P99 FIX: Uses ValueListenableBuilder so this section rebuilds
+  /// independently — parent setState calls don't touch it.
   Widget _buildLoadingOverlay() {
+    if (_loadingOverlayDismissed) return const SizedBox.shrink();
+
     return Positioned.fill(
-      child: AnimatedOpacity(
-        opacity: _isLoading ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOut,
-        onEnd: () {
-          // Remove overlay from tree after fade-out completes
-          if (!_isLoading && mounted) {
-            setState(() {
-              _loadingOverlayDismissed = true;
-            });
-          }
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _isLoadingNotifier,
+        builder: (context, isLoading, child) {
+          return AnimatedOpacity(
+            opacity: isLoading ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOut,
+            onEnd: () {
+              // Remove overlay from tree after fade-out completes
+              if (!isLoading && mounted) {
+                setState(() {
+                  _loadingOverlayDismissed = true;
+                });
+              }
+            },
+            child: child!,
+          );
         },
-        child:
-            _loadingOverlayDismissed
-                ? const SizedBox.shrink()
-                : _CanvasLoadingScreen(
-                  logoAssetPath:
-                      _config.splashLogoAsset ??
-                      'assets/textures/images/fluera_logo.png',
-                  packageName:
-                      _config.splashLogoAsset == null ? 'fluera_engine' : null,
-                  snapshotPng: _splashSnapshot,
-                ),
+        child: _CanvasLoadingScreen(
+          logoAssetPath:
+              _config.splashLogoAsset ??
+              'assets/textures/images/fluera_logo.png',
+          packageName: _config.splashLogoAsset == null ? 'fluera_engine' : null,
+          snapshotPng: _splashSnapshot,
+        ),
       ),
     );
   }

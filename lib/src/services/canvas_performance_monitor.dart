@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 /// Performance monitoring service for Professional Canvas.
 ///
@@ -33,6 +34,9 @@ class CanvasPerformanceMonitor {
   /// Rolling window of per-frame durations (microseconds).
   final List<int> _frameTimesUs = [];
 
+  /// 🖥️ Raster thread frame times (microseconds) from FrameTiming API.
+  final List<int> _rasterTimesUs = [];
+
   /// FPS sparkline history (last 60 data points = ~30 seconds).
   final List<double> _fpsSparkline = [];
 
@@ -44,6 +48,9 @@ class CanvasPerformanceMonitor {
   /// Jank counter: frames exceeding 2× budget.
   int _jankFrames = 0;
   int _totalFramesMeasured = 0;
+
+  /// Whether the FrameTiming callback is registered.
+  bool _timingsCallbackRegistered = false;
 
   /// Whether the overlay is collapsed (shows only FPS header).
   bool _isCollapsed = false;
@@ -63,10 +70,40 @@ class CanvasPerformanceMonitor {
   /// Enable/disable monitoring.
   void setEnabled(bool enabled) {
     _isEnabled = enabled;
-    if (!enabled) reset();
+    if (enabled) {
+      _registerTimingsCallback();
+    } else {
+      _unregisterTimingsCallback();
+      reset();
+    }
   }
 
   bool get isEnabled => _isEnabled;
+
+  /// Register Flutter's FrameTiming callback to capture raster thread times.
+  void _registerTimingsCallback() {
+    if (_timingsCallbackRegistered) return;
+    _timingsCallbackRegistered = true;
+    SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
+  }
+
+  /// Unregister the FrameTiming callback.
+  void _unregisterTimingsCallback() {
+    if (!_timingsCallbackRegistered) return;
+    _timingsCallbackRegistered = false;
+    SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
+  }
+
+  /// Callback for FrameTiming data — captures raster thread duration.
+  void _onFrameTimings(List<FrameTiming> timings) {
+    for (final timing in timings) {
+      final rasterUs = timing.rasterDuration.inMicroseconds;
+      _rasterTimesUs.add(rasterUs);
+      if (_rasterTimesUs.length > _maxSamples) {
+        _rasterTimesUs.removeAt(0);
+      }
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // Frame lifecycle
@@ -120,6 +157,10 @@ class CanvasPerformanceMonitor {
     final sorted = List<int>.from(_frameTimesUs)..sort();
     final n = sorted.length;
 
+    // Raster thread percentiles
+    final rasterSorted = List<int>.from(_rasterTimesUs)..sort();
+    final rn = rasterSorted.length;
+
     return PerformanceMetrics(
       currentFPS: _fpsSparkline.isNotEmpty ? _fpsSparkline.last : 0,
       avgFPS:
@@ -129,12 +170,22 @@ class CanvasPerformanceMonitor {
       memoryUsageMB: _getMemoryUsage(),
       strokeCount: _currentStrokeCount,
       targetFPS: _targetFPS,
-      // Frame time percentiles
+      // UI thread frame time percentiles
       p50FrameTimeMs: n > 0 ? sorted[n ~/ 2] / 1000.0 : 0,
       p90FrameTimeMs:
           n > 0 ? sorted[(n * 0.9).floor().clamp(0, n - 1)] / 1000.0 : 0,
       p99FrameTimeMs:
           n > 0 ? sorted[(n * 0.99).floor().clamp(0, n - 1)] / 1000.0 : 0,
+      // Raster thread frame time percentiles
+      rasterP50Ms: rn > 0 ? rasterSorted[rn ~/ 2] / 1000.0 : 0,
+      rasterP90Ms:
+          rn > 0
+              ? rasterSorted[(rn * 0.9).floor().clamp(0, rn - 1)] / 1000.0
+              : 0,
+      rasterP99Ms:
+          rn > 0
+              ? rasterSorted[(rn * 0.99).floor().clamp(0, rn - 1)] / 1000.0
+              : 0,
       // Budget
       frameBudgetPercent:
           n > 0
@@ -153,6 +204,7 @@ class CanvasPerformanceMonitor {
   /// Reset all metrics.
   void reset() {
     _frameTimesUs.clear();
+    _rasterTimesUs.clear();
     _fpsSparkline.clear();
     _frameCount = 0;
     _currentStrokeCount = 0;
@@ -279,21 +331,66 @@ class CanvasPerformanceMonitor {
 
                     const SizedBox(height: 8),
 
-                    // ── Frame time percentiles ──
+                    // ── UI thread percentiles ──
+                    _sectionHeader('UI THREAD'),
                     _metricLine(
                       'P50',
                       '${m.p50FrameTimeMs.toStringAsFixed(1)}ms',
-                      m.p50FrameTimeMs <= 16.67 ? Colors.green : Colors.orange,
+                      m.p50FrameTimeMs <= 8.33
+                          ? Colors.green
+                          : m.p50FrameTimeMs <= 16.67
+                          ? Colors.orange
+                          : Colors.red,
                     ),
                     _metricLine(
                       'P90',
                       '${m.p90FrameTimeMs.toStringAsFixed(1)}ms',
-                      m.p90FrameTimeMs <= 16.67 ? Colors.green : Colors.orange,
+                      m.p90FrameTimeMs <= 8.33
+                          ? Colors.green
+                          : m.p90FrameTimeMs <= 16.67
+                          ? Colors.orange
+                          : Colors.red,
                     ),
                     _metricLine(
                       'P99',
                       '${m.p99FrameTimeMs.toStringAsFixed(1)}ms',
-                      m.p99FrameTimeMs <= 33.3 ? Colors.green : Colors.red,
+                      m.p99FrameTimeMs <= 16.67
+                          ? Colors.green
+                          : m.p99FrameTimeMs <= 33.3
+                          ? Colors.orange
+                          : Colors.red,
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    // ── Raster thread percentiles ──
+                    _sectionHeader('RASTER'),
+                    _metricLine(
+                      'P50',
+                      '${m.rasterP50Ms.toStringAsFixed(1)}ms',
+                      m.rasterP50Ms <= 8.33
+                          ? Colors.green
+                          : m.rasterP50Ms <= 16.67
+                          ? Colors.orange
+                          : Colors.red,
+                    ),
+                    _metricLine(
+                      'P90',
+                      '${m.rasterP90Ms.toStringAsFixed(1)}ms',
+                      m.rasterP90Ms <= 8.33
+                          ? Colors.green
+                          : m.rasterP90Ms <= 16.67
+                          ? Colors.orange
+                          : Colors.red,
+                    ),
+                    _metricLine(
+                      'P99',
+                      '${m.rasterP99Ms.toStringAsFixed(1)}ms',
+                      m.rasterP99Ms <= 16.67
+                          ? Colors.green
+                          : m.rasterP99Ms <= 33.3
+                          ? Colors.orange
+                          : Colors.red,
                     ),
 
                     const Divider(color: Colors.white24, height: 12),
@@ -350,6 +447,22 @@ class CanvasPerformanceMonitor {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2, top: 2),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white54,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          fontFamily: 'monospace',
+          letterSpacing: 1.2,
+        ),
       ),
     );
   }
@@ -452,6 +565,15 @@ class PerformanceMetrics {
   /// Frame time at the 99th percentile (worst-case).
   final double p99FrameTimeMs;
 
+  /// Raster thread frame time at the 50th percentile.
+  final double rasterP50Ms;
+
+  /// Raster thread frame time at the 90th percentile.
+  final double rasterP90Ms;
+
+  /// Raster thread frame time at the 99th percentile.
+  final double rasterP99Ms;
+
   /// Percentage of frames delivered within 16.67ms budget.
   final double frameBudgetPercent;
 
@@ -470,6 +592,9 @@ class PerformanceMetrics {
     this.p50FrameTimeMs = 0,
     this.p90FrameTimeMs = 0,
     this.p99FrameTimeMs = 0,
+    this.rasterP50Ms = 0,
+    this.rasterP90Ms = 0,
+    this.rasterP99Ms = 0,
     this.frameBudgetPercent = 100,
     this.jankPercent = 0,
     this.fpsSparkline = const [],
@@ -478,9 +603,8 @@ class PerformanceMetrics {
   @override
   String toString() =>
       'PerformanceMetrics(FPS: ${currentFPS.toStringAsFixed(1)}/${targetFPS.toInt()}, '
-      'P50: ${p50FrameTimeMs.toStringAsFixed(1)}ms, '
-      'P90: ${p90FrameTimeMs.toStringAsFixed(1)}ms, '
-      'P99: ${p99FrameTimeMs.toStringAsFixed(1)}ms, '
+      'UI[P50: ${p50FrameTimeMs.toStringAsFixed(1)}ms, P90: ${p90FrameTimeMs.toStringAsFixed(1)}ms, P99: ${p99FrameTimeMs.toStringAsFixed(1)}ms], '
+      'Raster[P50: ${rasterP50Ms.toStringAsFixed(1)}ms, P90: ${rasterP90Ms.toStringAsFixed(1)}ms, P99: ${rasterP99Ms.toStringAsFixed(1)}ms], '
       'Budget: ${frameBudgetPercent.toStringAsFixed(0)}%, '
       'Jank: ${jankPercent.toStringAsFixed(1)}%, '
       'Memory: ${memoryUsageMB.toStringAsFixed(1)} MB)';

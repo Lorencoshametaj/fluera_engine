@@ -753,17 +753,51 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             const SizedBox(width: 12),
 
             // 🎤 Recording
+            // 🚀 P99 FIX: Wrap in ValueListenableBuilder so the recording
+            // button updates independently without rebuilding the canvas.
             if (!widget.hideRecordingControlWhenActive ||
                 !widget.isRecordingActive)
-              ToolbarRecordingButton(
-                isActive: widget.isRecordingActive,
-                duration: widget.recordingDuration,
-                amplitudeLevel: widget.recordingAmplitude,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  widget.onRecordingPressed();
+              Builder(
+                builder: (_) {
+                  final durNotifier = widget.recordingDurationNotifier;
+                  final ampNotifier = widget.recordingAmplitudeNotifier;
+
+                  // If notifiers are provided, use them for live updates
+                  if (durNotifier != null && ampNotifier != null) {
+                    return ValueListenableBuilder<Duration>(
+                      valueListenable: durNotifier,
+                      builder: (_, duration, __) {
+                        return ValueListenableBuilder<double>(
+                          valueListenable: ampNotifier,
+                          builder: (_, amplitude, __) {
+                            return ToolbarRecordingButton(
+                              isActive: widget.isRecordingActive,
+                              duration: duration,
+                              amplitudeLevel: amplitude,
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                widget.onRecordingPressed();
+                              },
+                              isDark: isDark,
+                            );
+                          },
+                        );
+                      },
+                    );
+                  }
+
+                  // Fallback: use plain fields
+                  return ToolbarRecordingButton(
+                    isActive: widget.isRecordingActive,
+                    duration: widget.recordingDuration,
+                    amplitudeLevel: widget.recordingAmplitude,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onRecordingPressed();
+                    },
+                    isDark: isDark,
+                  );
                 },
-                isDark: isDark,
               ),
             const SizedBox(width: 12),
 

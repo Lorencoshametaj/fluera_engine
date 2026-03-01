@@ -16,6 +16,113 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // 📐 SECTION RESIZE: Resize from corner (aspect-ratio locked) or edge (single axis)
+    if (_resizingSectionNode != null && _resizeAnchorCorner != null) {
+      final section = _resizingSectionNode!;
+      final anchor = _resizeAnchorCorner!;
+      final tx = section.worldTransform.getTranslation();
+
+      Rect newRect;
+
+      if (_resizeEdgeAxis == 'h') {
+        // Horizontal edge → only change width (left or right edge)
+        final curLeft = tx.x;
+        final curTop = tx.y;
+        final curH = section.sectionSize.height;
+        // anchor.dx is the fixed edge x
+        final fixedX = anchor.dx;
+        final movingX = canvasPosition.dx;
+        final left = math.min(fixedX, movingX);
+        final right = math.max(fixedX, movingX);
+        newRect = Rect.fromLTWH(left, curTop, right - left, curH);
+      } else if (_resizeEdgeAxis == 'v') {
+        // Vertical edge → only change height (top or bottom edge)
+        final curLeft = tx.x;
+        final curW = section.sectionSize.width;
+        final fixedY = anchor.dy;
+        final movingY = canvasPosition.dy;
+        final top = math.min(fixedY, movingY);
+        final bottom = math.max(fixedY, movingY);
+        newRect = Rect.fromLTWH(curLeft, top, curW, bottom - top);
+      } else {
+        // Corner → aspect-ratio locked resize
+        final aspectRatio =
+            section.sectionSize.width / section.sectionSize.height;
+        var rawRect = Rect.fromPoints(anchor, canvasPosition);
+        if (aspectRatio > 0 && rawRect.width >= 20 && rawRect.height >= 20) {
+          final w = rawRect.width;
+          final h = w / aspectRatio;
+          final left =
+              canvasPosition.dx >= anchor.dx ? anchor.dx : anchor.dx - w;
+          final top =
+              canvasPosition.dy >= anchor.dy ? anchor.dy : anchor.dy - h;
+          rawRect = Rect.fromLTWH(left, top, w, h);
+        }
+        newRect = rawRect;
+      }
+
+      if (newRect.width >= 20 && newRect.height >= 20) {
+        section.setPosition(newRect.left, newRect.top);
+        section.sectionSize = Size(newRect.width, newRect.height);
+        _layerController.sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        setState(() {});
+      }
+      return;
+    }
+
+    // 📐 SECTION DRAG: Move an existing section with edge snapping
+    if (_draggingSectionNode != null && _sectionDragGrabOffset != null) {
+      var newPos = canvasPosition - _sectionDragGrabOffset!;
+      final dragW = _draggingSectionNode!.sectionSize.width;
+      final dragH = _draggingSectionNode!.sectionSize.height;
+      final snapThreshold = 10.0 / _canvasController.scale;
+
+      // Snap to other sections' edges
+      final sceneGraph = _layerController.sceneGraph;
+      for (final layer in sceneGraph.layers) {
+        for (final child in layer.children) {
+          if (child is! SectionNode ||
+              child == _draggingSectionNode ||
+              !child.isVisible)
+            continue;
+          final otherTx = child.worldTransform.getTranslation();
+          final otherLeft = otherTx.x;
+          final otherTop = otherTx.y;
+          final otherRight = otherLeft + child.sectionSize.width;
+          final otherBottom = otherTop + child.sectionSize.height;
+
+          // Horizontal snaps
+          if ((newPos.dx - otherLeft).abs() < snapThreshold) {
+            newPos = Offset(otherLeft, newPos.dy);
+          } else if ((newPos.dx + dragW - otherRight).abs() < snapThreshold) {
+            newPos = Offset(otherRight - dragW, newPos.dy);
+          } else if ((newPos.dx - otherRight).abs() < snapThreshold) {
+            newPos = Offset(otherRight, newPos.dy);
+          } else if ((newPos.dx + dragW - otherLeft).abs() < snapThreshold) {
+            newPos = Offset(otherLeft - dragW, newPos.dy);
+          }
+
+          // Vertical snaps
+          if ((newPos.dy - otherTop).abs() < snapThreshold) {
+            newPos = Offset(newPos.dx, otherTop);
+          } else if ((newPos.dy + dragH - otherBottom).abs() < snapThreshold) {
+            newPos = Offset(newPos.dx, otherBottom - dragH);
+          } else if ((newPos.dy - otherBottom).abs() < snapThreshold) {
+            newPos = Offset(newPos.dx, otherBottom);
+          } else if ((newPos.dy + dragH - otherTop).abs() < snapThreshold) {
+            newPos = Offset(newPos.dx, otherTop - dragH);
+          }
+        }
+      }
+
+      _draggingSectionNode!.setPosition(newPos.dx, newPos.dy);
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      setState(() {});
+      return;
+    }
+
     // 📐 SECTION MODE: Update section rectangle end point
     if (_isSectionActive && _sectionStartPoint != null) {
       _sectionCurrentEndPoint = canvasPosition;
@@ -44,11 +151,16 @@ extension on _FlueraCanvasScreenState {
                   strokeNode.stroke = old.copyWith(points: translatedPoints);
                 }
               }
+              // 🔑 Invalidate cached strokes so annotation map reads fresh data
+              layer.node.invalidateTypedCaches();
             }
+            _layerController.sceneGraph.bumpVersion();
             DrawingPainter.invalidateAllTiles();
           }
         }
         _pdfLayoutVersion++;
+        _canvasController
+            .markNeedsPaint(); // 🚀 Force painter repaint for real-time drag
         setState(() {});
       }
       return;
@@ -75,11 +187,16 @@ extension on _FlueraCanvasScreenState {
                   strokeNode.stroke = old.copyWith(points: translatedPoints);
                 }
               }
+              // 🔑 Invalidate cached strokes so annotation map reads fresh data
+              layer.node.invalidateTypedCaches();
             }
+            _layerController.sceneGraph.bumpVersion();
             DrawingPainter.invalidateAllTiles();
           }
         }
         _pdfLayoutVersion++;
+        _canvasController
+            .markNeedsPaint(); // 🚀 Force painter repaint for real-time drag
         setState(() {});
       }
       return;

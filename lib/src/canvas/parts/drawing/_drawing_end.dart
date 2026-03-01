@@ -12,6 +12,23 @@ extension on _FlueraCanvasScreenState {
       _handleRecordingPinDragEnd(canvasPosition);
       return;
     }
+    // 📐 SECTION RESIZE END: Finalize section size
+    if (_resizingSectionNode != null) {
+      _resizingSectionNode = null;
+      _resizeAnchorCorner = null;
+      _resizeEdgeAxis = null;
+      HapticFeedback.mediumImpact();
+      _autoSaveCanvas();
+      return;
+    }
+    // 📐 SECTION DRAG END: Finalize section position
+    if (_draggingSectionNode != null) {
+      _draggingSectionNode = null;
+      _sectionDragGrabOffset = null;
+      HapticFeedback.mediumImpact();
+      _autoSaveCanvas();
+      return;
+    }
 
     // 📐 SECTION MODE: Show customization dialog then commit
     if (_isSectionActive && _sectionStartPoint != null) {
@@ -31,11 +48,51 @@ extension on _FlueraCanvasScreenState {
         // Small gesture = tap — try to select an existing section
         final tappedSection = _findSectionAtPoint(canvasPosition);
         if (tappedSection != null) {
-          HapticFeedback.selectionClick();
-          _showSectionEditSheet(tappedSection);
+          final now = DateTime.now();
+          final isDoubleTap =
+              _lastTappedSection == tappedSection &&
+              _lastTapTime != null &&
+              now.difference(_lastTapTime!).inMilliseconds < 400;
+
+          if (isDoubleTap) {
+            // Double-tap → zoom-to-fit section
+            _lastTappedSection = null;
+            _lastTapTime = null;
+            HapticFeedback.mediumImpact();
+            final tx = tappedSection.worldTransform.getTranslation();
+            final sectionRect = Rect.fromLTWH(
+              tx.x,
+              tx.y,
+              tappedSection.sectionSize.width,
+              tappedSection.sectionSize.height,
+            );
+            final viewportSize = MediaQuery.of(context).size;
+            CameraActions.zoomToRect(
+              _canvasController,
+              sectionRect,
+              viewportSize,
+            );
+          } else {
+            // Single tap → edit sheet
+            _lastTappedSection = tappedSection;
+            _lastTapTime = now;
+            HapticFeedback.selectionClick();
+            _showSectionEditSheet(tappedSection);
+          }
         }
       }
       return;
+    }
+
+    // ✏️ SECTION NAME TAP: Tap on any section's name label → edit sheet
+    // (works from ANY tool — the name label is always visible)
+    if (!_isDrawingNotifier.value) {
+      final hitSection = _findSectionByNameLabel(canvasPosition);
+      if (hitSection != null) {
+        HapticFeedback.selectionClick();
+        _showSectionEditSheet(hitSection);
+        return;
+      }
     }
 
     // ☁️ PRESENCE: Clear drawing state for collaborators
@@ -551,6 +608,7 @@ extension on _FlueraCanvasScreenState {
         _imageElements[idx] = updated;
         _layerController.updateImage(updated);
         _imageVersion++;
+        _rebuildImageSpatialIndex(); // 🔧 R-tree must see updated drawingStrokes
         _imageRepaintNotifier.value++;
         // 🔴 RT: Broadcast as image update (includes drawingStrokes)
         _broadcastImageUpdate(updated);
@@ -562,13 +620,22 @@ extension on _FlueraCanvasScreenState {
       _broadcastStrokeAdded(stroke);
     }
 
-    // 🚀 Incremental tile cache update: ensure tiles contain the stroke
-    // BEFORE clearing the live version.
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    DrawingPainter.incrementalUpdateForStroke(stroke, dpr);
+    // 🚀 PERF FIX: Just invalidate tiles — do NOT call incrementalUpdateForStroke!
+    // incrementalUpdateForStroke calls toImageSync() which BLOCKS the UI thread
+    // for 51ms+ waiting for GPU completion (see: "waiting for GPU 51ms" in logs).
+    // DrawingPainter.paint() already handles dirty tile rasterization within its
+    // frame budget system (lines 412-424), so this is redundant work that stalls.
+    DrawingPainter.invalidateTilesForStroke(stroke);
 
-    // NOW safe to clear the live stroke — finalized is already painted
+    // NOW safe to clear the live stroke — finalized is in the layer controller
+    // and DrawingPainter will render it on the next paint via ListenableBuilder.
     _currentStrokeNotifier.clear();
+
+    // 🚀 PERF: setState() was here but is COMPLETELY REDUNDANT.
+    // DrawingPainter repaints via ListenableBuilder(listenable: _layerController)
+    // when addStroke() fires notifyListeners(). The setState triggered a full
+    // 343-line _buildImpl() widget tree rebuild (~80ms) for zero visual benefit.
+    // Removing this single line fixes the P90=82ms UI thread spike.
 
     // 🎨 Style Coherence: learn freehand stroke style
     EngineScope.current.styleCoherenceEngine.recordStyleUsage(
@@ -786,6 +853,99 @@ extension on _FlueraCanvasScreenState {
           if (inverse == null) continue;
           final local = MatrixUtils.transformPoint(inverse, canvasPoint);
           if (child.localBounds.contains(local)) return child;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Find a section whose **name label bar** contains [canvasPoint].
+  ///
+  /// The label bar is the ~30px strip above the section top edge,
+  /// rendered by the scene graph renderer. This enables editing
+  /// sections by tapping their name from ANY tool.
+  SectionNode? _findSectionByNameLabel(Offset canvasPoint) {
+    final sceneGraph = _layerController.sceneGraph;
+    final invScale = 1.0 / _canvasController.scale;
+    final labelH = SectionNode.labelHeight * invScale;
+    // Generous touch padding (10px above, 12px below) for easy finger taps
+    final padAbove = 10.0 * invScale;
+    final padBelow = 12.0 * invScale;
+    for (final layer in sceneGraph.layers) {
+      for (final child in layer.children.reversed) {
+        if (child is SectionNode && child.isVisible) {
+          final tx = child.worldTransform.getTranslation();
+          final hitRect = Rect.fromLTWH(
+            tx.x,
+            tx.y - labelH - padAbove,
+            child.sectionSize.width,
+            labelH + padAbove + padBelow,
+          );
+          if (hitRect.contains(canvasPoint)) return child;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Find a section corner or edge handle near [canvasPoint] within [radius].
+  /// Returns (section, anchor point) where anchor is the fixed opposite.
+  /// Also sets [_resizeEdgeAxis]: null for corners, 'h' for left/right, 'v' for top/bottom.
+  (SectionNode, Offset)? _findSectionCornerAtPoint(
+    Offset canvasPoint,
+    double radius,
+  ) {
+    final sceneGraph = _layerController.sceneGraph;
+    for (final layer in sceneGraph.layers) {
+      for (final child in layer.children.reversed) {
+        if (child is! SectionNode || !child.isVisible) continue;
+
+        final tx = child.worldTransform.getTranslation();
+        final origin = Offset(tx.x, tx.y);
+        final sz = child.sectionSize;
+        final right = origin.dx + sz.width;
+        final bottom = origin.dy + sz.height;
+        final midX = origin.dx + sz.width / 2;
+        final midY = origin.dy + sz.height / 2;
+
+        // 4 corners in canvas space (check first — higher priority)
+        final corners = [
+          origin, // top-left
+          Offset(right, origin.dy), // top-right
+          Offset(right, bottom), // bottom-right
+          Offset(origin.dx, bottom), // bottom-left
+        ];
+        // Anchor = diagonally opposite corner
+        final anchors = [corners[2], corners[3], corners[0], corners[1]];
+
+        for (int i = 0; i < 4; i++) {
+          if ((canvasPoint - corners[i]).distance <= radius) {
+            _resizeEdgeAxis = null; // Corner → both axes
+            return (child, anchors[i]);
+          }
+        }
+
+        // 4 edge midpoints (check after corners)
+        final edgeRadius = radius * 1.5; // Slightly larger for easier edge grab
+        // Top edge midpoint
+        if ((canvasPoint - Offset(midX, origin.dy)).distance <= edgeRadius) {
+          _resizeEdgeAxis = 'v';
+          return (child, Offset(midX, bottom)); // anchor = bottom edge
+        }
+        // Bottom edge midpoint
+        if ((canvasPoint - Offset(midX, bottom)).distance <= edgeRadius) {
+          _resizeEdgeAxis = 'v';
+          return (child, Offset(midX, origin.dy)); // anchor = top edge
+        }
+        // Left edge midpoint
+        if ((canvasPoint - Offset(origin.dx, midY)).distance <= edgeRadius) {
+          _resizeEdgeAxis = 'h';
+          return (child, Offset(right, midY)); // anchor = right edge
+        }
+        // Right edge midpoint
+        if ((canvasPoint - Offset(right, midY)).distance <= edgeRadius) {
+          _resizeEdgeAxis = 'h';
+          return (child, Offset(origin.dx, midY)); // anchor = left edge
         }
       }
     }
@@ -1062,6 +1222,78 @@ extension on _FlueraCanvasScreenState {
                       ),
                     ),
 
+                    // ── Quick Actions Row ──
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            // Lock toggle
+                            _sectionActionChip(
+                              icon:
+                                  section.isLocked
+                                      ? Icons.lock_rounded
+                                      : Icons.lock_open_rounded,
+                              label: section.isLocked ? 'Locked' : 'Lock',
+                              isActive: section.isLocked,
+                              textColor: textColor,
+                              onTap: () {
+                                setSheetState(() {
+                                  section.isLocked = !section.isLocked;
+                                });
+                                HapticFeedback.selectionClick();
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            // Duplicate
+                            _sectionActionChip(
+                              icon: Icons.copy_rounded,
+                              label: 'Duplicate',
+                              textColor: textColor,
+                              onTap: () {
+                                Navigator.of(ctx).pop();
+                                _duplicateSection(section);
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            // Export
+                            _sectionActionChip(
+                              icon: Icons.ios_share_rounded,
+                              label: 'Export',
+                              textColor: textColor,
+                              onTap: () {
+                                Navigator.of(ctx).pop();
+                                _exportSection(section);
+                              },
+                            ),
+                            const SizedBox(width: 12),
+                            // Z-Order controls
+                            _sectionActionChip(
+                              icon: Icons.flip_to_front_rounded,
+                              label: 'Front',
+                              textColor: textColor,
+                              onTap: () {
+                                _bringToFront(section);
+                                HapticFeedback.selectionClick();
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            _sectionActionChip(
+                              icon: Icons.flip_to_back_rounded,
+                              label: 'Back',
+                              textColor: textColor,
+                              onTap: () {
+                                _sendToBack(section);
+                                HapticFeedback.selectionClick();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
                     // ── Action buttons ──
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -1071,7 +1303,7 @@ extension on _FlueraCanvasScreenState {
                           IconButton(
                             onPressed: () {
                               Navigator.of(ctx).pop();
-                              _deleteSection(section);
+                              _confirmDeleteSection(section);
                             },
                             icon: const Icon(Icons.delete_outline_rounded),
                             color: const Color(0xFFE53935),
@@ -1186,6 +1418,71 @@ extension on _FlueraCanvasScreenState {
   }
 
   /// Delete a section from the scene graph.
+  /// Show a confirmation dialog before deleting a section.
+  void _confirmDeleteSection(SectionNode section) {
+    showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E2E),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFE53935),
+                  size: 24,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Delete Section?',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              '"${section.sectionName}" and all its contents will be removed. This cannot be undone.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                ),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE53935),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Delete',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+    ).then((confirmed) {
+      if (confirmed == true) _deleteSection(section);
+    });
+  }
+
+  /// Delete a section from the scene graph.
   void _deleteSection(SectionNode section) {
     final sceneGraph = _layerController.sceneGraph;
     for (final layer in sceneGraph.layers) {
@@ -1224,8 +1521,17 @@ extension on _FlueraCanvasScreenState {
       Color(0x1A00BCD4), // cyan tint
     ];
 
-    // Preset categories for organized display
-    const presetCategories = <String, List<SectionPreset>>{
+    // Quick-pick presets (most popular — shown by default)
+    const quickPicks = <SectionPreset>[
+      SectionPreset.iphone16,
+      SectionPreset.ipadPro11,
+      SectionPreset.a4Portrait,
+      SectionPreset.desktop1080p,
+      SectionPreset.instagramPost,
+    ];
+
+    // Full categories (shown on expand)
+    const allCategories = <String, List<SectionPreset>>{
       '📱 Devices': [
         SectionPreset.iphone16,
         SectionPreset.iphone16Pro,
@@ -1258,6 +1564,7 @@ extension on _FlueraCanvasScreenState {
 
     Color? selectedColor;
     SectionPreset? selectedPreset;
+    bool showAllPresets = false;
     bool showGrid = false;
     bool clipContent = false;
     int subdivRows = 1;
@@ -1438,25 +1745,111 @@ extension on _FlueraCanvasScreenState {
                                     HapticFeedback.selectionClick();
                                   },
                                 ),
-                                // All presets
-                                for (final entry in presetCategories.entries)
-                                  for (final preset in entry.value)
-                                    _sectionPresetChip(
-                                      label: preset.label,
-                                      isSelected: selectedPreset == preset,
-                                      textColor: textColor,
-                                      subtitle:
-                                          '${preset.width.round()}×${preset.height.round()}',
-                                      onTap: () {
-                                        setSheetState(() {
-                                          selectedPreset = preset;
-                                          nameController.text = preset.label;
-                                        });
-                                        HapticFeedback.selectionClick();
-                                      },
-                                    ),
+                                // Quick-pick presets (always visible)
+                                for (final preset in quickPicks)
+                                  _sectionPresetChip(
+                                    label: preset.label,
+                                    isSelected: selectedPreset == preset,
+                                    textColor: textColor,
+                                    subtitle:
+                                        '${preset.width.round()}×${preset.height.round()}',
+                                    onTap: () {
+                                      setSheetState(() {
+                                        selectedPreset = preset;
+                                        nameController.text = preset.label;
+                                      });
+                                      HapticFeedback.selectionClick();
+                                    },
+                                  ),
                               ],
                             ),
+                            // "More sizes" toggle
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: GestureDetector(
+                                onTap: () {
+                                  setSheetState(
+                                    () => showAllPresets = !showAllPresets,
+                                  );
+                                  HapticFeedback.selectionClick();
+                                },
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      showAllPresets
+                                          ? Icons.expand_less_rounded
+                                          : Icons.expand_more_rounded,
+                                      size: 16,
+                                      color: textColor.withValues(alpha: 0.4),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      showAllPresets
+                                          ? 'Less sizes'
+                                          : 'More sizes',
+                                      style: TextStyle(
+                                        color: textColor.withValues(alpha: 0.4),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            // Expanded: all categories with headers
+                            if (showAllPresets)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    for (final entry
+                                        in allCategories.entries) ...[
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: 8,
+                                          bottom: 4,
+                                        ),
+                                        child: Text(
+                                          entry.key,
+                                          style: TextStyle(
+                                            color: textColor.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          for (final preset in entry.value)
+                                            _sectionPresetChip(
+                                              label: preset.label,
+                                              isSelected:
+                                                  selectedPreset == preset,
+                                              textColor: textColor,
+                                              subtitle:
+                                                  '${preset.width.round()}×${preset.height.round()}',
+                                              onTap: () {
+                                                setSheetState(() {
+                                                  selectedPreset = preset;
+                                                  nameController.text =
+                                                      preset.label;
+                                                });
+                                                HapticFeedback.selectionClick();
+                                              },
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
                             const SizedBox(height: 16),
 
                             // ── Background Color ──
@@ -1710,6 +2103,144 @@ extension on _FlueraCanvasScreenState {
         ),
       ),
     );
+  }
+
+  /// Compact action chip used in the edit sheet quick actions row.
+  Widget _sectionActionChip({
+    required IconData icon,
+    required String label,
+    required Color textColor,
+    required VoidCallback onTap,
+    bool isActive = false,
+  }) {
+    final bg =
+        isActive
+            ? const Color(0xFF2196F3).withValues(alpha: 0.15)
+            : textColor.withValues(alpha: 0.06);
+    final fg =
+        isActive ? const Color(0xFF2196F3) : textColor.withValues(alpha: 0.7);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border:
+              isActive
+                  ? Border.all(
+                    color: const Color(0xFF2196F3).withValues(alpha: 0.3),
+                  )
+                  : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: fg),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: fg,
+                fontSize: 12,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Duplicate a section with a 20px offset.
+  void _duplicateSection(SectionNode section) {
+    final tx = section.worldTransform.getTranslation();
+    final offset = 20.0;
+
+    final clone = SectionNode(
+      id: NodeId(generateUid()),
+      sectionName: '${section.sectionName} Copy',
+      sectionSize: section.sectionSize,
+      backgroundColor: section.backgroundColor,
+      showGrid: section.showGrid,
+      gridSpacing: section.gridSpacing,
+      preset: section.preset,
+      clipContent: section.clipContent,
+      borderColor: section.borderColor,
+      borderWidth: section.borderWidth,
+      subdivisionRows: section.subdivisionRows,
+      subdivisionColumns: section.subdivisionColumns,
+      subdivisionColor: section.subdivisionColor,
+      cornerRadius: section.cornerRadius,
+    );
+    clone.setPosition(tx.x + offset, tx.y + offset);
+
+    // Add to the same layer as the original
+    final sceneGraph = _layerController.sceneGraph;
+    for (final layer in sceneGraph.layers) {
+      if (layer.children.contains(section)) {
+        layer.add(clone);
+        break;
+      }
+    }
+
+    sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    HapticFeedback.mediumImpact();
+    _sectionCounter++;
+    setState(() {});
+    _autoSaveCanvas();
+  }
+
+  /// Export a single section by setting the export area and showing the dialog.
+  void _exportSection(SectionNode section) {
+    final tx = section.worldTransform.getTranslation();
+    final sectionRect = Rect.fromLTWH(
+      tx.x,
+      tx.y,
+      section.sectionSize.width,
+      section.sectionSize.height,
+    );
+    setState(() {
+      _exportArea = sectionRect;
+      _isExportMode = true;
+    });
+    HapticFeedback.mediumImpact();
+    _showExportFormatDialog();
+  }
+
+  /// Move a section to the front (last in the children list = rendered on top).
+  void _bringToFront(SectionNode section) {
+    final sceneGraph = _layerController.sceneGraph;
+    for (final layer in sceneGraph.layers) {
+      final idx = layer.children.indexOf(section);
+      if (idx >= 0 && idx < layer.children.length - 1) {
+        layer.remove(section);
+        layer.add(section);
+        sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        setState(() {});
+        break;
+      }
+    }
+  }
+
+  /// Move a section to the back (first in the children list = rendered behind).
+  void _sendToBack(SectionNode section) {
+    final sceneGraph = _layerController.sceneGraph;
+    for (final layer in sceneGraph.layers) {
+      final idx = layer.children.indexOf(section);
+      if (idx > 0) {
+        layer.remove(section);
+        layer.insertAt(0, section);
+        sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        setState(() {});
+        break;
+      }
+    }
   }
 
   /// Toggle row for grid/clip options.

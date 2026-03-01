@@ -46,10 +46,26 @@ class BackgroundPainter extends CustomPainter {
     // 2️⃣ Se is blank, non serve disegnare il pattern
     if (paperType == 'blank') return;
 
-    // 3️⃣ Genera/aggiorna tile cache
-    _regenerateTileIfNeeded();
+    // 🚀 SCROLL OPT: Skip pattern tiles during pan/scroll — saves ~10 draw calls
+    if (controller.isPanning) return;
 
-    // 4️⃣ Viewport-level tile rendering (~4-9 visible tiles)
+    // Delegate to static method for reuse by DrawingPainter
+    paintTilesStatic(canvas, size, paperType, backgroundColor, controller);
+  }
+
+  /// 🚀 LAYER MERGE: Static method for rendering background tiles.
+  /// Called by both BackgroundPainter.paint() and DrawingPainter.paint().
+  static void paintTilesStatic(
+    Canvas canvas,
+    Size size,
+    String paperType,
+    Color backgroundColor,
+    InfiniteCanvasController controller,
+  ) {
+    // Genera/aggiorna tile cache
+    _regenerateTileIfNeededStatic(paperType, backgroundColor);
+
+    // Viewport-level tile rendering (~4-9 visible tiles)
     final canvasScale = controller.scale;
     final canvasOffset = controller.offset;
     final rotation = controller.rotation;
@@ -72,7 +88,7 @@ class BackgroundPainter extends CustomPainter {
     final lastTileY =
         ((size.height - originScreenY) / scaledTileSize).ceil() + extraTiles;
 
-    // 5️⃣ Apply canvas transform (translate + rotate) then print tiles
+    // Apply canvas transform (translate + rotate) then print tiles
     canvas.save();
     canvas.translate(originScreenX, originScreenY);
     if (rotation != 0.0) {
@@ -95,8 +111,11 @@ class BackgroundPainter extends CustomPainter {
     canvas.restore();
   }
 
-  /// Rigenera il tile cache only if necessario
-  void _regenerateTileIfNeeded() {
+  /// Static version of tile regeneration for use by paintTilesStatic
+  static void _regenerateTileIfNeededStatic(
+    String paperType,
+    Color backgroundColor,
+  ) {
     final needsRegeneration =
         _cachedTile == null ||
         _cachedPaperType != paperType ||

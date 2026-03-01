@@ -69,8 +69,10 @@ class AdaptiveRenderingConfig {
   final bool enableTileCaching;
 
   /// Stroke count threshold to activate tile caching.
-  /// Below this threshold, direct rendering is faster.
-  /// 120Hz: 100 | 90Hz: 75 | 60Hz: 50
+  /// Below this threshold, _paintDirect's vectorial cache (O(1) Picture replay)
+  /// is MUCH faster than tile caching (which re-renders all strokes per tile).
+  /// 🚀 PERF: Raised from 50-100 → 500 to keep vectorial cache active for
+  /// 99% of real-world canvases. Tile caching only benefits 500+ strokes.
   final int tileCachingStrokeThreshold;
 
   const AdaptiveRenderingConfig({
@@ -84,7 +86,7 @@ class AdaptiveRenderingConfig {
     required this.maxPointsPerStroke,
     required this.viewportPadding,
     required this.enableTileCaching,
-    this.tileCachingStrokeThreshold = 50,
+    this.tileCachingStrokeThreshold = 500,
   });
 
   /// Factory per creare config ottimale basato su refresh rate
@@ -108,7 +110,7 @@ class AdaptiveRenderingConfig {
           // Culling: zero tolerance
           viewportPadding: 0.0, // Render ONLY visible
           enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
-          tileCachingStrokeThreshold: 100, // High bar at 120Hz
+          tileCachingStrokeThreshold: 500, // Vectorial cache is O(1) replay
         );
 
       case RefreshRate.hz90:
@@ -128,7 +130,7 @@ class AdaptiveRenderingConfig {
           // Culling moderato
           viewportPadding: 25.0,
           enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
-          tileCachingStrokeThreshold: 75,
+          tileCachingStrokeThreshold: 500, // Vectorial cache is O(1) replay
         );
 
       case RefreshRate.hz60:
@@ -148,7 +150,7 @@ class AdaptiveRenderingConfig {
           // Culling standard
           viewportPadding: 50.0,
           enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
-          tileCachingStrokeThreshold: 50,
+          tileCachingStrokeThreshold: 500, // Vectorial cache is O(1) replay
         );
     }
   }

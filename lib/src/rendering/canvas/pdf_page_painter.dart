@@ -214,6 +214,7 @@ class PdfPagePainter {
     VoidCallback? onNeedRepaint,
     Rect viewport = Rect.zero,
     bool nightMode = false,
+    bool isPanning = false, // 🚀 MULTI-COL OPT
   }) {
     final pageSize = node.pageModel.originalSize;
     final pageRect = Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
@@ -236,7 +237,7 @@ class PdfPagePainter {
     // Stamp LRU timestamp and track this page
     node.lastDrawnTimestamp = ++_drawCounter;
     _knownPages.add(node);
-    if (viewport != Rect.zero) {
+    if (viewport != Rect.zero && !isPanning) {
       _prevViewportCenter = _viewportCenter;
       _lastViewport = viewport;
       _viewportCenter = viewport.center;
@@ -244,8 +245,8 @@ class PdfPagePainter {
       _isScrolling = (_viewportCenter - _prevViewportCenter).distance > 2.0;
     }
 
-    // Periodic budget auto-refresh
-    _maybeRefreshBudget();
+    // Periodic budget auto-refresh (🚀 skip during pan)
+    if (!isPanning) _maybeRefreshBudget();
 
     // Determine target LOD scale
     final baseLod = PdfMemoryBudget.lodScaleForZoom(currentZoom);
@@ -262,13 +263,11 @@ class PdfPagePainter {
     } else if (node.cachedImage != null) {
       // 🔄 Progressive path: draw stale cache + schedule upgrade
       _drawCachedImage(canvas, node, pageRect, onNeedRepaint: onNeedRepaint);
-      if (zoomChanged) {
-        // Debounce during active zoom — don't flood the queue
-        _debounceLodUpgrade(node, targetScale, pageRect, onNeedRepaint);
-      } else if (!_pendingGenerations.containsKey(node.id)) {
-        // Only enqueue if no render is already pending for this page.
-        // Without this guard, every paint frame re-enqueues the same page
-        // with a new generation, creating a render→repaint→render loop.
+      // 🚀 SCROLL OPT: Don't enqueue LOD upgrades during pan — prevents
+      // render→repaint→iterate-122-pages cascade that causes 20ms+ spikes.
+      if (!isPanning && !_pendingGenerations.containsKey(node.id)) {
+        // Enqueue immediately — no debounce needed when pan has stopped.
+        // (_lastZoom is stale from pan period, so zoomChanged is unreliable)
         _enqueueRender(
           node,
           targetScale,
@@ -278,19 +277,19 @@ class PdfPagePainter {
         );
       }
     } else {
-      // ⚡ Progressive cold path: render at adaptive LOD first,
-      // then the next paint frame will upgrade via the progressive path.
+      // ⚡ Cold path: no cached image — draw placeholder
       stats.recordMemoryMiss();
       _drawPlaceholder(canvas, node, pageRect);
-      if (!_pendingGenerations.containsKey(node.id)) {
-        // Adaptive cold LOD: lower scale at very low zoom
+      // 🚀 SCROLL OPT: Defer cold renders to after scroll stops.
+      // Prefetch in management section handles it when isPanning = false.
+      if (!isPanning && !_pendingGenerations.containsKey(node.id)) {
         final double coldScale;
         if (targetScale <= 0.25) {
-          coldScale = targetScale; // Already very low
+          coldScale = targetScale;
         } else if (currentZoom < 0.3) {
-          coldScale = 0.25; // Very low zoom → ultra-fast preview
+          coldScale = 0.25;
         } else {
-          coldScale = 0.5; // Normal quick preview
+          coldScale = 0.5;
         }
         _enqueueRender(
           node,
@@ -303,10 +302,13 @@ class PdfPagePainter {
     }
 
     // 🖍️ Structured annotations (highlights, underlines, sticky notes)
-    _drawStructuredAnnotations(canvas, node);
+    // 🚀 MULTI-COL OPT: Skip during pan
+    if (!isPanning) {
+      _drawStructuredAnnotations(canvas, node);
 
-    // 🔖 Bookmark badge (drawn after page content)
-    _drawBookmarkBadge(canvas, node, pageRect);
+      // 🔖 Bookmark badge (drawn after page content)
+      _drawBookmarkBadge(canvas, node, pageRect);
+    }
 
     // 🌙 Restore night mode layer
     if (nightMode) canvas.restore();

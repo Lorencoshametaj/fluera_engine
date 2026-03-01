@@ -390,33 +390,20 @@ class DrawingInputHandler {
   ///
   /// Returns: Final list of points (immutable)
   List<ProDrawingPoint> endStroke() {
-    // 🌱 Inertial trailing: append physics-simulated ending points
-    final inkProfile = _inkProfile(currentPenType);
-    if (OrganicBehaviorEngine.physicsInkEnabled &&
-        inkProfile.trailing > 0 &&
-        _currentStroke.length >= 3) {
-      final lastPoint = _currentStroke.last;
-      final trailingPositions = _inkSimulator.simulateEnding(
-        lastPoint: lastPoint.position,
-        steps: inkProfile.trailing + 2,
-        decayRate: 0.7,
-      );
-      // Add per-brush trailing points with decaying pressure
-      final trailCount = trailingPositions.length.clamp(0, inkProfile.trailing);
-      for (int i = 0; i < trailCount; i++) {
-        final t = (i + 1) / (trailCount + 1);
-        _currentStroke.add(
-          ProDrawingPoint(
-            position: trailingPositions[i],
-            pressure: lastPoint.pressure * (1.0 - t * 0.6),
-            tiltX: lastPoint.tiltX,
-            tiltY: lastPoint.tiltY,
-            orientation: lastPoint.orientation,
-            timestamp: lastPoint.timestamp + (i + 1) * 8, // ~8ms per point
-          ),
-        );
-      }
-    }
+    // 🌱 Inertial trailing: DISABLED.
+    // Appending physics-simulated trailing points on finalization shifts
+    // global arc-length resampling and backward EMA smoothing, causing the
+    // entire finalized stroke to look visually different from the live version.
+    // Since these points are never rendered during live drawing, their injection
+    // creates a noticeable quality mismatch on pointer-up.
+    //
+    // TODO: Re-enable when live CurrentStrokePainter also renders
+    // predicted trailing points in real-time (matching finalized output).
+
+    // final inkProfile = _inkProfile(currentPenType);
+    // if (OrganicBehaviorEngine.physicsInkEnabled &&
+    //     inkProfile.trailing > 0 &&
+    //     _currentStroke.length >= 3) { ... }
 
     // 🌱 Notify pattern tracker for adaptive intensity
     OrganicBehaviorEngine.notifyStrokeCompleted(_currentStroke.length);

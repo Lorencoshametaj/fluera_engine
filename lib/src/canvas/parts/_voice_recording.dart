@@ -21,6 +21,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   static final List<double> _liveAmplitudes = [];
   static StreamSubscription? _amplitudeSubscription;
   static DateTime _lastAmplitudeRebuild = DateTime.now();
+  static DateTime _lastDurationRebuild = DateTime.now();
   static const int _maxLiveAmplitudes = 64;
 
   /// 📡 #8 Offline upload queue — recordings pending cloud upload.
@@ -206,12 +207,12 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         duration,
       ) {
         _recordingDuration = duration;
-        // Throttle: duration only shows seconds, so rebuild at most 2x/sec
+        // 🚀 P99 FIX: Use ValueNotifier — no setState() needed.
+        // Duration shows only seconds, so 500ms throttle is sufficient.
         final now = DateTime.now();
-        if (mounted &&
-            now.difference(_lastAmplitudeRebuild).inMilliseconds > 250) {
-          _lastAmplitudeRebuild = now;
-          setState(() {});
+        if (now.difference(_lastDurationRebuild).inMilliseconds > 500) {
+          _lastDurationRebuild = now;
+          _recordingDurationNotifier.value = duration;
         }
       });
 
@@ -219,6 +220,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       _amplitudeSubscription?.cancel();
       _liveAmplitudes.clear();
       _lastAmplitudeRebuild = DateTime.now();
+      _lastDurationRebuild = DateTime.now();
       if (provider is DefaultVoiceRecordingProvider) {
         _amplitudeSubscription = provider.amplitudeStream.listen((amp) {
           // Normalize: native recorders report dB (negative, -160 to 0)
@@ -228,12 +230,12 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
           if (_liveAmplitudes.length > _maxLiveAmplitudes) {
             _liveAmplitudes.removeAt(0);
           }
-          // Throttle setState to max ~4 rebuilds/sec (250ms) to avoid jank during drawing
+          // 🚀 P99 FIX: Use ValueNotifier — no setState() needed.
+          // Throttle to ~3 updates/sec (300ms) for smooth waveform.
           final now = DateTime.now();
-          if (mounted &&
-              now.difference(_lastAmplitudeRebuild).inMilliseconds > 250) {
+          if (now.difference(_lastAmplitudeRebuild).inMilliseconds > 300) {
             _lastAmplitudeRebuild = now;
-            setState(() {});
+            _recordingAmplitudeNotifier.value = normalized;
           }
         });
       }
@@ -335,6 +337,9 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       _amplitudeSubscription?.cancel();
       _amplitudeSubscription = null;
       _liveAmplitudes.clear();
+      // 🚀 P99 FIX: Reset notifiers instead of setState
+      _recordingDurationNotifier.value = Duration.zero;
+      _recordingAmplitudeNotifier.value = 0.0;
       setState(() {
         _recordingDuration = Duration.zero;
         _recordingWithStrokes = false; // Reset for next session

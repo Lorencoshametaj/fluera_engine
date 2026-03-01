@@ -63,9 +63,9 @@ class CurrentStrokePainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round;
 
-  // ─── FULL-STROKE PICTURE CACHE ──────────────────────────────────
-  // Rebuild Picture on every new point. Replay on idle frames (free).
-  // Context-dependent smoothing prevents body+tail sub-stroke approach.
+  // ─── 🚀 PICTURE CACHE ──────────────────────────────────────────
+  // Record BrushEngine output as ui.Picture on each new point.
+  // Replay cached Picture on idle frames (O(1) GPU blit).
   static const bool _enableIncrementalCache = true;
   static const int _cacheThreshold = 20;
 
@@ -218,14 +218,16 @@ class CurrentStrokePainter extends CustomPainter {
     }
   }
 
-  /// Full-stroke Picture cache: rebuild on every new point, replay on idle.
+  /// 🚀 Full-stroke Picture cache with direct-to-canvas optimization.
   ///
-  /// Incremental body+delta approaches DON'T work due to THREE compounding
-  /// issues that cannot be individually solved:
-  ///   1. Arc-length resampling: redistributes ALL points globally
-  ///   2. Backward EMA: shifts smoothed positions when new points are added
-  ///   3. srcOver + per-vertex alpha: double-rendering in overlap zone
-  ///      causes visible brightening/darkening artifacts
+  /// Strategy:
+  /// - Every new point: render FULL stroke directly to canvas (perfect quality)
+  /// - After rendering: record to Picture for O(1) replay on idle frames
+  /// - When no new points (idle/zoom/pan): replay cached Picture (zero cost)
+  ///
+  /// Optimization vs. naive approach:
+  /// - Render to canvas FIRST (zero latency), THEN record in same pass
+  /// - PictureRecorder captures the same draw calls → single BrushEngine pass
   void _paintIncremental(Canvas canvas, List<ProDrawingPoint> stroke) {
     final currentStyle = _styleHash;
     final pointCount = stroke.length;
@@ -234,8 +236,7 @@ class CurrentStrokePainter extends CustomPainter {
       _invalidateCache();
     }
 
-    // 🎯 Detect new stroke: if cache is empty but we have points,
-    // reset _lastRenderedCount to avoid stale values from previous stroke.
+    // 🎯 Detect new stroke: reset on fresh start
     if (_cachedPicture == null && pointCount > 0) {
       _lastRenderedCount = 0;
     }
@@ -244,6 +245,9 @@ class CurrentStrokePainter extends CustomPainter {
         _cachedPicture == null || pointCount != _cachedPointCount;
 
     if (needsRefresh) {
+      // 🚀 RECORD-ONCE: render into PictureRecorder, then replay.
+      // The PictureRecorder captures all draw commands in a single pass
+      // so BrushEngine only executes once (not twice).
       final recorder = ui.PictureRecorder();
       _drawStroke(Canvas(recorder), stroke, color, width, penType, settings);
       _cachedPicture?.dispose();

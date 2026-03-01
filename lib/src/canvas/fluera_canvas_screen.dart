@@ -6,7 +6,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kReleaseMode;
 import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
 
@@ -459,8 +459,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// ⏱️ Timer per debouncing save
   Timer? _saveDebounceTimer;
 
-  /// 🔄 Flag to disable auto-save during loading + show splash screen
-  bool _isLoading = true;
+  /// 🔄 Flag to disable auto-save during loading + show splash screen.
+  /// 🚀 P99 FIX: ValueNotifier so loading overlay rebuilds independently.
+  final ValueNotifier<bool> _isLoadingNotifier = ValueNotifier(true);
+  bool get _isLoading => _isLoadingNotifier.value;
+  set _isLoading(bool v) => _isLoadingNotifier.value = v;
 
   /// Whether the loading overlay has fully faded out and can be removed from tree
   bool _loadingOverlayDismissed = false;
@@ -495,6 +498,31 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🚀 PERFORMANCE: Tratto corrente con notifier ottimizzato
   final _StrokeNotifier _currentStrokeNotifier = _StrokeNotifier();
+
+  /// 🚀 P99 FIX: Cached toolbar widget — same instance every build.
+  /// Flutter's `identical(old, new)` skips the toolbar on parent setState.
+  late final Widget _toolbarHost;
+
+  /// 🚀 STRUCTURAL FIX: Cached core rendering layers — same instances every build.
+  /// These widgets are the heaviest sub-trees in _buildCanvasArea.
+  /// Caching them as `late final` means parent setState() NEVER reconstructs
+  /// their widget trees (~700+ widgets). Internal ListenableBuilder/
+  /// ValueListenableBuilder handle canvas-specific repaints autonomously.
+  // 🚀 LAYER MERGE: _backgroundLayerHost removed — background now in DrawingPainter
+  late final Widget _drawingLayerHost;
+  late final Widget _imageLayerHost;
+  late final Widget _gestureLayerHost;
+  late final Widget _currentStrokeHost;
+  late final Widget _remoteLiveStrokesHost;
+  late final Widget _pdfPlaceholdersHost;
+
+  /// 🚀 P99 FIX: Lightweight notifier for toolbar undo/redo state.
+  /// Fires ONLY when canUndo/canRedo/elementCount transitions — not on every
+  /// _layerController notification. Prevents toolbar rebuild per stroke add.
+  final ValueNotifier<int> _undoRedoVersion = ValueNotifier(0);
+  bool _lastCanUndo = false;
+  bool _lastCanRedo = false;
+  int _lastElementCount = 0;
 
   /// Shape corrente in disegno
   final ValueNotifier<GeometricShape?> _currentShapeNotifier = ValueNotifier(
@@ -883,6 +911,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _isRecordingAudio = false;
   Duration _recordingDuration = Duration.zero;
 
+  /// 🚀 P99 FIX: ValueNotifiers for recording UI — toolbar observes these
+  /// directly, avoiding full canvas setState() during recording.
+  final ValueNotifier<Duration> _recordingDurationNotifier = ValueNotifier(
+    Duration.zero,
+  );
+  final ValueNotifier<double> _recordingAmplitudeNotifier = ValueNotifier(0.0);
+
   StreamSubscription<Duration>? _recordingDurationSubscription;
   List<String> _savedRecordings = [];
   bool _recordingWithStrokes = false;
@@ -997,6 +1032,20 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Offset? _sectionCurrentEndPoint;
   int _sectionCounter = 1;
 
+  // Section drag-to-move state
+  SectionNode? _draggingSectionNode;
+  Offset? _sectionDragGrabOffset;
+
+  // Section resize state
+  SectionNode? _resizingSectionNode;
+  Offset? _resizeAnchorCorner; // The fixed corner (opposite to grabbed)
+  String?
+  _resizeEdgeAxis; // null = corner, 'h' = horizontal edge, 'v' = vertical edge
+
+  // Double-tap zoom-to-fit state
+  SectionNode? _lastTappedSection;
+  DateTime? _lastTapTime;
+
   @override
   void initState() {
     super.initState();
@@ -1033,6 +1082,31 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _layerController.enableDeltaTracking = true;
     _layerController.addListener(_onLayerChanged);
     _refreshCachedLists();
+
+    // 🚀 P99 FIX: Cache toolbar widget — stored as field so identical()
+    // short-circuits on parent setState. Internal ListenableBuilder handles
+    // toolbar-specific rebuilds via _toolController + _layerController.
+    _toolbarHost = Builder(
+      builder: (ctx) => RepaintBoundary(child: _buildToolbar(ctx)),
+    );
+
+    // 🚀 STRUCTURAL FIX: Cache all core rendering layers.
+    // identical(old, new) == true on parent setState → Flutter skips these
+    // entire sub-trees. Internal ListenableBuilder/ValueListenableBuilder
+    // handle canvas-specific repaints autonomously.
+    // 🚀 LAYER MERGE: Background now rendered inline by DrawingPainter
+    _drawingLayerHost = Builder(builder: (_) => _buildDrawingLayer());
+    _imageLayerHost = Builder(builder: (_) => _buildImageLayer());
+    _gestureLayerHost = Builder(
+      builder: (ctx) => _buildGestureDetectorLayer(ctx),
+    );
+    _currentStrokeHost = Builder(builder: (_) => _buildCurrentStrokeLayer());
+    _remoteLiveStrokesHost = Builder(
+      builder: (_) => _buildRemoteLiveStrokesLayer(),
+    );
+    _pdfPlaceholdersHost = Builder(
+      builder: (_) => _buildPdfLoadingPlaceholdersLayer(),
+    );
 
     // 🧭 Initialize navigation bounds tracker
     _contentBoundsTracker = ContentBoundsTracker(
@@ -1126,29 +1200,6 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // 🌀 Load persisted rotation lock preference
     _canvasController.loadPersistedState();
 
-    // 🌊 REFLOW: Initialize cluster detector and physics engine
-    final reflowConfig = _canvasController.liquidConfig.reflow;
-    if (reflowConfig.enabled) {
-      _clusterDetector = ClusterDetector(
-        temporalThresholdMs: reflowConfig.clusterTemporalThresholdMs,
-        spatialThreshold: reflowConfig.clusterSpatialThreshold,
-      );
-      final reflowEngine = ReflowPhysicsEngine(config: reflowConfig);
-      _lassoTool.reflowController = ReflowController(
-        engine: reflowEngine,
-        clusters: _clusterCache,
-      );
-      // 🌊 Share reflow controller with PDF document drag
-      _pdfPageDragController.reflowController = _lassoTool.reflowController;
-    }
-
-    // 🖥️ DISPLAY DETECTION: Delay to avoid init contention
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        _detectDisplayCapabilitiesAndConfigure();
-      }
-    });
-
     // 🆕 Initialize drawing input handler
     _drawingHandler = DrawingInputHandler(
       enableOneEuroFilter: true,
@@ -1160,39 +1211,65 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     );
     _drawingHandler.stabilizerLevel = _brushSettings.stabilizerLevel;
 
-    // Cenbetween the canvas at the first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final size = MediaQuery.of(context).size;
-        _canvasController.centerCanvas(size, canvasSize: _canvasSize);
-      }
-    });
-
     // 🎛️ Load brush settings persistenti
     _loadBrushSettings();
 
-    // 💾 Initialize stroke persistence service
-    EngineScope.current.drawingModule?.strokePersistenceService.initialize(
-      _canvasId,
-    );
+    // 🚀 JANK FIX: Defer all heavy init to addPostFrameCallback so the
+    // splash/loading screen renders on the very FIRST frame. Everything
+    // below was previously synchronous in initState, blocking ~127 frames.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
 
-    // 🚀 PERFORMANCE POOLS
-    StrokePointPool.instance.initialize();
-    PathPool.instance.initialize();
+      // Center canvas
+      final size = MediaQuery.of(context).size;
+      _canvasController.centerCanvas(size, canvasSize: _canvasSize);
 
-    // 🧠 CONSCIOUS ARCHITECTURE: Register subsystems + start idle timer.
-    _initConsciousArchitecture();
+      // 🌊 REFLOW: Initialize cluster detector and physics engine
+      final reflowConfig = _canvasController.liquidConfig.reflow;
+      if (reflowConfig.enabled) {
+        _clusterDetector = ClusterDetector(
+          temporalThresholdMs: reflowConfig.clusterTemporalThresholdMs,
+          spatialThreshold: reflowConfig.clusterSpatialThreshold,
+        );
+        final reflowEngine = ReflowPhysicsEngine(config: reflowConfig);
+        _lassoTool.reflowController = ReflowController(
+          engine: reflowEngine,
+          clusters: _clusterCache,
+        );
+        // 🌊 Share reflow controller with PDF document drag
+        _pdfPageDragController.reflowController = _lassoTool.reflowController;
+      }
 
-    // 🚀 SPLASH SCREEN: Run ALL heavy init in parallel (shader, isolate,
-    // textures, data load). The loading overlay is shown until complete.
-    _initializeCanvas();
+      // 💾 Initialize stroke persistence service
+      EngineScope.current.drawingModule?.strokePersistenceService.initialize(
+        _canvasId,
+      );
+
+      // 🚀 PERFORMANCE POOLS
+      StrokePointPool.instance.initialize();
+      PathPool.instance.initialize();
+
+      // 🧠 CONSCIOUS ARCHITECTURE: Register subsystems + start idle timer.
+      _initConsciousArchitecture();
+
+      // 🚀 SPLASH SCREEN: Run ALL heavy init in parallel (shader, isolate,
+      // textures, data load). The loading overlay is shown until complete.
+      _initializeCanvas();
+    });
+
+    // 🖥️ DISPLAY DETECTION: Delay to avoid init contention
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        _detectDisplayCapabilitiesAndConfigure();
+      }
+    });
 
     // 🚀 PERFORMANCE: Defer non-critical initialization
     Future.delayed(const Duration(seconds: 2), () {
       if (!mounted) return;
 
-      // Load saved recordings
-      _loadSavedRecordings();
+      // 🎤 Recordings already loaded by _initializeCanvas pipeline (L120)
+      // — no duplicate call needed here.
 
       // 🖼️ Load background image if specified
       if (widget.backgroundImageUrl != null) {
@@ -1379,9 +1456,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
     _eraserPulseController.dispose();
     _isDrawingNotifier.dispose();
+    _isLoadingNotifier.dispose();
+    _undoRedoVersion.dispose();
+
     _currentStrokeNotifier.dispose();
     _currentShapeNotifier.dispose();
     _currentEditingStrokeNotifier.dispose();
+    _recordingDurationNotifier.dispose();
+    _recordingAmplitudeNotifier.dispose();
     // 🌊 LIQUID: Detach physics ticker before disposal
     _canvasController.detachTicker();
     _canvasController.dispose();

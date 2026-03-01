@@ -302,6 +302,21 @@ class PdfPageDragController {
     _parentDocument!.documentModel = _parentDocument!.documentModel.copyWith(
       gridOrigin: newOrigin,
     );
+
+    // 🔑 Translate customOffset for pages that have one. Without this,
+    // pages with customOffset (individually dragged) stay at their absolute
+    // position while the rest of the document moves.
+    if (_lastDelta != Offset.zero) {
+      for (final page in _parentDocument!.pageNodes) {
+        final co = page.pageModel.customOffset;
+        if (co != null) {
+          page.pageModel = page.pageModel.copyWith(
+            customOffset: co + _lastDelta,
+          );
+        }
+      }
+    }
+
     _parentDocument!.performGridLayout();
     _parentDocument!.invalidateBoundsCache();
 

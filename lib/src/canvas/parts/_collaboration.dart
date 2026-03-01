@@ -90,9 +90,47 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
   /// Handle incoming real-time events from other collaborators.
   void _onRemoteRealtimeEvent(CanvasRealtimeEvent event) {
     if (!mounted) return;
-    debugPrint(
-      '[RT] ⚡ Received event: ${event.type.name} from ${event.senderId}',
-    );
+
+    // 🚀 SELF-ECHO SUPPRESSION: Skip events originating from THIS device.
+    // Firebase RTDB echoes all writes back to all listeners, including
+    // the sender. Without this guard, every local stroke was fully
+    // re-processed (deep cast + JSON deser + addStroke + invalidateAllTiles
+    // + setState) — causing 50-100ms UI thread spikes with 300+ strokes.
+    final isSelfEcho =
+        _realtimeEngine != null &&
+        event.senderId == _realtimeEngine!.localUserId;
+    if (isSelfEcho) {
+      // Only skip data-mutation events; UI-only events (cursor, presence)
+      // are handled internally by the engine and don't reach here.
+      switch (event.type) {
+        case RealtimeEventType.strokeAdded:
+        case RealtimeEventType.strokeRemoved:
+        case RealtimeEventType.strokePointsStreamed:
+        case RealtimeEventType.imageAdded:
+        case RealtimeEventType.imageUpdated:
+        case RealtimeEventType.imageRemoved:
+        case RealtimeEventType.textChanged:
+        case RealtimeEventType.textRemoved:
+        case RealtimeEventType.layerChanged:
+        case RealtimeEventType.canvasSettingsChanged:
+        case RealtimeEventType.pdfAdded:
+        case RealtimeEventType.pdfBlankCreated:
+        case RealtimeEventType.pdfUpdated:
+        case RealtimeEventType.pdfRemoved:
+        case RealtimeEventType.pdfLoading:
+        case RealtimeEventType.pdfProgress:
+        case RealtimeEventType.pdfLoadingFailed:
+        case RealtimeEventType.recordingAdded:
+        case RealtimeEventType.recordingRemoved:
+        case RealtimeEventType.recordingRenamed:
+        case RealtimeEventType.recordingPinAdded:
+        case RealtimeEventType.recordingPinRemoved:
+          return; // Skip — already applied locally
+        case RealtimeEventType.elementLocked:
+        case RealtimeEventType.elementUnlocked:
+          break; // Process normally (lock table needs sync)
+      }
+    }
 
     switch (event.type) {
       case RealtimeEventType.strokeAdded:
@@ -222,14 +260,15 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // 📄 Link stroke to overlapping PDF page (same as local draw pipeline)
       _linkStrokeToPdfPage(stroke);
 
-      DrawingPainter.invalidateAllTiles();
+      // 🚀 PERF #6: Invalidate only tiles overlapping this stroke's bounds
+      // instead of ALL tiles. With 300+ strokes spread across many tiles,
+      // invalidateAllTiles() repaints everything; this repaints only ~1-4 tiles.
+      DrawingPainter.invalidateTilesForStroke(stroke);
       // 🖼️ Trigger ImagePainter repaint so strokes on images appear on top
       _imageVersion++;
       _imageRepaintNotifier.value++;
-      setState(() {});
-      debugPrint(
-        '[RT] ✅ Applied remote stroke ${stroke.id} (${stroke.points.length} points)',
-      );
+      // 🚀 PERF: setState() removed — redundant. DrawingPainter repaints via
+      // ListenableBuilder(listenable: _layerController) when addStroke fires.
     } catch (e) {
       debugPrint('[RT] Failed to apply remote stroke: $e');
     }
@@ -260,15 +299,35 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     try {
       final strokeId = payload['strokeId'] as String?;
       if (strokeId == null) return;
+
+      // 🚀 PERF #6: Capture stroke bounds BEFORE removal for selective
+      // tile invalidation (stroke won't exist after removeStroke).
+      Rect? strokeBounds;
+      final activeLayer = _layerController.activeLayer;
+      if (activeLayer != null) {
+        for (final s in activeLayer.strokes) {
+          if (s.id == strokeId) {
+            strokeBounds = s.bounds;
+            break;
+          }
+        }
+      }
+
       final wasTracking = _layerController.enableDeltaTracking;
       _layerController.enableDeltaTracking = false;
       _layerController.removeStroke(strokeId);
       _layerController.enableDeltaTracking = wasTracking;
-      // 🐛 FIX #2: Invalidate tile cache so erased stroke disappears visually
-      DrawingPainter.invalidateAllTiles();
+
+      // Invalidate only affected tiles (or all if bounds unknown)
+      if (strokeBounds != null) {
+        DrawingPainter.invalidateTilesInBounds(strokeBounds);
+      } else {
+        DrawingPainter.invalidateAllTiles();
+      }
       _imageVersion++;
       _imageRepaintNotifier.value++;
-      setState(() {});
+      // 🚀 PERF: setState() removed — redundant. DrawingPainter repaints via
+      // ListenableBuilder(listenable: _layerController) when removeStroke fires.
     } catch (e) {
       debugPrint('[RT] Failed to apply remote stroke removal: $e');
     }

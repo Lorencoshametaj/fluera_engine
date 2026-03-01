@@ -199,19 +199,31 @@ class FountainPenBrush {
       // caused visible snap + visual shortening at the end of the stroke.
       _applyTapering(widthBuf, taperEntry, 0);
 
-      // 3. Smooth — bidirectional EMA (4 passes for ultra-smooth contours)
-      _smoothWidths(widthBuf, forward: true);
-      _smoothWidths(widthBuf, forward: false);
-      _smoothWidths(widthBuf, forward: true);
-      _smoothWidths(widthBuf, forward: false);
+      // 3. Smooth — bidirectional EMA
+      // 🚀 PERF: Live strokes use 2 passes (F→B) instead of 6 (F→B→F→B + post).
+      // 4 extra passes add no perceptible quality for real-time preview
+      // but cost 4 × O(N) iterations per frame.
+      if (liveStroke) {
+        _smoothWidths(widthBuf, forward: true);
+        _smoothWidths(widthBuf, forward: false);
+      } else {
+        _smoothWidths(widthBuf, forward: true);
+        _smoothWidths(widthBuf, forward: false);
+        _smoothWidths(widthBuf, forward: true);
+        _smoothWidths(widthBuf, forward: false);
+      }
 
       // 3b. Rate-limit width change between consecutive points.
       // Very tight limit (0.12) prevents any visible bumps.
       _rateLimitWidths(widthBuf, maxChangeRate: 0.12);
 
       // 3c. Post-smooth: clean any residual steps from rate-limiting.
-      _smoothWidths(widthBuf, forward: true);
-      _smoothWidths(widthBuf, forward: false);
+      // 🚀 PERF: Skip for live strokes — rate-limiting residuals are
+      // imperceptible at drawing speed.
+      if (!liveStroke) {
+        _smoothWidths(widthBuf, forward: true);
+        _smoothWidths(widthBuf, forward: false);
+      }
 
       // NOTE: GPU per-segment rendering (renderFountainPenPro) removed.
       // The capsule-based segment approach creates visible joints at angles

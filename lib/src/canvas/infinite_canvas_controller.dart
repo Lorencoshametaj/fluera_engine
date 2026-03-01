@@ -135,6 +135,14 @@ class InfiniteCanvasController extends ChangeNotifier {
       _isRotationSpringActive ||
       _isPanSpringActive;
 
+  /// 🚀 Whether the canvas is actively panning (user gesture or momentum).
+  /// Painters use this to skip expensive work during scroll.
+  bool _isPanning = false;
+  bool get isPanning => _isPanning || _isMomentumActive;
+  set isPanning(bool value) {
+    _isPanning = value;
+  }
+
   /// Request a repaint for all painters listening to this controller.
   ///
   /// Use when external state (e.g. image list) has changed and painters
@@ -669,6 +677,7 @@ class InfiniteCanvasController extends ChangeNotifier {
         _isMomentumActive = false;
         _panSimX = null;
         _panSimY = null;
+        needsNotify = true; // 🚀 SCROLL OPT: Final repaint with isPanning=false
       } else {
         _offset = Offset(newX, newY);
         needsNotify = true;
@@ -877,16 +886,21 @@ class InfiniteCanvasController extends ChangeNotifier {
     if (rawScale > _maxScale) {
       // How far past the limit (0.0 = at limit, 1.0+ = way past)
       final overshoot = (rawScale - _maxScale) / _maxScale;
+      // 🎯 FIX: Cap overshoot — elastic is ~11% (5.0→5.55x) for liquid rubber-band,
+      // but locks quickly (no asymptotic creep). The fast cap keeps drift bounded.
+      final cappedOvershoot = overshoot.clamp(0.0, 0.15);
       // Logarithmic resistance: diminishing overshoot
       final dampedOvershoot =
-          overshoot / (1.0 + overshoot * config.elasticResistance);
+          cappedOvershoot / (1.0 + cappedOvershoot * config.elasticResistance);
       return (_maxScale * (1.0 + dampedOvershoot)).clamp(_maxScale, maxElastic);
     }
 
     // rawScale < _minScale
     final undershoot = (_minScale - rawScale) / _minScale;
+    // 🎯 FIX: Same cap for undershoot (zoom out past min)
+    final cappedUndershoot = undershoot.clamp(0.0, 0.15);
     final dampedUndershoot =
-        undershoot / (1.0 + undershoot * config.elasticResistance);
+        cappedUndershoot / (1.0 + cappedUndershoot * config.elasticResistance);
     return (_minScale * (1.0 - dampedUndershoot)).clamp(minElastic, _minScale);
   }
 

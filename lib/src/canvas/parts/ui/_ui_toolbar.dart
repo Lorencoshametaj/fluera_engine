@@ -14,7 +14,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
     }
 
     return ListenableBuilder(
-      listenable: _layerController,
+      listenable: Listenable.merge([_undoRedoVersion, _toolController]),
       builder: (context, child) {
         final activeLayer = _layerController.activeLayer;
         final elementCount = activeLayer?.elementCount ?? 0;
@@ -47,16 +47,17 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               VoiceRecordingExtension._liveAmplitudes.isNotEmpty
                   ? VoiceRecordingExtension._liveAmplitudes.last
                   : 0.0,
+          // 🚀 P99 FIX: Pass notifiers for independent recording UI updates
+          recordingDurationNotifier: _recordingDurationNotifier,
+          recordingAmplitudeNotifier: _recordingAmplitudeNotifier,
           isImageEditingMode: false,
           noteTitle: _noteTitle, // 🆕 Pass note title
           // 🎨 Preset-based brush selection
           brushPresets: BrushPreset.defaultPresets,
           selectedPresetId: _selectedPresetId,
           onPresetSelected: (preset) {
-            setState(() {
-              _selectedPresetId = preset.id;
-              _brushSettings = preset.settings;
-            });
+            _selectedPresetId = preset.id;
+            _brushSettings = preset.settings;
             _toolController.setPenType(preset.penType);
             _toolController.setStrokeWidth(preset.baseWidth);
             _toolController.setColor(preset.color);
@@ -106,9 +107,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               currentColor: _effectiveColor,
               currentWidth: _effectiveWidth,
               onSettingsChanged: (newSettings) {
-                setState(() {
-                  _brushSettings = newSettings;
-                });
+                _brushSettings = newSettings;
                 // 🎯 Keep stabilizer in sync with settings
                 _drawingHandler.stabilizerLevel = newSettings.stabilizerLevel;
                 EngineScope.current.drawingModule?.brushSettingsService
@@ -119,9 +118,8 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
           onExportPressed: _enterExportMode, // 📤 Export canvas
           onNoteTitleChanged: (newTitle) {
             // 🆕 Callback per rinominare nota
-            setState(() {
-              _noteTitle = newTitle;
-            });
+            _noteTitle = newTitle;
+            setState(() {});
             _autoSaveCanvas(); // Save immediatamente
           },
           onLayersPressed: () {
@@ -135,19 +133,17 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             } else {
               _eraserCursorPosition = null;
             }
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           eraserRadius: _eraserTool.eraserRadius,
           onEraserRadiusChanged: (radius) {
-            setState(() {
-              _eraserTool.eraserRadius = radius;
-            });
+            _eraserTool.eraserRadius = radius;
+            setState(() {});
           },
           eraseWholeStroke: _eraserTool.eraseWholeStroke,
           onEraseWholeStrokeChanged: (value) {
-            setState(() {
-              _eraserTool.eraseWholeStroke = value;
-            });
+            _eraserTool.eraseWholeStroke = value;
+            setState(() {});
             HapticFeedback.selectionClick();
           },
           onLassoToggle: () {
@@ -157,7 +153,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               _eraserCursorPosition = null;
               _toolSystemBridge?.selectTool('lasso');
             }
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onDigitalTextToggle: () {
             _toolController.toggleDigitalTextMode();
@@ -166,31 +162,34 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             } else {
               _digitalTextTool.deselectElement();
             }
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onPanModeToggle: () {
             _toolController.togglePanMode();
             if (_toolController.isPanMode) {
               _digitalTextTool.deselectElement();
             }
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onStylusModeToggle: () {
             _toolController.toggleStylusMode();
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onRulerToggle: () {
-            setState(() => _showRulers = !_showRulers);
+            _showRulers = !_showRulers;
+            setState(() {});
             HapticFeedback.lightImpact();
           },
           isMinimapVisible: _showMinimap,
           onMinimapToggle: () {
-            setState(() => _showMinimap = !_showMinimap);
+            _showMinimap = !_showMinimap;
+            setState(() {});
             HapticFeedback.lightImpact();
           },
           isSectionActive: _isSectionActive,
           onSectionToggle: () {
-            setState(() => _isSectionActive = !_isSectionActive);
+            _isSectionActive = !_isSectionActive;
+            setState(() {});
             if (_isSectionActive) {
               // Deselect conflicting tools
               _toolController.resetToDrawingMode();
@@ -227,7 +226,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               // #8: Call onDeactivate to finalize partial paths
               _penTool.onDeactivate(_penToolContext);
             }
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           // 🧮 LaTeX Editor
           isLatexActive: _toolController.isLatexMode,
@@ -239,7 +238,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               _eraserCursorPosition = null;
               _showLatexEditorSheet();
             }
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           // 📊 Tabular (Spreadsheet) — Excel tab uses onTabularCreate
           isTabularActive: _toolController.isTabularMode,
@@ -482,7 +481,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             _toolController.setPenType(type);
             _toolController.resetToDrawingMode();
             _digitalTextTool.deselectElement();
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onColorChanged: (color) {
             _toolController.setColor(color);
@@ -490,21 +489,21 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             EngineScope.current.styleCoherenceEngine.markManualOverride(
               _consciousToolName(),
             );
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onWidthChanged: (width) {
             _toolController.setStrokeWidth(width);
             EngineScope.current.styleCoherenceEngine.markManualOverride(
               _consciousToolName(),
             );
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onOpacityChanged: (opacity) {
             _toolController.setOpacity(opacity);
             EngineScope.current.styleCoherenceEngine.markManualOverride(
               _consciousToolName(),
             );
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           onShapeTypeChanged: (type) {
             _toolController.setShapeType(type);
@@ -521,7 +520,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               }
               _digitalTextTool.deselectElement();
             }
-            setState(() {}); // Trigger rebuild
+            setState(() {}); // 🚀 Toolbar-only rebuild
           },
           // 🌀 Reset Rotation
           isCanvasRotated: _canvasController.rotation != 0.0,
@@ -567,21 +566,18 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
           pdfSelectedPageIndex: _pdfSelectedPageIndex,
           showPdfPageNumbers: _showPdfPageNumbers,
           onTogglePdfPageNumbers: () {
-            setState(() {
-              _showPdfPageNumbers = !_showPdfPageNumbers;
-            });
-            // Update all painters
-            for (final painter in _pdfPainters.values) {
-              // The DrawingPainter reads this from its own field
-              // which is set per-frame — no extra wiring needed
-            }
+            _showPdfPageNumbers = !_showPdfPageNumbers;
             _pdfLayoutVersion++;
+            _canvasController.markNeedsPaint();
+            setState(() {});
           },
           onPdfPageIndexChanged: (newIndex) {
-            setState(() => _pdfSelectedPageIndex = newIndex);
+            _pdfSelectedPageIndex = newIndex;
+            setState(() {});
           },
           onPdfDocumentChanged: (docId) {
-            setState(() => _activePdfDocumentId = docId);
+            _activePdfDocumentId = docId;
+            setState(() {});
             // Re-attach annotation controller to newly selected document
             final doc = _findPdfDocumentById(docId);
             if (doc != null) {
@@ -599,6 +595,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                       // Track the newly inserted page as selected
                       _pdfSelectedPageIndex = selectedPageIndex + 1;
                       _pdfLayoutVersion++;
+                      _canvasController.markNeedsPaint();
                       setState(() {});
                       _autoSaveCanvas();
                     }
@@ -612,6 +609,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                       doc.duplicatePage(pageIndex);
                       _pdfSelectedPageIndex = pageIndex + 1;
                       _pdfLayoutVersion++;
+                      _canvasController.markNeedsPaint();
                       setState(() {});
                       _autoSaveCanvas();
                     }
@@ -621,6 +619,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             final doc = _activePdfDocument;
             if (doc != null && doc.documentModel.totalPages > 1) {
               doc.removePage(pageIndex);
+              _canvasController.markNeedsPaint();
               setState(() {});
               _autoSaveCanvas();
             }
@@ -635,6 +634,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             if (doc == null) return;
             doc.reorderPage(oldIndex, newIndex);
             _pdfLayoutVersion++;
+            _canvasController.markNeedsPaint();
             setState(() {});
             _autoSaveCanvas();
           },
@@ -671,6 +671,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               data: {'enabled': newNightMode},
             );
             _pdfLayoutVersion++;
+            _canvasController.markNeedsPaint();
             setState(() {});
             _autoSaveCanvas();
           },
@@ -690,6 +691,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               data: {'pageIndex': pageIndex, 'isBookmarked': newBookmarked},
             );
             _pdfLayoutVersion++;
+            _canvasController.markNeedsPaint();
             setState(() {});
             _autoSaveCanvas();
           },
@@ -740,6 +742,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               );
             }
             _pdfLayoutVersion++;
+            _canvasController.markNeedsPaint();
             setState(() {});
             _autoSaveCanvas();
           },
@@ -824,6 +827,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                             .toList(),
                   );
                   _pdfLayoutVersion++;
+                  _canvasController.markNeedsPaint();
                   setState(() {});
                   _autoSaveCanvas();
                 }
@@ -851,6 +855,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                 ],
               );
               _pdfLayoutVersion++;
+              _canvasController.markNeedsPaint();
               setState(() {});
               _autoSaveCanvas();
             });
@@ -971,6 +976,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                 data: {'pageIndex': pageIndex, 'background': newBg.name},
               );
               _pdfLayoutVersion++;
+              _canvasController.markNeedsPaint();
               setState(() {});
               _autoSaveCanvas();
             });
@@ -1196,6 +1202,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               }
             }
 
+            _canvasController.markNeedsPaint();
             setState(() {});
             _autoSaveCanvas();
           },

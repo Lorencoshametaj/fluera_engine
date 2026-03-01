@@ -30,6 +30,7 @@ import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
 import '../../core/scene_graph/invalidation_graph.dart';
+import '../../drawing/models/pro_drawing_point.dart';
 import './render_plan.dart';
 import '../../core/scene_graph/node_visitor.dart';
 import '../../drawing/brushes/brushes.dart';
@@ -372,8 +373,13 @@ class SceneGraphRenderer {
 
   /// Render all children of a GroupNode.
   void _renderChildren(Canvas canvas, GroupNode group, Rect viewport) {
+    // Pass 1: Render SectionNodes first (always behind strokes/images).
     for (final child in group.children) {
-      renderNode(canvas, child, viewport);
+      if (child is SectionNode) renderNode(canvas, child, viewport);
+    }
+    // Pass 2: Render everything else on top.
+    for (final child in group.children) {
+      if (child is! SectionNode) renderNode(canvas, child, viewport);
     }
   }
 
@@ -426,9 +432,23 @@ class SceneGraphRenderer {
     if (stroke.isFill) {
       _drawFillOverlay(canvas, stroke);
     } else {
+      // 🚀 RASTER LOD: decimate points at low zoom to reduce GPU path
+      // complexity. Missing points are sub-pixel on screen → invisible.
+      var points = stroke.points;
+      if (_currentScale < 0.5 && points.length > 10) {
+        final step = (1.0 / _currentScale).ceil().clamp(2, 6);
+        final decimated = <ProDrawingPoint>[];
+        for (int i = 0; i < points.length; i += step) {
+          decimated.add(points[i]);
+        }
+        if (decimated.last != points.last) {
+          decimated.add(points.last);
+        }
+        points = decimated;
+      }
       BrushEngine.renderStroke(
         canvas,
-        stroke.points,
+        points,
         stroke.color,
         stroke.baseWidth,
         stroke.penType,
@@ -1406,6 +1426,24 @@ class SceneGraphRenderer {
         labelY + labelPadV + (namePainter.height - dimsPainter.height) / 2,
       ),
     );
+
+    // ── 7. Corner resize handles (subtle dots) ──
+    final handleRadius = 3.0 * invScale;
+    final handlePaint = Paint()..color = const Color(0xAA2196F3);
+    final handleStroke =
+        Paint()
+          ..color = const Color(0x44FFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0 * invScale;
+    for (final corner in [
+      bounds.topLeft,
+      bounds.topRight,
+      bounds.bottomRight,
+      bounds.bottomLeft,
+    ]) {
+      canvas.drawCircle(corner, handleRadius, handlePaint);
+      canvas.drawCircle(corner, handleRadius, handleStroke);
+    }
   }
 
   /// Draw a small section icon (2×2 grid squares).

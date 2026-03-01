@@ -17,8 +17,34 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-    // 📐 SECTION MODE: Start drawing a section rectangle
+    // 📐 SECTION MODE: Resize / Drag / Create
     if (_isSectionActive) {
+      final scale = _canvasController.scale;
+      final hitRadius = 20.0 / scale; // 20px in screen space
+
+      // 1. Check corner resize handles on existing sections
+      final resizeHit = _findSectionCornerAtPoint(canvasPosition, hitRadius);
+      if (resizeHit != null && !resizeHit.$1.isLocked) {
+        _resizingSectionNode = resizeHit.$1;
+        _resizeAnchorCorner = resizeHit.$2;
+        HapticFeedback.selectionClick();
+        return;
+      }
+
+      // 2. Check if tapping on an existing section → drag mode (skip locked)
+      final hitSection = _findSectionAtPoint(canvasPosition);
+      if (hitSection != null && !hitSection.isLocked) {
+        _draggingSectionNode = hitSection;
+        final sectionPos = Offset(
+          hitSection.worldTransform.getTranslation().x,
+          hitSection.worldTransform.getTranslation().y,
+        );
+        _sectionDragGrabOffset = canvasPosition - sectionPos;
+        HapticFeedback.selectionClick();
+        return;
+      }
+
+      // 3. Otherwise, start drawing a new section
       _sectionStartPoint = canvasPosition;
       _sectionCurrentEndPoint = canvasPosition;
       setState(() {});
@@ -526,6 +552,22 @@ extension on _FlueraCanvasScreenState {
   void _onDrawCancel() {
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
+
+    // 📐 SECTION RESIZE CANCEL: Cancel resize on multi-touch interrupt
+    if (_resizingSectionNode != null) {
+      _resizingSectionNode = null;
+      _resizeAnchorCorner = null;
+      setState(() {});
+      return;
+    }
+
+    // 📐 SECTION DRAG CANCEL: Cancel section drag on multi-touch interrupt
+    if (_draggingSectionNode != null) {
+      _draggingSectionNode = null;
+      _sectionDragGrabOffset = null;
+      setState(() {});
+      return;
+    }
 
     // 📐 SECTION MODE: Cancel section drawing on multi-touch interrupt
     if (_isSectionActive && _sectionStartPoint != null) {

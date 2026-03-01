@@ -203,6 +203,19 @@ class LayerNode extends GroupNode {
     return json;
   }
 
+  /// 🚀 PERF: Serialize layer metadata WITHOUT stroke data.
+  ///
+  /// Used by the sharded cloud save path where strokes are saved to a
+  /// subcollection. Skips `StrokeNode.toJson()` for all stroke children,
+  /// avoiding ~1MB of temporary allocation (300+ strokes × ~3KB each).
+  Map<String, dynamic> toJsonMetadataOnly() {
+    final json = baseToJson();
+    json['nodeType'] = 'layer';
+    json['children'] =
+        children.where((c) => c is! StrokeNode).map((c) => c.toJson()).toList();
+    return json;
+  }
+
   @override
   R accept<R>(NodeVisitor<R> visitor) => visitor.visitLayer(this);
 }

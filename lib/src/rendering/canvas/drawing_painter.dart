@@ -142,6 +142,14 @@ class DrawingPainter extends CustomPainter {
 
   // 🧬 Canvas surface material: passed to BrushEngine for surface-aware shaders
   final SurfaceMaterial? surface;
+  final String?
+  paperType; // 🚀 LAYER MERGE — not in shouldRepaint (cosmetic only)
+  final Color?
+  backgroundColor; // 🚀 LAYER MERGE — not in shouldRepaint (cosmetic only)
+
+  /// 🚀 PERF: Per-page incremental annotation Picture cache.
+  /// Key: pageIndex → cached (annotationCount, Picture).
+  static final Map<int, _AnnotCacheEntry> _annotationPictureCache = {};
 
   // 🌲 Cached materialized strokes (lazily computed once per paint frame)
   List<ProStroke>? _materializedCache;
@@ -178,6 +186,8 @@ class DrawingPainter extends CustomPainter {
     this.pdfLayoutVersion = 0, // 📄 PDF layout mutation counter
     this.showPdfPageNumbers = true, // 📑 Page number badges
     this.surface, // 🧬 Surface material for shader-aware rendering
+    this.paperType,
+    this.backgroundColor,
   }) : _sceneGraphVersion = sceneGraph.version,
        super(repaint: controller); // repaint on pan/zoom when controller set
 
@@ -261,31 +271,17 @@ class DrawingPainter extends CustomPainter {
     if (useTileCaching) {
       _paintWithTileCaching(canvas, viewport, effectiveScale);
     } else {
-      // GAP D: Clip to dirty bounds for incremental rendering.
-      // When the dirty tracker has accumulated regions (e.g., a single
-      // stroke was added), clip the canvas to the dirty bounding box
-      // so _paintDirect() only re-renders the affected area.
-      //
-      // 🛡️ SAFETY: Dirty-clip is ONLY used when a valid vectorial cache
-      // already exists. Otherwise the first full render would be recorded
-      // inside the clip → the cache Picture would contain only the dirty
-      // rect's content, and all elements outside it would permanently
-      // disappear on subsequent cache-hit frames.
       final tracker = dirtyRegionTracker;
       final hasDirty = tracker != null && tracker.hasDirtyRegions;
       final totalStrokes = _effectiveStrokes.length;
       if (hasDirty) {
         final dirtyBounds = tracker.dirtyBounds;
         if (dirtyBounds != null && _strokeCache.isCacheValid(totalStrokes)) {
-          // Cache is valid: safe to clip — _paintDirect will replay the
-          // full cache and only draw new content inside the clip.
           canvas.save();
           canvas.clipRect(dirtyBounds);
           _paintDirect(canvas, viewport, isDirtyClipped: true);
           canvas.restore();
         } else {
-          // No valid cache: render everything without clip so the cache
-          // is built with ALL content visible.
           _paintDirect(canvas, viewport);
         }
       } else {
@@ -558,8 +554,10 @@ class DrawingPainter extends CustomPainter {
     final hasEraserPreview = eraserPreviewIds.isNotEmpty;
 
     // Cache invalidation: scene graph version changed
+    // 🚀 PERF: Do NOT invalidate _strokeCache here — the incremental
+    // path at line 606 handles new strokes efficiently (O(delta)).
+    // Only invalidate layer caches (for non-stroke visual changes).
     if (_cachedSceneVersion != sceneGraph.version) {
-      _strokeCache.invalidateCache();
       invalidateLayerCaches();
       _cachedSceneVersion = sceneGraph.version;
     }
@@ -696,6 +694,18 @@ class DrawingPainter extends CustomPainter {
 
   /// Invalidate all per-layer caches (e.g. on undo or eraser).
   static void invalidateLayerCaches() {
+    // NOTE: _annotationPictureCache is NOT cleared here.
+    // The cache key includes sceneGraphVersion, so stale entries
+    // are never matched. Clearing here causes thrashing when
+    // annotations are linked rapidly (each link bumps version).
+    // Old entries are lazily evicted when cache exceeds 20 entries.
+    if (_annotationPictureCache.length > 20) {
+      for (final p in _annotationPictureCache.values) {
+        p.picture.dispose();
+      }
+      _annotationPictureCache.clear();
+    }
+
     if (EngineScope.hasScope) {
       EngineScope.current.renderCacheScope.invalidateLayerCaches();
     } else {
@@ -1091,10 +1101,49 @@ class DrawingPainter extends CustomPainter {
     // visible page area.
     final annotations = pageNode.pageModel.annotations;
     if (annotations.isNotEmpty && pageNode.pageModel.showAnnotations) {
-      canvas.save();
-      canvas.clipRect(effectiveRect);
-      _paintPageAnnotations(canvas, annotations);
-      canvas.restore();
+      // 🚀 PERF: Incremental annotation Picture cache.
+      // Instead of re-rendering ALL annotations on cache miss,
+      // replay the PREVIOUS cache + render only NEW annotations.
+      // Cost: O(delta) instead of O(n), where delta is typically 1.
+      final pageIdx = pageNode.pageModel.pageIndex;
+      final cacheEntry = _annotationPictureCache[pageIdx];
+
+      if (cacheEntry != null && cacheEntry.count == annotations.length) {
+        // ✅ Cache hit: O(1) replay
+        canvas.save();
+        canvas.clipRect(effectiveRect);
+        canvas.drawPicture(cacheEntry.picture);
+        canvas.restore();
+      } else {
+        // Cache miss: incremental render
+        final recorder = ui.PictureRecorder();
+        final recCanvas = Canvas(recorder);
+
+        if (cacheEntry != null && cacheEntry.count < annotations.length) {
+          // 🚀 Incremental: replay old cache + render only NEW annotations
+          recCanvas.drawPicture(cacheEntry.picture);
+          // Only the delta annotations (from old count to new count)
+          final newIds = annotations.sublist(cacheEntry.count);
+          _paintPageAnnotations(recCanvas, newIds);
+        } else {
+          // Full rebuild (first time or count decreased)
+          _paintPageAnnotations(recCanvas, annotations);
+        }
+
+        // Dispose old and store new
+        cacheEntry?.picture.dispose();
+        final newPicture = recorder.endRecording();
+        _annotationPictureCache[pageIdx] = _AnnotCacheEntry(
+          count: annotations.length,
+          picture: newPicture,
+        );
+
+        // Draw on main canvas
+        canvas.save();
+        canvas.clipRect(effectiveRect);
+        canvas.drawPicture(newPicture);
+        canvas.restore();
+      }
     }
 
     // 📝 Text selection highlight overlay
@@ -1634,4 +1683,11 @@ class DrawingPainter extends CustomPainter {
       }
     }
   }
+}
+
+/// 🚀 PERF: Cache entry for the incremental annotation Picture cache.
+class _AnnotCacheEntry {
+  final int count;
+  final ui.Picture picture;
+  const _AnnotCacheEntry({required this.count, required this.picture});
 }

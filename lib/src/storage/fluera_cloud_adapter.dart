@@ -266,35 +266,57 @@ class FlueraSyncEngine {
       state.value = FlueraSyncState.idle;
       EngineLogger.info('☁️ Cloud sync completed for $canvasId');
     } catch (e) {
-      _retryCount++;
-      if (_retryCount <= maxRetries) {
-        // Exponential backoff: 2s, 4s, 8s
-        final delay = Duration(seconds: 1 << _retryCount);
-        EngineLogger.warning(
-          '☁️ Cloud sync failed (attempt $_retryCount/$maxRetries), '
-          'retrying in ${delay.inSeconds}s: $e',
-        );
-        state.value = FlueraSyncState.syncing;
-        _saveInProgress = false;
+      // 🚀 FIX: Detect PERMANENT errors that should NOT be retried.
+      // Firestore INVALID_ARGUMENT (document > 1MB) and PERMISSION_DENIED
+      // will never succeed on retry — stop immediately to avoid:
+      // - 3x heavy JSON re-serialization on UI thread (50-100ms each)
+      // - Massive GC from 1MB+ temporary Map objects (30-70MB freed)
+      // - 142ms+ GC pause blocking UI thread
+      final errorStr = e.toString().toLowerCase();
+      final isPermanent =
+          errorStr.contains('invalid-argument') ||
+          errorStr.contains('invalid_argument') ||
+          errorStr.contains('permission-denied') ||
+          errorStr.contains('permission_denied') ||
+          errorStr.contains('exceeds the maximum');
 
-        // Re-queue for retry
-        _pendingCanvasId = canvasId;
-        _pendingData = data;
-        _debounceTimer?.cancel();
-        _debounceTimer = Timer(delay, _executeSave);
-        return;
-      } else {
-        EngineLogger.error(
-          '☁️ Cloud sync failed after $maxRetries retries: $e',
-        );
+      if (isPermanent) {
+        EngineLogger.error('☁️ Cloud sync permanent failure (no retry): $e');
         state.value = FlueraSyncState.error;
         lastError.value = e.toString();
         _retryCount = 0;
+        // Don't queue for offline either — it will always fail
+      } else {
+        _retryCount++;
+        if (_retryCount <= maxRetries) {
+          // Exponential backoff: 2s, 4s, 8s
+          final delay = Duration(seconds: 1 << _retryCount);
+          EngineLogger.warning(
+            '☁️ Cloud sync failed (attempt $_retryCount/$maxRetries), '
+            'retrying in ${delay.inSeconds}s: $e',
+          );
+          state.value = FlueraSyncState.syncing;
+          _saveInProgress = false;
 
-        // ☁️ Offline queue: retain failed save for replay
-        _offlinePendingCanvasId = canvasId;
-        _offlinePendingData = data;
-        EngineLogger.warning('☁️ Save queued for offline replay');
+          // Re-queue for retry
+          _pendingCanvasId = canvasId;
+          _pendingData = data;
+          _debounceTimer?.cancel();
+          _debounceTimer = Timer(delay, _executeSave);
+          return;
+        } else {
+          EngineLogger.error(
+            '☁️ Cloud sync failed after $maxRetries retries: $e',
+          );
+          state.value = FlueraSyncState.error;
+          lastError.value = e.toString();
+          _retryCount = 0;
+
+          // ☁️ Offline queue: retain failed save for replay
+          _offlinePendingCanvasId = canvasId;
+          _offlinePendingData = data;
+          EngineLogger.warning('☁️ Save queued for offline replay');
+        }
       }
     } finally {
       _saveInProgress = false;

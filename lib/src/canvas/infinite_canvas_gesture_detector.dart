@@ -365,6 +365,7 @@ class _InfiniteCanvasGestureDetectorState
         !_panIntercepted) {
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
+        widget.controller.isPanning = true; // 🚀 SCROLL OPT
         _lastPanPosition = event.localPosition;
         // 🌊 LIQUID: Reset velocity tracking for single-finger pan
         _lastScaleUpdateTime = DateTime.now().microsecondsSinceEpoch;
@@ -403,6 +404,7 @@ class _InfiniteCanvasGestureDetectorState
       // È un dito in stylus mode → fai pan
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
+        widget.controller.isPanning = true; // 🚀 SCROLL OPT
         _lastPanPosition = event.localPosition;
         // 🌊 LIQUID: Reset velocity tracking
         _lastScaleUpdateTime = DateTime.now().microsecondsSinceEpoch;
@@ -622,6 +624,7 @@ class _InfiniteCanvasGestureDetectorState
       }
 
       _isSingleFingerPanning = false; // 🖐️ Reset pan with a finger
+      widget.controller.isPanning = false; // 🚀 SCROLL OPT
       _panIntercepted = false; // 📄 Reset pan intercept
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
 
@@ -797,10 +800,11 @@ class _InfiniteCanvasGestureDetectorState
   void _onScaleUpdate(ScaleUpdateDetails details) {
     // Only process with 2+ fingers
     if (_pointerCount < 2) return;
+    widget.controller.isPanning = true; // 🚀 SCROLL OPT
 
-    // 🌀 IMAGE ROTATION: When blockPanZoom is active (image selected),
+    // 🌀 IMAGE ROTATION: When image callbacks are wired (pan mode + selected image),
     // route rotation + scale to the image instead of the canvas.
-    if (widget.blockPanZoom) {
+    if (widget.onImageScaleStart != null) {
       // Fire start callback once
       if (!_imageScaleStarted) {
         _imageScaleStarted = true;
@@ -862,7 +866,9 @@ class _InfiniteCanvasGestureDetectorState
     _lastScaleUpdateTime = now;
 
     // Detect if user is zooming (scale significantly changed)
-    if ((details.scale - 1.0).abs() > 0.02) {
+    // 🎯 FIX: Raised threshold from 0.02 to 0.10 to prevent 2-finger pan
+    // from being misidentified as zoom (finger spread fluctuates ~2-5%).
+    if ((details.scale - 1.0).abs() > 0.10) {
       _wasZooming = true;
     }
 
@@ -936,9 +942,9 @@ class _InfiniteCanvasGestureDetectorState
     final focalPointCanvas = unrotated / _initialScale;
 
     // Apply new transform: scale → rotate → translate
-    // 🎯 Use getEffectiveScale to compute offset with the ACTUAL scale that
-    // will be applied. This prevents the canvas from 'escaping' when rawScale
-    // is far beyond elastic limits (e.g., pinch zoom to extreme values).
+    // Use getEffectiveScale (elastic) so offset and _scale stay consistent.
+    // The elastic cap in _applyElasticClamp ensures the overshoot is tiny,
+    // preventing noticeable viewport drift at large canvas positions.
     final effectiveScale = widget.controller.getEffectiveScale(rawScale);
     final cosR = math.cos(effectiveRotation);
     final sinR = math.sin(effectiveRotation);
@@ -976,6 +982,7 @@ class _InfiniteCanvasGestureDetectorState
 
   void _onScaleEnd(ScaleEndDetails details) {
     // 🌀 IMAGE ROTATION: End image rotation if active
+    final wasImageScaling = _imageScaleStarted;
     if (_imageScaleStarted) {
       _imageScaleStarted = false;
       _imageRotationUnlocked = false;
@@ -984,23 +991,30 @@ class _InfiniteCanvasGestureDetectorState
       widget.onImageScaleEnd?.call();
     }
 
-    // If blockPanZoom is true, it means we were handling image gestures,
-    // so we should not apply canvas pan/zoom/rotation momentum.
-    if (widget.blockPanZoom) return;
+    // If we were handling image gestures (rotation/scale),
+    // skip canvas momentum to avoid conflicting animations.
+    if (wasImageScaling) return;
 
     // 🌊 LIQUID: Launch zoom spring-back if scale is beyond limits
     widget.controller.startZoomSpringBack(_lastScaleEndFocalPoint);
 
     // 🌊 LIQUID: Launch zoom momentum if user was actively zooming (Gap 4)
-    if (_wasZooming && _zoomVelocity.abs() > 0.1) {
+    // 🎯 FIX: Raised velocity threshold and made mutually exclusive with
+    // pan momentum — both write to _offset in the ticker and conflict.
+    bool zoomMomentumLaunched = false;
+    if (_wasZooming && _zoomVelocity.abs() > 0.5) {
       widget.controller.startZoomMomentum(
         _zoomVelocity,
         _lastScaleEndFocalPoint,
       );
+      zoomMomentumLaunched = true;
     }
 
     // 🌊 LIQUID: Launch pan momentum from terminal velocity
-    if (_panVelocity.distance > 0) {
+    // 🎯 FIX: Skip if ANY zoom animation is active (spring-back or momentum).
+    // Pan velocity from a zoom gesture is the centroid of diverging fingers,
+    // not a meaningful pan direction — applying it causes viewport to fly off.
+    if (!widget.controller.isAnimating && _panVelocity.distance > 0) {
       widget.controller.startMomentum(_panVelocity);
     }
 
@@ -1011,5 +1025,9 @@ class _InfiniteCanvasGestureDetectorState
     _rotationVelocity = 0.0;
     _wasZooming = false;
     _lastGestureScale = 1.0;
+    // 🚀 SCROLL OPT: Clear flag (momentum getter handles _isMomentumActive)
+    widget.controller.isPanning = false;
+    widget.controller
+        .markNeedsPaint(); // 🚀 Final repaint with isPanning=false → annotations reappear
   }
 }

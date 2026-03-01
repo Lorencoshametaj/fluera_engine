@@ -5,6 +5,7 @@ import './digital_text_element.dart';
 import './image_element.dart';
 import '../nodes/layer_node.dart';
 import '../scene_graph/node_id.dart';
+import '../nodes/pdf_document_node.dart';
 import '../scene_graph/canvas_node_factory.dart';
 
 /// Canvas layer — thin adapter around [LayerNode].
@@ -112,7 +113,7 @@ class CanvasLayer {
     double? opacity,
     ui.BlendMode? blendMode,
   }) {
-    return CanvasLayer(
+    final copy = CanvasLayer(
       id: id ?? this.id,
       name: name ?? this.name,
       strokes: strokes ?? this.strokes,
@@ -124,6 +125,15 @@ class CanvasLayer {
       opacity: opacity ?? this.opacity,
       blendMode: blendMode ?? this.blendMode,
     );
+    // 🔑 Transfer non-element children (PdfDocumentNode, etc.) that were
+    // added directly to the node via node.add(). Without this, copyWith
+    // would discard them — causing PDFs to vanish when adding images/strokes.
+    for (final child in node.children) {
+      if (child is PdfDocumentNode) {
+        copy.node.add(child);
+      }
+    }
+    return copy;
   }
 
   // ---------------------------------------------------------------------------
@@ -132,6 +142,9 @@ class CanvasLayer {
 
   /// Serialize to JSON using the scene graph node format.
   Map<String, dynamic> toJson() => node.toJson();
+
+  /// 🚀 PERF: Serialize metadata only (no strokes) for sharded cloud save.
+  Map<String, dynamic> toJsonMetadataOnly() => node.toJsonMetadataOnly();
 
   /// Deserialize from JSON.
   ///

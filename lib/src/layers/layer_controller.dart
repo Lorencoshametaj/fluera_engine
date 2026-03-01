@@ -98,6 +98,13 @@ class LayerController extends FlueraLayerController {
   }
 
   @override
+  void notifyListeners() {
+    _invalidateLayersCache();
+    _cachedVisibleShapes = null;
+    super.notifyListeners();
+  }
+
+  @override
   void dispose() {
     _undoRedoManager.removeListener(_onUndoRedoChanged);
     super.dispose();
@@ -142,8 +149,21 @@ class LayerController extends FlueraLayerController {
   // State getters
   // ==========================================================================
 
+  /// 🚀 PERF: Cached unmodifiable view. Recreated only when layers mutate.
+  /// Without this, shouldRepaint returned true on EVERY frame because
+  /// List.unmodifiable() created a new object on each access.
+  List<CanvasLayer>? _cachedUnmodifiableLayers;
+
   @override
-  List<CanvasLayer> get layers => List.unmodifiable(_layers);
+  List<CanvasLayer> get layers {
+    _cachedUnmodifiableLayers ??= List.unmodifiable(_layers);
+    return _cachedUnmodifiableLayers!;
+  }
+
+  /// Invalidate the cached unmodifiable list when layers change.
+  void _invalidateLayersCache() {
+    _cachedUnmodifiableLayers = null;
+  }
 
   @override
   CanvasLayer? get activeLayer {
@@ -527,8 +547,14 @@ class LayerController extends FlueraLayerController {
   @override
   List<ProStroke> getAllVisibleStrokes() => _getAllVisibleStrokesImpl();
 
+  /// 🚀 PERF: Cached visible shapes list.
+  List<GeometricShape>? _cachedVisibleShapes;
+
   @override
-  List<GeometricShape> getAllVisibleShapes() => _getAllVisibleShapesImpl();
+  List<GeometricShape> getAllVisibleShapes() {
+    _cachedVisibleShapes ??= _getAllVisibleShapesImpl();
+    return _cachedVisibleShapes!;
+  }
 
   List<DigitalTextElement> getAllVisibleTexts() => _getAllVisibleTextsImpl();
 

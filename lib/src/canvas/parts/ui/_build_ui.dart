@@ -160,8 +160,8 @@ extension on _FlueraCanvasScreenState {
               // Main content: toolbar + canvas
               Column(
                 children: [
-                  // 🛠️ Professional Toolbar
-                  _buildToolbar(context),
+                  // 🛠️ Professional Toolbar (cached — skipped on parent setState)
+                  _toolbarHost,
 
                   // 🎨 Canvas + Navigation Overlays
                   Expanded(
@@ -346,8 +346,8 @@ extension on _FlueraCanvasScreenState {
               // 🧠 Conscious Architecture: debug overlay (debug builds only)
               // if (kDebugMode) const ConsciousDebugOverlay(),
 
-              // 🏎️ Performance Monitor: frame time overlay (debug builds only)
-              if (kDebugMode)
+              // 🏎️ Performance Monitor: frame time overlay (debug + profile)
+              if (!kReleaseMode)
                 CanvasPerformanceMonitor.instance.buildDebugOverlay(),
             ],
           ),

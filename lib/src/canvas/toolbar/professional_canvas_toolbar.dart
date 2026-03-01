@@ -110,6 +110,11 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback? onToggleFreezeRow;
   final Duration recordingDuration;
   final double recordingAmplitude; // 🎵 Live amplitude for waveform bars
+  /// 🚀 P99 FIX: Optional ValueListenables for recording state.
+  /// When provided, the recording button uses these to update independently
+  /// of the parent widget tree, eliminating full canvas rebuilds.
+  final ValueListenable<Duration>? recordingDurationNotifier;
+  final ValueListenable<double>? recordingAmplitudeNotifier;
   final String? noteTitle;
   // 🎨 Preset-based brush selection
   final List<BrushPreset> brushPresets;
@@ -321,6 +326,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onToggleFreezeRow,
     required this.recordingDuration,
     this.recordingAmplitude = 0.0,
+    this.recordingDurationNotifier,
+    this.recordingAmplitudeNotifier,
     this.isImageEditingMode = false,
     this.noteTitle,
     this.brushPresets = const [],

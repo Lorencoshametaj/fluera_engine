@@ -141,57 +141,50 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       _captureCanvasSnapshot(saveData.canvasId);
 
       // 2️⃣ Cloud save (via FlueraSyncEngine — has its own debounce + retry)
-      if (_syncEngine != null) {
-        final adapter = _syncEngine!.adapter;
-        final cloudData = saveData.toJson();
-        final layers = saveData.layers.map((l) => l.toJson()).toList();
+      // 🚀 PERF: Skip ENTIRELY when sync engine is in permanent error state.
+      if (_syncEngine != null &&
+          _syncEngine!.state.value != FlueraSyncState.error) {
+        final cloudAdapter = _syncEngine!.adapter;
 
-        if (adapter.supportsStrokeSharding) {
-          // 🚀 SHARDED: Save metadata (layers without strokes) + strokes separately
-          // Strip strokes from layer data to keep doc under 1MB
+        if (cloudAdapter.supportsStrokeSharding) {
+          // 🚀 SHARDED PATH — avoid full layer JSON serialization!
+          // Only serialize metadata (layers without strokes). Stroke JSON is
+          // built per-stroke from ProStroke objects, avoiding a 1MB+ temporary
+          // allocation that was causing massive GC pressure on the UI thread.
+          final cloudData = saveData.toJson();
+
+          // Build layer metadata WITHOUT strokes (light — ~50KB)
+          // 🚀 Uses toJsonMetadataOnly() — NEVER allocates stroke JSON.
           final strippedLayers =
-              layers.map((layerJson) {
-                final copy = Map<String, dynamic>.from(layerJson);
-                copy.remove('strokes'); // Remove strokes from metadata doc
-                return copy;
-              }).toList();
+              saveData.layers
+                  .map((layer) => layer.toJsonMetadataOnly())
+                  .toList();
           cloudData['layers'] = strippedLayers;
+
           _syncEngine!.requestSave(
             _canvasId,
             _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
           );
 
-          // Save strokes as sub-collection documents
+          // Build stroke tuples directly from layer data
           final strokeTuples = <(String, Map<String, dynamic>)>[];
-          for (final layerJson in layers) {
-            final layerId = layerJson['id'] as String? ?? 'default';
-            final strokes = layerJson['strokes'] as List?;
-            if (strokes != null) {
-              for (final s in strokes) {
-                strokeTuples.add((
-                  layerId,
-                  Map<String, dynamic>.from(s as Map),
-                ));
-              }
+          for (final layer in saveData.layers) {
+            for (final stroke in layer.strokes) {
+              strokeTuples.add((
+                layer.id,
+                _FlueraCanvasScreenState._sanitizeForFirestore(stroke.toJson()),
+              ));
             }
           }
           if (strokeTuples.isNotEmpty) {
-            // Fire-and-forget (debounced by sync engine)
-            // Sanitize each stroke map to avoid nested arrays in Firestore
-            final sanitizedTuples =
-                strokeTuples.map((t) {
-                  return (
-                    t.$1,
-                    _FlueraCanvasScreenState._sanitizeForFirestore(t.$2),
-                  );
-                }).toList();
-            adapter.saveStrokes(_canvasId, sanitizedTuples).catchError((e) {
+            cloudAdapter.saveStrokes(_canvasId, strokeTuples).catchError((e) {
               debugPrint('☁️ Stroke sharding save failed: $e');
             });
           }
         } else {
           // Legacy: save everything in one document
-          cloudData['layers'] = layers;
+          final cloudData = saveData.toJson();
+          cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
           _syncEngine!.requestSave(
             _canvasId,
             _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
@@ -243,13 +236,43 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       _layerController.clearDirtyLayerIds();
 
       // Cloud save (immediate, no debounce)
+      // 🚀 FIX: Use sharded path when supported — forceFirebaseSync was
+      // previously bypassing sharding, saving ALL data in one document
+      // which exceeds Firestore's 1MB limit with 300+ strokes.
       if (_syncEngine != null) {
+        final cloudAdapter = _syncEngine!.adapter;
         final cloudData = saveData.toJson();
-        cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
-        await _syncEngine!.flush(
-          _canvasId,
-          _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
-        );
+
+        if (cloudAdapter.supportsStrokeSharding) {
+          // 🚀 Use toJsonMetadataOnly() — skips stroke serialization entirely
+          cloudData['layers'] =
+              saveData.layers.map((l) => l.toJsonMetadataOnly()).toList();
+          await _syncEngine!.flush(
+            _canvasId,
+            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
+          );
+
+          // Build stroke tuples directly from ProStroke objects (no full toJson)
+          final strokeTuples = <(String, Map<String, dynamic>)>[];
+          for (final layer in saveData.layers) {
+            for (final stroke in layer.strokes) {
+              strokeTuples.add((
+                layer.id,
+                _FlueraCanvasScreenState._sanitizeForFirestore(stroke.toJson()),
+              ));
+            }
+          }
+          if (strokeTuples.isNotEmpty) {
+            await cloudAdapter.saveStrokes(_canvasId, strokeTuples);
+          }
+        } else {
+          // Legacy: save everything in one document
+          cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
+          await _syncEngine!.flush(
+            _canvasId,
+            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
+          );
+        }
       }
     } catch (e) {
       debugPrint('[CloudSync] Force sync error: $e');
@@ -332,15 +355,24 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
     }
   }
 
-  /// 🖼️ Capture a low-resolution snapshot of the canvas viewport.
-  ///
-  /// Used for the splash screen preview on next open. Runs entirely
-  /// in the background — never blocks saving or rendering.
+  /// 🖼️ Capture a low-res snapshot of the current viewport for splash screen.
   ///
   /// **Strategy**: Uses the RepaintBoundary wrapping the canvas area
   /// to capture the current viewport at reduced resolution (~480px
   /// long side → ~50-100KB PNG).
+  ///
+  /// 🚀 PERF: Throttled to max once per 30s. Previously ran on every
+  /// auto-save (every 2s), doing boundary.toImage() + PNG encoding
+  /// each time — significant GPU + memory overhead.
+  static int _lastSnapshotTimestamp = 0;
+  static const _snapshotThrottleMs = 30000; // 30 seconds
+
   Future<void> _captureCanvasSnapshot(String canvasId) async {
+    // 🚀 Throttle: skip if captured recently
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSnapshotTimestamp < _snapshotThrottleMs) return;
+    _lastSnapshotTimestamp = now;
+
     try {
       final adapter = _config.storageAdapter;
       if (adapter == null) return;

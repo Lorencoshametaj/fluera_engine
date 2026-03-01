@@ -146,9 +146,8 @@ class BrushEngine {
     // Currently v1 and v2 use the same renderer (no breaking changes).
 
     // 🎛️ Phase 4A: Remap pressures through the pressure curve
-    // 🚀 PERF: Skip remapping during live drawing — brush handles pressure
-    // internally, and the fast texture overlay samples only 3 points.
-    // Full quality remapping is applied on finalization (isLive = false).
+    // Applied for BOTH live and finalized to guarantee visual consistency.
+    // Default curve is linear (isLinear=true) → zero cost.
     List<dynamic> effectivePoints = points;
     if (!settings.pressureCurve.isLinear) {
       final n = points.length;
@@ -164,22 +163,20 @@ class BrushEngine {
           _remappedPointsBuffer[i] = p;
         }
       }
-      // Use sublist view — no copy needed for finalization path
       effectivePoints = _remappedPointsBuffer.sublist(0, n);
     }
 
     // 🎯 Phase 4B: Stroke stabilizer — now applied in real-time
     // via DrawingInputHandler (not post-hoc here)
 
-    // 🌱 Phase 4C: Organic micro-variation — biological tremor, fatigue,
-    // breathing. Zero-cost when OrganicBehaviorEngine.intensity == 0.
-    if (OrganicBehaviorEngine.tremorEnabled && effectivePoints.length > 3) {
-      effectivePoints = _applyOrganicModulation(
-        effectivePoints,
-        baseWidth,
-        penType,
-      );
-    }
+    // 🌱 Phase 4C: Organic micro-variation — DISABLED.
+    // Organic modulation adds Simplex noise (tremor/grain) that causes
+    // a visible quality change between live and finalized strokes.
+    // Disabled for BOTH to guarantee live ≡ finalized visual consistency.
+    // The O(N) Simplex noise pass is also the costliest pre-brush step.
+    //
+    // TODO: Re-enable when modulation can be applied during live drawing
+    // in real-time (matching finalized output) without O(N) cost.
 
     // 🧬 Surface material: compute modifiers if surface is provided.
     // 🌱 Include current canvas wetness for wet-on-wet interaction.
