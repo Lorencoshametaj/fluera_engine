@@ -9,6 +9,8 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../models/shape_type.dart';
 import '../models/digital_text_element.dart';
 import '../models/image_element.dart';
+import '../editing/adjustment_layer.dart';
+import './adjustment_layer_node.dart';
 
 /// A [GroupNode] that represents a canvas layer.
 ///
@@ -64,6 +66,10 @@ class LayerNode extends GroupNode {
   /// All image nodes in this layer.
   List<ImageNode> get imageNodes => childrenOfType<ImageNode>();
 
+  /// All adjustment layer nodes in this layer.
+  List<AdjustmentLayerNode> get adjustmentNodes =>
+      childrenOfType<AdjustmentLayerNode>();
+
   /// All ProStroke objects in this layer (convenience for rendering).
   List<ProStroke> get strokes =>
       _cachedStrokes ??= strokeNodes.map((n) => n.stroke).toList();
@@ -112,6 +118,21 @@ class LayerNode extends GroupNode {
     return node;
   }
 
+  /// Add an adjustment layer to this layer.
+  AdjustmentLayerNode addAdjustmentLayer({
+    required String id,
+    required AdjustmentStack stack,
+    String name = '',
+  }) {
+    final node = AdjustmentLayerNode(
+      id: NodeId(id),
+      adjustmentStack: stack,
+      name: name,
+    );
+    add(node);
+    return node;
+  }
+
   // ---------------------------------------------------------------------------
   // Typed remove helpers
   // ---------------------------------------------------------------------------
@@ -134,6 +155,11 @@ class LayerNode extends GroupNode {
   /// Remove an image element by its ID.
   bool removeImageById(String imageId) {
     return removeById(imageId) != null;
+  }
+
+  /// Remove an adjustment layer by its ID.
+  bool removeAdjustmentLayerById(String adjustmentId) {
+    return removeById(adjustmentId) != null;
   }
 
   // ---------------------------------------------------------------------------

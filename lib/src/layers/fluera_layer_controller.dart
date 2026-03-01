@@ -5,6 +5,7 @@ import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
+import '../core/editing/adjustment_layer.dart';
 import '../rendering/optimization/spatial_index.dart';
 import '../core/scene_graph/scene_graph.dart';
 
@@ -139,6 +140,19 @@ abstract class FlueraLayerController extends ChangeNotifier {
 
   /// Remove image by ID
   void removeImage(String imageId);
+
+  // ============================================================================
+  // ADJUSTMENT LAYER OPERATIONS
+  // ============================================================================
+
+  /// Add an adjustment layer to the active layer.
+  void addAdjustmentLayer(String id, AdjustmentStack stack);
+
+  /// Remove an adjustment layer by ID.
+  void removeAdjustmentLayer(String adjustmentId);
+
+  /// Update an existing adjustment layer's stack.
+  void updateAdjustmentLayer(String adjustmentId, AdjustmentStack newStack);
 
   // ============================================================================
   // UNDO/REDO

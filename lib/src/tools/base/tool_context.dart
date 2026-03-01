@@ -9,7 +9,7 @@ import '../unified_tool_controller.dart';
 
 /// 🎯 Context provided to all tools
 ///
-/// Abstracts the differences between Infinite Canvas and Multiview.
+/// Abstracts the differences between canvas contexts.
 /// The tool doesn't know which context it's operating in - it only uses this context.
 ///
 /// DESIGN PRINCIPLES:

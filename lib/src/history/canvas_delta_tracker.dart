@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../core/engine_logger.dart';
 import '../core/engine_scope.dart';
 import '../core/models/canvas_layer.dart';
+import '../core/editing/adjustment_layer.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
@@ -25,6 +26,9 @@ enum CanvasDeltaType {
   layerRemoved,
   layerModified,
   layerCleared,
+  adjustmentAdded,
+  adjustmentRemoved,
+  adjustmentUpdated,
 }
 
 /// 🔄 Single delta — represents an incremental modification to the canvas.
@@ -484,6 +488,68 @@ class CanvasDeltaTracker {
     );
   }
 
+  /// 📝 Record adjustment layer addition
+  void recordAdjustmentAdded(
+    String layerId,
+    String adjustmentId,
+    AdjustmentStack stack,
+  ) {
+    _addDelta(
+      CanvasDelta(
+        id: _generateDeltaId(),
+        type: CanvasDeltaType.adjustmentAdded,
+        layerId: layerId,
+        timestamp: DateTime.now(),
+        elementData: {'adjustmentStack': stack.toJson()},
+        elementId: adjustmentId,
+      ),
+    );
+  }
+
+  /// 📝 Record adjustment layer removal
+  void recordAdjustmentRemoved(
+    String layerId,
+    String adjustmentId, {
+    AdjustmentStack? previousStack,
+  }) {
+    _addDelta(
+      CanvasDelta(
+        id: _generateDeltaId(),
+        type: CanvasDeltaType.adjustmentRemoved,
+        layerId: layerId,
+        timestamp: DateTime.now(),
+        elementId: adjustmentId,
+        previousData:
+            previousStack != null
+                ? {'adjustmentStack': previousStack.toJson()}
+                : null,
+      ),
+    );
+  }
+
+  /// 📝 Record adjustment layer update
+  void recordAdjustmentUpdated(
+    String layerId,
+    String adjustmentId,
+    AdjustmentStack newStack, {
+    AdjustmentStack? previousStack,
+  }) {
+    _addDelta(
+      CanvasDelta(
+        id: _generateDeltaId(),
+        type: CanvasDeltaType.adjustmentUpdated,
+        layerId: layerId,
+        timestamp: DateTime.now(),
+        elementData: {'adjustmentStack': newStack.toJson()},
+        elementId: adjustmentId,
+        previousData:
+            previousStack != null
+                ? {'adjustmentStack': previousStack.toJson()}
+                : null,
+      ),
+    );
+  }
+
   // ============================================================================
   // CONSUME DELTAS
   // ============================================================================
@@ -708,6 +774,13 @@ class CanvasDeltaTracker {
                 layer.images.where((i) => i.id != delta.elementId).toList();
             layerMap[delta.layerId] = layer.copyWith(images: updatedImages);
           }
+          break;
+
+        case CanvasDeltaType.adjustmentAdded:
+        case CanvasDeltaType.adjustmentRemoved:
+        case CanvasDeltaType.adjustmentUpdated:
+          // Adjustment deltas are handled by the scene graph directly;
+          // no CanvasLayer-level state to update in applyDeltas.
           break;
 
         case CanvasDeltaType.imageUpdated:

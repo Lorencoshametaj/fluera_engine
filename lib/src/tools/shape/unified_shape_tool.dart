@@ -6,10 +6,7 @@ import '../../core/models/shape_type.dart';
 
 /// 🔷 UNIFIED SHAPE TOOL
 ///
-/// Strumento per forme geometriche che funziona su:
-/// - Canvas infinito
-/// - Multiview
-///
+/// Strumento per forme geometriche che funziona su canvas infinito.
 /// FEATURES:
 /// - Disegno forme: a rectangle, cerchio, linea, an arrow, a triangle
 /// - Real-time preview during drawing

@@ -2,10 +2,16 @@ import 'dart:ui' as ui;
 import '../core/models/canvas_layer.dart';
 import '../core/scene_graph/canvas_node.dart';
 import '../core/nodes/layer_node.dart';
+import '../core/nodes/stroke_node.dart';
+import '../core/nodes/shape_node.dart';
+import '../core/nodes/text_node.dart';
+import '../core/nodes/image_node.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
+import '../core/editing/adjustment_layer.dart';
+import '../core/nodes/adjustment_layer_node.dart';
 import '../core/scene_graph/scene_graph.dart';
 import '../rendering/optimization/spatial_index.dart';
 import '../history/canvas_delta_tracker.dart';
@@ -37,6 +43,14 @@ typedef TimeTravelEventCallback =
 class LayerController extends FlueraLayerController {
   final List<CanvasLayer> _layers = [];
   String? _activeLayerId;
+
+  /// 🚀 FIX 3: Atomic counter to prevent ID collisions in batch operations.
+  static int _idCounter = 0;
+  static String _generateUniqueId() =>
+      '${DateTime.now().microsecondsSinceEpoch}_${_idCounter++}';
+
+  /// 🚀 FIX 4: Cached active layer index. Invalidated on layer mutations.
+  int? _cachedActiveLayerIndex;
 
   /// Spatial Index for optimized viewport queries.
   final SpatialIndexManager _spatialIndex = SpatialIndexManager();
@@ -100,6 +114,7 @@ class LayerController extends FlueraLayerController {
   @override
   void notifyListeners() {
     _invalidateLayersCache();
+    _cachedActiveLayerIndex = null;
     _cachedVisibleShapes = null;
     super.notifyListeners();
   }
@@ -167,19 +182,21 @@ class LayerController extends FlueraLayerController {
 
   @override
   CanvasLayer? get activeLayer {
-    if (_activeLayerId == null) return null;
-    try {
-      return _layers.firstWhere((l) => l.id == _activeLayerId);
-    } catch (_) {
-      return null;
-    }
+    final idx = activeLayerIndex;
+    return idx == -1 ? null : _layers[idx];
   }
 
   @override
   String? get activeLayerId => _activeLayerId;
 
   @override
-  int get activeLayerIndex => _layers.indexWhere((l) => l.id == _activeLayerId);
+  int get activeLayerIndex {
+    if (_activeLayerId == null) return -1;
+    if (_cachedActiveLayerIndex != null) return _cachedActiveLayerIndex!;
+    final idx = _layers.indexWhere((l) => l.id == _activeLayerId);
+    _cachedActiveLayerIndex = idx;
+    return idx;
+  }
 
   @override
   SpatialIndexManager get spatialIndex {
@@ -221,10 +238,7 @@ class LayerController extends FlueraLayerController {
   // ==========================================================================
 
   void _createDefaultLayer() {
-    final layer = CanvasLayer(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Layer 1',
-    );
+    final layer = CanvasLayer(id: _generateUniqueId(), name: 'Layer 1');
     _layers.add(layer);
     _activeLayerId = layer.id;
   }
@@ -233,7 +247,7 @@ class LayerController extends FlueraLayerController {
   void addLayer({String? name}) {
     final newLayerNumber = _layers.length + 1;
     final layer = CanvasLayer(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: _generateUniqueId(),
       name: name ?? 'Layer $newLayerNumber',
     );
     _layers.add(layer);
@@ -254,7 +268,7 @@ class LayerController extends FlueraLayerController {
     if (index == -1) return;
 
     final source = _layers[index];
-    final newId = DateTime.now().millisecondsSinceEpoch.toString();
+    final newId = _generateUniqueId();
     final copy = source.copyWith(id: newId, name: '${source.name} (Copy)');
 
     _layers.insert(index + 1, copy);
@@ -539,6 +553,24 @@ class LayerController extends FlueraLayerController {
   }
 
   @override
+  void addAdjustmentLayer(String id, AdjustmentStack stack) {
+    _addAdjustmentLayerImpl(id, stack);
+    notifyListeners();
+  }
+
+  @override
+  void removeAdjustmentLayer(String adjustmentId) {
+    _removeAdjustmentLayerImpl(adjustmentId);
+    notifyListeners();
+  }
+
+  @override
+  void updateAdjustmentLayer(String adjustmentId, AdjustmentStack newStack) {
+    _updateAdjustmentLayerImpl(adjustmentId, newStack);
+    notifyListeners();
+  }
+
+  @override
   void clearActiveLayer() {
     _clearActiveLayerImpl();
     notifyListeners();
@@ -663,16 +695,13 @@ class LayerController extends FlueraLayerController {
       // Skip if they're the same instance (no copyWith happened)
       if (identical(oldLayer.node, newLayer.node)) continue;
 
-      // Collect extra children (anything not in strokes/shapes/texts/images)
-      final standardIds = <String>{
-        ...oldLayer.strokes.map((s) => s.id),
-        ...oldLayer.shapes.map((s) => s.id),
-        ...oldLayer.texts.map((t) => t.id),
-        ...oldLayer.images.map((i) => i.id),
-      };
+      // 🚀 Generic: transfer ALL non-standard children by type check.
+      // No need to build a set of standard IDs — just check the type.
       for (final child in oldLayer.node.children) {
-        if (!standardIds.contains(child.id)) {
-          // This is an extra child — move it to the new layer
+        if (child is! StrokeNode &&
+            child is! ShapeNode &&
+            child is! TextNode &&
+            child is! ImageNode) {
           newLayer.node.add(child);
         }
       }

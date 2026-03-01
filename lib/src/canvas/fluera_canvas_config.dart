@@ -175,13 +175,6 @@ class FlueraCanvasConfig {
   onShowExportDialog;
 
   // ===========================================================================
-  // MULTIVIEW
-  // ===========================================================================
-
-  /// Open canvas in multiview/popup
-  final void Function(BuildContext context, String canvasId)? onOpenMultiview;
-
-  // ===========================================================================
   // SETTINGS
   // ===========================================================================
 
@@ -246,7 +239,6 @@ class FlueraCanvasConfig {
     this.realtimeAdapter,
     this.onShareCanvas,
     this.onShowExportDialog,
-    this.onOpenMultiview,
     this.onShowSettings,
     this.onPauseSyncCoordinator,
     this.onPauseAppListeners,

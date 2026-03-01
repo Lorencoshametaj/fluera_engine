@@ -415,11 +415,18 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
       // ... (all PHASE2 export/multi-page/audio/share stubs remain commented)
 
       // Layer Panel (slides from left) — overlay above everything
-      LayerPanel(
-        key: _layerPanelKey,
-        controller: _layerController,
-        isDark: false,
-        isDrawingNotifier: _isDrawingNotifier,
+      Positioned(
+        left: 0,
+        top: 0,
+        bottom: 0,
+        child: Center(
+          child: LayerPanel(
+            key: _layerPanelKey,
+            controller: _layerController,
+            isDark: false,
+            isDrawingNotifier: _isDrawingNotifier,
+          ),
+        ),
       ),
 
       // PHASE2:             // 🎧 Audio Player Banner

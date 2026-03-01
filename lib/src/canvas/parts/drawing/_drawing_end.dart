@@ -103,11 +103,26 @@ extension on _FlueraCanvasScreenState {
     // 📄 PDF DOCUMENT DRAG: End whole-document drag
     if (_pdfPageDragController.isDraggingDocument) {
       final parentDoc = _pdfPageDragController.parentDocument;
+      // 🚀 Translate annotation strokes ONCE by total drag delta
+      if (parentDoc != null) {
+        final totalDelta =
+            parentDoc.documentModel.gridOrigin -
+            _pdfPageDragController.dragStartDocOrigin;
+        if (totalDelta != Offset.zero) {
+          final ids = _pdfPageDragController.allDocumentAnnotationIds;
+          if (ids.isNotEmpty) {
+            _translateAnnotationStrokes(ids.toSet(), totalDelta);
+          }
+        }
+      }
       final activeLayer = _layerController.layers.firstWhere(
         (l) => l.id == _layerController.activeLayerId,
         orElse: () => _layerController.layers.first,
       );
       _pdfPageDragController.endDocumentDrag(layerNode: activeLayer.node);
+      // 🚀 Clear lightweight drag mode + full invalidation
+      DrawingPainter.isDraggingPdf = false;
+      DrawingPainter.draggedPageRects = const [];
       DrawingPainter.invalidateAllTiles();
       _pdfLayoutVersion++;
       _isDrawingNotifier.value = false;
@@ -128,13 +143,24 @@ extension on _FlueraCanvasScreenState {
     }
 
     // 📄 PDF PAGE DRAG: End drag and save position
-    // Strokes were already translated in real-time during _onDrawUpdate,
-    // so we only need to finalize the page position and invalidate caches.
+    // 🚀 Strokes are translated ONCE here by total delta (not per frame).
     if (_pdfPageDragController.isDragging) {
       final draggedPage = _pdfPageDragController.draggingPage;
+      // Translate annotation strokes by total drag delta
+      if (draggedPage != null) {
+        final totalDelta =
+            draggedPage.position - _pdfPageDragController.dragStartPosition;
+        if (totalDelta != Offset.zero) {
+          final ids = _pdfPageDragController.linkedAnnotationIds;
+          if (ids.isNotEmpty) {
+            _translateAnnotationStrokes(ids.toSet(), totalDelta);
+          }
+        }
+      }
       _pdfPageDragController.endDrag();
-      // Invalidate tile cache to prevent ghost copies (stale tiles showing
-      // the page at its pre-drag position after re-lock).
+      // 🚀 Clear lightweight drag mode + full invalidation
+      DrawingPainter.isDraggingPdf = false;
+      DrawingPainter.draggedPageRects = const [];
       DrawingPainter.invalidateAllTiles();
       _pdfLayoutVersion++;
       _isDrawingNotifier.value = false;
@@ -823,6 +849,7 @@ extension on _FlueraCanvasScreenState {
     if (annotationIds.isEmpty || delta == Offset.zero) return;
 
     for (final layer in _layerController.layers) {
+      bool modified = false;
       for (final strokeNode in layer.node.strokeNodes) {
         if (annotationIds.contains(strokeNode.stroke.id)) {
           final old = strokeNode.stroke;
@@ -833,9 +860,16 @@ extension on _FlueraCanvasScreenState {
               }).toList();
           // Replace stroke data on the node (new ProStroke = fresh bounds cache)
           strokeNode.stroke = old.copyWith(points: translatedPoints);
+          modified = true;
         }
       }
+      // 🔑 Invalidate cached stroke lists so rendering picks up new positions
+      if (modified) {
+        layer.node.invalidateTypedCaches();
+      }
     }
+    // Bump version so caches (stroke cache, annotation cache) rebuild
+    _layerController.sceneGraph.bumpVersion();
   }
 
   // ===========================================================================

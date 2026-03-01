@@ -130,73 +130,36 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-    // 📄 PDF DOCUMENT DRAG: Move entire document block + linked strokes
+    // 📄 PDF DOCUMENT DRAG: Move entire document block
+    // 🚀 LIGHTWEIGHT MODE: only update page positions + set drag rects.
+    // Strokes are translated once at drag end, not per frame.
     if (_pdfPageDragController.isDraggingDocument) {
       if (_pdfPageDragController.updateDocumentDrag(canvasPosition)) {
-        // ✅ Real-time stroke translation: move ALL linked annotations across
-        // every page in the document so strokes follow the drag.
-        final delta = _pdfPageDragController.lastDelta;
-        if (delta != Offset.zero) {
-          final ids = _pdfPageDragController.allDocumentAnnotationIds;
-          if (ids.isNotEmpty) {
-            final idSet = Set<String>.of(ids);
-            for (final layer in _layerController.layers) {
-              for (final strokeNode in layer.node.strokeNodes) {
-                if (idSet.contains(strokeNode.stroke.id)) {
-                  final old = strokeNode.stroke;
-                  final translatedPoints =
-                      old.points.map((p) {
-                        return p.copyWith(position: p.position + delta);
-                      }).toList();
-                  strokeNode.stroke = old.copyWith(points: translatedPoints);
-                }
-              }
-              // 🔑 Invalidate cached strokes so annotation map reads fresh data
-              layer.node.invalidateTypedCaches();
-            }
-            _layerController.sceneGraph.bumpVersion();
-            DrawingPainter.invalidateAllTiles();
-          }
+        // Set page rects for lightweight rendering
+        final doc = _pdfPageDragController.parentDocument;
+        if (doc != null) {
+          DrawingPainter.draggedPageRects =
+              doc.pageNodes.map((p) => doc.pageRectFor(p)).toList();
         }
         _pdfLayoutVersion++;
-        _canvasController
-            .markNeedsPaint(); // 🚀 Force painter repaint for real-time drag
+        _canvasController.markNeedsPaint();
         setState(() {});
       }
       return;
     }
 
-    // 📄 PDF PAGE DRAG: Update drag position + translate linked strokes
+    // 📄 PDF PAGE DRAG: Update drag position
+    // 🚀 LIGHTWEIGHT MODE: only update page position + set drag rect.
     if (_pdfPageDragController.isDragging) {
       if (_pdfPageDragController.updateDrag(canvasPosition)) {
-        // ✅ Real-time stroke translation: move linked annotations by the
-        // incremental delta so they follow the page during drag.
-        final delta = _pdfPageDragController.lastDelta;
-        if (delta != Offset.zero) {
-          final ids = _pdfPageDragController.linkedAnnotationIds;
-          if (ids.isNotEmpty) {
-            final idSet = Set<String>.of(ids);
-            for (final layer in _layerController.layers) {
-              for (final strokeNode in layer.node.strokeNodes) {
-                if (idSet.contains(strokeNode.stroke.id)) {
-                  final old = strokeNode.stroke;
-                  final translatedPoints =
-                      old.points.map((p) {
-                        return p.copyWith(position: p.position + delta);
-                      }).toList();
-                  strokeNode.stroke = old.copyWith(points: translatedPoints);
-                }
-              }
-              // 🔑 Invalidate cached strokes so annotation map reads fresh data
-              layer.node.invalidateTypedCaches();
-            }
-            _layerController.sceneGraph.bumpVersion();
-            DrawingPainter.invalidateAllTiles();
-          }
+        // Set page rect for lightweight rendering
+        final page = _pdfPageDragController.draggingPage;
+        final doc = _pdfPageDragController.parentDocument;
+        if (page != null && doc != null) {
+          DrawingPainter.draggedPageRects = [doc.pageRectFor(page)];
         }
         _pdfLayoutVersion++;
-        _canvasController
-            .markNeedsPaint(); // 🚀 Force painter repaint for real-time drag
+        _canvasController.markNeedsPaint();
         setState(() {});
       }
       return;

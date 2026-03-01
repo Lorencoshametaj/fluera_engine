@@ -94,11 +94,15 @@ import '../collaboration/widgets/canvas_presence_overlay.dart';
 import '../collaboration/fluera_realtime_adapter.dart';
 import '../collaboration/conflict_resolution.dart';
 import '../collaboration/widgets/conflict_resolution_dialog.dart';
+import '../multiview/multiview_orchestrator.dart';
+import '../config/advanced_split_layout.dart';
+import '../config/split_panel_content.dart';
 import './overlays/canvas_viewport_overlay.dart';
 import '../time_travel/services/time_travel_recorder.dart';
 import '../services/phase2_service_stubs.dart'; // Stub implementations for Phase 2 services
 import '../services/canvas_performance_monitor.dart'; // 🏎️ Frame time overlay
 import '../time_travel/services/time_travel_playback_engine.dart';
+import '../time_travel/widgets/time_travel_timeline_widget.dart';
 import '../history/branching_manager.dart';
 import '../history/widgets/branch_explorer_sheet.dart';
 
@@ -258,7 +262,7 @@ part './parts/_image_features.dart';
 part './parts/_pdf_features.dart';
 part './parts/_voice_recording.dart';
 part './parts/_cloud_sync.dart';
-part './parts/_phase2_stubs.dart';
+part './parts/_pending_features.dart';
 part './parts/_design_variables.dart';
 part './parts/_latex_handler.dart';
 part './parts/_latex_recognition_handler.dart';
@@ -363,10 +367,10 @@ class FlueraCanvasScreen extends StatefulWidget {
   /// 🖼️ Background image URL (for image editing mode)
   final String? backgroundImageUrl;
 
-  /// 🎯 Nascondi toolbar (per uso nel multiview)
+  /// 🎯 Nascondi toolbar
   final bool hideToolbar;
 
-  /// 🖼️ Callback per richiedere aggiunta immagine dall'esterno (multiview)
+  /// 🖼️ Callback per richiedere aggiunta immagine dall'esterno
   final VoidCallback? onAddImageRequested;
 
   /// 🎤 Controller playback opzionale (per split view con sync)
@@ -918,6 +922,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   );
   final ValueNotifier<double> _recordingAmplitudeNotifier = ValueNotifier(0.0);
 
+  /// 🚀 Toolbar rebuild trigger: notifies ListenableBuilder when recording
+  /// starts/stops so the cached toolbar host picks up isRecordingActive.
+  final ValueNotifier<bool> _isRecordingNotifier = ValueNotifier(false);
+
   StreamSubscription<Duration>? _recordingDurationSubscription;
   List<String> _savedRecordings = [];
   bool _recordingWithStrokes = false;
@@ -1464,6 +1472,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _currentEditingStrokeNotifier.dispose();
     _recordingDurationNotifier.dispose();
     _recordingAmplitudeNotifier.dispose();
+    _isRecordingNotifier.dispose();
     // 🌊 LIQUID: Detach physics ticker before disposal
     _canvasController.detachTicker();
     _canvasController.dispose();

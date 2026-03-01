@@ -63,6 +63,7 @@ flutter:
     - shaders/spray_paint.frag
     - shaders/neon_glow.frag
     - shaders/ink_wash.frag
+    - shaders/adjustment.frag
   assets:
     - assets/textures/
     - assets/textures/images/

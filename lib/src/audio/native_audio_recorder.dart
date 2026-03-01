@@ -153,39 +153,60 @@ class NativeAudioRecorder {
 
   /// Stop recording and return the file path.
   ///
-  /// If the last config has any post-processing enabled, it is
-  /// automatically applied before returning the path.
+  /// Returns the raw (unprocessed) audio path immediately so the UI
+  /// can show the save dialog without waiting for post-processing.
+  /// Call [applyPendingPostProcessing] afterwards to apply RNNoise
+  /// denoising and other DSP if configured.
   ///
   /// Returns `null` if recording was not active or failed.
   Future<String?> stop() async {
     await _ensureInitialized();
     try {
-      var path = await _channel.stopRecording();
+      final path = await _channel.stopRecording();
       _currentState = AudioRecorderState.stopped;
 
-      // 🎛️ Auto-apply audio processing pipeline if configured
       debugPrint(
         '🎛️ stop() check: path=$path _lastConfig=${_lastConfig != null} needsPost=${_lastConfig?.needsPostProcessing}',
       );
-      if (path != null &&
-          _lastConfig != null &&
-          _lastConfig!.needsPostProcessing) {
-        debugPrint('🎛️ Applying audio processing pipeline...');
-        path = await _channel.applyAudioProcessing(
-          filePath: path,
-          sampleRate: _lastConfig!.sampleRate,
-          highPassFilterHz: _lastConfig!.highPassFilterHz,
-          compressor: _lastConfig!.compressor,
-          normalization: _lastConfig!.normalization,
-        );
-        debugPrint('🎛️ Audio processing complete');
-      }
-
-      debugPrint('⏹️ Recording stopped: $path');
+      debugPrint('⏹️ Recording stopped (raw): $path');
       return path;
     } catch (e) {
       debugPrint('❌ Failed to stop recording: $e');
       rethrow;
+    }
+  }
+
+  /// Whether the last recording needs post-processing (RNNoise, HPF, etc.).
+  bool get hasPendingPostProcessing =>
+      _lastConfig != null && _lastConfig!.needsPostProcessing;
+
+  /// Apply audio post-processing (RNNoise denoising, high-pass filter,
+  /// compressor, normalization) to a previously stopped recording.
+  ///
+  /// Call this AFTER the user confirms save in the dialog to avoid
+  /// blocking the UI thread for several seconds.
+  ///
+  /// Returns the processed file path, or [rawPath] unchanged if no
+  /// processing is needed.
+  Future<String?> applyPendingPostProcessing(String rawPath) async {
+    if (_lastConfig == null || !_lastConfig!.needsPostProcessing) {
+      return rawPath;
+    }
+    try {
+      debugPrint('🎛️ Applying audio processing pipeline...');
+      final processed = await _channel.applyAudioProcessing(
+        filePath: rawPath,
+        sampleRate: _lastConfig!.sampleRate,
+        highPassFilterHz: _lastConfig!.highPassFilterHz,
+        compressor: _lastConfig!.compressor,
+        normalization: _lastConfig!.normalization,
+      );
+      debugPrint('🎛️ Audio processing complete');
+      return processed;
+    } catch (e) {
+      debugPrint('❌ Audio post-processing failed: $e');
+      // Return raw path as fallback — better than losing the recording
+      return rawPath;
     }
   }
 

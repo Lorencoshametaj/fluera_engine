@@ -160,10 +160,6 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback onRecordingPressed; // � Callback registrazione
   final VoidCallback
   onViewRecordingsPressed; // 🎧 Callback visualizza registrazioni
-  final VoidCallback?
-  onMultiViewPressed; // 📋 Callback pulsante multiview (opzionale)
-  final ValueChanged<int>?
-  onMultiViewModeSelected; // 📋 Callback selezione mode specifica
   final bool forceLeftAlign; // 🎯 Forza allineamento a sinistra
   // 📐 Layout callbacks
   final VoidCallback? onCanvasLayoutPressed; // Canvas solo
@@ -369,8 +365,6 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.onRecordingPressed,
     required this.onViewRecordingsPressed,
 
-    this.onMultiViewPressed,
-    this.onMultiViewModeSelected,
     this.forceLeftAlign = false,
     this.onCanvasLayoutPressed,
     this.onHSplitLayoutPressed,

@@ -419,11 +419,10 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
                   if (widget.onNewBranch != null)
                     IconButton(
                       onPressed: widget.onNewBranch,
-                      icon: Image.asset(
-                        'assets/looponia_images/looponia_git.png',
-                        width: 18,
-                        height: 18,
-                        color: const Color(0xFF7C4DFF),
+                      icon: const Icon(
+                        Icons.alt_route_rounded,
+                        size: 18,
+                        color: Color(0xFF7C4DFF),
                       ),
                       iconSize: 18,
                       tooltip: 'New Branch from here',

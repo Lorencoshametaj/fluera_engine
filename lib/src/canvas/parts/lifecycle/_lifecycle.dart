@@ -5,9 +5,18 @@ extension on _FlueraCanvasScreenState {
   /// ✨ Initialize GPU shader brushes
   Future<void> _initProShaders() async {
     final drawingModule = EngineScope.current.drawingModule;
-    if (drawingModule != null) {
-      await drawingModule.shaderBrushService.initialize();
-    }
+    final adjustmentService =
+        EngineScope
+            .current
+            .renderCacheScope
+            .delegateRenderer
+            .adjustmentShaderService;
+
+    await Future.wait([
+      if (drawingModule != null) drawingModule.shaderBrushService.initialize(),
+      adjustmentService.initialize(),
+    ]);
+
     // 🎯 dart:gpu low-level render pipeline (texture overlay PoC)
     GpuTextureService.instance.initialize();
   }

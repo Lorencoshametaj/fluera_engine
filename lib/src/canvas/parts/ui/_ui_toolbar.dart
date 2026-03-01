@@ -3,9 +3,9 @@ part of '../../fluera_canvas_screen.dart';
 /// 🛠️ Toolbar — extracted from _FlueraCanvasScreenState._buildImpl
 extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
   /// Builds the professional canvas toolbar.
-  /// Hidden during multiview, multi-page edit, time travel, and placement mode.
+  /// Hidden during multi-page edit, time travel, and placement mode.
   Widget _buildToolbar(BuildContext context) {
-    // Professional Toolbar (nascosta nel multiview, multi-page edit, time travel, e placement mode)
+    // Professional Toolbar (nascosta nel multi-page edit, time travel, e placement mode)
     if (widget.hideToolbar ||
         _isMultiPageEditMode ||
         _isTimeTravelMode ||
@@ -14,7 +14,11 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
     }
 
     return ListenableBuilder(
-      listenable: Listenable.merge([_undoRedoVersion, _toolController]),
+      listenable: Listenable.merge([
+        _undoRedoVersion,
+        _toolController,
+        _isRecordingNotifier,
+      ]),
       builder: (context, child) {
         final activeLayer = _layerController.activeLayer;
         final elementCount = activeLayer?.elementCount ?? 0;
@@ -455,27 +459,9 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   ? _openBranchExplorer
                   : null,
           activeBranchName: _activeBranchName,
-          onMultiViewPressed: null, // ❌ Rimosso completamente
           onAdvancedSplitPressed: () {
             // 🚀 Launch new advanced split system
             _launchAdvancedSplitView();
-          },
-          onMultiViewModeSelected: (mode) {
-            // 🔄 Launch multiview with specific mode
-            switch (mode) {
-              case 1:
-                debugPrint("Multiview not available in SDK");
-                break;
-              case 2:
-                debugPrint("Multiview not available in SDK");
-                break;
-              case 3:
-                debugPrint("Multiview not available in SDK");
-                break;
-              case 4:
-                debugPrint("Multiview not available in SDK");
-                break;
-            }
           },
           onPenTypeChanged: (type) {
             _toolController.setPenType(type);

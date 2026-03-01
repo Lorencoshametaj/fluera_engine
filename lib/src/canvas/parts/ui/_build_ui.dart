@@ -343,6 +343,42 @@ extension on _FlueraCanvasScreenState {
               // 🎬 Loading overlay (splash screen during initialization)
               _buildLoadingOverlay(),
 
+              // ⏱️ Time Travel overlay (timeline + controls)
+              if (_isTimeTravelMode && _timeTravelEngine != null)
+                TimeTravelTimelineWidget(
+                  engine: _timeTravelEngine!,
+                  onExit: _exitTimeTravelMode,
+                  onExportRequested: _exportTimelapse,
+                  onNewBranch: _createBranchFromCurrentPosition,
+                  onBranchExplorer: _openBranchExplorer,
+                  onRecoverRequested: () {
+                    // Recover current state elements into the present
+                    final layers = _timeTravelEngine!.currentLayers;
+                    final strokes =
+                        layers
+                            .where((l) => l.isVisible)
+                            .expand((l) => l.strokes)
+                            .toList();
+                    final shapes =
+                        layers
+                            .where((l) => l.isVisible)
+                            .expand((l) => l.shapes)
+                            .toList();
+                    final images =
+                        layers
+                            .where((l) => l.isVisible)
+                            .expand((l) => l.images)
+                            .toList();
+                    final texts =
+                        layers
+                            .where((l) => l.isVisible)
+                            .expand((l) => l.texts)
+                            .toList();
+                    _recoverElementsFromPast(strokes, shapes, images, texts);
+                  },
+                  activeBranchName: _activeBranchName,
+                ),
+
               // 🧠 Conscious Architecture: debug overlay (debug builds only)
               // if (kDebugMode) const ConsciousDebugOverlay(),
 

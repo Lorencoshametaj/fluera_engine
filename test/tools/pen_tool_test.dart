@@ -16,12 +16,17 @@ import 'package:fluera_engine/src/core/models/image_element.dart';
 import 'package:fluera_engine/src/core/models/canvas_layer.dart';
 import 'package:fluera_engine/src/rendering/optimization/spatial_index.dart';
 import 'package:fluera_engine/src/core/scene_graph/scene_graph.dart';
+import 'package:fluera_engine/src/core/editing/adjustment_layer.dart';
 
 /// Helper: create a PenTool and load anchors into it via editPathNode.
 PenTool _toolWithAnchors(List<AnchorPoint> anchors) {
   final tool = PenTool();
   final path = AnchorPoint.toVectorPath(anchors);
-  final node = PathNode(id: NodeId('test-helper'), path: path, strokeWidth: 2.0);
+  final node = PathNode(
+    id: NodeId('test-helper'),
+    path: path,
+    strokeWidth: 2.0,
+  );
   tool.editPathNode(node);
   return tool;
 }
@@ -453,7 +458,9 @@ void main() {
         AnchorPoint(position: const Offset(0, 0)),
         AnchorPoint(position: const Offset(100, 0)),
       ]);
-      tool.editPathNode(PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0));
+      tool.editPathNode(
+        PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0),
+      );
 
       tool.splitPathAtSegment(0, _mockContext());
 
@@ -471,7 +478,9 @@ void main() {
         AnchorPoint(position: const Offset(100, 0)),
         AnchorPoint(position: const Offset(200, 0)),
       ]);
-      tool.editPathNode(PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0));
+      tool.editPathNode(
+        PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0),
+      );
 
       // Delete segment between anchor 0 and 1.
       tool.splitPathAtSegment(0, _mockContext());
@@ -494,7 +503,9 @@ void main() {
         AnchorPoint(position: const Offset(200, 0)),
         AnchorPoint(position: const Offset(300, 0)),
       ]);
-      tool.editPathNode(PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0));
+      tool.editPathNode(
+        PathNode(id: NodeId('test'), path: path, strokeWidth: 2.0),
+      );
 
       // Delete segment between anchor 1 and 2.
       tool.splitPathAtSegment(1, _mockContext());
@@ -677,6 +688,13 @@ class _StubLayerController extends FlueraLayerController {
   void addImage(ImageElement i) {}
   @override
   void removeImage(String id) {}
+
+  @override
+  void addAdjustmentLayer(String id, AdjustmentStack stack) {}
+  @override
+  void removeAdjustmentLayer(String adjustmentId) {}
+  @override
+  void updateAdjustmentLayer(String adjustmentId, AdjustmentStack newStack) {}
 
   @override
   void undoLastElement() {}

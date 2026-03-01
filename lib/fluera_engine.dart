@@ -57,6 +57,7 @@ export 'src/core/nodes/boolean_group_node.dart';
 export 'src/core/nodes/pdf_page_node.dart';
 export 'src/core/nodes/pdf_document_node.dart';
 export 'src/core/nodes/section_node.dart';
+export 'src/core/nodes/adjustment_layer_node.dart';
 export 'src/core/models/pdf_layout_preset.dart';
 export 'src/canvas/toolbar/pdf_contextual_toolbar.dart';
 
@@ -275,6 +276,7 @@ export 'src/rendering/canvas/pdf_memory_budget.dart';
 
 // Shaders
 export 'src/rendering/shaders/shader_brush_service.dart';
+export 'src/rendering/shaders/adjustment_shader_service.dart';
 export 'src/rendering/shaders/shader_pencil_renderer.dart';
 export 'src/rendering/shaders/shader_fountain_pen_renderer.dart';
 export 'src/rendering/shaders/shader_stamp_renderer.dart';
@@ -367,6 +369,7 @@ export 'src/layers/fluera_layer_controller.dart';
 export 'src/layers/adapters/canvas_adapter.dart';
 export 'src/layers/adapters/infinite_canvas_adapter.dart';
 export 'src/layers/widgets/layer_panel.dart';
+export 'src/layers/widgets/adjustment_panel_dialog.dart';
 
 // ────────────────────────── COLLABORATION ──────────────────────────
 export 'src/collaboration/widgets/canvas_presence_overlay.dart';

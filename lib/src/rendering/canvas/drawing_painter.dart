@@ -151,6 +151,16 @@ class DrawingPainter extends CustomPainter {
   /// Key: pageIndex → cached (annotationCount, Picture).
   static final Map<int, _AnnotCacheEntry> _annotationPictureCache = {};
 
+  /// 🚀 PERF: Lightweight PDF drag mode.
+  /// When true, paint() skips ALL heavy rendering (strokes, PDF pages,
+  /// annotations) and only draws simple rectangles for the dragged pages.
+  /// Set by the drag controller at drag start, cleared at drag end.
+  static bool isDraggingPdf = false;
+
+  /// Rectangles of the pages being dragged — drawn as lightweight
+  /// placeholders during drag. Set per frame by the drag update handler.
+  static List<Rect> draggedPageRects = const [];
+
   // 🌲 Cached materialized strokes (lazily computed once per paint frame)
   List<ProStroke>? _materializedCache;
   int _materializedVersion = -1;
@@ -231,7 +241,9 @@ class DrawingPainter extends CustomPainter {
 
     // ✂️ Collect PDF annotation IDs so they are SKIPPED from the global
     // stroke pass and only drawn clipped inside _paintPdfPage.
+    final _diagSw = Stopwatch()..start();
     _collectPdfAnnotationIds();
+    final collectUs = _diagSw.elapsedMicroseconds;
 
     // ✂️ Applica clipping se abilitato (per editing immagini)
     if (enableClipping) {
@@ -261,6 +273,32 @@ class DrawingPainter extends CustomPainter {
       rotation: controller?.rotation ?? 0.0,
     );
 
+    // 🚀 LIGHTWEIGHT PDF DRAG: skip ALL heavy rendering, just replay
+    // the existing stroke cache and draw simple page rectangles.
+    if (isDraggingPdf) {
+      // Replay cached strokes (O(1) drawPicture)
+      _strokeCache.drawCached(canvas);
+
+      // Draw lightweight page placeholders
+      final dragPaint =
+          Paint()
+            ..color = const Color(0x30000000)
+            ..style = PaintingStyle.fill;
+      final borderPaint =
+          Paint()
+            ..color = const Color(0xFF1976D2)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.0 / effectiveScale;
+      for (final rect in draggedPageRects) {
+        canvas.drawRect(rect, dragPaint);
+        canvas.drawRect(rect, borderPaint);
+      }
+
+      if (isViewportLevel) canvas.restore();
+      CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
+      return;
+    }
+
     // 🚀 TILE CACHING: active for canvases with many strokes
     final tileCachingThreshold =
         adaptiveConfig?.tileCachingStrokeThreshold ?? 50;
@@ -268,6 +306,7 @@ class DrawingPainter extends CustomPainter {
         (adaptiveConfig?.enableTileCaching ?? false) &&
         _effectiveStrokes.length > tileCachingThreshold;
 
+    _diagSw.reset();
     if (useTileCaching) {
       _paintWithTileCaching(canvas, viewport, effectiveScale);
     } else {
@@ -288,6 +327,7 @@ class DrawingPainter extends CustomPainter {
         _paintDirect(canvas, viewport);
       }
     }
+    final strokesUs = _diagSw.elapsedMicroseconds;
 
     // Draw the current shape in preview (not yet in scene graph)
     if (currentShape != null) {
@@ -295,13 +335,23 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 📄 Draw PDF documents
+    _diagSw.reset();
     _paintPdfDocuments(canvas, viewport);
+    final pdfUs = _diagSw.elapsedMicroseconds;
 
     // 📊 Draw Tabular (spreadsheet) nodes
     _paintTabularNodes(canvas, viewport);
 
     // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
     dirtyRegionTracker?.clearDirty();
+
+    // 🔍 DIAGNOSTIC
+    final totalUs = collectUs + strokesUs + pdfUs;
+    if (totalUs > 5000) {
+      debugPrint(
+        '🔍 PAINT: total=${totalUs ~/ 1000}ms  collect=${collectUs ~/ 1000}ms  strokes=${strokesUs ~/ 1000}ms  pdf=${pdfUs ~/ 1000}ms  ver=$_cachedSceneVersion  drag=$isDraggingPdf',
+      );
+    }
 
     // Clear per-frame skip set
     _pdfAnnotationIds = null;
@@ -555,8 +605,8 @@ class DrawingPainter extends CustomPainter {
 
     // Cache invalidation: scene graph version changed
     // 🚀 PERF: Do NOT invalidate _strokeCache here — the incremental
-    // path at line 606 handles new strokes efficiently (O(delta)).
-    // Only invalidate layer caches (for non-stroke visual changes).
+    // path handles new strokes efficiently (O(delta)). PDF pages are
+    // excluded from the cache via skipPdfNodes, so no ghost pages.
     if (_cachedSceneVersion != sceneGraph.version) {
       invalidateLayerCaches();
       _cachedSceneVersion = sceneGraph.version;
@@ -641,7 +691,10 @@ class DrawingPainter extends CustomPainter {
     if (canCache) {
       final recorder = ui.PictureRecorder();
       final recCanvas = Canvas(recorder);
+      // 🚀 Skip PDF pages — they're rendered separately in _paintPdfDocuments
+      _delegateRenderer.skipPdfNodes = true;
       _delegateRenderer.render(recCanvas, sceneGraph, fullViewport, scale: 1.0);
+      _delegateRenderer.skipPdfNodes = false;
       final picture = recorder.endRecording();
 
       // Draw the recorded picture on the live canvas
@@ -654,12 +707,14 @@ class DrawingPainter extends CustomPainter {
       // Can't cache (eraser preview active, dirty-clipped, or too few strokes)
       // — render directly without caching.
       final effectiveScale = controller?.scale ?? canvasScale;
+      _delegateRenderer.skipPdfNodes = true;
       _delegateRenderer.render(
         canvas,
         sceneGraph,
         fullViewport,
         scale: effectiveScale,
       );
+      _delegateRenderer.skipPdfNodes = false;
     }
 
     // Draw eraser previews on top (overlay, not part of scene graph render)
@@ -694,17 +749,13 @@ class DrawingPainter extends CustomPainter {
 
   /// Invalidate all per-layer caches (e.g. on undo or eraser).
   static void invalidateLayerCaches() {
-    // NOTE: _annotationPictureCache is NOT cleared here.
-    // The cache key includes sceneGraphVersion, so stale entries
-    // are never matched. Clearing here causes thrashing when
-    // annotations are linked rapidly (each link bumps version).
-    // Old entries are lazily evicted when cache exceeds 20 entries.
-    if (_annotationPictureCache.length > 20) {
-      for (final p in _annotationPictureCache.values) {
-        p.picture.dispose();
-      }
-      _annotationPictureCache.clear();
+    // 🚀 Always clear annotation cache — annotations may have moved
+    // (e.g. PDF page drag translates stroke coordinates; count stays
+    // the same but positions change → stale cache = wrong rendering).
+    for (final p in _annotationPictureCache.values) {
+      p.picture.dispose();
     }
+    _annotationPictureCache.clear();
 
     if (EngineScope.hasScope) {
       EngineScope.current.renderCacheScope.invalidateLayerCaches();
@@ -715,6 +766,16 @@ class DrawingPainter extends CustomPainter {
       _fallbackLayerCaches.clear();
       _fallbackLayerCacheVersion = -1;
     }
+  }
+
+  /// 🚀 PERF: Invalidate ONLY the annotation Picture cache.
+  /// Used during PDF page/document drag — annotation positions change
+  /// but non-annotation strokes don't move, so stroke cache is preserved.
+  static void invalidateAnnotationCaches() {
+    for (final p in _annotationPictureCache.values) {
+      p.picture.dispose();
+    }
+    _annotationPictureCache.clear();
   }
 
   void _paintPerLayer(Canvas canvas, Rect viewport) {

@@ -299,6 +299,13 @@ class UndoRedoManager extends ChangeNotifier {
           layerMap[delta.layerId] = layer.copyWith(images: updatedImages);
         }
         break;
+
+      case CanvasDeltaType.adjustmentAdded:
+      case CanvasDeltaType.adjustmentRemoved:
+      case CanvasDeltaType.adjustmentUpdated:
+        // Adjustments live in the scene graph (AdjustmentLayerNode),
+        // not in the CanvasLayer model. No CanvasLayer mutation needed.
+        break;
     }
 
     return layerMap.values.toList();

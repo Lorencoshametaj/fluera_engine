@@ -4,8 +4,11 @@ import './shape_type.dart';
 import './digital_text_element.dart';
 import './image_element.dart';
 import '../nodes/layer_node.dart';
+import '../nodes/stroke_node.dart';
+import '../nodes/shape_node.dart';
+import '../nodes/text_node.dart';
+import '../nodes/image_node.dart';
 import '../scene_graph/node_id.dart';
-import '../nodes/pdf_document_node.dart';
 import '../scene_graph/canvas_node_factory.dart';
 
 /// Canvas layer — thin adapter around [LayerNode].
@@ -125,11 +128,15 @@ class CanvasLayer {
       opacity: opacity ?? this.opacity,
       blendMode: blendMode ?? this.blendMode,
     );
-    // 🔑 Transfer non-element children (PdfDocumentNode, etc.) that were
-    // added directly to the node via node.add(). Without this, copyWith
-    // would discard them — causing PDFs to vanish when adding images/strokes.
+    // 🔑 Transfer non-element children (PdfDocumentNode, TabularNode, etc.)
+    // that were added directly to the node via node.add(). Without this,
+    // copyWith would discard them — causing PDFs/tables to vanish.
+    // Generic: transfers ANY non-standard child, not just PdfDocumentNode.
     for (final child in node.children) {
-      if (child is PdfDocumentNode) {
+      if (child is! StrokeNode &&
+          child is! ShapeNode &&
+          child is! TextNode &&
+          child is! ImageNode) {
         copy.node.add(child);
       }
     }

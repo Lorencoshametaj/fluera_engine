@@ -21,6 +21,7 @@ import '../nodes/latex_node.dart';
 import '../nodes/tabular_node.dart';
 import '../nodes/material_zone_node.dart';
 import '../nodes/section_node.dart';
+import '../nodes/adjustment_layer_node.dart';
 import '../engine_scope.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
@@ -140,6 +141,9 @@ class CanvasNodeFactory {
           );
         }
         return section;
+
+      case 'adjustmentLayer':
+        return AdjustmentLayerNode.fromJson(json);
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

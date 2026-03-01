@@ -611,7 +611,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     );
   }
 
-  /// 🎤 SYNCHRONIZED PLAYBACK OVERLAY (Locale — Split View / Multiview)
+  /// 🎤 SYNCHRONIZED PLAYBACK OVERLAY (Local — Split View)
   Widget _buildLocalPlaybackOverlay(BuildContext context) {
     return ListenableBuilder(
       listenable: _canvasController,

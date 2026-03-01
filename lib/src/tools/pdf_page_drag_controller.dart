@@ -72,11 +72,15 @@ class PdfPageDragController {
   List<String> get linkedAnnotationIds =>
       _draggingPage?.pageModel.annotations ?? const [];
 
-  /// All annotation IDs across every page in the dragging document.
+  /// All annotation IDs across grid-locked pages in the dragging document.
+  /// Excludes unlocked pages (customOffset != null) since they don't move
+  /// with the document drag.
   List<String> get allDocumentAnnotationIds {
     if (_parentDocument == null) return const [];
     final ids = <String>[];
     for (final page in _parentDocument!.pageNodes) {
+      // Skip unlocked pages — they stay at their absolute position
+      if (page.pageModel.customOffset != null) continue;
       ids.addAll(page.pageModel.annotations);
     }
     return ids;
@@ -237,6 +241,9 @@ class PdfPageDragController {
   /// Grid origin at drag start (for cancel/undo).
   Offset _docDragStartOrigin = Offset.zero;
 
+  /// Document grid origin at drag start (for computing total delta).
+  Offset get dragStartDocOrigin => _docDragStartOrigin;
+
   /// 🌊 Reflow controller for physics-based content displacement.
   ReflowController? reflowController;
 
@@ -303,19 +310,9 @@ class PdfPageDragController {
       gridOrigin: newOrigin,
     );
 
-    // 🔑 Translate customOffset for pages that have one. Without this,
-    // pages with customOffset (individually dragged) stay at their absolute
-    // position while the rest of the document moves.
-    if (_lastDelta != Offset.zero) {
-      for (final page in _parentDocument!.pageNodes) {
-        final co = page.pageModel.customOffset;
-        if (co != null) {
-          page.pageModel = page.pageModel.copyWith(
-            customOffset: co + _lastDelta,
-          );
-        }
-      }
-    }
+    // 🔑 Unlocked pages (with customOffset) stay at their absolute position.
+    // They were individually repositioned and should NOT follow the document drag.
+    // Only grid-locked pages (no customOffset) move with the gridOrigin.
 
     _parentDocument!.performGridLayout();
     _parentDocument!.invalidateBoundsCache();

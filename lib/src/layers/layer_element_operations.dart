@@ -216,11 +216,8 @@ extension _LayerElementOps on LayerController {
     final layer = activeLayer;
     if (layer == null || layer.isLocked) return;
 
-    final index = activeLayerIndex;
-    if (index == -1) return;
-
-    final updatedTexts = List<DigitalTextElement>.from(layer.texts)..add(text);
-    _layers[index] = layer.copyWith(texts: updatedTexts);
+    // O(1): directly add to the existing LayerNode (same pattern as addStroke)
+    layer.node.addText(text);
     _dirtyLayerIds.add(layer.id);
 
     if (_spatialIndex.isBuilt) {
@@ -229,6 +226,7 @@ extension _LayerElementOps on LayerController {
       _spatialIndexDirty = true;
     }
 
+    // Bump scene graph version — O(1), no full rebuild
     if (!_sceneGraphDirty) {
       _sceneGraph.bumpVersion();
     }
@@ -245,43 +243,45 @@ extension _LayerElementOps on LayerController {
   }
 
   void _removeTextImpl(String textId) {
-    final layer = activeLayer;
-    if (layer == null || layer.isLocked) return;
+    // 🚀 O(1) direct scene graph mutation — cross-layer search
+    bool removed = false;
+    for (int i = 0; i < _layers.length; i++) {
+      final layer = _layers[i];
+      if (layer.isLocked) continue;
 
-    final index = activeLayerIndex;
-    if (index == -1) return;
+      if (layer.node.removeTextById(textId)) {
+        if (enableDeltaTracking) {
+          _deltaTracker.recordTextRemoved(layer.id, textId);
+        }
+        _emitTT(CanvasDeltaType.textRemoved, layer.id, elementId: textId);
 
-    final updatedTexts = List<DigitalTextElement>.from(layer.texts)
-      ..removeWhere((t) => t.id == textId);
-
-    if (updatedTexts.length != layer.texts.length) {
-      if (enableDeltaTracking) {
-        _deltaTracker.recordTextRemoved(layer.id, textId);
+        _dirtyLayerIds.add(layer.id);
+        removed = true;
+        break;
       }
-      _emitTT(CanvasDeltaType.textRemoved, layer.id, elementId: textId);
+    }
 
-      _layers[index] = layer.copyWith(texts: updatedTexts);
-      _dirtyLayerIds.add(layer.id);
+    if (removed) {
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+      _bumpVersionOrDefer();
     }
   }
 
   void _updateTextImpl(DigitalTextElement updatedText) {
     for (int i = 0; i < _layers.length; i++) {
       final layer = _layers[i];
-      final index = layer.texts.indexWhere((t) => t.id == updatedText.id);
-      if (index != -1) {
-        final updatedTexts = List<DigitalTextElement>.from(layer.texts);
-        updatedTexts[index] = updatedText;
-        _layers[i] = layer.copyWith(texts: updatedTexts);
+      // 🚀 O(1) direct scene graph mutation
+      final previousText = layer.node.findTextNode(updatedText.id);
+      if (previousText != null) {
+        final prevData = previousText.textElement;
+        layer.node.updateText(updatedText);
         _dirtyLayerIds.add(layer.id);
 
         if (enableDeltaTracking) {
           _deltaTracker.recordTextUpdate(
             layer.id,
             updatedText,
-            previousText: layer.texts[index],
+            previousText: prevData,
           );
         }
         _emitTT(
@@ -292,7 +292,7 @@ extension _LayerElementOps on LayerController {
         );
 
         _spatialIndexDirty = true;
-        _invalidateSceneGraph();
+        _bumpVersionOrDefer();
         return;
       }
     }
@@ -306,15 +306,21 @@ extension _LayerElementOps on LayerController {
     final layer = activeLayer;
     if (layer == null || layer.isLocked) return;
 
-    final index = activeLayerIndex;
-    if (index == -1) return;
-
-    final updatedImages = List<ImageElement>.from(layer.images)..add(image);
-    _layers[index] = layer.copyWith(images: updatedImages);
+    // O(1): directly add to the existing LayerNode
+    layer.node.addImage(image);
     _dirtyLayerIds.add(layer.id);
 
-    _spatialIndexDirty = true;
-    _invalidateSceneGraph();
+    if (_spatialIndex.isBuilt) {
+      // TODO: _spatialIndex.addImage(image) when supported
+      _spatialIndexDirty = true;
+    } else {
+      _spatialIndexDirty = true;
+    }
+
+    // Bump scene graph version — O(1), no full rebuild
+    if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
+    }
 
     if (enableDeltaTracking) {
       _deltaTracker.recordImageAdded(layer.id, image);
@@ -333,16 +339,13 @@ extension _LayerElementOps on LayerController {
       final layer = _layers[i];
       if (layer.isLocked) continue;
 
-      final index = layer.images.indexWhere((img) => img.id == imageId);
-      if (index != -1) {
+      // 🚀 O(1) direct scene graph mutation (same pattern as _removeStrokeImpl)
+      if (layer.node.removeImageById(imageId)) {
         if (enableDeltaTracking) {
           _deltaTracker.recordImageRemoved(layer.id, imageId);
         }
         _emitTT(CanvasDeltaType.imageRemoved, layer.id, elementId: imageId);
 
-        final updatedImages = List<ImageElement>.from(layer.images)
-          ..removeAt(index);
-        _layers[i] = layer.copyWith(images: updatedImages);
         _dirtyLayerIds.add(layer.id);
         removed = true;
         break;
@@ -351,7 +354,7 @@ extension _LayerElementOps on LayerController {
 
     if (removed) {
       _spatialIndexDirty = true;
-      _invalidateSceneGraph();
+      _bumpVersionOrDefer();
     }
   }
 
@@ -359,11 +362,11 @@ extension _LayerElementOps on LayerController {
     bool found = false;
     for (int i = 0; i < _layers.length; i++) {
       final layer = _layers[i];
-      final index = layer.images.indexWhere((img) => img.id == updatedImage.id);
-      if (index != -1) {
-        final updatedImages = List<ImageElement>.from(layer.images);
-        updatedImages[index] = updatedImage;
-        _layers[i] = layer.copyWith(images: updatedImages);
+      // 🚀 O(1) direct scene graph mutation
+      final previousImage = layer.node.findImageNode(updatedImage.id);
+      if (previousImage != null) {
+        final prevData = previousImage.imageElement;
+        layer.node.updateImage(updatedImage);
         _dirtyLayerIds.add(layer.id);
         found = true;
 
@@ -371,7 +374,7 @@ extension _LayerElementOps on LayerController {
           _deltaTracker.recordImageUpdate(
             layer.id,
             updatedImage,
-            previousImage: layer.images[index],
+            previousImage: prevData,
           );
         }
         _emitTT(
@@ -382,19 +385,17 @@ extension _LayerElementOps on LayerController {
         );
 
         _spatialIndexDirty = true;
-        _invalidateSceneGraph();
+        _bumpVersionOrDefer();
         break;
       }
     }
 
     // Image loaded from Firestore directly — add to active layer
     if (!found) {
-      final activeIdx = activeLayerIndex;
-      if (activeIdx != -1) {
-        final layer = _layers[activeIdx];
-        final updatedImages = List<ImageElement>.from(layer.images)
-          ..add(updatedImage);
-        _layers[activeIdx] = layer.copyWith(images: updatedImages);
+      final layer = activeLayer;
+      if (layer != null) {
+        // O(1): directly add to the existing LayerNode
+        layer.node.addImage(updatedImage);
         _dirtyLayerIds.add(layer.id);
 
         if (enableDeltaTracking) {
@@ -408,7 +409,9 @@ extension _LayerElementOps on LayerController {
         );
 
         _spatialIndexDirty = true;
-        _invalidateSceneGraph();
+        if (!_sceneGraphDirty) {
+          _sceneGraph.bumpVersion();
+        }
       }
     }
   }
@@ -455,18 +458,30 @@ extension _LayerElementOps on LayerController {
     final layer = activeLayer;
     if (layer == null || layer.isLocked) return;
 
-    final index = activeLayerIndex;
-    if (index == -1) return;
-
     if (enableDeltaTracking) {
       _deltaTracker.recordLayerCleared(layer.id, layerSnapshot: layer.toJson());
     }
     _emitTT(CanvasDeltaType.layerCleared, layer.id);
 
-    _layers[index] = layer.copyWith(strokes: [], shapes: [], texts: []);
+    // 🚀 O(1): clear all standard children directly, preserving non-standard
+    // nodes (PdfDocumentNode, TabularNode, etc.).
+    final nonStandard =
+        layer.node.children
+            .where(
+              (c) =>
+                  c is! StrokeNode &&
+                  c is! ShapeNode &&
+                  c is! TextNode &&
+                  c is! ImageNode,
+            )
+            .toList();
+    layer.node.clear();
+    for (final child in nonStandard) {
+      layer.node.add(child);
+    }
     _dirtyLayerIds.add(layer.id);
     _spatialIndexDirty = true;
-    _invalidateSceneGraph();
+    _bumpVersionOrDefer();
   }
 
   // --------------------------------------------------------------------------
@@ -501,5 +516,106 @@ extension _LayerElementOps on LayerController {
       }
     }
     return allTexts;
+  }
+
+  // --------------------------------------------------------------------------
+  // Adjustment Layers
+  // --------------------------------------------------------------------------
+
+  void _addAdjustmentLayerImpl(String id, AdjustmentStack stack) {
+    final layer = activeLayer;
+    if (layer == null || layer.isLocked) return;
+
+    // O(1): directly add to the existing LayerNode
+    layer.node.addAdjustmentLayer(id: id, stack: stack);
+    _dirtyLayerIds.add(layer.id);
+
+    if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
+    }
+
+    if (enableDeltaTracking) {
+      _deltaTracker.recordAdjustmentAdded(layer.id, id, stack);
+    }
+    _emitTT(
+      CanvasDeltaType.adjustmentAdded,
+      layer.id,
+      elementId: id,
+      elementData: {'adjustmentStack': stack.toJson()},
+    );
+  }
+
+  void _removeAdjustmentLayerImpl(String adjustmentId) {
+    final layer = activeLayer;
+    if (layer == null || layer.isLocked) return;
+
+    // Capture previous state for undo
+    final existing =
+        layer.node.adjustmentNodes
+            .where((n) => n.id.value == adjustmentId)
+            .firstOrNull;
+    final previousStack = existing?.adjustmentStack;
+
+    // O(1): remove by ID from LayerNode
+    final removed = layer.node.removeAdjustmentLayerById(adjustmentId);
+    if (!removed) return;
+
+    _dirtyLayerIds.add(layer.id);
+    if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
+    }
+
+    if (enableDeltaTracking) {
+      _deltaTracker.recordAdjustmentRemoved(
+        layer.id,
+        adjustmentId,
+        previousStack: previousStack,
+      );
+    }
+    _emitTT(
+      CanvasDeltaType.adjustmentRemoved,
+      layer.id,
+      elementId: adjustmentId,
+    );
+  }
+
+  void _updateAdjustmentLayerImpl(
+    String adjustmentId,
+    AdjustmentStack newStack,
+  ) {
+    final layer = activeLayer;
+    if (layer == null || layer.isLocked) return;
+
+    // Find existing node
+    final existing =
+        layer.node.adjustmentNodes
+            .where((n) => n.id.value == adjustmentId)
+            .firstOrNull;
+    if (existing == null) return;
+
+    final previousStack = existing.adjustmentStack;
+
+    // O(1): update the stack in-place
+    existing.adjustmentStack = newStack;
+    _dirtyLayerIds.add(layer.id);
+
+    if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
+    }
+
+    if (enableDeltaTracking) {
+      _deltaTracker.recordAdjustmentUpdated(
+        layer.id,
+        adjustmentId,
+        newStack,
+        previousStack: previousStack,
+      );
+    }
+    _emitTT(
+      CanvasDeltaType.adjustmentUpdated,
+      layer.id,
+      elementId: adjustmentId,
+      elementData: {'adjustmentStack': newStack.toJson()},
+    );
   }
 }

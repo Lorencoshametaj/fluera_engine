@@ -9,8 +9,6 @@ import '../fluera_layer_controller.dart';
 ///
 /// Abstracts common operations between:
 /// - Infinite canvas (InfiniteCanvasAdapter)
-/// - Synchronized multiview (future)
-///
 /// DESIGN PRINCIPLES:
 /// - Each adapter knows how to handle coordinates of its context
 /// - Each adapter knows how to persist data in its context

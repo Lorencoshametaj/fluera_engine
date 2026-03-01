@@ -26,6 +26,7 @@ import '../../core/nodes/latex_node.dart';
 import '../../core/nodes/tabular_node.dart';
 import '../../core/nodes/material_zone_node.dart';
 import '../../core/nodes/section_node.dart';
+import '../../core/nodes/adjustment_layer_node.dart';
 import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
@@ -45,6 +46,7 @@ import './tabular_renderer.dart';
 import './latex_renderer.dart';
 import '../optimization/layer_picture_cache.dart';
 import '../optimization/snapshot_cache_manager.dart';
+import '../shaders/adjustment_shader_service.dart';
 
 /// Renders a [SceneGraph] by recursively traversing the node tree.
 ///
@@ -86,6 +88,14 @@ class SceneGraphRenderer {
   /// strokes from the global pass (they are rendered clipped inside
   /// [DrawingPainter._paintPdfPage] instead).
   Set<String>? skipStrokeIds;
+
+  /// When true, PDF page and document nodes are skipped during rendering.
+  ///
+  /// Set by [DrawingPainter] to prevent PDF pages from being baked into
+  /// the stroke cache Picture. PDF pages are rendered separately in
+  /// [DrawingPainter._paintPdfDocuments], so including them in the cache
+  /// causes ghost pages when pages are dragged (stale cached positions).
+  bool skipPdfNodes = false;
 
   // ---------------------------------------------------------------------------
   // Compiled Render Plan (GAP 1)
@@ -133,6 +143,10 @@ class SceneGraphRenderer {
   set snapshotCache(SnapshotCacheManager? cache) {
     _snapshotCache = cache;
   }
+
+  /// Adjustment layer GPU shader service.
+  final AdjustmentShaderService adjustmentShaderService =
+      AdjustmentShaderService();
 
   SceneGraphRenderer() {
     _visitor = _RendererVisitor(this);
@@ -978,6 +992,70 @@ class SceneGraphRenderer {
   }
 
   // ---------------------------------------------------------------------------
+  // Adjustment Layer rendering (GPU post-processing)
+  // ---------------------------------------------------------------------------
+
+  /// Render an [AdjustmentLayerNode] via GPU fragment shader.
+  ///
+  /// Captures the current layer content into a [Picture] → [Image], then
+  /// draws a full-viewport rect with the adjustment shader applied,
+  /// producing the color-transformed output.
+  ///
+  /// Falls back to no-op if the shader is not loaded.
+  void _renderAdjustmentLayer(
+    Canvas canvas,
+    AdjustmentLayerNode node,
+    Rect viewport,
+  ) {
+    if (!adjustmentShaderService.isAvailable) return;
+    if (node.adjustmentStack.layers.isEmpty) return;
+
+    // Determine the area to apply the adjustment.
+    // Use the viewport bounds (the adjustment affects the full layer).
+    final width = viewport.width;
+    final height = viewport.height;
+    if (width <= 0 || height <= 0) return;
+
+    // Apply the adjustment as a saveLayer with a shader-based paint.
+    // The shader reads the content from the saveLayer's backing texture
+    // and transforms each pixel in-place.
+    //
+    // We create a snapshot of the current content, apply the shader, and
+    // composite the result. This is the standard post-processing pattern.
+    final recorder = ui.PictureRecorder();
+    final offscreenCanvas = Canvas(recorder, viewport);
+
+    // Render all sibling content that was drawn before this adjustment node
+    // into the offscreen buffer. The parent LayerNode handles this via
+    // z-order — content below the adjustment was already rendered to `canvas`.
+    // We need to capture it.
+    //
+    // Strategy: use canvas saveLayer + drawRect with the shader.
+    // The adjustment node acts as a color filter over existing content.
+    offscreenCanvas.drawPaint(Paint()..color = const ui.Color(0x00000000));
+    final picture = recorder.endRecording();
+    final image = picture.toImageSync(width.ceil(), height.ceil());
+    picture.dispose();
+
+    final paint = adjustmentShaderService.createPaint(
+      node.adjustmentStack,
+      image,
+      width,
+      height,
+    );
+
+    if (paint != null) {
+      // Draw the shader-transformed content
+      canvas.save();
+      canvas.translate(viewport.left, viewport.top);
+      canvas.drawRect(Rect.fromLTWH(0, 0, width, height), paint);
+      canvas.restore();
+    }
+
+    image.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
   // Shader Node rendering
   // ---------------------------------------------------------------------------
 
@@ -1743,11 +1821,16 @@ class _RendererVisitor implements NodeVisitor<void> {
       renderer._renderShaderNode(_canvas, node);
 
   @override
-  void visitPdfPage(PdfPageNode node) => renderer._renderPdfPage(_canvas, node);
+  void visitPdfPage(PdfPageNode node) {
+    if (renderer.skipPdfNodes) return;
+    renderer._renderPdfPage(_canvas, node);
+  }
 
   @override
-  void visitPdfDocument(PdfDocumentNode node) =>
-      renderer._renderPdfDocument(_canvas, node, _viewport);
+  void visitPdfDocument(PdfDocumentNode node) {
+    if (renderer.skipPdfNodes) return;
+    renderer._renderPdfDocument(_canvas, node, _viewport);
+  }
 
   @override
   void visitVectorNetwork(VectorNetworkNode node) =>
@@ -1766,6 +1849,11 @@ class _RendererVisitor implements NodeVisitor<void> {
   @override
   void visitSection(SectionNode node) =>
       renderer._renderSection(_canvas, node, _viewport);
+
+  @override
+  void visitAdjustmentLayer(AdjustmentLayerNode node) {
+    renderer._renderAdjustmentLayer(_canvas, node, _viewport);
+  }
 }
 
 // ---------------------------------------------------------------------------

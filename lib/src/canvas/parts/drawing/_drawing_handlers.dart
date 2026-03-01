@@ -455,6 +455,7 @@ extension on _FlueraCanvasScreenState {
             final hitPage = child.hitTestUnlockedPage(canvasPosition);
             if (hitPage != null) {
               _pdfPageDragController.startDrag(hitPage, child, canvasPosition);
+              DrawingPainter.isDraggingPdf = true;
               _pdfLayoutVersion++;
               setState(() {});
               return;
@@ -473,6 +474,7 @@ extension on _FlueraCanvasScreenState {
             final pageIdx = child.hitTestPageIndex(canvasPosition);
             if (pageIdx >= 0) {
               _pdfPageDragController.startDocumentDrag(child, canvasPosition);
+              DrawingPainter.isDraggingPdf = true;
               _pdfLayoutVersion++;
               setState(() {});
               return;

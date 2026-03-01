@@ -147,6 +147,7 @@ extension on _FlueraCanvasScreenState {
           recorder,
           _canvasId,
           currentLayers: _layerController.layers,
+          branchId: _activeBranchId,
         );
         debugPrint(
           '🎬🔍 [TimeTravel] ✅ Pre-playback flush: ${recorder.eventCount} events saved',

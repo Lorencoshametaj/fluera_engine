@@ -11,7 +11,7 @@ import './base/tool_registry.dart';
 /// - Tool state (color, width, opacity, brush type)
 /// - Current active tool
 /// - Special modes (eraser, lasso, pan, stylus)
-/// - Coordination between Canvas and Multiview
+/// - Coordination between Canvas contexts
 ///
 /// DESIGN PRINCIPLES:
 /// - Single source of truth for all tool state
@@ -20,7 +20,7 @@ import './base/tool_registry.dart';
 ///
 /// Replaces and unifies:
 /// - Internal variables of ProfessionalCanvasScreenState
-/// - Existing MultiviewToolController
+/// - Existing tool controllers
 class UnifiedToolController extends ChangeNotifier {
   // ============================================================================
   // TOOL SETTINGS STATE
@@ -490,7 +490,7 @@ class UnifiedToolController extends ChangeNotifier {
   }
 
   // ============================================================================
-  // COMPATIBILITY (Backward compatibility with MultiviewToolController)
+  // COMPATIBILITY (Legacy compatibility aliases)
   // ============================================================================
 
   /// Alias for compatibility with old code

@@ -205,15 +205,6 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                       ),
                     const SizedBox(width: 4),
                   ],
-                  // 📋 MultiView button with theng press (only if callback fornito)
-                  if (widget.onMultiViewPressed != null) ...[
-                    ToolbarMultiViewCompactButton(
-                      onPressed: widget.onMultiViewPressed!,
-                      onModeSelected: widget.onMultiViewModeSelected,
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 4),
-                  ],
                   // 📖 Dual page button (only if callback fornito)
                   if (widget.onDualPagePressed != null) ...[
                     ToolbarCompactActionButton(

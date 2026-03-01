@@ -197,6 +197,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         _isRecordingAudio = true;
         _recordingDuration = Duration.zero;
       });
+      // 🚀 Notify toolbar so ListenableBuilder rebuilds with isRecordingActive
+      _isRecordingNotifier.value = true;
 
       // 🔴 Broadcast recording state to collaborators (#4 real position)
       _broadcastCursorPosition(Offset.zero, isRecording: true);
@@ -268,32 +270,9 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
 
       var audioPath = await provider.stopRecording();
 
-      // 🔧 FIX: Move audio from temp → persistent directory so it survives restart
-      if (audioPath != null) {
-        try {
-          final docsDir = await getSafeDocumentsDirectory();
-          if (docsDir != null) {
-            final recordingsDir = Directory('${docsDir.path}/recordings');
-            if (!await recordingsDir.exists()) {
-              await recordingsDir.create(recursive: true);
-            }
-            final fileName = audioPath.split('/').last;
-            final persistentPath = '${recordingsDir.path}/$fileName';
-            final tempFile = File(audioPath);
-            if (await tempFile.exists()) {
-              await tempFile.copy(persistentPath);
-              await tempFile.delete(); // clean up temp
-              audioPath = persistentPath;
-              debugPrint(
-                '[VoiceRecording] Audio moved to persistent: $persistentPath',
-              );
-            }
-          }
-        } catch (e) {
-          debugPrint('[VoiceRecording] Failed to persist audio file: $e');
-          // Continue with temp path — at least works for this session
-        }
-      }
+      // 🔧 FIX: Do NOT move audio to persistent directory yet —
+      // wait until user confirms save in the dialog.
+      // The temp path is valid for the dialog preview/playback.
       final recordedDuration = _recordingDuration;
 
       // 🎵 Finalize synchronized recording builder
@@ -329,6 +308,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       setState(() {
         _isRecordingAudio = false;
       });
+      // 🚀 Notify toolbar so ListenableBuilder rebuilds with isRecordingActive = false
+      _isRecordingNotifier.value = false;
 
       // 🔴 Clear recording state for collaborators (#4 real position)
       _broadcastCursorPosition(Offset.zero, isRecording: false);
@@ -356,6 +337,51 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         if (saveResult != null && saveResult['action'] == 'save') {
           final recordingName = saveResult['name'] as String?;
 
+          // 🎛️ DEFERRED POST-PROCESSING: Apply RNNoise denoising + DSP
+          // now that the user confirmed save. This avoids blocking the UI
+          // for ~5s between pressing stop and seeing the dialog.
+          if (provider is DefaultVoiceRecordingProvider) {
+            final recorder = provider.recorder;
+            if (recorder.hasPendingPostProcessing) {
+              final processed = await recorder.applyPendingPostProcessing(
+                audioPath,
+              );
+              if (processed != null) {
+                audioPath = processed;
+              }
+            }
+          }
+
+          // 🔧 FIX: NOW persist audio from temp → permanent directory
+          try {
+            final docsDir = await getSafeDocumentsDirectory();
+            if (docsDir != null) {
+              final recordingsDir = Directory('${docsDir.path}/recordings');
+              if (!await recordingsDir.exists()) {
+                await recordingsDir.create(recursive: true);
+              }
+              final fileName = audioPath!.split('/').last;
+              final persistentPath = '${recordingsDir.path}/$fileName';
+              final tempFile = File(audioPath);
+              if (await tempFile.exists()) {
+                await tempFile.copy(persistentPath);
+                await tempFile.delete();
+                audioPath = persistentPath;
+                debugPrint(
+                  '[VoiceRecording] Audio moved to persistent: $persistentPath',
+                );
+              }
+            }
+          } catch (e) {
+            debugPrint('[VoiceRecording] Failed to persist audio file: $e');
+          }
+
+          // 🔧 FIX: Update syncRecording audioPath to match the persisted path
+          // (audioPath may have changed from temp → persistent above)
+          if (syncRecording != null) {
+            syncRecording = syncRecording.copyWith(audioPath: audioPath!);
+          }
+
           // Attach recording name to synced recording
           if (syncRecording != null &&
               recordingName != null &&
@@ -371,7 +397,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                     ? syncRecording.copyWith(canvasId: _canvasId)
                     : SynchronizedRecording.empty(
                       id: generateUid(),
-                      audioPath: audioPath,
+                      audioPath: audioPath!,
                       startTime: capturedStartTime,
                       canvasId: _canvasId,
                       noteTitle: recordingName,
@@ -403,7 +429,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   }
                   _lastRecordingBroadcastMs = now;
 
-                  final audioBytes = await File(audioPath).readAsBytes();
+                  final audioBytes = await File(audioPath!).readAsBytes();
                   final originalSize = audioBytes.length;
 
                   // ⚡ #6 Offload compression + waveform to Isolate
