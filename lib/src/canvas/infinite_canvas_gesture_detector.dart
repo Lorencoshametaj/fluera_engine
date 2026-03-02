@@ -82,6 +82,8 @@ class _InfiniteCanvasGestureDetectorState
   Offset _initialOffset = Offset.zero;
   int _pointerCount = 0;
   bool _isDrawing = false;
+  bool _wasDrawingGesture =
+      false; // 🎯 FIX: Prevents _onScaleEnd from launching viewport animations after drawing
   Offset? _firstPointerPosition;
   bool _hasMoved = false;
   bool _wasMultiTouch = false; // Flag to track se c'era multi-touch recente
@@ -631,6 +633,7 @@ class _InfiniteCanvasGestureDetectorState
       if (_isDrawing && _hasMoved) {
         // Drawing with movement — finalize stroke
         _isDrawing = false;
+        _wasDrawingGesture = true; // 🎯 FIX: Flag for _onScaleEnd
         if (widget.onDrawEnd != null) {
           final canvasPoint = widget.controller.screenToCanvas(
             event.localPosition,
@@ -686,6 +689,7 @@ class _InfiniteCanvasGestureDetectorState
 
           // In drawing mode, finalize the dot
           if (wasDrawing) {
+            _wasDrawingGesture = true; // 🎯 FIX: Flag for _onScaleEnd
             if (widget.onDrawEnd != null) {
               final canvasPoint = widget.controller.screenToCanvas(
                 event.localPosition,
@@ -981,6 +985,23 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
+    // 🎯 FIX: If this scale-end follows a drawing gesture, skip ALL viewport
+    // animations (spring-back, momentum, rotation). The GestureDetector fires
+    // onScaleEnd after every gesture — including single-finger drawing.
+    // Without this guard, startZoomSpringBack shifts the viewport on finger-up
+    // when zoom is beyond elastic limits, causing the committed stroke to jump.
+    final wasDrawing = _wasDrawingGesture;
+    _wasDrawingGesture = false;
+    if (wasDrawing) {
+      _panVelocity = Offset.zero;
+      _rotationVelocity = 0.0;
+      _wasZooming = false;
+      _lastGestureScale = 1.0;
+      widget.controller.isPanning = false;
+      widget.controller.markNeedsPaint();
+      return;
+    }
+
     // 🌀 IMAGE ROTATION: End image rotation if active
     final wasImageScaling = _imageScaleStarted;
     if (_imageScaleStarted) {

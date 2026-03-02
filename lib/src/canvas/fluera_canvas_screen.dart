@@ -996,6 +996,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _wasPanModeBeforeTimeTravel = false;
   bool _isTimeTravelLassoMode = false;
   bool _isRecoveryPlacementMode = false;
+
+  // ============================================================================
+  // 🖥️ MULTIVIEW STATE
+  // ============================================================================
+
+  bool _isMultiviewActive = false;
+  AdvancedSplitLayout? _multiviewLayout;
+
   List<ProStroke> _pendingRecoveryStrokes = [];
   List<GeometricShape> _pendingRecoveryShapes = [];
   List<ImageElement> _pendingRecoveryImages = [];

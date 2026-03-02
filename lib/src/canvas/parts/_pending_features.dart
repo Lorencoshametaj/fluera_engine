@@ -12,26 +12,18 @@ extension PendingFeatures on _FlueraCanvasScreenState {
 
   /// 🖥️ Launch the advanced split view system.
   void _launchAdvancedSplitView() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder:
-            (_) => MultiviewOrchestrator(
-              config: _config,
-              canvasId: _canvasId,
-              title: _noteTitle,
-              initialLayout: AdvancedSplitLayout(
-                type: SplitLayoutType.split2,
-                primaryOrientation: SplitOrientation.horizontal,
-                secondaryOrientation: SplitOrientation.vertical,
-                panelContents: {
-                  0: SplitPanelContent.canvas(),
-                  1: SplitPanelContent.canvas(),
-                },
-                proportions: const {'panel_0': 0.5, 'panel_1': 0.5},
-              ),
-              onExitMultiview: () => Navigator.of(context).pop(),
-            ),
-      ),
-    );
+    setState(() {
+      _isMultiviewActive = true;
+      _multiviewLayout = AdvancedSplitLayout(
+        type: SplitLayoutType.split2,
+        primaryOrientation: SplitOrientation.horizontal,
+        secondaryOrientation: SplitOrientation.vertical,
+        panelContents: {
+          0: SplitPanelContent.canvas(),
+          1: SplitPanelContent.canvas(),
+        },
+        proportions: const {'panel_0': 0.5, 'panel_1': 0.5},
+      );
+    });
   }
 }

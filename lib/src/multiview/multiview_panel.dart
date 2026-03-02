@@ -110,10 +110,23 @@ class _MultiviewPanelState extends State<MultiviewPanel>
         _strokeNotifier.value = List.of(points);
       },
       onStrokeCompleted: (finalPoints) {
-        if (finalPoints.length >= 2) {
+        // 🎯 SNAP FIX: Trim finalPoints to the count actually rendered on-screen.
+        // Without this, PointerMoveEvent + PointerUpEvent arriving in the same
+        // event batch add points never visible in the live preview — causing the
+        // committed stroke to extend/shift beyond its live position.
+        // (Matching _drawing_end.dart behavior)
+        var trimmedPoints = finalPoints;
+        final renderedCount = CurrentStrokePainter.lastRenderedCount;
+        if (renderedCount > 2 && renderedCount < finalPoints.length) {
+          trimmedPoints = List.unmodifiable(
+            finalPoints.sublist(0, renderedCount),
+          );
+        }
+
+        if (trimmedPoints.length >= 2) {
           final stroke = ProStroke(
             id: generateUid(),
-            points: finalPoints,
+            points: trimmedPoints,
             color: widget.toolController.color,
             baseWidth: widget.toolController.width,
             penType: widget.toolController.penType,
@@ -520,8 +533,10 @@ class _BrushEngineCanvasPainter extends CustomPainter {
       canvas.translate(-center.dx, -center.dy);
     }
 
-    // 3. Compute viewport bounds for culling
-    final viewportRect = _computeViewportBounds(size);
+    // 3. Viewport bounds — use infinite rect (matching main canvas DrawingPainter).
+    // The ClipRect widget on the panel already handles screen clipping.
+    // Tight viewport culling was incorrectly hiding strokes during zoom.
+    const viewportRect = Rect.fromLTWH(-1e6, -1e6, 2e6, 2e6);
 
     // 4. Render layers with BrushEngine
     for (final layer in layerController.layers) {
@@ -565,23 +580,6 @@ class _BrushEngineCanvasPainter extends CustomPainter {
     }
 
     canvas.restore(); // viewport transform
-  }
-
-  /// Compute the visible canvas-space rectangle from the viewport transform.
-  Rect _computeViewportBounds(Size size) {
-    final scale = controller.scale;
-    if (scale == 0) return Rect.largest;
-
-    final topLeft = Offset(
-      -controller.offset.dx / scale,
-      -controller.offset.dy / scale,
-    );
-    return Rect.fromLTWH(
-      topLeft.dx,
-      topLeft.dy,
-      size.width / scale,
-      size.height / scale,
-    );
   }
 
   void _paintShape(Canvas canvas, GeometricShape shape) {

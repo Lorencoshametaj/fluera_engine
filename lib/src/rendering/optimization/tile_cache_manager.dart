@@ -48,10 +48,11 @@ class TileCacheManager
   }
 
   /// Maximum number of cached tiles (LRU eviction)
-  /// 16 tiles × ~2.4MB = ~38MB max
-  /// 🚀 PERF: Reduced from 32 (302MB) to 16 (38MB) to reduce
-  /// steady-state memory and GC frequency.
-  static const int maxCachedTiles = 16;
+  /// 32 tiles × ~2.4MB = ~76MB max (acceptable on modern 6-12GB phones)
+  /// 🚀 PERF: Raised from 16 (38MB) to 32 (76MB) to prevent constant
+  /// LRU thrashing — a 3×3 visible grid + prefetch + LOD fallback easily
+  /// exceeds 16 tiles, causing re-rasterization every frame.
+  static const int maxCachedTiles = 32;
 
   /// Extra margin to pre-load adjacent tiles
   static const double preloadMargin = 0.5; // 50% of the tile
@@ -837,11 +838,10 @@ class TileCacheManager
 
   /// Forces eviction of tiles far from viewport
   void evictDistantTiles(Rect viewport, double scale) {
-    final visibleTiles =
-        getVisibleTiles(
-          viewport,
-          scale,
-        ).map((t) => _tileKey(t.$1, t.$2)).toSet();
+    final visibleTiles = getVisibleTiles(
+      viewport,
+      scale,
+    ).map((t) => _tileKey(t.$1, t.$2)).toSet();
 
     final keysToRemove = <String>[];
     for (final key in _tileCache.keys) {

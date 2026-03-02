@@ -161,6 +161,30 @@ class DrawingPainter extends CustomPainter {
   /// placeholders during drag. Set per frame by the drag update handler.
   static List<Rect> draggedPageRects = const [];
 
+  // ==========================================================================
+  // 🚀 VIEWPORT SNAPSHOT: Pre-rasterized bitmap for O(1) GPU compositing
+  // ==========================================================================
+
+  /// The cached bitmap snapshot of all strokes in the viewport.
+  /// Rendered asynchronously via `picture.toImage()` to avoid blocking paint().
+  static ui.Image? _viewportSnapshot;
+
+  /// The viewport bounds (in world coords) that the snapshot covers.
+  /// Includes a 50% margin on each side for pan tolerance.
+  static Rect _snapshotBounds = Rect.zero;
+
+  /// The scale at which the snapshot was rendered.
+  static double _snapshotScale = 0;
+
+  /// The scene graph version when the snapshot was created.
+  static int _snapshotVersion = -1;
+
+  /// Whether an async snapshot generation is in progress.
+  static bool _snapshotScheduled = false;
+
+  /// Device pixel ratio used for the snapshot.
+  static double _snapshotDpr = 1.0;
+
   // 🌲 Cached materialized strokes (lazily computed once per paint frame)
   List<ProStroke>? _materializedCache;
   int _materializedVersion = -1;
@@ -199,7 +223,8 @@ class DrawingPainter extends CustomPainter {
     this.paperType,
     this.backgroundColor,
   }) : _sceneGraphVersion = sceneGraph.version,
-       super(repaint: controller); // repaint on pan/zoom when controller set
+       super(); // 🚀 NO repaint: controller — parent Transform handles pan/zoom
+  // Flutter's raster cache persists across transform changes = 0ms raster
 
   /// 🌲 Effective strokes: materialized from the scene graph tree.
   /// Cached per scene graph version — O(1) on cache hit.
@@ -250,18 +275,18 @@ class DrawingPainter extends CustomPainter {
       canvas.clipRect(Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height));
     }
 
-    // 🚀 VIEWPORT-LEVEL MODE: apply transform and use size as viewport
+    // 🚀 VIEWPORT-LEVEL MODE: compute viewport for culling.
+    // The TRANSFORM is applied by the parent widget (not here) so that
+    // Flutter's raster cache persists across pan/zoom changes.
     final isViewportLevel = controller != null;
     final effectiveOffset = isViewportLevel ? controller!.offset : canvasOffset;
     final effectiveScale = isViewportLevel ? controller!.scale : canvasScale;
     final effectiveViewportSize = isViewportLevel ? size : viewportSize;
 
-    if (isViewportLevel) {
+    if (!isViewportLevel) {
+      // Legacy mode (non-viewport): apply transform here
       canvas.save();
       canvas.translate(effectiveOffset.dx, effectiveOffset.dy);
-      if (controller!.rotation != 0.0) {
-        canvas.rotate(controller!.rotation);
-      }
       canvas.scale(effectiveScale);
     }
 
@@ -294,22 +319,14 @@ class DrawingPainter extends CustomPainter {
         canvas.drawRect(rect, borderPaint);
       }
 
-      if (isViewportLevel) canvas.restore();
+      if (!isViewportLevel) canvas.restore();
       CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
       return;
     }
 
-    // 🚀 TILE CACHING: active for canvases with many strokes
-    final tileCachingThreshold =
-        adaptiveConfig?.tileCachingStrokeThreshold ?? 50;
-    final useTileCaching =
-        (adaptiveConfig?.enableTileCaching ?? false) &&
-        _effectiveStrokes.length > tileCachingThreshold;
-
     _diagSw.reset();
-    if (useTileCaching) {
-      _paintWithTileCaching(canvas, viewport, effectiveScale);
-    } else {
+    {
+      // Vectorial cache path
       final tracker = dirtyRegionTracker;
       final hasDirty = tracker != null && tracker.hasDirtyRegions;
       final totalStrokes = _effectiveStrokes.length;
@@ -357,7 +374,7 @@ class DrawingPainter extends CustomPainter {
     _pdfAnnotationIds = null;
     _delegateRenderer.skipStrokeIds = null;
 
-    if (isViewportLevel) {
+    if (!isViewportLevel) {
       canvas.restore();
     }
 
@@ -421,22 +438,20 @@ class DrawingPainter extends CustomPainter {
     final tcm = _tileCacheRef;
     if (tcm == null) return; // No EngineScope — fall back to direct rendering
 
-    // Calculate bounding box of ALL content
-    final contentBounds = _calculateContentBounds();
-    if (contentBounds == null) return;
+    // 🚀 Sync LOD bucket with current zoom — must happen before any tile query.
+    tcm.updateScale(scale);
 
-    // 🗺️ Get ALL tiles that contain strokes
-    final allContentTiles = tcm.getTilesForBounds(contentBounds);
+    // 🗺️ Get VIEWPORT tiles only (not entire content bounds!)
+    // This is the critical fix: previously used _calculateContentBounds() which
+    // spanned the entire canvas (16875×25312 = 1296 tiles), always exceeding
+    // maxCachedTiles and falling back to _paintDirect. Viewport = ~10-15 tiles.
+    final viewportTiles = tcm.getVisibleTiles(viewport, scale);
 
-    // 🛡️ FALLBACK: if too many tiles, use vector cache (always working)
-    if (allContentTiles.length > TileCacheManager.maxCachedTiles) {
-      _paintDirect(canvas, viewport);
-      return;
-    }
+    if (viewportTiles.isEmpty) return;
 
-    // 🎯 Collect dirty tiles and sort by viewport priority
+    // 🎯 Collect dirty/uncached tiles
     final dirtyTiles = <(int, int)>[];
-    for (final (tileX, tileY) in allContentTiles) {
+    for (final (tileX, tileY) in viewportTiles) {
       if (tcm.isTileDirty(tileX, tileY) || !tcm.hasTileCached(tileX, tileY)) {
         dirtyTiles.add((tileX, tileY));
       }
@@ -444,7 +459,6 @@ class DrawingPainter extends CustomPainter {
 
     if (dirtyTiles.isNotEmpty) {
       // 🎯 VIEWPORT-PRIORITY: sort dirty tiles by distance from viewport center.
-      // Visible/near tiles warm first, offscreen tiles warm later.
       final viewportCenter = viewport.center;
       final ts = tcm.currentTileSize;
       dirtyTiles.sort((a, b) {
@@ -456,8 +470,6 @@ class DrawingPainter extends CustomPainter {
       });
 
       // ⏱️ ADAPTIVE FRAME BUDGET: rasterize tiles until time budget is spent.
-      // Automatically adapts to device capability — powerful devices rasterize
-      // more tiles per frame, weak devices fewer.
       final frameBudgetMs =
           (adaptiveConfig?.frameBudgetMs ?? 16.0) * 0.75; // 75% headroom
       final sw = Stopwatch()..start();
@@ -474,15 +486,12 @@ class DrawingPainter extends CustomPainter {
       if (sw.elapsedMilliseconds < frameBudgetMs && controller != null) {
         final panVel = controller!.panVelocity;
         if (panVel.distance > 50) {
-          // Predict viewport center 1 frame ahead
           final futureCenter =
               viewport.center -
               Offset(panVel.dx / scale, panVel.dy / scale) * 0.016;
-          final ts = tcm.currentTileSize;
           final prefetchTileX = (futureCenter.dx / ts).floor();
           final prefetchTileY = (futureCenter.dy / ts).floor();
 
-          // Prefetch a 3×3 grid around the predicted tile
           for (
             int dy = -1;
             dy <= 1 && sw.elapsedMilliseconds < frameBudgetMs;
@@ -509,19 +518,19 @@ class DrawingPainter extends CustomPainter {
       sw.stop();
     }
 
-    // Check if ALL tiles are now warm
-    final allReady = allContentTiles.every(
+    // Check if ALL viewport tiles are now warm
+    final allReady = viewportTiles.every(
       (t) => tcm.hasTileCached(t.$1, t.$2) && !tcm.isTileDirty(t.$1, t.$2),
     );
 
     if (allReady) {
-      // ✅ All tiles cached — pure GPU bitmap compositing (fastest path)
-      tcm.paintAllCachedTiles(canvas);
+      // ✅ All viewport tiles cached — pure GPU bitmap compositing (fastest path)
+      tcm.paintVisibleTiles(canvas, viewport, scale);
     } else {
       // 🚀 HYBRID: composite cached tiles + render dirty tiles inline.
       // NEVER fall back to _paintDirect — that rebuilds the entire vectorial
       // cache from scratch, which is the #1 cause of eraser lag (O(N) strokes).
-      for (final (tileX, tileY) in allContentTiles) {
+      for (final (tileX, tileY) in viewportTiles) {
         if (tcm.hasTileCached(tileX, tileY) && !tcm.isTileDirty(tileX, tileY)) {
           // ✅ Clean cached tile — composite as bitmap (O(1))
           tcm.paintSingleTile(canvas, tileX, tileY);
@@ -533,6 +542,8 @@ class DrawingPainter extends CustomPainter {
             canvas.save();
             canvas.clipRect(tileBounds);
             for (final stroke in strokesInTile) {
+              // Skip PDF annotation strokes (drawn clipped inside PDF pages)
+              if (_pdfAnnotationIds?.contains(stroke.id) ?? false) continue;
               _renderStroke(canvas, stroke);
             }
             canvas.restore();
@@ -542,6 +553,143 @@ class DrawingPainter extends CustomPainter {
       // Request another frame to continue rasterizing remaining dirty tiles
       SchedulerBinding.instance.scheduleFrame();
     }
+  }
+
+  // ==========================================================================
+  // 🚀 VIEWPORT SNAPSHOT — async pre-rasterized bitmap
+  // ==========================================================================
+
+  /// Checks if the cached snapshot covers the current viewport.
+  bool _isSnapshotValid(Rect viewport, double scale) {
+    if (_viewportSnapshot == null) return false;
+    if (_snapshotVersion != sceneGraph.version) return false;
+    // Scale bucket must match (±10% tolerance for minor zoom adjustments)
+    if ((scale - _snapshotScale).abs() / scale > 0.10) return false;
+    // Viewport must be fully contained within snapshot bounds
+    return _snapshotBounds.contains(viewport.topLeft) &&
+        _snapshotBounds.contains(viewport.bottomRight);
+  }
+
+  /// Draws the cached snapshot bitmap onto the canvas.
+  void _drawViewportSnapshot(Canvas canvas, double scale) {
+    final snapshot = _viewportSnapshot!;
+    final dpr = _snapshotDpr;
+
+    // The snapshot was rendered at _snapshotBounds in world coords.
+    // Map from snapshot pixel coords back to world coords.
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      snapshot.width.toDouble(),
+      snapshot.height.toDouble(),
+    );
+    final dst = _snapshotBounds;
+    canvas.drawImageRect(snapshot, src, dst, Paint());
+  }
+
+  /// Schedules an async snapshot generation via post-frame callback.
+  /// Uses `picture.toImage()` (async) — does NOT block the UI thread.
+  void _scheduleViewportSnapshot(Rect viewport, double scale) {
+    _snapshotScheduled = true;
+
+    // Capture values from the painter instance (it may be replaced by next frame)
+    final currentVersion = sceneGraph.version;
+    final capturedSceneGraph = sceneGraph;
+
+    // 🚀 Expand viewport by 25% margin on each side for pan tolerance
+    final marginX = viewport.width * 0.25;
+    final marginY = viewport.height * 0.25;
+    final expandedBounds = Rect.fromLTRB(
+      viewport.left - marginX,
+      viewport.top - marginY,
+      viewport.right + marginX,
+      viewport.bottom + marginY,
+    );
+
+    SchedulerBinding.instance.addPostFrameCallback((_) async {
+      // Bail if scene changed between scheduling and execution
+      if (!EngineScope.hasScope) {
+        _snapshotScheduled = false;
+        return;
+      }
+      if (capturedSceneGraph.version != currentVersion) {
+        _snapshotScheduled = false;
+        return;
+      }
+
+      try {
+        // Record all strokes into a Picture
+        final recorder = ui.PictureRecorder();
+        final recCanvas = Canvas(recorder);
+
+        // 🚀 NO DPR scaling — render at 1:1 world-pixel ratio.
+        // drawImageRect handles mapping to screen pixels.
+        // This keeps the texture small (~600×1350 instead of 1800×4050).
+        recCanvas.translate(-expandedBounds.left, -expandedBounds.top);
+
+        // Render using the scene graph renderer (same as _paintDirect)
+        final renderer = EngineScope.current.renderCacheScope.delegateRenderer;
+        renderer.skipPdfNodes = true;
+        renderer.render(
+          recCanvas,
+          capturedSceneGraph,
+          expandedBounds,
+          scale: 1.0,
+        );
+        renderer.skipPdfNodes = false;
+
+        final picture = recorder.endRecording();
+
+        // Snapshot at 1:1 world pixels (no DPR)
+        final pixelWidth = expandedBounds.width.ceil();
+        final pixelHeight = expandedBounds.height.ceil();
+
+        // Guard against absurdly large snapshots
+        if (pixelWidth > 8192 ||
+            pixelHeight > 8192 ||
+            pixelWidth <= 0 ||
+            pixelHeight <= 0) {
+          picture.dispose();
+          _snapshotScheduled = false;
+          return;
+        }
+
+        final image = await picture.toImage(pixelWidth, pixelHeight);
+        picture.dispose();
+
+        // Verify scene hasn't changed during async operation
+        if (!EngineScope.hasScope ||
+            capturedSceneGraph.version != currentVersion) {
+          image.dispose();
+          _snapshotScheduled = false;
+          return;
+        }
+
+        // Dispose old snapshot
+        _viewportSnapshot?.dispose();
+
+        // Store new snapshot
+        _viewportSnapshot = image;
+        _snapshotBounds = expandedBounds;
+        _snapshotScale = scale;
+        _snapshotVersion = currentVersion;
+        _snapshotDpr = 1.0; // Rendered at 1:1
+        _snapshotScheduled = false;
+
+        // Trigger repaint to use the new snapshot on next frame
+        SchedulerBinding.instance.scheduleFrame();
+      } catch (_) {
+        _snapshotScheduled = false;
+      }
+    });
+  }
+
+  /// Invalidates the viewport snapshot. Called on stroke end, undo, eraser, etc.
+  static void invalidateViewportSnapshot() {
+    _viewportSnapshot?.dispose();
+    _viewportSnapshot = null;
+    _snapshotVersion = -1;
+    _snapshotScheduled = false;
   }
 
   /// Calculates the bounding box of all completed strokes
@@ -1526,6 +1674,7 @@ class DrawingPainter extends CustomPainter {
       EngineScope.current.renderCacheScope.strokeCache.invalidateCache();
     }
     invalidateLayerCaches();
+    invalidateViewportSnapshot();
   }
 
   /// 🚀 Invalidate ONLY the tile cache (bitmap raster).
@@ -1537,6 +1686,7 @@ class DrawingPainter extends CustomPainter {
     if (EngineScope.hasScope) {
       EngineScope.current.tileCacheManager.invalidateAll();
     }
+    invalidateViewportSnapshot();
   }
 
   /// 🚀 Invalidate only tiles that overlap [bounds].

@@ -35,26 +35,40 @@ class MultiviewOrchestrator extends StatefulWidget {
   /// Canvas ID being edited.
   final String canvasId;
 
+  /// The ACTUAL layer controller from the main canvas.
+  /// Must be the same instance used for drawing, NOT config.layerController.
+  final LayerController layerController;
+
   /// Callback to exit multiview mode.
   final VoidCallback onExitMultiview;
 
   /// Optional title for the canvas.
   final String? title;
 
+  /// Initial viewport offset (from main canvas).
+  final Offset initialOffset;
+
+  /// Initial viewport scale (from main canvas).
+  final double initialScale;
+
   const MultiviewOrchestrator({
     super.key,
     required this.config,
     required this.initialLayout,
     required this.canvasId,
+    required this.layerController,
     required this.onExitMultiview,
     this.title,
+    this.initialOffset = Offset.zero,
+    this.initialScale = 1.0,
   });
 
   @override
   State<MultiviewOrchestrator> createState() => _MultiviewOrchestratorState();
 }
 
-class _MultiviewOrchestratorState extends State<MultiviewOrchestrator> {
+class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
+    with TickerProviderStateMixin {
   // ── Shared state ───────────────────────────────────────────────────────────
   late final LayerController _layerController;
   late final UnifiedToolController _toolController;
@@ -65,32 +79,40 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator> {
   // ── Multiview session state ────────────────────────────────────────────────
   late MultiviewState _state;
 
-  // ── Keyboard shortcuts ─────────────────────────────────────────────────────
-  late final FocusNode _focusNode;
-
   // ── Cross-panel cursor (canvas coords of active drawing position) ──────────
   final ValueNotifier<Offset?> _cursorPosition = ValueNotifier(null);
+
+  // ── Cinematic animation ───────────────────────────────────────────────────
+  late final AnimationController _viewportAnim;
 
   @override
   void initState() {
     super.initState();
-    _layerController = widget.config.layerController as LayerController;
+    _layerController = widget.layerController;
     _toolController = UnifiedToolController();
-    _focusNode = FocusNode();
 
     _state = MultiviewState.fromLayout(widget.initialLayout);
 
-    // Create controllers for each panel
+    // Create controllers for each panel — inherit main canvas viewport
     for (int i = 0; i < _state.panelCount; i++) {
-      _panelControllers[i] = InfiniteCanvasController();
+      final c = InfiniteCanvasController();
+      c.updateTransform(
+        offset: widget.initialOffset,
+        scale: widget.initialScale,
+      );
+      _panelControllers[i] = c;
     }
+
+    _viewportAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
   }
 
   @override
   void dispose() {
-    _focusNode.dispose();
+    _viewportAnim.dispose();
     _cursorPosition.dispose();
-    _toolController.dispose();
     for (final controller in _panelControllers.values) {
       controller.dispose();
     }
@@ -101,169 +123,107 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return KeyboardListener(
-      focusNode: _focusNode,
-      autofocus: true,
-      onKeyEvent: _handleKeyEvent,
-      child: Scaffold(
-        backgroundColor: cs.surface,
-        body: SafeArea(
-          child: Column(
+    return Stack(
+      children: [
+        // ── Panel Grid (fills all available space) ──────────────────────
+        Positioned.fill(
+          child: MultiviewLayoutRenderer(
+            layout: _state.layout,
+            activePanelIndex: _state.activePanelIndex,
+            panels: _buildPanels(),
+            onProportionsChanged: _onProportionsChanged,
+          ),
+        ),
+
+        // 🗺️ Minimap (bottom-left)
+        Positioned(
+          bottom: 8,
+          left: 8,
+          child: _MultiviewMinimap(
+            layerController: _layerController,
+            panelControllers: _panelControllers,
+            activePanelIndex: _state.activePanelIndex,
+            onNavigate: (canvasPos) {
+              final c = _panelControllers[_state.activePanelIndex];
+              if (c == null) return;
+              // Center the active panel's viewport on canvasPos
+              final screenSize = MediaQuery.of(context).size;
+              final panelW = screenSize.width / 2;
+              final panelH = screenSize.height / 2;
+              final newOffset = Offset(
+                panelW / 2 - canvasPos.dx * c.scale,
+                panelH / 2 - canvasPos.dy * c.scale,
+              );
+              c.updateTransform(offset: newOffset, scale: c.scale);
+            },
+          ),
+        ),
+
+        // 🔧 Floating controls (top-right)
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // ── Compact Multiview Toolbar ─────────────────────────────────
-              _buildMultiviewToolbar(context),
-
-              // ── Panel Grid ───────────────────────────────────────────────
-              Expanded(
-                child: Stack(
-                  children: [
-                    MultiviewLayoutRenderer(
-                      layout: _state.layout,
-                      activePanelIndex: _state.activePanelIndex,
-                      panels: _buildPanels(),
-                      onProportionsChanged: _onProportionsChanged,
+              // Undo / Redo
+              ListenableBuilder(
+                listenable: _layerController,
+                builder: (context, _) {
+                  return _FloatingChip(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _ToolbarIconButton(
+                          icon: Icons.undo_rounded,
+                          tooltip: 'Undo',
+                          onPressed:
+                              _layerController.canUndo
+                                  ? () {
+                                    HapticFeedback.lightImpact();
+                                    _layerController.undo();
+                                  }
+                                  : () {},
+                          enabled: _layerController.canUndo,
+                        ),
+                        _ToolbarIconButton(
+                          icon: Icons.redo_rounded,
+                          tooltip: 'Redo',
+                          onPressed:
+                              _layerController.canRedo
+                                  ? () {
+                                    HapticFeedback.lightImpact();
+                                    _layerController.redo();
+                                  }
+                                  : () {},
+                          enabled: _layerController.canRedo,
+                        ),
+                      ],
                     ),
-
-                    // 🗺️ Minimap overlay (bottom-left)
-                    Positioned(
-                      bottom: 8,
-                      left: 8,
-                      child: _MultiviewMinimap(
-                        layerController: _layerController,
-                        panelControllers: _panelControllers,
-                        activePanelIndex: _state.activePanelIndex,
-                      ),
-                    ),
-                  ],
+                  );
+                },
+              ),
+              const SizedBox(width: 6),
+              // Layout selector
+              _FloatingChip(
+                child: _LayoutTypeSelector(
+                  currentType: _state.layout.type,
+                  onSelected: _changeLayout,
                 ),
               ),
-
-              // ── Compact Tool Palette ────────────────────────────────────
-              MultiviewToolPalette(toolController: _toolController),
+              const SizedBox(width: 6),
+              // Exit multiview
+              _FloatingChip(
+                child: _ToolbarIconButton(
+                  icon: Icons.close_rounded,
+                  tooltip: 'Exit Multiview',
+                  onPressed: widget.onExitMultiview,
+                ),
+              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  // ============================================================================
-  // TOOLBAR (Compact — shared across panels)
-  // ============================================================================
-
-  Widget _buildMultiviewToolbar(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: isDark ? cs.surfaceContainerHighest : cs.surfaceContainerLow,
-        border: Border(
-          bottom: BorderSide(
-            color: cs.outlineVariant.withValues(alpha: 0.3),
-            width: 0.5,
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          // ← Exit multiview
-          _ToolbarIconButton(
-            icon: Icons.close_rounded,
-            tooltip: 'Exit Multiview',
-            onPressed: widget.onExitMultiview,
-          ),
-
-          const SizedBox(width: 8),
-
-          // Title
-          Text(
-            widget.title ?? 'Multiview',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface,
-              letterSpacing: -0.2,
-            ),
-          ),
-
-          const SizedBox(width: 16),
-
-          // Undo / Redo
-          ListenableBuilder(
-            listenable: _layerController,
-            builder: (context, _) {
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _ToolbarIconButton(
-                    icon: Icons.undo_rounded,
-                    tooltip: 'Undo',
-                    onPressed:
-                        _layerController.canUndo
-                            ? () {
-                              HapticFeedback.lightImpact();
-                              _layerController.undo();
-                            }
-                            : () {},
-                    enabled: _layerController.canUndo,
-                  ),
-                  _ToolbarIconButton(
-                    icon: Icons.redo_rounded,
-                    tooltip: 'Redo',
-                    onPressed:
-                        _layerController.canRedo
-                            ? () {
-                              HapticFeedback.lightImpact();
-                              _layerController.redo();
-                            }
-                            : () {},
-                    enabled: _layerController.canRedo,
-                  ),
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(width: 8),
-
-          // Reset all viewports
-          _ToolbarIconButton(
-            icon: Icons.fit_screen_rounded,
-            tooltip: 'Reset All Viewports',
-            onPressed: _resetAllViewports,
-          ),
-
-          const Spacer(),
-
-          // Layout type selector
-          _LayoutTypeSelector(
-            currentType: _state.layout.type,
-            onSelected: _changeLayout,
-          ),
-
-          const SizedBox(width: 8),
-
-          // Panel count indicator
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: cs.primaryContainer.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              '${_state.panelCount} panels',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: cs.onPrimaryContainer,
-              ),
-            ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -392,7 +352,7 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator> {
         case 'reset':
           final c = _panelControllers[panelIndex];
           if (c != null) {
-            c.updateTransform(offset: Offset.zero, scale: 1.0);
+            _animateToTransform(c, targetOffset: Offset.zero, targetScale: 1.0);
             HapticFeedback.lightImpact();
           }
         case 'eraser':
@@ -472,7 +432,11 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator> {
   void _resetAllViewports() {
     HapticFeedback.mediumImpact();
     for (final controller in _panelControllers.values) {
-      controller.updateTransform(offset: Offset.zero, scale: 1.0);
+      _animateToTransform(
+        controller,
+        targetOffset: Offset.zero,
+        targetScale: 1.0,
+      );
       if (controller.rotation != 0.0) {
         controller.resetRotation();
       }
@@ -508,8 +472,46 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator> {
       panelH / 2 - centerY * fitScale,
     );
 
-    controller.updateTransform(offset: offset, scale: fitScale);
+    _animateToTransform(
+      controller,
+      targetOffset: offset,
+      targetScale: fitScale,
+    );
     HapticFeedback.lightImpact();
+  }
+
+  // ============================================================================
+  // CINEMATIC VIEWPORT ANIMATION
+  // ============================================================================
+
+  void _animateToTransform(
+    InfiniteCanvasController controller, {
+    required Offset targetOffset,
+    required double targetScale,
+  }) {
+    final startOffset = controller.offset;
+    final startScale = controller.scale;
+
+    // Skip animation if already at target
+    if ((startOffset - targetOffset).distance < 0.5 &&
+        (startScale - targetScale).abs() < 0.001) {
+      return;
+    }
+
+    _viewportAnim.stop();
+    _viewportAnim.reset();
+
+    void listener() {
+      final t = Curves.easeInOutCubic.transform(_viewportAnim.value);
+      final lerpedOffset = Offset.lerp(startOffset, targetOffset, t)!;
+      final lerpedScale = startScale + (targetScale - startScale) * t;
+      controller.updateTransform(offset: lerpedOffset, scale: lerpedScale);
+    }
+
+    _viewportAnim.addListener(listener);
+    _viewportAnim.forward().then((_) {
+      _viewportAnim.removeListener(listener);
+    });
   }
 
   Rect? _computeContentBounds() {
@@ -527,59 +529,33 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator> {
     }
     return bounds;
   }
+}
 
-  // ============================================================================
-  // KEYBOARD SHORTCUTS
-  // ============================================================================
+// =============================================================================
+// FLOATING CHIP — Semi-transparent container for floating overlays
+// =============================================================================
 
-  void _handleKeyEvent(KeyEvent event) {
-    if (event is! KeyDownEvent) return;
+class _FloatingChip extends StatelessWidget {
+  final Widget child;
+  const _FloatingChip({required this.child});
 
-    final isCtrl =
-        HardwareKeyboard.instance.isControlPressed ||
-        HardwareKeyboard.instance.isMetaPressed;
-
-    // Ctrl+Z → Undo
-    if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyZ) {
-      if (HardwareKeyboard.instance.isShiftPressed) {
-        if (_layerController.canRedo) _layerController.redo();
-      } else {
-        if (_layerController.canUndo) _layerController.undo();
-      }
-      return;
-    }
-
-    // Ctrl+Y → Redo
-    if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyY) {
-      if (_layerController.canRedo) _layerController.redo();
-      return;
-    }
-
-    // Ctrl+0 → Reset all viewports
-    if (isCtrl && event.logicalKey == LogicalKeyboardKey.digit0) {
-      _resetAllViewports();
-      return;
-    }
-
-    // F → Fit to content (active panel)
-    if (event.logicalKey == LogicalKeyboardKey.keyF && !isCtrl) {
-      _fitToContent(_state.activePanelIndex);
-      return;
-    }
-
-    // 1-4 → Switch active panel
-    final digitKeys = [
-      LogicalKeyboardKey.digit1,
-      LogicalKeyboardKey.digit2,
-      LogicalKeyboardKey.digit3,
-      LogicalKeyboardKey.digit4,
-    ];
-    for (int i = 0; i < digitKeys.length && i < _state.panelCount; i++) {
-      if (event.logicalKey == digitKeys[i] && !isCtrl) {
-        _setActivePanel(i);
-        return;
-      }
-    }
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: cs.outlineVariant.withValues(alpha: 0.3),
+          width: 0.5,
+        ),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 6),
+        ],
+      ),
+      child: child,
+    );
   }
 }
 
@@ -736,13 +712,14 @@ class _LayoutTypeSelector extends StatelessWidget {
 // MINIMAP — Shows panel viewports relative to content
 // =============================================================================
 
-class _MultiviewMinimap extends StatelessWidget {
+class _MultiviewMinimap extends StatefulWidget {
   final LayerController layerController;
   final Map<int, InfiniteCanvasController> panelControllers;
   final int activePanelIndex;
+  final void Function(Offset canvasPosition) onNavigate;
 
-  static const double _width = 120;
-  static const double _height = 80;
+  static const double _width = 140;
+  static const double _height = 90;
 
   static const _panelColors = [
     Color(0xFF2196F3), // Blue
@@ -755,51 +732,125 @@ class _MultiviewMinimap extends StatelessWidget {
     required this.layerController,
     required this.panelControllers,
     required this.activePanelIndex,
+    required this.onNavigate,
   });
+
+  @override
+  State<_MultiviewMinimap> createState() => _MultiviewMinimapState();
+}
+
+class _MultiviewMinimapState extends State<_MultiviewMinimap> {
+  // Cached mapping info (updated on each build by painter)
+  Rect _contentBounds = const Rect.fromLTWH(-500, -500, 1000, 1000);
+  double _mapScale = 1.0;
+  double _mapOffsetX = 0.0;
+  double _mapOffsetY = 0.0;
+
+  /// Convert a local position on the minimap widget to canvas coordinates.
+  Offset _minimapToCanvas(Offset localPos) {
+    final canvasX =
+        _contentBounds.left + (localPos.dx - _mapOffsetX) / _mapScale;
+    final canvasY =
+        _contentBounds.top + (localPos.dy - _mapOffsetY) / _mapScale;
+    return Offset(canvasX, canvasY);
+  }
+
+  void _handleTapOrDrag(Offset localPos) {
+    final canvasPos = _minimapToCanvas(localPos);
+    widget.onNavigate(canvasPos);
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    // Merge all panel controllers + layer controller for repaint
     final listenables = <Listenable>[
-      layerController,
-      ...panelControllers.values,
+      widget.layerController,
+      ...widget.panelControllers.values,
     ];
 
     return ListenableBuilder(
       listenable: Listenable.merge(listenables),
       builder: (context, _) {
-        return Container(
-          width: _width,
-          height: _height,
-          decoration: BoxDecoration(
-            color: cs.surface.withValues(alpha: 0.85),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: 0.3),
-              width: 0.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 8,
+        // Pre-calculate mapping for gesture conversion
+        _updateMapping();
+
+        return GestureDetector(
+          onTapDown: (d) => _handleTapOrDrag(d.localPosition),
+          onPanUpdate: (d) => _handleTapOrDrag(d.localPosition),
+          onPanStart: (d) {
+            HapticFeedback.selectionClick();
+            _handleTapOrDrag(d.localPosition);
+          },
+          child: Container(
+            width: _MultiviewMinimap._width,
+            height: _MultiviewMinimap._height,
+            decoration: BoxDecoration(
+              color: cs.surface.withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: cs.outlineVariant.withValues(alpha: 0.3),
+                width: 0.5,
               ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: CustomPaint(
-              painter: _MinimapPainter(
-                layerController: layerController,
-                panelControllers: panelControllers,
-                activePanelIndex: activePanelIndex,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: CustomPaint(
+                painter: _MinimapPainter(
+                  layerController: widget.layerController,
+                  panelControllers: widget.panelControllers,
+                  activePanelIndex: widget.activePanelIndex,
+                ),
               ),
             ),
           ),
         );
       },
     );
+  }
+
+  /// Keep mapping in sync with what _MinimapPainter computes.
+  void _updateMapping() {
+    Rect? contentBounds;
+    for (final layer in widget.layerController.layers) {
+      for (final stroke in layer.strokes) {
+        if (stroke.points.isEmpty) continue;
+        contentBounds =
+            contentBounds?.expandToInclude(stroke.bounds) ?? stroke.bounds;
+      }
+      for (final shape in layer.shapes) {
+        final sr = Rect.fromPoints(shape.startPoint, shape.endPoint);
+        contentBounds = contentBounds?.expandToInclude(sr) ?? sr;
+      }
+    }
+    contentBounds ??= const Rect.fromLTWH(-500, -500, 1000, 1000);
+
+    for (final entry in widget.panelControllers.entries) {
+      final c = entry.value;
+      if (c.scale <= 0) continue;
+      final vpTopLeft = Offset(-c.offset.dx / c.scale, -c.offset.dy / c.scale);
+      final vpRect = Rect.fromLTWH(
+        vpTopLeft.dx,
+        vpTopLeft.dy,
+        _MultiviewMinimap._width * 3 / c.scale,
+        _MultiviewMinimap._height * 3 / c.scale,
+      );
+      contentBounds = contentBounds!.expandToInclude(vpRect);
+    }
+
+    final cb = contentBounds!.inflate(contentBounds.shortestSide * 0.1);
+    final scaleX = _MultiviewMinimap._width / cb.width;
+    final scaleY = _MultiviewMinimap._height / cb.height;
+    _mapScale = scaleX < scaleY ? scaleX : scaleY;
+    _mapOffsetX = (_MultiviewMinimap._width - cb.width * _mapScale) / 2;
+    _mapOffsetY = (_MultiviewMinimap._height - cb.height * _mapScale) / 2;
+    _contentBounds = cb;
   }
 }
 

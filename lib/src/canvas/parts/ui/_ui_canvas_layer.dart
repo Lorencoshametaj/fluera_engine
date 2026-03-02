@@ -5,6 +5,25 @@ part of '../../fluera_canvas_screen.dart';
 extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
   /// Builds the canvas area: background + drawings + gesture detector + overlays.
   Widget _buildCanvasArea(BuildContext context) {
+    // 🖥️ Multiview mode — replace single canvas with split panels
+    if (_isMultiviewActive && _multiviewLayout != null) {
+      return MultiviewOrchestrator(
+        config: _config,
+        canvasId: _canvasId,
+        title: _noteTitle,
+        layerController: _layerController,
+        initialLayout: _multiviewLayout!,
+        initialOffset: _canvasController.offset,
+        initialScale: _canvasController.scale,
+        onExitMultiview: () {
+          setState(() {
+            _isMultiviewActive = false;
+            _multiviewLayout = null;
+          });
+        },
+      );
+    }
+
     return ClipRect(
       key: _canvasAreaKey, // Key to track la size of the area
       // 🔒 ClipRect prevents canvas from invading the toolbar
@@ -212,42 +231,65 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           builder: (context, _) {
             // Wrap in another builder so search controller changes trigger repaint
             Widget buildPainter(BuildContext context, Widget? _) {
-              return RepaintBoundary(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: DrawingPainter(
-                      sceneGraph: _layerController.sceneGraph,
-                      completedShapes: _cachedAllShapes,
-                      currentShape: currentShape,
-                      canvasOffset: _canvasController.offset,
-                      canvasScale: _canvasController.scale,
-                      viewportSize: Size.zero, // unused in viewport mode
-                      enableClipping: _isImageEditFromInfiniteCanvas,
-                      canvasSize: _canvasSize,
-                      spatialIndex: _layerController.spatialIndex,
-                      devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
-                      adaptiveConfig: _renderingConfig,
-                      layers: _layerController.layers,
-                      eraserPreviewIds: _eraserPreviewIds,
-                      controller: _canvasController, // 🚀 viewport-level mode
-                      pdfPainters: _pdfPainters,
-                      onPdfRepaint: () {
-                        if (mounted) setState(() {});
-                      },
-                      pdfSearchController:
-                          _pdfSearchController, // 🔍 Search highlights
-                      pdfLayoutVersion:
-                          _pdfLayoutVersion, // 📄 Layout mutation counter
-                      showPdfPageNumbers: _showPdfPageNumbers,
-                      surface: _activeSurface, // 🧬 Programmable materiality
-                      paperType: _paperType, // 🚀 LAYER MERGE
-                      backgroundColor: _canvasBackgroundColor, // 🚀 LAYER MERGE
+              return AnimatedBuilder(
+                animation: _canvasController,
+                builder: (context, child) {
+                  // 🚀 Apply pan/zoom/rotation at widget level.
+                  // The CustomPaint child is cached by the RepaintBoundary
+                  // and only re-rasterized when strokes change (shouldRepaint).
+                  // Pan/zoom only changes the Transform matrix → GPU compositing.
+                  final m =
+                      Matrix4.identity()..translate(
+                        _canvasController.offset.dx,
+                        _canvasController.offset.dy,
+                      );
+                  if (_canvasController.rotation != 0.0) {
+                    m.rotateZ(_canvasController.rotation);
+                  }
+                  m.scale(_canvasController.scale);
+
+                  return Transform(transform: m, child: child);
+                },
+                child: RepaintBoundary(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: DrawingPainter(
+                        sceneGraph: _layerController.sceneGraph,
+                        completedShapes: _cachedAllShapes,
+                        currentShape: currentShape,
+                        canvasOffset: _canvasController.offset,
+                        canvasScale: _canvasController.scale,
+                        viewportSize: Size.zero, // unused in viewport mode
+                        enableClipping: _isImageEditFromInfiniteCanvas,
+                        canvasSize: _canvasSize,
+                        spatialIndex: _layerController.spatialIndex,
+                        devicePixelRatio:
+                            MediaQuery.of(context).devicePixelRatio,
+                        adaptiveConfig: _renderingConfig,
+                        layers: _layerController.layers,
+                        eraserPreviewIds: _eraserPreviewIds,
+                        controller:
+                            _canvasController, // 🚀 viewport-level mode (for culling)
+                        pdfPainters: _pdfPainters,
+                        onPdfRepaint: () {
+                          if (mounted) setState(() {});
+                        },
+                        pdfSearchController:
+                            _pdfSearchController, // 🔍 Search highlights
+                        pdfLayoutVersion:
+                            _pdfLayoutVersion, // 📄 Layout mutation counter
+                        showPdfPageNumbers: _showPdfPageNumbers,
+                        surface: _activeSurface, // 🧬 Programmable materiality
+                        paperType: _paperType, // 🚀 LAYER MERGE
+                        backgroundColor:
+                            _canvasBackgroundColor, // 🚀 LAYER MERGE
+                      ),
+                      isComplex:
+                          true, // 🚀 RASTER: hint to cache raster output aggressively
+                      willChange:
+                          false, // Only changes at stroke end, not every frame
+                      size: Size.infinite,
                     ),
-                    isComplex:
-                        true, // 🚀 RASTER: hint to cache raster output aggressively
-                    willChange:
-                        false, // Only changes at stroke end, not every frame
-                    size: Size.infinite,
                   ),
                 ),
               );
@@ -547,28 +589,39 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
   /// inside that cached child does not propagate repaint notifications
   /// from the strokeNotifier. Instead, the painter applies the canvas
   /// transform internally (like DrawingPainter).
+  ///
+  /// 🎨 FIX: Wrapped in ListenableBuilder(_toolController) so that the
+  /// painter is reconstructed when the user changes pen type, color, width,
+  /// or brush settings. Without this, the `late final` caching of
+  /// _currentStrokeHost caused the painter to keep stale parameters
+  /// (e.g. highlighter rendered as ballpoint).
   Widget _buildCurrentStrokeLayer() {
-    return IgnorePointer(
-      child: RepaintBoundary(
-        child: CustomPaint(
-          painter: CurrentStrokePainter(
-            strokeNotifier: _currentStrokeNotifier,
-            penType: _effectivePenType,
-            color: _effectiveColor,
-            width: _effectiveWidth,
-            settings: _brushSettings,
-            enableClipping: _isImageEditFromInfiniteCanvas,
-            canvasSize: _canvasSize,
-            enablePredictive:
-                _renderingConfig?.enablePredictiveRendering ?? true,
-            guideSystem: _rulerGuideSystem,
-            controller: _canvasController, // 🚀 viewport-level mode
-            pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
-            surface: _activeSurface, // 🧬 Programmable materiality
+    return ListenableBuilder(
+      listenable: _toolController,
+      builder: (_, __) {
+        return IgnorePointer(
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: CurrentStrokePainter(
+                strokeNotifier: _currentStrokeNotifier,
+                penType: _effectivePenType,
+                color: _effectiveColor,
+                width: _effectiveWidth,
+                settings: _brushSettings,
+                enableClipping: _isImageEditFromInfiniteCanvas,
+                canvasSize: _canvasSize,
+                enablePredictive:
+                    _renderingConfig?.enablePredictiveRendering ?? true,
+                guideSystem: _rulerGuideSystem,
+                controller: _canvasController, // 🚀 viewport-level mode
+                pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
+                surface: _activeSurface, // 🧬 Programmable materiality
+              ),
+              size: Size.infinite,
+            ),
           ),
-          size: Size.infinite,
-        ),
-      ),
+        );
+      },
     );
   }
 
