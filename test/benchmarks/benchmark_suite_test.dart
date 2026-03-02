@@ -12,6 +12,10 @@ import 'package:fluera_engine/src/core/vector/anchor_point.dart';
 import 'package:fluera_engine/src/core/tabular/cell_address.dart';
 import 'package:fluera_engine/src/reflow/reflow_physics_engine.dart';
 import 'package:fluera_engine/src/reflow/content_cluster.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/core/nodes/stroke_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/systems/spatial_index.dart';
 
 /// ═══════════════════════════════════════════════════════════════════════════
 /// 🏎️ DETERMINISTIC BENCHMARK SUITE
@@ -339,6 +343,117 @@ void main() {
         }
       });
       expect(ms, lessThan(3000));
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 8. CANVAS R-TREE — stroke spatial index build + query + stub
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  group('BM8: Canvas R-Tree + Stub', () {
+    /// Build N synthetic ProStrokes spread across a 50000×50000 canvas.
+    List<ProStroke> buildStrokes(int n) {
+      return List.generate(n, (i) {
+        final x = rng.nextDouble() * 50000;
+        final y = rng.nextDouble() * 50000;
+        return ProStroke(
+          id: 'stroke_$i',
+          points: [
+            ProDrawingPoint(position: Offset(x, y), pressure: 1.0),
+            ProDrawingPoint(position: Offset(x + 50, y + 30), pressure: 0.8),
+            ProDrawingPoint(position: Offset(x + 100, y + 10), pressure: 0.6),
+          ],
+          color: const Color(0xFF000000),
+          baseWidth: 3.0,
+          penType: ProPenType.ballpoint,
+          createdAt: DateTime.now(),
+        );
+      });
+    }
+
+    /// Build an R-Tree from strokes using StrokeNodes (simulates _ensureRenderIndex).
+    SpatialIndex buildRTree(List<ProStroke> strokes) {
+      final index = SpatialIndex();
+      final nodes =
+          strokes.map((s) => StrokeNode(id: NodeId(s.id), stroke: s)).toList();
+      index.rebuild(nodes);
+      return index;
+    }
+
+    test('R-Tree build: 1K / 10K / 100K strokes', () {
+      for (final n in [1000, 10000, 100000]) {
+        final strokes = buildStrokes(n);
+        final ms = bench(
+          '${n ~/ 1000}K R-tree build',
+          () => buildRTree(strokes),
+        );
+        // R-Tree build should be sub-second for ≤100K
+        expect(
+          ms,
+          lessThan(n <= 10000 ? 500 : 5000),
+          reason: '${n}x R-tree build should be fast',
+        );
+      }
+    });
+
+    test('R-Tree query: 1000 viewport queries on 100K strokes', () {
+      final strokes = buildStrokes(100000);
+      final index = buildRTree(strokes);
+
+      final ms = bench('100K × 1000 queries (4096×4096 tile)', () {
+        for (int i = 0; i < 1000; i++) {
+          final cx = rng.nextDouble() * 50000;
+          final cy = rng.nextDouble() * 50000;
+          index.queryRange(
+            Rect.fromCenter(center: Offset(cx, cy), width: 4096, height: 4096),
+          );
+        }
+      });
+      // O(log N) queries should be fast
+      expect(ms, lessThan(1000), reason: 'R-tree query should be O(log N)');
+    });
+
+    test('R-Tree incremental insert: 100 new strokes into 100K tree', () {
+      final strokes = buildStrokes(100000);
+      final index = buildRTree(strokes);
+
+      final newStrokes = buildStrokes(100);
+      final newNodes =
+          newStrokes
+              .map((s) => StrokeNode(id: NodeId(s.id), stroke: s))
+              .toList();
+
+      final ms = bench('100 inserts into 100K R-tree', () {
+        for (final node in newNodes) {
+          index.insert(node);
+        }
+      });
+      // 100 inserts should be sub-ms
+      expect(ms, lessThan(100));
+    });
+
+    test('ProStroke.toStub: 10K / 100K stubs', () {
+      for (final n in [10000, 100000]) {
+        final strokes = buildStrokes(n);
+        final ms = bench('${n ~/ 1000}K toStub', () {
+          for (final s in strokes) {
+            s.toStub();
+          }
+        });
+        // Stub creation should be sub-second
+        expect(ms, lessThan(n <= 10000 ? 200 : 2000));
+      }
+    });
+
+    test('ProStroke.toJson serialization: 10K strokes (paging sim)', () {
+      final strokes = buildStrokes(10000);
+      final ms = bench('10K toJson (3 pts each)', () {
+        for (final s in strokes) {
+          s.toJson();
+        }
+      });
+      // Serialization should be < 1s for 10K strokes
+      expect(ms, lessThan(1000));
     });
   });
 }

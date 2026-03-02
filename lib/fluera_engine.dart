@@ -295,14 +295,12 @@ export 'src/rendering/shaders/render_isolate_pool.dart';
 
 // Optimization
 export 'src/rendering/optimization/spatial_index.dart';
-export 'src/rendering/optimization/tile_cache_manager.dart';
 export 'src/rendering/optimization/viewport_culler.dart';
 export 'src/rendering/optimization/stroke_cache_manager.dart';
 export 'src/rendering/optimization/stroke_data_manager.dart';
 export 'src/rendering/optimization/disk_stroke_manager.dart';
 export 'src/rendering/optimization/lod_manager.dart';
 export 'src/rendering/optimization/frame_budget_manager.dart';
-export 'src/rendering/optimization/advanced_tile_optimizer.dart';
 export 'src/rendering/optimization/stroke_optimizer.dart';
 export 'src/rendering/optimization/optimized_path_builder.dart';
 export 'src/rendering/optimization/paint_pool.dart';

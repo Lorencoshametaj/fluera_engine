@@ -20,10 +20,10 @@ import '../history/journal_recovery_middleware.dart';
 import '../drawing/drawing_module.dart';
 import '../rendering/render_profiler.dart';
 import '../tools/base/tool_registry.dart';
-import '../rendering/optimization/tile_cache_manager.dart';
+
 import '../rendering/optimization/disk_stroke_manager.dart';
 import '../rendering/optimization/frame_budget_manager.dart';
-import '../rendering/optimization/advanced_tile_optimizer.dart';
+
 import '../rendering/optimization/memory_budget_controller.dart';
 import '../rendering/optimization/lod_manager.dart';
 import '../services/adaptive_debouncer_service.dart';
@@ -195,9 +195,6 @@ class EngineScope {
   /// Tool registration and selection.
   late final ToolRegistry toolRegistry = ToolRegistry.create();
 
-  /// Tile-based render cache manager.
-  late final TileCacheManager tileCacheManager = TileCacheManager.create();
-
   /// Stroke point simplification and LOD caching.
   late final LODManager lodManager = LODManager.create();
 
@@ -211,10 +208,6 @@ class EngineScope {
   /// Memory pressure handler.
   late final MemoryPressureHandler memoryPressureHandler =
       MemoryPressureHandler.create();
-
-  /// Advanced tile optimization.
-  late final AdvancedTileOptimizer advancedTileOptimizer =
-      AdvancedTileOptimizer.create();
 
   /// Adaptive debouncer for save operations.
   late final AdaptiveDebouncerService adaptiveDebouncerService =
@@ -250,7 +243,6 @@ class EngineScope {
           performanceMonitor: performanceMonitor,
           memoryPressureHandler: memoryPressureHandler,
         )
-        ..registerCache(tileCacheManager)
         ..registerCache(
           lodManager,
           warningFraction: 0.75,
@@ -538,7 +530,7 @@ class EngineScope {
     commandHistory.dispose();
     memoryBudgetController.dispose();
     invalidationGraph.dispose();
-    tileCacheManager.dispose();
+
     lodManager.clearCache();
 
     // ── 3. Infrastructure (depended upon by everything above) ──

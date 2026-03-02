@@ -43,6 +43,22 @@ class BrushPreset {
   // ─────────────────────────────────────────────────────────────
 
   static const List<BrushPreset> builtInPresets = [
+    // 🚀 Everyday Pen — default writing pen, max FPS
+    // Ballpoint: single drawPath(), no pressure/velocity/tilt computation,
+    // no saveLayer, no texture. Skips ~8 O(N) passes vs fountain pen.
+    BrushPreset(
+      id: 'builtin_everyday_pen',
+      name: 'Everyday Pen',
+      icon: '🖊️',
+      penType: ProPenType.ballpoint,
+      baseWidth: 2.0,
+      color: Color(0xFF1A1A1A),
+      settings: ProBrushSettings(
+        ballpointMinPressure: 0.9,
+        ballpointMaxPressure: 1.1,
+      ),
+      isBuiltIn: true,
+    ),
     BrushPreset(
       id: 'builtin_fine_pen',
       name: 'Fine Pen',

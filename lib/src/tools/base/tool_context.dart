@@ -200,7 +200,7 @@ class ToolSettings {
   final ShapeType shapeType;
 
   const ToolSettings({
-    this.penType = ProPenType.fountain,
+    this.penType = ProPenType.ballpoint,
     this.color = Colors.black,
     this.width = 3.78, // 1mm = 3.78px @ 96 DPI
     this.opacity = 1.0,

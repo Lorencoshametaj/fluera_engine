@@ -400,6 +400,8 @@ extension on _FlueraCanvasScreenState {
         if (_config.storageAdapter is SqliteStorageAdapter) {
           final sqliteAdapter = _config.storageAdapter as SqliteStorageAdapter;
           RecordingStorageService.instance.initialize(sqliteAdapter.database);
+          // 🗂️ Initialize stroke paging with shared DB for 1M+ stroke support
+          DrawingPainter.initializePaging(sqliteAdapter.database);
         }
 
         data = await _config.storageAdapter!.loadCanvas(_canvasId);
@@ -463,6 +465,57 @@ extension on _FlueraCanvasScreenState {
       if (data != null && mounted) {
         await _applyCanvasData(data);
 
+        // 🗂️ LAZY-LOAD: If stroke index exists, replace full strokes with
+        // lightweight stubs (~64B each). The paging manager will page-in
+        // visible strokes on demand during the first render.
+        // At 1M strokes: ~200ms stubs vs ~5-10s full binary decode.
+        if (_config.storageAdapter is SqliteStorageAdapter) {
+          final stubsByLayer = await DrawingPainter.loadStubsForLazyLoad(
+            _canvasId,
+          );
+          if (stubsByLayer.isNotEmpty) {
+            // Replace full strokes with stubs in layers
+            for (final layer in _layerController.layers) {
+              final stubs = stubsByLayer[layer.id];
+              if (stubs != null && stubs.length == layer.strokes.length) {
+                // Replace each stroke with its stub equivalent
+                for (int i = 0; i < layer.strokes.length; i++) {
+                  if (!layer.strokes[i].isStub) {
+                    layer.strokes[i] = layer.strokes[i].toStub();
+                  }
+                }
+              }
+            }
+            // Bump version to trigger R-Tree and cache refresh
+            _layerController.sceneGraph.bumpVersion();
+            debugPrint(
+              '🗂️ [LAZY-LOAD] Stubbed ${stubsByLayer.values.fold<int>(0, (a, b) => a + b.length)} '
+              'strokes across ${stubsByLayer.length} layers — RAM freed',
+            );
+          } else {
+            // 🗂️ FIRST-EVER LOAD: No index yet — eagerly stub all strokes
+            // to free RAM immediately. The binary decode loaded everything
+            // into RAM; stub them now and the paging system will page-in
+            // visible ones during the first render.
+            int stubbed = 0;
+            for (final layer in _layerController.layers) {
+              for (int i = 0; i < layer.strokes.length; i++) {
+                if (layer.strokes[i].points.length > 3) {
+                  layer.strokes[i] = layer.strokes[i].toStub();
+                  stubbed++;
+                }
+              }
+            }
+            if (stubbed > 0) {
+              _layerController.sceneGraph.bumpVersion();
+              debugPrint(
+                '🗂️ [EAGER-STUB] First-ever load: stubbed $stubbed '
+                'strokes — RAM freed immediately',
+              );
+            }
+          }
+        }
+
         // ☁️ Download images/PDFs that are in cloud but missing locally
         // (runs in background — non-blocking)
         downloadMissingAssets();
@@ -471,13 +524,12 @@ extension on _FlueraCanvasScreenState {
     } finally {
       // 🔄 Reveal canvas: setState triggers AnimatedOpacity fade-out
       if (mounted) {
-        // 🎨 FORCE CACHE INVALIDATION: the stroke cache and layer caches
-        // are EngineScope singletons that may retain stale state from the
-        // empty-canvas painter created before data was loaded.
+        // 🎨 Invalidate layer caches (layer compositing state may have changed).
+        // NOTE: Do NOT invalidate strokeCache here — the version-based
+        // self-invalidation in _paintDirect() handles incremental updates.
+        // Explicit invalidation would destroy the warm cache just built
+        // by bumpVersion() → paint(), causing a 120ms+ full rebuild.
         DrawingPainter.invalidateLayerCaches();
-        if (EngineScope.hasScope) {
-          EngineScope.current.renderCacheScope.strokeCache.invalidateCache();
-        }
 
         setState(() {
           _isLoading = false;
@@ -800,6 +852,13 @@ extension on _FlueraCanvasScreenState {
       }
     }
 
+    // 🚀 CRITICAL: Bump scene graph version after layer loading.
+    // With Transform+RepaintBoundary architecture, paint() only runs when
+    // shouldRepaint() detects a version change. Without this bump, loaded
+    // strokes remain invisible until the user draws a new stroke.
+    _layerController.sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+
     // 🎯 Set active layer AFTER loading layers
     final activeLayerIdFromData = data['activeLayerId'] as String?;
     final settingsData2 = data['settings'] as Map<dynamic, dynamic>?;
@@ -872,6 +931,18 @@ extension on _FlueraCanvasScreenState {
     final pdfDocsList = data['pdfDocuments'] as List<dynamic>?;
     if (pdfDocsList != null && pdfDocsList.isNotEmpty) {
       await _restorePdfDocuments(pdfDocsList);
+      // 🚀 Schedule repaint AFTER the current frame so the new
+      // pdfLayoutVersion is picked up by a fresh shouldRepaint cycle.
+      // Calling bumpVersion + setState synchronously would coalesce with
+      // the ListenableBuilder rebuild, causing shouldRepaint to see equal
+      // versions in both old and new painters → false → no repaint.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _layerController.sceneGraph.bumpVersion();
+          _pdfLayoutVersion++;
+          setState(() {});
+        }
+      });
     }
 
     // 🧮 Restore scene nodes (LatexNode, TabularNode) from JSON sidecar

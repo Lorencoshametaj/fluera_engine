@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/engine_scope.dart';
 import '../../core/conscious_architecture.dart';
 import '../../core/adaptive_profile.dart';
-import '../../rendering/optimization/anticipatory_tile_prefetch.dart';
 import '../../systems/intelligence_adapters.dart';
 
 /// 🧠 CONSCIOUS ARCHITECTURE DEBUG OVERLAY
@@ -31,7 +30,6 @@ class ConsciousDebugOverlay extends StatelessWidget {
 
     final subsystems = arch.subsystems;
     final profile = arch.find<AdaptiveProfile>();
-    final prefetch = arch.find<AnticipatoryTilePrefetch>();
     final snapAdapter = arch.find<SmartSnapAdapter>();
 
     return Positioned(
@@ -105,23 +103,6 @@ class ConsciousDebugOverlay extends StatelessWidget {
                   Text(
                     'β=${profile.recommendedFilterBeta.toStringAsFixed(4)}  '
                     'pf=${profile.recommendedTilePrefetch}',
-                  ),
-                ],
-
-                // Prefetch margins
-                if (prefetch != null && prefetch.isActive) ...[
-                  const Divider(color: Colors.white24, height: 8),
-                  Builder(
-                    builder: (_) {
-                      final m = prefetch.margins;
-                      return Text(
-                        'margins [${m[0].toStringAsFixed(1)}, '
-                        '${m[1].toStringAsFixed(1)}, '
-                        '${m[2].toStringAsFixed(1)}, '
-                        '${m[3].toStringAsFixed(1)}]  '
-                        'bias=${prefetch.prefetchMarginBias.toStringAsFixed(1)}',
-                      );
-                    },
                   ),
                 ],
 

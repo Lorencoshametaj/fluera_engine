@@ -355,7 +355,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       painter.warmUpAllPages(
         docNode.pageNodes,
         onNeedRepaint: () {
-          if (mounted) setState(() {});
+          if (mounted) {
+            _pdfLayoutVersion++;
+            setState(() {});
+          }
         },
       );
     }
@@ -699,7 +702,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         painter.warmUpAllPages(
           allPageNodes,
           onNeedRepaint: () {
-            if (mounted) setState(() {});
+            if (mounted) {
+              _pdfLayoutVersion++;
+              setState(() {});
+            }
           },
         );
       }

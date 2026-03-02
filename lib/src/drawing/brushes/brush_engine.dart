@@ -132,6 +132,29 @@ class BrushEngine {
   }) {
     if (points.isEmpty) return;
 
+    // ──────────────────────────────────────────────────────────────
+    // 🚀 BALLPOINT FAST PATH — skip entire pipeline for max FPS
+    // Conditions: ballpoint + no custom blend + no texture + linear
+    // pressure curve + no stamp. Avoids: EngineScope lookup, surface
+    // material, wetness, texture resolve, compositing, saveLayer.
+    // ──────────────────────────────────────────────────────────────
+    if (penType == ProPenType.ballpoint &&
+        blendMode == null &&
+        settings.textureType == 'none' &&
+        settings.pressureCurve.isLinear &&
+        !settings.stampEnabled) {
+      BallpointBrush.drawStrokeWithSettings(
+        canvas,
+        points,
+        color,
+        baseWidth,
+        minPressure: settings.ballpointMinPressure,
+        maxPressure: settings.ballpointMaxPressure,
+        isLive: isLive,
+      );
+      return;
+    }
+
     // Resolve shader service once — module-first, avoids repeated singleton calls
     final _shaderSvc =
         EngineScope.hasScope

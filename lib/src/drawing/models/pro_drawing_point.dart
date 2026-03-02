@@ -179,6 +179,13 @@ class ProStroke {
   /// Avoids O(n) recalculation at every frame during viewport culling
   Rect? _cachedBounds;
 
+  /// 🗂️ STUB SUPPORT: forced bounds for paged-out strokes.
+  /// When a stroke is paged out, its points are dropped but bounds are kept.
+  final Rect? _forcedBounds;
+
+  /// Whether this stroke is a stub (paged out to disk, points empty).
+  bool get isStub => _forcedBounds != null && points.isEmpty;
+
   ProStroke({
     required this.id,
     required List<ProDrawingPoint> points,
@@ -191,13 +198,48 @@ class ProStroke {
     this.referenceScale = 1.0,
     this.fillOverlay,
     this.fillBounds,
+    Rect? forcedBounds,
   }) : points = List.unmodifiable(points),
        settings = settings ?? const ProBrushSettings(),
-       engineVersion = engineVersion ?? currentEngineVersion;
+       engineVersion = engineVersion ?? currentEngineVersion,
+       _forcedBounds = forcedBounds;
+
+  /// 🗂️ Create a lightweight stub copy (bounds only, no points).
+  /// Used by StrokePagingManager to free memory while keeping R-Tree working.
+  ProStroke toStub() {
+    final b = bounds; // Force calculation before dropping points
+    return ProStroke(
+      id: id,
+      points: const [],
+      color: color,
+      baseWidth: baseWidth,
+      penType: penType,
+      createdAt: createdAt,
+      settings: settings,
+      engineVersion: engineVersion,
+      referenceScale: referenceScale,
+      forcedBounds: b,
+    );
+  }
+
+  /// 🗂️ Create a stub from bounds only (for lazy-load index).
+  /// Minimal allocation: only id + bounds are meaningful.
+  factory ProStroke.stubFromBounds({required String id, required Rect bounds}) {
+    return ProStroke(
+      id: id,
+      points: const [],
+      color: const Color(0xFF000000),
+      baseWidth: 2.0,
+      penType: ProPenType.ballpoint,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+      forcedBounds: bounds,
+    );
+  }
 
   /// 🚀 Bounds cachato - calcola una volta e riusa
   /// Performance: from O(n) every frame to O(1) after first calculation
   Rect get bounds {
+    if (_forcedBounds != null) return _forcedBounds;
     _cachedBounds ??= _calculateBounds();
     return _cachedBounds!;
   }

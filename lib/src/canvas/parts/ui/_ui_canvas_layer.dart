@@ -272,7 +272,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                             _canvasController, // 🚀 viewport-level mode (for culling)
                         pdfPainters: _pdfPainters,
                         onPdfRepaint: () {
-                          if (mounted) setState(() {});
+                          if (mounted) {
+                            _pdfLayoutVersion++;
+                            setState(() {});
+                          }
                         },
                         pdfSearchController:
                             _pdfSearchController, // 🔍 Search highlights

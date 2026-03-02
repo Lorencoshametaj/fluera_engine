@@ -108,6 +108,21 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       final adapter = _config.storageAdapter;
       if (adapter != null) {
         if (adapter is SqliteStorageAdapter) {
+          // 🗂️ PRE-SAVE: Restore paged-out stubs with full data from SQLite
+          // to prevent data loss during binary encoding.
+          final restoredForSave =
+              await DrawingPainter.restorePagedStrokesForSave();
+          if (restoredForSave.isNotEmpty) {
+            for (final layer in saveData.layers) {
+              for (int i = 0; i < layer.strokes.length; i++) {
+                final full = restoredForSave[layer.strokes[i].id];
+                if (full != null) {
+                  layer.strokes[i] = full;
+                }
+              }
+            }
+          }
+
           // 🚀 FAST PATH: Direct Layer → Binary (Isolate) → SQLite
           // 🚀 DELTA: Only re-encode dirty layers
           await adapter.saveCanvasLayers(
@@ -123,6 +138,17 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
             dirtyLayerIds: dirtyIds.isNotEmpty ? dirtyIds : null,
             variablesJson: _buildVariablesJsonString(saveData),
           );
+
+          // 🗂️ POST-SAVE: Re-stub restored strokes to free RAM
+          if (restoredForSave.isNotEmpty) {
+            for (final layer in saveData.layers) {
+              for (int i = 0; i < layer.strokes.length; i++) {
+                if (restoredForSave.containsKey(layer.strokes[i].id)) {
+                  layer.strokes[i] = layer.strokes[i].toStub();
+                }
+              }
+            }
+          }
         } else {
           // Legacy path for custom adapters (JSON required by interface)
           final dataMap = saveData.toJson();
@@ -136,6 +162,23 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       // ✅ Save succeeded — clear dirty tracking
       _layerController.clearDirtyLayerIds();
       _lastLocalSaveTimestamp = DateTime.now().millisecondsSinceEpoch;
+
+      // 🗂️ POST-SAVE: Index all strokes for lazy-load on next canvas open.
+      // Fire-and-forget — doesn't block the save completion.
+      final allStrokeTuples = <(String, ProStroke)>[];
+      for (final layer in saveData.layers) {
+        for (final stroke in layer.strokes) {
+          allStrokeTuples.add((layer.id, stroke));
+        }
+      }
+      if (allStrokeTuples.isNotEmpty) {
+        DrawingPainter.indexStrokesForLazyLoad(
+          saveData.canvasId,
+          allStrokeTuples,
+        ).catchError((e) {
+          debugPrint('[StrokePaging] Index failed: $e');
+        });
+      }
 
       // 🖼️ 1.5: Capture viewport snapshot for next splash screen (fire-and-forget)
       _captureCanvasSnapshot(saveData.canvasId);

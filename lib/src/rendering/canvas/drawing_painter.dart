@@ -12,7 +12,7 @@ import './shape_painter.dart';
 import '../../drawing/brushes/brushes.dart';
 import '../optimization/viewport_culler.dart';
 import '../optimization/spatial_index.dart';
-import '../optimization/tile_cache_manager.dart';
+
 import '../optimization/stroke_cache_manager.dart';
 import '../../core/models/canvas_layer.dart';
 import '../../canvas/infinite_canvas_controller.dart';
@@ -38,7 +38,9 @@ import '../../core/nodes/tabular_node.dart';
 import '../scene_graph/tabular_renderer.dart';
 
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
-import '../optimization/advanced_tile_optimizer.dart'; // 📦 Stroke batching
+import '../optimization/tile_cache_manager.dart'; // 🧩 Tile caching
+import '../optimization/stroke_paging_manager.dart'; // 🗂️ Stroke paging to disk
+import '../../systems/spatial_index.dart' as si; // 🌲 R-Tree for render path
 import '../shaders/shader_brush_service.dart'; // 🚀 Shader warm-up
 
 /// 🎨 DRAWING PAINTER - Layer disegni completati
@@ -88,13 +90,6 @@ class DrawingPainter extends CustomPainter {
   static final SceneGraphRenderer _fallbackDelegateRenderer =
       SceneGraphRenderer();
 
-  // 🚀 TILE CACHING: Activates when stroke count exceeds config threshold
-  // Below the threshold, direct rendering (StrokeCacheManager) is faster
-
-  // 🚀 Tile cache manager (uses EngineScope)
-  TileCacheManager? get _tileCacheRef =>
-      EngineScope.hasScope ? EngineScope.current.tileCacheManager : null;
-
   // 🚀 Vectorial cache — scoped to EngineScope.
   StrokeCacheManager get _strokeCache =>
       EngineScope.hasScope
@@ -105,6 +100,35 @@ class DrawingPainter extends CustomPainter {
   /// Scene graph version when the vectorial cache was last populated.
   /// Used alongside stroke count to detect non-stroke changes (shapes, text).
   int _cachedSceneVersion = -1;
+
+  /// Viewport used when the current stroke cache was built.
+  /// If the real viewport moves outside this area, the cache is invalidated
+  /// so that newly-visible strokes are rendered.
+  static Rect _cachedCacheViewport = Rect.zero;
+
+  /// Inflated viewport used during the last paint() for PDF page rendering.
+  /// When the real viewport exits this area, shouldRepaint returns true
+  /// so that newly-visible PDF pages are rendered into the raster cache.
+  static Rect _lastRenderedPdfViewport = Rect.zero;
+
+  /// Widget size from the last paint() call, needed for viewport calculation
+  /// in shouldRepaint (where the paint size parameter isn't available).
+  static Size _lastPaintSize = Size.zero;
+
+  /// 🧩 Tile cache for regional invalidation.
+  /// Shared across DrawingPainter instances via EngineScope or static fallback.
+  static final TileCacheManager _tileCache = TileCacheManager();
+
+  /// 🌲 R-Tree spatial index for O(log N) node lookup during tile rebuild.
+  static final si.SpatialIndex _renderIndex = si.SpatialIndex();
+  static int _renderIndexVersion = -1;
+  static int _renderIndexNodeCount = 0;
+  static List<ProStroke>? _lastMaterializedStrokes;
+
+  /// 🗂️ Stroke paging manager for memory-bounded 1M+ strokes.
+  static final StrokePagingManager _pagingManager = StrokePagingManager();
+  static bool _pagingInProgress = false;
+  static Rect _lastPagingViewport = Rect.zero;
 
   // 🎯 Adaptive rendering config per 120Hz support
   final AdaptiveRenderingConfig? adaptiveConfig;
@@ -161,33 +185,12 @@ class DrawingPainter extends CustomPainter {
   /// placeholders during drag. Set per frame by the drag update handler.
   static List<Rect> draggedPageRects = const [];
 
-  // ==========================================================================
-  // 🚀 VIEWPORT SNAPSHOT: Pre-rasterized bitmap for O(1) GPU compositing
-  // ==========================================================================
-
-  /// The cached bitmap snapshot of all strokes in the viewport.
-  /// Rendered asynchronously via `picture.toImage()` to avoid blocking paint().
-  static ui.Image? _viewportSnapshot;
-
-  /// The viewport bounds (in world coords) that the snapshot covers.
-  /// Includes a 50% margin on each side for pan tolerance.
-  static Rect _snapshotBounds = Rect.zero;
-
-  /// The scale at which the snapshot was rendered.
-  static double _snapshotScale = 0;
-
-  /// The scene graph version when the snapshot was created.
-  static int _snapshotVersion = -1;
-
-  /// Whether an async snapshot generation is in progress.
-  static bool _snapshotScheduled = false;
-
-  /// Device pixel ratio used for the snapshot.
-  static double _snapshotDpr = 1.0;
-
-  // 🌲 Cached materialized strokes (lazily computed once per paint frame)
-  List<ProStroke>? _materializedCache;
-  int _materializedVersion = -1;
+  // 🌲 Cached materialized strokes (lazily computed once per scene graph version)
+  // STATIC: persists across DrawingPainter recreations (setState doesn't
+  // destroy the cache). Without static, O(N) traversal runs on every widget
+  // rebuild — catastrophic at 1M+ strokes.
+  static List<ProStroke>? _materializedCache;
+  static int _materializedVersion = -1;
 
   /// Scene graph version captured at construction time.
   ///
@@ -227,20 +230,97 @@ class DrawingPainter extends CustomPainter {
   // Flutter's raster cache persists across transform changes = 0ms raster
 
   /// 🌲 Effective strokes: materialized from the scene graph tree.
-  /// Cached per scene graph version — O(1) on cache hit.
+  ///
+  /// FULLY INCREMENTAL:
+  /// - Cache hit (same version): O(1) — returns cached list
+  /// - New strokes added: O(k) append — only collects new strokes
+  /// - Undo (strokes removed): O(k) trim from end
+  /// - Structural change: O(N) full rebuild (rare: layer visibility, reorder)
   List<ProStroke> get _effectiveStrokes {
     if (_materializedCache != null &&
         _materializedVersion == sceneGraph.version) {
       return _materializedCache!;
     }
-    // Walk scene graph and collect strokes from visible layers
+
+    if (_materializedCache == null) {
+      // First build — full traversal O(N)
+      _materializedCache = _collectAllStrokes();
+      _materializedVersion = sceneGraph.version;
+      return _materializedCache!;
+    }
+
+    // O(L) count where L = number of layers (usually 1-5)
+    final currentCount = _countStrokes();
+    final cachedCount = _materializedCache!.length;
+
+    if (currentCount > cachedCount) {
+      // ✅ ADD PATH: collect only the new tail strokes
+      // Strokes are always appended at the end → skip the first cachedCount
+      int skipped = 0;
+      final newStrokes = <ProStroke>[];
+      for (final layer in sceneGraph.layers) {
+        if (!layer.isVisible) continue;
+        _collectStrokesSkipping(layer, newStrokes, cachedCount, skipped);
+        skipped += layer.strokes.length;
+      }
+      if (newStrokes.isNotEmpty) {
+        _materializedCache!.addAll(newStrokes);
+      } else {
+        // Fallback: structural change — full rebuild
+        _materializedCache = _collectAllStrokes();
+      }
+    } else if (currentCount < cachedCount) {
+      // ✅ UNDO PATH O(1): trim from end — undo always removes last stroke
+      _materializedCache!.length = currentCount;
+    }
+    // else: same count, different version — property change, cache valid
+
+    _materializedVersion = sceneGraph.version;
+    return _materializedCache!;
+  }
+
+  /// Collect strokes from a node, skipping the first [skip] strokes.
+  /// Only adds strokes after the skip count to [result].
+  static void _collectStrokesSkipping(
+    CanvasNode node,
+    List<ProStroke> result,
+    int skip,
+    int alreadySkipped,
+  ) {
+    if (node is StrokeNode) {
+      if (alreadySkipped >= skip) {
+        result.add(node.stroke);
+      }
+    } else if (node is GroupNode) {
+      int localSkipped = alreadySkipped;
+      for (final child in node.children) {
+        if (!child.isVisible) continue;
+        _collectStrokesSkipping(child, result, skip, localSkipped);
+        localSkipped += (child is StrokeNode) ? 1 : 0;
+      }
+    }
+  }
+
+  /// Count total strokes across visible layers — O(L) where L = layer count.
+  ///
+  /// Uses CanvasLayer.strokes.length (O(1) per layer) instead of recursive
+  /// scene graph traversal. Typical L = 1-5 → effectively O(1).
+  int _countStrokes() {
+    int count = 0;
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      count += layer.strokes.length;
+    }
+    return count;
+  }
+
+  /// Collect all strokes from visible layers (full traversal).
+  List<ProStroke> _collectAllStrokes() {
     final result = <ProStroke>[];
     for (final layer in sceneGraph.layers) {
       if (!layer.isVisible) continue;
       _collectStrokes(layer, result);
     }
-    _materializedCache = result;
-    _materializedVersion = sceneGraph.version;
     return result;
   }
 
@@ -255,8 +335,115 @@ class DrawingPainter extends CustomPainter {
     }
   }
 
+  /// 🌲 Ensure the render R-Tree is up to date with the scene graph.
+  ///
+  /// FULLY INCREMENTAL:
+  /// - New strokes → insert O(k log N)
+  /// - Undo/delete → remove O(k log N) instead of rebuild O(N log N)
+  /// - Full rebuild only on first build
+  void _ensureRenderIndex() {
+    if (_renderIndexVersion == sceneGraph.version) return;
+
+    final currentStrokes = _effectiveStrokes;
+    final newCount = currentStrokes.length;
+    final oldCount = _renderIndexNodeCount;
+
+    if (_renderIndexVersion == -1) {
+      // First build: full rebuild
+      final nodes = <CanvasNode>[];
+      for (final layer in sceneGraph.layers) {
+        if (!layer.isVisible) continue;
+        _collectLeafNodes(layer, nodes);
+      }
+      _renderIndex.rebuild(nodes);
+      _renderIndexNodeCount = newCount;
+    } else if (newCount < oldCount) {
+      // Undo/delete: find removed strokes and remove them from R-Tree
+      // Build set of current stroke IDs for O(1) lookup
+      final currentIds = <String>{};
+      for (final s in currentStrokes) {
+        currentIds.add(s.id);
+      }
+      // Find IDs in the old cache that are no longer present
+      final oldCache = _lastMaterializedStrokes;
+      if (oldCache != null) {
+        for (final s in oldCache) {
+          if (!currentIds.contains(s.id)) {
+            _renderIndex.remove(s.id);
+          }
+        }
+        _renderIndexNodeCount = newCount;
+      } else {
+        // Fallback: no old cache → full rebuild
+        final nodes = <CanvasNode>[];
+        for (final layer in sceneGraph.layers) {
+          if (!layer.isVisible) continue;
+          _collectLeafNodes(layer, nodes);
+        }
+        _renderIndex.rebuild(nodes);
+        _renderIndexNodeCount = newCount;
+      }
+    } else if (newCount > oldCount) {
+      // New strokes added: insert only the new ones → O(k log N)
+      for (int i = oldCount; i < newCount; i++) {
+        final stroke = currentStrokes[i];
+        _insertStrokeNode(stroke);
+      }
+      _renderIndexNodeCount = newCount;
+    }
+    // else: version changed but stroke count same (e.g. property change)
+    // — R-Tree bounds are still valid, skip rebuild
+
+    // Save current strokes for next undo comparison
+    _lastMaterializedStrokes = currentStrokes;
+    _renderIndexVersion = sceneGraph.version;
+  }
+
+  /// Insert a StrokeNode into the R-Tree by finding it in the scene graph.
+  void _insertStrokeNode(ProStroke stroke) {
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      final node = _findStrokeNode(layer, stroke);
+      if (node != null) {
+        _renderIndex.insert(node);
+        return;
+      }
+    }
+  }
+
+  /// Find the CanvasNode that wraps a given ProStroke.
+  static CanvasNode? _findStrokeNode(CanvasNode node, ProStroke stroke) {
+    if (node is StrokeNode && identical(node.stroke, stroke)) {
+      return node;
+    }
+    if (node is GroupNode) {
+      // Search in reverse — new strokes are typically at the end
+      for (int i = node.children.length - 1; i >= 0; i--) {
+        final child = node.children[i];
+        final found = _findStrokeNode(child, stroke);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  /// Recursively collect leaf CanvasNodes for R-Tree indexing.
+  static void _collectLeafNodes(CanvasNode node, List<CanvasNode> result) {
+    if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) _collectLeafNodes(child, result);
+      }
+    } else if (node.isVisible) {
+      // Leaf node (StrokeNode, ShapeNode, TextNode, ImageNode, etc.)
+      result.add(node);
+    }
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
+    // 🔬 DIAGNOSTIC: per-section timing
+    final _sw = Stopwatch()..start();
+
     // 🏎️ PERFORMANCE MONITORING: measure frame time
     CanvasPerformanceMonitor.instance.startFrame();
 
@@ -264,11 +451,10 @@ class DrawingPainter extends CustomPainter {
     // Avoids jank on the user's first stroke. Only runs once (_warmedUp guard).
     EngineScope.current.drawingModule?.shaderBrushService.warmUp(canvas);
 
-    // ✂️ Collect PDF annotation IDs so they are SKIPPED from the global
-    // stroke pass and only drawn clipped inside _paintPdfPage.
-    final _diagSw = Stopwatch()..start();
+    // ✂️ Collect PDF annotation IDs (cached per scene graph version)
     _collectPdfAnnotationIds();
-    final collectUs = _diagSw.elapsedMicroseconds;
+
+    final _t0 = _sw.elapsedMicroseconds;
 
     // ✂️ Applica clipping se abilitato (per editing immagini)
     if (enableClipping) {
@@ -282,6 +468,7 @@ class DrawingPainter extends CustomPainter {
     final effectiveOffset = isViewportLevel ? controller!.offset : canvasOffset;
     final effectiveScale = isViewportLevel ? controller!.scale : canvasScale;
     final effectiveViewportSize = isViewportLevel ? size : viewportSize;
+    if (isViewportLevel) _lastPaintSize = size;
 
     if (!isViewportLevel) {
       // Legacy mode (non-viewport): apply transform here
@@ -324,7 +511,6 @@ class DrawingPainter extends CustomPainter {
       return;
     }
 
-    _diagSw.reset();
     {
       // Vectorial cache path
       final tracker = dirtyRegionTracker;
@@ -344,7 +530,8 @@ class DrawingPainter extends CustomPainter {
         _paintDirect(canvas, viewport);
       }
     }
-    final strokesUs = _diagSw.elapsedMicroseconds;
+
+    final _t1 = _sw.elapsedMicroseconds;
 
     // Draw the current shape in preview (not yet in scene graph)
     if (currentShape != null) {
@@ -352,23 +539,20 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 📄 Draw PDF documents
-    _diagSw.reset();
-    _paintPdfDocuments(canvas, viewport);
-    final pdfUs = _diagSw.elapsedMicroseconds;
+    // 🚀 Inflate viewport to pre-render off-screen pages. With the Transform
+    // architecture, paint() doesn't re-run on pan/zoom — the Transform
+    // widget reveals cached raster. Pages must already be in the cache.
+    final pdfViewport = viewport.inflate(viewport.longestSide * 2.0);
+    _paintPdfDocuments(canvas, pdfViewport);
+    _lastRenderedPdfViewport = pdfViewport;
+
+    final _t2 = _sw.elapsedMicroseconds;
 
     // 📊 Draw Tabular (spreadsheet) nodes
-    _paintTabularNodes(canvas, viewport);
+    _paintTabularNodes(canvas, pdfViewport);
 
     // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
     dirtyRegionTracker?.clearDirty();
-
-    // 🔍 DIAGNOSTIC
-    final totalUs = collectUs + strokesUs + pdfUs;
-    if (totalUs > 5000) {
-      debugPrint(
-        '🔍 PAINT: total=${totalUs ~/ 1000}ms  collect=${collectUs ~/ 1000}ms  strokes=${strokesUs ~/ 1000}ms  pdf=${pdfUs ~/ 1000}ms  ver=$_cachedSceneVersion  drag=$isDraggingPdf',
-      );
-    }
 
     // Clear per-frame skip set
     _pdfAnnotationIds = null;
@@ -380,6 +564,18 @@ class DrawingPainter extends CustomPainter {
 
     // 🏎️ PERFORMANCE MONITORING: end frame measurement
     CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
+
+    // 🔬 DIAGNOSTIC: print breakdown on frames > 5ms
+    final totalUs = _sw.elapsedMicroseconds;
+    if (totalUs > 5000) {
+      print(
+        '🔬 PAINT ${(totalUs / 1000).toStringAsFixed(1)}ms: '
+        'setup=${(_t0 / 1000).toStringAsFixed(1)}ms '
+        'strokes=${((_t1 - _t0) / 1000).toStringAsFixed(1)}ms '
+        'pdf=${((_t2 - _t1) / 1000).toStringAsFixed(1)}ms '
+        'rest=${((totalUs - _t2) / 1000).toStringAsFixed(1)}ms',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -391,16 +587,30 @@ class DrawingPainter extends CustomPainter {
   /// because they are drawn clipped inside [_paintPdfPage].
   Set<String>? _pdfAnnotationIds;
 
-  /// Walk the scene graph once to collect all PDF annotation stroke IDs.
+  /// Cached PDF annotation IDs and the scene version when they were collected.
+  static Set<String>? _cachedPdfAnnotationIds;
+  static int _cachedPdfAnnotationVersion = -1;
+
+  /// Collect PDF annotation stroke IDs. Cached per scene graph version
+  /// to avoid walking the tree every paint() call.
   void _collectPdfAnnotationIds() {
+    if (_cachedPdfAnnotationVersion == sceneGraph.version) {
+      _pdfAnnotationIds = _cachedPdfAnnotationIds;
+      _delegateRenderer.skipStrokeIds = _cachedPdfAnnotationIds;
+      return;
+    }
+
     Set<String>? ids;
     for (final layer in sceneGraph.layers) {
       if (!layer.isVisible) continue;
       _collectPdfAnnotationIdsFromNode(layer, ids ??= <String>{});
     }
     _pdfAnnotationIds = ids;
-    // Also set on the SceneGraphRenderer so it skips them in render()
     _delegateRenderer.skipStrokeIds = ids;
+
+    // Cache for next paint()
+    _cachedPdfAnnotationIds = ids;
+    _cachedPdfAnnotationVersion = sceneGraph.version;
   }
 
   /// Recursively collect annotation IDs from PDF nodes in a subtree.
@@ -422,274 +632,6 @@ class DrawingPainter extends CustomPainter {
         }
       }
     }
-  }
-
-  /// 🚀 TILE CACHING with viewport-prioritized, time-budgeted rasterization.
-  ///
-  /// ARCHITECTURE:
-  /// - Dirty tiles are sorted by distance from viewport center (visible first).
-  /// - Rasterization is time-budgeted: uses a Stopwatch to stay within the
-  ///   frame budget (6ms @120Hz, 12ms @60Hz), adapting to device capability.
-  /// - While tiles are warming, falls back to _paintDirect() (O(1) vectorial
-  ///   cache). Once ALL tiles are warm, switches to pure GPU bitmap compositing.
-  /// - If too many tiles (>maxCachedTiles), falls back to _paintDirect.
-
-  void _paintWithTileCaching(Canvas canvas, Rect viewport, double scale) {
-    final tcm = _tileCacheRef;
-    if (tcm == null) return; // No EngineScope — fall back to direct rendering
-
-    // 🚀 Sync LOD bucket with current zoom — must happen before any tile query.
-    tcm.updateScale(scale);
-
-    // 🗺️ Get VIEWPORT tiles only (not entire content bounds!)
-    // This is the critical fix: previously used _calculateContentBounds() which
-    // spanned the entire canvas (16875×25312 = 1296 tiles), always exceeding
-    // maxCachedTiles and falling back to _paintDirect. Viewport = ~10-15 tiles.
-    final viewportTiles = tcm.getVisibleTiles(viewport, scale);
-
-    if (viewportTiles.isEmpty) return;
-
-    // 🎯 Collect dirty/uncached tiles
-    final dirtyTiles = <(int, int)>[];
-    for (final (tileX, tileY) in viewportTiles) {
-      if (tcm.isTileDirty(tileX, tileY) || !tcm.hasTileCached(tileX, tileY)) {
-        dirtyTiles.add((tileX, tileY));
-      }
-    }
-
-    if (dirtyTiles.isNotEmpty) {
-      // 🎯 VIEWPORT-PRIORITY: sort dirty tiles by distance from viewport center.
-      final viewportCenter = viewport.center;
-      final ts = tcm.currentTileSize;
-      dirtyTiles.sort((a, b) {
-        final centerA = Offset(a.$1 * ts + ts * 0.5, a.$2 * ts + ts * 0.5);
-        final centerB = Offset(b.$1 * ts + ts * 0.5, b.$2 * ts + ts * 0.5);
-        final distA = (centerA - viewportCenter).distanceSquared;
-        final distB = (centerB - viewportCenter).distanceSquared;
-        return distA.compareTo(distB);
-      });
-
-      // ⏱️ ADAPTIVE FRAME BUDGET: rasterize tiles until time budget is spent.
-      final frameBudgetMs =
-          (adaptiveConfig?.frameBudgetMs ?? 16.0) * 0.75; // 75% headroom
-      final sw = Stopwatch()..start();
-
-      for (final (tileX, tileY) in dirtyTiles) {
-        final tileBounds = tcm.getTileBounds(tileX, tileY, scale);
-        final strokesInTile = _getStrokesInBounds(tileBounds);
-        tcm.rasterizeTile(tileX, tileY, strokesInTile, devicePixelRatio);
-        if (sw.elapsedMilliseconds >= frameBudgetMs) break;
-      }
-
-      // 🚀 VELOCITY-DIRECTED PREFETCH: spend remaining budget pre-rasterizing
-      // tiles in the pan direction to eliminate white flash on fast pan.
-      if (sw.elapsedMilliseconds < frameBudgetMs && controller != null) {
-        final panVel = controller!.panVelocity;
-        if (panVel.distance > 50) {
-          final futureCenter =
-              viewport.center -
-              Offset(panVel.dx / scale, panVel.dy / scale) * 0.016;
-          final prefetchTileX = (futureCenter.dx / ts).floor();
-          final prefetchTileY = (futureCenter.dy / ts).floor();
-
-          for (
-            int dy = -1;
-            dy <= 1 && sw.elapsedMilliseconds < frameBudgetMs;
-            dy++
-          ) {
-            for (
-              int dx = -1;
-              dx <= 1 && sw.elapsedMilliseconds < frameBudgetMs;
-              dx++
-            ) {
-              final tx = prefetchTileX + dx;
-              final ty = prefetchTileY + dy;
-              if (!tcm.hasTileCached(tx, ty) || tcm.isTileDirty(tx, ty)) {
-                final tileBounds = tcm.getTileBounds(tx, ty, scale);
-                final strokesInTile = _getStrokesInBounds(tileBounds);
-                if (strokesInTile.isNotEmpty) {
-                  tcm.rasterizeTile(tx, ty, strokesInTile, devicePixelRatio);
-                }
-              }
-            }
-          }
-        }
-      }
-      sw.stop();
-    }
-
-    // Check if ALL viewport tiles are now warm
-    final allReady = viewportTiles.every(
-      (t) => tcm.hasTileCached(t.$1, t.$2) && !tcm.isTileDirty(t.$1, t.$2),
-    );
-
-    if (allReady) {
-      // ✅ All viewport tiles cached — pure GPU bitmap compositing (fastest path)
-      tcm.paintVisibleTiles(canvas, viewport, scale);
-    } else {
-      // 🚀 HYBRID: composite cached tiles + render dirty tiles inline.
-      // NEVER fall back to _paintDirect — that rebuilds the entire vectorial
-      // cache from scratch, which is the #1 cause of eraser lag (O(N) strokes).
-      for (final (tileX, tileY) in viewportTiles) {
-        if (tcm.hasTileCached(tileX, tileY) && !tcm.isTileDirty(tileX, tileY)) {
-          // ✅ Clean cached tile — composite as bitmap (O(1))
-          tcm.paintSingleTile(canvas, tileX, tileY);
-        } else {
-          // 🎨 Dirty/missing tile — render strokes directly with clipping
-          final tileBounds = tcm.getTileBounds(tileX, tileY, scale);
-          final strokesInTile = _getStrokesInBounds(tileBounds);
-          if (strokesInTile.isNotEmpty) {
-            canvas.save();
-            canvas.clipRect(tileBounds);
-            for (final stroke in strokesInTile) {
-              // Skip PDF annotation strokes (drawn clipped inside PDF pages)
-              if (_pdfAnnotationIds?.contains(stroke.id) ?? false) continue;
-              _renderStroke(canvas, stroke);
-            }
-            canvas.restore();
-          }
-        }
-      }
-      // Request another frame to continue rasterizing remaining dirty tiles
-      SchedulerBinding.instance.scheduleFrame();
-    }
-  }
-
-  // ==========================================================================
-  // 🚀 VIEWPORT SNAPSHOT — async pre-rasterized bitmap
-  // ==========================================================================
-
-  /// Checks if the cached snapshot covers the current viewport.
-  bool _isSnapshotValid(Rect viewport, double scale) {
-    if (_viewportSnapshot == null) return false;
-    if (_snapshotVersion != sceneGraph.version) return false;
-    // Scale bucket must match (±10% tolerance for minor zoom adjustments)
-    if ((scale - _snapshotScale).abs() / scale > 0.10) return false;
-    // Viewport must be fully contained within snapshot bounds
-    return _snapshotBounds.contains(viewport.topLeft) &&
-        _snapshotBounds.contains(viewport.bottomRight);
-  }
-
-  /// Draws the cached snapshot bitmap onto the canvas.
-  void _drawViewportSnapshot(Canvas canvas, double scale) {
-    final snapshot = _viewportSnapshot!;
-    final dpr = _snapshotDpr;
-
-    // The snapshot was rendered at _snapshotBounds in world coords.
-    // Map from snapshot pixel coords back to world coords.
-    final src = Rect.fromLTWH(
-      0,
-      0,
-      snapshot.width.toDouble(),
-      snapshot.height.toDouble(),
-    );
-    final dst = _snapshotBounds;
-    canvas.drawImageRect(snapshot, src, dst, Paint());
-  }
-
-  /// Schedules an async snapshot generation via post-frame callback.
-  /// Uses `picture.toImage()` (async) — does NOT block the UI thread.
-  void _scheduleViewportSnapshot(Rect viewport, double scale) {
-    _snapshotScheduled = true;
-
-    // Capture values from the painter instance (it may be replaced by next frame)
-    final currentVersion = sceneGraph.version;
-    final capturedSceneGraph = sceneGraph;
-
-    // 🚀 Expand viewport by 25% margin on each side for pan tolerance
-    final marginX = viewport.width * 0.25;
-    final marginY = viewport.height * 0.25;
-    final expandedBounds = Rect.fromLTRB(
-      viewport.left - marginX,
-      viewport.top - marginY,
-      viewport.right + marginX,
-      viewport.bottom + marginY,
-    );
-
-    SchedulerBinding.instance.addPostFrameCallback((_) async {
-      // Bail if scene changed between scheduling and execution
-      if (!EngineScope.hasScope) {
-        _snapshotScheduled = false;
-        return;
-      }
-      if (capturedSceneGraph.version != currentVersion) {
-        _snapshotScheduled = false;
-        return;
-      }
-
-      try {
-        // Record all strokes into a Picture
-        final recorder = ui.PictureRecorder();
-        final recCanvas = Canvas(recorder);
-
-        // 🚀 NO DPR scaling — render at 1:1 world-pixel ratio.
-        // drawImageRect handles mapping to screen pixels.
-        // This keeps the texture small (~600×1350 instead of 1800×4050).
-        recCanvas.translate(-expandedBounds.left, -expandedBounds.top);
-
-        // Render using the scene graph renderer (same as _paintDirect)
-        final renderer = EngineScope.current.renderCacheScope.delegateRenderer;
-        renderer.skipPdfNodes = true;
-        renderer.render(
-          recCanvas,
-          capturedSceneGraph,
-          expandedBounds,
-          scale: 1.0,
-        );
-        renderer.skipPdfNodes = false;
-
-        final picture = recorder.endRecording();
-
-        // Snapshot at 1:1 world pixels (no DPR)
-        final pixelWidth = expandedBounds.width.ceil();
-        final pixelHeight = expandedBounds.height.ceil();
-
-        // Guard against absurdly large snapshots
-        if (pixelWidth > 8192 ||
-            pixelHeight > 8192 ||
-            pixelWidth <= 0 ||
-            pixelHeight <= 0) {
-          picture.dispose();
-          _snapshotScheduled = false;
-          return;
-        }
-
-        final image = await picture.toImage(pixelWidth, pixelHeight);
-        picture.dispose();
-
-        // Verify scene hasn't changed during async operation
-        if (!EngineScope.hasScope ||
-            capturedSceneGraph.version != currentVersion) {
-          image.dispose();
-          _snapshotScheduled = false;
-          return;
-        }
-
-        // Dispose old snapshot
-        _viewportSnapshot?.dispose();
-
-        // Store new snapshot
-        _viewportSnapshot = image;
-        _snapshotBounds = expandedBounds;
-        _snapshotScale = scale;
-        _snapshotVersion = currentVersion;
-        _snapshotDpr = 1.0; // Rendered at 1:1
-        _snapshotScheduled = false;
-
-        // Trigger repaint to use the new snapshot on next frame
-        SchedulerBinding.instance.scheduleFrame();
-      } catch (_) {
-        _snapshotScheduled = false;
-      }
-    });
-  }
-
-  /// Invalidates the viewport snapshot. Called on stroke end, undo, eraser, etc.
-  static void invalidateViewportSnapshot() {
-    _viewportSnapshot?.dispose();
-    _viewportSnapshot = null;
-    _snapshotVersion = -1;
-    _snapshotScheduled = false;
   }
 
   /// Calculates the bounding box of all completed strokes
@@ -774,6 +716,17 @@ class DrawingPainter extends CustomPainter {
       _strokeCache.invalidateCache();
     }
 
+    // 🚀 VIEWPORT-BASED CACHE INVALIDATION: if the user has panned/zoomed
+    // outside the area covered by the cached Picture, rebuild it.
+    if (_strokeCache.isCacheValid(totalStrokes) &&
+        _cachedCacheViewport != Rect.zero &&
+        !(viewport.left >= _cachedCacheViewport.left &&
+            viewport.top >= _cachedCacheViewport.top &&
+            viewport.right <= _cachedCacheViewport.right &&
+            viewport.bottom <= _cachedCacheViewport.bottom)) {
+      _strokeCache.invalidateCache();
+    }
+
     // 🎯 ERASER PREVIEW OVERLAY: replay cache + overlay tinted previews.
     // The cache stays valid — preview strokes are drawn ON TOP, not re-rendered.
     if (hasEraserPreview && _strokeCache.isCacheValid(totalStrokes)) {
@@ -816,57 +769,179 @@ class DrawingPainter extends CustomPainter {
       return;
     }
 
-    // 📄 Full render: no usable cache.
-    // Delegate to SceneGraphRenderer for unified tree traversal.
-    // This renders ALL node types (strokes, shapes, text, images, etc.)
-    // in correct z-order, with viewport culling and adaptive LOD.
+    // � Full render: no usable global cache.
+    // 🧩 TILE CACHE: instead of rendering all strokes into one Picture,
+    // render per-tile. Only missing/invalidated tiles are rebuilt.
     final hasEraserPreviewActive = eraserPreviewIds.isNotEmpty;
 
-    // 🛡️ Use infinite viewport for the canvas render to prevent
-    // strokes outside the current viewport from being culled during
-    // rapid drawing (when the cache is invalidated every frame).
-    // The parent ClipRect widget already clips to the screen bounds.
-    const fullViewport = Rect.fromLTWH(-1e6, -1e6, 2e6, 2e6);
-
-    // 🚀 RECORD-ONCE: render to PictureRecorder, draw the Picture,
-    // and adopt it as cache — all in a single render pass.
-    // Previously this rendered twice (live canvas + recorder). Now 1×.
-    final canCache =
-        !hasEraserPreviewActive &&
-        !isDirtyClipped &&
-        _effectiveStrokes.length >= 5;
-
-    if (canCache) {
-      final recorder = ui.PictureRecorder();
-      final recCanvas = Canvas(recorder);
-      // 🚀 Skip PDF pages — they're rendered separately in _paintPdfDocuments
-      _delegateRenderer.skipPdfNodes = true;
-      _delegateRenderer.render(recCanvas, sceneGraph, fullViewport, scale: 1.0);
-      _delegateRenderer.skipPdfNodes = false;
-      final picture = recorder.endRecording();
-
-      // Draw the recorded picture on the live canvas
-      canvas.drawPicture(picture);
-
-      // Adopt for future O(1) replay
-      _strokeCache.adoptPicture(picture, _effectiveStrokes.length);
-      _cachedSceneVersion = sceneGraph.version;
-    } else {
-      // Can't cache (eraser preview active, dirty-clipped, or too few strokes)
-      // — render directly without caching.
+    // Can't use tile cache during eraser preview or dirty-clipped mode
+    if (hasEraserPreviewActive ||
+        isDirtyClipped ||
+        _effectiveStrokes.length < 5) {
+      // Fallback: direct render without caching
+      final cacheViewport = viewport.inflate(viewport.longestSide * 2.0);
       final effectiveScale = controller?.scale ?? canvasScale;
       _delegateRenderer.skipPdfNodes = true;
       _delegateRenderer.render(
         canvas,
         sceneGraph,
-        fullViewport,
+        cacheViewport,
         scale: effectiveScale,
       );
       _delegateRenderer.skipPdfNodes = false;
+      _drawEraserPreviews(canvas);
+      return;
+    }
+
+    // 🧩 TILE CACHE PATH: draw cached tiles + rebuild missing ones
+    // Invalidate tiles if scene changed (new stroke, undo, etc.)
+    if (_tileCache.cachedStrokeCount != totalStrokes ||
+        _tileCache.cachedVersion != sceneGraph.version) {
+      // Find which strokes changed and invalidate only their tiles
+      if (totalStrokes > _tileCache.cachedStrokeCount &&
+          _tileCache.hasCachedTiles) {
+        // New strokes added: invalidate only touched tiles
+        for (int i = _tileCache.cachedStrokeCount; i < totalStrokes; i++) {
+          final stroke = _effectiveStrokes[i];
+          _tileCache.invalidateForBounds(stroke.bounds);
+        }
+      } else {
+        // Undo/delete/major change: invalidate all
+        _tileCache.invalidateAll();
+      }
+    }
+
+    // 🌲 Ensure R-Tree is up to date for O(log N) tile queries
+    _ensureRenderIndex();
+
+    // Draw cached tiles and collect missing ones
+    final missingTiles = _tileCache.drawAndCollectMissing(canvas, viewport);
+
+    // Rebuild missing tiles using R-Tree O(log N) query
+    for (final tileKey in missingTiles) {
+      final tileBounds = TileCacheManager.tileBounds(tileKey);
+      final recorder = ui.PictureRecorder();
+      final recCanvas = Canvas(recorder);
+
+      // 🌲 R-TREE QUERY: O(log N) instead of O(N) scene graph traversal
+      final visibleNodes = _renderIndex.queryRange(tileBounds);
+      for (final node in visibleNodes) {
+        // Skip PDF nodes — rendered separately in _paintPdfDocuments
+        if (node is PdfDocumentNode || node is PdfPageNode) continue;
+        // Skip stub strokes (paged out to disk, no points to render)
+        if (node is StrokeNode && node.stroke.isStub) continue;
+        _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+      }
+
+      final picture = recorder.endRecording();
+      canvas.drawPicture(picture);
+      _tileCache.cacheTile(tileKey, picture, sceneGraph.version);
+    }
+
+    // Mark tile cache as valid
+    _tileCache.markValid(totalStrokes, sceneGraph.version);
+
+    // Also update the global stroke cache for fast O(1) replay on next frame
+    // Record all visible tiles into one Picture for the StrokeCacheManager
+    if (missingTiles.isNotEmpty) {
+      final globalRecorder = ui.PictureRecorder();
+      final globalCanvas = Canvas(globalRecorder);
+      _tileCache.drawAndCollectMissing(globalCanvas, viewport);
+      final globalPicture = globalRecorder.endRecording();
+      _strokeCache.adoptPicture(globalPicture, totalStrokes);
+      _cachedSceneVersion = sceneGraph.version;
+      _cachedCacheViewport = viewport.inflate(viewport.longestSide * 2.0);
     }
 
     // Draw eraser previews on top (overlay, not part of scene graph render)
     _drawEraserPreviews(canvas);
+
+    // 🗂️ Trigger async stroke paging (non-blocking)
+    _triggerPagingIfNeeded(viewport);
+  }
+
+  /// 🗂️ Async stroke paging: page out far strokes, page in near stubs.
+  ///
+  /// Runs in a fire-and-forget Future to avoid blocking paint.
+  /// Uses hysteresis (8192 out / 4096 in) to prevent thrashing.
+  void _triggerPagingIfNeeded(Rect viewport) {
+    if (_pagingInProgress) return;
+    if (!_pagingManager.isInitialized) return;
+    final totalStrokes = _effectiveStrokes.length;
+    if (totalStrokes < 500) return; // Not enough strokes to bother
+
+    // Check if viewport moved enough to trigger paging
+    if (_lastPagingViewport != Rect.zero) {
+      final dx = (viewport.center.dx - _lastPagingViewport.center.dx).abs();
+      final dy = (viewport.center.dy - _lastPagingViewport.center.dy).abs();
+      if (dx < 2048 && dy < 2048) return; // Not moved enough
+    }
+
+    _pagingInProgress = true;
+    _lastPagingViewport = viewport;
+
+    // TODO: get canvasId from EngineScope or DrawingPainter field
+    final canvasId = 'current'; // placeholder
+
+    // Fire-and-forget: page out then page in
+    Future<void>(() async {
+      try {
+        // Page out strokes far from viewport
+        final pagedOut = await _pagingManager.pageOut(
+          canvasId,
+          _effectiveStrokes,
+          viewport,
+        );
+
+        // Page in stubs that are now near viewport
+        final restored = await _pagingManager.pageIn(viewport);
+
+        // Replace stubs with restored strokes in scene graph
+        if (restored.isNotEmpty) {
+          for (final layer in sceneGraph.layers) {
+            _replaceStubs(layer, restored);
+          }
+          // Invalidate caches for restored strokes
+          for (final stroke in restored.values) {
+            _tileCache.invalidateForBounds(stroke.bounds);
+          }
+        }
+
+        // Replace full strokes with stubs for paged-out ones
+        if (pagedOut.isNotEmpty) {
+          final pagedOutSet = pagedOut.toSet();
+          for (final layer in sceneGraph.layers) {
+            _stubifyStrokes(layer, pagedOutSet);
+          }
+        }
+      } finally {
+        _pagingInProgress = false;
+      }
+    });
+  }
+
+  /// Replace stub strokes in the scene graph with restored full strokes.
+  static void _replaceStubs(CanvasNode node, Map<String, ProStroke> restored) {
+    if (node is StrokeNode && restored.containsKey(node.stroke.id)) {
+      node.stroke = restored[node.stroke.id]!;
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        _replaceStubs(child, restored);
+      }
+    }
+  }
+
+  /// Replace full strokes with stubs for paged-out stroke IDs.
+  static void _stubifyStrokes(CanvasNode node, Set<String> pagedOutIds) {
+    if (node is StrokeNode && pagedOutIds.contains(node.stroke.id)) {
+      if (!node.stroke.isStub) {
+        node.stroke = node.stroke.toStub();
+      }
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        _stubifyStrokes(child, pagedOutIds);
+      }
+    }
   }
 
   /// 🎨 Render strokes grouped by layer, each with its own blend mode.
@@ -1042,7 +1117,7 @@ class DrawingPainter extends CustomPainter {
     Map<String, List<PdfPageNode>> pagesPerDocument,
   ) {
     if (node is PdfDocumentNode) {
-      // 🚀 Culling: If document is off-screen, skip its pages entirely
+      //  Culling: If document is off-screen, skip its pages entirely
       if (!node.worldBounds.overlaps(viewport)) return;
 
       final painter = pdfPainters[node.id];
@@ -1185,6 +1260,7 @@ class DrawingPainter extends CustomPainter {
               rotation,
             )
             : pageRect;
+
     if (!cullRect.overlaps(viewport)) return;
 
     // Compute the effective rect accounting for rotation (for clipping/hit-test)
@@ -1625,85 +1701,116 @@ class DrawingPainter extends CustomPainter {
     // NO repaint for offset/scale/viewportSize, at any
     // number of strokes. Cached tiles are GPU-scaled bitmaps.
     // 🌲 Scene graph version-based change detection
-    return oldDelegate._sceneGraphVersion != _sceneGraphVersion ||
+    if (oldDelegate._sceneGraphVersion != _sceneGraphVersion ||
         oldDelegate.completedShapes != completedShapes ||
         oldDelegate.currentShape != currentShape ||
         oldDelegate.layers != layers ||
         oldDelegate.eraserPreviewIds != eraserPreviewIds ||
-        oldDelegate.pdfLayoutVersion != pdfLayoutVersion;
+        oldDelegate.pdfLayoutVersion != pdfLayoutVersion) {
+      return true;
+    }
+
+    // 🚀 VIEWPORT BOUNDARY CHECK: trigger repaint when the current viewport
+    // exits the previously rendered inflated area. This ensures PDF pages
+    // (and strokes) are re-rendered when the user scrolls/zooms far enough.
+    if (controller != null && _lastRenderedPdfViewport != Rect.zero) {
+      final vpSize = _lastPaintSize;
+      final viewport = ViewportCuller.calculateViewport(
+        vpSize,
+        controller!.offset,
+        controller!.scale,
+        rotation: controller!.rotation,
+      );
+      if (!(viewport.left >= _lastRenderedPdfViewport.left &&
+          viewport.top >= _lastRenderedPdfViewport.top &&
+          viewport.right <= _lastRenderedPdfViewport.right &&
+          viewport.bottom <= _lastRenderedPdfViewport.bottom)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
-  /// 🚀 Incremental update: overlay new stroke on cached tiles
-  /// Falls back to full invalidation for tiles not yet cached
+  /// 🚀 Incremental update (no-op, tile caching removed)
   static void incrementalUpdateForStroke(
     ProStroke stroke,
     double devicePixelRatio,
   ) {
-    if (!EngineScope.hasScope) return;
-    final tcm = EngineScope.current.tileCacheManager;
-    final bounds = stroke.bounds;
-    if (bounds == Rect.zero) return;
-
-    for (final (tileX, tileY) in tcm.getTilesForBounds(bounds)) {
-      // Try incremental overlay on existing cached tile
-      final success = tcm.incrementalUpdateTile(
-        tileX,
-        tileY,
-        stroke,
-        devicePixelRatio,
-      );
-      // If incremental failed (tile not in cache), mark dirty for full rasterization
-      if (!success) {
-        tcm.invalidateTile(tileX, tileY);
-      }
-    }
+    // Tile caching removed — vectorial cache handles this via scene version
   }
 
-  /// 🚀 Invalidate tiles involved by a stroke (call after add/remove)
+  /// 🚀 Invalidate tiles involved by a stroke (no-op, kept for API compatibility)
   static void invalidateTilesForStroke(ProStroke stroke) {
-    if (!EngineScope.hasScope) return;
-    EngineScope.current.tileCacheManager.invalidateTilesForStroke(stroke);
+    // Tile caching removed — vectorial cache invalidated via scene version
   }
 
-  /// 🚀 Invalidate all caches (call after complete undo or clear)
+  /// 🚀 Invalidate caches (call after undo, clear, or structural changes).
+  ///
+  /// NOTE: Does NOT invalidate the vectorial stroke cache — that cache
+  /// self-invalidates via the version check in _paintDirect() (incremental
+  /// O(delta) path) and the stroke-count check (undo O(1) snapshot path).
+  /// Explicitly destroying it would force a full O(N) rebuild.
   static void invalidateAllTiles() {
-    if (EngineScope.hasScope) {
-      EngineScope.current.tileCacheManager.invalidateAll();
-    }
-    if (EngineScope.hasScope) {
-      EngineScope.current.renderCacheScope.strokeCache.invalidateCache();
-    }
+    _tileCache.invalidateAll();
     invalidateLayerCaches();
-    invalidateViewportSnapshot();
   }
 
-  /// 🚀 Invalidate ONLY the tile cache (bitmap raster).
+  /// 🗂️ Initialize stroke paging manager with shared SQLite database.
+  /// Call once during canvas setup to enable 1M+ stroke memory management.
+  static Future<void> initializePaging(dynamic database) async {
+    await _pagingManager.initialize(database);
+  }
+
+  /// 🗂️ Restore paged-out strokes before save to prevent data loss.
   ///
-  /// Use during eraser gestures where scene graph version bump already
-  /// handles vectorial/layer cache invalidation via the version check
-  /// in [_paintDirect]. Avoids redundant O(1) cache dispose calls.
+  /// Returns a map of strokeId → full ProStroke. The caller should
+  /// temporarily replace stubs in the scene graph, save, then re-stub.
+  /// Returns empty map if paging is inactive or no strokes are paged out.
+  static Future<Map<String, ProStroke>> restorePagedStrokesForSave() async {
+    if (!_pagingManager.isInitialized || !_pagingManager.hasPagedOutStrokes) {
+      return const {};
+    }
+    return _pagingManager.restoreAllForSave();
+  }
+
+  /// 🗂️ Check if lazy-load index exists for a canvas.
+  static Future<bool> hasStrokeIndex(String canvasId) async {
+    if (!_pagingManager.isInitialized) return false;
+    return _pagingManager.hasIndex(canvasId);
+  }
+
+  /// 🗂️ Index all strokes after save for lazy-load on next open.
+  static Future<void> indexStrokesForLazyLoad(
+    String canvasId,
+    List<(String layerId, ProStroke stroke)> allStrokes,
+  ) async {
+    if (!_pagingManager.isInitialized) return;
+    await _pagingManager.indexAllStrokes(canvasId, allStrokes);
+  }
+
+  /// 🗂️ Load lightweight stubs from index for lazy first-open.
+  static Future<Map<String, List<ProStroke>>> loadStubsForLazyLoad(
+    String canvasId,
+  ) async {
+    if (!_pagingManager.isInitialized) return const {};
+    return _pagingManager.loadStubsFromIndex(canvasId);
+  }
+
+  /// 🚀 Invalidate tile cache only (no-op, kept for API compatibility)
   static void invalidateTileCacheOnly() {
-    if (EngineScope.hasScope) {
-      EngineScope.current.tileCacheManager.invalidateAll();
-    }
-    invalidateViewportSnapshot();
+    // Tile caching removed
   }
 
-  /// 🚀 Invalidate only tiles that overlap [bounds].
-  ///
-  /// During erasing, only a small area is affected per frame. This re-rasterizes
-  /// 2–4 tiles instead of all tiles on the canvas.
+  /// 🚀 Invalidate tiles in bounds (no-op, kept for API compatibility)
   static void invalidateTilesInBounds(Rect bounds) {
-    if (EngineScope.hasScope) {
-      EngineScope.current.tileCacheManager.invalidateTilesInBounds(bounds);
-    }
+    // Tile caching removed
   }
 
   /// 🚀 Clear all caches and free memory (call when leaving the canvas)
   static void clearTileCache() {
     if (EngineScope.hasScope) {
       final scope = EngineScope.current;
-      scope.tileCacheManager.clear();
       scope.renderCacheScope.strokeCache.invalidateCache();
       scope.renderCacheScope.strokeCache.clearUndoSnapshots();
     }

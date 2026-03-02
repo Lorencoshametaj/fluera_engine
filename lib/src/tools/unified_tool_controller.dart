@@ -26,7 +26,7 @@ class UnifiedToolController extends ChangeNotifier {
   // TOOL SETTINGS STATE
   // ============================================================================
 
-  ProPenType _penType = ProPenType.fountain;
+  ProPenType _penType = ProPenType.ballpoint;
   Color _color = Colors.black;
   double _width = 3.78; // 1mm = 3.78px @ 96 DPI
   double _opacity = 1.0;

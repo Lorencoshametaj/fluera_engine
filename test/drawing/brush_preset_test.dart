@@ -134,8 +134,15 @@ void main() {
   // ===========================================================================
 
   group('BrushPreset - builtInPresets', () {
-    test('has 13 built-in presets', () {
-      expect(BrushPreset.builtInPresets.length, 13);
+    test('has 14 built-in presets', () {
+      expect(BrushPreset.builtInPresets.length, 14);
+    });
+
+    test('Everyday Pen is first default preset and uses ballpoint', () {
+      final defaults = BrushPreset.defaultPresets;
+      expect(defaults.first.id, 'builtin_everyday_pen');
+      expect(defaults.first.penType, ProPenType.ballpoint);
+      expect(defaults.first.baseWidth, 2.0);
     });
 
     test('all built-in presets have isBuiltIn = true', () {

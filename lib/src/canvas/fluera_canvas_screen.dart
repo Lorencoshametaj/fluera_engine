@@ -33,7 +33,6 @@ import '../core/engine_event_bus.dart';
 import '../core/engine_event.dart';
 import '../core/conscious_architecture.dart';
 import '../core/adaptive_profile.dart';
-import '../rendering/optimization/anticipatory_tile_prefetch.dart';
 import '../core/engine_error.dart';
 import '../export/export_preset.dart';
 import '../export/saved_export_area.dart';

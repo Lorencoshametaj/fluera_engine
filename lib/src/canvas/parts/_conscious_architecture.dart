@@ -29,8 +29,7 @@ extension ConsciousArchitectureWiring on _FlueraCanvasScreenState {
   void _initConsciousArchitecture() {
     final arch = EngineScope.current.consciousArchitecture;
 
-    // ── L1 — Anticipatory ──
-    arch.register(AnticipatoryTilePrefetch());
+    // (L1 — AnticipatoryTilePrefetch removed: tile caching no longer used)
 
     // ── L2 — Adaptive (with cross-session persistence) ──
     final profile = AdaptiveProfile();
@@ -213,17 +212,8 @@ extension ConsciousArchitectureWiring on _FlueraCanvasScreenState {
     // Previously: _drawingHandler.stabilizerLevel = level;
     bool changed = false;
 
-    // Apply tile-cache prefetch margin bias.
-    final prefetchBias = profile.recommendedTilePrefetch.toDouble();
-    final tilePrefetch = arch.find<AnticipatoryTilePrefetch>();
-    double normalizedBias = 1.0;
-    if (tilePrefetch != null && prefetchBias > 0) {
-      normalizedBias = prefetchBias / 2.0; // Normalize: 2→1.0, 4→2.0
-      if (tilePrefetch.prefetchMarginBias != normalizedBias) {
-        tilePrefetch.prefetchMarginBias = normalizedBias;
-        changed = true;
-      }
-    }
+    // Tile prefetch was removed — tile caching is no longer used.
+    final normalizedBias = 1.0;
 
     // Emit EventBus event if recommendations changed.
     if (changed) {

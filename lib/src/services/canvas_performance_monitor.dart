@@ -41,7 +41,7 @@ class CanvasPerformanceMonitor {
   final List<double> _fpsSparkline = [];
 
   /// Sliding window of frame-to-frame intervals for FPS.
-  DateTime? _lastFrameStart;
+
   int _frameCount = 0;
   int _currentStrokeCount = 0;
 
@@ -109,18 +109,23 @@ class CanvasPerformanceMonitor {
   // Frame lifecycle
   // ═══════════════════════════════════════════════════════════════════
 
+  /// Stopwatch for frame timing (much cheaper than DateTime.now())
+  final Stopwatch _frameStopwatch = Stopwatch();
+
   /// Start frame measurement. Call at the beginning of paint().
   void startFrame() {
     if (!_isEnabled) return;
-    _lastFrameStart = DateTime.now();
+    _frameStopwatch.reset();
+    _frameStopwatch.start();
   }
 
   /// End frame measurement. Call at the end of paint().
   void endFrame(int strokeCount) {
-    if (!_isEnabled || _lastFrameStart == null) return;
+    if (!_isEnabled) return;
+    _frameStopwatch.stop();
 
     _currentStrokeCount = strokeCount;
-    final elapsed = DateTime.now().difference(_lastFrameStart!).inMicroseconds;
+    final elapsed = _frameStopwatch.elapsedMicroseconds;
 
     // Store raw frame time
     _frameTimesUs.add(elapsed);
@@ -208,7 +213,7 @@ class CanvasPerformanceMonitor {
     _fpsSparkline.clear();
     _frameCount = 0;
     _currentStrokeCount = 0;
-    _lastFrameStart = null;
+    _frameStopwatch.reset();
     _jankFrames = 0;
     _totalFramesMeasured = 0;
   }
