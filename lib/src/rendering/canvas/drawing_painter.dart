@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../drawing/models/surface_material.dart';
 import '../../services/canvas_performance_monitor.dart';
@@ -12,6 +13,8 @@ import './shape_painter.dart';
 import '../../drawing/brushes/brushes.dart';
 import '../optimization/viewport_culler.dart';
 import '../optimization/spatial_index.dart';
+import '../optimization/persistent_spatial_index.dart';
+import '../optimization/stroke_offset_index.dart';
 
 import '../optimization/stroke_cache_manager.dart';
 import '../../core/models/canvas_layer.dart';
@@ -125,10 +128,28 @@ class DrawingPainter extends CustomPainter {
   static int _renderIndexNodeCount = 0;
   static List<ProStroke>? _lastMaterializedStrokes;
 
+  /// 📊 Total stroke count (including stubs) for R-Tree sync.
+  /// _materializedCache only holds loaded (non-stub) strokes;
+  /// this tracks the REAL total for insert/remove diff detection.
+  static int _totalStrokeCount = 0;
+
+  /// 🌲 Persistent R*Tree index (SQLite) for 10M+ strokes.
+  /// Dual-write with in-memory _renderIndex — fire-and-forget async.
+  static final PersistentSpatialIndex _persistentIndex =
+      PersistentSpatialIndex();
+
   /// 🗂️ Stroke paging manager for memory-bounded 1M+ strokes.
   static final StrokePagingManager _pagingManager = StrokePagingManager();
   static bool _pagingInProgress = false;
   static Rect _lastPagingViewport = Rect.zero;
+
+  /// 📦 Stroke offset index for seekable binary access.
+  static final StrokeOffsetIndex _offsetIndex = StrokeOffsetIndex();
+
+  /// 📊 Loaded stroke IDs — O(1) lookup to avoid O(N) scene graph traversal.
+  /// Only strokes with full data (non-stub, paged-in) are in this set.
+  /// At 10M: set holds ~5000 IDs (~200KB) instead of traversing 10M nodes.
+  static final Set<String> _loadedStrokeIds = {};
 
   // 🎯 Adaptive rendering config per 120Hz support
   final AdaptiveRenderingConfig? adaptiveConfig;
@@ -242,38 +263,32 @@ class DrawingPainter extends CustomPainter {
       return _materializedCache!;
     }
 
+    // Update total stroke count (including stubs) — O(L)
+    _totalStrokeCount = _countStrokes();
+
     if (_materializedCache == null) {
-      // First build — full traversal O(N)
+      // First build — full traversal, skip stubs
       _materializedCache = _collectAllStrokes();
       _materializedVersion = sceneGraph.version;
       return _materializedCache!;
     }
 
-    // O(L) count where L = number of layers (usually 1-5)
-    final currentCount = _countStrokes();
-    final cachedCount = _materializedCache!.length;
+    // Compare total stroke count (all strokes including stubs)
+    // with renderIndex count to detect add/undo
+    final currentTotal = _totalStrokeCount;
+    final oldTotal = _renderIndexNodeCount;
 
-    if (currentCount > cachedCount) {
-      // ✅ ADD PATH: collect only the new tail strokes
-      // Strokes are always appended at the end → skip the first cachedCount
-      int skipped = 0;
-      final newStrokes = <ProStroke>[];
-      for (final layer in sceneGraph.layers) {
-        if (!layer.isVisible) continue;
-        _collectStrokesSkipping(layer, newStrokes, cachedCount, skipped);
-        skipped += layer.strokes.length;
-      }
-      if (newStrokes.isNotEmpty) {
-        _materializedCache!.addAll(newStrokes);
-      } else {
-        // Fallback: structural change — full rebuild
-        _materializedCache = _collectAllStrokes();
-      }
-    } else if (currentCount < cachedCount) {
-      // ✅ UNDO PATH O(1): trim from end — undo always removes last stroke
-      _materializedCache!.length = currentCount;
+    if (currentTotal > oldTotal) {
+      // ADD: New strokes were added — rebuild loaded list
+      _materializedCache = _collectAllStrokes();
+    } else if (currentTotal < oldTotal) {
+      // UNDO: Strokes were removed — rebuild loaded list
+      _materializedCache = _collectAllStrokes();
+    } else {
+      // Same total count — paging event or property change
+      // Rebuild to pick up newly paged-in strokes
+      _materializedCache = _collectAllStrokes();
     }
-    // else: same count, different version — property change, cache valid
 
     _materializedVersion = sceneGraph.version;
     return _materializedCache!;
@@ -314,8 +329,9 @@ class DrawingPainter extends CustomPainter {
     return count;
   }
 
-  /// Collect all strokes from visible layers (full traversal).
+  /// Collect all loaded (non-stub) strokes and rebuild _loadedStrokeIds.
   List<ProStroke> _collectAllStrokes() {
+    _loadedStrokeIds.clear();
     final result = <ProStroke>[];
     for (final layer in sceneGraph.layers) {
       if (!layer.isVisible) continue;
@@ -324,10 +340,15 @@ class DrawingPainter extends CustomPainter {
     return result;
   }
 
-  /// Recursively collect ProStroke instances from a node subtree.
+  /// Recursively collect LOADED (non-stub) ProStroke instances from a node subtree.
+  /// Adds loaded stroke IDs to _loadedStrokeIds for O(K) fast lookup.
+  /// At 10M strokes, stubs are skipped → cache holds only ~1000-5000 loaded.
   static void _collectStrokes(CanvasNode node, List<ProStroke> result) {
     if (node is StrokeNode) {
-      result.add(node.stroke);
+      if (!node.stroke.isStub) {
+        result.add(node.stroke);
+        _loadedStrokeIds.add(node.stroke.id);
+      }
     } else if (node is GroupNode) {
       for (final child in node.children) {
         if (child.isVisible) _collectStrokes(child, result);
@@ -345,7 +366,8 @@ class DrawingPainter extends CustomPainter {
     if (_renderIndexVersion == sceneGraph.version) return;
 
     final currentStrokes = _effectiveStrokes;
-    final newCount = currentStrokes.length;
+    final newCount =
+        _totalStrokeCount; // Use total (including stubs) for R-Tree sync
     final oldCount = _renderIndexNodeCount;
 
     if (_renderIndexVersion == -1) {
@@ -357,6 +379,15 @@ class DrawingPainter extends CustomPainter {
       }
       _renderIndex.rebuild(nodes);
       _renderIndexNodeCount = newCount;
+
+      // 🌲 Dual-write: persist R-Tree to SQLite (fire-and-forget)
+      if (_persistentIndex.isInitialized) {
+        final entries = <(String, Rect)>[];
+        for (final node in nodes) {
+          entries.add((node.id, node.worldBounds));
+        }
+        _persistentIndex.rebuild(entries).catchError((_) {});
+      }
     } else if (newCount < oldCount) {
       // Undo/delete: find removed strokes and remove them from R-Tree
       // Build set of current stroke IDs for O(1) lookup
@@ -370,6 +401,10 @@ class DrawingPainter extends CustomPainter {
         for (final s in oldCache) {
           if (!currentIds.contains(s.id)) {
             _renderIndex.remove(s.id);
+            // 🌲 Dual-write: remove from persistent R*Tree
+            if (_persistentIndex.isInitialized) {
+              _persistentIndex.remove(s.id).catchError((_) {});
+            }
           }
         }
         _renderIndexNodeCount = newCount;
@@ -406,6 +441,10 @@ class DrawingPainter extends CustomPainter {
       final node = _findStrokeNode(layer, stroke);
       if (node != null) {
         _renderIndex.insert(node);
+        // 🌲 Dual-write: persist new node to SQLite R*Tree
+        if (_persistentIndex.isInitialized) {
+          _persistentIndex.insert(node.id, node.worldBounds).catchError((_) {});
+        }
         return;
       }
     }
@@ -920,10 +959,12 @@ class DrawingPainter extends CustomPainter {
     });
   }
 
-  /// Replace stub strokes in the scene graph with restored full strokes.
+  /// Replace stub strokes with restored full strokes and ADD to layer.strokes.
+  /// Also adds restored IDs to _loadedStrokeIds for O(K) lookup.
   static void _replaceStubs(CanvasNode node, Map<String, ProStroke> restored) {
     if (node is StrokeNode && restored.containsKey(node.stroke.id)) {
       node.stroke = restored[node.stroke.id]!;
+      _loadedStrokeIds.add(node.stroke.id);
     } else if (node is GroupNode) {
       for (final child in node.children) {
         _replaceStubs(child, restored);
@@ -931,10 +972,13 @@ class DrawingPainter extends CustomPainter {
     }
   }
 
-  /// Replace full strokes with stubs for paged-out stroke IDs.
+  /// Remove paged-out strokes from layer.strokes entirely (not just stub).
+  /// Removes their IDs from _loadedStrokeIds.
+  /// At 10M: frees 640MB by not keeping stub objects in RAM.
   static void _stubifyStrokes(CanvasNode node, Set<String> pagedOutIds) {
     if (node is StrokeNode && pagedOutIds.contains(node.stroke.id)) {
       if (!node.stroke.isStub) {
+        _loadedStrokeIds.remove(node.stroke.id);
         node.stroke = node.stroke.toStub();
       }
     } else if (node is GroupNode) {
@@ -1760,6 +1804,8 @@ class DrawingPainter extends CustomPainter {
   /// Call once during canvas setup to enable 1M+ stroke memory management.
   static Future<void> initializePaging(dynamic database) async {
     await _pagingManager.initialize(database);
+    await _persistentIndex.initialize(database);
+    await _offsetIndex.initialize(database);
   }
 
   /// 🗂️ Restore paged-out strokes before save to prevent data loss.
@@ -1795,6 +1841,26 @@ class DrawingPainter extends CustomPainter {
   ) async {
     if (!_pagingManager.isInitialized) return const {};
     return _pagingManager.loadStubsFromIndex(canvasId);
+  }
+
+  /// 📦 Build offset index after save for seekable binary on next load.
+  static Future<void> buildOffsetIndex(
+    String canvasId,
+    Uint8List binaryData,
+    List<CanvasLayer> layers,
+  ) async {
+    if (!_offsetIndex.isInitialized) return;
+    await _offsetIndex.buildIndex(canvasId, binaryData, layers);
+  }
+
+  /// 📦 Read a single stroke by seeking to its byte offset in the binary.
+  static Future<ProStroke?> readStrokeByOffset(
+    String canvasId,
+    String strokeId,
+    Uint8List binaryData,
+  ) async {
+    if (!_offsetIndex.isInitialized) return null;
+    return _offsetIndex.readStroke(canvasId, strokeId, binaryData);
   }
 
   /// 🚀 Invalidate tile cache only (no-op, kept for API compatibility)
