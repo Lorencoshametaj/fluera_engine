@@ -945,7 +945,7 @@ extension on _FlueraCanvasScreenState {
       });
     }
 
-    // 🧮 Restore scene nodes (LatexNode, TabularNode) from JSON sidecar
+    // 🧮 Restore scene nodes (LatexNode, TabularNode, SectionNode) from JSON sidecar
     final sceneNodesList = data['sceneNodes'] as List<dynamic>?;
     if (sceneNodesList != null && sceneNodesList.isNotEmpty) {
       for (final entry in sceneNodesList) {
@@ -953,7 +953,6 @@ extension on _FlueraCanvasScreenState {
           final map = Map<String, dynamic>.from(entry as Map);
           final layerId = map['layerId'] as String;
           final nodeJson = Map<String, dynamic>.from(map['node'] as Map);
-
           final restoredNode = CanvasNodeFactory.fromJson(nodeJson);
 
           final targetLayer = _layerController.layers.firstWhere(
@@ -966,6 +965,9 @@ extension on _FlueraCanvasScreenState {
         }
       }
       _layerController.sceneGraph.bumpVersion();
+      // Force the DrawingPainter to rebuild — notifyListeners triggers
+      // the ListenableBuilder that wraps the CustomPaint widget.
+      _layerController.notifyListeners();
       if (mounted) setState(() {});
     }
   }

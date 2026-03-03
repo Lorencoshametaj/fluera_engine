@@ -234,38 +234,12 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
             ),
 
             // ── Layer 2: Viewport indicator ─────────────────────────────
-            AnimatedBuilder(
-              animation: widget.controller,
-              builder: (context, _) {
-                return ValueListenableBuilder<Rect>(
-                  valueListenable: widget.boundsTracker.bounds,
-                  builder: (context, contentBounds, _) {
-                    return CustomPaint(
-                      size: const Size(
-                        CanvasMinimap.kWidth,
-                        CanvasMinimap.kHeight,
-                      ),
-                      painter: MinimapViewportPainter(
-                        contentBounds: contentBounds,
-                        viewportInCanvas: _computeViewportInCanvas(),
-                        minimapWidth: CanvasMinimap.kWidth,
-                        minimapHeight: CanvasMinimap.kHeight,
-                        canvasBackground: widget.canvasBackground,
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-
-            // ── Layer 3: Live current-stroke preview ────────────────────
-            if (widget.currentStroke != null)
-              ValueListenableBuilder<List<ProDrawingPoint>>(
-                valueListenable: widget.currentStroke!,
-                builder: (context, strokePoints, _) {
-                  if (strokePoints.isEmpty) {
-                    return const SizedBox.shrink();
-                  }
+            // 🚀 RepaintBoundary: isolate viewport repaints (every pan/zoom
+            // frame) from content layer — prevents cascading repaint.
+            RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: widget.controller,
+                builder: (context, _) {
                   return ValueListenableBuilder<Rect>(
                     valueListenable: widget.boundsTracker.bounds,
                     builder: (context, contentBounds, _) {
@@ -274,17 +248,51 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
                           CanvasMinimap.kWidth,
                           CanvasMinimap.kHeight,
                         ),
-                        painter: MinimapLiveStrokePainter(
-                          strokePoints: strokePoints,
+                        painter: MinimapViewportPainter(
                           contentBounds: contentBounds,
+                          viewportInCanvas: _computeViewportInCanvas(),
                           minimapWidth: CanvasMinimap.kWidth,
                           minimapHeight: CanvasMinimap.kHeight,
-                          strokeColor: widget.currentStrokeColor,
+                          canvasBackground: widget.canvasBackground,
                         ),
                       );
                     },
                   );
                 },
+              ),
+            ),
+
+            // ── Layer 3: Live current-stroke preview ────────────────────
+            // 🚀 RepaintBoundary: isolate live stroke repaints (every
+            // point) from viewport and content layers.
+            if (widget.currentStroke != null)
+              RepaintBoundary(
+                child: ValueListenableBuilder<List<ProDrawingPoint>>(
+                  valueListenable: widget.currentStroke!,
+                  builder: (context, strokePoints, _) {
+                    if (strokePoints.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return ValueListenableBuilder<Rect>(
+                      valueListenable: widget.boundsTracker.bounds,
+                      builder: (context, contentBounds, _) {
+                        return CustomPaint(
+                          size: const Size(
+                            CanvasMinimap.kWidth,
+                            CanvasMinimap.kHeight,
+                          ),
+                          painter: MinimapLiveStrokePainter(
+                            strokePoints: strokePoints,
+                            contentBounds: contentBounds,
+                            minimapWidth: CanvasMinimap.kWidth,
+                            minimapHeight: CanvasMinimap.kHeight,
+                            strokeColor: widget.currentStrokeColor,
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
 
             // ── Layer 4: Collaborator cursor dots ──────────────────────

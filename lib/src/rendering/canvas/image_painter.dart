@@ -164,30 +164,24 @@ class ImagePainter extends CustomPainter {
     this.memoryManager,
     ValueNotifier<int>? imageRepaintNotifier,
   }) : super(
-         repaint:
-             controller != null && imageRepaintNotifier != null
-                 ? Listenable.merge([controller, imageRepaintNotifier])
-                 : (controller ?? imageRepaintNotifier),
+         // 🚀 PERF: Do NOT listen to controller here.
+         // Pan/zoom is handled by the parent Transform widget (GPU compositing).
+         // Only repaint when images themselves change (via imageRepaintNotifier).
+         repaint: imageRepaintNotifier,
        );
 
   @override
   void paint(Canvas canvas, Size size) {
     if (images.isEmpty) return;
 
-    // 🚀 Viewport-level: apply canvas transform internally
-    final hasController = controller != null;
-    if (hasController) {
-      canvas.save();
-      canvas.translate(controller!.offset.dx, controller!.offset.dy);
-      canvas.scale(controller!.scale);
-      if (controller!.rotation != 0.0) {
-        canvas.rotate(controller!.rotation);
-      }
-    }
+    // 🚀 NOTE: Canvas transform (translate/scale/rotate) is now applied
+    // by the parent Transform widget in the widget tree. ImagePainter
+    // renders in CANVAS COORDINATES directly. This avoids re-rasterization
+    // on every pan/zoom frame — the GPU composites the cached layer.
 
     // 🎯 Calculate viewport rect in canvas coordinates for culling
     Rect? viewportRect;
-    if (hasController) {
+    if (controller != null) {
       final scale = controller!.scale;
       final offset = controller!.offset;
       // Base viewport (no extra margin — R-tree queryVisible adds its own)
@@ -227,6 +221,37 @@ class ImagePainter extends CustomPainter {
             .where((img) => loadedImages.containsKey(img.imagePath))
             .map((img) => img.imagePath),
       );
+    }
+
+    // 🚀 3-TIER LOD: at very low zoom, draw images as colored rectangles
+    // (consistent with stroke Tier 1 behavior — saves image decode + filter cost)
+    final canvasScale = controller?.scale ?? 1.0;
+    if (canvasScale < 0.2) {
+      final thumbPaint =
+          Paint()
+            ..color = const Color(0x206B8E6B)
+            ..style = PaintingStyle.fill;
+      final thumbBorder =
+          Paint()
+            ..color = const Color(0x406B8E6B)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.0;
+      for (final img in visibleImages) {
+        final image = loadedImages[img.imagePath];
+        final w = image?.width.toDouble() ?? 200.0;
+        final h = image?.height.toDouble() ?? 150.0;
+        final rect = Rect.fromCenter(
+          center: img.position,
+          width: w * img.scale,
+          height: h * img.scale,
+        );
+        if (rect.longestSide * canvasScale < 3.0) continue; // too small
+        final r = (rect.shortestSide * 0.04).clamp(2.0, 12.0);
+        final rrect = RRect.fromRectAndRadius(rect, Radius.circular(r));
+        canvas.drawRRect(rrect, thumbPaint);
+        canvas.drawRRect(rrect, thumbBorder);
+      }
+      return;
     }
 
     // 🎨 Global dynamic flags
@@ -362,16 +387,13 @@ class ImagePainter extends CustomPainter {
         _dragContentCache.remove(imageElement.id);
       }
     }
-
-    // 🚀 Viewport-level: restore canvas transform
-    if (hasController) {
-      canvas.restore();
-    }
   }
 
   /// 🧠 Compute a lightweight hash for per-image cache invalidation.
   /// Only invalidates when image properties actually change.
-  /// Includes canvas scale for LOD-aware invalidation (improvement 1).
+  /// 🚀 NOTE: canvas scale is NOT included — ImagePainter is inside
+  /// RepaintBoundary + Transform, so GPU compositing handles zoom.
+  /// LOD (FilterQuality) is applied at render time, not cached.
   int _computeImageHash(ImageElement e) {
     // Combine position, scale, rotation, opacity, flip, crop, strokes count
     var h = e.position.dx.hashCode;
@@ -386,8 +408,6 @@ class ImagePainter extends CustomPainter {
     h = h * 31 + e.flipVertical.hashCode;
     h = h * 31 + (e.cropRect?.hashCode ?? 0);
     h = h * 31 + e.drawingStrokes.length;
-    // 🔍 LOD: include canvas zoom so FilterQuality changes on zoom
-    h = h * 31 + (controller?.scale.hashCode ?? 0);
     return h;
   }
 
@@ -407,7 +427,6 @@ class ImagePainter extends CustomPainter {
     h = h * 31 + e.flipVertical.hashCode;
     h = h * 31 + (e.cropRect?.hashCode ?? 0);
     h = h * 31 + e.drawingStrokes.length;
-    h = h * 31 + (controller?.scale.hashCode ?? 0);
     return h;
   }
 

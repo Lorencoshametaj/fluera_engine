@@ -179,6 +179,62 @@ class ProStroke {
   /// Avoids O(n) recalculation at every frame during viewport culling
   Rect? _cachedBounds;
 
+  /// 🚀 CACHED PATH - Catmull-Rom path computed once, reused every frame.
+  /// Strokes are immutable after commit → path never changes.
+  /// Stored in an Expando (not an instance field) because ui.Path is a
+  /// native object that CANNOT cross isolate boundaries. Storing it as
+  /// a field on ProStroke would crash the save isolate.
+  /// Expando: auto-cleaned when ProStroke is GC'd, O(1) lookup.
+  static final Expando<ui.Path> _pathCache = Expando<ui.Path>('strokePath');
+
+  /// Get or compute the cached Catmull-Rom path for this stroke.
+  ui.Path get cachedPath {
+    var path = _pathCache[this];
+    if (path == null) {
+      path = _buildCatmullRomPathImpl();
+      _pathCache[this] = path;
+    }
+    return path;
+  }
+
+  ui.Path _buildCatmullRomPathImpl() {
+    final path = ui.Path();
+    if (points.isEmpty) return path;
+    final first = points.first.position;
+    path.moveTo(first.dx, first.dy);
+    if (points.length == 1) return path;
+    if (points.length == 2) {
+      final p = points[1].position;
+      path.lineTo(p.dx, p.dy);
+      return path;
+    }
+    if (points.length == 3) {
+      final p1 = points[1].position;
+      final p2 = points[2].position;
+      path.quadraticBezierTo(p1.dx, p1.dy, p2.dx, p2.dy);
+      return path;
+    }
+    // Catmull-Rom spline (same algorithm as OptimizedPathBuilder)
+    for (int i = 0; i < points.length - 1; i++) {
+      final p0 = i > 0 ? points[i - 1].position : points[i].position;
+      final p1 = points[i].position;
+      final p2 = points[i + 1].position;
+      final p3 =
+          i < points.length - 2
+              ? points[i + 2].position
+              : points[i + 1].position;
+      path.cubicTo(
+        p1.dx + (p2.dx - p0.dx) / 6,
+        p1.dy + (p2.dy - p0.dy) / 6,
+        p2.dx - (p3.dx - p1.dx) / 6,
+        p2.dy - (p3.dy - p1.dy) / 6,
+        p2.dx,
+        p2.dy,
+      );
+    }
+    return path;
+  }
+
   /// 🗂️ STUB SUPPORT: forced bounds for paged-out strokes.
   /// When a stroke is paged out, its points are dropped but bounds are kept.
   final Rect? _forcedBounds;

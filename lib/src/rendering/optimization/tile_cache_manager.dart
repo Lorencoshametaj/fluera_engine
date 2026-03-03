@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
@@ -20,8 +21,15 @@ class TileCacheManager {
   /// (reducing overhead), small enough that rebuilding one tile is fast.
   static const double tileSize = 4096.0;
 
+  /// Maximum cached tiles to prevent OOM on large canvases.
+  /// 128 tiles × display lists = very memory-efficient (Pictures are
+  /// GPU command lists, not raw bitmaps).
+  static const int maxTiles = 128;
+
   /// Cached pictures keyed by tile coordinates.
-  final Map<TileKey, ui.Picture> _tiles = {};
+  /// LinkedHashMap preserves insertion order for LRU eviction.
+  final LinkedHashMap<TileKey, ui.Picture> _tiles =
+      LinkedHashMap<TileKey, ui.Picture>();
 
   /// Scene graph version when each tile was last built.
   final Map<TileKey, int> _tileVersions = {};
@@ -81,6 +89,64 @@ class TileCacheManager {
     );
   }
 
+  /// 🚀 Sort tile keys by distance to viewport center (center-first priority).
+  /// Tiles closest to where the user is looking are rebuilt first.
+  static void sortByDistanceToCenter(List<TileKey> tiles, Rect viewport) {
+    final cx = viewport.center.dx / tileSize;
+    final cy = viewport.center.dy / tileSize;
+    tiles.sort((a, b) {
+      final da = (a.tx - cx) * (a.tx - cx) + (a.ty - cy) * (a.ty - cy);
+      final db = (b.tx - cx) * (b.tx - cx) + (b.ty - cy) * (b.ty - cy);
+      return da.compareTo(db);
+    });
+  }
+
+  /// 🚀 Sort tiles biased toward pan direction (viewport prediction).
+  /// Tiles in the pan direction get negative distance bias → built first.
+  /// `panDir` should be a normalized direction vector (dx, dy).
+  static void sortByPanPrediction(
+    List<TileKey> tiles,
+    Rect viewport,
+    Offset panDir,
+  ) {
+    if (panDir == Offset.zero) {
+      sortByDistanceToCenter(tiles, viewport);
+      return;
+    }
+    final cx = viewport.center.dx / tileSize;
+    final cy = viewport.center.dy / tileSize;
+    final pdx = panDir.dx;
+    final pdy = panDir.dy;
+    tiles.sort((a, b) {
+      // Dot product with pan direction: higher = more aligned
+      final dotA = (a.tx - cx) * pdx + (a.ty - cy) * pdy;
+      final dotB = (b.tx - cx) * pdx + (b.ty - cy) * pdy;
+      // Prefer tiles aligned with pan direction (negative = behind)
+      // Strongly bias: subtract 2× dot product from distance
+      final da =
+          (a.tx - cx) * (a.tx - cx) + (a.ty - cy) * (a.ty - cy) - dotA * 3.0;
+      final db =
+          (b.tx - cx) * (b.tx - cx) + (b.ty - cy) * (b.ty - cy) - dotB * 3.0;
+      return da.compareTo(db);
+    });
+  }
+
+  /// 🚀 Collect missing tiles in a 1-ring surrounding the viewport (pre-warm).
+  /// Returns tiles just OUTSIDE the viewport that aren't cached yet.
+  List<TileKey> collectMissingPreWarm(Rect viewport) {
+    // Inflate viewport by 1 tile in each direction
+    final inflated = viewport.inflate(tileSize);
+    final allKeys = tileKeysForRect(inflated);
+    final visibleKeys = tileKeysForRect(viewport).toSet();
+    final missing = <TileKey>[];
+    for (final key in allKeys) {
+      if (!visibleKeys.contains(key) && !_tiles.containsKey(key)) {
+        missing.add(key);
+      }
+    }
+    return missing;
+  }
+
   // =========================================================================
   // CACHE OPERATIONS
   // =========================================================================
@@ -132,11 +198,46 @@ class TileCacheManager {
     return missing;
   }
 
+  /// 🚀 Collect missing tile keys WITHOUT drawing cached tiles.
+  /// Used during progressive LOD transition: we draw the old snapshot
+  /// and only need to know which tiles still need rebuilding.
+  List<TileKey> collectMissing(Rect viewport) {
+    final visibleKeys = tileKeysForRect(viewport);
+    final missing = <TileKey>[];
+    for (final key in visibleKeys) {
+      if (!_tiles.containsKey(key)) {
+        missing.add(key);
+      }
+    }
+    return missing;
+  }
+
+  /// 🚀 Draw ONLY cached tiles (skip missing). Used for global cache adoption
+  /// where we just need to replay already-rendered tiles into a PictureRecorder.
+  /// No tile rebuilding — O(1) per tile via drawPicture.
+  void drawCachedOnly(Canvas canvas, Rect viewport) {
+    final visibleKeys = tileKeysForRect(viewport);
+    for (final key in visibleKeys) {
+      final picture = _tiles[key];
+      if (picture != null) {
+        canvas.drawPicture(picture);
+      }
+    }
+  }
+
   /// Cache a rebuilt tile picture.
+  /// Evicts oldest tiles if the cache exceeds [maxTiles].
   void cacheTile(TileKey key, ui.Picture picture, int sceneVersion) {
-    _tiles[key]?.dispose();
-    _tiles[key] = picture;
+    _tiles.remove(key)?.dispose();
+    _tiles[key] = picture; // Insert at end (newest)
     _tileVersions[key] = sceneVersion;
+
+    // 🛡️ LRU EVICTION: remove oldest tiles if over cap
+    while (_tiles.length > maxTiles) {
+      final oldest = _tiles.keys.first;
+      _tiles.remove(oldest)?.dispose();
+      _tileVersions.remove(oldest);
+    }
   }
 
   /// Mark the cache as fully valid for the given counts.

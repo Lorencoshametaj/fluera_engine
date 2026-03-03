@@ -172,15 +172,6 @@ extension on _FlueraCanvasScreenState {
                           child: _buildCanvasArea(context),
                         ),
 
-                        // 🔵 Navigation: Dot grid (orientation & alignment)
-                        if (_showDotGrid)
-                          Positioned.fill(
-                            child: CanvasDotGrid(
-                              controller: _canvasController,
-                              canvasBackground: _canvasBackgroundColor,
-                            ),
-                          ),
-
                         // ✛ Navigation: Origin crosshair at (0,0)
                         Positioned.fill(
                           child: OriginCrosshair(

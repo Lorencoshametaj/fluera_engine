@@ -51,7 +51,8 @@ export 'src/core/nodes/path_node.dart';
 export 'src/core/nodes/rich_text_node.dart';
 export 'src/core/nodes/symbol_system.dart';
 export 'src/core/nodes/variant_property.dart';
-export 'src/core/nodes/frame_node.dart';
+export 'src/core/nodes/frame_node.dart'
+    hide CrossAxisAlignment, MainAxisAlignment;
 export 'src/core/nodes/advanced_mask_node.dart';
 export 'src/core/nodes/boolean_group_node.dart';
 export 'src/core/nodes/pdf_page_node.dart';

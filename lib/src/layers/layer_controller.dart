@@ -78,6 +78,7 @@ class LayerController extends FlueraLayerController {
   /// 🚀 Batch mode: defer version bumps during bulk operations (erasing).
   int _batchDepth = 0;
   bool _batchNeedsBump = false;
+  bool _batchNeedsNotify = false;
 
   /// Flag to enable/disable delta tracking.
   /// Disable during batch operations (e.g., load from storage).
@@ -113,6 +114,14 @@ class LayerController extends FlueraLayerController {
 
   @override
   void notifyListeners() {
+    // 🚀 During batch mode, suppress per-mutation notifications.
+    // The eraser calls removeStroke() up to 30× per frame (interpolation).
+    // Without this guard, each call triggers cache invalidation + widget
+    // rebuild — 30 rebuilds per frame instead of 1.
+    if (_isBatching) {
+      _batchNeedsNotify = true;
+      return;
+    }
     _invalidateLayersCache();
     _cachedActiveLayerIndex = null;
     _cachedVisibleShapes = null;
@@ -140,10 +149,20 @@ class LayerController extends FlueraLayerController {
   void endBatch() {
     assert(_batchDepth > 0, 'endBatch called without matching beginBatch');
     _batchDepth--;
-    if (_batchDepth == 0 && _batchNeedsBump) {
-      _batchNeedsBump = false;
-      if (!_sceneGraphDirty) {
-        _sceneGraph.bumpVersion();
+    if (_batchDepth == 0) {
+      if (_batchNeedsBump) {
+        _batchNeedsBump = false;
+        if (!_sceneGraphDirty) {
+          _sceneGraph.bumpVersion();
+        }
+      }
+      // 🚀 Flush deferred notification — single rebuild for the entire batch
+      if (_batchNeedsNotify) {
+        _batchNeedsNotify = false;
+        _invalidateLayersCache();
+        _cachedActiveLayerIndex = null;
+        _cachedVisibleShapes = null;
+        super.notifyListeners();
       }
     }
   }

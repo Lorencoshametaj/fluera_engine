@@ -32,6 +32,7 @@ import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
 import '../core/nodes/latex_node.dart';
 import '../core/nodes/tabular_node.dart';
+import '../core/nodes/section_node.dart';
 import '../core/engine_scope.dart';
 import '../core/engine_error.dart';
 import '../core/schema_version.dart';
@@ -376,13 +377,16 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     final pdfJson =
         pdfDocumentsJson.isNotEmpty ? jsonEncode(pdfDocumentsJson) : null;
 
-    // 💾 Extract LatexNode and TabularNode from layers (binary doesn't support them).
+    // 💾 Extract LatexNode, TabularNode, and SectionNode from layers
+    // (binary format doesn't support them — stored as JSON sidecar).
     final sceneNodesJson = <Map<String, dynamic>>[];
     for (final layer in layers) {
       for (final child in layer.node.children) {
         if (child is LatexNode) {
           sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
         } else if (child is TabularNode) {
+          sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
+        } else if (child is SectionNode) {
           sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
         }
       }

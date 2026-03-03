@@ -16,6 +16,7 @@ class GroupNode extends CanvasNode {
   /// 🚀 Defer index rebuilds during batch operations.
   bool _deferIndexRebuild = false;
   bool _indexRebuildNeeded = false;
+  bool _typedCacheInvalidNeeded = false;
 
   /// Cached bounds — invalidated when children change.
   Rect? _cachedLocalBounds;
@@ -116,15 +117,36 @@ class GroupNode extends CanvasNode {
     return removed;
   }
 
-  /// Remove a child by ID. O(1) lookup via HashMap index.
+  /// Remove a child by ID. O(1) lookup via HashMap index,
+  /// or O(N) linear scan when index rebuild is deferred (batch mode).
   CanvasNode? removeById(String nodeId) {
-    final index = _childIdIndex[nodeId];
+    int? index;
+    if (_deferIndexRebuild) {
+      // 🚀 During batch operations, _childIdIndex is stale after the
+      // first removal. Fall back to linear scan to find the correct
+      // position. O(N) but safe — batch operations are already O(N).
+      for (int i = 0; i < _children.length; i++) {
+        if (_children[i].id == nodeId) {
+          index = i;
+          break;
+        }
+      }
+    } else {
+      index = _childIdIndex[nodeId];
+    }
     if (index == null) return null;
     final child = _children.removeAt(index);
     child.parent = null;
     _rebuildIdIndex();
-    invalidateTypedCaches();
-    invalidateBoundsCache();
+    // 🚀 During batch mode, defer cache invalidation — the caller
+    // has already snapshot the strokes list. Rebuilding caches on
+    // every removal causes O(N²) allocations (30 eraseAt × 181 strokes).
+    if (_deferIndexRebuild) {
+      _typedCacheInvalidNeeded = true;
+    } else {
+      invalidateTypedCaches();
+      invalidateBoundsCache();
+    }
     return child;
   }
 
@@ -222,12 +244,17 @@ class GroupNode extends CanvasNode {
     _deferIndexRebuild = true;
   }
 
-  /// Flush deferred index rebuild.
+  /// Flush deferred index rebuild and cache invalidation.
   void endDeferIndexRebuild() {
     _deferIndexRebuild = false;
     if (_indexRebuildNeeded) {
       _indexRebuildNeeded = false;
       _rebuildIdIndex();
+    }
+    if (_typedCacheInvalidNeeded) {
+      _typedCacheInvalidNeeded = false;
+      invalidateTypedCaches();
+      invalidateBoundsCache();
     }
   }
 

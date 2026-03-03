@@ -20,6 +20,12 @@ import '../../core/models/digital_text_element.dart';
 /// - Bulk loading support: O(n log n) build time
 /// - Industry standard (Figma, PostGIS, SQLite R*-tree)
 ///
+/// OPTIMIZATIONS (v2):
+/// - Lazy deletion: O(1) remove via tombstone set
+/// - Short-circuit query: flat collect for fully-contained nodes
+/// - Auto-compaction: periodic STR bulk rebuild after mutation threshold
+/// - Wider fan-out (maxEntries=16): fewer tree levels at scale
+///
 /// Usage:
 /// ```dart
 /// final tree = RTree<MyItem>((item) => item.bounds);
@@ -39,22 +45,47 @@ class RTree<T> {
   /// Root node of the tree.
   _RTreeNode<T>? _root;
 
-  /// Total number of items in the tree.
+  /// Total number of live items in the tree (excludes tombstones).
   int _count = 0;
 
   /// Tracks active query depth to prevent concurrent modification.
   /// Mutations during a query would corrupt internal node lists.
   int _queryDepth = 0;
 
-  RTree(this._boundsOf, {int maxEntries = 9})
+  // ─── Lazy Deletion ──────────────────────────────────────────────
+  // O(1) remove: mark items as dead, skip them during queries.
+  // Periodic compaction rebuilds the tree without dead entries.
+
+  /// Identity-based set of logically deleted items.
+  final Set<T> _tombstones = Set<T>.identity();
+
+  /// Identity-based set of live items (for O(1) membership check).
+  final Set<T> _liveItems = Set<T>.identity();
+
+  /// Number of tombstoned entries still physically in the tree.
+  int _tombstoneCount = 0;
+
+  /// Mutations (insert + remove) since last STR rebuild.
+  int _mutationsSinceRebuild = 0;
+
+  /// Threshold: auto-compact when tombstones exceed this fraction of live count.
+  static const double _tombstoneCompactThreshold = 0.25;
+
+  /// Threshold: auto-rebuild when total mutations exceed this fraction of count.
+  static const double _mutationRebuildThreshold = 0.30;
+
+  RTree(this._boundsOf, {int maxEntries = 16})
     : _maxEntries = maxEntries,
       _minEntries = (maxEntries / 2).ceil();
 
-  /// Number of items in the tree.
+  /// Number of live items in the tree.
   int get count => _count;
 
-  /// Whether the tree is empty.
+  /// Whether the tree has no live items.
   bool get isEmpty => _count == 0;
+
+  /// Number of tombstoned (logically deleted) items.
+  int get tombstoneCount => _tombstoneCount;
 
   /// Guard against mutation during an active query.
   void _guardMutation(String operation) {
@@ -75,6 +106,16 @@ class RTree<T> {
     final bounds = _boundsOf(item);
     if (bounds.isEmpty || !bounds.isFinite) return;
 
+    // 🚀 If re-inserting a tombstoned item (undo/redo cycle),
+    // just resurrect it — the entry is still physically in the tree.
+    if (_tombstones.remove(item)) {
+      _tombstoneCount--;
+      _count++;
+      _liveItems.add(item);
+      _mutationsSinceRebuild++;
+      return;
+    }
+
     final entry = _Entry<T>(item: item, bounds: bounds);
 
     if (_root == null) {
@@ -93,47 +134,74 @@ class RTree<T> {
     }
 
     _count++;
+    _liveItems.add(item);
+    _mutationsSinceRebuild++;
   }
 
   // ─── Remove ──────────────────────────────────────────────────────
 
   /// ➖ Remove an item from the R-tree.
   ///
-  /// Uses identity comparison (identical()) for matching.
+  /// O(1): marks the item as a tombstone. The entry remains physically
+  /// in the tree but is excluded from all query results.
+  /// Periodic compaction removes dead entries and rebuilds optimally.
   bool remove(T item) {
     _guardMutation('remove');
-    if (_root == null) return false;
+    if (_root == null || _count <= 0) return false;
 
-    final bounds = _boundsOf(item);
-    final orphans = <_Entry<T>>[];
+    // Already tombstoned — idempotent
+    if (_tombstones.contains(item)) return false;
 
-    final found = _removeEntry(_root!, item, bounds, orphans);
-    if (!found) return false;
+    // Only tombstone items that are actually in the tree.
+    if (!_liveItems.remove(item)) return false;
 
-    // Re-insert orphaned entries from underflowed nodes.
-    for (final orphan in orphans) {
-      final splitNode = _insertEntry(_root!, orphan);
-      if (splitNode != null) {
-        final newRoot = _RTreeNode<T>(isLeaf: false);
-        newRoot.children.add(_root!);
-        newRoot.children.add(splitNode);
-        newRoot.recalculateBounds();
-        _root = newRoot;
-      }
-    }
-
-    // Shrink root if it has only one child.
-    if (!_root!.isLeaf && _root!.children.length == 1) {
-      _root = _root!.children.first;
-    }
-
-    // Clear root if empty.
-    if (_root!.isLeaf && _root!.entries.isEmpty) {
-      _root = null;
-    }
-
+    _tombstones.add(item);
+    _tombstoneCount++;
     _count--;
+    _mutationsSinceRebuild++;
     return true;
+  }
+
+  /// 🗑️ Compact the tree: remove all tombstoned entries and rebuild
+  /// via STR bulk-load for optimal node structure.
+  ///
+  /// Call this explicitly, or let it trigger automatically via
+  /// [_maybeAutoCompact].
+  void compact() {
+    _guardMutation('compact');
+    if (_root == null) {
+      _tombstones.clear();
+      _tombstoneCount = 0;
+      _mutationsSinceRebuild = 0;
+      return;
+    }
+
+    // Collect all live entries.
+    final live = <_Entry<T>>[];
+    _collectEntries(_root!, live);
+    if (_tombstones.isNotEmpty) {
+      live.removeWhere((e) => _tombstones.contains(e.item));
+    }
+
+    _tombstones.clear();
+    _tombstoneCount = 0;
+    _mutationsSinceRebuild = 0;
+
+    // Rebuild _liveItems from surviving entries.
+    _liveItems.clear();
+
+    if (live.isEmpty) {
+      _root = null;
+      _count = 0;
+      return;
+    }
+
+    for (final e in live) {
+      _liveItems.add(e.item);
+    }
+
+    _root = _bulkLoad(live);
+    _count = live.length;
   }
 
   // ─── Bulk Load ───────────────────────────────────────────────────
@@ -143,7 +211,7 @@ class RTree<T> {
   factory RTree.fromItems(
     List<T> items,
     Rect Function(T) boundsOf, {
-    int maxEntries = 9,
+    int maxEntries = 16,
   }) {
     final tree = RTree<T>(boundsOf, maxEntries: maxEntries);
     if (items.isEmpty) return tree;
@@ -166,6 +234,9 @@ class RTree<T> {
 
     tree._root = tree._bulkLoad(entries);
     tree._count = entries.length;
+    for (final e in entries) {
+      tree._liveItems.add(e.item);
+    }
     return tree;
   }
 
@@ -252,12 +323,31 @@ class RTree<T> {
     return results;
   }
 
+  /// Whether compaction is needed based on tombstone/mutation thresholds.
+  bool needsCompaction() {
+    if (_count < 50) return false;
+    if (_tombstoneCount > _count * _tombstoneCompactThreshold) return true;
+    if (_mutationsSinceRebuild > _count * _mutationRebuildThreshold)
+      return true;
+    return false;
+  }
+
   /// 📊 Statistics for debugging.
   Map<String, int> get stats {
     if (_root == null) {
-      return {'totalItems': 0, 'totalNodes': 0, 'leafNodes': 0, 'height': 0};
+      return {
+        'totalItems': 0,
+        'liveItems': 0,
+        'tombstones': _tombstoneCount,
+        'totalNodes': 0,
+        'leafNodes': 0,
+        'height': 0,
+      };
     }
-    return _collectStats(_root!);
+    final s = _collectStats(_root!);
+    s['tombstones'] = _tombstoneCount;
+    s['liveItems'] = _count;
+    return s;
   }
 
   /// 🧹 Clear and reset the tree.
@@ -265,6 +355,10 @@ class RTree<T> {
     _guardMutation('clear');
     _root = null;
     _count = 0;
+    _tombstones.clear();
+    _liveItems.clear();
+    _tombstoneCount = 0;
+    _mutationsSinceRebuild = 0;
   }
 
   // ─── Internal: Insert ────────────────────────────────────────────
@@ -387,7 +481,7 @@ class RTree<T> {
     return sibling;
   }
 
-  // ─── Internal: Remove ────────────────────────────────────────────
+  // ─── Internal: Remove (kept for direct removal if needed) ───────
 
   bool _removeEntry(
     _RTreeNode<T> node,
@@ -440,8 +534,20 @@ class RTree<T> {
   void _queryRange(_RTreeNode<T> node, Rect range, List<T> results) {
     if (!node.bounds.overlaps(range)) return;
 
+    // 🚀 SHORT-CIRCUIT: if the node is fully contained within the range,
+    // ALL descendants are visible → flat collect without overlap checks.
+    // This is a massive win at zoom-out (most strokes visible).
+    if (_rectContains(range, node.bounds)) {
+      _collectAllItems(node, results);
+      return;
+    }
+
     if (node.isLeaf) {
       for (final entry in node.entries) {
+        // 🚀 Skip tombstoned items — O(1) identity hash lookup
+        if (_tombstones.isNotEmpty && _tombstones.contains(entry.item)) {
+          continue;
+        }
         if (entry.bounds.overlaps(range)) {
           results.add(entry.item);
         }
@@ -451,6 +557,38 @@ class RTree<T> {
         _queryRange(child, range, results);
       }
     }
+  }
+
+  /// 🚀 Fast flat collection of ALL items under a node.
+  /// Used when the node is fully contained in the query range.
+  /// Skips tombstoned items.
+  void _collectAllItems(_RTreeNode<T> node, List<T> results) {
+    if (node.isLeaf) {
+      if (_tombstones.isEmpty) {
+        // Hot path: no tombstones → zero overhead
+        for (final entry in node.entries) {
+          results.add(entry.item);
+        }
+      } else {
+        for (final entry in node.entries) {
+          if (!_tombstones.contains(entry.item)) {
+            results.add(entry.item);
+          }
+        }
+      }
+    } else {
+      for (final child in node.children) {
+        _collectAllItems(child, results);
+      }
+    }
+  }
+
+  /// Check if [outer] fully contains [inner].
+  static bool _rectContains(Rect outer, Rect inner) {
+    return outer.left <= inner.left &&
+        outer.top <= inner.top &&
+        outer.right >= inner.right &&
+        outer.bottom >= inner.bottom;
   }
 
   // ─── Internal: Stats ─────────────────────────────────────────────

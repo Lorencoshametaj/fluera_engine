@@ -1,0 +1,13 @@
+# ninja log v5
+11	113	1772545199893023339	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_tables.c.o	92ee5c002c3cef4c
+0	182	1772545199951023339	CMakeFiles/fluera_rnnoise.dir/rnnoise_jni.c.o	6d57558c330c801f
+5	206	1772545199954023339	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnn.c.o	53c8aedc48781e06
+14	212	1772545199991137702	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/celt_lpc.c.o	3aad97994ed83d31
+14	303	1772545200082023341	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/parse_lpcnet_weights.c.o	282275c58e756664
+11	330	1772545200109023341	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/pitch.c.o	f087e50f5932fb68
+0	403	1772545200182023342	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/denoise.c.o	eaa738e2f0be651a
+0	404	1772545200175023342	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet.c.o	9505d1e3d9df91c7
+11	428	1772545200208023342	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/kiss_fft.c.o	3c06c928f8c0abaf
+1	611	1772545200390023345	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet_default.c.o	3ced34776651a751
+6	16608	1772545216331023539	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_data.c.o	368b457fddc04726
+16608	16681	1772545216446023541	/home/lorenzo/development/fluera/fluera_engine/example/build/fluera_engine/intermediates/cxx/Debug/4ip345b5/obj/arm64-v8a/libfluera_rnnoise.so	442e6810eb70d8c6

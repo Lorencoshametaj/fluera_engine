@@ -46,9 +46,6 @@ class BackgroundPainter extends CustomPainter {
     // 2️⃣ Se is blank, non serve disegnare il pattern
     if (paperType == 'blank') return;
 
-    // 🚀 SCROLL OPT: Skip pattern tiles during pan/scroll — saves ~10 draw calls
-    if (controller.isPanning) return;
-
     // Delegate to static method for reuse by DrawingPainter
     paintTilesStatic(canvas, size, paperType, backgroundColor, controller);
   }
@@ -87,6 +84,12 @@ class BackgroundPainter extends CustomPainter {
         ((size.width - originScreenX) / scaledTileSize).ceil() + extraTiles;
     final lastTileY =
         ((size.height - originScreenY) / scaledTileSize).ceil() + extraTiles;
+
+    // 🚀 PERF: Skip pattern at very low zoom — too many tiles (each = 5 canvas ops).
+    // At 6×6 = 36 tiles the pattern is too small to be useful anyway.
+    final tileCountX = lastTileX - firstTileX + 1;
+    final tileCountY = lastTileY - firstTileY + 1;
+    if (tileCountX * tileCountY > 36) return;
 
     // Apply canvas transform (translate + rotate) then print tiles
     canvas.save();

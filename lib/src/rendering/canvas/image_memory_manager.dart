@@ -237,6 +237,10 @@ class ImageMemoryManager {
   ) {
     if (loadedImages.isEmpty) return const [];
 
+    // 🚀 Skip eviction when under budget — no memory pressure, avoids
+    // useless evict→dispose→decode→reload cycles.
+    if (loadedImages.length <= maxImages) return const [];
+
     final now = DateTime.now().millisecondsSinceEpoch;
     final evicted = <String>[];
 

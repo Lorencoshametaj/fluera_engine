@@ -497,7 +497,8 @@ class EraserTool {
           layerController.addStroke(fadedStroke);
           _spatialIndex.incrementalAdd(fadedStroke);
         }
-      } else if (eraseWholeStroke) {
+      } else if (eraseWholeStroke || stroke.isStub) {
+        // Stubbed strokes have no point data → can't split, always whole-erase
         _currentGestureOps.add(
           _EraseOperation(removedStroke: stroke, addedFragments: const []),
         );

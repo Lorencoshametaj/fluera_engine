@@ -73,6 +73,7 @@ class BallpointBrush {
     required double minPressure,
     required double maxPressure,
     bool isLive = false,
+    Path? cachedPath,
   }) {
     if (points.isEmpty) return;
 
@@ -97,9 +98,15 @@ class BallpointBrush {
       strokeJoin: strokeJoin,
     );
 
-    // 🚀 Always use incremental path builder: eliminates the visual
-    // "shrink" on pointer-up (same approach as fountain pen and pencil).
-    final path = OptimizedPathBuilder.buildSmoothPathIncremental(points);
+    // 🚀 PATH RESOLUTION:
+    // 1. Pre-cached path from ProStroke → O(1) (best case)
+    // 2. Live stroke → incremental builder O(ΔN)
+    // 3. Fallback → full Catmull-Rom O(N)
+    final path =
+        cachedPath ??
+        (isLive
+            ? OptimizedPathBuilder.buildSmoothPathIncremental(points)
+            : OptimizedPathBuilder.buildSmoothPath(points));
 
     // 🚀 A SINGLE drawPath()!
     canvas.drawPath(path, paint);

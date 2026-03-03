@@ -27,6 +27,7 @@ import '../../core/nodes/shape_node.dart';
 import '../cache/render_cache_scope.dart';
 import '../../core/nodes/layer_node.dart';
 import '../../core/nodes/group_node.dart';
+import '../../core/nodes/section_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../core/scene_graph/node_id.dart'; // 🚀 Added for NodeId
 import '../../core/effects/paint_stack.dart'; // 🚀 Added for FillLayer and StrokeLayer
@@ -102,12 +103,34 @@ class DrawingPainter extends CustomPainter {
 
   /// Scene graph version when the vectorial cache was last populated.
   /// Used alongside stroke count to detect non-stroke changes (shapes, text).
-  int _cachedSceneVersion = -1;
+  /// 🚀 STATIC: must persist across delegate instances so shouldRepaint
+  /// doesn't always see -1 on the new delegate → infinite repaint loop.
+  static int _cachedSceneVersion = -1;
 
   /// Viewport used when the current stroke cache was built.
   /// If the real viewport moves outside this area, the cache is invalidated
   /// so that newly-visible strokes are rendered.
   static Rect _cachedCacheViewport = Rect.zero;
+
+  /// LOD tier when cache was built. Invalidate when tier changes.
+  /// 0 = full quality (≥0.5), 1 = batched polylines (0.2-0.5),
+  /// 2 = sections only (<0.2).
+  static int _cachedLodTier = 0;
+
+  /// 🚀 GOOGLE MAPS-STYLE LOD TRANSITION:
+  /// On LOD change, save the old rendering as a snapshot Picture.
+  /// During transition, draw the snapshot (old LOD, user sees no change)
+  /// while silently rebuilding tiles at the new LOD in the background.
+  /// When all tiles are done, cross-fade to new rendering. Zero frame skip.
+  static bool _lodProgressiveMode = false;
+  static ui.Picture? _lodSnapshotPicture;
+  static double _lodCrossFadeProgress = 0.0; // 0.0 = snapshot, 1.0 = new cache
+  static final ValueNotifier<int> _lodRepaintNotifier = ValueNotifier<int>(0);
+
+  /// 🚀 VIEWPORT PREDICTION: track pan direction to bias pre-warm tiles.
+  /// Tiles in the direction the user is panning are pre-rendered first.
+  static Offset _lastViewportCenter = Offset.zero;
+  static Offset _panVelocity = Offset.zero; // normalized direction
 
   /// Inflated viewport used during the last paint() for PDF page rendering.
   /// When the real viewport exits this area, shouldRepaint returns true
@@ -246,8 +269,11 @@ class DrawingPainter extends CustomPainter {
     this.surface, // 🧬 Surface material for shader-aware rendering
     this.paperType,
     this.backgroundColor,
+    this.isActivelyDrawing = false, // 🚀 suppress repaint during live drawing
   }) : _sceneGraphVersion = sceneGraph.version,
-       super(); // 🚀 NO repaint: controller — parent Transform handles pan/zoom
+       super(
+         repaint: _lodRepaintNotifier,
+       ); // 🚀 Progressive LOD repaint trigger
   // Flutter's raster cache persists across transform changes = 0ms raster
 
   /// 🌲 Effective strokes: materialized from the scene graph tree.
@@ -420,14 +446,45 @@ class DrawingPainter extends CustomPainter {
       }
     } else if (newCount > oldCount) {
       // New strokes added: insert only the new ones → O(k log N)
-      for (int i = oldCount; i < newCount; i++) {
-        final stroke = currentStrokes[i];
-        _insertStrokeNode(stroke);
+      // Guard: if indices exceed available strokes (stubs), do full rebuild.
+      if (oldCount <= currentStrokes.length &&
+          newCount <= currentStrokes.length) {
+        for (int i = oldCount; i < newCount; i++) {
+          final stroke = currentStrokes[i];
+          _insertStrokeNode(stroke);
+        }
+        _renderIndexNodeCount = newCount;
+      } else {
+        // Indices out of range (stubs/paging) → full rebuild
+        final nodes = <CanvasNode>[];
+        for (final layer in sceneGraph.layers) {
+          if (!layer.isVisible) continue;
+          _collectLeafNodes(layer, nodes);
+        }
+        _renderIndex.rebuild(nodes);
+        _renderIndexNodeCount = newCount;
       }
+    } else if (newCount == oldCount) {
+      // Version changed but stroke count same (e.g., section/shape added,
+      // node visibility changed). Full rebuild to pick up non-stroke changes.
+      final nodes = <CanvasNode>[];
+      for (final layer in sceneGraph.layers) {
+        if (!layer.isVisible) continue;
+        _collectLeafNodes(layer, nodes);
+      }
+      _renderIndex.rebuild(nodes);
+      _renderIndexNodeCount = newCount;
+    } else {
+      // Fallback: version changed, count changed but not simple add/remove.
+      // Full rebuild is safest.
+      final nodes = <CanvasNode>[];
+      for (final layer in sceneGraph.layers) {
+        if (!layer.isVisible) continue;
+        _collectLeafNodes(layer, nodes);
+      }
+      _renderIndex.rebuild(nodes);
       _renderIndexNodeCount = newCount;
     }
-    // else: version changed but stroke count same (e.g. property change)
-    // — R-Tree bounds are still valid, skip rebuild
 
     // Save current strokes for next undo comparison
     _lastMaterializedStrokes = currentStrokes;
@@ -469,6 +526,11 @@ class DrawingPainter extends CustomPainter {
   /// Recursively collect leaf CanvasNodes for R-Tree indexing.
   static void _collectLeafNodes(CanvasNode node, List<CanvasNode> result) {
     if (node is GroupNode) {
+      // SectionNode is BOTH a container AND a renderable node —
+      // add it to the index so tile cache renders its background/border/label.
+      if (node is SectionNode && node.isVisible) {
+        result.add(node);
+      }
       for (final child in node.children) {
         if (child.isVisible) _collectLeafNodes(child, result);
       }
@@ -523,6 +585,17 @@ class DrawingPainter extends CustomPainter {
       effectiveScale,
       rotation: controller?.rotation ?? 0.0,
     );
+
+    // 🚀 VIEWPORT PREDICTION: track pan direction for pre-warm bias
+    final currentCenter = viewport.center;
+    if (_lastViewportCenter != Offset.zero) {
+      final delta = currentCenter - _lastViewportCenter;
+      final mag = delta.distance;
+      if (mag > 10.0) {
+        _panVelocity = Offset(delta.dx / mag, delta.dy / mag);
+      }
+    }
+    _lastViewportCenter = currentCenter;
 
     // 🚀 LIGHTWEIGHT PDF DRAG: skip ALL heavy rendering, just replay
     // the existing stroke cache and draw simple page rectangles.
@@ -733,11 +806,15 @@ class DrawingPainter extends CustomPainter {
     final hasEraserPreview = eraserPreviewIds.isNotEmpty;
 
     // Cache invalidation: scene graph version changed
-    // 🚀 PERF: Do NOT invalidate _strokeCache here — the incremental
-    // path handles new strokes efficiently (O(delta)). PDF pages are
-    // excluded from the cache via skipPdfNodes, so no ghost pages.
     if (_cachedSceneVersion != sceneGraph.version) {
       invalidateLayerCaches();
+      // If stroke count hasn't changed, this is a non-stroke change
+      // (section/shape added, visibility toggle) — invalidate caches
+      // so the full render path picks up the new nodes.
+      if (totalStrokes == _strokeCache.cachedStrokeCount) {
+        _strokeCache.invalidateCache();
+        _tileCache.invalidateAll();
+      }
       _cachedSceneVersion = sceneGraph.version;
     }
 
@@ -764,6 +841,176 @@ class DrawingPainter extends CustomPainter {
             viewport.right <= _cachedCacheViewport.right &&
             viewport.bottom <= _cachedCacheViewport.bottom)) {
       _strokeCache.invalidateCache();
+    }
+
+    // 🚀 LOD TIER TRANSITION: Google Maps-style approach.
+    // Save current rendering as snapshot BEFORE invalidating caches.
+    // During transition, user sees old snapshot (GPU-scaled, looks fine).
+    final currentScale = controller?.scale ?? canvasScale;
+    final currentTier = currentScale < 0.2 ? 2 : (currentScale < 0.5 ? 1 : 0);
+
+    // 🛡️ EDGE CASE: cancel progressive mode if scene changed (stroke added/removed)
+    // or if zoom crossed ANOTHER tier boundary during the transition.
+    if (_lodProgressiveMode) {
+      final sceneChanged = sceneGraph.version != _cachedSceneVersion;
+      final tierChangedAgain = currentTier != _cachedLodTier;
+      if (sceneChanged || tierChangedAgain) {
+        _lodSnapshotPicture?.dispose();
+        _lodSnapshotPicture = null;
+        _lodProgressiveMode = false;
+        _tileCache.invalidateAll();
+        _strokeCache.invalidateCache();
+        if (tierChangedAgain) _cachedLodTier = currentTier;
+        // Fall through to normal rendering
+      }
+    }
+
+    // Start new LOD transition if tier changed
+    if (currentTier != _cachedLodTier && !_lodProgressiveMode) {
+      // 1. Save snapshot of current cache (before invalidation)
+      if (_strokeCache.isCacheValid(totalStrokes) ||
+          _strokeCache.hasCacheForStrokes(totalStrokes)) {
+        final snapshotRecorder = ui.PictureRecorder();
+        _strokeCache.drawCached(Canvas(snapshotRecorder));
+        _lodSnapshotPicture?.dispose();
+        _lodSnapshotPicture = snapshotRecorder.endRecording();
+      }
+      // 2. Invalidate caches for rebuild at new LOD
+      _strokeCache.invalidateCache();
+      _tileCache.invalidateAll();
+      _cachedLodTier = currentTier;
+      _cachedSceneVersion = sceneGraph.version; // Track version for interrupt
+      // 3. Enter progressive mode
+      _lodProgressiveMode = true;
+    }
+
+    // 🚀 PROGRESSIVE LOD: draw old snapshot + rebuild tiles silently.
+    // The user sees the old LOD (GPU-scaled) during the entire transition.
+    // Tiles are rebuilt in the background within a 6ms budget per frame.
+    // When all tiles are done, swap atomically.
+    if (_lodProgressiveMode) {
+      // Draw old snapshot (the user sees old LOD, zero visual change)
+      if (_lodSnapshotPicture != null) {
+        canvas.drawPicture(_lodSnapshotPicture!);
+      }
+
+      // Silently rebuild tiles at new LOD within 6ms budget
+      _ensureRenderIndex();
+      final missingTiles = _tileCache.collectMissing(viewport);
+
+      // 🎯 CENTER-FIRST: rebuild tiles closest to viewport center first
+      if (missingTiles.length > 1) {
+        TileCacheManager.sortByDistanceToCenter(missingTiles, viewport);
+      }
+
+      if (missingTiles.isNotEmpty) {
+        final sw = Stopwatch()..start();
+        const budgetUs = 8000; // 8ms (within 120Hz budget of 8.33ms)
+        final effectiveScale = controller?.scale ?? canvasScale;
+        _delegateRenderer.currentScale = effectiveScale;
+
+        for (final tileKey in missingTiles) {
+          if (sw.elapsedMicroseconds > budgetUs) break;
+
+          // Inline tile rebuild with 3-TIER LOD (NOT drawn to canvas)
+          final tileBounds = TileCacheManager.tileBounds(tileKey);
+          final recorder = ui.PictureRecorder();
+          final recCanvas = Canvas(recorder);
+          final visibleNodes = _renderIndex.queryRange(tileBounds);
+
+          if (effectiveScale < 0.2) {
+            // TIER 1: Bounding-box thumbnails (fast)
+            final thumbBatches = <int, ui.Path>{};
+            for (final node in visibleNodes) {
+              if (node is StrokeNode) {
+                if (node.stroke.isStub || node.stroke.isFill) continue;
+                final b = node.stroke.bounds;
+                if (b.isEmpty || b.longestSide * effectiveScale < 3.0) continue;
+                final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
+                final colorKey = node.stroke.color.value;
+                final path = thumbBatches.putIfAbsent(
+                  colorKey,
+                  () => ui.Path(),
+                );
+                path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
+                continue;
+              }
+              if (node is PdfDocumentNode || node is PdfPageNode) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
+            for (final entry in thumbBatches.entries) {
+              final color = Color(entry.key);
+              recCanvas.drawPath(
+                entry.value,
+                Paint()
+                  ..color = color.withValues(alpha: 0.15)
+                  ..style = PaintingStyle.fill,
+              );
+              recCanvas.drawPath(
+                entry.value,
+                Paint()
+                  ..color = color.withValues(alpha: 0.30)
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = 1.0,
+              );
+            }
+          } else if (effectiveScale < 0.5) {
+            // TIER 2: Simplified polylines (medium)
+            for (final node in visibleNodes) {
+              if (node is PdfDocumentNode || node is PdfPageNode) continue;
+              if (node is StrokeNode && node.stroke.isStub) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
+          } else {
+            // TIER 3: Full quality
+            for (final node in visibleNodes) {
+              if (node is PdfDocumentNode || node is PdfPageNode) continue;
+              if (node is StrokeNode && node.stroke.isStub) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
+          }
+
+          final picture = recorder.endRecording();
+          _tileCache.cacheTile(tileKey, picture, sceneGraph.version);
+        }
+
+        // Check if more tiles remain
+        final remaining = _tileCache.collectMissing(viewport);
+        if (remaining.isEmpty) {
+          // All tiles rebuilt — instant swap!
+          final globalRec = ui.PictureRecorder();
+          _tileCache.drawCachedOnly(Canvas(globalRec), viewport);
+          final globalPic = globalRec.endRecording();
+          _strokeCache.adoptPicture(globalPic, totalStrokes);
+          _cachedSceneVersion = sceneGraph.version;
+          _cachedCacheViewport = viewport.inflate(viewport.longestSide * 1.5);
+          _tileCache.markValid(totalStrokes, sceneGraph.version);
+
+          // Dispose snapshot and exit progressive mode immediately
+          _lodSnapshotPicture?.dispose();
+          _lodSnapshotPicture = null;
+          _lodProgressiveMode = false;
+
+          // Draw the new cache
+          _strokeCache.drawCached(canvas);
+        } else {
+          // Schedule next frame
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            _lodRepaintNotifier.value++;
+          });
+        }
+      } else {
+        // No missing tiles — complete
+        _lodSnapshotPicture?.dispose();
+        _lodSnapshotPicture = null;
+        _lodProgressiveMode = false;
+        _tileCache.markValid(totalStrokes, sceneGraph.version);
+        _strokeCache.drawCached(canvas);
+      }
+
+      _drawEraserPreviews(canvas);
+      _triggerPagingIfNeeded(viewport);
+      return; // Skip normal rendering path
     }
 
     // 🎯 ERASER PREVIEW OVERLAY: replay cache + overlay tinted previews.
@@ -818,7 +1065,7 @@ class DrawingPainter extends CustomPainter {
         isDirtyClipped ||
         _effectiveStrokes.length < 5) {
       // Fallback: direct render without caching
-      final cacheViewport = viewport.inflate(viewport.longestSide * 2.0);
+      final cacheViewport = viewport.inflate(viewport.longestSide * 1.5);
       final effectiveScale = controller?.scale ?? canvasScale;
       _delegateRenderer.skipPdfNodes = true;
       _delegateRenderer.render(
@@ -856,43 +1103,226 @@ class DrawingPainter extends CustomPainter {
     // Draw cached tiles and collect missing ones
     final missingTiles = _tileCache.drawAndCollectMissing(canvas, viewport);
 
+    // 🎯 CENTER-FIRST: rebuild tiles closest to viewport center first
+    if (missingTiles.length > 1) {
+      TileCacheManager.sortByDistanceToCenter(missingTiles, viewport);
+    }
+
+    // 🚀 PROGRESSIVE FIRST LOAD: budget-cap tile rebuilds to 8ms.
+    // Prevents 107ms freeze on initial load — tiles appear progressively.
+    final Stopwatch? normalSw =
+        missingTiles.length > 2 ? (Stopwatch()..start()) : null;
+    const normalBudgetUs = 8000; // 8ms
+
     // Rebuild missing tiles using R-Tree O(log N) query
+    // 🚀 Set scale for LOD decisions in BrushEngine fast path
+    final effectiveScale = controller?.scale ?? canvasScale;
+    _delegateRenderer.currentScale = effectiveScale;
+    int normalTilesRebuilt = 0;
     for (final tileKey in missingTiles) {
+      // Budget check (skip for ≤2 tiles — not worth overhead)
+      if (normalSw != null &&
+          normalTilesRebuilt > 0 &&
+          normalSw.elapsedMicroseconds > normalBudgetUs) {
+        break;
+      }
       final tileBounds = TileCacheManager.tileBounds(tileKey);
       final recorder = ui.PictureRecorder();
       final recCanvas = Canvas(recorder);
 
       // 🌲 R-TREE QUERY: O(log N) instead of O(N) scene graph traversal
       final visibleNodes = _renderIndex.queryRange(tileBounds);
-      for (final node in visibleNodes) {
-        // Skip PDF nodes — rendered separately in _paintPdfDocuments
-        if (node is PdfDocumentNode || node is PdfPageNode) continue;
-        // Skip stub strokes (paged out to disk, no points to render)
-        if (node is StrokeNode && node.stroke.isStub) continue;
-        _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+
+      // ─────────────────────────────────────────────────────────────
+      // 🚀 3-TIER LOD RENDERING (with smooth transitions):
+      // Tier 1 (zoom <0.2): SECTIONS + colored bounding boxes for strokes
+      // Tier 2 (zoom 0.2-0.5): Color-batched simplified polylines (fading near 0.2)
+      // Tier 3 (zoom ≥0.5): Full quality per-node rendering
+      // ─────────────────────────────────────────────────────────────
+      if (effectiveScale < 0.2) {
+        // 🏷️ TIER 1: Sections + color-batched content thumbnails
+        // O(colors) draw calls instead of O(N) per stroke.
+        final thumbBatches = <int, ui.Path>{};
+
+        for (final node in visibleNodes) {
+          if (node is StrokeNode) {
+            if (node.stroke.isStub || node.stroke.isFill) continue;
+            final b = node.stroke.bounds;
+            // Aggressive cull: skip strokes < 3px on screen
+            if (b.isEmpty || b.longestSide * effectiveScale < 3.0) continue;
+            final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
+            final colorKey = node.stroke.color.value;
+            final path = thumbBatches.putIfAbsent(colorKey, () => ui.Path());
+            path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
+            continue;
+          }
+          if (node is PdfDocumentNode || node is PdfPageNode) continue;
+          _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+        }
+
+        // Draw batched thumbnails: 2 draw calls per color (fill + border)
+        for (final entry in thumbBatches.entries) {
+          final color = Color(entry.key);
+          recCanvas.drawPath(
+            entry.value,
+            Paint()
+              ..color = color.withValues(alpha: 0.15)
+              ..style = PaintingStyle.fill,
+          );
+          recCanvas.drawPath(
+            entry.value,
+            Paint()
+              ..color = color.withValues(alpha: 0.30)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.0,
+          );
+        }
+      } else if (effectiveScale < 0.5) {
+        // 🎨 TIER 2: Color-batched simplified polylines
+        // Smooth fade near the 0.2 boundary (0.2–0.3 = transition zone)
+        final strokeOpacity =
+            effectiveScale < 0.3
+                ? ((effectiveScale - 0.2) / 0.1).clamp(0.0, 1.0)
+                : 1.0;
+
+        final batches = <int, _ColorBatch>{};
+        final step = (1.0 / effectiveScale).ceil().clamp(3, 10);
+
+        for (final node in visibleNodes) {
+          if (node is! StrokeNode) continue;
+          if (node.stroke.isStub) continue;
+          if (node.stroke.isFill) continue;
+          final stroke = node.stroke;
+          final points = stroke.points;
+          if (points.isEmpty) continue;
+
+          // Skip tiny strokes
+          final screenSize = stroke.bounds.longestSide * effectiveScale;
+          if (screenSize < 4.0) continue;
+
+          final colorKey = stroke.color.value;
+          final batch = batches.putIfAbsent(
+            colorKey,
+            () => _ColorBatch(ui.Path(), stroke.color, stroke.baseWidth),
+          );
+
+          // Add simplified polyline to batch path
+          bool first = true;
+          for (int i = 0; i < points.length; i += step) {
+            final pos = points[i].position;
+            if (first) {
+              batch.path.moveTo(pos.dx, pos.dy);
+              first = false;
+            } else {
+              batch.path.lineTo(pos.dx, pos.dy);
+            }
+          }
+          // Always include last point to close the stroke shape
+          final lastPos = points.last.position;
+          batch.path.lineTo(lastPos.dx, lastPos.dy);
+
+          if (stroke.baseWidth > batch.maxWidth) {
+            batch.maxWidth = stroke.baseWidth;
+          }
+        }
+
+        // Draw one Path per color batch (with fade opacity)
+        for (final batch in batches.values) {
+          recCanvas.drawPath(
+            batch.path,
+            Paint()
+              ..color = batch.color.withValues(alpha: strokeOpacity)
+              ..strokeWidth = (batch.maxWidth * effectiveScale * 2.0).clamp(
+                0.5,
+                batch.maxWidth,
+              )
+              ..style = ui.PaintingStyle.stroke
+              ..strokeCap = ui.StrokeCap.round
+              ..strokeJoin = ui.StrokeJoin.round
+              ..isAntiAlias = true,
+          );
+        }
+
+        // Also render non-stroke nodes (shapes, images, etc.)
+        for (final node in visibleNodes) {
+          if (node is StrokeNode) continue;
+          if (node is PdfDocumentNode || node is PdfPageNode) continue;
+          _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+        }
+      } else {
+        // 🖌️ TIER 3: Full quality per-node rendering
+        for (final node in visibleNodes) {
+          if (node is PdfDocumentNode || node is PdfPageNode) continue;
+          if (node is StrokeNode && node.stroke.isStub) continue;
+          _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+        }
       }
 
       final picture = recorder.endRecording();
       canvas.drawPicture(picture);
       _tileCache.cacheTile(tileKey, picture, sceneGraph.version);
+      normalTilesRebuilt++;
     }
 
-    // Mark tile cache as valid
-    _tileCache.markValid(totalStrokes, sceneGraph.version);
+    // Check if all tiles were rebuilt
+    final allNormalTilesBuilt = normalTilesRebuilt >= missingTiles.length;
 
-    // Also update the global stroke cache for fast O(1) replay on next frame
-    // Record all visible tiles into one Picture for the StrokeCacheManager
-    if (missingTiles.isNotEmpty) {
+    // Mark tile cache as valid only when all tiles are built
+    if (allNormalTilesBuilt) {
+      _tileCache.markValid(totalStrokes, sceneGraph.version);
+    }
+
+    // 🚀 FIX: Update global stroke cache WITHOUT re-rendering all tiles.
+    // Record the tiles we already drew into one Picture.
+    if (normalTilesRebuilt > 0 && allNormalTilesBuilt) {
       final globalRecorder = ui.PictureRecorder();
       final globalCanvas = Canvas(globalRecorder);
-      _tileCache.drawAndCollectMissing(globalCanvas, viewport);
+      _tileCache.drawCachedOnly(globalCanvas, viewport);
       final globalPicture = globalRecorder.endRecording();
       _strokeCache.adoptPicture(globalPicture, totalStrokes);
       _cachedSceneVersion = sceneGraph.version;
-      _cachedCacheViewport = viewport.inflate(viewport.longestSide * 2.0);
+      _cachedCacheViewport = viewport.inflate(viewport.longestSide * 1.5);
     }
 
-    // Draw eraser previews on top (overlay, not part of scene graph render)
+    // 🚀 PROGRESSIVE FIRST LOAD: schedule remaining tiles for next frame
+    if (!allNormalTilesBuilt) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _lodRepaintNotifier.value++;
+      });
+    } else if (normalSw != null &&
+        normalSw.elapsedMicroseconds < normalBudgetUs) {
+      // 🚀 PRE-WARM: all visible tiles built, use remaining budget for surrounding tiles.
+      // Pre-renders 1-ring of tiles outside viewport so panning is instant.
+      final preWarmTiles = _tileCache.collectMissingPreWarm(viewport);
+      if (preWarmTiles.isNotEmpty) {
+        TileCacheManager.sortByPanPrediction(
+          preWarmTiles,
+          viewport,
+          _panVelocity,
+        );
+        for (final tileKey in preWarmTiles) {
+          if (normalSw.elapsedMicroseconds > normalBudgetUs) break;
+          final tileBounds = TileCacheManager.tileBounds(tileKey);
+          final recorder = ui.PictureRecorder();
+          final recCanvas = Canvas(recorder);
+          final visibleNodes = _renderIndex.queryRange(tileBounds);
+          for (final node in visibleNodes) {
+            if (node is PdfDocumentNode || node is PdfPageNode) continue;
+            if (node is StrokeNode && node.stroke.isStub) continue;
+            _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+          }
+          _tileCache.cacheTile(
+            tileKey,
+            recorder.endRecording(),
+            sceneGraph.version,
+          );
+        }
+        // Pre-warm is OPPORTUNISTIC only — never schedules additional frames.
+        // This prevents infinite repaint loops with LRU eviction.
+      }
+    }
+
+    // Draw eraser previews on top
     _drawEraserPreviews(canvas);
 
     // 🗂️ Trigger async stroke paging (non-blocking)
@@ -1721,12 +2151,22 @@ class DrawingPainter extends CustomPainter {
         stroke.penType,
         stroke.settings,
         surface: surface,
+        scale: controller?.scale ?? canvasScale,
+        cachedPath: stroke.cachedPath,
       );
     }
   }
 
+  /// 🚀 When true, committed strokes haven't changed — skip repaint entirely.
+  final bool isActivelyDrawing;
+
   @override
   bool shouldRepaint(DrawingPainter oldDelegate) {
+    // 🚀 HOT PATH: during active drawing, committed strokes don't change.
+    // Only CurrentStrokePainter needs to repaint. Suppress ALL DrawingPainter
+    // repaints to save 6-10ms of tile rebuild per frame.
+    if (isActivelyDrawing) return false;
+
     // 🎨 Phase 3: If using incremental rendering, check dirty regions
     if (dirtyRegionTracker != null && dirtyRegionTracker!.hasDirtyRegions) {
       final viewport = ViewportCuller.calculateViewport(
@@ -1771,6 +2211,29 @@ class DrawingPainter extends CustomPainter {
           viewport.bottom <= _lastRenderedPdfViewport.bottom)) {
         return true;
       }
+    }
+    // 🚀 LIVE VERSION CHECK: detect scene graph changes during in-flight
+    // manipulations (section drag/resize, shape edit) where the widget
+    // isn't rebuilt but sceneGraph.version IS bumped.
+    // Compare against STATIC _cachedSceneVersion (updated in paint)
+    // to avoid false positives from new delegate instances.
+    if (_cachedSceneVersion >= 0 && sceneGraph.version != _cachedSceneVersion) {
+      return true;
+    }
+
+    // 🚀 LOD TIER TRANSITION: trigger repaint when LOD changed.
+    // Uses debounce from widget layer (300ms after zoom settles).
+    if (controller != null) {
+      final s = controller!.scale;
+      final tier = s < 0.2 ? 2 : (s < 0.5 ? 1 : 0);
+      if (tier != _cachedLodTier) {
+        return true;
+      }
+    }
+
+    // 🚀 Progressive LOD: keep repainting until transition completes.
+    if (_lodProgressiveMode) {
+      return true;
     }
 
     return false;
@@ -2074,4 +2537,12 @@ class _AnnotCacheEntry {
   final int count;
   final ui.Picture picture;
   const _AnnotCacheEntry({required this.count, required this.picture});
+}
+
+/// 🚀 LOD: batch strokes by color for low-zoom rendering.
+class _ColorBatch {
+  final ui.Path path;
+  final Color color;
+  double maxWidth;
+  _ColorBatch(this.path, this.color, this.maxWidth);
 }

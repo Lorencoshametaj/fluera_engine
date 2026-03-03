@@ -32,7 +32,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // 🚀 STRUCTURAL FIX: Use cached widget hosts — identical() skips
           // these entire sub-trees on parent setState, eliminating ~90% of
           // the widget reconstruction cost (700+ widgets × 293 setState calls).
-          // 🚀 LAYER MERGE: Background is now rendered inline by DrawingPainter
+          _buildBackgroundLayer(),
           _drawingLayerHost,
           _imageLayerHost,
           _gestureLayerHost,
@@ -248,6 +248,26 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   }
                   m.scale(_canvasController.scale);
 
+                  // 🚀 LOD DEBOUNCE: detect LOD tier change during zoom.
+                  // After zoom settles (300ms), trigger DrawingPainter rebuild
+                  // which starts progressive tile-by-tile LOD rendering.
+                  final s = _canvasController.scale;
+                  final tier = s < 0.2 ? 2 : (s < 0.5 ? 1 : 0);
+                  if (tier != _lastWidgetLodTier) {
+                    _lastWidgetLodTier = tier;
+                    _lodDebounceTimer?.cancel();
+                    _lodDebounceTimer = Timer(
+                      const Duration(milliseconds: 150),
+                      () {
+                        if (mounted) {
+                          _layerController.notifyListeners();
+                          _imageRepaintNotifier
+                              .value++; // 🚀 Also repaint images for LOD
+                        }
+                      },
+                    );
+                  }
+
                   return Transform(transform: m, child: child);
                 },
                 child: RepaintBoundary(
@@ -286,6 +306,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         paperType: _paperType, // 🚀 LAYER MERGE
                         backgroundColor:
                             _canvasBackgroundColor, // 🚀 LAYER MERGE
+                        isActivelyDrawing:
+                            _isDrawingNotifier.value && !_effectiveIsEraser,
                       ),
                       isComplex:
                           true, // 🚀 RASTER: hint to cache raster output aggressively
@@ -315,6 +337,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
   /// 🖼️ LAYER 2: IMAGES (VIEWPORT-LEVEL)
   /// Renders images at viewport level with controller-based repaint,
   /// matching the same pattern as DrawingPainter.
+  /// 🚀 Uses AnimatedBuilder > Transform > RepaintBoundary for GPU compositing.
   Widget _buildImageLayer() {
     return ListenableBuilder(
       listenable: _layerController,
@@ -325,35 +348,55 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
         final dpr = MediaQuery.of(context).devicePixelRatio;
         // 🔧 FIX: Listen to _currentEditingStrokeNotifier so ImagePainter
         // repaints on every pen move during image editing mode.
-        // Previously, .value was passed as a snapshot at build time,
-        // causing the live stroke to lag behind the finalized strokes.
         return ValueListenableBuilder<ProStroke?>(
           valueListenable: _currentEditingStrokeNotifier,
           builder: (context, editingStroke, _) {
-            return RepaintBoundary(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: ImagePainter(
-                    images: _imageElements,
-                    loadedImages: _loadedImages,
-                    selectedImage: _imageTool.selectedImage,
-                    imageTool: _imageTool,
-                    canvasStrokes:
-                        _layerController.layers
-                            .firstWhere(
-                              (l) => l.id == _layerController.activeLayerId,
-                              orElse: () => _layerController.layers.first,
-                            )
-                            .strokes,
-                    loadingPulse: _loadingPulseValue,
-                    controller: _canvasController,
-                    imageVersion: _imageVersion,
-                    devicePixelRatio: dpr,
-                    spatialIndex: _imageSpatialIndex,
-                    memoryManager: _imageMemoryManager,
-                    imageRepaintNotifier: _imageRepaintNotifier,
+            return AnimatedBuilder(
+              animation: _canvasController,
+              builder: (context, child) {
+                // 🚀 Apply pan/zoom/rotation at widget level.
+                // The CustomPaint child is cached by the RepaintBoundary
+                // and only re-rasterized when images change (shouldRepaint).
+                // Pan/zoom only changes the Transform matrix → GPU compositing.
+                final m =
+                    Matrix4.identity()..translate(
+                      _canvasController.offset.dx,
+                      _canvasController.offset.dy,
+                    );
+                if (_canvasController.rotation != 0.0) {
+                  m.rotateZ(_canvasController.rotation);
+                }
+                m.scale(_canvasController.scale);
+
+                return Transform(transform: m, child: child);
+              },
+              child: RepaintBoundary(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: ImagePainter(
+                      images: _imageElements,
+                      loadedImages: _loadedImages,
+                      selectedImage: _imageTool.selectedImage,
+                      imageTool: _imageTool,
+                      canvasStrokes:
+                          _layerController.layers
+                              .firstWhere(
+                                (l) => l.id == _layerController.activeLayerId,
+                                orElse: () => _layerController.layers.first,
+                              )
+                              .strokes,
+                      loadingPulse: _loadingPulseValue,
+                      controller: _canvasController,
+                      imageVersion: _imageVersion,
+                      devicePixelRatio: dpr,
+                      spatialIndex: _imageSpatialIndex,
+                      memoryManager: _imageMemoryManager,
+                      imageRepaintNotifier: _imageRepaintNotifier,
+                    ),
+                    isComplex: true,
+                    willChange: false,
+                    size: Size.infinite,
                   ),
-                  size: Size.infinite,
                 ),
               ),
             );

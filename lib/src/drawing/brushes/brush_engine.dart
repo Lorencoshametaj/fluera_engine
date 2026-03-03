@@ -129,8 +129,30 @@ class BrushEngine {
     int? engineVersion,
     int drawFromIndex = 0,
     SurfaceMaterial? surface,
+    double scale = 1.0,
+    Path? cachedPath,
   }) {
     if (points.isEmpty) return;
+
+    // ──────────────────────────────────────────────────────────────
+    // 🚀 SCALE-AWARE FAST PATH — at low zoom, ALL pens use simple
+    // polyline rendering. Skips: saveLayer, texture overlay, surface
+    // material, compositing, wetness, pressure curves. At zoom <0.5
+    // strokes are <5px on screen — pressure, textures, blend modes
+    // are invisible. Cost: ~0.01ms/stroke instead of ~0.07ms.
+    // ──────────────────────────────────────────────────────────────
+    if (scale < 0.5 && !isLive && blendMode == null) {
+      BallpointBrush.drawStrokeWithSettings(
+        canvas,
+        points,
+        color,
+        baseWidth,
+        minPressure: 0.3,
+        maxPressure: 1.0,
+        cachedPath: cachedPath,
+      );
+      return;
+    }
 
     // ──────────────────────────────────────────────────────────────
     // 🚀 BALLPOINT FAST PATH — skip entire pipeline for max FPS
@@ -151,6 +173,7 @@ class BrushEngine {
         minPressure: settings.ballpointMinPressure,
         maxPressure: settings.ballpointMaxPressure,
         isLive: isLive,
+        cachedPath: cachedPath,
       );
       return;
     }

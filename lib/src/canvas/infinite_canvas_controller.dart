@@ -39,6 +39,13 @@ class InfiniteCanvasController extends ChangeNotifier {
   /// Set by the widget to trigger haptic feedback.
   VoidCallback? onZoomLimitReached;
 
+  /// 🚀 Callback fired when zoom crosses LOD tier boundaries (0.2x, 0.5x).
+  /// Used to invalidate tile cache and force repaint for LOD transitions.
+  VoidCallback? onLodTierChanged;
+
+  /// Track the last LOD tier to detect boundary crossings.
+  int _lastLodTier = 0;
+
   /// 🚀 Callback fired when all physics animations settle.
   /// Used by the canvas to trigger LOD precomputation at the new zoom level.
   VoidCallback? onAnimationSettle;
@@ -163,6 +170,7 @@ class InfiniteCanvasController extends ChangeNotifier {
   void setScale(double newScale) {
     _scale = newScale.clamp(_minScale, _maxScale);
     notifyListeners();
+    _checkLodTier();
   }
 
   /// Apply combined transform (zoom + pan + rotation) with optional elastic bounds.
@@ -193,6 +201,31 @@ class InfiniteCanvasController extends ChangeNotifier {
       _wasAtZoomLimit = false;
     }
     notifyListeners();
+    _checkLodTier();
+  }
+
+  /// Check if zoom crossed an LOD tier boundary and fire callback.
+  /// Uses hysteresis to prevent flickering at boundaries.
+  void _checkLodTier() {
+    // Hysteresis: different thresholds for zooming in vs out.
+    // Zooming OUT uses lower thresholds → tier change happens later.
+    // Zooming IN uses higher thresholds → tier change happens later.
+    // This prevents rapid toggling at the boundary.
+    final int tier;
+    if (_lastLodTier == 2) {
+      // Currently in sections-only mode → need to zoom IN past 0.22 to exit
+      tier = _scale < 0.22 ? 2 : (_scale < 0.5 ? 1 : 0);
+    } else if (_lastLodTier == 0) {
+      // Currently in full quality → need to zoom OUT past 0.45 to exit
+      tier = _scale < 0.18 ? 2 : (_scale < 0.45 ? 1 : 0);
+    } else {
+      // Tier 1 (batched) → standard thresholds
+      tier = _scale < 0.18 ? 2 : (_scale < 0.5 ? 1 : 0);
+    }
+    if (tier != _lastLodTier) {
+      _lastLodTier = tier;
+      onLodTierChanged?.call();
+    }
   }
 
   /// Preview what scale value [updateTransform] would actually apply.

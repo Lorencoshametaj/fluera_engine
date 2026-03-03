@@ -4,6 +4,7 @@ import '../../core/scene_graph/node_id.dart';
 import '../../utils/uid.dart';
 import '../base/tool_context.dart';
 import '../base/base_tool.dart';
+import '../../layers/layer_controller.dart';
 
 /// 📐 Section Tool — creates named canvas areas (artboards).
 ///
@@ -206,6 +207,11 @@ class SectionTool extends BaseTool {
     if (activeLayer != null) {
       activeLayer.add(section);
       sceneGraph.bumpVersion();
+      // Mark layer dirty so delta save re-encodes this layer.
+      final lc = context.layerController;
+      if (lc is LayerController) {
+        lc.markLayerDirty(activeLayer.id);
+      }
     }
 
     context.notifyOperationComplete();

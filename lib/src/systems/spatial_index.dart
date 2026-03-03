@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:math' as math;
 import '../core/scene_graph/canvas_node.dart';
+import '../rendering/optimization/spatial_index.dart' as rtree;
 
 /// A 2D spatial index using an R-tree structure for fast spatial queries.
 ///
@@ -9,7 +10,11 @@ import '../core/scene_graph/canvas_node.dart';
 ///   (viewport culling)
 /// - **Point queries**: find all nodes at a specific point (hit testing)
 ///
-/// The tree automatically rebalances when nodes are inserted/removed.
+/// Backed by the optimized [rtree.RTree] with:
+/// - **STR bulk-loading**: O(N log N) optimal tree construction
+/// - **Lazy deletion**: O(1) remove via tombstones
+/// - **Short-circuit query**: flat collect for fully-contained nodes
+/// - **Auto-compaction**: periodic STR rebuild after mutation threshold
 ///
 /// ```dart
 /// final index = SpatialIndex();
@@ -18,13 +23,18 @@ import '../core/scene_graph/canvas_node.dart';
 /// final hits = index.queryPoint(cursorPoint);
 /// ```
 class SpatialIndex {
-  _RTreeNode? _root;
-  final int _maxChildren;
+  /// Optimized R-Tree backing store.
+  rtree.RTree<CanvasNode> _tree;
 
-  /// Map from node ID → leaf entry for fast removal/update.
-  final Map<String, _LeafEntry> _entries = {};
+  /// Map from node ID → CanvasNode for fast lookup by ID.
+  /// Needed because `remove()` takes a String ID, not a CanvasNode reference.
+  final Map<String, CanvasNode> _entries = {};
 
-  SpatialIndex({int maxChildren = 8}) : _maxChildren = maxChildren;
+  SpatialIndex({int maxChildren = 16})
+    : _tree = rtree.RTree<CanvasNode>(
+        (node) => node.worldBounds,
+        maxEntries: maxChildren,
+      );
 
   // ---------------------------------------------------------------------------
   // Insert / Remove / Update
@@ -35,38 +45,28 @@ class SpatialIndex {
     final bounds = node.worldBounds;
     if (bounds.isEmpty || !bounds.isFinite) return;
 
-    final entry = _LeafEntry(nodeId: node.id, bounds: bounds, node: node);
-    _entries[node.id] = entry;
+    _entries[node.id] = node;
+    _tree.insert(node);
 
-    _root ??= _RTreeNode(isLeaf: true);
-
-    _insert(_root!, entry);
-
-    // Split if overflow.
-    if (_root!.children.length > _maxChildren) {
-      final newRoot = _RTreeNode(isLeaf: false);
-      final (left, right) = _split(_root!);
-      newRoot.children.add(left);
-      newRoot.children.add(right);
-      newRoot.recalculateBounds();
-      _root = newRoot;
+    // Auto-compact if mutation threshold reached.
+    if (_tree.needsCompaction()) {
+      _tree.compact();
     }
   }
 
   /// Remove a canvas node from the spatial index.
+  ///
+  /// O(1): uses lazy deletion (tombstone). The entry remains physically
+  /// in the tree but is excluded from all query results.
   bool remove(String nodeId) {
-    final entry = _entries.remove(nodeId);
-    if (entry == null) return false;
+    final node = _entries.remove(nodeId);
+    if (node == null) return false;
 
-    // Rebuild the tree without this entry.
-    // For simplicity, we do a full collect-and-reinsert.
-    // A production R-tree would do a targeted removal + reinsert orphans.
-    final remaining = _entries.values.toList();
-    _root = null;
-    _entries.clear();
+    _tree.remove(node);
 
-    for (final e in remaining) {
-      insert(e.node);
+    // Auto-compact if tombstone threshold reached.
+    if (_tree.needsCompaction()) {
+      _tree.compact();
     }
     return true;
   }
@@ -77,18 +77,31 @@ class SpatialIndex {
     insert(node);
   }
 
-  /// Rebuild the entire index from a list of nodes.
+  /// Rebuild the entire index from a list of nodes using STR bulk-loading.
+  ///
+  /// This creates an optimal tree structure in O(N log N) time,
+  /// much faster than N sequential inserts for large datasets.
   void rebuild(Iterable<CanvasNode> nodes) {
-    _root = null;
     _entries.clear();
+
+    final nodeList = <CanvasNode>[];
     for (final node in nodes) {
-      insert(node);
+      final bounds = node.worldBounds;
+      if (bounds.isEmpty || !bounds.isFinite) continue;
+      _entries[node.id] = node;
+      nodeList.add(node);
     }
+
+    _tree = rtree.RTree<CanvasNode>.fromItems(
+      nodeList,
+      (node) => node.worldBounds,
+      maxEntries: 16,
+    );
   }
 
   /// Clear the entire index.
   void clear() {
-    _root = null;
+    _tree.clear();
     _entries.clear();
   }
 
@@ -104,10 +117,7 @@ class SpatialIndex {
   /// Used for viewport culling: pass the visible viewport rect
   /// to get only the nodes that need rendering.
   List<CanvasNode> queryRange(Rect range) {
-    final results = <CanvasNode>[];
-    if (_root == null) return results;
-    _queryRange(_root!, range, results);
-    return results;
+    return _tree.queryVisible(range, margin: 0);
   }
 
   /// Find all nodes that contain [point].
@@ -119,15 +129,16 @@ class SpatialIndex {
 
   /// Find the K nearest nodes to [point].
   List<CanvasNode> queryNearest(Offset point, {int k = 1}) {
-    final all = queryRange(
+    // Use a large search area, then sort by distance.
+    final all = _tree.queryVisible(
       Rect.fromCenter(
         center: point,
         width: double.infinity,
         height: double.infinity,
       ),
+      margin: 0,
     );
 
-    // Sort by distance to point.
     all.sort((a, b) {
       final distA = _distanceToBounds(point, a.worldBounds);
       final distB = _distanceToBounds(point, b.worldBounds);
@@ -147,114 +158,8 @@ class SpatialIndex {
   bool contains(String nodeId) => _entries.containsKey(nodeId);
 
   // ---------------------------------------------------------------------------
-  // R-tree internals
+  // Internal helpers
   // ---------------------------------------------------------------------------
-
-  void _insert(_RTreeNode node, _LeafEntry entry) {
-    if (node.isLeaf) {
-      node.entries.add(entry);
-      node.expandBounds(entry.bounds);
-      return;
-    }
-
-    // Choose the child that needs least enlargement.
-    _RTreeNode? bestChild;
-    double bestEnlargement = double.infinity;
-
-    for (final child in node.children) {
-      final enlargement = _enlargementNeeded(child.bounds, entry.bounds);
-      if (enlargement < bestEnlargement) {
-        bestEnlargement = enlargement;
-        bestChild = child;
-      }
-    }
-
-    if (bestChild == null) {
-      // No children yet, create a leaf.
-      final leaf = _RTreeNode(isLeaf: true);
-      leaf.entries.add(entry);
-      leaf.expandBounds(entry.bounds);
-      node.children.add(leaf);
-      node.expandBounds(entry.bounds);
-      return;
-    }
-
-    _insert(bestChild, entry);
-
-    // Split child if overflow.
-    if (bestChild.isLeaf && bestChild.entries.length > _maxChildren) {
-      node.children.remove(bestChild);
-      final (left, right) = _splitLeaf(bestChild);
-      node.children.add(left);
-      node.children.add(right);
-    } else if (!bestChild.isLeaf && bestChild.children.length > _maxChildren) {
-      node.children.remove(bestChild);
-      final (left, right) = _split(bestChild);
-      node.children.add(left);
-      node.children.add(right);
-    }
-
-    node.recalculateBounds();
-  }
-
-  void _queryRange(_RTreeNode node, Rect range, List<CanvasNode> results) {
-    if (!node.bounds.overlaps(range)) return;
-
-    if (node.isLeaf) {
-      for (final entry in node.entries) {
-        if (entry.bounds.overlaps(range)) {
-          results.add(entry.node);
-        }
-      }
-    } else {
-      for (final child in node.children) {
-        _queryRange(child, range, results);
-      }
-    }
-  }
-
-  (_RTreeNode, _RTreeNode) _split(_RTreeNode node) {
-    final left = _RTreeNode(isLeaf: node.isLeaf);
-    final right = _RTreeNode(isLeaf: node.isLeaf);
-
-    final List<_RTreeNode> items = node.isLeaf ? [] : node.children.toList();
-
-    // Linear split: pick two seeds farthest apart.
-    if (items.length < 2) {
-      left.children.addAll(items);
-    } else {
-      // Simple split: first half / second half.
-      final mid = items.length ~/ 2;
-      left.children.addAll(items.sublist(0, mid).cast<_RTreeNode>());
-      right.children.addAll(items.sublist(mid).cast<_RTreeNode>());
-    }
-
-    left.recalculateBounds();
-    right.recalculateBounds();
-    return (left, right);
-  }
-
-  (_RTreeNode, _RTreeNode) _splitLeaf(_RTreeNode node) {
-    final left = _RTreeNode(isLeaf: true);
-    final right = _RTreeNode(isLeaf: true);
-
-    final entries = node.entries.toList();
-    // Sort by center X for a simple spatial split.
-    entries.sort((a, b) => a.bounds.center.dx.compareTo(b.bounds.center.dx));
-
-    final mid = entries.length ~/ 2;
-    left.entries.addAll(entries.sublist(0, mid));
-    right.entries.addAll(entries.sublist(mid));
-
-    left.recalculateBounds();
-    right.recalculateBounds();
-    return (left, right);
-  }
-
-  double _enlargementNeeded(Rect current, Rect addition) {
-    final merged = current.expandToInclude(addition);
-    return (merged.width * merged.height) - (current.width * current.height);
-  }
 
   double _distanceToBounds(Offset point, Rect bounds) {
     final dx = math.max(
@@ -267,59 +172,4 @@ class SpatialIndex {
     );
     return math.sqrt(dx * dx + dy * dy);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Internal R-tree data structures
-// ---------------------------------------------------------------------------
-
-class _RTreeNode {
-  final bool isLeaf;
-  Rect bounds;
-
-  /// Child nodes (for internal nodes).
-  final List<_RTreeNode> children = [];
-
-  /// Leaf entries (for leaf nodes).
-  final List<_LeafEntry> entries = [];
-
-  _RTreeNode({required this.isLeaf}) : bounds = Rect.zero;
-
-  void expandBounds(Rect rect) {
-    if (bounds == Rect.zero) {
-      bounds = rect;
-    } else {
-      bounds = bounds.expandToInclude(rect);
-    }
-  }
-
-  void recalculateBounds() {
-    if (isLeaf) {
-      if (entries.isEmpty) {
-        bounds = Rect.zero;
-        return;
-      }
-      bounds = entries.first.bounds;
-      for (int i = 1; i < entries.length; i++) {
-        bounds = bounds.expandToInclude(entries[i].bounds);
-      }
-    } else {
-      if (children.isEmpty) {
-        bounds = Rect.zero;
-        return;
-      }
-      bounds = children.first.bounds;
-      for (int i = 1; i < children.length; i++) {
-        bounds = bounds.expandToInclude(children[i].bounds);
-      }
-    }
-  }
-}
-
-class _LeafEntry {
-  final String nodeId;
-  final Rect bounds;
-  final CanvasNode node;
-
-  _LeafEntry({required this.nodeId, required this.bounds, required this.node});
 }

@@ -1447,6 +1447,7 @@ extension on _FlueraCanvasScreenState {
     _layerController.sceneGraph.bumpVersion();
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.mediumImpact();
+    _layerController.notifyListeners();
     setState(() {});
     _autoSaveCanvas();
   }
@@ -1528,6 +1529,7 @@ extension on _FlueraCanvasScreenState {
     sceneGraph.bumpVersion();
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.heavyImpact();
+    _layerController.notifyListeners();
     setState(() {});
     _autoSaveCanvas();
   }
@@ -2224,6 +2226,7 @@ extension on _FlueraCanvasScreenState {
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.mediumImpact();
     _sectionCounter++;
+    _layerController.notifyListeners();
     setState(() {});
     _autoSaveCanvas();
   }
@@ -2255,6 +2258,7 @@ extension on _FlueraCanvasScreenState {
         layer.add(section);
         sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
+        _layerController.notifyListeners();
         setState(() {});
         break;
       }
@@ -2271,6 +2275,7 @@ extension on _FlueraCanvasScreenState {
         layer.insertAt(0, section);
         sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
+        _layerController.notifyListeners();
         setState(() {});
         break;
       }

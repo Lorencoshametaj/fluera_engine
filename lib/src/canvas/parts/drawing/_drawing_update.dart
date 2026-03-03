@@ -66,6 +66,7 @@ extension on _FlueraCanvasScreenState {
         section.sectionSize = Size(newRect.width, newRect.height);
         _layerController.sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
+        _layerController.notifyListeners();
         setState(() {});
       }
       return;
@@ -119,6 +120,7 @@ extension on _FlueraCanvasScreenState {
       _draggingSectionNode!.setPosition(newPos.dx, newPos.dy);
       _layerController.sceneGraph.bumpVersion();
       DrawingPainter.invalidateAllTiles();
+      _layerController.notifyListeners();
       setState(() {});
       return;
     }

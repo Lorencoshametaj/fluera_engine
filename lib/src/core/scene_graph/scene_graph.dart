@@ -580,6 +580,9 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
     if (spatialIndex.contains(node.id)) {
       spatialIndex.update(node);
     }
+    // Bump version so shouldRepaint detects the change and triggers
+    // a cache rebuild (e.g., section moved/resized during drag).
+    _version++;
   }
 
   /// Public helper for [TransactionInverseOp] rollback — registers a subtree.

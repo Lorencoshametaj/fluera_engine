@@ -46,6 +46,7 @@ import './tabular_renderer.dart';
 import './latex_renderer.dart';
 import '../optimization/layer_picture_cache.dart';
 import '../optimization/snapshot_cache_manager.dart';
+import '../optimization/optimization.dart';
 import '../shaders/adjustment_shader_service.dart';
 
 /// Renders a [SceneGraph] by recursively traversing the node tree.
@@ -81,6 +82,10 @@ class SceneGraphRenderer {
   /// Current zoom scale — used for LOD decisions in stroke rendering.
   /// Set per frame in [render()].
   double _currentScale = 1.0;
+
+  /// Set the current zoom scale for LOD decisions.
+  /// Call before [renderNode] when rendering tiles outside of [render].
+  set currentScale(double s) => _currentScale = s;
 
   /// Stroke IDs to skip during the global render pass.
   ///
@@ -440,35 +445,72 @@ class SceneGraphRenderer {
         bounds.width * _currentScale,
         bounds.height * _currentScale,
       );
-      if (screenSize < 2.0) return;
+      if (screenSize < 4.0) return;
     }
 
     if (stroke.isFill) {
       _drawFillOverlay(canvas, stroke);
-    } else {
-      // 🚀 RASTER LOD: decimate points at low zoom to reduce GPU path
-      // complexity. Missing points are sub-pixel on screen → invisible.
-      var points = stroke.points;
-      if (_currentScale < 0.5 && points.length > 10) {
-        final step = (1.0 / _currentScale).ceil().clamp(2, 6);
-        final decimated = <ProDrawingPoint>[];
-        for (int i = 0; i < points.length; i += step) {
-          decimated.add(points[i]);
-        }
-        if (decimated.last != points.last) {
-          decimated.add(points.last);
-        }
-        points = decimated;
-      }
-      BrushEngine.renderStroke(
-        canvas,
-        points,
-        stroke.color,
-        stroke.baseWidth,
-        stroke.penType,
-        stroke.settings,
-      );
+      return;
     }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 🚀 ULTRA-FAST PATH: bypass entire BrushEngine pipeline for
+    // simple committed strokes at normal zoom. Conditions:
+    // - Has cachedPath (committed, not decimated)
+    // - Normal zoom (≥ 0.5, no LOD decimation)
+    // - Simple pen (ballpoint with default settings)
+    // - No blend mode, no texture, no stamp
+    // Saves: EngineScope lookup, pressure curve, surface material,
+    // 15+ conditional checks per stroke.
+    // ─────────────────────────────────────────────────────────────────
+    if (_currentScale >= 0.5 &&
+        stroke.penType == ProPenType.ballpoint &&
+        stroke.settings.textureType == 'none' &&
+        stroke.settings.pressureCurve.isLinear &&
+        !stroke.settings.stampEnabled) {
+      final s = stroke.settings;
+      final w =
+          stroke.baseWidth *
+          (s.ballpointMinPressure +
+              0.5 * (s.ballpointMaxPressure - s.ballpointMinPressure));
+      canvas.drawPath(
+        stroke.cachedPath,
+        PaintPool.getStrokePaint(
+          color: stroke.color,
+          strokeWidth: w,
+          strokeCap: StrokeCap.round,
+          strokeJoin: StrokeJoin.round,
+        ),
+      );
+      return;
+    }
+
+    // 🚀 RASTER LOD: decimate points at low zoom to reduce GPU path
+    // complexity. Missing points are sub-pixel on screen → invisible.
+    var points = stroke.points;
+    final isDecimated = _currentScale < 0.5 && points.length > 10;
+    if (isDecimated) {
+      final step = (1.0 / _currentScale).ceil().clamp(2, 8);
+      final decimated = <ProDrawingPoint>[];
+      for (int i = 0; i < points.length; i += step) {
+        decimated.add(points[i]);
+      }
+      if (decimated.last != points.last) {
+        decimated.add(points.last);
+      }
+      points = decimated;
+    }
+    BrushEngine.renderStroke(
+      canvas,
+      points,
+      stroke.color,
+      stroke.baseWidth,
+      stroke.penType,
+      stroke.settings,
+      scale: _currentScale,
+      // O(1) cached path only when points aren't decimated
+      cachedPath: isDecimated ? null : stroke.cachedPath,
+    );
   }
 
   /// Render a shape via the paint stack, or legacy ShapePainter.
@@ -1249,18 +1291,18 @@ class SceneGraphRenderer {
   void _renderSection(Canvas canvas, SectionNode node, Rect viewport) {
     final bounds = node.localBounds;
 
-    // Compute inverse scale for zoom-adaptive sizing.
-    // This ensures labels, borders, and shadows stay legible at any zoom.
-    final scale = _currentScale;
-    final invScale = 1.0 / scale;
+    // All sizes are FIXED world-space, proportional to the section.
+    // NO zoom-adaptive invScale — avoids stale values baked into tile cache.
+    final sectionScale = (bounds.width / 400.0).clamp(0.3, 2.0);
 
     // ── 1. Subtle drop shadow for depth ──
     final cr = node.cornerRadius;
-    final shadowRect = bounds.shift(Offset(2 * invScale, 2 * invScale));
+    final shadowShift = 2.0 * sectionScale;
+    final shadowRect = bounds.shift(Offset(shadowShift, shadowShift));
     final shadowPaint =
         Paint()
           ..color = const Color(0x12000000)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 * invScale);
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4.0 * sectionScale);
     if (cr > 0) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(shadowRect, Radius.circular(cr)),
@@ -1289,7 +1331,7 @@ class SceneGraphRenderer {
           Paint()
             ..color = const Color(0x1A000000)
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 0.5 * invScale;
+            ..strokeWidth = 0.5;
 
       for (
         double x = node.gridSpacing;
@@ -1313,7 +1355,7 @@ class SceneGraphRenderer {
           Paint()
             ..color = node.subdivisionColor
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2 * invScale;
+            ..strokeWidth = 1.2 * sectionScale;
 
       // Horizontal dividers
       if (node.subdivisionRows > 1) {
@@ -1325,8 +1367,8 @@ class SceneGraphRenderer {
             Offset(0, y),
             Offset(bounds.width, y),
             divPaint,
-            8.0 * invScale,
-            4.0 * invScale,
+            8.0 * sectionScale,
+            4.0 * sectionScale,
           );
         }
       }
@@ -1341,8 +1383,8 @@ class SceneGraphRenderer {
             Offset(x, 0),
             Offset(x, bounds.height),
             divPaint,
-            8.0 * invScale,
-            4.0 * invScale,
+            8.0 * sectionScale,
+            4.0 * sectionScale,
           );
         }
       }
@@ -1365,13 +1407,13 @@ class SceneGraphRenderer {
       canvas.restore();
     }
 
-    // ── 5. Border (zoom-adaptive width) ──
+    // ── 5. Border ──
     if (node.borderWidth > 0) {
       final borderPaint =
           Paint()
             ..color = node.borderColor
             ..style = PaintingStyle.stroke
-            ..strokeWidth = node.borderWidth * invScale;
+            ..strokeWidth = node.borderWidth;
       if (cr > 0) {
         canvas.drawRRect(
           RRect.fromRectAndRadius(bounds, Radius.circular(cr)),
@@ -1389,7 +1431,8 @@ class SceneGraphRenderer {
           (node.subdivisionColumns < 1 ? 1 : node.subdivisionColumns);
       final cellH =
           bounds.height / (node.subdivisionRows < 1 ? 1 : node.subdivisionRows);
-      final cellFontSize = 10.0 * invScale;
+      final cellScale = (cellW / 100.0).clamp(0.3, 2.0);
+      final cellFontSize = 10.0 * cellScale;
       final cellLabelColor = node.subdivisionColor.withValues(alpha: 0.6);
 
       for (int r = 0; r < node.subdivisionRows; r++) {
@@ -1414,21 +1457,25 @@ class SceneGraphRenderer {
 
           tp.paint(
             canvas,
-            Offset(c * cellW + 4 * invScale, r * cellH + 2 * invScale),
+            Offset(c * cellW + 4 * cellScale, r * cellH + 2 * cellScale),
           );
         }
       }
     }
 
-    // ── 6. Premium label badge ──
-    final fontSize = 12.0 * invScale;
-    final dimsFontSize = 10.0 * invScale;
-    final labelPadH = 8.0 * invScale;
-    final labelPadV = 4.0 * invScale;
-    final iconSize = 14.0 * invScale;
-    final labelGap = 4.0 * invScale;
-    final badgeRadius = 6.0 * invScale;
-    final labelY = -(SectionNode.labelHeight * invScale) + 2 * invScale;
+    // ── 6. Fixed world-space label badge ──
+    // Labels use FIXED world sizes proportional to the section, NOT zoom-adaptive.
+    // This ensures: (a) labels scale naturally with zoom (like Figma/Sketch),
+    // (b) labels don't overflow at extreme dezoom (no invScale explosion).
+    final labelScale = (bounds.width / 400.0).clamp(0.3, 2.0);
+    final fontSize = 12.0 * labelScale;
+    final dimsFontSize = 10.0 * labelScale;
+    final labelPadH = 8.0 * labelScale;
+    final labelPadV = 4.0 * labelScale;
+    final iconSize = 14.0 * labelScale;
+    final labelGap = 4.0 * labelScale;
+    final badgeRadius = 6.0 * labelScale;
+    final labelY = -(28.0 * labelScale) + 2 * labelScale;
 
     // Main label text
     final namePainter = TextPainter(
@@ -1442,7 +1489,9 @@ class SceneGraphRenderer {
         ),
       ),
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: bounds.width * 0.6);
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: bounds.width * 0.5);
 
     // Dimensions badge
     final dimsText =
@@ -1458,15 +1507,18 @@ class SceneGraphRenderer {
         ),
       ),
       textDirection: TextDirection.ltr,
+      maxLines: 1,
     )..layout();
 
-    final totalLabelW =
+    final rawLabelW =
         iconSize +
         labelGap +
         namePainter.width +
         labelGap * 2 +
         dimsPainter.width +
         labelPadH * 2;
+    // Clamp label width to section width so nearby labels don't overlap.
+    final totalLabelW = rawLabelW.clamp(0.0, bounds.width);
     final labelH = namePainter.height + labelPadV * 2;
 
     // Badge background
@@ -1479,7 +1531,11 @@ class SceneGraphRenderer {
     // Icon (section dashboard icon approximation — draw a small grid)
     final iconX = labelPadH;
     final iconY = labelY + (labelH - iconSize) / 2;
-    _drawSectionIcon(canvas, Offset(iconX, iconY), iconSize, invScale);
+    _drawSectionIcon(canvas, Offset(iconX, iconY), iconSize, labelScale);
+
+    // Clip to badge area so text doesn't overflow
+    canvas.save();
+    canvas.clipRRect(labelRect);
 
     // Name text
     namePainter.paint(
@@ -1492,7 +1548,7 @@ class SceneGraphRenderer {
     final dotY = labelY + labelH / 2;
     canvas.drawCircle(
       Offset(dotX, dotY),
-      1.5 * invScale,
+      1.5 * labelScale,
       Paint()..color = const Color(0x66FFFFFF),
     );
 
@@ -1505,14 +1561,16 @@ class SceneGraphRenderer {
       ),
     );
 
+    canvas.restore();
+
     // ── 7. Corner resize handles (subtle dots) ──
-    final handleRadius = 3.0 * invScale;
+    final handleRadius = 3.0 * sectionScale;
     final handlePaint = Paint()..color = const Color(0xAA2196F3);
     final handleStroke =
         Paint()
           ..color = const Color(0x44FFFFFF)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0 * invScale;
+          ..strokeWidth = 1.0 * sectionScale;
     for (final corner in [
       bounds.topLeft,
       bounds.topRight,

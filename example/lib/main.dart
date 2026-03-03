@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:fluera_engine/fluera_engine.dart';
+import 'benchmark_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,11 +63,41 @@ class _CanvasDemoPageState extends State<CanvasDemoPage> {
   @override
   Widget build(BuildContext context) {
     final demo = context.findAncestorWidgetOfExactType<FlueraEngineDemo>();
-    return FlueraCanvasScreen(
-      config: FlueraCanvasConfig(
-        layerController: _layerController,
-        // Storage is null on web — canvas runs in-memory
-        storageAdapter: demo?.storage,
+    return Scaffold(
+      body: Stack(
+        children: [
+          FlueraCanvasScreen(
+            config: FlueraCanvasConfig(
+              layerController: _layerController,
+              // Storage is null on web — canvas runs in-memory
+              storageAdapter: demo?.storage,
+            ),
+          ),
+          // 🏎️ Benchmark button
+          Positioned(
+            right: 16,
+            bottom: 32,
+            child: FloatingActionButton.extended(
+              heroTag: 'benchmark',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => BenchmarkPage(storage: demo?.storage),
+                  ),
+                );
+              },
+              backgroundColor: const Color(0xFF1C2128),
+              icon: const Text('🏎️', style: TextStyle(fontSize: 20)),
+              label: const Text(
+                'Benchmark',
+                style: TextStyle(
+                  color: Colors.greenAccent,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
