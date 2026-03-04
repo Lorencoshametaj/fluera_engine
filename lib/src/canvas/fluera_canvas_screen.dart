@@ -237,6 +237,7 @@ import '../systems/layout_engine.dart';
 import '../systems/preferred_values.dart';
 import '../collaboration/scene_graph_crdt.dart';
 import '../export/fluera_file_format.dart';
+import '../export/fluera_file_export_service.dart';
 
 // ─── Design overlay panels ─────────────────────────────────────────────────
 import './overlays/animation_timeline_panel.dart';
@@ -258,6 +259,7 @@ part './parts/lifecycle/_lifecycle_branching.dart';
 
 // 🤝 Features
 part './parts/_collaboration.dart';
+part './parts/_collaboration_pdf_sync.dart';
 part './parts/_canvas_operations.dart';
 part './parts/_export.dart';
 part './parts/_text_tools.dart';
