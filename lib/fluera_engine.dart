@@ -391,6 +391,8 @@ export 'src/export/pdf_export_writer.dart';
 export 'src/export/svg_importer.dart';
 export 'src/export/raster_image_encoder.dart';
 export 'src/export/raster_encoder_channel.dart';
+export 'src/export/fluera_file_format.dart';
+export 'src/export/fluera_file_export_service.dart';
 
 // ────────────────────────── AUDIO ──────────────────────────
 export 'src/audio/audio_module.dart';

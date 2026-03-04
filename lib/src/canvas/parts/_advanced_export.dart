@@ -108,28 +108,85 @@ extension AdvancedExportFeatures on _FlueraCanvasScreenState {
 
   /// Enable text auto-resize on selected text node.
   /// Wires: text_auto_resize
-  void _enableTextAutoResize() {
-  }
+  void _enableTextAutoResize() {}
 
   /// Enable CRDT sync for real-time collaboration.
   /// Wires: scene_graph_crdt, realtime_enterprise
-  void _enableCRDTSync() {
-  }
+  void _enableCRDTSync() {}
 
   /// Save as binary Fluera format.
-  /// Wires: fluera_file_format, binary_canvas_format
-  void _saveAsFlueraFormat() {
+  /// Wires: fluera_file_format, binary_canvas_format, fluera_file_export_service
+  Future<void> _saveAsFlueraFormat() async {
+    final layers = _layerController.layers;
+    if (layers.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nothing to export — canvas is empty'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      // Build the .fluera file
+      final bytes = await FlueraFileExportService.buildFlueraFile(
+        layers: layers,
+        title: _noteTitle ?? 'Untitled',
+        backgroundColor:
+            '#${_canvasBackgroundColor.toARGB32().toRadixString(16).padLeft(8, '0')}',
+        paperType: _paperType,
+      );
+
+      if (!mounted) return;
+
+      // Use file_picker to let the user choose a save location
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save as Fluera file',
+        fileName: '${_noteTitle ?? 'canvas'}.fluera',
+        type: FileType.any,
+        bytes: bytes,
+      );
+
+      if (result != null && mounted) {
+        // On desktop, file_picker returns a path; on mobile, bytes are written directly
+        if (result.isNotEmpty) {
+          final file = File(result);
+          if (!await file.exists()) {
+            await file.writeAsBytes(bytes);
+          }
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Saved ${(bytes.length / 1024).toStringAsFixed(1)} KB',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   /// Export timelapse recording.
   /// Wires: timelapse_export_config
-  void _exportTimelapseImpl() {
-  }
+  void _exportTimelapseImpl() {}
 
   /// Open raster export dialog.
   /// Wires: raster_encoder_channel, raster_image_encoder
-  void _exportRasterImage() {
-  }
+  void _exportRasterImage() {}
 
   /// Open plugin manager.
   /// Wires: plugin_api, plugin_budget, sandboxed_event_stream
