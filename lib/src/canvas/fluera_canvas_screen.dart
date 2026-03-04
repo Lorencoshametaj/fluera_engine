@@ -254,6 +254,7 @@ import './overlays/conscious_debug_overlay.dart';
 
 // 🔄 Lifecycle
 part './parts/lifecycle/_lifecycle.dart';
+part './parts/lifecycle/_lifecycle_helpers.dart';
 part './parts/lifecycle/_lifecycle_time_travel.dart';
 part './parts/lifecycle/_lifecycle_branching.dart';
 
