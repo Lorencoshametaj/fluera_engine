@@ -1,3 +1,5 @@
+library drawing_painter;
+
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../drawing/models/surface_material.dart';
@@ -42,12 +44,13 @@ import '../../tools/pdf/pdf_search_controller.dart';
 import '../../export/pdf_annotation_exporter.dart';
 import '../../core/nodes/tabular_node.dart';
 import '../scene_graph/tabular_renderer.dart';
-
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
 import '../optimization/tile_cache_manager.dart'; // 🧩 Tile caching
 import '../optimization/stroke_paging_manager.dart'; // 🗂️ Stroke paging to disk
 import '../../systems/spatial_index.dart' as si; // 🌲 R-Tree for render path
 import '../shaders/shader_brush_service.dart'; // 🚀 Shader warm-up
+
+part 'drawing_painter_helpers.dart';
 
 /// 🎨 DRAWING PAINTER - Layer disegni completati
 ///
@@ -350,28 +353,6 @@ class DrawingPainter extends CustomPainter {
     return _materializedCache!;
   }
 
-  /// Collect strokes from a node, skipping the first [skip] strokes.
-  /// Only adds strokes after the skip count to [result].
-  static void _collectStrokesSkipping(
-    CanvasNode node,
-    List<ProStroke> result,
-    int skip,
-    int alreadySkipped,
-  ) {
-    if (node is StrokeNode) {
-      if (alreadySkipped >= skip) {
-        result.add(node.stroke);
-      }
-    } else if (node is GroupNode) {
-      int localSkipped = alreadySkipped;
-      for (final child in node.children) {
-        if (!child.isVisible) continue;
-        _collectStrokesSkipping(child, result, skip, localSkipped);
-        localSkipped += (child is StrokeNode) ? 1 : 0;
-      }
-    }
-  }
-
   /// Count total strokes across visible layers — O(L) where L = layer count.
   ///
   /// Uses CanvasLayer.strokes.length (O(1) per layer) instead of recursive
@@ -394,22 +375,6 @@ class DrawingPainter extends CustomPainter {
       _collectStrokes(layer, result);
     }
     return result;
-  }
-
-  /// Recursively collect LOADED (non-stub) ProStroke instances from a node subtree.
-  /// Adds loaded stroke IDs to _loadedStrokeIds for O(K) fast lookup.
-  /// At 10M strokes, stubs are skipped → cache holds only ~1000-5000 loaded.
-  static void _collectStrokes(CanvasNode node, List<ProStroke> result) {
-    if (node is StrokeNode) {
-      if (!node.stroke.isStub) {
-        result.add(node.stroke);
-        _loadedStrokeIds.add(node.stroke.id);
-      }
-    } else if (node is GroupNode) {
-      for (final child in node.children) {
-        if (child.isVisible) _collectStrokes(child, result);
-      }
-    }
   }
 
   /// 🌲 Ensure the render R-Tree is up to date with the scene graph.
@@ -534,39 +499,6 @@ class DrawingPainter extends CustomPainter {
         }
         return;
       }
-    }
-  }
-
-  /// Find the CanvasNode that wraps a given ProStroke.
-  static CanvasNode? _findStrokeNode(CanvasNode node, ProStroke stroke) {
-    if (node is StrokeNode && identical(node.stroke, stroke)) {
-      return node;
-    }
-    if (node is GroupNode) {
-      // Search in reverse — new strokes are typically at the end
-      for (int i = node.children.length - 1; i >= 0; i--) {
-        final child = node.children[i];
-        final found = _findStrokeNode(child, stroke);
-        if (found != null) return found;
-      }
-    }
-    return null;
-  }
-
-  /// Recursively collect leaf CanvasNodes for R-Tree indexing.
-  static void _collectLeafNodes(CanvasNode node, List<CanvasNode> result) {
-    if (node is GroupNode) {
-      // SectionNode is BOTH a container AND a renderable node —
-      // add it to the index so tile cache renders its background/border/label.
-      if (node is SectionNode && node.isVisible) {
-        result.add(node);
-      }
-      for (final child in node.children) {
-        if (child.isVisible) _collectLeafNodes(child, result);
-      }
-    } else if (node.isVisible) {
-      // Leaf node (StrokeNode, ShapeNode, TextNode, ImageNode, etc.)
-      result.add(node);
     }
   }
 
@@ -746,27 +678,6 @@ class DrawingPainter extends CustomPainter {
     // Cache for next paint()
     _cachedPdfAnnotationIds = ids;
     _cachedPdfAnnotationVersion = sceneGraph.version;
-  }
-
-  /// Recursively collect annotation IDs from PDF nodes in a subtree.
-  static void _collectPdfAnnotationIdsFromNode(
-    CanvasNode node,
-    Set<String> ids,
-  ) {
-    if (node is PdfDocumentNode) {
-      for (final page in node.pageNodes) {
-        final annotations = page.pageModel.annotations;
-        if (annotations.isNotEmpty) {
-          ids.addAll(annotations);
-        }
-      }
-    } else if (node is GroupNode) {
-      for (final child in node.children) {
-        if (child.isVisible) {
-          _collectPdfAnnotationIdsFromNode(child, ids);
-        }
-      }
-    }
   }
 
   /// Calculates the bounding box of all completed strokes
@@ -1765,68 +1676,6 @@ class DrawingPainter extends CustomPainter {
     }
   }
 
-  // 📄 Reusable Paint objects for PDF rendering (zero per-frame allocation)
-  static final Paint _pdfShadowPaint =
-      Paint()
-        ..color = const Color(0x30000000)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
-  static final Paint _pdfPageBgPaint = Paint()..color = const Color(0xFFFFFFFF);
-  static final Paint _pdfBorderPaint =
-      Paint()
-        ..color = const Color(0xFFE0E0E0)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.5;
-
-  // 🚀 PERF: Pre-allocated Paint objects for hot path (zero GC pressure)
-  static final Paint _pdfDragFillPaint =
-      Paint()
-        ..color = const Color(0x30000000)
-        ..style = PaintingStyle.fill;
-  static final Paint _pdfDragBorderPaint =
-      Paint()
-        ..color = const Color(0xFF1976D2)
-        ..style = PaintingStyle.stroke;
-  // Reusable paints for LOD thumbnail/batch rendering (color set per-use)
-  static final Paint _lodThumbFillPaint = Paint()..style = PaintingStyle.fill;
-  static final Paint _lodThumbStrokePaint =
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
-  static final Paint _lodBatchPaint =
-      Paint()
-        ..style = ui.PaintingStyle.stroke
-        ..strokeCap = ui.StrokeCap.round
-        ..strokeJoin = ui.StrokeJoin.round;
-
-  // 🚀 PDF LOD rectangle paints (color set per-use)
-  static final Paint _pdfLodRectFill = Paint()..style = PaintingStyle.fill;
-  static final Paint _pdfLodRectStroke =
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
-  static final Paint _layerCompositePaint = Paint();
-  static final Paint _debugLayerPaint =
-      Paint()..color = const Color(0x66FFFFFF);
-  static final Paint _debugBoundsPaint =
-      Paint()..color = const Color(0x40FF0000);
-  static final Paint _tilePaint = Paint()..filterQuality = FilterQuality.low;
-
-  // 🏷️ Structured annotation render paints
-  static final Paint _annotHighlightPaint = Paint(); // I6: reuse for highlights
-  static final Paint _underlinePaint =
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0;
-  static final Paint _stickyIconBgPaint =
-      Paint()..color = const Color(0xFFFFF176);
-  static final Paint _stickyFoldPaint =
-      Paint()..color = const Color(0x40000000); // I7: static fold paint
-  static final Path _stickyFoldPath = Path(); // I7: reusable fold path
-
-  static final TextPainter _wmTextPainter = TextPainter(
-    textDirection: TextDirection.ltr,
-  );
-
   /// Paint a single PDF page with professional styling.
   ///
   /// Features: drop shadow, white background, LOD-aware content via
@@ -2703,19 +2552,4 @@ class DrawingPainter extends CustomPainter {
       }
     }
   }
-}
-
-/// 🚀 PERF: Cache entry for the incremental annotation Picture cache.
-class _AnnotCacheEntry {
-  final int count;
-  final ui.Picture picture;
-  const _AnnotCacheEntry({required this.count, required this.picture});
-}
-
-/// 🚀 LOD: batch strokes by color for low-zoom rendering.
-class _ColorBatch {
-  final ui.Path path;
-  final Color color;
-  double maxWidth;
-  _ColorBatch(this.path, this.color, this.maxWidth);
 }
