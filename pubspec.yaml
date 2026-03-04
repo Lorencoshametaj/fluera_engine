@@ -28,7 +28,6 @@ dependencies:
   sqflite_common_ffi: ^2.3.4+4
   sqlite3_flutter_libs: ^0.5.28
   path: ^1.8.3
-  image_picker: ^1.1.2
   file_picker: ^8.0.0
   # Utilities
   crypto: ^3.0.6
@@ -36,8 +35,6 @@ dependencies:
   vector_math: ^2.1.4
   logging: ^1.2.0
   sqflite_common: ^2.5.4
-  # ONNX Runtime — used internally by LaTeX add-on module source files.
-  onnxruntime_v2: ^1.23.2
 
 dev_dependencies:
   flutter_test:
@@ -51,6 +48,10 @@ flutter:
         pluginClass: FlueraEnginePlugin
       ios:
         pluginClass: FlueraEnginePlugin
+      windows:
+        dartPluginClass: FlueraEnginePlugin
+      linux:
+        dartPluginClass: FlueraEnginePlugin
   shaders:
     - shaders/pencil_pro.frag
     - shaders/fountain_pen_pro.frag

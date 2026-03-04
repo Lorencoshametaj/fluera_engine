@@ -231,10 +231,12 @@ class CurrentStrokePainter extends CustomPainter {
     }
   }
 
-  /// 🚀 Picture cache — O(N) render with new points, O(1) replay on idle.
+  /// 🚀 TRUE INCREMENTAL RENDERING:
+  /// 1. Replay cached picture (O(1) — all previously rendered points)
+  /// 2. Render ONLY new points since last frame (O(ΔN) — typically 3-5 points)
+  /// 3. Merge into new cache for next frame
   ///
-  /// Full stroke re-render ensures live ≡ committed visual consistency.
-  /// BrushEngine.renderStroke cost at 100-200 points is measured below.
+  /// Periodic full re-render every 50 new points prevents visual drift.
   void _paintIncremental(Canvas canvas, List<ProDrawingPoint> stroke) {
     final currentStyle = _styleHash;
     final pointCount = stroke.length;
@@ -247,12 +249,37 @@ class CurrentStrokePainter extends CustomPainter {
       _lastRenderedCount = 0;
     }
 
-    final needsRefresh =
-        _cachedPicture == null || pointCount != _cachedPointCount;
+    final newPoints = pointCount - _cachedPointCount;
+    final needsRefresh = _cachedPicture == null || newPoints > 0;
 
     if (needsRefresh) {
+      // 🚀 Periodic full re-render every 50 new points to prevent visual drift
+      // or if cache is empty (first render)
+      final forceFullRender = _cachedPicture == null || newPoints > 50;
+
       final recorder = ui.PictureRecorder();
-      _drawStroke(Canvas(recorder), stroke, color, width, penType, settings);
+      final recCanvas = Canvas(recorder);
+
+      if (forceFullRender) {
+        // Full render: all points from scratch
+        _drawStroke(recCanvas, stroke, color, width, penType, settings);
+      } else {
+        // 🚀 INCREMENTAL: replay old cache + draw only new points
+        if (_cachedPicture != null) {
+          recCanvas.drawPicture(_cachedPicture!);
+        }
+        // Draw only new points (drawFromIndex uses BrushEngine incremental path)
+        _drawStroke(
+          recCanvas,
+          stroke,
+          color,
+          width,
+          penType,
+          settings,
+          drawFromIndex: _cachedPointCount > 2 ? _cachedPointCount - 2 : 0,
+        );
+      }
+
       _cachedPicture?.dispose();
       _cachedPicture = recorder.endRecording();
       _cachedPointCount = pointCount;

@@ -173,6 +173,16 @@ class StrokeCacheManager {
     _saveUndoSnapshot();
   }
 
+  /// 🚀 STEAL: extract the cached Picture WITHOUT disposing it.
+  /// Transfers ownership to the caller — cache becomes empty.
+  /// Used by LOD transition to avoid expensive snapshot copy.
+  ui.Picture? stealPicture() {
+    final pic = _cachedPicture;
+    _cachedPicture = null;
+    _cachedStrokeCount = 0;
+    return pic;
+  }
+
   /// Invalidate the cache completely
   void invalidateCache() {
     _cachedPicture?.dispose();

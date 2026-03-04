@@ -48,6 +48,13 @@ class LayerNode extends GroupNode {
     _cachedShapes = null;
   }
 
+  /// 🛡️ Invalidate only stroke caches (used by save pipeline after
+  /// restoring paged-out stubs on StrokeNode.stroke).
+  void invalidateStrokeCache() {
+    _cachedStrokeNodes = null;
+    _cachedStrokes = null;
+  }
+
   // ---------------------------------------------------------------------------
   // Typed convenience getters (cached)
   // ---------------------------------------------------------------------------

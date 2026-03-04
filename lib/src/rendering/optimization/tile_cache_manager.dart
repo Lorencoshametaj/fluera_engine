@@ -31,6 +31,10 @@ class TileCacheManager {
   final LinkedHashMap<TileKey, ui.Picture> _tiles =
       LinkedHashMap<TileKey, ui.Picture>();
 
+  /// 🚀 STALE TILES: old-LOD tiles kept as GPU-scaled fallback during
+  /// progressive rebuild. Disposed lazily as new tiles replace them.
+  final Map<TileKey, ui.Picture> _staleTiles = {};
+
   /// Scene graph version when each tile was last built.
   final Map<TileKey, int> _tileVersions = {};
 
@@ -131,11 +135,11 @@ class TileCacheManager {
     });
   }
 
-  /// 🚀 Collect missing tiles in a 1-ring surrounding the viewport (pre-warm).
-  /// Returns tiles just OUTSIDE the viewport that aren't cached yet.
+  /// 🚀 Collect missing tiles in a 2-ring surrounding the viewport (pre-warm).
+  /// Returns tiles OUTSIDE the viewport that aren't cached yet.
   List<TileKey> collectMissingPreWarm(Rect viewport) {
-    // Inflate viewport by 1 tile in each direction
-    final inflated = viewport.inflate(tileSize);
+    // Inflate viewport by 2 tiles in each direction for aggressive pre-warm
+    final inflated = viewport.inflate(tileSize * 2);
     final allKeys = tileKeysForRect(inflated);
     final visibleKeys = tileKeysForRect(viewport).toSet();
     final missing = <TileKey>[];
@@ -176,6 +180,27 @@ class TileCacheManager {
     _tileVersions.clear();
     _cachedStrokeCount = 0;
     _cachedVersion = -1;
+    // Also dispose stale tiles
+    for (final p in _staleTiles.values) {
+      p.dispose();
+    }
+    _staleTiles.clear();
+  }
+
+  /// 🚀 Mark all current tiles as STALE (wrong LOD) instead of disposing.
+  /// Stale tiles are drawn as fallback during progressive rebuild,
+  /// then disposed lazily as new tiles replace them.
+  void markAllStale() {
+    // Move current tiles → stale, dispose any existing stale
+    for (final entry in _staleTiles.entries) {
+      entry.value.dispose();
+    }
+    _staleTiles.clear();
+    _staleTiles.addAll(_tiles);
+    _tiles.clear();
+    _tileVersions.clear();
+    _cachedStrokeCount = 0;
+    _cachedVersion = -1;
   }
 
   /// Draw all cached tiles that overlap the viewport.
@@ -191,6 +216,11 @@ class TileCacheManager {
       if (picture != null) {
         canvas.drawPicture(picture);
       } else {
+        // 🚀 STALE FALLBACK: draw old-LOD tile if available (GPU-scaled)
+        final stale = _staleTiles[key];
+        if (stale != null) {
+          canvas.drawPicture(stale);
+        }
         missing.add(key);
       }
     }
@@ -232,6 +262,9 @@ class TileCacheManager {
     _tiles[key] = picture; // Insert at end (newest)
     _tileVersions[key] = sceneVersion;
 
+    // 🚀 Dispose stale tile for this key (no longer needed)
+    _staleTiles.remove(key)?.dispose();
+
     // 🛡️ LRU EVICTION: remove oldest tiles if over cap
     while (_tiles.length > maxTiles) {
       final oldest = _tiles.keys.first;
@@ -253,6 +286,10 @@ class TileCacheManager {
     }
     _tiles.clear();
     _tileVersions.clear();
+    for (final p in _staleTiles.values) {
+      p.dispose();
+    }
+    _staleTiles.clear();
   }
 }
 

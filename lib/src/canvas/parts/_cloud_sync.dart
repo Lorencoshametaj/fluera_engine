@@ -108,46 +108,60 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       final adapter = _config.storageAdapter;
       if (adapter != null) {
         if (adapter is SqliteStorageAdapter) {
+          // 🛡️ SAVE GUARD: block paging from stubifying strokes during save.
+          DrawingPainter.setSaveGuard(true);
+
           // 🗂️ PRE-SAVE: Restore paged-out stubs with full data from SQLite
           // to prevent data loss during binary encoding.
+          // 🐛 FIX: Restore via StrokeNode.stroke directly (not the cached
+          // list copy from layer.strokes) so BinaryCanvasFormat.encode sees
+          // the full strokes.
           final restoredForSave =
               await DrawingPainter.restorePagedStrokesForSave();
           if (restoredForSave.isNotEmpty) {
             for (final layer in saveData.layers) {
-              for (int i = 0; i < layer.strokes.length; i++) {
-                final full = restoredForSave[layer.strokes[i].id];
+              for (final sn in layer.node.strokeNodes) {
+                final full = restoredForSave[sn.stroke.id];
                 if (full != null) {
-                  layer.strokes[i] = full;
+                  sn.stroke = full;
                 }
               }
+              // Invalidate cached strokes so encode() reads from StrokeNodes
+              layer.node.invalidateStrokeCache();
             }
           }
 
-          // 🚀 FAST PATH: Direct Layer → Binary (Isolate) → SQLite
-          // 🚀 DELTA: Only re-encode dirty layers
-          await adapter.saveCanvasLayers(
-            canvasId: saveData.canvasId,
-            layers: saveData.layers,
-            title: saveData.title,
-            paperType: saveData.paperType,
-            backgroundColor: saveData.backgroundColor,
-            activeLayerId: saveData.activeLayerId,
-            infiniteCanvasId: saveData.infiniteCanvasId,
-            nodeId: saveData.nodeId,
-            guides: saveData.guides,
-            dirtyLayerIds: dirtyIds.isNotEmpty ? dirtyIds : null,
-            variablesJson: _buildVariablesJsonString(saveData),
-          );
-
-          // 🗂️ POST-SAVE: Re-stub restored strokes to free RAM
-          if (restoredForSave.isNotEmpty) {
-            for (final layer in saveData.layers) {
-              for (int i = 0; i < layer.strokes.length; i++) {
-                if (restoredForSave.containsKey(layer.strokes[i].id)) {
-                  layer.strokes[i] = layer.strokes[i].toStub();
+          try {
+            // 🚀 FAST PATH: Direct Layer → Binary (Isolate) → SQLite
+            // 🚀 DELTA: Only re-encode dirty layers
+            await adapter.saveCanvasLayers(
+              canvasId: saveData.canvasId,
+              layers: saveData.layers,
+              title: saveData.title,
+              paperType: saveData.paperType,
+              backgroundColor: saveData.backgroundColor,
+              activeLayerId: saveData.activeLayerId,
+              infiniteCanvasId: saveData.infiniteCanvasId,
+              nodeId: saveData.nodeId,
+              guides: saveData.guides,
+              dirtyLayerIds: dirtyIds.isNotEmpty ? dirtyIds : null,
+              variablesJson: _buildVariablesJsonString(saveData),
+            );
+          } finally {
+            // 🗂️ POST-SAVE: Re-stub restored strokes to free RAM
+            if (restoredForSave.isNotEmpty) {
+              for (final layer in saveData.layers) {
+                for (final sn in layer.node.strokeNodes) {
+                  if (restoredForSave.containsKey(sn.stroke.id)) {
+                    sn.stroke = sn.stroke.toStub();
+                  }
                 }
+                layer.node.invalidateStrokeCache();
               }
             }
+
+            // 🛡️ Release save guard
+            DrawingPainter.setSaveGuard(false);
           }
         } else {
           // Legacy path for custom adapters (JSON required by interface)
@@ -175,8 +189,7 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
         DrawingPainter.indexStrokesForLazyLoad(
           saveData.canvasId,
           allStrokeTuples,
-        ).catchError((e) {
-        });
+        ).catchError((e) {});
       }
 
       // 🖼️ 1.5: Capture viewport snapshot for next splash screen (fire-and-forget)
@@ -219,8 +232,9 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
             }
           }
           if (strokeTuples.isNotEmpty) {
-            cloudAdapter.saveStrokes(_canvasId, strokeTuples).catchError((e) {
-            });
+            cloudAdapter
+                .saveStrokes(_canvasId, strokeTuples)
+                .catchError((e) {});
           }
         } else {
           // Legacy: save everything in one document
@@ -249,18 +263,51 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       final adapter = _config.storageAdapter;
       if (adapter != null) {
         if (adapter is SqliteStorageAdapter) {
-          // Full save (no dirtyLayerIds = encode all layers)
-          await adapter.saveCanvasLayers(
-            canvasId: saveData.canvasId,
-            layers: saveData.layers,
-            title: saveData.title,
-            paperType: saveData.paperType,
-            backgroundColor: saveData.backgroundColor,
-            activeLayerId: saveData.activeLayerId,
-            infiniteCanvasId: saveData.infiniteCanvasId,
-            nodeId: saveData.nodeId,
-            guides: saveData.guides,
-          );
+          // 🛡️ SAVE GUARD: block paging from stubifying strokes during save.
+          DrawingPainter.setSaveGuard(true);
+
+          // 🐛 FIX: Restore paged-out stubs before encoding.
+          final restoredForSave =
+              await DrawingPainter.restorePagedStrokesForSave();
+          if (restoredForSave.isNotEmpty) {
+            for (final layer in saveData.layers) {
+              for (final sn in layer.node.strokeNodes) {
+                final full = restoredForSave[sn.stroke.id];
+                if (full != null) {
+                  sn.stroke = full;
+                }
+              }
+              layer.node.invalidateStrokeCache();
+            }
+          }
+
+          try {
+            // Full save (no dirtyLayerIds = encode all layers)
+            await adapter.saveCanvasLayers(
+              canvasId: saveData.canvasId,
+              layers: saveData.layers,
+              title: saveData.title,
+              paperType: saveData.paperType,
+              backgroundColor: saveData.backgroundColor,
+              activeLayerId: saveData.activeLayerId,
+              infiniteCanvasId: saveData.infiniteCanvasId,
+              nodeId: saveData.nodeId,
+              guides: saveData.guides,
+            );
+          } finally {
+            // POST-SAVE: Re-stub restored strokes to free RAM
+            if (restoredForSave.isNotEmpty) {
+              for (final layer in saveData.layers) {
+                for (final sn in layer.node.strokeNodes) {
+                  if (restoredForSave.containsKey(sn.stroke.id)) {
+                    sn.stroke = sn.stroke.toStub();
+                  }
+                }
+                layer.node.invalidateStrokeCache();
+              }
+            }
+            DrawingPainter.setSaveGuard(false);
+          }
         } else {
           final dataMap = saveData.toJson();
           dataMap['layers'] = saveData.layers.map((l) => l.toJson()).toList();
@@ -312,8 +359,7 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
           );
         }
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   /// ☁️ Download missing image assets from cloud storage.
@@ -338,10 +384,8 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
 
     if (downloadTasks.isEmpty) return;
 
-
     // Run all downloads in parallel (network handles concurrency)
     await Future.wait(downloadTasks);
-
   }
 
   /// Download a single asset from cloud and save locally.
@@ -359,8 +403,7 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
         // 💾 Cache compressed bytes for instant reload after eviction
         _imageMemoryManager.cacheCompressedBytes(localPath, bytes);
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   /// ☁️ Upload a single image asset to cloud storage.

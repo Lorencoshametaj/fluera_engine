@@ -6,8 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'onnx_stub_web.dart'
-    if (dart.library.ffi) 'package:onnxruntime_v2/onnxruntime_v2.dart';
+import 'onnx_stub_web.dart';
 import '../utils/safe_path_provider.dart';
 
 import '../core/latex/ink_stroke_data.dart';

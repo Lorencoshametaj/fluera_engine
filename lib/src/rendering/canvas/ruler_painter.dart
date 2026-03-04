@@ -24,6 +24,7 @@ class RulerPainter extends CustomPainter {
   final RulerGuideSystem guideSystem;
   final Offset canvasOffset;
   final double zoom;
+  final double rotation; // radians, clockwise
   final bool isDark;
   final Offset? cursorPosition;
   final int? activeGuideIndex;
@@ -35,11 +36,52 @@ class RulerPainter extends CustomPainter {
     required this.guideSystem,
     required this.canvasOffset,
     required this.zoom,
+    this.rotation = 0.0,
     this.isDark = false,
     this.cursorPosition,
     this.activeGuideIndex,
     this.activeGuideIsHorizontal,
   });
+
+  // ─── Rotation-aware coordinate helpers ─────────────────────────────
+
+  /// Convert screen coordinates to canvas coordinates (undo translate → rotate → scale).
+  Offset screenToCanvas(Offset screenPoint) {
+    if (rotation == 0.0) {
+      return (screenPoint - canvasOffset) / zoom;
+    }
+    final translated = screenPoint - canvasOffset;
+    final cosR = cos(-rotation);
+    final sinR = sin(-rotation);
+    final rotated = Offset(
+      translated.dx * cosR - translated.dy * sinR,
+      translated.dx * sinR + translated.dy * cosR,
+    );
+    return rotated / zoom;
+  }
+
+  /// Convert canvas coordinates to screen coordinates (scale → rotate → translate).
+  Offset canvasToScreen(Offset canvasPoint) {
+    if (rotation == 0.0) {
+      return canvasPoint * zoom + canvasOffset;
+    }
+    final scaled = canvasPoint * zoom;
+    final cosR = cos(rotation);
+    final sinR = sin(rotation);
+    final rotated = Offset(
+      scaled.dx * cosR - scaled.dy * sinR,
+      scaled.dx * sinR + scaled.dy * cosR,
+    );
+    return rotated + canvasOffset;
+  }
+
+  /// Shortcut: canvas-X → screen-X for a vertical guide at canvasX.
+  double guideToScreenX(double canvasX) =>
+      canvasToScreen(Offset(canvasX, 0)).dx;
+
+  /// Shortcut: canvas-Y → screen-Y for a horizontal guide at canvasY.
+  double guideToScreenY(double canvasY) =>
+      canvasToScreen(Offset(0, canvasY)).dy;
 
   // ─── TextPainter LRU cache ───────────────────────────────────────────
 
@@ -362,7 +404,8 @@ class RulerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(RulerPainter oldDelegate) {
-    return canvasOffset != oldDelegate.canvasOffset ||
+    return rotation != oldDelegate.rotation ||
+        canvasOffset != oldDelegate.canvasOffset ||
         zoom != oldDelegate.zoom ||
         isDark != oldDelegate.isDark ||
         cursorPosition != oldDelegate.cursorPosition ||

@@ -98,15 +98,19 @@ class BinaryCanvasFormat {
       builder.add(opacityData.buffer.asUint8List());
 
       // Counts: [Strokes (4), Shapes (4), Texts (4), Images (4)]
+      // 🛡️ Safety net: filter out 0-point stub strokes that shouldn't
+      // have reached the encoder (paging race condition safeguard).
+      final validStrokes =
+          layer.strokes.where((s) => s.points.isNotEmpty).toList();
       final countsData = ByteData(16);
-      countsData.setUint32(0, layer.strokes.length, Endian.little);
+      countsData.setUint32(0, validStrokes.length, Endian.little);
       countsData.setUint32(4, layer.shapes.length, Endian.little);
       countsData.setUint32(8, layer.texts.length, Endian.little);
       countsData.setUint32(12, layer.images.length, Endian.little);
       builder.add(countsData.buffer.asUint8List());
 
       // 1. Strokes
-      for (final stroke in layer.strokes) {
+      for (final stroke in validStrokes) {
         _writeStroke(builder, stroke);
       }
 

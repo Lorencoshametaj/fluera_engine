@@ -499,10 +499,10 @@ export 'src/config/advanced_split_layout.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/fluera_storage_adapter.dart';
+export 'src/storage/canvas_creation_options.dart';
 export 'src/storage/fluera_cloud_adapter.dart';
 export 'src/storage/sqlite_storage_adapter.dart';
 export 'src/storage/recording_storage_service.dart';
-export 'src/storage/fluera_canvas_gallery.dart';
 
 // ────────────────────────── SERVICES ──────────────────────────
 export 'src/services/adaptive_debouncer_service.dart';
@@ -526,3 +526,6 @@ export 'src/l10n/fluera_localizations.dart';
 // NOTE: Internal testing utilities (brush_testing, brush_test_screen)
 // are not part of the public SDK API. Import directly from
 // 'package:fluera_engine/testing/brush_testing.dart' if needed.
+
+// ────────────────────────── PLUGIN REGISTRANT ──────────────────────────
+export 'fluera_engine_plugin.dart';

@@ -7,8 +7,10 @@
 // ============================================================================
 
 import 'dart:typed_data';
+import 'package:flutter/painting.dart';
 
 import '../core/models/canvas_layer.dart';
+import 'canvas_creation_options.dart';
 
 /// Metadata for a stored canvas (used for listing / browsing).
 class CanvasMetadata {
@@ -27,6 +29,15 @@ class CanvasMetadata {
   /// Paper type (e.g. 'blank', 'lined', 'grid').
   final String paperType;
 
+  /// Background color (ARGB int). Defaults to white.
+  final int backgroundColorValue;
+
+  /// Background color as a [Color] object.
+  Color get backgroundColor => Color(backgroundColorValue);
+
+  /// Parent folder ID (null = root level).
+  final String? parentFolderId;
+
   /// Number of layers in the canvas.
   final int layerCount;
 
@@ -39,6 +50,8 @@ class CanvasMetadata {
     required this.updatedAt,
     required this.createdAt,
     required this.paperType,
+    this.backgroundColorValue = 0xFFFFFFFF,
+    this.parentFolderId,
     this.layerCount = 0,
     this.strokeCount = 0,
   });
@@ -50,6 +63,8 @@ class CanvasMetadata {
     'updatedAt': updatedAt.millisecondsSinceEpoch,
     'createdAt': createdAt.millisecondsSinceEpoch,
     'paperType': paperType,
+    'backgroundColorValue': backgroundColorValue,
+    if (parentFolderId != null) 'parentFolderId': parentFolderId,
     'layerCount': layerCount,
     'strokeCount': strokeCount,
   };
@@ -62,6 +77,8 @@ class CanvasMetadata {
       updatedAt: DateTime.fromMillisecondsSinceEpoch(json['updatedAt'] as int),
       createdAt: DateTime.fromMillisecondsSinceEpoch(json['createdAt'] as int),
       paperType: json['paperType'] as String? ?? 'blank',
+      backgroundColorValue: json['backgroundColorValue'] as int? ?? 0xFFFFFFFF,
+      parentFolderId: json['parentFolderId'] as String?,
       layerCount: json['layerCount'] as int? ?? 0,
       strokeCount: json['strokeCount'] as int? ?? 0,
     );
@@ -69,7 +86,48 @@ class CanvasMetadata {
 
   @override
   String toString() =>
-      'CanvasMetadata(id: $canvasId, title: $title, layers: $layerCount, strokes: $strokeCount)';
+      'CanvasMetadata(id: $canvasId, title: $title, folder: $parentFolderId)';
+}
+
+/// Metadata for a folder (used for listing / browsing).
+class FolderMetadata {
+  /// Unique folder identifier.
+  final String folderId;
+
+  /// Display name.
+  final String name;
+
+  /// Parent folder ID (null = root level).
+  final String? parentFolderId;
+
+  /// Accent color (ARGB int). Defaults to blue.
+  final int colorValue;
+
+  /// Accent color as a [Color] object.
+  Color get color => Color(colorValue);
+
+  /// Creation timestamp.
+  final DateTime createdAt;
+
+  /// Last modification timestamp.
+  final DateTime updatedAt;
+
+  /// Number of canvases directly in this folder.
+  final int canvasCount;
+
+  /// Number of subfolders directly in this folder.
+  final int subfolderCount;
+
+  const FolderMetadata({
+    required this.folderId,
+    required this.name,
+    this.parentFolderId,
+    this.colorValue = 0xFF6750A4,
+    required this.createdAt,
+    required this.updatedAt,
+    this.canvasCount = 0,
+    this.subfolderCount = 0,
+  });
 }
 
 /// 💾 Abstract storage adapter for canvas persistence.
@@ -124,16 +182,77 @@ abstract class FlueraStorageAdapter {
   /// List all stored canvases with metadata.
   ///
   /// Returns metadata only (no full layer data) for efficient browsing.
-  /// Ordered by [CanvasMetadata.updatedAt] descending (most recent first).
-  Future<List<CanvasMetadata>> listCanvases();
+  /// If [folderId] is provided, only canvases in that folder are returned.
+  /// Pass `null` to list root-level canvases only, or omit for all canvases.
+  Future<List<CanvasMetadata>> listCanvases({String? folderId});
 
   /// Check if a canvas exists without loading it.
   Future<bool> canvasExists(String canvasId);
 
   /// Release resources (close DB connections, flush buffers, etc.).
-  ///
-  /// The adapter should not be used after calling this method.
   Future<void> close();
+
+  // ─────────────────────── FOLDER OPERATIONS ───────────────────────────────
+
+  /// Create a new folder.
+  ///
+  /// Returns the folder ID.
+  /// ```dart
+  /// final folderId = await storage.createFolder('Math Notes');
+  /// ```
+  Future<String> createFolder(
+    String name, {
+    String? parentFolderId,
+    Color color = const Color(0xFF6750A4),
+  });
+
+  /// Rename a folder.
+  Future<void> renameFolder(String folderId, String name);
+
+  /// Delete a folder.
+  ///
+  /// All canvases and subfolders inside are moved to the parent folder.
+  Future<void> deleteFolder(String folderId);
+
+  /// List folders.
+  ///
+  /// If [parentFolderId] is provided, only subfolders of that folder.
+  /// Pass `null` for root-level folders.
+  Future<List<FolderMetadata>> listFolders({String? parentFolderId});
+
+  /// Move a canvas to a folder (or to root if [folderId] is null).
+  Future<void> moveCanvasToFolder(String canvasId, String? folderId);
+
+  /// Move a folder inside another folder (or to root if [parentFolderId] is null).
+  Future<void> moveFolderToFolder(String folderId, String? parentFolderId);
+
+  /// Create a new canvas with the given options.
+  ///
+  /// Returns the canvas ID (auto-generated if not specified in options).
+  /// The default implementation creates metadata and saves an empty canvas.
+  ///
+  /// ```dart
+  /// final id = await storage.createCanvas(CanvasCreationOptions(
+  ///   title: 'Math Notes',
+  ///   paperType: CanvasPaperType.grid5mm,
+  ///   backgroundColor: Color(0xFFFFFBF0),
+  /// ));
+  /// ```
+  Future<String> createCanvas(CanvasCreationOptions options) async {
+    final id = options.resolveCanvasId();
+    final now = DateTime.now();
+    final data = <String, dynamic>{
+      'canvasId': id,
+      'title': options.title,
+      'paperType': options.paperType.storageKey,
+      'backgroundColorValue': options.backgroundColor.value,
+      'createdAt': now.millisecondsSinceEpoch,
+      'updatedAt': now.millisecondsSinceEpoch,
+      'layers': <Map<String, dynamic>>[],
+    };
+    await saveCanvas(id, data);
+    return id;
+  }
 
   /// Save a canvas viewport snapshot (PNG bytes) for splash screen preview.
   ///

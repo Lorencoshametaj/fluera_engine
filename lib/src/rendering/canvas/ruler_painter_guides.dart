@@ -13,7 +13,7 @@ extension RulerPainterGuides on RulerPainter {
   void drawGuides(Canvas canvas, Size size) {
     for (int i = 0; i < guideSystem.horizontalGuides.length; i++) {
       final gy = guideSystem.horizontalGuides[i];
-      final sy = gy * zoom + canvasOffset.dy;
+      final sy = guideToScreenY(gy);
       if (sy < 0 || sy > size.height) continue;
 
       final isActive = activeGuideIsHorizontal == true && activeGuideIndex == i;
@@ -37,7 +37,7 @@ extension RulerPainterGuides on RulerPainter {
 
     for (int i = 0; i < guideSystem.verticalGuides.length; i++) {
       final gx = guideSystem.verticalGuides[i];
-      final sx = gx * zoom + canvasOffset.dx;
+      final sx = guideToScreenX(gx);
       if (sx < 0 || sx > size.width) continue;
 
       final isActive =
@@ -78,8 +78,8 @@ extension RulerPainterGuides on RulerPainter {
     for (final fg in guideSystem.frameGuides) {
       final screenPos =
           fg.isHorizontal
-              ? fg.position * zoom + canvasOffset.dy
-              : fg.position * zoom + canvasOffset.dx;
+              ? guideToScreenY(fg.position)
+              : guideToScreenX(fg.position);
 
       // Cull off-screen
       if (fg.isHorizontal && (screenPos < 0 || screenPos > size.height)) {
@@ -168,9 +168,7 @@ extension RulerPainterGuides on RulerPainter {
       if (pos == null) continue;
 
       final screenPos =
-          cg.isHorizontal
-              ? pos * zoom + canvasOffset.dy
-              : pos * zoom + canvasOffset.dx;
+          cg.isHorizontal ? guideToScreenY(pos) : guideToScreenX(pos);
 
       // Cull off-screen
       if (cg.isHorizontal && (screenPos < 0 || screenPos > size.height)) {
@@ -518,10 +516,10 @@ extension RulerPainterGuides on RulerPainter {
           ..strokeWidth = 0.5
           ..isAntiAlias = true;
     if (isH) {
-      final sy = val * zoom + canvasOffset.dy;
+      final sy = guideToScreenY(val);
       canvas.drawLine(Offset(0, sy), Offset(size.width, sy), cp);
     } else {
-      final sx = val * zoom + canvasOffset.dx;
+      final sx = guideToScreenX(val);
       canvas.drawLine(Offset(sx, 0), Offset(sx, size.height), cp);
     }
   }
@@ -537,8 +535,8 @@ extension RulerPainterGuides on RulerPainter {
     if (gs.horizontalGuides.length >= 2) {
       final sorted = List<double>.from(gs.horizontalGuides)..sort();
       for (int i = 0; i < sorted.length - 1; i++) {
-        final y1 = sorted[i] * zoom + canvasOffset.dy;
-        final y2 = sorted[i + 1] * zoom + canvasOffset.dy;
+        final y1 = guideToScreenY(sorted[i]);
+        final y2 = guideToScreenY(sorted[i + 1]);
         if (y1 < 0 || y2 > size.height) continue;
         final mid = (y1 + y2) / 2;
         final dist = (sorted[i + 1] - sorted[i]).abs();
@@ -570,8 +568,8 @@ extension RulerPainterGuides on RulerPainter {
     if (gs.verticalGuides.length >= 2) {
       final sorted = List<double>.from(gs.verticalGuides)..sort();
       for (int i = 0; i < sorted.length - 1; i++) {
-        final x1 = sorted[i] * zoom + canvasOffset.dx;
-        final x2 = sorted[i + 1] * zoom + canvasOffset.dx;
+        final x1 = guideToScreenX(sorted[i]);
+        final x2 = guideToScreenX(sorted[i + 1]);
         if (x1 < 0 || x2 > size.width) continue;
         final mid = (x1 + x2) / 2;
         final dist = (sorted[i + 1] - sorted[i]).abs();
@@ -629,7 +627,7 @@ extension RulerPainterGuides on RulerPainter {
 
     for (int i = 0; i < guideSystem.horizontalGuides.length; i++) {
       final y = guideSystem.horizontalGuides[i];
-      final sy = y * zoom + canvasOffset.dy;
+      final sy = guideToScreenY(y);
       if (sy < 0 || sy > size.height) continue;
       labelAt(
         Offset(RulerPainter.rulerSize + 4, sy + 2),
@@ -666,7 +664,7 @@ extension RulerPainterGuides on RulerPainter {
 
     for (int i = 0; i < guideSystem.verticalGuides.length; i++) {
       final x = guideSystem.verticalGuides[i];
-      final sx = x * zoom + canvasOffset.dx;
+      final sx = guideToScreenX(x);
       if (sx < 0 || sx > size.width) continue;
       labelAt(
         Offset(sx + 2, RulerPainter.rulerSize + 2),
@@ -722,10 +720,10 @@ extension RulerPainterGuides on RulerPainter {
           ..isAntiAlias = true;
     const markerR = 3.5;
     for (final gy in guideSystem.horizontalGuides) {
-      final sy = gy * zoom + canvasOffset.dy;
+      final sy = guideToScreenY(gy);
       if (sy < 0 || sy > size.height) continue;
       for (final gx in guideSystem.verticalGuides) {
-        final sx = gx * zoom + canvasOffset.dx;
+        final sx = guideToScreenX(gx);
         if (sx < 0 || sx > size.width) continue;
         final center = Offset(sx, sy);
         canvas.drawCircle(center, markerR, fillPaint);
@@ -754,7 +752,7 @@ extension RulerPainterGuides on RulerPainter {
           ..strokeWidth = 6.0
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
     if (guideSystem.horizontalGuides.isNotEmpty) {
-      final sy = guideSystem.horizontalGuides.last * zoom + canvasOffset.dy;
+      final sy = guideToScreenY(guideSystem.horizontalGuides.last);
       if (sy > 0 && sy < size.height) {
         canvas.drawLine(
           Offset(RulerPainter.rulerSize, sy),
@@ -764,7 +762,7 @@ extension RulerPainterGuides on RulerPainter {
       }
     }
     if (guideSystem.verticalGuides.isNotEmpty) {
-      final sx = guideSystem.verticalGuides.last * zoom + canvasOffset.dx;
+      final sx = guideToScreenX(guideSystem.verticalGuides.last);
       if (sx > 0 && sx < size.width) {
         canvas.drawLine(
           Offset(sx, RulerPainter.rulerSize),
@@ -781,7 +779,7 @@ extension RulerPainterGuides on RulerPainter {
     final cy = cursorPosition!.dy;
     const threshold = 12.0;
     for (int i = 0; i < guideSystem.horizontalGuides.length; i++) {
-      final sy = guideSystem.horizontalGuides[i] * zoom + canvasOffset.dy;
+      final sy = guideToScreenY(guideSystem.horizontalGuides[i]);
       if ((cy - sy).abs() < threshold && cx > RulerPainter.rulerSize) {
         drawTooltipBubble(
           canvas,
@@ -792,7 +790,7 @@ extension RulerPainterGuides on RulerPainter {
       }
     }
     for (int i = 0; i < guideSystem.verticalGuides.length; i++) {
-      final sx = guideSystem.verticalGuides[i] * zoom + canvasOffset.dx;
+      final sx = guideToScreenX(guideSystem.verticalGuides[i]);
       if ((cx - sx).abs() < threshold && cy > RulerPainter.rulerSize) {
         drawTooltipBubble(
           canvas,
@@ -815,7 +813,7 @@ extension RulerPainterGuides on RulerPainter {
     const dashLen = 6.0;
     const gapLen = 4.0;
     if (guideSystem.ghostSnapIsHorizontal) {
-      final sy = ghost.dy * zoom + canvasOffset.dy;
+      final sy = guideToScreenY(ghost.dy);
       double x = RulerPainter.rulerSize;
       while (x < size.width) {
         canvas.drawLine(
@@ -826,7 +824,7 @@ extension RulerPainterGuides on RulerPainter {
         x += dashLen + gapLen;
       }
     } else {
-      final sx = ghost.dx * zoom + canvasOffset.dx;
+      final sx = guideToScreenX(ghost.dx);
       double y = RulerPainter.rulerSize;
       while (y < size.height) {
         canvas.drawLine(

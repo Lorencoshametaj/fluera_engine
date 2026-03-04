@@ -50,14 +50,16 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
 
     gs.saveSnapshot();
     if (fromH) {
-      gs.addHorizontalGuide((gp.dy - o.dy) / s);
+      final cp = widget.canvasController.screenToCanvas(gp);
+      gs.addHorizontalGuide(cp.dy);
       setState(() {
         _isDragging = true;
         _isHorizontalGuide = true;
         _dragGuideIndex = gs.horizontalGuides.length - 1;
       });
     } else {
-      gs.addVerticalGuide((gp.dx - o.dx) / s);
+      final cp = widget.canvasController.screenToCanvas(gp);
+      gs.addVerticalGuide(cp.dx);
       setState(() {
         _isDragging = true;
         _isHorizontalGuide = false;
@@ -73,13 +75,12 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
     if (box == null) return;
     final pos = box.globalToLocal(details.globalPosition);
     final s = widget.canvasController.scale;
-    final o = widget.canvasController.offset;
     final gs = widget.guideSystem;
+    final cp = widget.canvasController.screenToCanvas(pos);
 
     setState(() {
       if (_isHorizontalGuide) {
-        final raw = (pos.dy - o.dy) / s;
-        var snapped = gs.snapGuideValue(raw, s);
+        var snapped = gs.snapGuideValue(cp.dy, s);
         snapped = gs.snapGuideToNearestGuide(
           snapped,
           true,
@@ -90,8 +91,7 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
           gs.horizontalGuides[_dragGuideIndex!] = snapped;
         }
       } else {
-        final raw = (pos.dx - o.dx) / s;
-        var snapped = gs.snapGuideValue(raw, s);
+        var snapped = gs.snapGuideValue(cp.dx, s);
         snapped = gs.snapGuideToNearestGuide(
           snapped,
           false,
@@ -108,13 +108,13 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
 
   void onDragEnd() {
     if (_isDragging && _dragGuideIndex != null) {
-      final s = widget.canvasController.scale;
-      final o = widget.canvasController.offset;
       final gs = widget.guideSystem;
 
       if (_isHorizontalGuide && _dragGuideIndex! < gs.horizontalGuides.length) {
-        final sy = gs.horizontalGuides[_dragGuideIndex!] * s + o.dy;
-        if (sy < _RulerInteractiveOverlayState.rulerSize + 10) {
+        final screenPos = widget.canvasController.canvasToScreen(
+          Offset(0, gs.horizontalGuides[_dragGuideIndex!]),
+        );
+        if (screenPos.dy < _RulerInteractiveOverlayState.rulerSize + 10) {
           gs.removeHorizontalGuideAt(_dragGuideIndex!);
           HapticFeedback.heavyImpact();
         } else {
@@ -122,8 +122,10 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
         }
       } else if (!_isHorizontalGuide &&
           _dragGuideIndex! < gs.verticalGuides.length) {
-        final sx = gs.verticalGuides[_dragGuideIndex!] * s + o.dx;
-        if (sx < _RulerInteractiveOverlayState.rulerSize + 10) {
+        final screenPos = widget.canvasController.canvasToScreen(
+          Offset(gs.verticalGuides[_dragGuideIndex!], 0),
+        );
+        if (screenPos.dx < _RulerInteractiveOverlayState.rulerSize + 10) {
           gs.removeVerticalGuideAt(_dragGuideIndex!);
           HapticFeedback.heavyImpact();
         } else {
@@ -172,16 +174,16 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
   void onRulerLongPress(LongPressStartDetails details, bool fromH) {
     HapticFeedback.mediumImpact();
     final s = widget.canvasController.scale;
-    final o = widget.canvasController.offset;
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
     final pos = box.globalToLocal(details.globalPosition);
     final gs = widget.guideSystem;
+    final cp = widget.canvasController.screenToCanvas(pos);
 
     if (fromH) {
-      gs.addHorizontalGuide(gs.snapGuideValue((pos.dy - o.dy) / s, s));
+      gs.addHorizontalGuide(gs.snapGuideValue(cp.dy, s));
     } else {
-      gs.addVerticalGuide(gs.snapGuideValue((pos.dx - o.dx) / s, s));
+      gs.addVerticalGuide(gs.snapGuideValue(cp.dx, s));
     }
     widget.onChanged();
     setState(() {});
@@ -193,9 +195,7 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
     final pos = box.globalToLocal(d.globalPosition);
-    final s = widget.canvasController.scale;
-    final o = widget.canvasController.offset;
-    final cp = Offset((pos.dx - o.dx) / s, (pos.dy - o.dy) / s);
+    final cp = widget.canvasController.screenToCanvas(pos);
     setState(() {
       widget.guideSystem.measureStart = cp;
       widget.guideSystem.measureEnd = cp;
@@ -207,13 +207,9 @@ extension _RulerOverlayGestures on _RulerInteractiveOverlayState {
     final box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
     final pos = box.globalToLocal(d.globalPosition);
-    final s = widget.canvasController.scale;
-    final o = widget.canvasController.offset;
+    final cp = widget.canvasController.screenToCanvas(pos);
     setState(() {
-      widget.guideSystem.measureEnd = Offset(
-        (pos.dx - o.dx) / s,
-        (pos.dy - o.dy) / s,
-      );
+      widget.guideSystem.measureEnd = cp;
     });
     widget.onChanged();
   }

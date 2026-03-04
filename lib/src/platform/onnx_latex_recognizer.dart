@@ -4,8 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'onnx_stub_web.dart'
-    if (dart.library.ffi) 'package:onnxruntime_v2/onnxruntime_v2.dart';
+import 'onnx_stub_web.dart';
 
 import '../core/latex/ink_stroke_data.dart';
 import '../core/latex/latex_tokenizer.dart';
@@ -141,7 +140,6 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
           _tokenizer.isLoaded;
 
       _initialized = true;
-
     } catch (e) {
       _initialized = true;
       _modelsAvailable = false;
@@ -442,7 +440,6 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
       outH = (outH * scaleUp).round().clamp(16, 256);
     }
 
-
     // ── Build output tensor (variable size, matches CROHME pipeline) ──
     final totalPixels = outW * outH;
     final floatData = Float32List(totalPixels);
@@ -655,10 +652,9 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
     int charIdx = 0;
 
     for (int i = 0; i < hypothesis.tokenProbs.length; i++) {
-      final tokenId =
-          i + 1 < hypothesis.tokenIds.length
-              ? hypothesis.tokenIds[i + 1]
-              : _tokenizer.eosTokenId;
+      final tokenId = i + 1 < hypothesis.tokenIds.length
+          ? hypothesis.tokenIds[i + 1]
+          : _tokenizer.eosTokenId;
 
       if (tokenId == _tokenizer.bosTokenId ||
           tokenId == _tokenizer.padTokenId) {

@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../utils/safe_path_provider.dart';
 import 'package:path/path.dart' as path;
 import '../l10n/fluera_localizations.dart';
@@ -9,21 +9,19 @@ import '../l10n/fluera_localizations.dart';
 /// 🖼️ IMAGE SERVICE
 /// Handles selezione e caricamento immagini from the galleria
 class ImageService {
-  static final ImagePicker _picker = ImagePicker();
-
   /// Seleziona un'immagine from the galleria
   /// Returns il path locale of the image salvata
   static Future<String?> pickImageFromGallery(BuildContext context) async {
     try {
-      // Open galleria con limiti ragionevoli per canvas professionale
-      final XFile? pickedFile = await _picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1920, // Max full HD per quality professionale
-        maxHeight: 1920,
-        imageQuality: 90, // Alta quality per dettagli
+      // Open galleria con file_picker (cross-platform: mobile + desktop)
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
       );
 
-      if (pickedFile == null) return null;
+      if (result == null || result.files.isEmpty) return null;
+      final pickedFile = result.files.first;
+      if (pickedFile.path == null) return null;
 
       // Save the image in the app directory
       final appDir = await getSafeDocumentsDirectory();
@@ -37,12 +35,12 @@ class ImageService {
 
       // Genera nome unico
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final extension = path.extension(pickedFile.path);
+      final extension = path.extension(pickedFile.path!);
       final fileName = 'image_$timestamp$extension';
       final savedPath = '${imagesDir.path}/$fileName';
 
       // Copia il file
-      await File(pickedFile.path).copy(savedPath);
+      await File(pickedFile.path!).copy(savedPath);
 
       return savedPath;
     } catch (e) {

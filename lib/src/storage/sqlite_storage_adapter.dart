@@ -25,9 +25,11 @@ import 'package:flutter/widgets.dart';
 import '../utils/safe_path_provider.dart';
 import 'sqflite_stub_web.dart'
     if (dart.library.ffi) 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common/sqflite.dart' show Sqflite;
 import 'package:path/path.dart' as p;
 
 import 'fluera_storage_adapter.dart';
+import 'canvas_creation_options.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
 import '../core/nodes/latex_node.dart';
@@ -40,7 +42,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 7;
+const int _kSchemaVersion = 8;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -125,7 +127,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         },
       ),
     );
-
   }
 
   /// Create initial schema.
@@ -136,6 +137,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         title         TEXT,
         paper_type    TEXT NOT NULL DEFAULT 'blank',
         background_color TEXT,
+        folder_id     TEXT,
         active_layer_id TEXT,
         infinite_canvas_id TEXT,
         node_id       TEXT,
@@ -149,6 +151,17 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         stroke_count  INTEGER NOT NULL DEFAULT 0,
         created_at    INTEGER NOT NULL,
         updated_at    INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE folders (
+        folder_id       TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        parent_folder_id TEXT,
+        color           TEXT NOT NULL DEFAULT '0xFF6750A4',
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
       )
     ''');
 
@@ -170,12 +183,10 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
 
     // 🎤 v2: Recordings table for audio + synced stroke persistence
     await _createRecordingsTable(db);
-
   }
 
   /// Handle schema migrations.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-
     if (oldVersion < 2) {
       await _createRecordingsTable(db);
     }
@@ -211,9 +222,22 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     if (oldVersion < 7) {
       try {
         await db.execute('ALTER TABLE canvases ADD COLUMN snapshot_png BLOB');
-      } catch (_) {
-        // Column may already exist if database was created with v7+ _onCreate.
-      }
+      } catch (_) {}
+    }
+    if (oldVersion < 8) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS folders (
+            folder_id       TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            parent_folder_id TEXT,
+            color           TEXT NOT NULL DEFAULT '0xFF6750A4',
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL
+          )
+        ''');
+        await db.execute('ALTER TABLE canvases ADD COLUMN folder_id TEXT');
+      } catch (_) {}
     }
   }
 
@@ -658,7 +682,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   // ===========================================================================
 
   @override
-  Future<List<CanvasMetadata>> listCanvases() async {
+  Future<List<CanvasMetadata>> listCanvases({String? folderId}) async {
     final db = _ensureInitialized();
 
     final rows = await db.query(
@@ -667,11 +691,15 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         'canvas_id',
         'title',
         'paper_type',
+        'background_color',
+        'folder_id',
         'layer_count',
         'stroke_count',
         'created_at',
         'updated_at',
       ],
+      where: folderId != null ? 'folder_id = ?' : 'folder_id IS NULL',
+      whereArgs: folderId != null ? [folderId] : null,
       orderBy: 'updated_at DESC',
     );
 
@@ -680,6 +708,8 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         canvasId: row['canvas_id'] as String,
         title: row['title'] as String?,
         paperType: row['paper_type'] as String? ?? 'blank',
+        backgroundColorValue: _parseBackgroundColor(row['background_color']),
+        parentFolderId: row['folder_id'] as String?,
         layerCount: row['layer_count'] as int? ?? 0,
         strokeCount: row['stroke_count'] as int? ?? 0,
         createdAt: DateTime.fromMillisecondsSinceEpoch(
@@ -690,6 +720,16 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         ),
       );
     }).toList();
+  }
+
+  /// Parse background color from DB (stored as hex string or int).
+  static int _parseBackgroundColor(dynamic value) {
+    if (value == null) return 0xFFFFFFFF;
+    if (value is int) return value;
+    if (value is String) {
+      return int.tryParse(value.replaceFirst('#', '0xFF')) ?? 0xFFFFFFFF;
+    }
+    return 0xFFFFFFFF;
   }
 
   // ===========================================================================
@@ -744,6 +784,181 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   Future<void> close() async {
     await _db?.close();
     _db = null;
+  }
+
+  @override
+  Future<String> createCanvas(CanvasCreationOptions options) async {
+    final id = options.resolveCanvasId();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final db = _ensureInitialized();
+    await db.rawInsert(
+      '''
+      INSERT INTO canvases (
+        canvas_id, title, paper_type, background_color,
+        folder_id, layer_count, stroke_count, created_at, updated_at, schema_version
+      ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+    ''',
+      [
+        id,
+        options.title,
+        options.paperType.storageKey,
+        '0x${options.backgroundColor.value.toRadixString(16).padLeft(8, '0')}',
+        options.folderId,
+        now,
+        now,
+        kCurrentSchemaVersion,
+      ],
+    );
+    return id;
+  }
+
+  // ===========================================================================
+  // FOLDER OPERATIONS
+  // ===========================================================================
+
+  @override
+  Future<String> createFolder(
+    String name, {
+    String? parentFolderId,
+    Color color = const Color(0xFF6750A4),
+  }) async {
+    final db = _ensureInitialized();
+    final id = 'folder_${DateTime.now().millisecondsSinceEpoch}';
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.insert('folders', {
+      'folder_id': id,
+      'name': name,
+      'parent_folder_id': parentFolderId,
+      'color': '0x${color.value.toRadixString(16).padLeft(8, '0')}',
+      'created_at': now,
+      'updated_at': now,
+    });
+    return id;
+  }
+
+  @override
+  Future<void> renameFolder(String folderId, String name) async {
+    final db = _ensureInitialized();
+    await db.update(
+      'folders',
+      {'name': name, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'folder_id = ?',
+      whereArgs: [folderId],
+    );
+  }
+
+  @override
+  Future<void> deleteFolder(String folderId) async {
+    final db = _ensureInitialized();
+    // Find the folder's parent so we can reparent contents
+    final rows = await db.query(
+      'folders',
+      columns: ['parent_folder_id'],
+      where: 'folder_id = ?',
+      whereArgs: [folderId],
+    );
+    final parentId =
+        rows.isNotEmpty ? rows.first['parent_folder_id'] as String? : null;
+
+    await db.transaction((txn) async {
+      // Move canvases to parent folder
+      await txn.update(
+        'canvases',
+        {'folder_id': parentId},
+        where: 'folder_id = ?',
+        whereArgs: [folderId],
+      );
+      // Move subfolders to parent folder
+      await txn.update(
+        'folders',
+        {'parent_folder_id': parentId},
+        where: 'parent_folder_id = ?',
+        whereArgs: [folderId],
+      );
+      // Delete the folder itself
+      await txn.delete(
+        'folders',
+        where: 'folder_id = ?',
+        whereArgs: [folderId],
+      );
+    });
+  }
+
+  @override
+  Future<List<FolderMetadata>> listFolders({String? parentFolderId}) async {
+    final db = _ensureInitialized();
+    final rows = await db.query(
+      'folders',
+      where:
+          parentFolderId != null
+              ? 'parent_folder_id = ?'
+              : 'parent_folder_id IS NULL',
+      whereArgs: parentFolderId != null ? [parentFolderId] : null,
+      orderBy: 'name ASC',
+    );
+
+    final results = <FolderMetadata>[];
+    for (final row in rows) {
+      final fId = row['folder_id'] as String;
+      // Count canvases in this folder
+      final cCountRows = await db.rawQuery(
+        'SELECT COUNT(*) as cnt FROM canvases WHERE folder_id = ?',
+        [fId],
+      );
+      final cCount = (cCountRows.first['cnt'] as int?) ?? 0;
+      // Count subfolders
+      final sCountRows = await db.rawQuery(
+        'SELECT COUNT(*) as cnt FROM folders WHERE parent_folder_id = ?',
+        [fId],
+      );
+      final sCount = (sCountRows.first['cnt'] as int?) ?? 0;
+
+      results.add(
+        FolderMetadata(
+          folderId: fId,
+          name: row['name'] as String,
+          parentFolderId: row['parent_folder_id'] as String?,
+          colorValue: _parseBackgroundColor(row['color']),
+          createdAt: DateTime.fromMillisecondsSinceEpoch(
+            row['created_at'] as int,
+          ),
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(
+            row['updated_at'] as int,
+          ),
+          canvasCount: cCount,
+          subfolderCount: sCount,
+        ),
+      );
+    }
+    return results;
+  }
+
+  @override
+  Future<void> moveCanvasToFolder(String canvasId, String? folderId) async {
+    final db = _ensureInitialized();
+    await db.update(
+      'canvases',
+      {'folder_id': folderId},
+      where: 'canvas_id = ?',
+      whereArgs: [canvasId],
+    );
+  }
+
+  @override
+  Future<void> moveFolderToFolder(
+    String folderId,
+    String? parentFolderId,
+  ) async {
+    final db = _ensureInitialized();
+    await db.update(
+      'folders',
+      {
+        'parent_folder_id': parentFolderId,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'folder_id = ?',
+      whereArgs: [folderId],
+    );
   }
 
   // ===========================================================================

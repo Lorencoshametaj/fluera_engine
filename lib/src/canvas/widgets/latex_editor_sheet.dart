@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../core/latex/ink_stroke_data.dart';
 import '../../core/latex/latex_fuzzy_corrector.dart';
 import '../../core/latex/latex_validator.dart';
@@ -137,10 +138,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
 
     if (event.logicalKey == LogicalKeyboardKey.tab) {
       final text = _sourceController.text;
-      final cursor =
-          _sourceController.selection.isValid
-              ? _sourceController.selection.baseOffset
-              : 0;
+      final cursor = _sourceController.selection.isValid
+          ? _sourceController.selection.baseOffset
+          : 0;
 
       // Find next '{}' after cursor
       final nextPlaceholder = text.indexOf('{}', cursor);
@@ -246,11 +246,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     }
 
     final query = prefix.toLowerCase();
-    final matches =
-        latexCommandDatabase
-            .where((e) => e.command.toLowerCase().startsWith(query))
-            .take(6)
-            .toList();
+    final matches = latexCommandDatabase
+        .where((e) => e.command.toLowerCase().startsWith(query))
+        .take(6)
+        .toList();
 
     // Don't show if exact match only
     if (matches.length == 1 && matches.first.command == prefix) {
@@ -493,17 +492,15 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
           const SingleActivator(LogicalKeyboardKey.enter, meta: true):
               const _ConfirmIntent(),
           const SingleActivator(
-                LogicalKeyboardKey.keyZ,
-                control: true,
-                shift: true,
-              ):
-              const _RedoIntent(),
+            LogicalKeyboardKey.keyZ,
+            control: true,
+            shift: true,
+          ): const _RedoIntent(),
           const SingleActivator(
-                LogicalKeyboardKey.keyZ,
-                meta: true,
-                shift: true,
-              ):
-              const _RedoIntent(),
+            LogicalKeyboardKey.keyZ,
+            meta: true,
+            shift: true,
+          ): const _RedoIntent(),
           const SingleActivator(LogicalKeyboardKey.escape):
               const _CancelIntent(),
         },
@@ -603,10 +600,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
-                  physics:
-                      _tabController.index == 1
-                          ? const NeverScrollableScrollPhysics()
-                          : null,
+                  physics: _tabController.index == 1
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
                   children: [
                     _buildKeyboardMode(cs),
                     _buildHandwritingMode(cs),
@@ -659,10 +655,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            physics:
-                _tabController.index == 1
-                    ? const NeverScrollableScrollPhysics()
-                    : null,
+            physics: _tabController.index == 1
+                ? const NeverScrollableScrollPhysics()
+                : null,
             children: [
               _buildKeyboardMode(cs),
               _buildHandwritingMode(cs),
@@ -752,19 +747,17 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   // ---------------------------------------------------------------------------
 
   Widget _buildValidationBar(ColorScheme cs) {
-    final errorCount =
-        _validationErrors
-            .where((e) => e.severity == ValidationSeverity.error)
-            .length;
+    final errorCount = _validationErrors
+        .where((e) => e.severity == ValidationSeverity.error)
+        .length;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color:
-            errorCount > 0
-                ? cs.errorContainer.withValues(alpha: 0.7)
-                : cs.tertiaryContainer.withValues(alpha: 0.7),
+        color: errorCount > 0
+            ? cs.errorContainer.withValues(alpha: 0.7)
+            : cs.tertiaryContainer.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -778,10 +771,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     ? Icons.error_outline_rounded
                     : Icons.warning_amber_rounded,
                 size: 16,
-                color:
-                    errorCount > 0
-                        ? cs.onErrorContainer
-                        : cs.onTertiaryContainer,
+                color: errorCount > 0
+                    ? cs.onErrorContainer
+                    : cs.onTertiaryContainer,
               ),
               const SizedBox(width: 8),
               Text(
@@ -789,10 +781,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color:
-                      errorCount > 0
-                          ? cs.onErrorContainer
-                          : cs.onTertiaryContainer,
+                  color: errorCount > 0
+                      ? cs.onErrorContainer
+                      : cs.onTertiaryContainer,
                 ),
               ),
             ],
@@ -832,10 +823,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                               ? Icons.circle
                               : Icons.circle_outlined,
                           size: 6,
-                          color:
-                              errorCount > 0
-                                  ? cs.onErrorContainer
-                                  : cs.onTertiaryContainer,
+                          color: errorCount > 0
+                              ? cs.onErrorContainer
+                              : cs.onTertiaryContainer,
                         ),
                         const SizedBox(width: 6),
                         Expanded(
@@ -843,10 +833,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                             err.message,
                             style: TextStyle(
                               fontSize: 11,
-                              color:
-                                  errorCount > 0
-                                      ? cs.onErrorContainer
-                                      : cs.onTertiaryContainer,
+                              color: errorCount > 0
+                                  ? cs.onErrorContainer
+                                  : cs.onTertiaryContainer,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -856,10 +845,11 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                           'pos ${err.position}',
                           style: TextStyle(
                             fontSize: 9,
-                            color: (errorCount > 0
-                                    ? cs.onErrorContainer
-                                    : cs.onTertiaryContainer)
-                                .withValues(alpha: 0.6),
+                            color:
+                                (errorCount > 0
+                                        ? cs.onErrorContainer
+                                        : cs.onTertiaryContainer)
+                                    .withValues(alpha: 0.6),
                           ),
                         ),
                       ],
@@ -915,8 +905,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                 children: [
                   // U5: Favorites first
                   ..._expressionFavorites.map((expr) {
-                    final preview =
-                        expr.length > 20 ? '${expr.substring(0, 17)}…' : expr;
+                    final preview = expr.length > 20
+                        ? '${expr.substring(0, 17)}…'
+                        : expr;
                     return Padding(
                       padding: const EdgeInsets.only(right: 6),
                       child: GestureDetector(
@@ -960,10 +951,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                   ..._expressionHistory
                       .where((e) => !_expressionFavorites.contains(e))
                       .map((expr) {
-                        final preview =
-                            expr.length > 20
-                                ? '${expr.substring(0, 17)}…'
-                                : expr;
+                        final preview = expr.length > 20
+                            ? '${expr.substring(0, 17)}…'
+                            : expr;
                         return Padding(
                           padding: const EdgeInsets.only(right: 6),
                           child: GestureDetector(
@@ -1008,10 +998,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                               onPressed: () {
                                 HapticFeedback.selectionClick();
                                 _sourceController.text = expr;
-                                _sourceController
-                                    .selection = TextSelection.collapsed(
-                                  offset: expr.length,
-                                );
+                                _sourceController.selection =
+                                    TextSelection.collapsed(
+                                      offset: expr.length,
+                                    );
                                 _pushUndoSnapshot();
                               },
                               backgroundColor: cs.surfaceContainerHigh,
@@ -1156,64 +1146,62 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                       color: cs.surfaceContainerHigh,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
-                        children:
-                            _autocompleteSuggestions.map((entry) {
-                              return InkWell(
-                                onTap: () => _acceptAutocomplete(entry),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
+                        children: _autocompleteSuggestions.map((entry) {
+                          return InkWell(
+                            onTap: () => _acceptAutocomplete(entry),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    entry.command,
+                                    style: TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: cs.primary,
+                                    ),
                                   ),
-                                  child: Row(
-                                    children: [
-                                      Text(
-                                        entry.command,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      entry.label,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: cs.onSurfaceVariant,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (entry.category != null)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: cs.primaryContainer.withValues(
+                                          alpha: 0.5,
+                                        ),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        entry.category!,
                                         style: TextStyle(
-                                          fontFamily: 'monospace',
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: cs.primary,
+                                          fontSize: 9,
+                                          color: cs.onPrimaryContainer,
                                         ),
                                       ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          entry.label,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: cs.onSurfaceVariant,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (entry.category != null)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: cs.primaryContainer
-                                                .withValues(alpha: 0.5),
-                                            borderRadius: BorderRadius.circular(
-                                              4,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            entry.category!,
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              color: cs.onPrimaryContainer,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ),
                   ),
@@ -1399,8 +1387,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
               const SizedBox(width: 5),
               _QuickInsertChip(
                 label: 'aligned',
-                onTap:
-                    () => _insertSymbol(r'\begin{aligned}  \\  \end{aligned}'),
+                onTap: () =>
+                    _insertSymbol(r'\begin{aligned}  \\  \end{aligned}'),
               ),
             ],
           ),
@@ -1543,19 +1531,18 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   // Camera OCR mode
   // ---------------------------------------------------------------------------
 
-  /// Pick an image from camera or gallery and run OCR recognition.
-  Future<void> _pickAndRecognize(ImageSource source) async {
+  /// Pick an image from gallery/file system and run OCR recognition.
+  Future<void> _pickAndRecognize() async {
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 90,
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
       );
-      if (picked == null) return;
+      if (result == null || result.files.isEmpty) return;
+      final pickedFile = result.files.first;
+      if (pickedFile.path == null) return;
 
-      final bytes = await picked.readAsBytes();
+      final bytes = await File(pickedFile.path!).readAsBytes();
       setState(() {
         _cameraImageBytes = bytes;
         _isCameraRecognizing = true;
@@ -1571,21 +1558,21 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         return;
       }
 
-      final result = await recognizer.recognizeImage(bytes);
+      final result2 = await recognizer.recognizeImage(bytes);
 
       if (!mounted) return;
 
       setState(() {
         _isCameraRecognizing = false;
-        _cameraConfidence = result.confidence;
-        _cameraAlternatives = result.alternatives;
+        _cameraConfidence = result2.confidence;
+        _cameraAlternatives = result2.alternatives;
       });
 
-      if (result.latexString.isNotEmpty) {
+      if (result2.latexString.isNotEmpty) {
         _pushUndoSnapshot();
-        _sourceController.text = result.latexString;
+        _sourceController.text = result2.latexString;
         _sourceController.selection = TextSelection.collapsed(
-          offset: result.latexString.length,
+          offset: result2.latexString.length,
         );
         HapticFeedback.heavyImpact();
       }
@@ -1603,139 +1590,114 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         children: [
           // Image preview or placeholder
           Expanded(
-            child:
-                _cameraImageBytes != null
-                    ? ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.memory(_cameraImageBytes!, fit: BoxFit.contain),
-                          if (_isCameraRecognizing)
-                            Container(
-                              color: Colors.black54,
-                              child: const Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    CircularProgressIndicator(
-                                      strokeWidth: 3,
-                                      color: Colors.white,
-                                    ),
-                                    SizedBox(height: 12),
-                                    Text(
-                                      'Riconoscimento in corso...',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          // Confidence badge
-                          if (!_isCameraRecognizing && _cameraConfidence > 0)
-                            Positioned(
-                              top: 8,
-                              right: 8,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color:
-                                      _cameraConfidence > 0.8
-                                          ? Colors.green
-                                          : _cameraConfidence > 0.5
-                                          ? Colors.orange
-                                          : Colors.red,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  '${(_cameraConfidence * 100).toStringAsFixed(0)}%',
-                                  style: const TextStyle(
+            child: _cameraImageBytes != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.memory(_cameraImageBytes!, fit: BoxFit.contain),
+                        if (_isCameraRecognizing)
+                          Container(
+                            color: Colors.black54,
+                            child: const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(
+                                    strokeWidth: 3,
                                     color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
                                   ),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    'Riconoscimento in corso...',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        // Confidence badge
+                        if (!_isCameraRecognizing && _cameraConfidence > 0)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _cameraConfidence > 0.8
+                                    ? Colors.green
+                                    : _cameraConfidence > 0.5
+                                    ? Colors.orange
+                                    : Colors.red,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${(_cameraConfidence * 100).toStringAsFixed(0)}%',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
+                          ),
+                      ],
+                    ),
+                  )
+                : Container(
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cs.outlineVariant, width: 1),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.camera_alt_rounded,
+                            size: 48,
+                            color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Fotografa un\'equazione matematica',
+                            style: TextStyle(
+                              color: cs.onSurfaceVariant,
+                              fontSize: 14,
+                            ),
+                          ),
                         ],
                       ),
-                    )
-                    : Container(
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest.withValues(
-                          alpha: 0.3,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: cs.outlineVariant, width: 1),
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.camera_alt_rounded,
-                              size: 48,
-                              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Fotografa un\'equazione matematica',
-                              style: TextStyle(
-                                color: cs.onSurfaceVariant,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ),
+                  ),
           ),
 
           const SizedBox(height: 12),
 
           // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed:
-                      _isCameraRecognizing
-                          ? null
-                          : () => _pickAndRecognize(ImageSource.camera),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.camera_alt_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('Scatta'),
-                    ],
-                  ),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonal(
+              onPressed: _isCameraRecognizing
+                  ? null
+                  : () => _pickAndRecognize(),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.photo_library_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Text('Scegli immagine'),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed:
-                      _isCameraRecognizing
-                          ? null
-                          : () => _pickAndRecognize(ImageSource.gallery),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.photo_library_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('Galleria'),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
 
           // Alternative results
@@ -1923,8 +1885,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     SizedBox(
                       height: 32,
                       child: FilledButton(
-                        onPressed:
-                            _sourceController.text.isNotEmpty ? _confirm : null,
+                        onPressed: _sourceController.text.isNotEmpty
+                            ? _confirm
+                            : null,
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           shape: RoundedRectangleBorder(
@@ -1983,8 +1946,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
 
                   // Confirm
                   FilledButton.icon(
-                    onPressed:
-                        _sourceController.text.isNotEmpty ? _confirm : null,
+                    onPressed: _sourceController.text.isNotEmpty
+                        ? _confirm
+                        : null,
                     icon: const Icon(Icons.check_rounded, size: 18),
                     label: const Text('Confirm'),
                     style: FilledButton.styleFrom(
@@ -2031,8 +1995,12 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setPickerState) {
-            final currentColor =
-                HSLColor.fromAHSL(1, hue, saturation, lightness).toColor();
+            final currentColor = HSLColor.fromAHSL(
+              1,
+              hue,
+              saturation,
+              lightness,
+            ).toColor();
 
             return Container(
               padding: const EdgeInsets.all(16),
@@ -2129,8 +2097,12 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                             overlayShape: const RoundSliderOverlayShape(
                               overlayRadius: 14,
                             ),
-                            activeTrackColor:
-                                HSLColor.fromAHSL(1, hue, 1, 0.5).toColor(),
+                            activeTrackColor: HSLColor.fromAHSL(
+                              1,
+                              hue,
+                              1,
+                              0.5,
+                            ).toColor(),
                             inactiveTrackColor: cs.surfaceContainerHighest,
                           ),
                           child: Slider(
@@ -2181,8 +2153,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                           ),
                           child: Slider(
                             value: saturation,
-                            onChanged:
-                                (v) => setPickerState(() => saturation = v),
+                            onChanged: (v) =>
+                                setPickerState(() => saturation = v),
                           ),
                         ),
                       ),
@@ -2226,8 +2198,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                           ),
                           child: Slider(
                             value: lightness,
-                            onChanged:
-                                (v) => setPickerState(() => lightness = v),
+                            onChanged: (v) =>
+                                setPickerState(() => lightness = v),
                           ),
                         ),
                       ),
