@@ -264,6 +264,7 @@ part './parts/_text_tools.dart';
 part './parts/_image_features.dart';
 part './parts/_pdf_features.dart';
 part './parts/_voice_recording.dart';
+part './parts/_voice_recording_utils.dart';
 part './parts/_cloud_sync.dart';
 part './parts/_pending_features.dart';
 part './parts/_design_variables.dart';
