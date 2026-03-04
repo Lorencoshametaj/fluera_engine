@@ -73,9 +73,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // 🔒 VIEWER GUARD
     if (_checkViewerGuard()) return;
 
-    debugPrint(
-      '[PDF] createBlankPdfDocument: background=$background, broadcast=$broadcast, rtEngine=${_realtimeEngine != null}',
-    );
 
     final docId =
         documentId ?? 'pdf_blank_${DateTime.now().microsecondsSinceEpoch}';
@@ -214,7 +211,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         positionX: gridOrigin.dx,
         positionY: gridOrigin.dy,
       );
-      debugPrint('[RT] 📄 Broadcast pdfBlankCreated: $documentId');
     }
   }
 
@@ -385,9 +381,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       }
     }
 
-    debugPrint(
-      '[PDF] Imported "$docId" — ${docNode.documentModel.totalPages} pages',
-    );
 
     // 📡 Broadcast to collaborators — two-phase:
     // Phase 1: Immediately broadcast pdfLoading (placeholder on remote)
@@ -417,14 +410,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           thumbImage.dispose();
         }
       } catch (e) {
-        debugPrint('[RT] 📸 Thumbnail capture failed (non-fatal): $e');
       }
 
       // 🛡️ RTDB payload guard: drop thumbnail if too large (>50KB base64)
       if (thumbnailBase64 != null && thumbnailBase64.length > 50000) {
-        debugPrint(
-          '[RT] 📸 Thumbnail too large (${thumbnailBase64.length}B), skipping',
-        );
         thumbnailBase64 = null;
       }
 
@@ -438,10 +427,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         positionY: insertPosition.dy,
         fileName: fileName,
         thumbnailBase64: thumbnailBase64,
-      );
-      debugPrint(
-        '[RT] 📄 Broadcast pdfLoading: $docId'
-        '${thumbnailBase64 != null ? ' (with thumbnail)' : ''}',
       );
 
       // Phase 2: Background upload + gzip broadcast (fire-and-forget)
@@ -465,9 +450,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
               },
             );
             uploadOk = true;
-            debugPrint('☁️ PDF uploaded to cloud: $docId');
           } catch (e) {
-            debugPrint('☁️ PDF cloud upload failed (local only): $e');
           }
         }
 
@@ -488,16 +471,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
               progress: 0.9,
             );
             b64 = base64Encode(compressed);
-            debugPrint(
-              '[RT] 📄 Broadcast pdfAdded: $docId '
-              '(${bytes.length} → ${compressed.length} gzip → ${b64.length} b64)',
-            );
           } else {
             // Large PDF: cloud-only transfer, no inline bytes
-            debugPrint(
-              '[RT] 📄 Broadcast pdfAdded (cloud-only): $docId '
-              '(${bytes.length} bytes, too large for inline)',
-            );
           }
 
           _realtimeEngine?.broadcastPdfAdded(
@@ -509,7 +484,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
             pdfBytesBase64: b64,
           );
         } catch (e) {
-          debugPrint('[RT] ❌ PDF broadcast failed: $e');
           if (!uploadOk) {
             _realtimeEngine?.broadcastPdfLoadingFailed(documentId: docId);
           }
@@ -578,10 +552,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
             _pdfAnnotationController!.attach(docNode);
             _activePdfDocumentId = documentId;
 
-            debugPrint('[PDF] Restored blank document: ${docNode.id}');
             continue;
           }
-          debugPrint('[PDF] Skipping restore — no filePath for ${docNode.id}');
           continue;
         }
 
@@ -598,17 +570,13 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
               if (cloudBytes != null) {
                 await pdfFile.parent.create(recursive: true);
                 await pdfFile.writeAsBytes(cloudBytes);
-                debugPrint('☁️ Downloaded PDF from cloud: ${docNode.id}');
               } else {
-                debugPrint('[PDF] Skipping restore — not in cloud: $filePath');
                 continue;
               }
             } catch (e) {
-              debugPrint('[PDF] Cloud download failed: $e');
               continue;
             }
           } else {
-            debugPrint('[PDF] Skipping restore — file missing: $filePath');
             continue;
           }
         }
@@ -620,7 +588,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         final loaded = await provider.loadDocument(bytes);
 
         if (!loaded) {
-          debugPrint('[PDF] Failed to reload PDF: $documentId');
           provider.dispose();
           continue;
         }
@@ -674,12 +641,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           provider: provider,
         );
 
-        debugPrint(
-          '[PDF] Restored "$documentId" — '
-          '${docNode.documentModel.totalPages} pages',
-        );
       } catch (e) {
-        debugPrint('[PDF] Error restoring document: $e');
       }
     }
 
@@ -731,9 +693,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         if (child is PdfDocumentNode) {
           final pageIdx = child.linkAnnotation(stroke.id, strokeBounds);
           if (pageIdx >= 0) {
-            debugPrint(
-              '[PDF] Linked annotation ${stroke.id.substring(0, 8)} → page $pageIdx',
-            );
             return; // Link to first matching page only
           }
         }
@@ -774,14 +733,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         final pageIdx = doc.linkAnnotation(stroke.id, bounds);
         if (pageIdx >= 0) {
           linked++;
-          debugPrint(
-            '[PDF] Retroactive link ${stroke.id.substring(0, 8)} → page $pageIdx',
-          );
         }
       }
     }
     if (linked > 0) {
-      debugPrint('[PDF] Retroactively linked $linked strokes to ${doc.id}');
     }
   }
 
@@ -812,9 +767,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
               for (final id in orphaned) {
                 child.unlinkAnnotation(id);
               }
-              debugPrint(
-                '[PDF] Unlinked ${orphaned.length} orphaned annotations from page ${page.pageModel.pageIndex}',
-              );
             }
           }
         }
@@ -911,7 +863,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
   void removePdfDocument(String documentId, {bool broadcast = true}) {
     final docNode = _findPdfDocumentNode(documentId);
     if (docNode == null) {
-      debugPrint('[PDF] ⚠️ Document $documentId not found for removal');
       return;
     }
 
@@ -949,7 +900,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     _autoSaveCanvas();
     if (mounted) setState(() {});
 
-    debugPrint('[PDF] 🗑️ Removed document: $documentId');
   }
 
   /// 🗑️ Show confirmation dialog before deleting a PDF document.

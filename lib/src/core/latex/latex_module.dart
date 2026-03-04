@@ -107,11 +107,9 @@ class LaTeXModule extends CanvasModule {
       if (await onnx.isAvailable()) {
         _activeRecognizer = onnx;
         _activeBackendName = 'onnx';
-        debugPrint('LaTeXModule: ONNX recognizer active ✅');
         return;
       }
     } catch (e) {
-      debugPrint('LaTeXModule: ONNX recognizer unavailable ($e)');
     }
 
     // 2. HME Attention — encoder-decoder with attention
@@ -122,11 +120,9 @@ class LaTeXModule extends CanvasModule {
       if (await hme.isAvailable()) {
         _activeRecognizer = hme;
         _activeBackendName = 'hme';
-        debugPrint('LaTeXModule: HME recognizer active ✅');
         return;
       }
     } catch (e) {
-      debugPrint('LaTeXModule: HME recognizer unavailable ($e)');
     }
 
     // 3. Pix2Tex — HTTP fallback
@@ -137,14 +133,11 @@ class LaTeXModule extends CanvasModule {
       if (await pix2tex.isAvailable()) {
         _activeRecognizer = pix2tex;
         _activeBackendName = 'pix2tex';
-        debugPrint('LaTeXModule: Pix2Tex recognizer active ✅');
         return;
       }
     } catch (e) {
-      debugPrint('LaTeXModule: Pix2Tex recognizer unavailable ($e)');
     }
 
-    debugPrint('LaTeXModule: No recognizer available ⚠️');
   }
 
   @override
@@ -155,7 +148,6 @@ class LaTeXModule extends CanvasModule {
       try {
         recognizer.dispose();
       } catch (e) {
-        debugPrint('LaTeXModule: Error disposing recognizer: $e');
       }
     }
     _recognizers.clear();

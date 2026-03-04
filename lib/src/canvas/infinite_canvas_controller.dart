@@ -50,6 +50,11 @@ class InfiniteCanvasController extends ChangeNotifier {
   /// Used by the canvas to trigger LOD precomputation at the new zoom level.
   VoidCallback? onAnimationSettle;
 
+  /// 🔑 Callback fired when gesture/animation ends (isPanning goes true→false).
+  /// Used to force a child widget rebuild so DrawingPainter re-renders at
+  /// the new LOD tier (the Transform child is cached by AnimatedBuilder).
+  VoidCallback? onGestureEnd;
+
   // Getters
   Offset get offset => _offset;
   double get scale => _scale;
@@ -147,7 +152,14 @@ class InfiniteCanvasController extends ChangeNotifier {
   bool _isPanning = false;
   bool get isPanning => _isPanning || _isMomentumActive;
   set isPanning(bool value) {
+    final wasActive = _isPanning;
     _isPanning = value;
+    // 🔑 When gesture ends with no momentum, fire callback so the widget
+    // rebuilds the DrawingPainter child at the new scale/LOD tier.
+    if (wasActive && !value && !_isMomentumActive) {
+      notifyListeners();
+      onGestureEnd?.call();
+    }
   }
 
   /// Request a repaint for all painters listening to this controller.
@@ -887,6 +899,9 @@ class InfiniteCanvasController extends ChangeNotifier {
       _ticker?.stop();
       // 🚀 Notify that all animations have settled (LOD precompute, etc.)
       onAnimationSettle?.call();
+      // 🔑 Fire gesture-end: isPanning is now false (momentum ended),
+      // triggering widget rebuild for LOD refresh.
+      onGestureEnd?.call();
     }
   }
 

@@ -344,7 +344,6 @@ class StrokeOffsetIndex {
         createdAt: DateTime.fromMillisecondsSinceEpoch(createdAtEpoch * 1000),
       );
     } catch (e) {
-      debugPrint('[StrokeOffsetIndex] Failed to decode stroke: $e');
       return null;
     }
   }

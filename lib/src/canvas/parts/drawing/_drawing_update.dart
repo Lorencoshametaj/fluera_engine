@@ -67,7 +67,7 @@ extension on _FlueraCanvasScreenState {
         _layerController.sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
         _layerController.notifyListeners();
-        setState(() {});
+        _uiRebuildNotifier.value++;
       }
       return;
     }
@@ -121,14 +121,14 @@ extension on _FlueraCanvasScreenState {
       _layerController.sceneGraph.bumpVersion();
       DrawingPainter.invalidateAllTiles();
       _layerController.notifyListeners();
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
     // 📐 SECTION MODE: Update section rectangle end point
     if (_isSectionActive && _sectionStartPoint != null) {
       _sectionCurrentEndPoint = canvasPosition;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -145,7 +145,7 @@ extension on _FlueraCanvasScreenState {
         }
         _pdfLayoutVersion++;
         _canvasController.markNeedsPaint();
-        setState(() {});
+        _uiRebuildNotifier.value++;
       }
       return;
     }
@@ -162,7 +162,7 @@ extension on _FlueraCanvasScreenState {
         }
         _pdfLayoutVersion++;
         _canvasController.markNeedsPaint();
-        setState(() {});
+        _uiRebuildNotifier.value++;
       }
       return;
     }
@@ -297,7 +297,7 @@ extension on _FlueraCanvasScreenState {
           _startAutoScrollIfNeeded(screenPosition, canvasSize);
         }
 
-        setState(() {});
+        _uiRebuildNotifier.value++;
       }
       return;
     }
@@ -335,7 +335,7 @@ extension on _FlueraCanvasScreenState {
           _startAutoScrollIfNeeded(screenPosition, canvasSize);
         }
 
-        setState(() {});
+        _uiRebuildNotifier.value++;
       }
       return;
     }
@@ -345,7 +345,7 @@ extension on _FlueraCanvasScreenState {
       if (_tabularTool.updateDrag(canvasPosition)) {
         _layerController.sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
-        setState(() {});
+        _uiRebuildNotifier.value++;
       }
       return;
     }
@@ -356,7 +356,7 @@ extension on _FlueraCanvasScreenState {
       if (newSize != null) {
         _layerController.sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
-        setState(() {});
+        _uiRebuildNotifier.value++;
       }
       return;
     }
@@ -368,7 +368,7 @@ extension on _FlueraCanvasScreenState {
       final cell = _tabularTool.hitTestCell(canvasPosition);
       if (cell != null) {
         _tabularTool.extendSelection(cell.$1, cell.$2);
-        setState(() {});
+        _uiRebuildNotifier.value++;
         return;
       }
     }
@@ -384,7 +384,7 @@ extension on _FlueraCanvasScreenState {
       _latexDragStart = canvasPosition;
       _layerController.sceneGraph.bumpVersion();
       DrawingPainter.invalidateAllTiles();
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
     // If il lasso is active, controlla se drag o disegno
@@ -441,7 +441,7 @@ extension on _FlueraCanvasScreenState {
         _penToolContext,
         PointerMoveEvent(position: screenPos),
       );
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -453,7 +453,7 @@ extension on _FlueraCanvasScreenState {
       if (_eraserLassoMode) {
         _eraserLassoPoints.add(canvasPosition);
         _eraserCursorPosition = canvasPosition;
-        setState(() {});
+        _uiRebuildNotifier.value++;
         return;
       }
 
@@ -652,7 +652,7 @@ extension on _FlueraCanvasScreenState {
       _lastEraserCanvasPosition = canvasPosition;
       _lastEraserMoveTime = now;
 
-      setState(() {}); // 🏗️ Forza rebuild per eraser cursor overlay
+      _uiRebuildNotifier.value++; // 🏗️ Forza rebuild per eraser cursor overlay
       return;
     }
 
@@ -779,7 +779,7 @@ extension on _FlueraCanvasScreenState {
   void _clearSmartGuides() {
     if (_activeSmartGuides.isNotEmpty) {
       _activeSmartGuides = const [];
-      setState(() {});
+      _uiRebuildNotifier.value++;
     }
   }
 }

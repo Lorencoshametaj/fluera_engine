@@ -107,6 +107,16 @@ class PdfPagePainter {
   /// Max retries per page before giving up.
   static const int _kMaxRetries = 3;
 
+  /// 🚀 Per-frame render budget: max new enqueues per paint cycle.
+  /// Prevents N×enqueue cascades when many pages become visible at once.
+  static const int _kMaxRendersPerFrame = 2;
+  int _frameRenderBudget = _kMaxRendersPerFrame;
+
+  /// Reset budget at the start of each paint frame.
+  void resetFrameBudget() {
+    _frameRenderBudget = _kMaxRendersPerFrame;
+  }
+
   /// Fade-in duration in milliseconds.
   static const int _kFadeInMs = 200;
 
@@ -128,6 +138,9 @@ class PdfPagePainter {
 
   /// 🔋 Whether the viewport is actively scrolling (for idle detection).
   bool _isScrolling = false;
+
+  /// 🔋 ENERGY: When true, prefetch is suppressed to save battery.
+  bool suppressPrefetch = false;
 
   /// Frame counter for throttled stale cleanup.
   int _cleanupFrameCounter = 0;
@@ -164,6 +177,21 @@ class PdfPagePainter {
     fontWeight: FontWeight.w300,
     letterSpacing: 1,
   );
+
+  // 🚀 PERF: Pre-allocated Paint objects for hot path
+  static final Paint _nightModePaint = Paint()..colorFilter = _invertFilter;
+  static final Paint _blankPageBgPaint =
+      Paint()..color = const Color(0xFFFFFFFF);
+  static final Paint _fadeInPaint =
+      Paint()
+        ..filterQuality = FilterQuality.high
+        ..isAntiAlias = true;
+  static final Paint _annotPaint = Paint(); // color set per-use
+  static final Paint _stickyBorderPaint =
+      Paint()
+        ..color = const Color(0x40000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
 
   PdfPagePainter({
     required FlueraPdfProvider? provider,
@@ -221,12 +249,12 @@ class PdfPagePainter {
 
     // 🌙 Night mode: wrap everything in an invert layer
     if (nightMode) {
-      canvas.saveLayer(pageRect, Paint()..colorFilter = _invertFilter);
+      canvas.saveLayer(pageRect, _nightModePaint);
     }
 
     // 📄 Blank pages: draw white with pattern + border, no native rendering
     if (node.pageModel.isBlank) {
-      canvas.drawRect(pageRect, Paint()..color = const Color(0xFFFFFFFF));
+      canvas.drawRect(pageRect, _blankPageBgPaint);
       _drawPageBackground(canvas, node.pageModel.background, pageRect);
       canvas.drawRect(pageRect, _borderPaint);
       _drawBookmarkBadge(canvas, node, pageRect);
@@ -237,6 +265,10 @@ class PdfPagePainter {
     // Stamp LRU timestamp and track this page
     node.lastDrawnTimestamp = ++_drawCounter;
     _knownPages.add(node);
+
+    // 🚀 Per-frame render budget: only N pages get LOD upgrades per frame.
+    // Combined with viewport-center sort, center pages upgrade first.
+    final canEnqueue = _frameRenderBudget > 0;
     if (viewport != Rect.zero && !isPanning) {
       _prevViewportCenter = _viewportCenter;
       _lastViewport = viewport;
@@ -265,7 +297,10 @@ class PdfPagePainter {
       _drawCachedImage(canvas, node, pageRect, onNeedRepaint: onNeedRepaint);
       // 🚀 SCROLL OPT: Don't enqueue LOD upgrades during pan — prevents
       // render→repaint→iterate-122-pages cascade that causes 20ms+ spikes.
-      if (!isPanning && !_pendingGenerations.containsKey(node.id)) {
+      if (!isPanning &&
+          canEnqueue &&
+          !_pendingGenerations.containsKey(node.id)) {
+        _frameRenderBudget--;
         // Enqueue immediately — no debounce needed when pan has stopped.
         // (_lastZoom is stale from pan period, so zoomChanged is unreliable)
         _enqueueRender(
@@ -281,8 +316,11 @@ class PdfPagePainter {
       stats.recordMemoryMiss();
       _drawPlaceholder(canvas, node, pageRect);
       // 🚀 SCROLL OPT: Defer cold renders to after scroll stops.
-      // Prefetch in management section handles it when isPanning = false.
-      if (!isPanning && !_pendingGenerations.containsKey(node.id)) {
+      if (!isPanning &&
+          canEnqueue &&
+          !_pendingGenerations.containsKey(node.id)) {
+        _frameRenderBudget--;
+        // Prefetch in management section handles it when isPanning = false.
         final double coldScale;
         if (targetScale <= 0.25) {
           coldScale = targetScale;
@@ -324,34 +362,45 @@ class PdfPagePainter {
     Rect pageRect, {
     VoidCallback? onNeedRepaint,
   }) {
-    final img = node.cachedImage!;
-    final srcRect = Rect.fromLTWH(
-      0,
-      0,
-      img.width.toDouble(),
-      img.height.toDouble(),
-    );
+    final img = node.cachedImage;
+    // 🛡️ Guard: skip if image was disposed (race with stub-out/eviction)
+    if (img == null) {
+      _drawPlaceholder(canvas, node, pageRect);
+      return;
+    }
 
-    // 🎬 Smooth fade-in over _kFadeInMs
-    final elapsed = _fadeStopwatch.elapsedMilliseconds - node.cacheUpdatedAt;
-    if (elapsed < _kFadeInMs) {
-      final opacity = (elapsed / _kFadeInMs).clamp(0.0, 1.0);
-      final fadePaint =
-          Paint()
-            ..filterQuality = FilterQuality.high
-            ..isAntiAlias = true
-            ..color = Color.fromRGBO(255, 255, 255, opacity);
-      canvas.drawImageRect(img, srcRect, pageRect, fadePaint);
-      // 🔋 Single scheduled repaint for all active fade-ins (no microtask spam)
-      if (onNeedRepaint != null && !_fadeInRepaintScheduled) {
-        _fadeInRepaintScheduled = true;
-        SchedulerBinding.instance.addPostFrameCallback((_) {
-          _fadeInRepaintScheduled = false;
-          onNeedRepaint();
-        });
+    // 🛡️ Wrap in try-catch: ui.Image can be .dispose()'d but Dart ref
+    // stays non-null → native throws "non-genuine Image" on draw.
+    try {
+      final srcRect = Rect.fromLTWH(
+        0,
+        0,
+        img.width.toDouble(),
+        img.height.toDouble(),
+      );
+
+      // 🎬 Smooth fade-in over _kFadeInMs
+      final elapsed = _fadeStopwatch.elapsedMilliseconds - node.cacheUpdatedAt;
+      if (elapsed < _kFadeInMs) {
+        final opacity = (elapsed / _kFadeInMs).clamp(0.0, 1.0);
+        _fadeInPaint.color = Color.fromRGBO(255, 255, 255, opacity);
+        canvas.drawImageRect(img, srcRect, pageRect, _fadeInPaint);
+        // 🔋 Single scheduled repaint for all active fade-ins (no microtask spam)
+        if (onNeedRepaint != null && !_fadeInRepaintScheduled) {
+          _fadeInRepaintScheduled = true;
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            _fadeInRepaintScheduled = false;
+            onNeedRepaint();
+          });
+        }
+      } else {
+        canvas.drawImageRect(img, srcRect, pageRect, _imagePaint);
       }
-    } else {
-      canvas.drawImageRect(img, srcRect, pageRect, _imagePaint);
+    } catch (_) {
+      // Image was disposed between null-check and draw — clear stale ref
+      node.cachedImage = null;
+      node.cachedScale = 0.0;
+      _drawPlaceholder(canvas, node, pageRect);
     }
   }
 
@@ -619,34 +668,32 @@ class PdfPagePainter {
     if (annotations.isEmpty) return;
 
     for (final ann in annotations) {
-      final paint = Paint()..color = ann.color;
+      _annotPaint
+        ..color = ann.color
+        ..style = PaintingStyle.fill
+        ..strokeWidth = 0;
       switch (ann.type) {
         case PdfAnnotationType.highlight:
           // Semi-transparent colored rectangle
-          canvas.drawRect(ann.rect, paint);
+          canvas.drawRect(ann.rect, _annotPaint);
           break;
         case PdfAnnotationType.underline:
           // Colored line at the bottom of the rect
           final y = ann.rect.bottom;
+          _annotPaint
+            ..strokeWidth = 2.0
+            ..style = PaintingStyle.stroke;
           canvas.drawLine(
             Offset(ann.rect.left, y),
             Offset(ann.rect.right, y),
-            paint
-              ..strokeWidth = 2.0
-              ..style = PaintingStyle.stroke,
+            _annotPaint,
           );
           break;
         case PdfAnnotationType.stickyNote:
           // Small colored square with border
           final noteRect = Rect.fromLTWH(ann.rect.left, ann.rect.top, 24, 24);
-          canvas.drawRect(noteRect, paint);
-          canvas.drawRect(
-            noteRect,
-            Paint()
-              ..color = const Color(0x40000000)
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.0,
-          );
+          canvas.drawRect(noteRect, _annotPaint);
+          canvas.drawRect(noteRect, _stickyBorderPaint);
           break;
         case PdfAnnotationType.stamp:
           // Rotated stamp text
@@ -662,7 +709,7 @@ class PdfPagePainter {
           );
           canvas.drawRect(
             stampRect,
-            paint
+            _annotPaint
               ..style = PaintingStyle.stroke
               ..strokeWidth = 3.0,
           );
@@ -985,34 +1032,42 @@ class PdfPagePainter {
     return true;
   }
 
-  /// Drain the queue, picking the request closest to viewport center first.
+  /// Drain the queue, picking visible-priority requests first (FIFO),
+  /// then closest prefetch requests.
+  /// 🚀 PERF: Avoids O(queue²) scan by splitting visible vs prefetch.
   void _drainQueue() {
     while (_activeRenders < maxConcurrent && _renderQueue.isNotEmpty) {
-      // 🎯 Viewport-distance priority: pick closest to viewport center
-      _RenderRequest? best;
-      double bestDist = double.infinity;
+      // First: pick any visible-priority request (FIFO order)
+      _RenderRequest? picked;
       for (final req in _renderQueue) {
         final currentGen = _pendingGenerations[req.node.id];
         if (currentGen != null && currentGen > req.generation) continue;
-
-        final pos = req.node.position;
-        final sz = req.node.pageModel.originalSize;
-        final center = Offset(pos.dx + sz.width / 2, pos.dy + sz.height / 2);
-        final dist = (center - _viewportCenter).distanceSquared;
-
-        // Visible priority bonus (treated as 0 distance)
-        final effectiveDist =
-            req.priority == _RenderPriority.visible ? dist * 0.001 : dist;
-
-        if (effectiveDist < bestDist) {
-          bestDist = effectiveDist;
-          best = req;
+        if (req.priority == _RenderPriority.visible) {
+          picked = req;
+          break;
         }
       }
 
-      if (best == null) break;
-      _renderQueue.remove(best);
-      _executeRender(best);
+      // Fallback: pick closest prefetch request
+      if (picked == null) {
+        double bestDist = double.infinity;
+        for (final req in _renderQueue) {
+          final currentGen = _pendingGenerations[req.node.id];
+          if (currentGen != null && currentGen > req.generation) continue;
+          final pos = req.node.position;
+          final sz = req.node.pageModel.originalSize;
+          final center = Offset(pos.dx + sz.width / 2, pos.dy + sz.height / 2);
+          final dist = (center - _viewportCenter).distanceSquared;
+          if (dist < bestDist) {
+            bestDist = dist;
+            picked = req;
+          }
+        }
+      }
+
+      if (picked == null) break;
+      _renderQueue.remove(picked);
+      _executeRender(picked);
     }
   }
 
@@ -1024,21 +1079,17 @@ class PdfPagePainter {
   ///
   /// Call after painting visible pages. Removes requests that would waste
   /// native render time on pages the user has already scrolled past.
+  /// 🚀 PERF: In-place removal — no allocation.
   void flushStaleQueue(Rect viewport) {
     if (_renderQueue.isEmpty) return;
 
-    final fresh = Queue<_RenderRequest>();
-    for (final req in _renderQueue) {
+    _renderQueue.removeWhere((req) {
+      if (req.priority == _RenderPriority.prefetch) return false;
       final pos = req.node.position;
       final sz = req.node.pageModel.originalSize;
       final pageRect = Rect.fromLTWH(pos.dx, pos.dy, sz.width, sz.height);
-      if (pageRect.overlaps(viewport) ||
-          req.priority == _RenderPriority.prefetch) {
-        fresh.addLast(req);
-      }
-    }
-    _renderQueue.clear();
-    _renderQueue.addAll(fresh);
+      return !pageRect.overlaps(viewport);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1129,14 +1180,21 @@ class PdfPagePainter {
   }) {
     if (_provider == null || _isDisposed) return;
 
+    // 🔋 ENERGY: Skip prefetch entirely in low-power mode
+    if (suppressPrefetch) return;
+
     // 🔋 Skip prefetch when idle (not scrolling) — saves battery
     if (!_isScrolling) return;
 
     final prefetchCount = _memoryBudget.prefetchCount;
     if (prefetchCount == 0) return;
 
+    // 🚀 PERF: Find visible range with early exit.
+    // Pages are typically ordered spatially. Once we find a visible page
+    // and then encounter a non-visible one, we can stop scanning.
     int firstVisible = -1;
     int lastVisible = -1;
+    bool foundThenLost = false;
 
     for (int i = 0; i < allPages.length; i++) {
       final pos = allPages[i].position;
@@ -1145,6 +1203,12 @@ class PdfPagePainter {
       if (pageRect.overlaps(viewport)) {
         if (firstVisible == -1) firstVisible = i;
         lastVisible = i;
+        foundThenLost = false;
+      } else if (firstVisible != -1) {
+        // 🚀 EARLY EXIT: if we found visible pages then lost them,
+        // the rest are likely off-screen too (spatial ordering).
+        if (foundThenLost) break;
+        foundThenLost = true;
       }
     }
 
@@ -1261,9 +1325,32 @@ class PdfPagePainter {
     }
   }
 
+  /// 🚀 SCREEN-OFF: Release ALL cached page textures to free memory.
+  /// Called when the app goes to background. The LOD system will
+  /// re-render pages on demand when the screen turns back on.
+  void releaseAllCachedPages() {
+    for (final page in _knownPages) {
+      if (page.cachedImage != null) {
+        page.disposeCachedImage();
+      }
+    }
+    _totalCachedBytes = 0;
+    _renderQueue.clear();
+    _pendingGenerations.clear();
+  }
+
+  /// 🚀 PERF: Only checks _knownPages (pages with cache), not ALL pages.
+  /// Early exit when memory is under budget.
   void evictOffViewport(List<PdfPageNode> allPages, Rect viewport) {
+    // 🚀 Early exit: no pressure = no eviction needed
+    if (!_memoryBudget.shouldEvictAgressively &&
+        _totalCachedBytes <= _memoryBudget.currentBudgetBytes) {
+      return;
+    }
+
+    // Collect offscreen cached pages from _knownPages (smaller set)
     final offscreen = <PdfPageNode>[];
-    for (final page in allPages) {
+    for (final page in _knownPages) {
       if (page.cachedImage == null) continue;
       final pos = page.position;
       final sz = page.pageModel.originalSize;

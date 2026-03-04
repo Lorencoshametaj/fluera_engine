@@ -128,9 +128,6 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
             onConvertToText: () {
               // Phase 2: OCR conversion (requires OCRService)
               HapticFeedback.mediumImpact();
-              debugPrint(
-                '[Phase2] OCR text conversion not yet available in SDK',
-              );
             },
             // Round 3 — Enterprise
             isSelectionLocked: _lassoTool.isSelectionLocked,

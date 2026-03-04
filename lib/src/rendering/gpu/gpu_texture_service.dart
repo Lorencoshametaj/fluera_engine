@@ -43,9 +43,6 @@ class GpuTextureService {
     //   - hook/build.dart
     // When flutter_gpu is added to stable, import 'package:flutter_gpu/gpu.dart'
     // and wire the render pipeline here.
-    debugPrint(
-      '[GpuTexture] ⏳ dart:gpu not available on stable — CPU fallback active',
-    );
   }
 
   /// Generate a procedural erosion mask using a single GPU render pass.

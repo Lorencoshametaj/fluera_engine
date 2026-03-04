@@ -60,17 +60,11 @@ class TimeTravelRecorder {
   /// 🟢 Start recording (called after Pro subscription check)
   void startRecording() {
     _isRecording = true;
-    debugPrint(
-      '🎬 [TimeTravelRecorder] Recording started at ${sessionStart.toIso8601String()}',
-    );
   }
 
   /// 🔴 Ferma la registrazione (gli eventi restano in memoria)
   void stopRecording() {
     _isRecording = false;
-    debugPrint(
-      '🎬 [TimeTravelRecorder] Recording stopped. Events: ${_sessionEvents.length}',
-    );
   }
 
   // ============================================================================
@@ -132,9 +126,6 @@ class TimeTravelRecorder {
 
     // Log every 100 events for debug (not every event)
     if (_sessionEvents.length % 100 == 0) {
-      debugPrint(
-        '🎬 [TimeTravelRecorder] ${_sessionEvents.length} events recorded',
-      );
     }
   }
 
@@ -153,7 +144,6 @@ class TimeTravelRecorder {
     String basePath,
   ) async {
     if (_sessionEvents.isEmpty) {
-      debugPrint('🎬 [TimeTravelRecorder] No events to flush');
       return null;
     }
 
@@ -183,14 +173,9 @@ class TimeTravelRecorder {
         elementsModified: _elementsModified,
       );
 
-      debugPrint(
-        '🎬 [TimeTravelRecorder] Flushed ${_sessionEvents.length} events '
-        'to $fileName (${compressed.length} bytes compressed)',
-      );
 
       return session;
     } catch (e) {
-      debugPrint('🎬 [TimeTravelRecorder] Flush error: $e');
       return null;
     }
   }

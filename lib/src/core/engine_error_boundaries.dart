@@ -83,7 +83,6 @@ class EngineErrorBoundaries {
   T? executePlugin<T>(String pluginId, T Function() action, {T? fallback}) {
     if (_disabledPlugins.contains(pluginId)) {
       if (kDebugMode) {
-        debugPrint('⚠️ Plugin "$pluginId" is disabled after repeated failures');
       }
       return fallback;
     }
@@ -284,11 +283,6 @@ class EngineErrorBoundaries {
       _degradationController.add(level);
 
       if (kDebugMode) {
-        debugPrint(
-          '🔄 Degradation: ${level.name} '
-          '(mem: ${memoryUsageMB.toStringAsFixed(0)}MB, '
-          'frame: ${frameTimeMs.toStringAsFixed(1)}ms)',
-        );
       }
     }
   }

@@ -93,7 +93,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   // Quality settings link
                   TextButton.icon(
                     onPressed: () {
-                      debugPrint('[VoiceRecording] 📋 Quality Settings tapped');
                       Navigator.pop(context); // close dialog first
                       _showRecordingQualitySettings();
                     },
@@ -188,9 +187,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
           canvasId: widget.canvasId,
         );
         _syncRecordingBuilder!.setRecordingType('note');
-        debugPrint(
-          '[VoiceRecording] SyncRecordingBuilder created for stroke sync',
-        );
       }
 
       setState(() {
@@ -242,7 +238,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         });
       }
     } catch (e) {
-      debugPrint('[VoiceRecording] Start failed: $e');
       _syncRecordingBuilder = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -293,10 +288,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
           recordingType: syncRecording.recordingType,
         );
 
-        debugPrint(
-          '[VoiceRecording] SyncRecording finalized: '
-          '${syncRecording.syncedStrokes.length} strokes captured',
-        );
       }
       _syncRecordingBuilder = null;
 
@@ -367,13 +358,9 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                 await tempFile.copy(persistentPath);
                 await tempFile.delete();
                 audioPath = persistentPath;
-                debugPrint(
-                  '[VoiceRecording] Audio moved to persistent: $persistentPath',
-                );
               }
             }
           } catch (e) {
-            debugPrint('[VoiceRecording] Failed to persist audio file: $e');
           }
 
           // 🔧 FIX: Update syncRecording audioPath to match the persisted path
@@ -425,7 +412,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   // 🚦 #7 Rate limiting — debounce rapid recording broadcasts
                   final now = DateTime.now().millisecondsSinceEpoch;
                   if (now - _lastRecordingBroadcastMs < 2000) {
-                    debugPrint('[VoiceRecording] ⚠️ Rate limited — too fast');
                   }
                   _lastRecordingBroadcastMs = now;
 
@@ -484,10 +470,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   final compressedData = result['compressed'] as Uint8List;
                   final waveformSamples = result['waveform'] as List<double>;
 
-                  debugPrint(
-                    '🗜️ Audio compressed (Isolate): $originalSize→${compressedData.length} bytes '
-                    '(${(100 - compressedData.length * 100 / originalSize).toStringAsFixed(0)}% savings)',
-                  );
 
                   // 📦 #8 Chunked upload for large files (>5MB compressed)
                   const chunkSize = 2 * 1024 * 1024; // 2MB chunks
@@ -507,10 +489,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                         Uint8List.fromList(chunk),
                         mimeType: 'audio/m4a+gzip+chunk',
                       );
-                      debugPrint(
-                        '📦 Chunk ${i + 1}/$totalChunks uploaded '
-                        '(${chunk.length} bytes)',
-                      );
                     }
                     final manifest =
                         '{"chunks":$totalChunks,"totalSize":${compressedData.length}}';
@@ -528,7 +506,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                       mimeType: 'audio/m4a+gzip',
                     );
                   }
-                  debugPrint('☁️ Audio recording uploaded: ${persistable.id}');
 
                   // 🎨 Upload synced strokes as separate compressed asset
                   String? strokesAssetKey;
@@ -569,12 +546,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                         strokesBytes,
                         mimeType: 'application/json+gzip',
                       );
-                      debugPrint(
-                        '☁️ Synced strokes uploaded: ${persistable.syncedStrokes.length} strokes '
-                        '(${strokesBytes.length} bytes compressed)',
-                      );
                     } catch (e) {
-                      debugPrint('☁️ Strokes upload failed (audio-only): $e');
                       strokesAssetKey = null;
                     }
                   }
@@ -597,9 +569,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
 
                   // 🧹 #5 Memory cleanup — help GC reclaim large buffers
                   // (audioBytes and compressedData go out of scope here)
-                  debugPrint('🧹 Upload buffers released');
                 } catch (e) {
-                  debugPrint('☁️ Audio cloud upload failed (local only): $e');
                   // 📡 #8 Queue for offline sync
                   _queueOfflineUpload(
                     recordingId: persistable.id,
@@ -611,7 +581,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                 }
               }
             } catch (e) {
-              debugPrint('[VoiceRecording] Failed to persist recording: $e');
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -681,19 +650,12 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
             final file = File(audioPath);
             if (await file.exists()) {
               await file.delete();
-              debugPrint(
-                '[VoiceRecording] Discarded recording file deleted: $audioPath',
-              );
             }
           } catch (e) {
-            debugPrint(
-              '[VoiceRecording] Failed to delete discarded recording: $e',
-            );
           }
         }
       }
     } catch (e) {
-      debugPrint('[VoiceRecording] Stop failed: $e');
       _syncRecordingBuilder = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2091,13 +2053,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       // Start playback
       await _playbackController!.play();
 
-      debugPrint(
-        '[VoiceRecording] Synced playback started: '
-        '${recording.syncedStrokes.length} strokes, '
-        '${recording.totalDuration.inSeconds}s',
-      );
     } catch (e) {
-      debugPrint('[VoiceRecording] Synced playback failed: $e');
       _stopSyncedPlayback();
     }
   }
@@ -2124,7 +2080,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
             setState(() {
               _isPlayingSyncedRecording = false;
             });
-            debugPrint('[VoiceRecording] Playback completed naturally');
           }
           if (mounted && _isPlayingAudio) {
             // 🔁 Loop: replay from start
@@ -2194,7 +2149,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         );
       }
     } catch (e) {
-      debugPrint('[VoiceRecording] Playback start failed: $e');
       _stopAudioPlayback();
     }
   }
@@ -3193,11 +3147,9 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
             await file.delete();
             toRemove.add(path);
             removed++;
-            debugPrint('[VoiceRecording] 🧹 Cleaned up old recording: $path');
           }
         }
       } catch (e) {
-        debugPrint('[VoiceRecording] ⚠️ Cleanup error for $path: $e');
       }
     }
 
@@ -3207,9 +3159,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       });
     }
 
-    debugPrint(
-      '[VoiceRecording] 🧹 Cleanup complete: $removed recordings removed',
-    );
     return removed;
   }
 
@@ -3224,7 +3173,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   /// 🎚️ Set audio quality for future recordings.
   void setAudioQuality(AudioQualityPreset quality) {
     _audioQuality = quality;
-    debugPrint('[VoiceRecording] 🎚️ Audio quality set to: ${quality.name}');
   }
 
   // ─── #9 Canvas-Anchored Recordings ────────────────────────────────────
@@ -3235,11 +3183,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   /// 📍 Anchor a recording to the given canvas position.
   void anchorRecording(String recordingId, Offset canvasPosition) {
     _anchoredRecordings[recordingId] = canvasPosition;
-    debugPrint(
-      '[VoiceRecording] 📍 Anchored $recordingId at '
-      '(${canvasPosition.dx.toStringAsFixed(0)}, '
-      '${canvasPosition.dy.toStringAsFixed(0)})',
-    );
   }
 
   /// 📍 Remove anchor from a recording.
@@ -3264,7 +3207,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
           deleted++;
         }
       } catch (e) {
-        debugPrint('[VoiceRecording] ⚠️ Batch delete error for $path: $e');
       }
     }
 
@@ -3275,9 +3217,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       });
     }
 
-    debugPrint(
-      '[VoiceRecording] 🗑️ Batch deleted $deleted/${paths.length} recordings',
-    );
     return deleted;
   }
 
@@ -3309,9 +3248,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
     }
 
     if (mounted) setState(() {});
-    debugPrint(
-      '[VoiceRecording] ✏️ Batch renamed $renamed/${idToNewName.length} recordings',
-    );
     return renamed;
   }
 
@@ -3325,11 +3261,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
     _recordingBookmarks.putIfAbsent(recordingId, () => []);
     _recordingBookmarks[recordingId]!.add(position);
     _recordingBookmarks[recordingId]!.sort((a, b) => a.compareTo(b));
-    debugPrint(
-      '[VoiceRecording] 🔖 Bookmark added at '
-      '${position.inMinutes}:${(position.inSeconds % 60).toString().padLeft(2, '0')} '
-      'for $recordingId',
-    );
   }
 
   /// 🔖 Remove a bookmark.
@@ -3366,7 +3297,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   /// Shows a scrolling waveform of recent amplitudes with animated bars.
   /// 🎛️ Show recording quality settings bottom sheet.
   void _showRecordingQualitySettings() {
-    debugPrint('[VoiceRecording] 📋 Opening quality settings...');
     try {
       showModalBottomSheet(
         context: context,
@@ -3600,7 +3530,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         },
       );
     } catch (e) {
-      debugPrint('[VoiceRecording] ❌ Quality settings error: $e');
     }
   }
 
@@ -3789,19 +3718,12 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       'recordingType': recordingType ?? 'audio_only',
       'queuedAt': DateTime.now().millisecondsSinceEpoch,
     });
-    debugPrint(
-      '[VoiceRecording] 📡 Queued offline upload: $recordingId '
-      '(${_offlineUploadQueue.length} pending)',
-    );
   }
 
   /// 📡 Upload all queued recordings (call when connectivity returns).
   Future<int> _syncOfflineUploads() async {
     if (_offlineUploadQueue.isEmpty || _syncEngine == null) return 0;
 
-    debugPrint(
-      '[VoiceRecording] 📡 Syncing ${_offlineUploadQueue.length} offline uploads...',
-    );
 
     final queue = List<Map<String, dynamic>>.from(_offlineUploadQueue);
     _offlineUploadQueue.clear();
@@ -3814,7 +3736,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         final file = File(audioPath);
 
         if (!await file.exists()) {
-          debugPrint('[VoiceRecording] ⚠️ File missing, skipping: $audioPath');
           continue;
         }
 
@@ -3857,13 +3778,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                 strokesBytes,
                 mimeType: 'application/json+gzip',
               );
-              debugPrint(
-                '[VoiceRecording] ☁️ Offline strokes uploaded: '
-                '$strokeCount strokes (${strokesBytes.length} bytes)',
-              );
             }
           } catch (e) {
-            debugPrint('[VoiceRecording] ⚠️ Offline strokes upload failed: $e');
           }
         }
 
@@ -3883,20 +3799,12 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         );
 
         uploaded++;
-        debugPrint(
-          '[VoiceRecording] 📡 Offline upload synced: $recordingId '
-          '($uploaded/${queue.length})',
-        );
       } catch (e) {
-        debugPrint('[VoiceRecording] ⚠️ Offline upload failed: $e');
         // Re-queue for next sync attempt
         _offlineUploadQueue.add(item);
       }
     }
 
-    debugPrint(
-      '[VoiceRecording] 📡 Offline sync complete: $uploaded/${queue.length} uploaded',
-    );
     return uploaded;
   }
 

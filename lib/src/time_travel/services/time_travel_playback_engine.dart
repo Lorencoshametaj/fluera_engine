@@ -220,12 +220,8 @@ class TimeTravelPlaybackEngine {
       // 1. Load session index
       _sessions = await _storage.loadSessionIndex(canvasId, branchId: branchId);
 
-      debugPrint(
-        '🎬 [PlaybackEngine] Sessions found: ${_sessions.length} for $canvasId',
-      );
 
       if (_sessions.isEmpty) {
-        debugPrint('🎬 [PlaybackEngine] No sessions found for $canvasId');
         _setState(TimeTravelPlaybackState.idle);
         return false;
       }
@@ -241,10 +237,6 @@ class TimeTravelPlaybackEngine {
           branchId: branchId,
         );
 
-        debugPrint(
-          '🎬 [PlaybackEngine] Session ${session.id}: '
-          '${events.length} events loaded (file: ${session.deltaFilePath})',
-        );
 
         // Register session → event range
         _sessionEventRanges.add(
@@ -275,10 +267,6 @@ class TimeTravelPlaybackEngine {
       // ⚠️ If sessions exist but no event was loaded,
       // probably files are corrupt or in wrong path
       if (_allEvents.isEmpty) {
-        debugPrint(
-          '🎬 [PlaybackEngine] ⚠️ ${_sessions.length} sessions in index '
-          'but 0 events loaded — files may be missing or corrupted',
-        );
         _setState(TimeTravelPlaybackState.idle);
         return false;
       }
@@ -297,15 +285,10 @@ class TimeTravelPlaybackEngine {
       _ticker?.dispose();
       _ticker = vsync.createTicker(_onTick);
 
-      debugPrint(
-        '🎬 [PlaybackEngine] Initialized: ${_sessions.length} sessions, '
-        '${_allEvents.length} events, ${totalDurationMs}ms total',
-      );
 
       _setState(TimeTravelPlaybackState.paused);
       return true;
     } catch (e) {
-      debugPrint('🎬 [PlaybackEngine] Initialize error: $e');
       _setState(TimeTravelPlaybackState.idle);
       return false;
     }
@@ -330,11 +313,6 @@ class TimeTravelPlaybackEngine {
       // 1. Load ALL parent sessions (main timeline)
       final parentSessions = await _storage.loadSessionIndex(canvasId);
 
-      debugPrint(
-        '🌿 [PlaybackEngine] Loading branch "${branch.name}" — '
-        '${parentSessions.length} parent sessions, '
-        'fork at event index ${branch.forkPointEventIndex}',
-      );
 
       // 2. Load parent events and take only up to forkPointEventIndex
       _allEvents.clear();
@@ -379,9 +357,6 @@ class TimeTravelPlaybackEngine {
       // 🌿 Mark the fork point
       _forkPointEventIndex = _allEvents.length;
 
-      debugPrint(
-        '🌿 [PlaybackEngine] Parent events loaded: $_forkPointEventIndex',
-      );
 
       // 3. Load branch sessions and append
       final branchSessions = await branchingManager.loadBranchSessions(
@@ -418,7 +393,6 @@ class TimeTravelPlaybackEngine {
       }
 
       if (_allEvents.isEmpty) {
-        debugPrint('🌿 [PlaybackEngine] No events for branch');
         _setState(TimeTravelPlaybackState.idle);
         return false;
       }
@@ -435,17 +409,10 @@ class TimeTravelPlaybackEngine {
       _ticker?.dispose();
       _ticker = vsync.createTicker(_onTick);
 
-      debugPrint(
-        '🌿 [PlaybackEngine] Branch initialized: '
-        '${_allEvents.length} total events '
-        '(${_forkPointEventIndex} parent + '
-        '${_allEvents.length - _forkPointEventIndex!} branch)',
-      );
 
       _setState(TimeTravelPlaybackState.paused);
       return true;
     } catch (e) {
-      debugPrint('🌿 [PlaybackEngine] Branch init error: $e');
       _setState(TimeTravelPlaybackState.idle);
       return false;
     }
@@ -642,10 +609,6 @@ class TimeTravelPlaybackEngine {
     final endIndex = targetIndex.clamp(0, _allEvents.length);
     _applyEventsForward(startIndex, endIndex);
 
-    debugPrint(
-      '🎬 [PlaybackEngine] Reconstructed state at index $targetIndex '
-      '(from snapshot at $startIndex, applied ${endIndex - startIndex} events)',
-    );
   }
 
   // ============================================================================
@@ -751,12 +714,6 @@ class TimeTravelPlaybackEngine {
       prevRawTs = rawTs;
     }
 
-    debugPrint(
-      '🎬 [PlaybackEngine] Compressed timeline: '
-      '${_allEvents.length} events → $blockCount blocks, '
-      'total ${compressedTime}ms '
-      '(raw: ${_allEvents.last.timestampMs}ms)',
-    );
   }
 
   // ============================================================================

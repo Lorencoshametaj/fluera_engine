@@ -24,7 +24,6 @@ extension AdvancedExportFeatures on _FlueraCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => TokenExportDialog(format: tokenFormat),
     );
-    debugPrint('[Design] Token export: $format');
   }
 
   /// Show image adjustment panel.
@@ -35,7 +34,6 @@ extension AdvancedExportFeatures on _FlueraCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => const ImageAdjustmentPanel(),
     );
-    debugPrint('[Design] Image adjustments opened');
   }
 
   /// Set image fill mode.
@@ -106,37 +104,31 @@ extension AdvancedExportFeatures on _FlueraCanvasScreenState {
             ),
           ),
     );
-    debugPrint('[Design] Image fill mode picker opened');
   }
 
   /// Enable text auto-resize on selected text node.
   /// Wires: text_auto_resize
   void _enableTextAutoResize() {
-    debugPrint('[Design] Text auto-resize enabled');
   }
 
   /// Enable CRDT sync for real-time collaboration.
   /// Wires: scene_graph_crdt, realtime_enterprise
   void _enableCRDTSync() {
-    debugPrint('[Design] CRDT sync enabled');
   }
 
   /// Save as binary Fluera format.
   /// Wires: fluera_file_format, binary_canvas_format
   void _saveAsFlueraFormat() {
-    debugPrint('[Design] Saving as Fluera binary format');
   }
 
   /// Export timelapse recording.
   /// Wires: timelapse_export_config
   void _exportTimelapseImpl() {
-    debugPrint('[Design] Timelapse export started');
   }
 
   /// Open raster export dialog.
   /// Wires: raster_encoder_channel, raster_image_encoder
   void _exportRasterImage() {
-    debugPrint('[Design] Raster export started');
   }
 
   /// Open plugin manager.
@@ -233,7 +225,6 @@ extension AdvancedExportFeatures on _FlueraCanvasScreenState {
                 ),
           ),
     );
-    debugPrint('[Design] Plugin manager opened');
   }
 }
 
@@ -265,7 +256,6 @@ class _FillModeOption extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onTap: () {
         Navigator.pop(context);
-        debugPrint('[Design] Fill mode set to: $label');
       },
     );
   }

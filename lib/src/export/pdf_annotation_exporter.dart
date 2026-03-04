@@ -123,7 +123,6 @@ class PdfAnnotationExporter {
     for (int i = 0; i < total; i++) {
       // Check for cancellation before each page
       if (isCancelled != null && isCancelled()) {
-        debugPrint('[PDF Export] Cancelled after $i/$total pages');
         cancelled = true;
         break;
       }
@@ -149,10 +148,6 @@ class PdfAnnotationExporter {
     }
 
     sw.stop();
-    debugPrint(
-      '[PDF Export] ${results.length} pages in ${sw.elapsedMilliseconds}ms '
-      '($annotatedCount with annotations, ${failedIndices.length} failed)',
-    );
 
     return AnnotatedPdfExportResult(
       pages: results,
@@ -274,7 +269,6 @@ class PdfAnnotationExporter {
         pixelSize: ui.Size(pixelWidth.toDouble(), pixelHeight.toDouble()),
       );
     } catch (e) {
-      debugPrint('[PDF Export] Page ${page.pageModel.pageIndex} failed: $e');
       return null;
     }
   }

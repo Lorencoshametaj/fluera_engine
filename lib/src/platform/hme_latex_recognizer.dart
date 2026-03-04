@@ -65,31 +65,23 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
     if (_initialized) return;
 
     try {
-      debugPrint('[$_tag] Step 1: OrtEnv.init...');
       OrtEnv.instance.init();
 
       // Load vocabulary
-      debugPrint('[$_tag] Step 2: Loading vocab...');
       await _loadVocab();
-      debugPrint('[$_tag] Step 2 done: ${_idx2token.length} tokens');
 
       // Write model files to disk
-      debugPrint('[$_tag] Step 3: Writing models to disk...');
       final paths = await _writeModelsToDisk();
       if (paths == null) {
         throw const LatexRecognitionException('HME models not found');
       }
-      debugPrint('[$_tag] Step 3 done');
 
       // Create ONNX sessions
-      debugPrint('[$_tag] Step 4: Creating ORT sessions...');
       final opts = OrtSessionOptions();
 
       _encoderSession = OrtSession.fromFile(File(paths.$1), opts);
-      debugPrint('[$_tag]   Encoder: ${_encoderSession != null ? "✓" : "✗"}');
 
       _decoderSession = OrtSession.fromFile(File(paths.$2), opts);
-      debugPrint('[$_tag]   Decoder: ${_decoderSession != null ? "✓" : "✗"}');
 
       _modelAvailable =
           _encoderSession != null &&
@@ -97,12 +89,9 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
           _idx2token.isNotEmpty;
       _initialized = true;
 
-      debugPrint('[$_tag] initialized — ready=$_modelAvailable');
     } catch (e, st) {
       _initialized = true;
       _modelAvailable = false;
-      debugPrint('[$_tag] initialization failed: $e');
-      debugPrint('[$_tag] stack: $st');
     }
   }
 
@@ -151,10 +140,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
     final latex = _tokensToLatex(tokens);
 
     sw.stop();
-    debugPrint(
-      '[$_tag] recognized in ${sw.elapsedMilliseconds}ms: "$latex" '
-      '(${tokens.length} tokens)',
-    );
 
     // Per-symbol confidence
     final perSymbol = <SymbolConfidence>[];
@@ -239,7 +224,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
         final data = await rootBundle.load(assetPath);
         return data.buffer.asUint8List();
       } catch (e) {
-        debugPrint('[$_tag] Asset not found: $assetPath ($e)');
         return null;
       }
     }
@@ -261,7 +245,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
         final bytes = await _loadAsset(_encoderAsset);
         if (bytes == null) return null;
         await encFile.writeAsBytes(bytes);
-        debugPrint('[$_tag] Wrote encoder: ${bytes.length} bytes');
       }
 
       // Decoder
@@ -270,12 +253,10 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
         final bytes = await _loadAsset(_decoderAsset);
         if (bytes == null) return null;
         await decFile.writeAsBytes(bytes);
-        debugPrint('[$_tag] Wrote decoder: ${bytes.length} bytes');
       }
 
       return (encFile.path, decFile.path);
     } catch (e) {
-      debugPrint('[$_tag] Failed to write models: $e');
       return null;
     }
   }
@@ -284,7 +265,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
   Future<void> _loadVocab() async {
     final bytes = await _loadAsset(_vocabAsset);
     if (bytes == null) {
-      debugPrint('[$_tag] vocab not found');
       return;
     }
 
@@ -297,7 +277,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
       _idx2token = idx2tok.map((k, v) => MapEntry(int.parse(k), v as String));
     }
 
-    debugPrint('[$_tag] vocab loaded: ${_idx2token.length} tokens');
   }
 
   /// Preprocess PNG → grayscale float tensor [1, 1, H, W].

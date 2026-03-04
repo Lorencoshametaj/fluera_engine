@@ -145,7 +145,6 @@ extension on _FlueraCanvasScreenState {
     for (int attempt = 1; attempt <= 3; attempt++) {
       // #7: Check if image was deleted during upload
       if (!_pendingUploads.contains(imageId)) {
-        debugPrint('[☁️ UPLOAD] 🛑 Cancelled (image deleted): $imageId');
         return;
       }
 
@@ -155,16 +154,10 @@ extension on _FlueraCanvasScreenState {
           imageId,
           uploadBytes,
           mimeType: mimeType,
-          onProgress: (progress) {
-            debugPrint('[☁️ UPLOAD] $imageId: ${(progress * 100).toInt()}%');
-          },
-        );
-        debugPrint(
-          '[☁️ UPLOAD] ✅ Success on attempt $attempt: $imageId ($mimeType, ${uploadBytes.length ~/ 1024}KB)',
+          onProgress: (progress) {},
         );
         break;
       } catch (e) {
-        debugPrint('[☁️ UPLOAD] ❌ Attempt $attempt/3 failed: $e');
         if (attempt < 3) {
           await Future.delayed(Duration(seconds: attempt));
         }
@@ -183,9 +176,6 @@ extension on _FlueraCanvasScreenState {
         imagePath: imagePath,
         bytes: uploadBytes,
         mimeType: mimeType,
-      );
-      debugPrint(
-        '[☁️ OFFLINE] Queued $imageId for retry (${_offlineUploadQueue.length} pending)',
       );
       return;
     }
@@ -222,13 +212,11 @@ extension on _FlueraCanvasScreenState {
 
     final entries = Map.of(_offlineUploadQueue);
     _offlineUploadQueue.clear();
-    debugPrint('[☁️ OFFLINE] Retrying ${entries.length} queued uploads');
 
     for (final entry in entries.values) {
       if (!mounted) break;
       // Check if image still exists on canvas
       if (!_imageElements.any((e) => e.id == entry.imageId)) {
-        debugPrint('[☁️ OFFLINE] Skipped (deleted): ${entry.imageId}');
         continue;
       }
       await _uploadImageInBackground(
@@ -328,6 +316,7 @@ extension on _FlueraCanvasScreenState {
     // #7: Cancel any pending upload for this image
     _pendingUploads.remove(imageId);
     _offlineUploadQueue.remove(imageId);
+    _imageStubManager.removeEntry(imageId);
 
     // Clear selection if this image is selected
     if (_imageTool.selectedImage?.id == imageId) {

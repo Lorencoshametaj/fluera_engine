@@ -181,9 +181,6 @@ class PdfTextSelectionController extends ChangeNotifier {
       final rects = await _provider.extractTextGeometry(pageIndex);
       page.textRects = rects;
     } catch (e) {
-      debugPrint(
-        '[PDF TextSelection] Failed to load geometry page $pageIndex: $e',
-      );
     } finally {
       _loadingPages.remove(pageIndex);
     }
@@ -310,10 +307,8 @@ class PdfTextSelectionController extends ChangeNotifier {
 
     try {
       await Clipboard.setData(ClipboardData(text: text));
-      debugPrint('[PDF] Copied ${text.length} chars to clipboard');
       return true;
     } catch (e) {
-      debugPrint('[PDF] Clipboard write failed: $e');
       return false;
     }
   }

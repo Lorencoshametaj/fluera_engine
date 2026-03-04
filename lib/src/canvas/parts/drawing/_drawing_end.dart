@@ -39,7 +39,7 @@ extension on _FlueraCanvasScreenState {
       // Clear preview immediately
       _sectionStartPoint = null;
       _sectionCurrentEndPoint = null;
-      setState(() {});
+      _uiRebuildNotifier.value++;
 
       // Minimum size check — if large enough, create new section
       if (sectionRect.width >= 20 && sectionRect.height >= 20) {
@@ -137,7 +137,7 @@ extension on _FlueraCanvasScreenState {
         );
       }
 
-      setState(() {});
+      _uiRebuildNotifier.value++;
       _autoSaveCanvas();
       return;
     }
@@ -180,7 +180,7 @@ extension on _FlueraCanvasScreenState {
         );
       }
 
-      setState(() {});
+      _uiRebuildNotifier.value++;
       _autoSaveCanvas();
       return;
     }
@@ -201,7 +201,7 @@ extension on _FlueraCanvasScreenState {
         // 🔴 RT: Broadcast image rotation to collaborators
         _broadcastImageUpdate(_imageTool.selectedImage!);
       }
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -216,7 +216,7 @@ extension on _FlueraCanvasScreenState {
         _layerController.updateImage(_imageTool.selectedImage!);
         _broadcastImageUpdate(_imageTool.selectedImage!);
       }
-      setState(() {});
+      _uiRebuildNotifier.value++;
       _autoSaveCanvas();
       return;
     } else if (_effectiveIsPanMode && _imageTool.isDragging) {
@@ -230,7 +230,7 @@ extension on _FlueraCanvasScreenState {
         _layerController.updateImage(_imageTool.selectedImage!);
         _broadcastImageUpdate(_imageTool.selectedImage!);
       }
-      setState(() {});
+      _uiRebuildNotifier.value++;
       _autoSaveCanvas();
       return;
     }
@@ -258,7 +258,7 @@ extension on _FlueraCanvasScreenState {
       if (_digitalTextTool.selectedElement != null) {
         _syncTextElementFromTool(_digitalTextTool.selectedElement!);
       }
-      setState(() {});
+      _uiRebuildNotifier.value++;
 
       // 💾 Auto-save after resizing digital text
       _autoSaveCanvas();
@@ -272,7 +272,7 @@ extension on _FlueraCanvasScreenState {
       if (_digitalTextTool.selectedElement != null) {
         _syncTextElementFromTool(_digitalTextTool.selectedElement!);
       }
-      setState(() {});
+      _uiRebuildNotifier.value++;
 
       // 💾 Auto-save after dragging digital text
       _autoSaveCanvas();
@@ -285,7 +285,7 @@ extension on _FlueraCanvasScreenState {
       _layerController.sceneGraph.bumpVersion();
       DrawingPainter.invalidateAllTiles();
       HapticFeedback.lightImpact();
-      setState(() {});
+      _uiRebuildNotifier.value++;
       _autoSaveCanvas();
       return;
     }
@@ -316,7 +316,7 @@ extension on _FlueraCanvasScreenState {
       _layerController.sceneGraph.bumpVersion();
       DrawingPainter.invalidateAllTiles();
       HapticFeedback.lightImpact();
-      setState(() {});
+      _uiRebuildNotifier.value++;
       _autoSaveCanvas();
       return;
     }
@@ -328,7 +328,7 @@ extension on _FlueraCanvasScreenState {
       HapticFeedback.lightImpact();
       _layerController.sceneGraph.bumpVersion();
       DrawingPainter.invalidateAllTiles();
-      setState(() {});
+      _uiRebuildNotifier.value++;
       _autoSaveCanvas();
       return;
     }
@@ -359,7 +359,7 @@ extension on _FlueraCanvasScreenState {
         }
       }
 
-      setState(() {}); // Update per mostrare selected elements
+      _uiRebuildNotifier.value++; // Update per mostrare selected elements
       return;
     }
 
@@ -370,7 +370,7 @@ extension on _FlueraCanvasScreenState {
         _penToolContext,
         PointerUpEvent(position: screenPos),
       );
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -383,7 +383,7 @@ extension on _FlueraCanvasScreenState {
         _eraserCursorPosition = null;
         _eraserTrail.clear();
         _eraserPreviewIds = {};
-        setState(() {});
+        _uiRebuildNotifier.value++;
 
         // FIX: Entire cleanup chain inside delayed callback to avoid race condition.
         // Previously endGesture() ran synchronously, orphaning undo operations.
@@ -405,7 +405,7 @@ extension on _FlueraCanvasScreenState {
           _reconcilePdfAnnotations();
           DrawingPainter.invalidateAllTiles();
           _autoSaveCanvas();
-          if (mounted) setState(() {});
+          if (mounted) _uiRebuildNotifier.value++;
         });
         return;
       } else if (_eraserLassoMode) {
@@ -421,7 +421,7 @@ extension on _FlueraCanvasScreenState {
       _eraserTool.invalidateSpatialIndex();
       // 🎯 Persist radius preference on gesture end
       _eraserTool.persistRadius();
-      setState(() {}); // 🏗️ Nascondi cursore overlay
+      _uiRebuildNotifier.value++; // 🏗️ Nascondi cursore overlay
 
       // 🚀 ANR FIX: Defer heavy work off pointer-up frame.
       // mergeAdjacentFragments (O(N) but still allocates) + tile invalidation
@@ -607,9 +607,6 @@ extension on _FlueraCanvasScreenState {
         final cosR = math.cos(-img.rotation);
         final sinR = math.sin(-img.rotation);
 
-        debugPrint(
-          '[🐛 IMG-STROKE] canvas baseWidth=${stroke.baseWidth}, imgScale=${img.scale}',
-        );
 
         final localPoints =
             stroke.points.map((p) {
@@ -1448,7 +1445,7 @@ extension on _FlueraCanvasScreenState {
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.mediumImpact();
     _layerController.notifyListeners();
-    setState(() {});
+    _uiRebuildNotifier.value++;
     _autoSaveCanvas();
   }
 
@@ -1530,7 +1527,7 @@ extension on _FlueraCanvasScreenState {
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.heavyImpact();
     _layerController.notifyListeners();
-    setState(() {});
+    _uiRebuildNotifier.value++;
     _autoSaveCanvas();
   }
 
@@ -2227,7 +2224,7 @@ extension on _FlueraCanvasScreenState {
     HapticFeedback.mediumImpact();
     _sectionCounter++;
     _layerController.notifyListeners();
-    setState(() {});
+    _uiRebuildNotifier.value++;
     _autoSaveCanvas();
   }
 
@@ -2259,7 +2256,7 @@ extension on _FlueraCanvasScreenState {
         sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
         _layerController.notifyListeners();
-        setState(() {});
+        _uiRebuildNotifier.value++;
         break;
       }
     }
@@ -2276,7 +2273,7 @@ extension on _FlueraCanvasScreenState {
         sceneGraph.bumpVersion();
         DrawingPainter.invalidateAllTiles();
         _layerController.notifyListeners();
-        setState(() {});
+        _uiRebuildNotifier.value++;
         break;
       }
     }
@@ -2448,7 +2445,7 @@ extension on _FlueraCanvasScreenState {
     _sectionCounter++;
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.mediumImpact();
-    setState(() {});
+    _uiRebuildNotifier.value++;
     _autoSaveCanvas();
   }
 }

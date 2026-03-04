@@ -78,10 +78,6 @@ class Pix2TexRecognizer implements LatexRecognitionBridge {
     try {
       final available = await isAvailable();
       if (!available) {
-        debugPrint(
-          '[Pix2TexRecognizer] HTTP API not reachable at ${config.baseUrl}. '
-          'Recognition will fail until server is started.',
-        );
       }
     } catch (_) {
       // Non-fatal

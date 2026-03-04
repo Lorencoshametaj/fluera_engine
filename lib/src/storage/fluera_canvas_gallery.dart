@@ -158,7 +158,6 @@ class _FlueraCanvasGalleryState extends State<FlueraCanvasGallery>
         _fabController.forward(from: 0);
       }
     } catch (e) {
-      debugPrint('[FlueraGallery] Error loading canvases: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -204,7 +203,6 @@ class _FlueraCanvasGalleryState extends State<FlueraCanvasGallery>
         );
       }
     } catch (e) {
-      debugPrint('[FlueraGallery] Error deleting canvas: $e');
     }
   }
 

@@ -1,7 +1,28 @@
 part of '../../fluera_canvas_screen.dart';
 
+/// 🚀 PHASE 5: Top-level function for isolate layer deserialization.
+/// Must be top-level (not a closure) for `compute()` to work.
+List<CanvasLayer> _deserializeLayersOnIsolate(List<dynamic> args) {
+  final layersJson = args[0] as List<dynamic>;
+  final skipStrokes = args[1] as bool;
+  return layersJson
+      .map(
+        (l) =>
+            skipStrokes
+                ? CanvasLayer.fromJsonMetadataOnly(
+                  Map<String, dynamic>.from(l as Map),
+                )
+                : CanvasLayer.fromJson(Map<String, dynamic>.from(l as Map)),
+      )
+      .toList();
+}
+
 /// 📦 Lifecycle & Initialization — extracted from _FlueraCanvasScreenState
 extension on _FlueraCanvasScreenState {
+  /// Prefix for micro-thumbnail keys in the staggered queue.
+  /// Used to distinguish micro-thumbnails from LOD thumbnails.
+  static const String _kMicroThumbPrefix = '__micro_';
+
   /// ✨ Initialize GPU shader brushes
   Future<void> _initProShaders() async {
     final drawingModule = EngineScope.current.drawingModule;
@@ -109,18 +130,20 @@ extension on _FlueraCanvasScreenState {
   /// 🚀 COLD START FIX: Frame yields between heavy steps let the renderer
   /// paint the splash/loading screen between init phases.
   Future<void> _initializeCanvas() async {
-    // 🖼️ EAGER: Load splash snapshot BEFORE heavy init so it's visible
-    // immediately on the loading screen. This is a tiny BLOB read (~50KB).
-    await _loadSplashSnapshot();
-
-    // 🚀 COLD START FIX: Yield a frame so the splash snapshot is painted
-    // before we start heavy GPU/IO work.
-    await _yieldFrame();
-
-    // These are all independent — run them in parallel
+    // 🚀 FIRST-ENTRY OPT: Overlap splash load with heavy init.
+    // Splash is a tiny read (~50KB) that completes well before shaders.
+    // All independent — run them in parallel.
+    //
+    // 🚀 PHASE 5: Skip shader init if already compiled from previous session.
+    final needsShaders =
+        !(EngineScope.current.drawingModule?.shaderBrushService.isAvailable ??
+            true);
     await Future.wait([
-      // 1. GPU shader compilation (~50-200ms on first run)
-      _initProShaders(),
+      // 0. Splash snapshot (tiny BLOB ~50KB, painted on loading screen)
+      _loadSplashSnapshot(),
+
+      // 1. GPU shader compilation (~50-200ms on first run, no-op if warm)
+      if (needsShaders) _initProShaders(),
 
       // 2. Persistent isolate spawn (~2-5ms)
       SaveIsolateService.instance.initialize(),
@@ -135,9 +158,8 @@ extension on _FlueraCanvasScreenState {
       _loadSavedRecordings(),
     ]);
 
-    // 🚀 COLD START FIX: Yield after heavy init so pending frames render
-    // before we wire up callbacks and timers.
-    await _yieldFrame();
+    // 🚀 PHASE 5: Removed post-Future.wait yield — splash is now inside the
+    // parallel group, so no separate yield needed. Saves ~16ms.
 
     // 🖼️ Wire staggered thumbnail queue callback
     _wireImageMemoryManagerCallbacks();
@@ -147,6 +169,19 @@ extension on _FlueraCanvasScreenState {
       const Duration(seconds: 5),
       (_) => _runImageEvictionCycle(),
     );
+
+    // 🔋 ENERGY: Subscribe to reactive power/thermal state changes.
+    // Instant detection instead of polling every 5-15s.
+    final monitor = EngineScope.current.performanceMonitor;
+    if (monitor.isInitialized) {
+      _metricsSubscription = monitor.metricsStream.listen((metrics) {
+        if (!mounted) return;
+        final shouldReduce = metrics.shouldReduceQuality;
+        if (shouldReduce != _isLowPowerMode) {
+          _onPowerModeChanged(shouldReduce);
+        }
+      });
+    }
   }
 
   /// 🚀 Yield one frame to the rendering pipeline.
@@ -171,8 +206,10 @@ extension on _FlueraCanvasScreenState {
   void _runImageEvictionCycle() {
     if (!mounted || _imageElements.isEmpty) return;
 
-    // 📏 Adaptive budget: adjust maxImages based on current RSS
-    _imageMemoryManager.adjustBudgetFromMemory();
+    // 📏 Adaptive budget: compute maxImages from RSS-based device budget
+    final budgetMB = _imageMemoryBudget.computeBudgetFromRSS();
+    _imageMemoryManager.maxImages = _imageMemoryBudget.computeMaxImages();
+    _imageStubManager.updateFromBudget(budgetMB);
 
     // Compute viewport rect in canvas coordinates
     final scale = _canvasController.scale;
@@ -196,23 +233,20 @@ extension on _FlueraCanvasScreenState {
     const margin = 500.0;
     final expandedViewport = predictiveViewport.inflate(margin);
 
-    // Find which image paths are currently visible
-    final visiblePaths = <String>{};
+    // 🚀 Build O(1) lookup maps once, reuse everywhere
+    final imageIdToPath = <String, String>{};
+    final pathToIds = <String, List<String>>{};
+    final idToElement = <String, ImageElement>{};
     for (final img in _imageElements) {
-      final loadedImg = _loadedImages[img.imagePath];
-      final w = loadedImg?.width.toDouble() ?? 200.0;
-      final h = loadedImg?.height.toDouble() ?? 150.0;
-      final halfW = w * img.scale / 2;
-      final halfH = h * img.scale / 2;
-      final imgRect = Rect.fromCenter(
-        center: img.position,
-        width: halfW * 2,
-        height: halfH * 2,
-      );
-      if (expandedViewport.overlaps(imgRect)) {
-        visiblePaths.add(img.imagePath);
-      }
+      imageIdToPath[img.id] = img.imagePath;
+      (pathToIds[img.imagePath] ??= []).add(img.id);
+      idToElement[img.id] = img;
     }
+
+    // 🚀 OPT 2: R-tree for visiblePaths (replaces O(n) overlaps loop)
+    final visibleElements =
+        _imageSpatialIndex?.queryVisible(expandedViewport) ?? _imageElements;
+    final visiblePaths = visibleElements.map((e) => e.imagePath).toSet();
 
     // Run proactive eviction (off-viewport > 5s → dispose, keep compressed)
     if (_loadedImages.isNotEmpty) {
@@ -221,16 +255,10 @@ extension on _FlueraCanvasScreenState {
         visiblePaths,
       );
       if (evicted.isNotEmpty) {
-        debugPrint(
-          '[🧠 EVICT] Evicted ${evicted.length} images '
-          '(budget: ${_imageMemoryManager.maxImages}, '
-          'compressed cache: ${_imageMemoryManager.stats['compressedCacheEntries']})',
-        );
+        // 🚀 OPT 4: Use pathToIds reverse map for O(1) invalidation
         for (final path in evicted) {
-          for (final img in _imageElements) {
-            if (img.imagePath == path) {
-              ImagePainter.invalidateImageCache(img.id);
-            }
+          for (final id in (pathToIds[path] ?? const [])) {
+            ImagePainter.invalidateImageCache(id);
           }
         }
         _thumbnailPaths.removeAll(evicted);
@@ -238,14 +266,91 @@ extension on _FlueraCanvasScreenState {
       }
     }
 
+    // 🗂️ STUB-OUT: Query R-tree for safe images (near viewport)
+    final pageOutMargin = viewportRect.longestSide * 3.0;
+    final safeElements =
+        _imageSpatialIndex?.queryVisible(viewportRect, margin: pageOutMargin) ??
+        _imageElements;
+    final safeIds = safeElements.map((e) => e.id).toSet();
+
+    final stubbedPaths = _imageStubManager.maybeStubOut(
+      safeImageIds: safeIds,
+      loadedImages: _loadedImages,
+      imageIdToPath: imageIdToPath,
+      totalImageCount: _imageElements.length,
+      onBeforeStub: (imagePath, image) {
+        if (!_imageMemoryManager.hasCompressedBytes(imagePath)) {
+          // Compressed bytes loaded from disk on hydration if not cached.
+        }
+
+        // 🖼️ Enqueue micro-thumbnail generation (64px)
+        final bytes = _imageMemoryManager.getCompressedBytes(imagePath);
+        if (bytes != null) {
+          // 🚀 OPT 3: Use pathToIds reverse map for O(1) lookup
+          final imgId = pathToIds[imagePath]?.firstOrNull;
+          if (imgId != null) {
+            _imageMemoryManager.enqueueThumbnail(
+              '\$_kMicroThumbPrefix$imgId',
+              bytes,
+              64,
+            );
+          }
+        }
+      },
+    );
+    if (stubbedPaths.isNotEmpty) {
+      // 🚀 OPT 4: Use pathToIds reverse map for O(1) invalidation
+      for (final path in stubbedPaths) {
+        for (final id in (pathToIds[path] ?? const [])) {
+          ImagePainter.invalidateImageCache(id);
+        }
+      }
+      _thumbnailPaths.removeAll(stubbedPaths);
+      if (mounted) setState(() => _imageVersion++);
+    }
+
+    // 🗂️ HYDRATE: Query R-tree for nearby images in page-in margin
+    final pageInMargin = viewportRect.longestSide * 1.5;
+    final nearbyElements =
+        _imageSpatialIndex?.queryVisible(
+          predictiveViewport,
+          margin: pageInMargin,
+        ) ??
+        const [];
+    final nearbyImages =
+        nearbyElements
+            .map(
+              (e) => NearbyImage(
+                imageId: e.id,
+                imagePath: e.imagePath,
+                center: e.position,
+              ),
+            )
+            .toList();
+
+    final hydrateRequests = _imageStubManager.maybeHydrate(
+      nearbyImages: nearbyImages,
+      loadedImages: _loadedImages,
+      viewport: predictiveViewport,
+      canvasScale: scale,
+    );
+    for (final req in hydrateRequests) {
+      // 🚀 OPT 3: Use idToElement map for O(1) lookup
+      final imgEl = idToElement[req.imageId];
+      if (imgEl != null) {
+        _preloadImage(
+          req.imagePath,
+          storageUrl: imgEl.storageUrl,
+          thumbnailUrl: imgEl.thumbnailUrl,
+        );
+      }
+    }
+
     // Reload evicted images that are now back in viewport
     for (final img in _imageElements) {
       if (visiblePaths.contains(img.imagePath) &&
-          !_loadedImages.containsKey(img.imagePath)) {
-        debugPrint(
-          '[🧠 RELOAD] ${img.imagePath.split('/').last} '
-          '(cached bytes: ${_imageMemoryManager.hasCompressedBytes(img.imagePath)})',
-        );
+          !_loadedImages.containsKey(img.imagePath) &&
+          !_imageStubManager.isStubbed(img.id)) {
         _preloadImage(
           img.imagePath,
           storageUrl: img.storageUrl,
@@ -255,6 +360,8 @@ extension on _FlueraCanvasScreenState {
     }
 
     // 🖼️ MULTI-LEVEL LOD: Determine optimal resolution tier for current zoom
+    // 🔋 ENERGY: Skip LOD thumbnail work in low-power mode to save CPU
+    if (_isLowPowerMode) return;
     final optimalTier = _imageMemoryManager.getOptimalLodTier(scale);
 
     if (optimalTier != null) {
@@ -294,7 +401,6 @@ extension on _FlueraCanvasScreenState {
       final toUpgrade = _thumbnailPaths.toList();
       for (final path in toUpgrade) {
         if (_loadedImages.containsKey(path)) {
-          debugPrint('[🖼️ UPGRADE] Full-res: ${path.split('/').last}');
           _thumbnailPaths.remove(path);
           _imageMemoryManager.setLodLevel(path, null);
           final imgEl =
@@ -327,6 +433,20 @@ extension on _FlueraCanvasScreenState {
         return;
       }
 
+      // 🖼️ MICRO-THUMBNAIL: Route to stub manager (not _loadedImages)
+      if (path.startsWith(_kMicroThumbPrefix)) {
+        final imageId = path.substring(_kMicroThumbPrefix.length);
+        if (_imageStubManager.isStubbed(imageId)) {
+          _imageStubManager.setMicroThumbnail(imageId, thumbnail);
+          // Invalidate per-image cache to show micro-thumbnail
+          ImagePainter.invalidateImageCache(imageId);
+          if (mounted) setState(() => _imageVersion++);
+        } else {
+          thumbnail.dispose(); // Image was hydrated before thumb finished
+        }
+        return;
+      }
+
       // 🔄 DOUBLE-BUFFER: New image is decoded → swap atomically
       final oldImage = _loadedImages[path];
       _loadedImages[path] = thumbnail;
@@ -346,11 +466,6 @@ extension on _FlueraCanvasScreenState {
           ImagePainter.invalidateImageCache(img.id);
         }
       }
-
-      debugPrint(
-        '[🖼️ LOD] Swapped to ${thumbnail.width}x${thumbnail.height}: '
-        '${path.split('/').last}',
-      );
 
       if (mounted) setState(() => _imageVersion++);
     };
@@ -376,7 +491,6 @@ extension on _FlueraCanvasScreenState {
       }
     } catch (e) {
       // Non-critical — the loading screen will show logo fallback
-      debugPrint('[Snapshot] Load failed: $e');
     }
   }
 
@@ -387,10 +501,6 @@ extension on _FlueraCanvasScreenState {
 
     try {
       Map<String, dynamic>? data;
-
-      print(
-        '🎨 [ProCanvasScreen] _loadCanvasData: canvasId=$_canvasId, infiniteCanvasId=${widget.infiniteCanvasId}, nodeId=${widget.nodeId}',
-      );
 
       // 🚀 1. LOCAL FIRST: prefer storageAdapter over legacy callback
       if (_config.storageAdapter != null) {
@@ -405,14 +515,8 @@ extension on _FlueraCanvasScreenState {
         }
 
         data = await _config.storageAdapter!.loadCanvas(_canvasId);
-        print(
-          '🎨 [ProCanvasScreen] StorageAdapter load result: ${data != null ? "FOUND (${data.keys.length} keys)" : "NULL"}',
-        );
       } else {
         data = await _config.onLoadCanvas?.call(_canvasId);
-        print(
-          '🎨 [ProCanvasScreen] Legacy callback load result: ${data != null ? "FOUND (${data.keys.length} keys)" : "NULL"}',
-        );
       }
 
       // 2. ☁️ Cloud fallback: load from cloud when no local data
@@ -420,11 +524,6 @@ extension on _FlueraCanvasScreenState {
         try {
           data = await _syncEngine!.loadCanvas(_canvasId);
           if (data != null) {
-            debugPrint(
-              '☁️ No local data — loaded from cloud '
-              '(${data.keys.length} keys)',
-            );
-
             // 🚀 SHARDING FIX: Reassemble strokes from sub-collection
             // into layers. Without this, new users see empty canvas because
             // the main document's layers have no strokes when sharded.
@@ -442,76 +541,70 @@ extension on _FlueraCanvasScreenState {
                     }
                   }
                 }
-                debugPrint(
-                  '☁️ Reassembled ${strokesByLayer.values.fold<int>(0, (a, b) => a + b.length)} '
-                  'sharded strokes into ${strokesByLayer.length} layers',
-                );
               }
             }
-          } else {
-            debugPrint('☁️ No local data & no cloud data — fresh canvas');
-          }
-        } catch (e) {
-          debugPrint('☁️ Cloud load failed: $e');
-        }
-      } else if (data == null) {
-        debugPrint('🎨 No local data & no cloud sync — fresh canvas');
-      }
+          } else {}
+        } catch (e) {}
+      } else if (data == null) {}
 
       if (data != null) {
         loadedFromLocal = true;
       }
 
       if (data != null && mounted) {
-        await _applyCanvasData(data);
-
-        // 🗂️ LAZY-LOAD: If stroke index exists, replace full strokes with
-        // lightweight stubs (~64B each). The paging manager will page-in
-        // visible strokes on demand during the first render.
-        // At 1M strokes: ~200ms stubs vs ~5-10s full binary decode.
+        // 🚀 LAZY DECODE: Check if stroke index exists BEFORE layer
+        // deserialization. If it does, we skip full stroke decode entirely
+        // (saving ~750MB transient peak at 100K strokes) and inject stubs
+        // from SQLite instead.
+        bool hasIndex = false;
         if (_config.storageAdapter is SqliteStorageAdapter) {
-          final stubsByLayer = await DrawingPainter.loadStubsForLazyLoad(
-            _canvasId,
-          );
-          if (stubsByLayer.isNotEmpty) {
-            // Replace full strokes with stubs in layers
-            for (final layer in _layerController.layers) {
-              final stubs = stubsByLayer[layer.id];
-              if (stubs != null && stubs.length == layer.strokes.length) {
-                // Replace each stroke with its stub equivalent
-                for (int i = 0; i < layer.strokes.length; i++) {
-                  if (!layer.strokes[i].isStub) {
-                    layer.strokes[i] = layer.strokes[i].toStub();
+          hasIndex = await DrawingPainter.hasStrokeIndex(_canvasId);
+        }
+
+        await _applyCanvasData(data, skipStrokes: hasIndex);
+
+        // 🗂️ POST-LOAD STUB INJECTION
+        if (_config.storageAdapter is SqliteStorageAdapter) {
+          if (hasIndex) {
+            // 🚀 LAZY DECODE PATH (2nd+ open): Layers loaded without strokes.
+            // Inject lightweight stubs from SQLite index (~64B each).
+            // No 750MB peak — stubs go directly into empty layers.
+            final stubsByLayer = await DrawingPainter.loadStubsForLazyLoad(
+              _canvasId,
+            );
+            if (stubsByLayer.isNotEmpty) {
+              for (final layer in _layerController.layers) {
+                final stubs = stubsByLayer[layer.id];
+                if (stubs != null) {
+                  for (final stub in stubs) {
+                    layer.node.addStroke(stub);
                   }
                 }
               }
+              _layerController.sceneGraph.bumpVersion();
             }
-            // Bump version to trigger R-Tree and cache refresh
-            _layerController.sceneGraph.bumpVersion();
-            debugPrint(
-              '🗂️ [LAZY-LOAD] Stubbed ${stubsByLayer.values.fold<int>(0, (a, b) => a + b.length)} '
-              'strokes across ${stubsByLayer.length} layers — RAM freed',
-            );
           } else {
             // 🗂️ FIRST-EVER LOAD: No index yet — eagerly stub all strokes
             // to free RAM immediately. The binary decode loaded everything
             // into RAM; stub them now and the paging system will page-in
             // visible ones during the first render.
+            // 🚀 FIRST-ENTRY OPT: Batch stub in chunks of 500 with
+            // frame yields to keep splash screen responsive.
             int stubbed = 0;
+            const batchSize = 500;
             for (final layer in _layerController.layers) {
               for (int i = 0; i < layer.strokes.length; i++) {
                 if (layer.strokes[i].points.length > 3) {
                   layer.strokes[i] = layer.strokes[i].toStub();
                   stubbed++;
+                  if (stubbed % batchSize == 0) {
+                    await _yieldFrame();
+                  }
                 }
               }
             }
             if (stubbed > 0) {
               _layerController.sceneGraph.bumpVersion();
-              debugPrint(
-                '🗂️ [EAGER-STUB] First-ever load: stubbed $stubbed '
-                'strokes — RAM freed immediately',
-              );
             }
           }
         }
@@ -578,7 +671,6 @@ extension on _FlueraCanvasScreenState {
   Future<void> _syncFirebaseInBackground() async {
     // 🐛 FIX C: Prevent concurrent sync (rapid reconnect → double apply)
     if (_isSyncingFirebase) {
-      debugPrint('☁️ Background sync: already in progress, skipping');
       return;
     }
     _isSyncingFirebase = true;
@@ -611,18 +703,12 @@ extension on _FlueraCanvasScreenState {
 
       if (cloudUpdatedAt != null && localUpdatedAt != null) {
         if (cloudUpdatedAt <= localUpdatedAt) {
-          debugPrint(
-            '☁️ Background sync: local is up-to-date '
-            '(local=$localUpdatedAt, cloud=$cloudUpdatedAt)',
-          );
           return; // Local is newer or same — nothing to do
         }
       }
 
       // Cloud data is newer — apply it
       if (mounted) {
-        debugPrint('☁️ Background sync: applying newer cloud data');
-
         // 🚀 SHARDING: Reassemble strokes from sub-collection into layers
         final adapter = _syncEngine!.adapter;
         if (adapter.supportsStrokeSharding) {
@@ -644,10 +730,7 @@ extension on _FlueraCanvasScreenState {
         await _applyCanvasData(cloudData);
         downloadMissingAssets();
       }
-    } catch (e, st) {
-      debugPrint('☁️ Background sync failed: $e');
-      debugPrint('☁️ Stack trace: $st');
-    }
+    } catch (e, st) {}
   }
 
   /// Helper: apply text/image/pin elements (called from within setState)
@@ -696,7 +779,10 @@ extension on _FlueraCanvasScreenState {
   ///
   /// 🚀 ADAPTIVE: Small canvases (≤50 elements) use a single setState.
   /// Large canvases use 2 grouped setStates with frame yields.
-  Future<void> _applyCanvasData(Map<String, dynamic> data) async {
+  Future<void> _applyCanvasData(
+    Map<String, dynamic> data, {
+    bool skipStrokes = false,
+  }) async {
     if (!mounted) return;
 
     // Count total elements to decide if yields are needed
@@ -832,23 +918,19 @@ extension on _FlueraCanvasScreenState {
             break;
           }
         }
-        if (!shouldReloadLayers) {
-          debugPrint(
-            '☁️ [SYNC] Layers unchanged '
-            '(${layersJson.length} layers, same IDs & stroke counts) — skipping rebuild',
-          );
-        }
+        if (!shouldReloadLayers) {}
       }
 
       if (shouldReloadLayers) {
-        _layerController.clearAllAndLoadLayers(
-          layersJson
-              .map(
-                (l) =>
-                    CanvasLayer.fromJson(Map<String, dynamic>.from(l as Map)),
-              )
-              .toList(),
-        );
+        // 🚀 PHASE 5: Deserialize layers on background isolate.
+        // CanvasLayer.fromJson is pure Dart (no Flutter bindings),
+        // safe for isolate execution via Isolate.run().
+        final jsonCopy = layersJson;
+        final skip = skipStrokes;
+        final parsedLayers = await Isolate.run(() {
+          return _deserializeLayersOnIsolate(<dynamic>[jsonCopy, skip]);
+        });
+        _layerController.clearAllAndLoadLayers(parsedLayers);
       }
     }
 
@@ -877,22 +959,25 @@ extension on _FlueraCanvasScreenState {
 
     // Pre-carica immagini in background (non bloccante)
     // 🔧 FIX: Sync _imageElements into layers if they're missing
+    // 🚀 FIRST-ENTRY OPT: Use beginBatch/endBatch to collapse N
+    // notifyListeners calls into 1 (avoids N × cluster rebuild).
     final layerImageIds = <String>{};
     for (final layer in _layerController.layers) {
       for (final img in layer.images) {
         layerImageIds.add(img.id);
       }
     }
-    debugPrint(
-      '[🖼️ RESTORE] Found ${_imageElements.length} images to preload',
-    );
-    for (final imageElement in _imageElements) {
-      if (!layerImageIds.contains(imageElement.id)) {
-        final wasTracking = _layerController.enableDeltaTracking;
-        _layerController.enableDeltaTracking = false;
+    final imagesToSync =
+        _imageElements.where((e) => !layerImageIds.contains(e.id)).toList();
+    if (imagesToSync.isNotEmpty) {
+      final wasTracking = _layerController.enableDeltaTracking;
+      _layerController.enableDeltaTracking = false;
+      _layerController.beginBatch();
+      for (final imageElement in imagesToSync) {
         _layerController.addImage(imageElement);
-        _layerController.enableDeltaTracking = wasTracking;
       }
+      _layerController.endBatch();
+      _layerController.enableDeltaTracking = wasTracking;
     }
 
     // 🚀 Batch preload — skip images already loaded AND deduplicate by path
@@ -905,16 +990,16 @@ extension on _FlueraCanvasScreenState {
       }
     }
     if (imagesToPreload.isNotEmpty) {
-      debugPrint(
-        '[🖼️ PRELOAD] ${imagesToPreload.length}/${_imageElements.length} '
-        'unique images need loading (${_imageElements.length - imagesToPreload.length} already cached/duplicate)',
-      );
-      await Future.wait(
-        imagesToPreload.map(
-          (img) => _preloadImage(
-            img.imagePath,
-            storageUrl: img.storageUrl,
-            thumbnailUrl: img.thumbnailUrl,
+      // 🚀 FIRST-ENTRY OPT: Fire-and-forget — don't block canvas reveal.
+      // Each _preloadImage calls setState internally when done.
+      unawaited(
+        Future.wait(
+          imagesToPreload.map(
+            (img) => _preloadImage(
+              img.imagePath,
+              storageUrl: img.storageUrl,
+              thumbnailUrl: img.thumbnailUrl,
+            ),
           ),
         ),
       );
@@ -928,47 +1013,50 @@ extension on _FlueraCanvasScreenState {
     }
 
     // 📄 Restore PDF documents from saved metadata
+    // 🚀 FIRST-ENTRY OPT: Fire-and-forget — canvas reveals immediately.
+    // Repaint scheduled via addPostFrameCallback when restore completes.
     final pdfDocsList = data['pdfDocuments'] as List<dynamic>?;
     if (pdfDocsList != null && pdfDocsList.isNotEmpty) {
-      await _restorePdfDocuments(pdfDocsList);
-      // 🚀 Schedule repaint AFTER the current frame so the new
-      // pdfLayoutVersion is picked up by a fresh shouldRepaint cycle.
-      // Calling bumpVersion + setState synchronously would coalesce with
-      // the ListenableBuilder rebuild, causing shouldRepaint to see equal
-      // versions in both old and new painters → false → no repaint.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _layerController.sceneGraph.bumpVersion();
-          _pdfLayoutVersion++;
-          setState(() {});
-        }
-      });
+      unawaited(
+        _restorePdfDocuments(pdfDocsList).then((_) {
+          if (mounted) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _layerController.sceneGraph.bumpVersion();
+                _pdfLayoutVersion++;
+                setState(() {});
+              }
+            });
+          }
+        }),
+      );
     }
 
     // 🧮 Restore scene nodes (LatexNode, TabularNode, SectionNode) from JSON sidecar
+    // 🚀 FIRST-ENTRY OPT: Defer to post-frame — canvas reveals first,
+    // scene nodes appear on the next frame.
     final sceneNodesList = data['sceneNodes'] as List<dynamic>?;
     if (sceneNodesList != null && sceneNodesList.isNotEmpty) {
-      for (final entry in sceneNodesList) {
-        try {
-          final map = Map<String, dynamic>.from(entry as Map);
-          final layerId = map['layerId'] as String;
-          final nodeJson = Map<String, dynamic>.from(map['node'] as Map);
-          final restoredNode = CanvasNodeFactory.fromJson(nodeJson);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        for (final entry in sceneNodesList) {
+          try {
+            final map = Map<String, dynamic>.from(entry as Map);
+            final layerId = map['layerId'] as String;
+            final nodeJson = Map<String, dynamic>.from(map['node'] as Map);
+            final restoredNode = CanvasNodeFactory.fromJson(nodeJson);
 
-          final targetLayer = _layerController.layers.firstWhere(
-            (l) => l.id == layerId,
-            orElse: () => _layerController.layers.first,
-          );
-          targetLayer.node.add(restoredNode);
-        } catch (e) {
-          debugPrint('[SceneNodes] Error restoring node: $e');
+            final targetLayer = _layerController.layers.firstWhere(
+              (l) => l.id == layerId,
+              orElse: () => _layerController.layers.first,
+            );
+            targetLayer.node.add(restoredNode);
+          } catch (e) {}
         }
-      }
-      _layerController.sceneGraph.bumpVersion();
-      // Force the DrawingPainter to rebuild — notifyListeners triggers
-      // the ListenableBuilder that wraps the CustomPaint widget.
-      _layerController.notifyListeners();
-      if (mounted) setState(() {});
+        _layerController.sceneGraph.bumpVersion();
+        _layerController.notifyListeners();
+        setState(() {});
+      });
     }
   }
 
@@ -1074,11 +1162,7 @@ extension on _FlueraCanvasScreenState {
         corrected++;
       }
     }
-    if (corrected > 0) {
-      print(
-        '🌊 REFLOW: Corrected $corrected/${_clusterCache.length} cluster bounds by node transform',
-      );
-    }
+    if (corrected > 0) {}
 
     _lassoTool.reflowController?.updateClusters(_clusterCache);
   }
@@ -1189,10 +1273,6 @@ extension on _FlueraCanvasScreenState {
 
     if (changed) {
       _dynamicCanvasSize = Size(newW, newH);
-      debugPrint(
-        '🔲 CANVAS EXPAND: ${newW.toInt()}x${newH.toInt()} '
-        '(maxExtent=${maxX.toInt()},${maxY.toInt()})',
-      );
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() {});
       });
@@ -1265,35 +1345,23 @@ extension on _FlueraCanvasScreenState {
     // decode from memory (~5ms) instead of reading from disk (~50ms).
     final cachedBytes = _imageMemoryManager.getCompressedBytes(imagePath);
     if (cachedBytes != null) {
-      debugPrint(
-        '[🖼️ PRELOAD] ⚡ Fast reload from compressed cache: ${imagePath.split('/').last}',
-      );
       final image = await _decodeImageCapped(cachedBytes);
       if (mounted && image != null) {
         setState(() {
           _loadedImages[imagePath] = image;
           _imageVersion++;
-          _rebuildImageSpatialIndex();
         });
+        _scheduleImageSpatialIndexRebuild();
         _imageMemoryManager.markAccessed(imagePath);
         _stopLoadingPulseIfDone();
       }
       return;
     }
 
-    debugPrint(
-      '[🖼️ PRELOAD] imagePath=$imagePath, '
-      'storageUrl=${storageUrl?.substring(0, (storageUrl.length).clamp(0, 60))}, '
-      'thumbnailUrl=${thumbnailUrl != null ? "set" : "null"}',
-    );
-
     try {
       // 🚀 ISOLATE I/O: Read file bytes on background isolate (zero UI jank)
       final bytes = await ImageMemoryManager.readFileOnIsolate(imagePath);
       if (bytes != null) {
-        debugPrint(
-          '[🖼️ PRELOAD] ✅ Loaded via isolate: ${imagePath.split('/').last}',
-        );
         // 🚀 MEMORY: Don't cache compressed bytes for local files — re-reading
         // from disk on eviction (~50ms) is acceptable and saves ~1-5MB RAM per image.
         // Network-downloaded images still cache (see storageUrl path below).
@@ -1308,18 +1376,13 @@ extension on _FlueraCanvasScreenState {
           setState(() {
             _loadedImages[imagePath] = image;
             _imageVersion++;
-            _rebuildImageSpatialIndex();
           });
+          _scheduleImageSpatialIndexRebuild();
           _imageMemoryManager.markAccessed(imagePath);
           _stopLoadingPulseIfDone();
         }
         return;
       }
-
-      debugPrint(
-        '[🖼️ PRELOAD] ❌ Local file NOT found, '
-        'storageUrl=${storageUrl != null ? "available" : "NULL!"}',
-      );
 
       // 🌐 Local file not found — try downloading from storageUrl
       if (storageUrl != null && storageUrl.isNotEmpty) {
@@ -1339,8 +1402,8 @@ extension on _FlueraCanvasScreenState {
               setState(() {
                 _loadedImages[imagePath] = thumbImage;
                 _imageVersion++;
-                _rebuildImageSpatialIndex();
               });
+              _scheduleImageSpatialIndexRebuild();
               _imageMemoryManager.markAccessed(imagePath);
             }
           } catch (_) {
@@ -1360,11 +1423,7 @@ extension on _FlueraCanvasScreenState {
           final localFile = File(imagePath);
           await localFile.parent.create(recursive: true);
           await localFile.writeAsBytes(bytes, flush: true);
-          debugPrint(
-            '[🖼️ PRELOAD] 💾 Saved ${bytes.length ~/ 1024}KB to disk: ${imagePath.split('/').last}',
-          );
         } catch (e) {
-          debugPrint('[🖼️ PRELOAD] ⚠️ Failed to persist locally: $e');
           // Non-fatal: image works from memory, just won't survive restart
         }
 
@@ -1384,8 +1443,8 @@ extension on _FlueraCanvasScreenState {
           setState(() {
             _loadedImages[imagePath] = image;
             _imageVersion++;
-            _rebuildImageSpatialIndex();
           });
+          _scheduleImageSpatialIndexRebuild();
           oldImage?.dispose();
           _imageMemoryManager.markAccessed(imagePath);
 
@@ -1517,10 +1576,6 @@ extension on _FlueraCanvasScreenState {
       for (int i = 0; i < recordings.length; i++) {
         final recording = recordings[i];
         if (!existsResults[i]) {
-          debugPrint(
-            '[Lifecycle] Skipping recording ${recording.id} — '
-            'file missing: ${recording.audioPath}',
-          );
           // 🔧 FIX #3 (audit 4): Also remove stale entry from SQLite
           if (RecordingStorageService.instance.isInitialized) {
             RecordingStorageService.instance
@@ -1564,18 +1619,11 @@ extension on _FlueraCanvasScreenState {
         });
       }
 
-      debugPrint(
-        '[Lifecycle] Loaded ${recordings.length} recordings '
-        '(${loadedSyncRecordings.length} with strokes)',
-      );
-
       // 🔧 FIX #4 (audit 4): Clean up stale temp recordings
       DefaultVoiceRecordingProvider.cleanupTempRecordings(
         olderThan: const Duration(hours: 24),
       );
-    } catch (e) {
-      debugPrint('[Lifecycle] Failed to load recordings: $e');
-    }
+    } catch (e) {}
   }
 
   // ============================================================================

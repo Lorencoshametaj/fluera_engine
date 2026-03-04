@@ -256,7 +256,6 @@ class BackgroundSaveService {
       // Notify main isolate
       mainSendPort.send('SAVE_COMPLETE');
     } catch (e) {
-      debugPrint('❌ [BackgroundSave] Delta append failed: $e');
       // Notify anyway to unblock backpressure
       mainSendPort.send('SAVE_COMPLETE');
     }
@@ -345,7 +344,6 @@ class BackgroundSaveService {
       // Notify main isolate that the salvataggio is complete
       mainSendPort.send('SAVE_COMPLETE');
     } catch (e) {
-      debugPrint('❌ [BackgroundSave] Checkpoint save failed: $e');
       // Notify anyway to unblock backpressure
       mainSendPort.send('SAVE_COMPLETE');
     }

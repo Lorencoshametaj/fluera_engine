@@ -338,8 +338,5 @@ class UndoRedoManager extends ChangeNotifier {
 
   /// 📊 Debug info
   void printStatus() {
-    debugPrint(
-      '[UndoRedoManager] undo: ${_undoStack.length}, redo: ${_redoStack.length}',
-    );
   }
 }

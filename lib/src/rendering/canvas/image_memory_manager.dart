@@ -304,10 +304,6 @@ class ImageMemoryManager {
       final oldest = _compressedCache.keys.first;
       _compressedCacheBytes -= _compressedCache[oldest]!.length;
       _compressedCache.remove(oldest);
-      debugPrint(
-        '[🧠 CACHE] Evicted compressed: $oldest '
-        '(total: ${_compressedCacheBytes ~/ (1024 * 1024)}MB)',
-      );
     }
   }
 
@@ -550,13 +546,8 @@ class ImageMemoryManager {
       if (byteData == null) return bytes;
 
       final resized = byteData.buffer.asUint8List();
-      debugPrint(
-        '[📐 RESIZE] ${w}x$h → ${targetW}x$targetH '
-        '(${bytes.length ~/ 1024}KB → ${resized.length ~/ 1024}KB)',
-      );
       return resized;
     } catch (e) {
-      debugPrint('[📐 RESIZE] Failed: $e — using original');
       return bytes;
     }
   }

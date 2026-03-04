@@ -175,7 +175,6 @@ extension DesignVariablesUI on _FlueraCanvasScreenState {
 
         // ── Token export ─────────────────────────────────────────
         onExportTokens: (json) {
-          debugPrint('🌐 [DesignTokenExport]\n$json');
         },
       ),
     );

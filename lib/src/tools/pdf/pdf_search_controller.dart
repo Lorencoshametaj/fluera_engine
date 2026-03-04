@@ -432,10 +432,6 @@ class PdfSearchController extends ChangeNotifier {
     if (_searchVersion != version) return;
 
     if (kDebugMode) {
-      debugPrint(
-        '[PDF Search] Streaming Done: $totalPagesWithText pages had text, '
-        '${_matches.length} matches across ${docs.length} document(s)',
-      );
     }
 
     _isSearching = false;
@@ -969,12 +965,6 @@ class PdfSearchController extends ChangeNotifier {
                         0,
                         extracted.text.length.clamp(0, 50),
                       );
-                      debugPrint('[PDF DBG] Native text p0: "$nativeSnip"');
-                      debugPrint('[PDF DBG] Dart text p0:   "$dartSnip"');
-                      debugPrint(
-                        '[PDF DBG] Native len=${text.length}, '
-                        'Dart len=${extracted.text.length}',
-                      );
                     }
                     docState.textCache[pageIndex] = extracted.text;
                     return extracted.text;
@@ -1144,12 +1134,6 @@ class PdfSearchController extends ChangeNotifier {
       });
 
       if (kDebugMode) {
-        debugPrint(
-          '[PDF OCR] Page $pageIndex: ${enriched.blocks.length} blocks, '
-          '${enriched.text.length} chars, '
-          'avgConf=${enriched.averageConfidence?.toStringAsFixed(2) ?? "n/a"}, '
-          '${stopwatch.elapsedMilliseconds}ms',
-        );
       }
 
       // Cache results

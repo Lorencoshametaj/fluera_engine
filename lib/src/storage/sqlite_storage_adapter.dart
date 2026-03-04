@@ -126,7 +126,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       ),
     );
 
-    debugPrint('[FlueraStorage] SQLite initialized at: $path');
   }
 
   /// Create initial schema.
@@ -172,29 +171,20 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     // 🎤 v2: Recordings table for audio + synced stroke persistence
     await _createRecordingsTable(db);
 
-    debugPrint('[FlueraStorage] Schema v$version created');
   }
 
   /// Handle schema migrations.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    debugPrint('[FlueraStorage] Migrating schema v$oldVersion → v$newVersion');
 
     if (oldVersion < 2) {
       await _createRecordingsTable(db);
-      debugPrint('[FlueraStorage] Migration v1→v2: recordings table created');
     }
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE canvases ADD COLUMN variables_json TEXT');
-      debugPrint(
-        '[FlueraStorage] Migration v2→v3: variables_json column added',
-      );
     }
     if (oldVersion < 4) {
       await db.execute(
         'ALTER TABLE canvases ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1',
-      );
-      debugPrint(
-        '[FlueraStorage] Migration v3→v4: schema_version column added',
       );
     }
     if (oldVersion < 5) {
@@ -208,9 +198,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       } catch (_) {
         // Column may already exist if database was created with v4+ _onCreate.
       }
-      debugPrint(
-        '[FlueraStorage] Migration v4→v5: pdf_documents_json column added',
-      );
     }
     if (oldVersion < 6) {
       try {
@@ -220,9 +207,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       } catch (_) {
         // Column may already exist if database was created with v6+ _onCreate.
       }
-      debugPrint(
-        '[FlueraStorage] Migration v5→v6: scene_nodes_json column added',
-      );
     }
     if (oldVersion < 7) {
       try {
@@ -230,7 +214,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       } catch (_) {
         // Column may already exist if database was created with v7+ _onCreate.
       }
-      debugPrint('[FlueraStorage] Migration v6→v7: snapshot_png column added');
     }
   }
 
@@ -761,7 +744,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   Future<void> close() async {
     await _db?.close();
     _db = null;
-    debugPrint('[FlueraStorage] SQLite closed');
   }
 
   // ===========================================================================

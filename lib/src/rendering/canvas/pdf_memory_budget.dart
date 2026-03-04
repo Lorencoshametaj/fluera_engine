@@ -85,12 +85,15 @@ class PdfMemoryBudget {
   /// Compute zoom-based LOD scale.
   ///
   /// Maps the current canvas zoom level to a raster scale factor.
+  /// 🚀 Reduced at low zoom (many small pages → blurriness invisible).
+  /// Full quality at zoom ≥ 0.8 where pages fill the screen and text
+  /// must be crisp.
   static double lodScaleForZoom(double zoom) {
-    if (zoom < 0.15) return 0.25;
-    if (zoom < 0.4) return 0.5;
-    if (zoom < 1.0) return 1.0;
-    if (zoom < 2.0) return 2.0;
-    return 4.0;
+    if (zoom < 0.15) return 0.20; // tiny thumbnails → 80% savings
+    if (zoom < 0.4) return 0.35; // multiple pages → 30% savings
+    if (zoom < 1.0) return 1.0; // page visible → full quality
+    if (zoom < 2.0) return 2.0; // zoomed in → crisp text
+    return 4.0; // deep zoom → max quality
   }
 
   @override

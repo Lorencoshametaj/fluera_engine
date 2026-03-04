@@ -501,7 +501,6 @@ class PluginRegistry {
         entry.entryPoint.onActivate(context);
       },
       (error, stackTrace) {
-        print('Plugin $pluginId crashed during activation: $error');
         deactivate(pluginId);
       },
     );
@@ -523,7 +522,6 @@ class PluginRegistry {
         entry.entryPoint.onDeactivate();
       },
       (error, stackTrace) {
-        print('Plugin $pluginId crashed during deactivation: $error');
       },
     );
 
@@ -555,9 +553,6 @@ class PluginRegistry {
             entry.entryPoint.onSelectionChanged(selectedIds);
           },
           (error, stackTrace) {
-            print(
-              'Plugin ${entry.manifest.id} crashed dynamically (selection): $error',
-            );
             deactivate(entry.manifest.id);
           },
         );
@@ -577,9 +572,6 @@ class PluginRegistry {
             entry.entryPoint.onSceneChanged();
           },
           (error, stackTrace) {
-            print(
-              'Plugin ${entry.manifest.id} crashed dynamically (scene): $error',
-            );
             deactivate(entry.manifest.id);
           },
         );

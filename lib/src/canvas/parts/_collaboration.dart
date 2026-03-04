@@ -77,11 +77,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
           }
         });
 
-        debugPrint('🔴 Real-time collaboration initialized');
       }
     } catch (e) {
       // Non-blocking: collaboration features are optional
-      debugPrint('[Collaboration] Init failed: $e');
     }
   }
 
@@ -270,7 +268,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // 🚀 PERF: setState() removed — redundant. DrawingPainter repaints via
       // ListenableBuilder(listenable: _layerController) when addStroke fires.
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote stroke: $e');
     }
   }
 
@@ -329,7 +326,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // 🚀 PERF: setState() removed — redundant. DrawingPainter repaints via
       // ListenableBuilder(listenable: _layerController) when removeStroke fires.
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote stroke removal: $e');
     }
   }
 
@@ -340,11 +336,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // (especially nested maps like position, drawingStrokes, etc.)
       final safePayload = _deepCastMap(payload);
       final image = ImageElement.fromJson(safePayload);
-      debugPrint(
-        '[RT] 🖼️ Remote image ${image.id}: '
-        'storageUrl=${image.storageUrl != null ? "SET" : "NULL"}, '
-        'path=${image.imagePath}',
-      );
       final wasTracking = _layerController.enableDeltaTracking;
       _layerController.enableDeltaTracking = false;
 
@@ -374,7 +365,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       _autoSaveCanvas();
       setState(() {});
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote image update: $e');
     }
   }
 
@@ -401,7 +391,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       _autoSaveCanvas();
       setState(() {});
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote image removal: $e');
     }
   }
 
@@ -423,7 +412,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // 🐛 FIX #4: Auto-save so remote text persists across restart
       _autoSaveCanvas();
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote text change: $e');
     }
   }
 
@@ -443,7 +431,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // 💾 Auto-save to persist removal
       _autoSaveCanvas();
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote text removal: $e');
     }
   }
 
@@ -461,7 +448,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       _layerController.enableDeltaTracking = wasTracking;
       setState(() {});
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote layer change: $e');
     }
   }
 
@@ -478,7 +464,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         }
       });
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote settings: $e');
     }
   }
 
@@ -514,13 +499,11 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     _pdfLoadingTimeouts[docId] = Timer(const Duration(seconds: 60), () {
       _cleanupPlaceholder(docId);
       if (mounted) setState(() {});
-      debugPrint('[RT] 📄 Placeholder timeout: $docId (60s)');
     });
 
     // 🔄 Start pulse animation for placeholder shimmer
     _startLoadingPulse();
 
-    debugPrint('[RT] 📄 PDF loading placeholder: $docId ($pageCount pages)');
     if (mounted) setState(() {});
   }
 
@@ -541,7 +524,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     final docId = payload['documentId'] as String?;
     if (docId == null) return;
     _cleanupPlaceholder(docId);
-    debugPrint('[RT] 📄 PDF loading failed: $docId');
     if (mounted) setState(() {});
   }
 
@@ -567,7 +549,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       );
     }
 
-    debugPrint('[RT] 📄 Applied remote PDF removal: $docId');
   }
 
   /// 📄 Apply a remotely-added PDF document.
@@ -583,7 +564,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       _cleanupPlaceholder(documentId);
 
       if (_pdfProviders.containsKey(documentId)) {
-        debugPrint('[RT] PDF $documentId already loaded, skipping');
         if (mounted) setState(() {});
         return;
       }
@@ -594,16 +574,12 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       if (_syncEngine != null) {
         for (int attempt = 1; attempt <= 3; attempt++) {
           try {
-            debugPrint(
-              '[RT] 📄 Downloading remote PDF: $documentId (attempt $attempt)',
-            );
             bytes = await _syncEngine!.adapter.downloadAsset(
               _canvasId,
               documentId,
             );
             if (bytes != null && bytes.isNotEmpty) break;
           } catch (e) {
-            debugPrint('[RT] ⚠️ Cloud download failed (attempt $attempt): $e');
             if (attempt < 3) {
               await Future<void>.delayed(Duration(seconds: 1 << (attempt - 1)));
             }
@@ -615,17 +591,12 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       if (bytes == null || bytes.isEmpty) {
         final base64Str = payload['pdfBytesBase64'] as String?;
         if (base64Str != null && base64Str.isNotEmpty) {
-          debugPrint('[RT] 📄 Using inline gzip+base64 PDF bytes');
           final compressed = base64Decode(base64Str);
           bytes = Uint8List.fromList(GZipCodec().decode(compressed));
         }
       }
 
       if (bytes == null || bytes.isEmpty) {
-        debugPrint(
-          '[RT] ❌ Failed to get remote PDF: $documentId '
-          '(no cloud asset and no inline bytes)',
-        );
         return;
       }
 
@@ -646,10 +617,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         position: remotePosition,
       );
 
-      debugPrint(
-        '[RT] ✅ Applied remote PDF $documentId'
-        '${fileName != null ? ' ("$fileName")' : ''}',
-      );
 
       // 📳 Haptic feedback for remote PDF loaded
       HapticFeedback.lightImpact();
@@ -669,7 +636,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         );
       }
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote PDF: $e');
     }
   }
 
@@ -683,7 +649,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
 
       // Check if this document is already loaded
       if (_pdfPainters.containsKey(documentId)) {
-        debugPrint('[RT] Blank PDF $documentId already loaded, skipping');
         return;
       }
 
@@ -714,12 +679,7 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         documentId: documentId,
       );
 
-      debugPrint(
-        '[RT] ✅ Applied remote blank PDF $documentId '
-        '($pageCount pages, bg=$backgroundName→$background)',
-      );
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote blank PDF: $e');
     }
   }
 
@@ -742,7 +702,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         if (doc != null) break;
       }
       if (doc == null) {
-        debugPrint('[RT] ⚠️ PDF doc $documentId not found for $subAction');
         return;
       }
 
@@ -960,7 +919,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
             }
 
           default:
-            debugPrint('[RT] ⚠️ Unknown PDF subAction: $subAction');
         }
       } finally {
         // 🛡️ Always restore callback, even if an exception occurred
@@ -974,9 +932,7 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       if (mounted) setState(() {});
       _autoSaveCanvas();
 
-      debugPrint('[RT] ✅ Applied remote PDF update: $subAction on $documentId');
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote PDF update: $e');
     }
   }
 
@@ -1103,7 +1059,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
 
       setState(() {}); // Trigger repaint
     } catch (e) {
-      debugPrint('[RT] Failed to apply live stroke: $e');
     }
   }
 
@@ -1124,7 +1079,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       _remoteLiveStrokeTimestamps.remove(id);
     }
     if (staleIds.isNotEmpty) {
-      debugPrint('[RT] 🧹 Cleaned ${staleIds.length} stale live strokes');
     }
   }
 
@@ -1150,7 +1104,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
   void _startFollowing(String userId) {
     _followingUserIds[hashCode] = userId;
     setState(() {});
-    debugPrint('👁️ Following user: $userId');
   }
 
   /// Stop following.
@@ -1177,10 +1130,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     final vy = followed['vy'] as num?;
     final vs = followed['vs'] as num?;
     if (vx != null && vy != null && vs != null) {
-      debugPrint(
-        '👁️ Follow viewport: offset=(${vx.toDouble()}, ${vy.toDouble()}) '
-        'scale=${vs.toDouble()}',
-      );
     }
   }
 
@@ -1262,9 +1211,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
 
   /// Broadcast an image update to all collaborators.
   void _broadcastImageUpdate(ImageElement image, {bool isNew = false}) {
-    debugPrint(
-      '[RT] 🖼️ Broadcasting image ${isNew ? "ADD" : "UPDATE"}: ${image.id} (${image.drawingStrokes.length} strokes)',
-    );
     _realtimeEngine?.broadcastImageUpdate(image.toJson(), isNew: isNew);
   }
 
@@ -1346,11 +1292,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       final idPattern = RegExp(r'^[a-zA-Z0-9_\-]+$');
       if (!idPattern.hasMatch(recordingId) ||
           !idPattern.hasMatch(audioAssetKey)) {
-        debugPrint('[RT] 🔒 Invalid recording ID or asset key — rejected');
         return;
       }
       if (recordingId.length > 128 || audioAssetKey.length > 256) {
-        debugPrint('[RT] 🔒 Recording ID or asset key too long — rejected');
         return;
       }
 
@@ -1359,7 +1303,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         (p) => p.contains('fluera_recording_$recordingId'),
       );
       if (existingPath.isNotEmpty) {
-        debugPrint('[RT] 🔄 Recording $recordingId already exists, skipping');
         return;
       }
 
@@ -1428,9 +1371,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
                     json.decode(manifestStr) as Map,
                   );
                   final totalChunks = manifestJson['chunks'] as int;
-                  debugPrint(
-                    '[RT] 📦 Manifest detected: $totalChunks chunks to download',
-                  );
 
                   // Download and reassemble all chunks
                   final chunks = <Uint8List>[];
@@ -1442,10 +1382,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
                     );
                     if (chunkData != null && chunkData.isNotEmpty) {
                       chunks.add(chunkData);
-                      debugPrint(
-                        '[RT] 📦 Chunk ${i + 1}/$totalChunks downloaded '
-                        '(${chunkData.length} bytes)',
-                      );
                     }
                   }
 
@@ -1462,10 +1398,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
                       offset += chunk.length;
                     }
                     audioBytes = assembled;
-                    debugPrint(
-                      '[RT] 📦 Reassembled ${chunks.length} chunks → '
-                      '${assembled.length} bytes',
-                    );
                   }
                 }
               } catch (_) {
@@ -1475,11 +1407,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
 
             if (audioBytes != null && audioBytes.isNotEmpty) break;
           } catch (e) {
-            debugPrint('[RT] ⚠️ Audio download failed (attempt $attempt): $e');
             if (attempt < 3) {
               // #3 Exponential backoff: 1s, 2s, 4s
               final delay = Duration(seconds: 1 << (attempt - 1));
-              debugPrint('[RT] ⏳ Retrying in ${delay.inSeconds}s...');
               await Future<void>.delayed(delay);
             }
           }
@@ -1487,7 +1417,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       }
 
       if (audioBytes == null || audioBytes.isEmpty) {
-        debugPrint('[RT] ❌ Failed to download remote recording: $recordingId');
         _pendingRecordingRetries.add(payload);
         return;
       }
@@ -1502,20 +1431,13 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
           finalBytes = await Isolate.run(() {
             return Uint8List.fromList(GZipCodec().decode(finalBytes));
           });
-          debugPrint(
-            '[RT] 🗄️ Audio decompressed (Isolate): ${finalBytes.length} bytes',
-          );
         } catch (e) {
-          debugPrint('[RT] ⚠️ Decompression failed, using raw bytes: $e');
           // Fallback: use bytes as-is (might not be compressed)
         }
       }
 
       // 📊 #6 Log received waveform preview if present
       if (waveform != null && waveform.isNotEmpty) {
-        debugPrint(
-          '[RT] 📊 Received waveform preview: ${waveform.length} samples',
-        );
       }
 
       // Persist audio to local documents directory
@@ -1570,7 +1492,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         );
       }
 
-      debugPrint('[RT] ✅ Applied remote recording $recordingId → $localPath');
 
       // 📳 Haptic feedback
       HapticFeedback.lightImpact();
@@ -1578,7 +1499,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // 🔔 #1 Increment badge counter for new recordings
       _newRecordingCount++;
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote recording: $e');
     }
   }
 
@@ -1629,9 +1549,7 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         );
       }
 
-      debugPrint('[RT] 🎤 Applied remote recording removal: $recordingId');
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote recording removal: $e');
     }
   }
 
@@ -1677,11 +1595,7 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         );
       }
 
-      debugPrint(
-        '[RT] 🎤 Applied remote recording rename: $recordingId → $newTitle',
-      );
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote recording rename: $e');
     }
   }
 
@@ -1702,9 +1616,7 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         });
       }
 
-      debugPrint('[RT] 📌 Applied remote pin added: ${pin.id}');
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote pin added: $e');
     }
   }
 
@@ -1720,9 +1632,7 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         });
       }
 
-      debugPrint('[RT] 📌 Applied remote pin removed: $pinId');
     } catch (e) {
-      debugPrint('[RT] Failed to apply remote pin removed: $e');
     }
   }
 
@@ -1768,13 +1678,8 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
           SyncedStroke.fromJson(Map<String, dynamic>.from(raw as Map)),
         );
       }
-      debugPrint(
-        '[RT] 🎨 Downloaded ${strokes.length} synced strokes '
-        '(${bytes.length} bytes compressed)',
-      );
       return strokes;
     } catch (e) {
-      debugPrint('[RT] ⚠️ Strokes download failed (audio-only): $e');
       return const [];
     }
   }
@@ -1782,9 +1687,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
   /// 🔄 Retry all pending recording downloads with exponential backoff (#3).
   Future<void> _retryPendingRecordingDownloads() async {
     if (_pendingRecordingRetries.isEmpty) return;
-    debugPrint(
-      '[RT] 🔄 Retrying ${_pendingRecordingRetries.length} pending recording downloads...',
-    );
 
     final pending = List<Map<String, dynamic>>.from(_pendingRecordingRetries);
     _pendingRecordingRetries.clear();
@@ -1794,7 +1696,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // #3 Exponential backoff between retries: 500ms, 1s, 2s, 4s...
       if (i > 0) {
         final delay = Duration(milliseconds: 500 * (1 << i.clamp(0, 4)));
-        debugPrint('[RT] ⏳ Retry backoff: ${delay.inMilliseconds}ms');
         await Future<void>.delayed(delay);
       }
       _applyRemoteRecordingAdded(payload);

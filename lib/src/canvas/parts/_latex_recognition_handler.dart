@@ -11,17 +11,14 @@ part of '../fluera_canvas_screen.dart';
 extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
   /// Convert the current lasso selection to a LatexNode via OCR recognition.
   Future<void> _convertSelectionToLatex() async {
-    debugPrint('🧮 [LaTeX] _convertSelectionToLatex called');
     try {
       if (!_lassoTool.hasSelection) {
-        debugPrint('🧮 [LaTeX] No selection, aborting');
         return;
       }
 
       // 1. Collect selected strokes
       final layer = _layerController.activeLayer;
       if (layer == null) {
-        debugPrint('🧮 [LaTeX] No active layer, aborting');
         return;
       }
 
@@ -32,13 +29,7 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
         }
       }
 
-      debugPrint(
-        '🧮 [LaTeX] Selected ${selectedStrokes.length} strokes from ${layer.strokes.length} total',
-      );
       if (selectedStrokes.isEmpty) {
-        debugPrint(
-          '🧮 [LaTeX] No strokes matched selectedIds: ${_lassoTool.selectedIds}',
-        );
         return;
       }
 
@@ -58,7 +49,6 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
           }).toList();
 
       final inkData = InkData(inkStrokes);
-      debugPrint('🧮 [LaTeX] InkData ready: ${inkData.totalPoints} points');
 
       // 3. Rasterize to PNG
       final png = await InkRasterizer.rasterize(
@@ -67,12 +57,8 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
         height: 128,
       );
       if (png == null || !mounted) {
-        debugPrint(
-          '🧮 [LaTeX] Rasterize failed (png=${png != null}, mounted=$mounted)',
-        );
         return;
       }
-      debugPrint('🧮 [LaTeX] Rasterized: ${png.length} bytes');
 
       // DEBUG: Save rasterized image to inspect what the model sees
       try {
@@ -80,20 +66,15 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
         if (dir == null) return; // Web: no filesystem
         final debugFile = File('${dir.path}/hme_debug_input.png');
         await debugFile.writeAsBytes(png);
-        debugPrint(
-          '🧮 [LaTeX] DEBUG: Saved rasterized image to ${debugFile.path}',
-        );
       } catch (_) {}
 
       // 4. Recognize via HME CTC model
-      debugPrint('🧮 [LaTeX] Initializing recognizer...');
       if (FlueraCanvasLatexHandler._latexRecognizer == null) {
         FlueraCanvasLatexHandler._latexRecognizer = HmeLatexRecognizer();
         await FlueraCanvasLatexHandler._latexRecognizer!.initialize();
       }
       final recognizer = FlueraCanvasLatexHandler._latexRecognizer!;
       if (!mounted) return;
-      debugPrint('🧮 [LaTeX] Recognizer ready, calling recognizeImage...');
 
       // Show loading indicator
       ScaffoldMessenger.of(context).showSnackBar(
@@ -117,9 +98,6 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
       );
 
       final result = await recognizer.recognizeImage(png);
-      debugPrint(
-        '🧮 [LaTeX] Recognition result: "${result.latexString}" (confidence: ${result.confidence})',
-      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -176,10 +154,7 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
       _autoSaveCanvas();
 
       HapticFeedback.heavyImpact();
-      debugPrint('🧮 [LaTeX] LatexNode created at ($center)');
     } catch (e, st) {
-      debugPrint('🧮 [LaTeX] ERROR: $e');
-      debugPrint('🧮 [LaTeX] STACKTRACE: $st');
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(

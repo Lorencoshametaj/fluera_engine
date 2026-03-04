@@ -109,15 +109,10 @@ extension on _FlueraCanvasScreenState {
         snapshotLayers: engine.currentLayers,
       );
 
-      debugPrint(
-        '🌿 [Branching] Created branch "${branch.name}" '
-        'at event $currentIndex',
-      );
 
       // Switch to the new branch
       _switchToBranch(branch.id);
     } catch (e) {
-      debugPrint('🌿 [Branching] ❌ Create branch error: $e');
     }
   }
 
@@ -147,12 +142,7 @@ extension on _FlueraCanvasScreenState {
           currentLayers: _layerController.layers,
           branchId: _activeBranchId,
         );
-        debugPrint(
-          '🌿 [Branching] Flushed ${recorder.eventCount} events '
-          'for branch $_activeBranchId',
-        );
       } catch (e) {
-        debugPrint('🌿 [Branching] Flush error: $e');
       }
     }
 
@@ -181,9 +171,6 @@ extension on _FlueraCanvasScreenState {
     // 3. Apply branch snapshot to canvas
     if (layers != null && layers.isNotEmpty) {
       _layerController.clearAllAndLoadLayers(layers);
-      debugPrint(
-        '🌿 [Branching] Loaded ${layers.length} layers for branch $branchId',
-      );
     }
 
     // 4. Update branch context
@@ -217,10 +204,6 @@ extension on _FlueraCanvasScreenState {
     // Refresh cached strokes/shapes from new layers
     _refreshCachedLists();
 
-    debugPrint(
-      '🌿 [Branching] Switched to ${branch?.name ?? "main"} '
-      '(wasInTT: $wasInTimeTravel)',
-    );
 
     // 6. Re-enter TT for the branch only if we were in TT before
     if (wasInTimeTravel) {
@@ -284,33 +267,22 @@ extension on _FlueraCanvasScreenState {
     );
 
     if (mergedLayers == null) {
-      debugPrint(
-        '❌ [Branching] Merge failed: $sourceBranchId → $targetBranchId',
-      );
       return;
     }
 
     // 3. Switch to the target branch with the merged layers
     await _switchToBranch(targetBranchId);
 
-    debugPrint(
-      '🔀 [Branching] Merge complete: $sourceBranchId → $targetBranchId '
-      '(${mergedLayers.length} layers, delete=$deleteAfterMerge)',
-    );
   }
 
   /// 🗑️ Handle branch deletion — switch to main and clean up
   Future<void> _handleBranchDeleted(String deletedBranchId) async {
-    debugPrint(
-      '🌿 [Branching] Branch $deletedBranchId deleted, switching to main',
-    );
 
     // Clean up TT storage for the deleted branch
     try {
       final storageService = TimeTravelStorageService();
       await storageService.deleteHistory(_canvasId, branchId: deletedBranchId);
     } catch (e) {
-      debugPrint('🌿 [Branching] TT cleanup error: $e');
     }
 
     // Switch back to main branch
@@ -394,14 +366,10 @@ extension on _FlueraCanvasScreenState {
         snapshotLayers: _layerController.layers,
       );
 
-      debugPrint(
-        '🌿 [Branching] Created branch "${branch.name}" from explorer',
-      );
 
       // Switch to the new branch
       _switchToBranch(branch.id);
     } catch (e) {
-      debugPrint('🌿 [Branching] ❌ Create branch error: $e');
     }
   }
 }

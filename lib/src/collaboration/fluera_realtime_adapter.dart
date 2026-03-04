@@ -499,9 +499,7 @@ class FlueraRealtimeEngine {
       // ⭐ Audit: log session join
       auditLog.logSession(_localUserId, true);
 
-      debugPrint('🔴 Realtime connected to canvas: $canvasId');
     } catch (e) {
-      debugPrint('🔴 Realtime connection failed: $e');
       connectionState.value = RealtimeConnectionState.error;
       _scheduleReconnect();
     }
@@ -537,7 +535,6 @@ class FlueraRealtimeEngine {
     // ⭐ Audit: log session leave
     auditLog.logSession(_localUserId, false);
 
-    debugPrint('🔴 Realtime disconnected from canvas: $canvasId');
   }
 
   // ─── Broadcasting (outgoing) ────────────────────────────────────────
@@ -559,7 +556,6 @@ class FlueraRealtimeEngine {
     // 🚦 Rate limit check
     if (_rateBucketTokens <= 0) {
       _enqueueOffline(event);
-      debugPrint('🔴 Rate limited — event queued');
       return;
     }
     _rateBucketTokens--;
@@ -575,7 +571,6 @@ class FlueraRealtimeEngine {
     try {
       await _adapter.broadcast(canvasId, event);
     } catch (e) {
-      debugPrint('🔴 Broadcast failed: $e');
       _enqueueOffline(event);
     }
   }
@@ -636,7 +631,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint('[RT] 🖼️ Broadcast imageRemoved: $imageId');
   }
 
   /// Broadcast a text element change.
@@ -798,7 +792,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint('[RT] 📄 Broadcast pdfUpdated.$subAction: $documentId');
   }
 
   /// 📄 Broadcast that a PDF document was removed from the canvas.
@@ -812,7 +805,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint('[RT] 📄 Broadcast pdfRemoved: $documentId');
   }
 
   // ─── Recording Sync ─────────────────────────────────────────────────
@@ -852,10 +844,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint(
-      '[RT] 🎤 Broadcast recordingAdded: $recordingId'
-      '${strokesAssetKey != null ? ' ($strokeCount strokes via asset)' : ''}',
-    );
   }
 
   /// 🎤 Broadcast that a voice recording was removed.
@@ -872,7 +860,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint('[RT] 🎤 Broadcast recordingRemoved: $recordingId');
   }
 
   /// 🎤 Broadcast that a voice recording was renamed.
@@ -889,7 +876,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint('[RT] 🎤 Broadcast recordingRenamed: $recordingId → $newTitle');
   }
 
   /// 📌 Broadcast a recording pin addition to all collaborators.
@@ -903,7 +889,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint('[RT] 📌 Broadcast recordingPinAdded: ${pinJson['id']}');
   }
 
   /// 📌 Broadcast a recording pin removal to all collaborators.
@@ -917,7 +902,6 @@ class FlueraRealtimeEngine {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    debugPrint('[RT] 📌 Broadcast recordingPinRemoved: $pinId');
   }
 
   // ─── Live Stroke Streaming ──────────────────────────────────────────
@@ -1116,14 +1100,12 @@ class FlueraRealtimeEngine {
   // ─── Reconnection ──────────────────────────────────────────────────
 
   void _onStreamError(Object error) {
-    debugPrint('🔴 Realtime stream error: $error');
     connectionState.value = RealtimeConnectionState.reconnecting;
     _scheduleReconnect();
   }
 
   void _onStreamDone() {
     if (_disposed) return;
-    debugPrint('🔴 Realtime stream closed');
     connectionState.value = RealtimeConnectionState.reconnecting;
     _scheduleReconnect();
   }
@@ -1131,7 +1113,6 @@ class FlueraRealtimeEngine {
   void _scheduleReconnect() {
     if (_disposed) return;
     if (_reconnectAttempts >= _maxReconnectAttempts) {
-      debugPrint('🔴 Realtime: max reconnect attempts reached, giving up');
       connectionState.value = RealtimeConnectionState.error;
       return;
     }
@@ -1142,10 +1123,6 @@ class FlueraRealtimeEngine {
       30000,
     );
 
-    debugPrint(
-      '🔴 Realtime: reconnecting in ${delayMs}ms '
-      '(attempt $_reconnectAttempts/$_maxReconnectAttempts)',
-    );
 
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
@@ -1206,7 +1183,6 @@ class FlueraRealtimeEngine {
     final toReplay = List<CanvasRealtimeEvent>.from(_offlineQueue);
     _offlineQueue.clear();
 
-    debugPrint('📴 Replaying ${toReplay.length} offline events');
 
     final canvasId = _activeCanvasId;
     if (canvasId == null) return;
@@ -1215,7 +1191,6 @@ class FlueraRealtimeEngine {
       try {
         await _adapter.broadcast(canvasId, event);
       } catch (e) {
-        debugPrint('📴 Offline replay failed: $e');
         _offlineQueue.add(event); // Re-queue on failure
         break; // Stop replay on first failure
       }
@@ -1266,10 +1241,6 @@ class FlueraRealtimeEngine {
     locks.removeWhere((_, userId) => staleUserIds.contains(userId));
     lockedElements.value = locks;
 
-    debugPrint(
-      '💓 Cleaned ${staleUserIds.length} stale cursor(s): '
-      '${staleUserIds.join(", ")}',
-    );
   }
 
   // ─── Rate Limiting ──────────────────────────────────────────────────

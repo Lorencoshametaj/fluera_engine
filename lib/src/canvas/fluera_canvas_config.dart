@@ -262,8 +262,7 @@ class FlueraCanvasConfig {
   /// ```dart
   /// final issues = config.validate();
   /// if (issues.isNotEmpty) {
-  ///   for (final issue in issues) debugPrint('⚠️ Config: $issue');
-  /// }
+  ///   for (final issue in issues)  /// }
   /// ```
   List<String> validate() {
     final issues = <String>[];

@@ -301,7 +301,6 @@ extension ExportExtension on _FlueraCanvasScreenState {
         if (mounted) _exitExportMode();
       });
     } else {
-      debugPrint('[Export] No onShowExportDialog configured');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Export not configured in this app'),

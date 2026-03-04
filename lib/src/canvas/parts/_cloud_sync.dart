@@ -176,7 +176,6 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
           saveData.canvasId,
           allStrokeTuples,
         ).catchError((e) {
-          debugPrint('[StrokePaging] Index failed: $e');
         });
       }
 
@@ -221,7 +220,6 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
           }
           if (strokeTuples.isNotEmpty) {
             cloudAdapter.saveStrokes(_canvasId, strokeTuples).catchError((e) {
-              debugPrint('☁️ Stroke sharding save failed: $e');
             });
           }
         } else {
@@ -237,9 +235,6 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
     } catch (e) {
       if (!_autoSaveErrorLogged) {
         _autoSaveErrorLogged = true;
-        debugPrint(
-          '[CloudSync] Auto-save error (further errors suppressed): $e',
-        );
       }
     } finally {
       _saveInProgress = false;
@@ -318,7 +313,6 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
         }
       }
     } catch (e) {
-      debugPrint('[CloudSync] Force sync error: $e');
     }
   }
 
@@ -344,14 +338,10 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
 
     if (downloadTasks.isEmpty) return;
 
-    debugPrint(
-      '[☁️ DOWNLOAD] Starting ${downloadTasks.length} parallel downloads',
-    );
 
     // Run all downloads in parallel (network handles concurrency)
     await Future.wait(downloadTasks);
 
-    debugPrint('[☁️ DOWNLOAD] All downloads complete');
   }
 
   /// Download a single asset from cloud and save locally.
@@ -368,10 +358,8 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
         await localFile.writeAsBytes(bytes, flush: true);
         // 💾 Cache compressed bytes for instant reload after eviction
         _imageMemoryManager.cacheCompressedBytes(localPath, bytes);
-        debugPrint('[☁️ DOWNLOAD] ✅ ${assetId}: ${bytes.length ~/ 1024}KB');
       }
     } catch (e) {
-      debugPrint('[☁️ DOWNLOAD] ❌ $assetId: $e');
     }
   }
 
@@ -390,10 +378,8 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
         bytes,
         mimeType: 'image/png',
       );
-      debugPrint('☁️ Asset uploaded: $imageId');
       return url;
     } catch (e) {
-      debugPrint('☁️ Asset upload failed: $e');
       return null;
     }
   }
@@ -441,7 +427,6 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       await adapter.saveSnapshot(canvasId, png);
     } catch (e) {
       // Non-critical — swallow errors silently
-      debugPrint('[Snapshot] Capture failed: $e');
     }
   }
 }

@@ -66,8 +66,10 @@ class EngineLogger {
     StackTrace? stack,
   }) {
     final prefix = tag != null ? '[$tag] ' : '';
-    debugPrint('$emoji $prefix$message');
-    if (error != null) debugPrint('   Error: $error');
-    if (stack != null) debugPrint('   Stack: $stack');
+    final buf = StringBuffer('$emoji $prefix$message');
+    if (error != null) buf.write(' | Error: $error');
+    if (stack != null) buf.write('\n$stack');
+    // ignore: avoid_print
+    print(buf.toString());
   }
 }

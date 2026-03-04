@@ -197,6 +197,50 @@ class CanvasLayer {
     );
   }
 
+  /// 🚀 LAZY DECODE: Deserialize from JSON WITHOUT stroke data.
+  ///
+  /// Loads layer metadata (id, name, visibility, opacity, blendMode) and
+  /// non-stroke children (shapes, texts, images, PDFs) but skips stroke
+  /// deserialization entirely. This eliminates the transient ~750MB memory
+  /// peak when loading 100K+ strokes that are already indexed in SQLite.
+  ///
+  /// Stubs are injected separately via [StrokePagingManager.loadStubsFromIndex].
+  factory CanvasLayer.fromJsonMetadataOnly(Map<String, dynamic> json) {
+    // Scene graph format: use metadata-only layer factory
+    if (json.containsKey('children') || json['nodeType'] == 'layer') {
+      final layerNode = CanvasNodeFactory.layerFromJsonMetadataOnly(json);
+      return CanvasLayer.fromNode(layerNode);
+    }
+
+    // Legacy format: load everything except strokes
+    return CanvasLayer(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      strokes: [], // Skip stroke deserialization
+      shapes:
+          (json['shapes'] as List<dynamic>?)
+              ?.map((s) => GeometricShape.fromJson(s as Map<String, dynamic>))
+              .toList() ??
+          [],
+      texts:
+          (json['texts'] as List<dynamic>?)
+              ?.map(
+                (t) => DigitalTextElement.fromJson(t as Map<String, dynamic>),
+              )
+              .toList() ??
+          [],
+      images:
+          (json['images'] as List<dynamic>?)
+              ?.map((i) => ImageElement.fromJson(i as Map<String, dynamic>))
+              .toList() ??
+          [],
+      isVisible: json['isVisible'] as bool? ?? true,
+      isLocked: json['isLocked'] as bool? ?? false,
+      opacity: (json['opacity'] as num?)?.toDouble() ?? 1.0,
+      blendMode: _blendModeFromName(json['blendMode'] as String?),
+    );
+  }
+
   /// Helper: convert string name → BlendMode (backward compatible).
   static ui.BlendMode _blendModeFromName(String? name) {
     if (name == null) return ui.BlendMode.srcOver;

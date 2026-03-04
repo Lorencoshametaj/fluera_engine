@@ -402,39 +402,18 @@ class PdfTextExtractor {
   List<ExtractedPageText> extractAllPagesWithRects({int? pageCount}) {
     try {
       final result = _extractViaPageTree(pageCount);
-      debugPrint(
-        '[PdfTextExtractor] Used PAGE TREE path, '
-        '${result.length} pages extracted',
-      );
       if (result.isNotEmpty) {
         final p0 = result.first;
-        debugPrint(
-          '[PdfTextExtractor] Page 0: '
-          '${p0.rects.length} rects, '
-          'text=${p0.text.length} chars, '
-          'pgW=${p0.pageWidth}, pgH=${p0.pageHeight}, '
-          'isYFlipped=${p0.isYFlipped}',
-        );
         if (p0.rects.isNotEmpty) {
           final r = p0.rects.first;
-          debugPrint(
-            '[PdfTextExtractor] Page 0 first rect (post-normalize): '
-            '${r.rect}, text="${r.text}"',
-          );
         }
       }
       return result;
     } catch (e) {
-      debugPrint('[PdfTextExtractor] Page tree failed: $e');
       try {
         final result = _extractFallback(pageCount);
-        debugPrint(
-          '[PdfTextExtractor] Used FALLBACK path, '
-          '${result.length} pages extracted',
-        );
         return result;
       } catch (e2) {
-        debugPrint('[PdfTextExtractor] Fallback failed: $e2');
         return List.filled(pageCount ?? 0, ExtractedPageText.empty);
       }
     }

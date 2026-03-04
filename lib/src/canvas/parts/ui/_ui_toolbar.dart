@@ -981,7 +981,6 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                 'jobName': doc.documentModel.fileName ?? 'PDF Document',
               });
             } catch (e) {
-              debugPrint('Print failed: $e');
             }
           },
           onPdfPresentation: () async {
@@ -999,11 +998,6 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             if (provider == null && _pdfProviders.isNotEmpty) {
               provider = _pdfProviders.values.first;
             }
-            debugPrint(
-              '[Present] provider found: ${provider != null}, '
-              'keys: ${_pdfProviders.keys.toList()}, '
-              'docId: ${doc.id.value}, activeId: $_activePdfDocumentId',
-            );
             if (provider != null) {
               final screenSize = MediaQuery.of(context).size;
               final dpr = MediaQuery.of(context).devicePixelRatio;
@@ -1018,9 +1012,6 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   pSize.width * fitScale,
                   pSize.height * fitScale,
                 );
-                debugPrint(
-                  '[Present] Rendering page $i at ${targetSize.width.toInt()}x${targetSize.height.toInt()} (scale: ${fitScale.toStringAsFixed(2)})',
-                );
                 final img = await provider.renderPage(
                   pageIndex: page.pageModel.pageIndex,
                   scale: fitScale,
@@ -1030,9 +1021,6 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   page.cachedImage?.dispose();
                   page.cachedImage = img;
                   page.cachedScale = fitScale;
-                  debugPrint(
-                    '[Present] Page $i rendered: ${img.width}x${img.height}',
-                  );
                 } else {
                   // Blank/out-of-range page — create white image
                   final w = targetSize.width.toInt();
@@ -1051,7 +1039,6 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   page.cachedImage?.dispose();
                   page.cachedImage = blankImg;
                   page.cachedScale = fitScale;
-                  debugPrint('[Present] Page $i: blank fallback ${w}x$h');
                 }
               }
             }

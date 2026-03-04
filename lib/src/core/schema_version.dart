@@ -121,7 +121,6 @@ Map<String, dynamic> migrateDocument(Map<String, dynamic> json) {
             'This is a bug — please report it.',
       );
     }
-    debugPrint('[SchemaVersion] Migrating document v$v → v${v + 1}');
     migrated = migration(migrated);
     assert(
       (migrated['version'] as int?) == v + 1,
@@ -129,9 +128,6 @@ Map<String, dynamic> migrateDocument(Map<String, dynamic> json) {
     );
   }
 
-  debugPrint(
-    '[SchemaVersion] Migration complete: v$docVersion → v$kCurrentSchemaVersion',
-  );
   return migrated;
 }
 

@@ -74,7 +74,6 @@ class NativeFlueraPdfProvider implements FlueraPdfProvider {
 
       return success && _pageCount > 0;
     } catch (e) {
-      debugPrint('[NativePdfProvider] loadDocument error: $e');
       return false;
     }
   }
@@ -117,7 +116,6 @@ class NativeFlueraPdfProvider implements FlueraPdfProvider {
       _pageSizeCache[pageIndex] = size;
       return size;
     } catch (e) {
-      debugPrint('[NativePdfProvider] getPageSize error: $e');
       return Size.zero;
     }
   }
@@ -156,7 +154,6 @@ class NativeFlueraPdfProvider implements FlueraPdfProvider {
       // Decode raw RGBA pixels into ui.Image
       return _decodePixels(pixels, width, height);
     } catch (e) {
-      debugPrint('[NativePdfProvider] renderPage error: $e');
       return null;
     }
   }
@@ -207,7 +204,6 @@ class NativeFlueraPdfProvider implements FlueraPdfProvider {
         );
       }).toList();
     } catch (e) {
-      debugPrint('[NativePdfProvider] extractText error: $e');
       return [];
     }
   }
@@ -223,7 +219,6 @@ class NativeFlueraPdfProvider implements FlueraPdfProvider {
       });
       return result ?? '';
     } catch (e) {
-      debugPrint('[NativePdfProvider] getPageText error: $e');
       return '';
     }
   }
@@ -246,7 +241,6 @@ class NativeFlueraPdfProvider implements FlueraPdfProvider {
 
       return OcrPageResult.fromMap(Map<String, dynamic>.from(result));
     } catch (e) {
-      debugPrint('[NativePdfProvider] ocrPage error: $e');
       return null;
     }
   }

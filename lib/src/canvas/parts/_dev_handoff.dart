@@ -13,10 +13,8 @@ extension DevHandoffFeatures on _FlueraCanvasScreenState {
     });
     if (_isInspectModeActive) {
       _activeInspectEngine = const InspectEngine();
-      debugPrint('[Design] Inspect mode ON');
     } else {
       _activeInspectEngine = null;
-      debugPrint('[Design] Inspect mode OFF');
     }
   }
 
@@ -26,7 +24,6 @@ extension DevHandoffFeatures on _FlueraCanvasScreenState {
     setState(() {
       _isRedlineActive = !_isRedlineActive;
     });
-    debugPrint('[Design] Redline overlay ${_isRedlineActive ? "ON" : "OFF"}');
   }
 
   /// Show code generator panel.
@@ -38,6 +35,5 @@ extension DevHandoffFeatures on _FlueraCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => const DevHandoffPanel(),
     );
-    debugPrint('[Design] Code generator opened');
   }
 }

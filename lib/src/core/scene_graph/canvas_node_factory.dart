@@ -159,4 +159,27 @@ class CanvasNodeFactory {
     }
     return layer;
   }
+
+  /// 🚀 LAZY DECODE: Create a [LayerNode] from JSON, skipping stroke children.
+  ///
+  /// Loads layer metadata (id, name, visibility, opacity, blendMode) and
+  /// non-stroke children (shapes, texts, images, PDFs) but does NOT
+  /// deserialize stroke data. This avoids the massive transient memory
+  /// allocation when stroke data is already indexed in SQLite.
+  ///
+  /// Stubs are injected separately via [StrokePagingManager.loadStubsFromIndex].
+  static LayerNode layerFromJsonMetadataOnly(Map<String, dynamic> json) {
+    final layer = LayerNode(id: NodeId(json['id'] as String));
+    CanvasNode.applyBaseFromJson(layer, json);
+    if (json['children'] != null) {
+      final nonStrokeChildren =
+          (json['children'] as List<dynamic>)
+              .where((c) => c is Map && c['nodeType'] != 'stroke')
+              .toList();
+      if (nonStrokeChildren.isNotEmpty) {
+        layer.loadChildrenFromJson(nonStrokeChildren, fromJson);
+      }
+    }
+    return layer;
+  }
 }

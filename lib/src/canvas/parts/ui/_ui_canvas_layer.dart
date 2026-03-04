@@ -40,163 +40,173 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           _remoteLiveStrokesHost,
           _pdfPlaceholdersHost,
 
-          // 📐 SECTION PREVIEW OVERLAY
-          if (_isSectionActive &&
-              _sectionStartPoint != null &&
-              _sectionCurrentEndPoint != null)
-            IgnorePointer(
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  painter: _SectionPreviewPainter(
-                    startPoint: _sectionStartPoint!,
-                    endPoint: _sectionCurrentEndPoint!,
-                    controller: _canvasController,
-                  ),
-                  size: Size.infinite,
-                ),
-              ),
-            ),
-
-          // 📐 SECTION DRAG/RESIZE HIGHLIGHT OVERLAY
-          if (_draggingSectionNode != null || _resizingSectionNode != null)
-            IgnorePointer(
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  painter: _SectionHighlightPainter(
-                    section: _draggingSectionNode ?? _resizingSectionNode!,
-                    controller: _canvasController,
-                    isResizing: _resizingSectionNode != null,
-                  ),
-                  size: Size.infinite,
-                ),
-              ),
-            ),
-
-          // 🗺️ SECTION NAVIGATOR PANEL
-          if (_isSectionActive) _buildSectionNavigator(),
-
-          // 📌 RECORDING PINS OVERLAY
-          if (_recordingPins.isNotEmpty || _isPinPlacementMode)
-            _buildRecordingPinsOverlay(context),
-
-          // 🎤 SYNCHRONIZED PLAYBACK OVERLAY (Locale)
-          if (widget.externalPlaybackController != null)
-            _buildLocalPlaybackOverlay(context),
-
-          // 🔲 REMOTE VIEWPORT & PRESENCE OVERLAYS
-          ..._buildRemoteOverlays(context),
-
-          // 🛠️ STANDARD OVERLAYS (Lasso, Selection, Pen, Ruler, Text)
-          ..._buildStandardOverlays(context),
-
-          // 🏗️ ERASER OVERLAYS
-          ..._buildEraserOverlays(context),
-
-          // 📏 Ruler & Digital Text overlays
-          ..._buildToolOverlays(context),
-
-          // 🎵 Synchronized Playback Overlay (Recorded)
-          if (_isPlayingSyncedRecording && _playbackController != null)
-            _buildRecordedPlaybackOverlay(context),
-
-          // 🏎️ Edge Auto-Scroll Glow Indicator
-          if (_activeEdgeScroll != 0) ...[
-            // Left edge
-            if (_activeEdgeScroll & 1 != 0)
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: 30,
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: [
-                          Colors.blue.withValues(alpha: 0.25),
-                          Colors.blue.withValues(alpha: 0.0),
-                        ],
+          // 🚀 PERF: All conditional overlays wrapped in ValueListenableBuilder.
+          // Drawing handlers increment _uiRebuildNotifier instead of setState,
+          // so only this subtree rebuilds (not the entire widget tree).
+          ValueListenableBuilder<int>(
+            valueListenable: _uiRebuildNotifier,
+            builder:
+                (context, _, __) => Stack(
+                  children: [
+                    // 📐 SECTION PREVIEW OVERLAY
+                    if (_isSectionActive &&
+                        _sectionStartPoint != null &&
+                        _sectionCurrentEndPoint != null)
+                      IgnorePointer(
+                        child: RepaintBoundary(
+                          child: CustomPaint(
+                            painter: _SectionPreviewPainter(
+                              startPoint: _sectionStartPoint!,
+                              endPoint: _sectionCurrentEndPoint!,
+                              controller: _canvasController,
+                            ),
+                            size: Size.infinite,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ),
-              ),
-            // Right edge
-            if (_activeEdgeScroll & 2 != 0)
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: 30,
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.centerRight,
-                        end: Alignment.centerLeft,
-                        colors: [
-                          Colors.blue.withValues(alpha: 0.25),
-                          Colors.blue.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            // Top edge
-            if (_activeEdgeScroll & 4 != 0)
-              Positioned(
-                left: 0,
-                right: 0,
-                top: 0,
-                height: 30,
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.blue.withValues(alpha: 0.25),
-                          Colors.blue.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            // Bottom edge
-            if (_activeEdgeScroll & 8 != 0)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 30,
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.blue.withValues(alpha: 0.25),
-                          Colors.blue.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
 
-          // 🎵 Audio Mini-Player (floating bar during audio-only playback)
-          if (_isPlayingAudio) _buildAudioMiniPlayer(context),
+                    // 📐 SECTION DRAG/RESIZE HIGHLIGHT OVERLAY
+                    if (_draggingSectionNode != null ||
+                        _resizingSectionNode != null)
+                      IgnorePointer(
+                        child: RepaintBoundary(
+                          child: CustomPaint(
+                            painter: _SectionHighlightPainter(
+                              section:
+                                  _draggingSectionNode ?? _resizingSectionNode!,
+                              controller: _canvasController,
+                              isResizing: _resizingSectionNode != null,
+                            ),
+                            size: Size.infinite,
+                          ),
+                        ),
+                      ),
 
-          // V1: LaTeX hidden — re-enable post-launch
-          // if (_lassoTool.hasSelection && !_lassoTool.isDragging)
-          //   _buildConvertToLatexFab(),
+                    // 🗺️ SECTION NAVIGATOR PANEL
+                    if (_isSectionActive) _buildSectionNavigator(),
+
+                    // 📌 RECORDING PINS OVERLAY
+                    if (_recordingPins.isNotEmpty || _isPinPlacementMode)
+                      _buildRecordingPinsOverlay(context),
+
+                    // 🎤 SYNCHRONIZED PLAYBACK OVERLAY (Locale)
+                    if (widget.externalPlaybackController != null)
+                      _buildLocalPlaybackOverlay(context),
+
+                    // 🔲 REMOTE VIEWPORT & PRESENCE OVERLAYS
+                    ..._buildRemoteOverlays(context),
+
+                    // 🛠️ STANDARD OVERLAYS (Lasso, Selection, Pen, Ruler, Text)
+                    ..._buildStandardOverlays(context),
+
+                    // 🏗️ ERASER OVERLAYS
+                    ..._buildEraserOverlays(context),
+
+                    // 📏 Ruler & Digital Text overlays
+                    ..._buildToolOverlays(context),
+
+                    // 🎵 Synchronized Playback Overlay (Recorded)
+                    if (_isPlayingSyncedRecording &&
+                        _playbackController != null)
+                      _buildRecordedPlaybackOverlay(context),
+
+                    // 🏎️ Edge Auto-Scroll Glow Indicator
+                    if (_activeEdgeScroll != 0) ...[
+                      // Left edge
+                      if (_activeEdgeScroll & 1 != 0)
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 30,
+                          child: IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [
+                                    Colors.blue.withValues(alpha: 0.25),
+                                    Colors.blue.withValues(alpha: 0.0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Right edge
+                      if (_activeEdgeScroll & 2 != 0)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 30,
+                          child: IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerRight,
+                                  end: Alignment.centerLeft,
+                                  colors: [
+                                    Colors.blue.withValues(alpha: 0.25),
+                                    Colors.blue.withValues(alpha: 0.0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Top edge
+                      if (_activeEdgeScroll & 4 != 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          top: 0,
+                          height: 30,
+                          child: IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.blue.withValues(alpha: 0.25),
+                                    Colors.blue.withValues(alpha: 0.0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Bottom edge
+                      if (_activeEdgeScroll & 8 != 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 30,
+                          child: IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [
+                                    Colors.blue.withValues(alpha: 0.25),
+                                    Colors.blue.withValues(alpha: 0.0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+
+                    // 🎵 Audio Mini-Player (floating bar during audio-only playback)
+                    if (_isPlayingAudio) _buildAudioMiniPlayer(context),
+                  ],
+                ),
+          ),
         ],
       ),
     );
@@ -391,6 +401,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       devicePixelRatio: dpr,
                       spatialIndex: _imageSpatialIndex,
                       memoryManager: _imageMemoryManager,
+                      microThumbnails: _imageStubManager.microThumbnails,
                       imageRepaintNotifier: _imageRepaintNotifier,
                     ),
                     isComplex: true,
@@ -1166,9 +1177,7 @@ class _PdfLoadingPlaceholderPainter extends CustomPainter {
       final frame = await codec.getNextFrame();
       _decodedThumbnails[docId] = frame.image;
       codec.dispose();
-    } catch (e) {
-      debugPrint('[RT] 📸 Thumbnail decode failed: $e');
-    }
+    } catch (e) {}
   }
 
   @override

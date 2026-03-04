@@ -560,7 +560,6 @@ class EncryptedRealtimeAdapter implements FlueraRealtimeAdapter {
           timestamp: event.timestamp,
         );
       } catch (e) {
-        debugPrint('🔐 Decryption failed: $e');
         return event; // Return as-is on failure
       }
     });
@@ -585,7 +584,6 @@ class EncryptedRealtimeAdapter implements FlueraRealtimeAdapter {
 
       await _inner.broadcast(canvasId, encEvent);
     } catch (e) {
-      debugPrint('🔐 Encryption failed, sending plaintext: $e');
       await _inner.broadcast(canvasId, event);
     }
   }

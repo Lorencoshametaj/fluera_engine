@@ -100,7 +100,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
           )
           .toList();
     } catch (e) {
-      debugPrint('🎬 [TTStorage] Error loading session index: $e');
       return [];
     }
   }
@@ -117,9 +116,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
     final file = File(p.join(basePath, session.deltaFilePath));
 
     if (!await file.exists()) {
-      debugPrint(
-        '🎬 [TTStorage] Session file not found: ${session.deltaFilePath}',
-      );
       return [];
     }
 
@@ -134,9 +130,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
         return TimeTravelEvent.fromJson(json);
       }).toList();
     } catch (e) {
-      debugPrint(
-        '🎬 [TTStorage] Error loading events from ${session.deltaFilePath}: $e',
-      );
       return [];
     }
   }
@@ -185,7 +178,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
               .toList();
       return (layers, bestIndex);
     } catch (e) {
-      debugPrint('🎬 [TTStorage] Error loading snapshot: $e');
       return null;
     }
   }
@@ -209,7 +201,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
     String? branchId,
   }) async {
     if (!recorder.hasEvents) {
-      debugPrint('🎬 [TTStorage] No events to save');
       return;
     }
 
@@ -240,10 +231,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
       await _saveSnapshot(basePath, existingIndex.length - 1, currentLayers);
     }
 
-    debugPrint(
-      '🎬 [TTStorage] Saved session ${session.id} '
-      '(${session.deltaCount} events, index #${existingIndex.length - 1})',
-    );
   }
 
   /// 🗑️ Delete all time travel history for a canvas/branch.
@@ -252,7 +239,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
     final dir = Directory(basePath);
     if (await dir.exists()) {
       await dir.delete(recursive: true);
-      debugPrint('🎬 [TTStorage] Deleted history at $basePath');
     }
   }
 
@@ -285,10 +271,6 @@ class TimeTravelStorageService implements FlueraTimeTravelStorage {
     final file = File(p.join(snapshotDir.path, 'snapshot_$sessionIndex.json'));
     final json = layers.map((l) => l.toJson()).toList();
     await file.writeAsString(jsonEncode(json));
-    debugPrint(
-      '🎬 [TTStorage] Saved snapshot at session index $sessionIndex '
-      '(${layers.length} layers)',
-    );
   }
 }
 
@@ -376,7 +358,6 @@ class TimelapseExportDialog {
     required TimeTravelPlaybackEngine engine,
     required int totalEventCount,
   }) {
-    debugPrint('[Phase2 Stub] TimelapseExportDialog.show — not available yet');
   }
 }
 

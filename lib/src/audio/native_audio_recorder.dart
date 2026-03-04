@@ -65,13 +65,9 @@ class NativeAudioRecorder {
       await _channel.initialize();
       _setupListeners();
       _isInitialized = true;
-      debugPrint('✅ NativeAudioRecorder initialized');
       _initCompleter!.complete();
     } catch (e) {
       // On desktop/web or if initialization fails, log and continue
-      debugPrint(
-        '⚠️ Failed to initialize NativeAudioRecorder (likely platform mismatch): $e',
-      );
       _initCompleter!.complete(); // Complete even on error so awaits don't hang
     }
   }
@@ -81,7 +77,6 @@ class NativeAudioRecorder {
     _stateSubscription = _channel.stateStream.listen((state) {
       _currentState = state;
       _stateController.add(state);
-      debugPrint('🎤 Recorder state: ${state.name}');
     });
 
     _amplitudeSubscription = _channel.amplitudeStream.listen((amplitude) {
@@ -95,7 +90,6 @@ class NativeAudioRecorder {
     });
 
     _errorSubscription = _channel.errorStream.listen((error) {
-      debugPrint('🎤 Recorder error: $error');
       _currentState = AudioRecorderState.error;
       _stateController.add(AudioRecorderState.error);
     });
@@ -138,15 +132,10 @@ class NativeAudioRecorder {
     try {
       final recordConfig = config ?? const AudioRecordConfig();
       _lastConfig = recordConfig;
-      debugPrint(
-        '🎤 _lastConfig set: hpf=${recordConfig.highPassFilterHz} comp=${recordConfig.compressor} norm=${recordConfig.normalization} needsPost=${recordConfig.needsPostProcessing}',
-      );
       await _channel.startRecording(recordConfig);
       _currentState = AudioRecorderState.recording;
       _currentDuration = Duration.zero;
-      debugPrint('🎤 Recording started');
     } catch (e) {
-      debugPrint('❌ Failed to start recording: $e');
       rethrow;
     }
   }
@@ -165,13 +154,8 @@ class NativeAudioRecorder {
       final path = await _channel.stopRecording();
       _currentState = AudioRecorderState.stopped;
 
-      debugPrint(
-        '🎛️ stop() check: path=$path _lastConfig=${_lastConfig != null} needsPost=${_lastConfig?.needsPostProcessing}',
-      );
-      debugPrint('⏹️ Recording stopped (raw): $path');
       return path;
     } catch (e) {
-      debugPrint('❌ Failed to stop recording: $e');
       rethrow;
     }
   }
@@ -193,7 +177,6 @@ class NativeAudioRecorder {
       return rawPath;
     }
     try {
-      debugPrint('🎛️ Applying audio processing pipeline...');
       final processed = await _channel.applyAudioProcessing(
         filePath: rawPath,
         sampleRate: _lastConfig!.sampleRate,
@@ -201,10 +184,8 @@ class NativeAudioRecorder {
         compressor: _lastConfig!.compressor,
         normalization: _lastConfig!.normalization,
       );
-      debugPrint('🎛️ Audio processing complete');
       return processed;
     } catch (e) {
-      debugPrint('❌ Audio post-processing failed: $e');
       // Return raw path as fallback — better than losing the recording
       return rawPath;
     }
@@ -216,9 +197,7 @@ class NativeAudioRecorder {
     try {
       await _channel.pauseRecording();
       _currentState = AudioRecorderState.paused;
-      debugPrint('⏸️ Recording paused');
     } catch (e) {
-      debugPrint('❌ Failed to pause recording: $e');
       rethrow;
     }
   }
@@ -229,9 +208,7 @@ class NativeAudioRecorder {
     try {
       await _channel.resumeRecording();
       _currentState = AudioRecorderState.recording;
-      debugPrint('▶️ Recording resumed');
     } catch (e) {
-      debugPrint('❌ Failed to resume recording: $e');
       rethrow;
     }
   }
@@ -243,9 +220,7 @@ class NativeAudioRecorder {
       await _channel.cancelRecording();
       _currentState = AudioRecorderState.idle;
       _currentDuration = Duration.zero;
-      debugPrint('🗑️ Recording cancelled');
     } catch (e) {
-      debugPrint('❌ Failed to cancel recording: $e');
       rethrow;
     }
   }
@@ -260,7 +235,6 @@ class NativeAudioRecorder {
     try {
       return await _channel.hasPermission();
     } catch (e) {
-      debugPrint('❌ Failed to check permission: $e');
       return false;
     }
   }
@@ -275,7 +249,6 @@ class NativeAudioRecorder {
     try {
       return await _channel.requestPermission();
     } catch (e) {
-      debugPrint('❌ Failed to request permission: $e');
       return false;
     }
   }
@@ -298,6 +271,5 @@ class NativeAudioRecorder {
     await _channel.dispose();
     _isInitialized = false;
 
-    debugPrint('🗑️ NativeAudioRecorder disposed');
   }
 }

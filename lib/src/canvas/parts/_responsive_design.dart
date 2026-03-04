@@ -27,8 +27,5 @@ extension ResponsiveDesignFeatures on _FlueraCanvasScreenState {
             targetSize: size,
           ),
     );
-    debugPrint(
-      '[Design] Breakpoint: $breakpoint → ${size.width}×${size.height}',
-    );
   }
 }

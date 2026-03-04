@@ -1974,7 +1974,6 @@ class _InterceptorChainRunner {
           ),
         );
       } else {
-        debugPrint('[RenderInterceptor] ${interceptor.runtimeType} error: $e');
       }
       // Skip this interceptor, continue with next in chain.
       _next(canvas, node, viewport);

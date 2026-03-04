@@ -15,7 +15,6 @@ extension on _FlueraCanvasScreenState {
     final isProUser = _config.subscriptionTier == FlueraSubscriptionTier.pro;
 
     if (!isProUser) {
-      debugPrint('🎬 [TimeTravel] Feature not available (not Pro)');
       return;
     }
 
@@ -53,10 +52,6 @@ extension on _FlueraCanvasScreenState {
       );
     };
 
-    debugPrint(
-      '🎬 [TimeTravel] Recorder initialized for canvas $_canvasId '
-      '(branch: ${mainBranch.name})',
-    );
   }
 
   /// 💾 Flush Time Travel history to disk (chiamato alla chiusura of the canvas)
@@ -78,10 +73,6 @@ extension on _FlueraCanvasScreenState {
         branchId: _activeBranchId,
       );
 
-      debugPrint(
-        '🎬 [TimeTravel] Session flushed for canvas $_canvasId '
-        '(branch: $_activeBranchId)',
-      );
 
       // ☁️ Cloud sync: upload TT sessions + final snapshot on close
       if (_hasCloudSync && _activeBranchId != null) {
@@ -94,7 +85,6 @@ extension on _FlueraCanvasScreenState {
         );
       }
     } catch (e) {
-      debugPrint('🎬 [TimeTravel] Flush error: $e');
     }
   }
 
@@ -106,20 +96,6 @@ extension on _FlueraCanvasScreenState {
   Future<void> _enterTimeTravelMode() async {
     if (_isTimeTravelMode) return;
 
-    debugPrint('🎬🔍 [TimeTravel] === ENTER MODE START ===');
-    debugPrint('🎬🔍 [TimeTravel] canvasId: $_canvasId');
-    debugPrint(
-      '🎬🔍 [TimeTravel] recorder: ${_timeTravelRecorder != null ? "EXISTS" : "NULL"}',
-    );
-    debugPrint(
-      '🎬🔍 [TimeTravel] recorder.isRecording: ${_timeTravelRecorder?.isRecording}',
-    );
-    debugPrint(
-      '🎬🔍 [TimeTravel] recorder.hasEvents: ${_timeTravelRecorder?.hasEvents}',
-    );
-    debugPrint(
-      '🎬🔍 [TimeTravel] recorder.eventCount: ${_timeTravelRecorder?.eventCount}',
-    );
 
     // 🖐️ Save current state and force pan mode (no drawing during time travel)
     _wasPanModeBeforeTimeTravel = _toolController.isPanMode;
@@ -137,9 +113,6 @@ extension on _FlueraCanvasScreenState {
     // 💾 Flush current session to disk (events are still in-memory)
     final recorder = _timeTravelRecorder;
     if (recorder != null && recorder.hasEvents) {
-      debugPrint(
-        '🎬🔍 [TimeTravel] Flushing ${recorder.eventCount} events to disk...',
-      );
       recorder.stopRecording();
       try {
         final storageService = TimeTravelStorageService();
@@ -149,17 +122,9 @@ extension on _FlueraCanvasScreenState {
           currentLayers: _layerController.layers,
           branchId: _activeBranchId,
         );
-        debugPrint(
-          '🎬🔍 [TimeTravel] ✅ Pre-playback flush: ${recorder.eventCount} events saved',
-        );
       } catch (e, st) {
-        debugPrint('🎬🔍 [TimeTravel] ❌ Pre-playback flush error: $e');
-        debugPrint('🎬🔍 [TimeTravel] Stack: $st');
       }
     } else {
-      debugPrint(
-        '🎬🔍 [TimeTravel] ⚠️ No events to flush (recorder=${recorder != null}, hasEvents=${recorder?.hasEvents})',
-      );
     }
 
     // ☁️ Cloud sync: download remote TT sessions before initializing playback
@@ -171,16 +136,11 @@ extension on _FlueraCanvasScreenState {
           _activeBranchId!,
         );
         if (downloaded > 0) {
-          debugPrint(
-            '🎬🔍 [TimeTravel] Downloaded $downloaded remote TT sessions',
-          );
         }
       } catch (e) {
-        debugPrint('🎬 [TimeTravel] Remote TT download error: $e');
       }
     }
 
-    debugPrint('🎬🔍 [TimeTravel] Initializing playback engine...');
     _timeTravelEngine = TimeTravelPlaybackEngine(
       storage: TimeTravelStorageService(),
     );
@@ -191,12 +151,8 @@ extension on _FlueraCanvasScreenState {
       branchId: _activeBranchId,
     );
 
-    debugPrint(
-      '🎬🔍 [TimeTravel] Engine initialized: $initialized, events: ${_timeTravelEngine!.totalEventCount}',
-    );
 
     if (!initialized) {
-      debugPrint('🎬🔍 [TimeTravel] ❌ No history found, exiting');
       // Riavvia recording se disponibile
       _timeTravelRecorder?.startRecording();
       setState(() {
@@ -224,9 +180,6 @@ extension on _FlueraCanvasScreenState {
     // Trigger initial rendering with the engine state
     _timeTravelEngine!.onStateChanged!();
 
-    debugPrint(
-      '🎬 [TimeTravel] Mode entered: ${_timeTravelEngine!.totalEventCount} events',
-    );
   }
 
   /// ❌ Esci da mode Time Travel (ripristina canvas live)
@@ -272,7 +225,6 @@ extension on _FlueraCanvasScreenState {
       _isTimeTravelMode = false;
     });
 
-    debugPrint('🎬 [TimeTravel] Mode exited, new recording session started');
   }
 
   /// 🎬 Esporta il timelapse video del Time Travel
@@ -300,9 +252,6 @@ extension on _FlueraCanvasScreenState {
         strokes.length + shapes.length + images.length + texts.length;
     if (totalElements == 0) return;
 
-    debugPrint(
-      '🔮 [Recover] Entering placement mode with $totalElements elements',
-    );
 
     // 1. Save elements for positioning
     _pendingRecoveryStrokes = strokes;
@@ -324,7 +273,6 @@ extension on _FlueraCanvasScreenState {
   void _commitRecoveryPlacement() {
     final offset = _recoveryPlacementOffset;
 
-    debugPrint('🔮 [Recover] Committing with offset: $offset');
 
     // Strokes: sposta ogni punto
     for (final stroke in _pendingRecoveryStrokes) {
@@ -356,10 +304,6 @@ extension on _FlueraCanvasScreenState {
     for (final image in _pendingRecoveryImages) {
       final file = File(image.imagePath);
       if (!file.existsSync()) {
-        debugPrint(
-          '🔮 [Recover] ⚠️ Skipping image ${image.id}: '
-          'file not found at ${image.imagePath}',
-        );
         continue;
       }
 
@@ -387,7 +331,6 @@ extension on _FlueraCanvasScreenState {
         _pendingRecoveryImages.length +
         _pendingRecoveryTexts.length;
 
-    debugPrint('🔮 [Recover] ✅ Committed $total elements');
 
     // Clear state
     _cancelRecoveryPlacement();

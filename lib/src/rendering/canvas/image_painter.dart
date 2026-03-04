@@ -63,6 +63,9 @@ class ImagePainter extends CustomPainter {
   // 🧠 LRU memory manager for access tracking
   final ImageMemoryManager? memoryManager;
 
+  // 🖼️ Micro-thumbnails for stubbed images (64px, ~16KB each)
+  final Map<String, ui.Image> microThumbnails;
+
   // 🖼️ Per-image Picture cache (static, persists across frames)
   static final Map<String, _ImageCacheEntry> _perImageCache = {};
 
@@ -149,6 +152,20 @@ class ImagePainter extends CustomPainter {
   // 🎨 Reusable color matrix buffer (avoids List<double> allocation per frame)
   static final Float64List _colorMatrixBuffer = Float64List(20);
 
+  // 🚀 PERF: Pre-allocated Paint objects for hot path (zero GC pressure)
+  static final Paint _lodThumbFillPaint =
+      Paint()
+        ..color = const Color(0x206B8E6B)
+        ..style = PaintingStyle.fill;
+  static final Paint _lodThumbBorderPaint =
+      Paint()
+        ..color = const Color(0x406B8E6B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+  static final Paint _imageRenderPaint = Paint(); // filterQuality set per-use
+  static final Paint _badgePillPaint = Paint()..color = const Color(0xDD1565C0);
+  static final Paint _vignettePaint = Paint(); // shader set per-use
+
   ImagePainter({
     required this.images,
     required this.loadedImages,
@@ -162,6 +179,7 @@ class ImagePainter extends CustomPainter {
     this.devicePixelRatio = 1.0,
     this.spatialIndex,
     this.memoryManager,
+    this.microThumbnails = const {},
     ValueNotifier<int>? imageRepaintNotifier,
   }) : super(
          // 🚀 PERF: Do NOT listen to controller here.
@@ -227,15 +245,6 @@ class ImagePainter extends CustomPainter {
     // (consistent with stroke Tier 1 behavior — saves image decode + filter cost)
     final canvasScale = controller?.scale ?? 1.0;
     if (canvasScale < 0.2) {
-      final thumbPaint =
-          Paint()
-            ..color = const Color(0x206B8E6B)
-            ..style = PaintingStyle.fill;
-      final thumbBorder =
-          Paint()
-            ..color = const Color(0x406B8E6B)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.0;
       for (final img in visibleImages) {
         final image = loadedImages[img.imagePath];
         final w = image?.width.toDouble() ?? 200.0;
@@ -248,8 +257,8 @@ class ImagePainter extends CustomPainter {
         if (rect.longestSide * canvasScale < 3.0) continue; // too small
         final r = (rect.shortestSide * 0.04).clamp(2.0, 12.0);
         final rrect = RRect.fromRectAndRadius(rect, Radius.circular(r));
-        canvas.drawRRect(rrect, thumbPaint);
-        canvas.drawRRect(rrect, thumbBorder);
+        canvas.drawRRect(rrect, _lodThumbFillPaint);
+        canvas.drawRRect(rrect, _lodThumbBorderPaint);
       }
       return;
     }
@@ -535,11 +544,14 @@ class ImagePainter extends CustomPainter {
       );
     }
 
-    // 🎨 Create paint with LOD-adaptive FilterQuality
-    final paint =
-        Paint()
-          ..filterQuality =
-              filterQualityOverride ?? _calculateLOD(imageElement, image);
+    // 🎨 Create paint with LOD-adaptive FilterQuality (reuse static paint)
+    _imageRenderPaint
+      ..filterQuality =
+          filterQualityOverride ?? _calculateLOD(imageElement, image)
+      ..color = const Color(0xFFFFFFFF)
+      ..colorFilter = null
+      ..shader = null;
+    final paint = _imageRenderPaint;
 
     // Apply opacity (Bug 2 fix: removed BlendMode.dstIn which made images invisible)
     if (imageElement.opacity < 1.0) {
@@ -669,8 +681,13 @@ class ImagePainter extends CustomPainter {
       );
     }
 
-    // Paint with LOD
-    final paint = Paint()..filterQuality = _calculateLOD(imageElement, image);
+    // Paint with LOD (reuse static paint)
+    _imageRenderPaint
+      ..filterQuality = _calculateLOD(imageElement, image)
+      ..color = const Color(0xFFFFFFFF)
+      ..colorFilter = null
+      ..shader = null;
+    final paint = _imageRenderPaint;
 
     if (imageElement.opacity < 1.0) {
       paint.color = Color.fromRGBO(255, 255, 255, imageElement.opacity);
@@ -855,8 +872,8 @@ class ImagePainter extends CustomPainter {
       ],
       stops: const [0.3, 0.75, 1.0],
     );
-    final paint = Paint()..shader = gradient.createShader(rect);
-    canvas.drawRect(rect, paint);
+    _vignettePaint.shader = gradient.createShader(rect);
+    canvas.drawRect(rect, _vignettePaint);
   }
 
   // Fast inline trig for hot path (avoid dart:math import overhead)
@@ -974,7 +991,7 @@ class ImagePainter extends CustomPainter {
         const Radius.circular(12),
       );
 
-      canvas.drawRRect(badgeRect, Paint()..color = const Color(0xDD1565C0));
+      canvas.drawRRect(badgeRect, _badgePillPaint);
       tp.paint(canvas, Offset(-tp.width / 2, rect.top - 28 - tp.height / 2));
       tp.dispose();
     }
@@ -1095,8 +1112,14 @@ class ImagePainter extends CustomPainter {
       canvas.scale(imageElement.scale);
     }
 
-    // 📏 #5: Use cached dimensions for correct aspect ratio
-    //    Falls back to 200x150 if never loaded before.
+    // 🖼️ Try micro-thumbnail for stubbed images (Improvement 2)
+    final microThumb = microThumbnails[imageElement.id];
+    if (microThumb != null) {
+      _drawMicroThumbnail(canvas, imageElement, microThumb);
+      return;
+    }
+
+    // ✅ No micro-thumbnail — show generic placeholder
     final cachedSize = memoryManager?.getImageDimensions(
       imageElement.imagePath,
     );
@@ -1154,6 +1177,63 @@ class ImagePainter extends CustomPainter {
     );
 
     canvas.restore();
+  }
+
+  /// 🖼️ Draw a blurred micro-thumbnail for stubbed images.
+  ///
+  /// Instead of a generic "Downloading..." spinner, stubbed images show
+  /// a tiny (64px) thumbnail scaled up with bilinear filtering.
+  /// This keeps the canvas feeling populated — like Google Maps low-res tiles.
+  void _drawMicroThumbnail(
+    Canvas canvas,
+    ImageElement imageElement,
+    ui.Image thumbnail,
+  ) {
+    // Get target size from cached dimensions (or use thumbnail size × 4)
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final targetW = cachedSize?.width ?? thumbnail.width * 4.0;
+    final targetH = cachedSize?.height ?? thumbnail.height * 4.0;
+
+    final destRect = Rect.fromCenter(
+      center: Offset.zero,
+      width: targetW,
+      height: targetH,
+    );
+    final srcRect = Rect.fromLTWH(
+      0,
+      0,
+      thumbnail.width.toDouble(),
+      thumbnail.height.toDouble(),
+    );
+
+    // Draw thumbnail with low-quality filter (intentionally blurry — it's a preview)
+    final paint =
+        Paint()
+          ..filterQuality = FilterQuality.low
+          ..color = const Color(0xDDFFFFFF); // slightly faded
+
+    // Clip to rounded rect
+    final rrect = RRect.fromRectAndRadius(destRect, const Radius.circular(8));
+    canvas.save();
+    canvas.clipRRect(rrect);
+
+    // Draw the scaled-up micro thumbnail
+    canvas.drawImageRect(thumbnail, srcRect, destRect, paint);
+
+    // Subtle dark overlay to signal "loading"
+    canvas.drawRect(destRect, Paint()..color = const Color(0x20000000));
+
+    canvas.restore();
+
+    // Subtle border
+    _placeholderBorderPaint.color = const Color(0x30FFFFFF);
+    canvas.drawRRect(rrect, _placeholderBorderPaint);
+
+    // Note: canvas.restore() for position/rotation/scale is done by the caller
+    // (_drawLoadingPlaceholder's save/restore wraps both paths)
+    canvas.restore(); // Match the save() from _drawLoadingPlaceholder
   }
 
   // ===========================================================================

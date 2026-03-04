@@ -538,7 +538,6 @@ class ConsoleTelemetryExporter extends TelemetryExporter {
       }
     }
     // ignore: avoid_print
-    print(buf.toString());
   }
 }
 

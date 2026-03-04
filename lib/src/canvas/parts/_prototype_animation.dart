@@ -18,7 +18,6 @@ extension PrototypeAnimationFeatures on _FlueraCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => _PrototypePlayerSheet(flow: flow),
     );
-    debugPrint('[Design] Prototype preview started');
   }
 
   /// Add a flow link between two frames.
@@ -31,7 +30,6 @@ extension PrototypeAnimationFeatures on _FlueraCanvasScreenState {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
-    debugPrint('[Design] Flow link mode activated');
   }
 
   /// Show animation timeline panel.
@@ -44,7 +42,6 @@ extension PrototypeAnimationFeatures on _FlueraCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => const AnimationTimelinePanel(),
     );
-    debugPrint('[Design] Animation timeline opened');
   }
 
   /// Enable smart animate between component states.
@@ -59,7 +56,6 @@ extension PrototypeAnimationFeatures on _FlueraCanvasScreenState {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
-    debugPrint('[Design] Smart animate enabled');
   }
 }
 

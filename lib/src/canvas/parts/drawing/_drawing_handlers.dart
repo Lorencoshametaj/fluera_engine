@@ -47,7 +47,7 @@ extension on _FlueraCanvasScreenState {
       // 3. Otherwise, start drawing a new section
       _sectionStartPoint = canvasPosition;
       _sectionCurrentEndPoint = canvasPosition;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -76,7 +76,7 @@ extension on _FlueraCanvasScreenState {
     if (!_effectiveIsPanMode && _imageTool.selectedImage != null) {
       _imageTool.clearSelection();
       _imageRepaintNotifier.value++;
-      setState(() {});
+      _uiRebuildNotifier.value++;
     }
 
     // 🖼️ Image interaction only when PAN (hand) tool is active
@@ -102,7 +102,7 @@ extension on _FlueraCanvasScreenState {
         // 🌀 Check rotation handle first (above the image)
         if (_imageTool.hitTestRotationHandle(canvasPosition, imageSize)) {
           _imageTool.startHandleRotation(canvasPosition);
-          setState(() {});
+          _uiRebuildNotifier.value++;
           return;
         }
 
@@ -112,7 +112,7 @@ extension on _FlueraCanvasScreenState {
         );
         if (handle != null) {
           _imageTool.startResize(handle, canvasPosition);
-          setState(() {});
+          _uiRebuildNotifier.value++;
           return;
         }
       }
@@ -146,7 +146,7 @@ extension on _FlueraCanvasScreenState {
               // 🔴 RT: Broadcast rotation reset to collaborators
               _broadcastImageUpdate(resetImage);
               _lastImageTapTime = 0; // Prevent triple-tap
-              setState(() {});
+              _uiRebuildNotifier.value++;
               return;
             }
             _lastImageTapTime = now;
@@ -157,14 +157,14 @@ extension on _FlueraCanvasScreenState {
             // 📍 Save initial position to detect movement
             _initialTapPosition = canvasPosition;
 
-            setState(() {});
+            _uiRebuildNotifier.value++;
             return; // 🛑 Block other tools when touching image in pan mode
           }
         }
       } // If tocco area vuota con selected image, deseleziona
       if (_imageTool.selectedImage != null) {
         _imageTool.clearSelection();
-        setState(() {});
+        _uiRebuildNotifier.value++;
         // Do not return - continua con gli altri tool
       }
     }
@@ -180,7 +180,7 @@ extension on _FlueraCanvasScreenState {
       if (handleIndex != null) {
         // Start resize
         _digitalTextTool.startResize(handleIndex, canvasPosition);
-        setState(() {});
+        _uiRebuildNotifier.value++;
         return;
       }
     }
@@ -195,14 +195,14 @@ extension on _FlueraCanvasScreenState {
       // Select the element and start drag
       _digitalTextTool.selectElement(hitElement);
       _digitalTextTool.startDrag(canvasPosition);
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return; // 🛑 Block other tools when touching text
     }
 
     // If tapped on empty area, deselect (if there was a selection)
     if (_digitalTextTool.hasSelection) {
       _digitalTextTool.deselectElement();
-      setState(() {});
+      _uiRebuildNotifier.value++;
       // Do not return — continue with other tools
     }
 
@@ -221,7 +221,7 @@ extension on _FlueraCanvasScreenState {
             border.index,
             canvasPosition,
           );
-          setState(() {});
+          _uiRebuildNotifier.value++;
           return;
         }
         // No border — detect which cell was tapped
@@ -239,19 +239,19 @@ extension on _FlueraCanvasScreenState {
           _editingInCell = false;
           _tabularTool.deselectCell();
         }
-        setState(() {});
+        _uiRebuildNotifier.value++;
         return;
       }
       // New table selected
       _tabularTool.selectTabular(hitTabular);
       _tabularTool.startDrag(canvasPosition);
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
     // Deselect tabular if tapped empty area
     if (_tabularTool.hasSelection) {
       _tabularTool.deselectTabular();
-      setState(() {});
+      _uiRebuildNotifier.value++;
     }
 
     // 🧮 LatexNode hit-test (tap to select/drag, tap away to deselect)
@@ -260,14 +260,14 @@ extension on _FlueraCanvasScreenState {
       _selectedLatexNode = hitLatex;
       _isDraggingLatex = true;
       _latexDragStart = canvasPosition;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
     // Deselect LatexNode if tapped empty area
     if (_selectedLatexNode != null) {
       _selectedLatexNode = null;
       _isDraggingLatex = false;
-      setState(() {});
+      _uiRebuildNotifier.value++;
     }
 
     // If digital text mode is active and no text was hit, return (don't draw)
@@ -281,7 +281,7 @@ extension on _FlueraCanvasScreenState {
     if (_effectiveIsLasso && _lassoTool.hasSelection) {
       if (_lassoTool.isPointInSelection(canvasPosition)) {
         _lassoTool.startDrag(canvasPosition);
-        setState(() {});
+        _uiRebuildNotifier.value++;
         return;
       }
     }
@@ -296,7 +296,7 @@ extension on _FlueraCanvasScreenState {
         _lassoSelectionBackup = null;
       }
       _lassoTool.startLasso(canvasPosition);
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
     // ✒️ PEN TOOL: route events to vector path editor
@@ -306,7 +306,7 @@ extension on _FlueraCanvasScreenState {
         _penToolContext,
         PointerDownEvent(position: screenPos),
       );
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -336,21 +336,21 @@ extension on _FlueraCanvasScreenState {
               _showUndoGhostReplay = true;
               Future.delayed(const Duration(milliseconds: 50), () {
                 _eraserTool.undoGhostProgress = 0.3;
-                if (mounted) setState(() {});
+                if (mounted) _uiRebuildNotifier.value++;
               });
               Future.delayed(const Duration(milliseconds: 150), () {
                 _eraserTool.undoGhostProgress = 0.6;
-                if (mounted) setState(() {});
+                if (mounted) _uiRebuildNotifier.value++;
               });
               Future.delayed(const Duration(milliseconds: 300), () {
                 _eraserTool.undoGhostProgress = 1.0;
-                if (mounted) setState(() {});
+                if (mounted) _uiRebuildNotifier.value++;
               });
               Future.delayed(const Duration(milliseconds: 400), () {
                 _eraserTool.finishUndoGhostReplay();
                 _showUndoGhostReplay = false;
                 DrawingPainter.invalidateAllTiles();
-                if (mounted) setState(() {});
+                if (mounted) _uiRebuildNotifier.value++;
               });
             } else {
               _eraserTool.undo();
@@ -358,7 +358,7 @@ extension on _FlueraCanvasScreenState {
             HapticFeedback.mediumImpact();
           }
           _lastEraserPointerDownTime = now; // Keep time for potential triple
-          setState(() {});
+          _uiRebuildNotifier.value++;
           return;
         } else if (_eraserTapCount >= 3) {
           // Triple-tap → REDO
@@ -369,7 +369,7 @@ extension on _FlueraCanvasScreenState {
           }
           _eraserTapCount = 0; // Reset after triple
           _lastEraserPointerDownTime = 0;
-          setState(() {});
+          _uiRebuildNotifier.value++;
           return;
         }
       } else {
@@ -401,7 +401,7 @@ extension on _FlueraCanvasScreenState {
       // 🎯 V4: Lasso mode — just collect points, don't erase yet
       if (_eraserLassoMode) {
         _eraserLassoPoints.add(canvasPosition);
-        setState(() {});
+        _uiRebuildNotifier.value++;
         return;
       }
 
@@ -417,7 +417,7 @@ extension on _FlueraCanvasScreenState {
         _eraserPulseController.forward(from: 0);
         _spawnEraserParticles(snappedPos, now);
       }
-      setState(() {}); // 🏗️ Forza rebuild per eraser cursor overlay
+      _uiRebuildNotifier.value++; // 🏗️ Forza rebuild per eraser cursor overlay
       return;
     }
 
@@ -457,7 +457,7 @@ extension on _FlueraCanvasScreenState {
               _pdfPageDragController.startDrag(hitPage, child, canvasPosition);
               DrawingPainter.isDraggingPdf = true;
               _pdfLayoutVersion++;
-              setState(() {});
+              _uiRebuildNotifier.value++;
               return;
             }
           }
@@ -476,7 +476,7 @@ extension on _FlueraCanvasScreenState {
               _pdfPageDragController.startDocumentDrag(child, canvasPosition);
               DrawingPainter.isDraggingPdf = true;
               _pdfLayoutVersion++;
-              setState(() {});
+              _uiRebuildNotifier.value++;
               return;
             }
           }
@@ -559,7 +559,7 @@ extension on _FlueraCanvasScreenState {
     if (_resizingSectionNode != null) {
       _resizingSectionNode = null;
       _resizeAnchorCorner = null;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -567,7 +567,7 @@ extension on _FlueraCanvasScreenState {
     if (_draggingSectionNode != null) {
       _draggingSectionNode = null;
       _sectionDragGrabOffset = null;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -575,17 +575,16 @@ extension on _FlueraCanvasScreenState {
     if (_isSectionActive && _sectionStartPoint != null) {
       _sectionStartPoint = null;
       _sectionCurrentEndPoint = null;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
     // 📌 PIN DRAG CANCEL: Cancel pin drag on multi-touch interrupt
     if (_draggingPinId != null) {
-      setState(() {
-        _draggingPinId = null;
-        _draggingPinOffset = null;
-        _pinDragStartCanvasPos = null;
-      });
+      _draggingPinId = null;
+      _draggingPinOffset = null;
+      _pinDragStartCanvasPos = null;
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -619,7 +618,7 @@ extension on _FlueraCanvasScreenState {
       _pdfPageDragController.cancelDrag();
       DrawingPainter.invalidateAllTiles();
       _pdfLayoutVersion++;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -652,7 +651,7 @@ extension on _FlueraCanvasScreenState {
       _pdfPageDragController.cancelDrag();
       DrawingPainter.invalidateAllTiles();
       _pdfLayoutVersion++;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -661,7 +660,7 @@ extension on _FlueraCanvasScreenState {
       _lassoTool.clearLassoPath();
       _lassoTool.restoreSelectionFromIds(_lassoSelectionBackup!);
       _lassoSelectionBackup = null;
-      setState(() {});
+      _uiRebuildNotifier.value++;
       return;
     }
     _lassoSelectionBackup = null;
@@ -756,7 +755,7 @@ extension on _FlueraCanvasScreenState {
     _layerController.sceneGraph.bumpVersion();
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.mediumImpact();
-    setState(() {});
+    _uiRebuildNotifier.value++;
     _autoSaveCanvas();
   }
 
@@ -1387,7 +1386,7 @@ extension on _FlueraCanvasScreenState {
                     node.cachedLayout = null;
                     _layerController.sceneGraph.bumpVersion();
                     DrawingPainter.invalidateAllTiles();
-                    setState(() {});
+                    _uiRebuildNotifier.value++;
                     _autoSaveCanvas();
                     Navigator.pop(ctx);
                   },

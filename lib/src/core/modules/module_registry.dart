@@ -212,7 +212,6 @@ class ModuleRegistry extends ChangeNotifier {
           await module.dispose();
         } catch (e) {
           // Log but don't throw — ensure all modules get disposed
-          debugPrint('Error disposing module "$id": $e');
         }
       }
     }

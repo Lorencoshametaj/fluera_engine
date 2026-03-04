@@ -13,8 +13,10 @@ import './shape_painter.dart';
 import '../../drawing/brushes/brushes.dart';
 import '../optimization/viewport_culler.dart';
 import '../optimization/spatial_index.dart';
+import '../optimization/spatial_index.dart' as rtree_lib show RTree;
 import '../optimization/persistent_spatial_index.dart';
 import '../optimization/stroke_offset_index.dart';
+import '../optimization/pdf_page_stub_manager.dart';
 
 import '../optimization/stroke_cache_manager.dart';
 import '../../core/models/canvas_layer.dart';
@@ -141,6 +143,14 @@ class DrawingPainter extends CustomPainter {
   /// in shouldRepaint (where the paint size parameter isn't available).
   static Size _lastPaintSize = Size.zero;
 
+  /// Whether the previous shouldRepaint call was during a gesture.
+  /// Used to detect gesture-end transition (isPanning true→false).
+  static bool _wasGesturing = false;
+
+  /// Scale at which the last paint() call rendered.
+  /// Used to detect scale changes after gesture ends.
+  static double _lastPaintedScale = 1.0;
+
   /// 🧩 Tile cache for regional invalidation.
   /// Shared across DrawingPainter instances via EngineScope or static fallback.
   static final TileCacheManager _tileCache = TileCacheManager();
@@ -160,6 +170,26 @@ class DrawingPainter extends CustomPainter {
   /// Dual-write with in-memory _renderIndex — fire-and-forget async.
   static final PersistentSpatialIndex _persistentIndex =
       PersistentSpatialIndex();
+
+  /// 🌲 R-Tree spatial index for PDF pages — O(log N) viewport culling.
+  /// Uses position-based bounds (matching _paintPdfPage), NOT worldBounds,
+  /// because PdfPageNode.worldBounds double-counts the position.
+  static rtree_lib.RTree<PdfPageNode> _pdfPageTree =
+      rtree_lib.RTree<PdfPageNode>(_pdfPageBounds);
+  static int _pdfPageIndexVersion = -1;
+
+  /// Bounds extractor matching what _paintPdfPage uses for rendering.
+  static Rect _pdfPageBounds(PdfPageNode page) {
+    final pos = page.position;
+    final sz = page.pageModel.originalSize;
+    return Rect.fromLTWH(pos.dx, pos.dy, sz.width, sz.height);
+  }
+
+  /// Cached document nodes for O(1) parent lookup from PdfPageNode.
+  static final Map<String, PdfDocumentNode> _pdfDocCache = {};
+
+  /// 🗂️ PDF page stub manager for 100K+ page memory management.
+  static final PdfPageStubManager _pdfStubManager = PdfPageStubManager();
 
   /// 🗂️ Stroke paging manager for memory-bounded 1M+ strokes.
   static final StrokePagingManager _pagingManager = StrokePagingManager();
@@ -569,7 +599,10 @@ class DrawingPainter extends CustomPainter {
     final effectiveOffset = isViewportLevel ? controller!.offset : canvasOffset;
     final effectiveScale = isViewportLevel ? controller!.scale : canvasScale;
     final effectiveViewportSize = isViewportLevel ? size : viewportSize;
-    if (isViewportLevel) _lastPaintSize = size;
+    if (isViewportLevel) {
+      _lastPaintSize = size;
+      _lastPaintedScale = canvasScale;
+    }
 
     if (!isViewportLevel) {
       // Legacy mode (non-viewport): apply transform here
@@ -603,19 +636,11 @@ class DrawingPainter extends CustomPainter {
       // Replay cached strokes (O(1) drawPicture)
       _strokeCache.drawCached(canvas);
 
-      // Draw lightweight page placeholders
-      final dragPaint =
-          Paint()
-            ..color = const Color(0x30000000)
-            ..style = PaintingStyle.fill;
-      final borderPaint =
-          Paint()
-            ..color = const Color(0xFF1976D2)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.0 / effectiveScale;
+      // Draw lightweight page placeholders (static paints — zero alloc)
+      _pdfDragBorderPaint.strokeWidth = 2.0 / effectiveScale;
       for (final rect in draggedPageRects) {
-        canvas.drawRect(rect, dragPaint);
-        canvas.drawRect(rect, borderPaint);
+        canvas.drawRect(rect, _pdfDragFillPaint);
+        canvas.drawRect(rect, _pdfDragBorderPaint);
       }
 
       if (!isViewportLevel) canvas.restore();
@@ -679,15 +704,13 @@ class DrawingPainter extends CustomPainter {
 
     // 🔬 DIAGNOSTIC: print breakdown on frames > 5ms
     final totalUs = _sw.elapsedMicroseconds;
-    if (totalUs > 5000) {
-      print(
-        '🔬 PAINT ${(totalUs / 1000).toStringAsFixed(1)}ms: '
-        'setup=${(_t0 / 1000).toStringAsFixed(1)}ms '
-        'strokes=${((_t1 - _t0) / 1000).toStringAsFixed(1)}ms '
-        'pdf=${((_t2 - _t1) / 1000).toStringAsFixed(1)}ms '
-        'rest=${((totalUs - _t2) / 1000).toStringAsFixed(1)}ms',
-      );
-    }
+    // (Diagnostic removed — enable when needed)
+    // if (totalUs > 5000) {
+    //   final strokeMs = (_t1 / 1000).toStringAsFixed(1);
+    //   final pdfMs = ((_t2 - _t1) / 1000).toStringAsFixed(1);
+    //   final totalMs = (totalUs / 1000).toStringAsFixed(1);
+    //   print('🔬 PAINT ${totalMs}ms → strokes:${strokeMs}ms pdf:${pdfMs}ms');
+    // }
   }
 
   // ---------------------------------------------------------------------------
@@ -940,19 +963,10 @@ class DrawingPainter extends CustomPainter {
             }
             for (final entry in thumbBatches.entries) {
               final color = Color(entry.key);
-              recCanvas.drawPath(
-                entry.value,
-                Paint()
-                  ..color = color.withValues(alpha: 0.15)
-                  ..style = PaintingStyle.fill,
-              );
-              recCanvas.drawPath(
-                entry.value,
-                Paint()
-                  ..color = color.withValues(alpha: 0.30)
-                  ..style = PaintingStyle.stroke
-                  ..strokeWidth = 1.0,
-              );
+              _lodThumbFillPaint.color = color.withValues(alpha: 0.15);
+              recCanvas.drawPath(entry.value, _lodThumbFillPaint);
+              _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
+              recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
             }
           } else if (effectiveScale < 0.5) {
             // TIER 2: Simplified polylines (medium)
@@ -1163,19 +1177,10 @@ class DrawingPainter extends CustomPainter {
         // Draw batched thumbnails: 2 draw calls per color (fill + border)
         for (final entry in thumbBatches.entries) {
           final color = Color(entry.key);
-          recCanvas.drawPath(
-            entry.value,
-            Paint()
-              ..color = color.withValues(alpha: 0.15)
-              ..style = PaintingStyle.fill,
-          );
-          recCanvas.drawPath(
-            entry.value,
-            Paint()
-              ..color = color.withValues(alpha: 0.30)
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.0,
-          );
+          _lodThumbFillPaint.color = color.withValues(alpha: 0.15);
+          recCanvas.drawPath(entry.value, _lodThumbFillPaint);
+          _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
+          recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
         }
       } else if (effectiveScale < 0.5) {
         // 🎨 TIER 2: Color-batched simplified polylines
@@ -1228,19 +1233,14 @@ class DrawingPainter extends CustomPainter {
 
         // Draw one Path per color batch (with fade opacity)
         for (final batch in batches.values) {
-          recCanvas.drawPath(
-            batch.path,
-            Paint()
-              ..color = batch.color.withValues(alpha: strokeOpacity)
-              ..strokeWidth = (batch.maxWidth * effectiveScale * 2.0).clamp(
-                0.5,
-                batch.maxWidth,
-              )
-              ..style = ui.PaintingStyle.stroke
-              ..strokeCap = ui.StrokeCap.round
-              ..strokeJoin = ui.StrokeJoin.round
-              ..isAntiAlias = true,
-          );
+          _lodBatchPaint
+            ..color = batch.color.withValues(alpha: strokeOpacity)
+            ..strokeWidth = (batch.maxWidth * effectiveScale * 2.0).clamp(
+              0.5,
+              batch.maxWidth,
+            )
+            ..isAntiAlias = true;
+          recCanvas.drawPath(batch.path, _lodBatchPaint);
         }
 
         // Also render non-stroke nodes (shapes, images, etc.)
@@ -1267,10 +1267,11 @@ class DrawingPainter extends CustomPainter {
     // Check if all tiles were rebuilt
     final allNormalTilesBuilt = normalTilesRebuilt >= missingTiles.length;
 
-    // Mark tile cache as valid only when all tiles are built
-    if (allNormalTilesBuilt) {
-      _tileCache.markValid(totalStrokes, sceneGraph.version);
-    }
+    // 🐛 FIX: ALWAYS mark tile cache as valid (even if partially built).
+    // Without this, the next frame sees cachedStrokeCount != totalStrokes
+    // and calls invalidateAll(), destroying all partially-built tiles.
+    // This caused an infinite loop: build some → invalidate all → repeat.
+    _tileCache.markValid(totalStrokes, sceneGraph.version);
 
     // 🚀 FIX: Update global stroke cache WITHOUT re-rendering all tiles.
     // Record the tiles we already drew into one Picture.
@@ -1483,16 +1484,10 @@ class DrawingPainter extends CustomPainter {
       if (!layer.isVisible) continue;
 
       // saveLayer() creates an offscreen buffer for compositing
-      final layerPaint =
-          Paint()
-            ..blendMode = layer.blendMode
-            ..color = Color.fromARGB(
-              (layer.opacity * 255).round(),
-              255,
-              255,
-              255,
-            );
-      canvas.saveLayer(null, layerPaint);
+      _layerCompositePaint
+        ..blendMode = layer.blendMode
+        ..color = Color.fromARGB((layer.opacity * 255).round(), 255, 255, 255);
+      canvas.saveLayer(null, _layerCompositePaint);
 
       final cacheKey = layer.id.value;
       final hasCachedPicture = _layerCaches.containsKey(cacheKey);
@@ -1545,9 +1540,9 @@ class DrawingPainter extends CustomPainter {
     for (final stroke in _effectiveStrokes) {
       if (!eraserPreviewIds.contains(stroke.id)) continue;
       final bounds = stroke.bounds.inflate(stroke.baseWidth * 2);
-      canvas.saveLayer(bounds, Paint()..color = const Color(0x66FFFFFF));
+      canvas.saveLayer(bounds, _debugLayerPaint);
       _renderStroke(canvas, stroke);
-      canvas.drawRect(bounds, Paint()..color = const Color(0x40FF0000));
+      canvas.drawRect(bounds, _debugBoundsPaint);
       canvas.restore();
     }
   }
@@ -1556,13 +1551,142 @@ class DrawingPainter extends CustomPainter {
   ///
   /// Uses [PdfPagePainter] for LOD-aware progressive rendering with
   /// prefetching, LRU eviction, and debounced LOD upgrades.
-  void _paintPdfDocuments(Canvas canvas, Rect viewport) {
-    // Collect pages per document (not globally!) for correct isolation
-    final pagesPerDocument = <String, List<PdfPageNode>>{};
+  // --------------------------------------------------------------------------
+  // 📄 PDF SPATIAL INDEX
+  // --------------------------------------------------------------------------
+
+  /// 🌲 Ensure PDF page R-Tree is synced with scene graph.
+  /// Full rebuild on version change — PDF pages change rarely.
+  void _ensurePdfIndex() {
+    if (_pdfPageIndexVersion == sceneGraph.version) return;
+
+    final pages = <PdfPageNode>[];
+    _pdfDocCache.clear();
 
     for (final layer in sceneGraph.layers) {
       if (!layer.isVisible) continue;
-      _collectAndPaintPdfNodes(canvas, layer, viewport, pagesPerDocument);
+      _collectPdfNodesForIndex(layer, pages);
+    }
+
+    _pdfPageTree = rtree_lib.RTree<PdfPageNode>.fromItems(
+      pages,
+      _pdfPageBounds,
+    );
+    _pdfPageIndexVersion = sceneGraph.version;
+  }
+
+  /// Recursively collect PdfPageNodes and cache PdfDocumentNodes.
+  void _collectPdfNodesForIndex(CanvasNode node, List<PdfPageNode> out) {
+    if (node is PdfDocumentNode) {
+      _pdfDocCache[node.id] = node;
+      for (final child in node.children) {
+        if (child is PdfPageNode && child.isVisible) {
+          out.add(child);
+        }
+      }
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) _collectPdfNodesForIndex(child, out);
+      }
+    }
+  }
+
+  void _paintPdfDocuments(Canvas canvas, Rect viewport) {
+    // 🌲 Sync R-Tree with scene graph (no-op if version unchanged)
+    _ensurePdfIndex();
+
+    // 🚀 O(log N) viewport query instead of O(layers × children) scan
+    final visibleNodes = _pdfPageTree.queryVisible(viewport, margin: 0);
+
+    // Group visible pages by document for rendering + management
+    final pagesPerDocument = <String, List<PdfPageNode>>{};
+
+    for (final node in visibleNodes) {
+      // Walk up to find parent PdfDocumentNode
+      final parentNode = node.parent;
+      if (parentNode is! PdfDocumentNode) continue;
+
+      final docId = parentNode.id;
+      final docPages = pagesPerDocument.putIfAbsent(docId, () => []);
+      docPages.add(node);
+    }
+
+    // 🎨 Paint pages grouped by document (two-pass: locked first, unlocked on top)
+    for (final entry in pagesPerDocument.entries) {
+      final docId = entry.key;
+      final pages = entry.value;
+      final docNode = _pdfDocCache[docId];
+      if (docNode == null) continue;
+
+      final painter = pdfPainters[docId];
+      // 🚀 Reset per-frame render budget for each document
+      if (painter != null) painter.resetFrameBudget();
+
+      // 🚀 VIEWPORT PRIORITY: Sort pages by distance to viewport center.
+      // Center pages paint first → their renders enqueue first → processed
+      // first by _drainQueue. Edge pages paint last with lower LOD.
+      final vpCenter = viewport.center;
+      pages.sort((a, b) {
+        final aCenter = Offset(
+          a.position.dx + a.pageModel.originalSize.width / 2,
+          a.position.dy + a.pageModel.originalSize.height / 2,
+        );
+        final bCenter = Offset(
+          b.position.dx + b.pageModel.originalSize.width / 2,
+          b.position.dy + b.pageModel.originalSize.height / 2,
+        );
+        return (aCenter - vpCenter).distanceSquared.compareTo(
+          (bCenter - vpCenter).distanceSquared,
+        );
+      });
+
+      // 🚀 PERF: Check if ANY page is locked. If none are locked,
+      // skip the two-pass split and paint all pages in one pass.
+      final hasLockedPages = pages.any((p) => p.pageModel.isLocked);
+
+      if (hasLockedPages) {
+        // Two-pass: locked first (background), unlocked on top
+        final unlockedPages = <PdfPageNode>[];
+        for (final page in pages) {
+          if (page.pageModel.isLocked) {
+            _paintPdfPage(
+              canvas,
+              page,
+              viewport,
+              painter,
+              watermarkText: docNode.documentModel.watermarkText,
+              nightMode: docNode.documentModel.nightMode,
+              documentId: docId,
+            );
+          } else {
+            unlockedPages.add(page);
+          }
+        }
+        for (final page in unlockedPages) {
+          _paintPdfPage(
+            canvas,
+            page,
+            viewport,
+            painter,
+            watermarkText: docNode.documentModel.watermarkText,
+            nightMode: docNode.documentModel.nightMode,
+            documentId: docId,
+          );
+        }
+      } else {
+        // 🚀 Single-pass: no locked pages → paint all in order (center-first)
+        for (final page in pages) {
+          _paintPdfPage(
+            canvas,
+            page,
+            viewport,
+            painter,
+            watermarkText: docNode.documentModel.watermarkText,
+            nightMode: docNode.documentModel.nightMode,
+            documentId: docId,
+          );
+        }
+      }
     }
 
     // Prefetch, flush, evict — each painter only sees its OWN document's pages
@@ -1581,64 +1705,21 @@ class DrawingPainter extends CustomPainter {
       painter.evictOffViewport(docPages, viewport);
       painter.cleanupStalePages(docPages);
     }
-  }
 
-  /// Recursively find and paint PDF nodes in a subtree.
-  void _collectAndPaintPdfNodes(
-    Canvas canvas,
-    CanvasNode node,
-    Rect viewport,
-    Map<String, List<PdfPageNode>> pagesPerDocument,
-  ) {
-    if (node is PdfDocumentNode) {
-      //  Culling: If document is off-screen, skip its pages entirely
-      if (!node.worldBounds.overlaps(viewport)) return;
-
-      final painter = pdfPainters[node.id];
-      final docPages = pagesPerDocument.putIfAbsent(node.id, () => []);
-
-      // 🔑 Two-pass rendering: locked pages first, then unlocked on top.
-      // When a page is unlocked, performGridLayout re-grids the remaining
-      // locked pages, causing the next locked page to fill the unlocked
-      // page's grid position. Without two-pass rendering, the locked page
-      // paints ON TOP of the unlocked page, making it appear to vanish.
-      final unlockedPages = <PdfPageNode>[];
-
-      for (final child in node.children) {
-        if (child is PdfPageNode && child.isVisible) {
-          docPages.add(child);
-          if (child.pageModel.isLocked) {
-            _paintPdfPage(
-              canvas,
-              child,
-              viewport,
-              painter,
-              node.id,
-              node.documentModel.nightMode,
-            );
-          } else {
-            unlockedPages.add(child);
-          }
+    // 🗂️ STUB-OUT: free heavy fields on far-from-viewport pages.
+    // Collects ALL pages from cached document nodes (O(docs × pages_per_doc))
+    // then runs throttled stub-out pass.
+    if (_pdfStubManager.stubbedCount > 0 || _pdfDocCache.isNotEmpty) {
+      final allPages = <PdfPageNode>[];
+      for (final doc in _pdfDocCache.values) {
+        for (final child in doc.children) {
+          if (child is PdfPageNode) allPages.add(child);
         }
       }
-
-      // Second pass: unlocked pages render on top
-      for (final page in unlockedPages) {
-        _paintPdfPage(
-          canvas,
-          page,
-          viewport,
-          painter,
-          node.id,
-          node.documentModel.nightMode,
-        );
-      }
-    } else if (node is GroupNode) {
-      for (final child in node.children) {
-        if (child.isVisible) {
-          _collectAndPaintPdfNodes(canvas, child, viewport, pagesPerDocument);
-        }
-      }
+      // Hydrate pages entering viewport
+      _pdfStubManager.maybeHydrate(allPages, viewport);
+      // Stub out pages far from viewport
+      _pdfStubManager.maybeStubOut(allPages, viewport);
     }
   }
 
@@ -1696,6 +1777,40 @@ class DrawingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.5;
 
+  // 🚀 PERF: Pre-allocated Paint objects for hot path (zero GC pressure)
+  static final Paint _pdfDragFillPaint =
+      Paint()
+        ..color = const Color(0x30000000)
+        ..style = PaintingStyle.fill;
+  static final Paint _pdfDragBorderPaint =
+      Paint()
+        ..color = const Color(0xFF1976D2)
+        ..style = PaintingStyle.stroke;
+  // Reusable paints for LOD thumbnail/batch rendering (color set per-use)
+  static final Paint _lodThumbFillPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _lodThumbStrokePaint =
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+  static final Paint _lodBatchPaint =
+      Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeCap = ui.StrokeCap.round
+        ..strokeJoin = ui.StrokeJoin.round;
+
+  // 🚀 PDF LOD rectangle paints (color set per-use)
+  static final Paint _pdfLodRectFill = Paint()..style = PaintingStyle.fill;
+  static final Paint _pdfLodRectStroke =
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+  static final Paint _layerCompositePaint = Paint();
+  static final Paint _debugLayerPaint =
+      Paint()..color = const Color(0x66FFFFFF);
+  static final Paint _debugBoundsPaint =
+      Paint()..color = const Color(0x40FF0000);
+  static final Paint _tilePaint = Paint()..filterQuality = FilterQuality.low;
+
   // 🏷️ Structured annotation render paints
   static final Paint _annotHighlightPaint = Paint(); // I6: reuse for highlights
   static final Paint _underlinePaint =
@@ -1708,6 +1823,10 @@ class DrawingPainter extends CustomPainter {
       Paint()..color = const Color(0x40000000); // I7: static fold paint
   static final Path _stickyFoldPath = Path(); // I7: reusable fold path
 
+  static final TextPainter _wmTextPainter = TextPainter(
+    textDirection: TextDirection.ltr,
+  );
+
   /// Paint a single PDF page with professional styling.
   ///
   /// Features: drop shadow, white background, LOD-aware content via
@@ -1717,10 +1836,11 @@ class DrawingPainter extends CustomPainter {
     Canvas canvas,
     PdfPageNode pageNode,
     Rect viewport,
-    PdfPagePainter? painter, [
-    String? documentId,
+    PdfPagePainter? painter, {
+    String? watermarkText,
     bool nightMode = false,
-  ]) {
+    String? documentId,
+  }) {
     final pos = pageNode.position;
     final size = pageNode.pageModel.originalSize;
     final pageRect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
@@ -1736,6 +1856,20 @@ class DrawingPainter extends CustomPainter {
             : pageRect;
 
     if (!cullRect.overlaps(viewport)) return;
+
+    // 🚀 LOD DEGRADATION: At very low zoom, pages are tiny on screen.
+    // Skip full PDF rendering and draw a colored rectangle instead
+    // (matching strokes/images LOD behavior). Saves 8-13ms per page.
+    final screenScale = controller?.scale ?? canvasScale;
+    final screenHeight = size.height * screenScale;
+    if (screenHeight < 80) {
+      // Page is <80px tall on screen — draw LOD rectangle
+      _pdfLodRectFill.color = const Color(0x20B71C1C); // red-grey fill
+      canvas.drawRect(pageRect, _pdfLodRectFill);
+      _pdfLodRectStroke.color = const Color(0x40B71C1C); // red-grey border
+      canvas.drawRect(pageRect, _pdfLodRectStroke);
+      return;
+    }
 
     // Compute the effective rect accounting for rotation (for clipping/hit-test)
     final Rect effectiveRect;
@@ -1766,9 +1900,15 @@ class DrawingPainter extends CustomPainter {
       canvas.translate(-cx, -cy);
     }
 
-    // 🎨 Drop shadow (professional paper look)
-    final shadowRect = pageRect.translate(0, 4);
-    canvas.drawRect(shadowRect, _pdfShadowPaint);
+    // 🚀 Quality tiers based on screen size — skip expensive GPU effects
+    // Shadow (MaskFilter.blur) costs ~1-2ms per page on GPU.
+    final isDetailVisible = screenHeight > 200;
+
+    // 🎨 Drop shadow (professional paper look) — skip at low zoom
+    if (isDetailVisible) {
+      final shadowRect = pageRect.translate(0, 4);
+      canvas.drawRect(shadowRect, _pdfShadowPaint);
+    }
 
     // White page background
     canvas.drawRect(pageRect, _pdfPageBgPaint);
@@ -1778,10 +1918,18 @@ class DrawingPainter extends CustomPainter {
     canvas.translate(pos.dx, pos.dy);
 
     if (painter != null) {
+      // 🚀 VIEWPORT PRIORITY: pages whose center is outside the viewport
+      // get a reduced LOD (50% zoom) — renders at lower quality first,
+      // upgrades when user scrolls to them.
+      final pageCenter = pageRect.center;
+      final isEdgePage = !viewport.contains(pageCenter);
+      final effectiveZoom = controller?.scale ?? canvasScale;
+      final lodZoom = isEdgePage ? effectiveZoom * 0.5 : effectiveZoom;
+
       painter.paintPage(
         canvas,
         pageNode,
-        currentZoom: controller?.scale ?? canvasScale,
+        currentZoom: lodZoom,
         onNeedRepaint: onPdfRepaint,
         viewport: viewport,
         nightMode: nightMode,
@@ -1812,41 +1960,34 @@ class DrawingPainter extends CustomPainter {
 
     canvas.restore();
 
-    // Thin border
-    canvas.drawRect(pageRect, _pdfBorderPaint);
+    // Thin border — skip at low zoom (sub-pixel anyway)
+    if (isDetailVisible) {
+      canvas.drawRect(pageRect, _pdfBorderPaint);
+    }
 
     // 💧 Watermark overlay (rotated diagonal text)
-    if (documentId != null) {
-      // Find the doc node to get watermark text
-      for (final layer in sceneGraph.layers) {
-        for (final child in layer.children) {
-          if (child is PdfDocumentNode &&
-              child.id == documentId &&
-              child.documentModel.watermarkText != null) {
-            final wm = child.documentModel.watermarkText!;
-            canvas.save();
-            final cx = pageRect.center.dx;
-            final cy = pageRect.center.dy;
-            canvas.translate(cx, cy);
-            canvas.rotate(-0.5); // ~29°
-            final tp = TextPainter(
-              text: TextSpan(
-                text: wm,
-                style: TextStyle(
-                  color: const Color(0x18000000),
-                  fontSize: pageRect.width * 0.12,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 8,
-                ),
-              ),
-              textDirection: TextDirection.ltr,
-            )..layout();
-            tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
-            canvas.restore();
-            break;
-          }
-        }
-      }
+    // 🚀 PERF: skip at low zoom (text invisible, saves TextPainter.layout cost)
+    if (watermarkText != null && isDetailVisible) {
+      canvas.save();
+      final cx = pageRect.center.dx;
+      final cy = pageRect.center.dy;
+      canvas.translate(cx, cy);
+      canvas.rotate(-0.5); // ~29°
+      _wmTextPainter.text = TextSpan(
+        text: watermarkText,
+        style: TextStyle(
+          color: const Color(0x18000000),
+          fontSize: pageRect.width * 0.12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 8,
+        ),
+      );
+      _wmTextPainter.layout();
+      _wmTextPainter.paint(
+        canvas,
+        Offset(-_wmTextPainter.width / 2, -_wmTextPainter.height / 2),
+      );
+      canvas.restore();
     }
 
     // Close rotation transform — everything below is world-space
@@ -1854,12 +1995,15 @@ class DrawingPainter extends CustomPainter {
       canvas.restore();
     }
 
-    // ─── WORLD-SPACE OVERLAYS ───────────────────────────────────────────
+    // ─── WORLD-SPACE OVERLAYS ───────────────────────────────────────
     // Annotations (strokes) are in world coordinates and must NOT be rotated.
     // Clip to the effective rotated page bounds so they only appear on the
     // visible page area.
+    // 🚀 PERF: skip at low zoom (annotations invisible at <200px)
     final annotations = pageNode.pageModel.annotations;
-    if (annotations.isNotEmpty && pageNode.pageModel.showAnnotations) {
+    if (isDetailVisible &&
+        annotations.isNotEmpty &&
+        pageNode.pageModel.showAnnotations) {
       // 🚀 PERF: Incremental annotation Picture cache.
       // Instead of re-rendering ALL annotations on cache miss,
       // replay the PREVIOUS cache + render only NEW annotations.
@@ -2166,6 +2310,35 @@ class DrawingPainter extends CustomPainter {
     // Only CurrentStrokePainter needs to repaint. Suppress ALL DrawingPainter
     // repaints to save 6-10ms of tile rebuild per frame.
     if (isActivelyDrawing) return false;
+
+    // 🚀 GESTURE SUPPRESSION: during active pan/zoom, the Transform widget
+    // handles visuals via GPU compositing (zero cost). Defer tile rebuilds
+    // and LOD transitions until the gesture settles. This prevents:
+    // - Tile cache thrashing during rapid zoom (300% → 10%)
+    // - Viewport boundary repaints during fast dragging
+    final isGesturing = controller?.isPanning ?? false;
+
+    // 🔑 GESTURE-END DETECTION: when the gesture ends (isPanning goes
+    // true→false), force a repaint so content re-renders at the new LOD
+    // tier instead of staying as degraded rectangles.
+    if (_wasGesturing && !isGesturing) {
+      _wasGesturing = false;
+      return true; // Force repaint at new LOD
+    }
+    _wasGesturing = isGesturing;
+
+    // 🔑 SCALE-CHANGE DETECTION: if we're not gesturing and the scale
+    // changed since the last paint, force a repaint for LOD transition.
+    // This catches cases where gesture-end detection misses (e.g., fling).
+    if (!isGesturing && canvasScale != _lastPaintedScale) {
+      return true;
+    }
+
+    if (isGesturing) {
+      // Only allow repaints for actual content changes (stroke add/undo)
+      if (oldDelegate._sceneGraphVersion != _sceneGraphVersion) return true;
+      return false;
+    }
 
     // 🎨 Phase 3: If using incremental rendering, check dirty regions
     if (dirtyRegionTracker != null && dirtyRegionTracker!.hasDirtyRegions) {

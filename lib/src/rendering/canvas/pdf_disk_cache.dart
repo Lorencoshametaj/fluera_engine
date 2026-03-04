@@ -105,7 +105,6 @@ class PdfDiskCache {
 
       return result;
     } catch (e) {
-      debugPrint('[PdfDiskCache] load error: $e');
     }
     return null;
   }
@@ -135,7 +134,6 @@ class PdfDiskCache {
       // 🧹 Enforce disk budget (fire-and-forget, runs async)
       _enforceDiskBudget();
     } catch (e) {
-      debugPrint('[PdfDiskCache] save error: $e');
     }
   }
 

@@ -47,7 +47,6 @@ class RecordingStorageService {
   /// the adapter creates the schema (including the `recordings` table).
   void initialize(Database db) {
     _db = db;
-    debugPrint('[RecordingStorage] Initialized with shared database');
   }
 
   /// Persist a [SynchronizedRecording] to the database.
@@ -76,11 +75,6 @@ class RecordingStorageService {
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-    debugPrint(
-      '[RecordingStorage] Saved recording ${recording.id} '
-      '(${recording.syncedStrokes.length} strokes, '
-      '${recording.totalDuration.inSeconds}s)',
-    );
   }
 
   /// Load all recordings associated with a canvas.
@@ -163,13 +157,9 @@ class RecordingStorageService {
           ),
         );
       } catch (e) {
-        debugPrint(
-          '[RecordingStorage] Failed to decode recording ${row['id']}: $e',
-        );
       }
     }
 
-    debugPrint('[RecordingStorage] Loaded ${recordings.length} recordings');
     return recordings;
   }
 
@@ -183,7 +173,6 @@ class RecordingStorageService {
       whereArgs: [id],
     );
 
-    debugPrint('[RecordingStorage] Deleted recording $id (rows=$count)');
     return count;
   }
 
@@ -197,9 +186,6 @@ class RecordingStorageService {
       whereArgs: [audioPath],
     );
 
-    debugPrint(
-      '[RecordingStorage] Deleted by audioPath $audioPath (rows=$count)',
-    );
     return count;
   }
 
@@ -213,9 +199,6 @@ class RecordingStorageService {
       whereArgs: [canvasId],
     );
 
-    debugPrint(
-      '[RecordingStorage] Deleted $count recordings for canvas $canvasId',
-    );
     return count;
   }
 

@@ -60,7 +60,6 @@ class BranchingManager {
     final existing = _branches.where((b) => b.id == 'br_main').firstOrNull;
     if (existing != null) {
       _activeBranch = existing;
-      debugPrint('🌿 [BranchingManager] Main branch exists for $canvasId');
       return existing;
     }
 
@@ -76,7 +75,6 @@ class BranchingManager {
     );
 
     _activeBranch = branch;
-    debugPrint('🌿 [BranchingManager] Created main branch for $canvasId');
     return branch;
   }
 
@@ -163,10 +161,6 @@ class BranchingManager {
       );
     }
 
-    debugPrint(
-      '🌿 [BranchingManager] Created branch "$name" ($branchId) '
-      'at event index $forkPointEventIndex',
-    );
 
     return branch;
   }
@@ -195,13 +189,8 @@ class BranchingManager {
       // Compute depth levels
       _computeDepthLevels();
 
-      debugPrint(
-        '🌿 [BranchingManager] Loaded ${_branches.length} branches '
-        'for canvas $canvasId',
-      );
       return List.unmodifiable(_branches);
     } catch (e) {
-      debugPrint('🌿 [BranchingManager] Error loading branches: $e');
       _branches = [];
       return _branches;
     }
@@ -224,7 +213,6 @@ class BranchingManager {
       await _cloudSync.syncBranchMetadata(canvasId, _branches[index]);
     }
 
-    debugPrint('🌿 [BranchingManager] Renamed branch $branchId to "$newName"');
   }
 
   /// 📝 Update a branch's description
@@ -247,9 +235,6 @@ class BranchingManager {
       await _cloudSync.syncBranchMetadata(canvasId, _branches[index]);
     }
 
-    debugPrint(
-      '🌿 [BranchingManager] Updated description for branch $branchId',
-    );
   }
 
   /// 📋 Duplicate a branch — clones its working state into a new child branch
@@ -269,9 +254,6 @@ class BranchingManager {
         await _loadBranchSnapshot(canvasId, branchId);
 
     if (layers == null) {
-      debugPrint(
-        '❌ [BranchingManager] Cannot duplicate: no data for $branchId',
-      );
       return null;
     }
 
@@ -283,9 +265,6 @@ class BranchingManager {
       snapshotLayers: layers,
     );
 
-    debugPrint(
-      '🌿 [BranchingManager] Duplicated branch "${original.name}" → "${copy.name}"',
-    );
 
     return copy;
   }
@@ -312,7 +291,6 @@ class BranchingManager {
     bool deleteAfterMerge = false,
   }) async {
     if (sourceBranchId == targetBranchId) {
-      debugPrint('❌ [BranchingManager] Cannot merge a branch into itself');
       return null;
     }
 
@@ -331,10 +309,6 @@ class BranchingManager {
         await _loadBranchSnapshot(canvasId, sourceBranchId);
 
     if (sourceLayers == null || sourceLayers.isEmpty) {
-      debugPrint(
-        '❌ [BranchingManager] Cannot merge: no data for branch '
-        '"${source.name}" ($sourceBranchId)',
-      );
       return null;
     }
 
@@ -354,18 +328,10 @@ class BranchingManager {
       }
     }
 
-    debugPrint(
-      '🔀 [BranchingManager] Merged "${source.name}" ($sourceBranchId) '
-      '→ "${target.name}" ($targetBranchId) '
-      '(${sourceLayers.length} layers)',
-    );
 
     // 4. Optionally delete the merged source branch
     if (deleteAfterMerge) {
       await deleteBranch(canvasId, sourceBranchId);
-      debugPrint(
-        '🔀 [BranchingManager] Deleted merged branch "${source.name}"',
-      );
     }
 
     return sourceLayers;
@@ -530,10 +496,6 @@ class BranchingManager {
             ? '3-way merge: clean'
             : '3-way merge: ${conflicts.length} conflict(s)';
 
-    debugPrint(
-      '🔀 [BranchingManager] $strategy — '
-      '${merged.length} layers merged',
-    );
 
     return BranchMergeResult(
       mergedLayers: merged,
@@ -591,10 +553,6 @@ class BranchingManager {
 
     await _saveBranchesMetadata(canvasId);
 
-    debugPrint(
-      '🌿 [BranchingManager] Deleted branch $branchId '
-      '(+${childIds.length} children)',
-    );
   }
 
   // ============================================================================
@@ -612,7 +570,6 @@ class BranchingManager {
     if (branchId == null) {
       // Switch to main
       _activeBranch = null;
-      debugPrint('🌿 [BranchingManager] Switched to main timeline');
       return null; // Caller should reload main canvas state
     }
 
@@ -626,18 +583,10 @@ class BranchingManager {
     // Load working state first (latest saved state), fallback to fork snapshot
     final workingState = await _loadBranchWorkingState(canvasId, branchId);
     if (workingState != null) {
-      debugPrint(
-        '🌿 [BranchingManager] Switched to branch "${branch.name}" '
-        '($branchId) — loaded working state (${workingState.length} layers)',
-      );
       return workingState;
     }
 
     final forkSnapshot = await _loadBranchSnapshot(canvasId, branchId);
-    debugPrint(
-      '🌿 [BranchingManager] Switched to branch "${branch.name}" '
-      '($branchId) — loaded fork snapshot',
-    );
     return forkSnapshot;
   }
 
@@ -678,10 +627,6 @@ class BranchingManager {
       );
     }
 
-    debugPrint(
-      '🌿 [BranchingManager] Saved working state '
-      '(${layers.length} layers) for branch $branchId',
-    );
   }
 
   /// 🔄 Full bidirectional sync with cloud
@@ -697,7 +642,6 @@ class BranchingManager {
     if (!_cloudSyncEnabled) return;
 
     try {
-      debugPrint('🔄 [BranchingManager] Starting cloud sync for $canvasId');
 
       final mergedBranches = await _cloudSync.syncWithCloud(
         canvasId: canvasId,
@@ -712,12 +656,7 @@ class BranchingManager {
       _computeDepthLevels();
       await _saveBranchesMetadata(canvasId);
 
-      debugPrint(
-        '🔄 [BranchingManager] Cloud sync complete: '
-        '${_branches.length} branches',
-      );
     } catch (e) {
-      debugPrint('❌ [BranchingManager] Cloud sync failed: $e');
     }
   }
 
@@ -783,14 +722,9 @@ class BranchingManager {
         await _loadBranchSnapshot(canvasId, branchId);
 
     if (layers == null) {
-      debugPrint('❌ [BranchingManager] Cannot flatten: no data for $branchId');
       return null;
     }
 
-    debugPrint(
-      '🌿 [BranchingManager] Flattened branch $branchId '
-      '(${layers.length} layers)',
-    );
 
     return layers;
   }
@@ -870,7 +804,6 @@ class BranchingManager {
           )
           .toList();
     } catch (e) {
-      debugPrint('🌿 [BranchingManager] Error loading branch sessions: $e');
       return [];
     }
   }
@@ -910,10 +843,6 @@ class BranchingManager {
     final layersJson = layers.map((l) => l.toJson()).toList();
     await snapshotFile.writeAsString(jsonEncode(layersJson));
 
-    debugPrint(
-      '🌿 [BranchingManager] Saved fork snapshot '
-      '(${layers.length} layers) for branch $branchId',
-    );
   }
 
   Future<List<CanvasLayer>?> _loadBranchSnapshot(
@@ -934,7 +863,6 @@ class BranchingManager {
           .map((j) => CanvasLayer.fromJson(Map<String, dynamic>.from(j as Map)))
           .toList();
     } catch (e) {
-      debugPrint('🌿 [BranchingManager] Error loading snapshot: $e');
       return null;
     }
   }
@@ -957,7 +885,6 @@ class BranchingManager {
           .map((j) => CanvasLayer.fromJson(Map<String, dynamic>.from(j as Map)))
           .toList();
     } catch (e) {
-      debugPrint('🌿 [BranchingManager] Error loading working state: $e');
       return null;
     }
   }

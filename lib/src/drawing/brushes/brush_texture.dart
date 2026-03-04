@@ -79,7 +79,6 @@ class BrushTexture {
       _cache[type] = frame.image;
       return frame.image;
     } catch (e) {
-      debugPrint('⚠️ BrushTexture: failed to load $type — $e');
       _cache[type] = null;
       return null;
     } finally {

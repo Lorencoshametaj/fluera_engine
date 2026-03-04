@@ -47,13 +47,9 @@ class NativeAudioPlayer {
       await _channel.initialize();
       _setupListeners();
       _isInitialized = true;
-      debugPrint('✅ NativeAudioPlayer initialized');
     } catch (e) {
       // ⚠️ On desktop/web or if initialization fails, we just log and continue
       // to avoid crashing the app startup.
-      debugPrint(
-        '⚠️ Failed to initialize NativeAudioPlayer (likely platform mismatch): $e',
-      );
       // Do NOT rethrow to prevent app crash on Linux
     }
   }
@@ -65,7 +61,6 @@ class NativeAudioPlayer {
       _stateController.add(state);
       _playingController.add(state.isPlaying);
 
-      debugPrint('🎵 Player state: ${state.state.name}');
     });
 
     _positionSubscription = _channel.positionStream.listen((position) {
@@ -77,7 +72,6 @@ class NativeAudioPlayer {
     });
 
     _errorSubscription = _channel.errorStream.listen((error) {
-      debugPrint('🎵 Player error: $error');
       _currentState = _currentState.copyWith(
         state: AudioPlayerState.error,
         error: error,
@@ -123,10 +117,8 @@ class NativeAudioPlayer {
   Future<void> setFilePath(String filePath) async {
     await _ensureInitialized();
     try {
-      debugPrint('📁 Loading file: $filePath');
       await _channel.setFilePath(filePath);
     } catch (e) {
-      debugPrint('❌ Failed to load file: $e');
       rethrow;
     }
   }
@@ -135,10 +127,8 @@ class NativeAudioPlayer {
   Future<void> setAsset(String assetPath) async {
     await _ensureInitialized();
     try {
-      debugPrint('📦 Loading asset: $assetPath');
       await _channel.setAsset(assetPath);
     } catch (e) {
-      debugPrint('❌ Failed to load asset: $e');
       rethrow;
     }
   }
@@ -147,10 +137,8 @@ class NativeAudioPlayer {
   Future<void> setUrl(String url, {Map<String, String>? headers}) async {
     await _ensureInitialized();
     try {
-      debugPrint('🌐 Loading URL: $url');
       await _channel.setUrl(url, headers: headers);
     } catch (e) {
-      debugPrint('❌ Failed to load URL: $e');
       rethrow;
     }
   }
@@ -160,9 +148,7 @@ class NativeAudioPlayer {
     await _ensureInitialized();
     try {
       await _channel.play();
-      debugPrint('▶️ Playing');
     } catch (e) {
-      debugPrint('❌ Failed to play: $e');
       rethrow;
     }
   }
@@ -172,9 +158,7 @@ class NativeAudioPlayer {
     await _ensureInitialized();
     try {
       await _channel.pause();
-      debugPrint('⏸️ Paused');
     } catch (e) {
-      debugPrint('❌ Failed to pause: $e');
       rethrow;
     }
   }
@@ -184,9 +168,7 @@ class NativeAudioPlayer {
     await _ensureInitialized();
     try {
       await _channel.stop();
-      debugPrint('⏹️ Stopped');
     } catch (e) {
-      debugPrint('❌ Failed to stop: $e');
       rethrow;
     }
   }
@@ -196,9 +178,7 @@ class NativeAudioPlayer {
     await _ensureInitialized();
     try {
       await _channel.seek(position);
-      debugPrint('⏩ Seeking to: ${position.inSeconds}s');
     } catch (e) {
-      debugPrint('❌ Failed to seek: $e');
       rethrow;
     }
   }
@@ -212,9 +192,7 @@ class NativeAudioPlayer {
     await _ensureInitialized();
     try {
       await _channel.setVolume(volume);
-      debugPrint('🔊 Volume: ${(volume * 100).toInt()}%');
     } catch (e) {
-      debugPrint('❌ Failed to set volume: $e');
       rethrow;
     }
   }
@@ -224,9 +202,7 @@ class NativeAudioPlayer {
     await _ensureInitialized();
     try {
       await _channel.setSpeed(speed);
-      debugPrint('⚡ Speed: ${speed}x');
     } catch (e) {
-      debugPrint('❌ Failed to set speed: $e');
       rethrow;
     }
   }
@@ -236,9 +212,7 @@ class NativeAudioPlayer {
     await _ensureInitialized();
     try {
       await _channel.setLoopMode(mode);
-      debugPrint('🔁 Loop mode: ${mode.name}');
     } catch (e) {
-      debugPrint('❌ Failed to set loop mode: $e');
       rethrow;
     }
   }
@@ -251,9 +225,7 @@ class NativeAudioPlayer {
   Future<void> release() async {
     try {
       await _channel.release();
-      debugPrint('🗑️ Player released');
     } catch (e) {
-      debugPrint('❌ Failed to release player: $e');
     }
   }
 
@@ -272,6 +244,5 @@ class NativeAudioPlayer {
     await _channel.dispose();
     _isInitialized = false;
 
-    debugPrint('🗑️ NativeAudioPlayer disposed');
   }
 }

@@ -13,10 +13,8 @@ extension DesignQualityFeatures on _FlueraCanvasScreenState {
     });
     if (_isSmartSnapEnabled) {
       _smartSnapEngine = SmartSnapEngine();
-      debugPrint('[Design] Smart Snap ON');
     } else {
       _smartSnapEngine = null;
-      debugPrint('[Design] Smart Snap OFF');
     }
   }
 
@@ -37,7 +35,6 @@ extension DesignQualityFeatures on _FlueraCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => DesignQualityPanel(lintResults: violations),
     );
-    debugPrint('[Design] Lint: ${violations.length} issues found');
   }
 
   /// Show style system panel.
@@ -143,7 +140,6 @@ extension DesignQualityFeatures on _FlueraCanvasScreenState {
         );
       },
     );
-    debugPrint('[Design] Style system panel opened');
   }
 
   Widget _buildStyleGroupCard(
@@ -302,6 +298,5 @@ extension DesignQualityFeatures on _FlueraCanvasScreenState {
         );
       },
     );
-    debugPrint('[Design] A11y tree opened');
   }
 }

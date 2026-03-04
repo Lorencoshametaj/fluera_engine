@@ -99,7 +99,6 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
       await _player.setFilePath(path);
       await _player.play();
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Playback failed: $e');
     }
   }
 
@@ -108,7 +107,6 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
     try {
       await _player.stop();
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Stop playback failed: $e');
     }
   }
 
@@ -117,7 +115,6 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
     try {
       await _player.pause();
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Pause failed: $e');
     }
   }
 
@@ -126,7 +123,6 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
     try {
       await _player.play();
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Resume failed: $e');
     }
   }
 
@@ -135,7 +131,6 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
     try {
       await _player.seek(position);
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Seek failed: $e');
     }
   }
 
@@ -147,7 +142,6 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
     try {
       await _player.setSpeed(speed);
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Set speed failed: $e');
     }
   }
 
@@ -156,7 +150,6 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
     try {
       await _player.setVolume(volume.clamp(0.0, 1.0));
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Set volume failed: $e');
     }
   }
 
@@ -242,13 +235,9 @@ class DefaultVoiceRecordingProvider implements FlueraVoiceRecordingProvider {
       }
 
       if (deleted > 0) {
-        debugPrint(
-          '[DefaultVoiceRecordingProvider] Cleaned up $deleted temp recordings',
-        );
       }
       return deleted;
     } catch (e) {
-      debugPrint('[DefaultVoiceRecordingProvider] Cleanup failed: $e');
       return 0;
     }
   }
