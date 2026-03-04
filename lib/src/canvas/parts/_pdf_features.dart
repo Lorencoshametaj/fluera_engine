@@ -73,7 +73,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // 🔒 VIEWER GUARD
     if (_checkViewerGuard()) return;
 
-
     final docId =
         documentId ?? 'pdf_blank_${DateTime.now().microsecondsSinceEpoch}';
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -381,7 +380,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       }
     }
 
-
     // 📡 Broadcast to collaborators — two-phase:
     // Phase 1: Immediately broadcast pdfLoading (placeholder on remote)
     // Phase 2: Background upload + broadcast pdfAdded (with gzip bytes)
@@ -409,8 +407,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           }
           thumbImage.dispose();
         }
-      } catch (e) {
-      }
+      } catch (e) {}
 
       // 🛡️ RTDB payload guard: drop thumbnail if too large (>50KB base64)
       if (thumbnailBase64 != null && thumbnailBase64.length > 50000) {
@@ -450,8 +447,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
               },
             );
             uploadOk = true;
-          } catch (e) {
-          }
+          } catch (e) {}
         }
 
         // Broadcast pdfAdded — skip inline bytes for large PDFs (>10MB)
@@ -640,9 +636,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           Uint8List.fromList(bytes),
           provider: provider,
         );
-
-      } catch (e) {
-      }
+      } catch (e) {}
     }
 
     // Trigger rebuild after all PDFs are restored
@@ -736,8 +730,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         }
       }
     }
-    if (linked > 0) {
-    }
+    if (linked > 0) {}
   }
 
   /// 📄 Reconcile PDF annotation IDs with actual strokes in the scene graph.
@@ -899,7 +892,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // 8️⃣ Auto-save + rebuild UI
     _autoSaveCanvas();
     if (mounted) setState(() {});
-
   }
 
   /// 🗑️ Show confirmation dialog before deleting a PDF document.
@@ -945,3 +937,4 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       },
     );
   }
+}

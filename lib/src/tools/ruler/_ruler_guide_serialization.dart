@@ -4,7 +4,7 @@ part of 'ruler_guide_system.dart';
 // 📏 RulerGuideSystem — Serialization & Undo Snapshot
 // ════════════════════════════════════════════════════════════════════════
 
-extension _RulerSerializationMethods on RulerGuideSystem {
+extension RulerSerializationMethods on RulerGuideSystem {
   Map<String, dynamic> toJson() => {
     'hGuides': List<double>.from(horizontalGuides),
     'vGuides': List<double>.from(verticalGuides),

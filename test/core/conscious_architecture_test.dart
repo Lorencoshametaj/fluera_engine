@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluera_engine/src/core/conscious_architecture.dart';
 import 'package:fluera_engine/src/core/adaptive_profile.dart';
-import 'package:fluera_engine/src/rendering/optimization/anticipatory_tile_prefetch.dart';
 
 // =============================================================================
 // Test Subsystem (for testing registration and lifecycle)
@@ -208,73 +207,7 @@ void main() {
     });
   });
 
-  group('AnticipatoryTilePrefetch', () {
-    late AnticipatoryTilePrefetch prefetch;
-
-    setUp(() {
-      prefetch = AnticipatoryTilePrefetch();
-    });
-
-    tearDown(() {
-      prefetch.dispose();
-    });
-
-    test('initial margins are uniform', () {
-      expect(prefetch.margins, [2, 2, 2, 2]);
-    });
-
-    test('low velocity keeps uniform margins', () {
-      prefetch.onContextChanged(
-        const EngineContext(panVelocity: Offset(30, 0)),
-      );
-      expect(prefetch.margins, [2, 2, 2, 2]);
-    });
-
-    test('rightward pan biases margins right', () {
-      prefetch.onContextChanged(
-        const EngineContext(panVelocity: Offset(500, 0)),
-      );
-
-      // Right margin should be greater than left margin
-      expect(prefetch.margins[2], greaterThan(prefetch.margins[0]));
-    });
-
-    test('downward pan biases margins down', () {
-      prefetch.onContextChanged(
-        const EngineContext(panVelocity: Offset(0, 500)),
-      );
-
-      // Bottom margin should be greater than top margin
-      expect(prefetch.margins[3], greaterThan(prefetch.margins[1]));
-    });
-
-    test('idle resets margins to default', () {
-      prefetch.onContextChanged(
-        const EngineContext(panVelocity: Offset(500, 0)),
-      );
-      // Margins are now biased
-
-      prefetch.onIdle(const Duration(milliseconds: 600));
-      expect(prefetch.margins, [2, 2, 2, 2]);
-    });
-
-    test('expandedViewport applies margins', () {
-      final viewport = const Rect.fromLTWH(0, 0, 1000, 800);
-      final expanded = prefetch.expandedViewport(viewport, 4096);
-
-      // With uniform margin of 2, each side expands by 2 * 4096 = 8192
-      expect(expanded.left, -8192);
-      expect(expanded.top, -8192);
-      expect(expanded.right, 1000 + 8192);
-      expect(expanded.bottom, 800 + 8192);
-    });
-
-    test('dispose sets inactive', () {
-      expect(prefetch.isActive, isTrue);
-      prefetch.dispose();
-      expect(prefetch.isActive, isFalse);
-    });
-  });
+  // TODO: AnticipatoryTilePrefetch tests — class not yet implemented
 
   group('AdaptiveProfile', () {
     late AdaptiveProfile profile;

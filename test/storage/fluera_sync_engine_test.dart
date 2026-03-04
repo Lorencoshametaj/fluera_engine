@@ -104,6 +104,25 @@ class MockCloudAdapter implements FlueraCloudStorageAdapter {
     assetStore.remove('$canvasId/$assetId');
   }
 
+  // ─── Stroke sharding (no-op for tests) ─────────────────────────────
+
+  @override
+  bool get supportsStrokeSharding => false;
+
+  @override
+  Future<void> saveStrokes(
+    String canvasId,
+    List<(String layerId, Map<String, dynamic> strokeJson)> strokes,
+  ) async {}
+
+  @override
+  Future<Map<String, List<Map<String, dynamic>>>> loadStrokes(
+    String canvasId,
+  ) async => {};
+
+  @override
+  Future<void> deleteStrokes(String canvasId) async {}
+
   // ─── Canvas listing ─────────────────────────────────────────────────
 
   @override

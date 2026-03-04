@@ -4,8 +4,6 @@ part of '../fluera_canvas_screen.dart';
 // 📝 PDF Features — Create Sheet & Pattern Widgets
 // ═══════════════════════════════════════
 
-}
-
 // =============================================================================
 // 📝 PDF Create Sheet — Stateful bottom sheet with MD3 design
 // =============================================================================
