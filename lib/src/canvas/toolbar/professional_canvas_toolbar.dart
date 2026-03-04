@@ -37,6 +37,7 @@ import 'toolbar_tab_bar.dart';
 
 part '_toolbar_top_row.dart';
 part '_toolbar_tools_area.dart';
+part '_toolbar_tools_widgets.dart';
 
 /// 🎨 Toolbar professionale per uso quotidiano
 /// Design minimalista e funzionale con:
