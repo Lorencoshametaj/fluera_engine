@@ -289,6 +289,7 @@ part './parts/_advanced_export.dart';
 part './parts/drawing/_drawing_handlers.dart';
 part './parts/drawing/_drawing_update.dart';
 part './parts/drawing/_drawing_end.dart';
+part './parts/drawing/_drawing_end_sections.dart';
 part './parts/drawing/_drawing_aux.dart';
 
 // 🎨 UI
