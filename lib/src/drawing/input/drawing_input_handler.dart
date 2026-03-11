@@ -285,7 +285,12 @@ class DrawingInputHandler {
     }
 
     // 2. Normalize pressure for stability (clamp + smoothing)
-    final normalizedPressure = _normalizePressure(pressure);
+    double normalizedPressure = _normalizePressure(pressure);
+
+    // 🆕 Smooth pressure via stabilizer MA
+    if (_stabilizer.level > 0) {
+      normalizedPressure = _stabilizer.stabilizePressure(normalizedPressure);
+    }
 
     // Create punto con position e pressione filtrate
     final point = ProDrawingPoint(
@@ -405,6 +410,23 @@ class DrawingInputHandler {
     //     inkProfile.trailing > 0 &&
     //     _currentStroke.length >= 3) { ... }
 
+    // 🆕 Catch-up: append interpolated points to close stabilizer lag gap
+    if (_stabilizer.level > 0 && _currentStroke.isNotEmpty) {
+      final lastRaw = _currentStroke.last.position;
+      final catchUpPoints = _stabilizer.finalize(lastRaw);
+      final lastPressure = _currentStroke.last.pressure;
+      final lastTs = _currentStroke.last.timestamp;
+      for (int i = 0; i < catchUpPoints.length; i++) {
+        _currentStroke.add(
+          ProDrawingPoint(
+            position: catchUpPoints[i],
+            pressure: lastPressure,
+            timestamp: lastTs + i + 1,
+          ),
+        );
+      }
+    }
+
     // 🌱 Notify pattern tracker for adaptive intensity
     OrganicBehaviorEngine.notifyStrokeCompleted(_currentStroke.length);
 
@@ -445,6 +467,15 @@ class DrawingInputHandler {
 
   /// Reset stabilizer state for a new stroke (for 120Hz path).
   void resetStabilizer() => _stabilizer.reset();
+
+  /// 🆕 Finalize stabilizer: returns catch-up points to close the lag gap.
+  /// Call this on stroke end in 120Hz path.
+  List<Offset> finalizeStabilizer(Offset lastRawPosition) =>
+      _stabilizer.finalize(lastRawPosition);
+
+  /// 🆕 Smooth pressure via stabilizer (for 120Hz path)
+  double smoothPressure(double rawPressure) =>
+      _stabilizer.stabilizePressure(rawPressure);
 
   /// Complete reset of the handler
   void reset() {

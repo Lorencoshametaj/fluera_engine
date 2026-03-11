@@ -61,7 +61,7 @@ extension on _FlueraCanvasScreenState {
     );
   }
 
-  /// Shows dialog for inserting digital text
+  /// Shows dialog for inserting digital text (fallback for OCR mode)
   Future<void> _showDigitalTextDialog() async {
     final result = await DigitalTextInputDialog.show(
       context,
@@ -69,8 +69,6 @@ extension on _FlueraCanvasScreenState {
     );
 
     if (result != null && mounted) {
-      // Create text element at the center of the viewport
-      // 🛠️ FIX: Use screenToCanvas to convert screen center to canvas coordinates
       final screenCenter = Offset(
         MediaQuery.of(context).size.width / 2,
         MediaQuery.of(context).size.height / 2,
@@ -89,22 +87,216 @@ extension on _FlueraCanvasScreenState {
 
       setState(() {
         _digitalTextElements.add(newElement);
-        // Auto-select the new element
         _digitalTextTool.selectElement(newElement);
       });
 
-      // 🔄 Sync: notify delta tracker for synchronization
       _layerController.addText(newElement);
-
-      // 🔴 RT: Broadcast new text to collaborators
       _broadcastTextChange(newElement);
-
-      // 💾 Auto-save after adding digital text
       _autoSaveCanvas();
     }
   }
 
-  /// Shows dialog for editing existing digital text (on long press)
+  // ── Inline Text Creation ──────────────────────────────────────────────────
+
+  /// 📝 Start inline text creation at a canvas position.
+  /// Creates an empty text element and opens the inline editor overlay.
+  void _startInlineTextCreation(Offset canvasPosition) {
+    // If already editing inline, finish the current one first
+    if (_isInlineEditing) {
+      _cancelInlineText();
+    }
+
+    _inlineTextColor = _effectiveColor;
+    _inlineTextFontWeight = FontWeight.normal;
+    _inlineTextFontStyle = FontStyle.normal;
+    _inlineTextFontSize = 24.0;
+    _inlineTextFontFamily = 'Roboto';
+    _inlineTextShadow = null;
+    _inlineTextBackgroundColor = null;
+    _inlineTextDecoration = TextDecoration.none;
+    _inlineTextAlign = TextAlign.left;
+    _inlineTextLetterSpacing = 0.0;
+    _inlineTextOpacity = 1.0;
+    _inlineTextRotation = 0.0;
+    _inlineTextOutlineColor = null;
+    _inlineTextOutlineWidth = 0.0;
+    _inlineTextGradientColors = null;
+
+    final newElement = DigitalTextElement(
+      id: generateUid(),
+      text: '',
+      position: canvasPosition,
+      color: _inlineTextColor,
+      fontSize: _inlineTextFontSize,
+      fontWeight: _inlineTextFontWeight,
+      fontStyle: _inlineTextFontStyle,
+      scale: 1.0,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() {
+      _inlineEditingElement = newElement;
+      _isInlineEditing = true;
+    });
+  }
+
+  /// 📝 Start inline editing of an existing text element.
+  void _startInlineTextEdit(DigitalTextElement element) {
+    if (_isInlineEditing) {
+      _cancelInlineText();
+    }
+
+    _inlineTextColor = element.color;
+    _inlineTextFontWeight = element.fontWeight;
+    _inlineTextFontStyle = element.fontStyle;
+    _inlineTextFontSize = element.fontSize;
+    _inlineTextFontFamily = element.fontFamily;
+    _inlineTextShadow = element.shadow;
+    _inlineTextBackgroundColor = element.backgroundColor;
+    _inlineTextDecoration = element.textDecoration;
+    _inlineTextAlign = element.textAlign;
+    _inlineTextLetterSpacing = element.letterSpacing;
+    _inlineTextOpacity = element.opacity;
+    _inlineTextRotation = element.rotation;
+    _inlineTextOutlineColor = element.outlineColor;
+    _inlineTextOutlineWidth = element.outlineWidth;
+    _inlineTextGradientColors = element.gradientColors;
+
+    setState(() {
+      _inlineEditingElement = element;
+      _isInlineEditing = true;
+      _digitalTextTool.deselectElement();
+    });
+  }
+
+  /// 📝 Finish inline text editing — save the element.
+  void _finishInlineText(String text) {
+    final element = _inlineEditingElement;
+    if (element == null || !mounted) return;
+
+    final trimmedText = text.trim();
+    if (trimmedText.isEmpty) {
+      _cancelInlineText();
+      return;
+    }
+
+    final existingIdx = _digitalTextElements.indexWhere(
+      (e) => e.id == element.id,
+    );
+
+    final updatedElement = element.copyWith(
+      text: trimmedText,
+      color: _inlineTextColor,
+      fontWeight: _inlineTextFontWeight,
+      fontStyle: _inlineTextFontStyle,
+      fontSize: _inlineTextFontSize,
+      fontFamily: _inlineTextFontFamily,
+      shadow: _inlineTextShadow,
+      backgroundColor: _inlineTextBackgroundColor,
+      textDecoration: _inlineTextDecoration,
+      textAlign: _inlineTextAlign,
+      letterSpacing: _inlineTextLetterSpacing,
+      opacity: _inlineTextOpacity,
+      rotation: _inlineTextRotation,
+      outlineColor: _inlineTextOutlineColor,
+      outlineWidth: _inlineTextOutlineWidth,
+      gradientColors: _inlineTextGradientColors,
+      modifiedAt: existingIdx != -1 ? DateTime.now() : null,
+    );
+
+    setState(() {
+      if (existingIdx != -1) {
+        // Use UpdateTextCommand for undo/redo
+        final oldElement = _digitalTextElements[existingIdx];
+        _commandHistory.execute(
+          UpdateTextCommand(
+            elements: _digitalTextElements,
+            oldElement: oldElement,
+            newElement: updatedElement,
+            onChanged: () {
+              _layerController.updateText(
+                _digitalTextElements.firstWhere(
+                  (e) => e.id == updatedElement.id,
+                  orElse: () => updatedElement,
+                ),
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+        );
+      } else {
+        // Use AddTextCommand for undo/redo
+        _commandHistory.execute(
+          AddTextCommand(
+            elements: _digitalTextElements,
+            element: updatedElement,
+            onChanged: () {
+              _layerController.addText(updatedElement);
+              if (mounted) setState(() {});
+            },
+          ),
+        );
+        // ✨ Track for entry animation
+        _lastAddedTextId = updatedElement.id;
+        _lastAddedTextTime = DateTime.now();
+      }
+      _isInlineEditing = false;
+      _inlineEditingElement = null;
+      _digitalTextTool.selectElement(updatedElement);
+    });
+
+    // 🔑 Notify overlay subtree to rebuild (it's inside ValueListenableBuilder)
+    _uiRebuildNotifier.value++;
+
+    _broadcastTextChange(updatedElement);
+    _autoSaveCanvas();
+  }
+
+  /// 📝 Cancel inline text editing.
+  void _cancelInlineText() {
+    if (!mounted) return;
+    setState(() {
+      _isInlineEditing = false;
+      _inlineEditingElement = null;
+    });
+    _uiRebuildNotifier.value++;
+  }
+
+  /// 🗑️ Delete the currently inline-editing text element.
+  void _deleteInlineTextElement() {
+    final element = _inlineEditingElement;
+    if (element == null || !mounted) return;
+
+    final idx = _digitalTextElements.indexWhere((e) => e.id == element.id);
+
+    setState(() {
+      if (idx != -1) {
+        // Use DeleteTextCommand for undo/redo
+        _commandHistory.execute(
+          DeleteTextCommand(
+            elements: _digitalTextElements,
+            element: _digitalTextElements[idx],
+            onChanged: () {
+              _layerController.removeText(element.id);
+              if (mounted) setState(() {});
+            },
+          ),
+        );
+      }
+      _isInlineEditing = false;
+      _inlineEditingElement = null;
+      _digitalTextTool.deselectElement();
+    });
+
+    _uiRebuildNotifier.value++;
+
+    if (idx != -1) {
+      HapticFeedback.mediumImpact();
+      _autoSaveCanvas();
+    }
+  }
+
+  /// Shows dialog for editing existing digital text (legacy, used for OCR)
   Future<void> _editDigitalTextElement(DigitalTextElement element) async {
     final result = await DigitalTextInputDialog.show(
       context,
@@ -113,11 +305,9 @@ extension on _FlueraCanvasScreenState {
     );
 
     if (result != null && mounted) {
-      // Find the element and update it
       final index = _digitalTextElements.indexOf(element);
       if (index != -1) {
         setState(() {
-          // Replace with new updated element
           _digitalTextElements[index] = DigitalTextElement(
             id: element.id,
             text: result.text,
@@ -128,14 +318,10 @@ extension on _FlueraCanvasScreenState {
             createdAt: element.createdAt,
             modifiedAt: DateTime.now(),
           );
-          // Re-select the updated element
           _digitalTextTool.selectElement(_digitalTextElements[index]);
         });
 
-        // 🔴 RT: Broadcast text change to collaborators
         _broadcastTextChange(_digitalTextElements[index]);
-
-        // 💾 Auto-save after modifying digital text
         _autoSaveCanvas();
       }
     }
@@ -149,32 +335,24 @@ extension on _FlueraCanvasScreenState {
     // 📌 Check recording pins first
     if (_handleRecordingPinLongPress(canvasPosition)) return;
 
-    // Check if pressed on a text element
+    // Check if pressed on a text element → inline editing
     final hitElement = _digitalTextTool.hitTest(
       canvasPosition,
       _digitalTextElements,
     );
 
     if (hitElement != null) {
-      // Show edit dialog
-      _editDigitalTextElement(hitElement);
+      _startInlineTextEdit(hitElement);
     }
   }
 
   /// Syncs a text element updated by DigitalTextTool back into the canvas state.
-  ///
-  /// Centralizes the repeated pattern of:
-  /// 1. Finding the element by ID in _digitalTextElements
-  /// 2. Replacing it with the updated version
-  /// 3. Notifying the layer controller for delta tracking
   void _syncTextElementFromTool(DigitalTextElement updated) {
     final idx = _digitalTextElements.indexWhere((e) => e.id == updated.id);
     if (idx != -1) {
       _digitalTextElements[idx] = updated;
     }
     _layerController.updateText(updated);
-
-    // 🔴 RT: Broadcast text update to collaborators
     _broadcastTextChange(updated);
   }
 }

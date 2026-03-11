@@ -468,19 +468,14 @@ class SceneGraphRenderer {
         stroke.settings.textureType == 'none' &&
         stroke.settings.pressureCurve.isLinear &&
         !stroke.settings.stampEnabled) {
-      final s = stroke.settings;
-      final w =
-          stroke.baseWidth *
-          (s.ballpointMinPressure +
-              0.5 * (s.ballpointMaxPressure - s.ballpointMinPressure));
-      canvas.drawPath(
-        stroke.cachedPath,
-        PaintPool.getStrokePaint(
-          color: stroke.color,
-          strokeWidth: w,
-          strokeCap: StrokeCap.round,
-          strokeJoin: StrokeJoin.round,
-        ),
+      BallpointBrush.drawStrokeWithSettings(
+        canvas,
+        stroke.points,
+        stroke.color,
+        stroke.baseWidth,
+        minPressure: stroke.settings.ballpointMinPressure,
+        maxPressure: stroke.settings.ballpointMaxPressure,
+        cachedPath: stroke.cachedPath,
       );
       return;
     }
@@ -1973,8 +1968,7 @@ class _InterceptorChainRunner {
             severity: ErrorSeverity.transient,
           ),
         );
-      } else {
-      }
+      } else {}
       // Skip this interceptor, continue with next in chain.
       _next(canvas, node, viewport);
     }

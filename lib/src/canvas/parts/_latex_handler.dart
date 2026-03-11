@@ -31,37 +31,17 @@ extension FlueraCanvasLatexHandler on _FlueraCanvasScreenState {
 
     if (!mounted) return;
 
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      enableDrag:
-          false, // Prevent swipe-down dismiss (conflicts with handwriting)
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        // Keyboard-aware sizing: calculate available height above keyboard
-        // and push the sheet up with bottom padding.
-        return Builder(
-          builder: (ctx) {
-            final mq = MediaQuery.of(ctx);
-            final keyboardH = mq.viewInsets.bottom;
-            final safeTop = mq.viewPadding.top;
-            final maxAvailable = mq.size.height - safeTop;
-            // Without keyboard: 85% of screen. With keyboard: fill above keyboard.
-            final desired = maxAvailable * 0.85;
-            final sheetH = desired.clamp(300.0, maxAvailable - keyboardH);
-
-            return Padding(
-              padding: EdgeInsets.only(bottom: keyboardH),
-              child: SizedBox(
-                height: sheetH,
-                child: LatexEditorSheet(
+    Navigator.of(context)
+        .push<void>(
+          MaterialPageRoute(
+            builder:
+                (_) => LatexEditorSheet(
                   initialLatex: initialSource,
                   initialFontSize: initialFontSize,
                   initialColor: initialColor,
                   recognizer: recognizer,
                   onConfirm: (latexSource, fontSize, color) {
-                    Navigator.of(sheetContext).pop();
+                    Navigator.of(context).pop();
 
                     if (latexSource.trim().isEmpty) return;
 
@@ -128,20 +108,17 @@ extension FlueraCanvasLatexHandler on _FlueraCanvasScreenState {
                     _autoSaveCanvas();
                   },
                   onCancel: () {
-                    Navigator.of(sheetContext).pop();
+                    Navigator.of(context).pop();
                   },
                 ),
-              ),
-            );
-          },
-        );
-      },
-    ).whenComplete(() {
-      // Deactivate LaTeX mode when the sheet is dismissed
-      if (_toolController.isLatexMode) {
-        _toolController.toggleLatexMode();
-        setState(() {});
-      }
-    });
+          ),
+        )
+        .whenComplete(() {
+          // Deactivate LaTeX mode when the sheet is dismissed
+          if (_toolController.isLatexMode) {
+            _toolController.toggleLatexMode();
+            setState(() {});
+          }
+        });
   }
 }

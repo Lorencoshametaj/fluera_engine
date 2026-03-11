@@ -518,10 +518,35 @@ extension on _FlueraCanvasScreenState {
     // 🎯 Reset rendered count to prevent stale values from previous stroke
     // being used for trimming when strokes arrive in the same event batch.
     CurrentStrokePainter.resetForNewStroke();
+
+    // 🔥 VULKAN: Initialize native overlay on first freehand stroke
+    if (!_vulkanOverlayActive) {
+      _initVulkanOverlayIfNeeded();
+    }
+    if (_vulkanOverlayActive) {
+      _vulkanStrokeOverlay.clear(); // Clear previous stroke
+      final rb =
+          _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+      final canvasSize = rb?.size ?? MediaQuery.of(context).size;
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      _vulkanStrokeOverlay.setTransform(
+        _canvasController,
+        (canvasSize.width * dpr).toInt(),
+        (canvasSize.height * dpr).toInt(),
+        dpr,
+      );
+    }
+
     if (_is120HzMode && _rawInputProcessor120Hz != null) {
       // 🚀 120Hz MODE: Raw processor per latenza minima
+      // 🎯 Reset stabilizer for the new stroke (avoids connecting to previous)
+      _drawingHandler.resetStabilizer();
+      final stabilizedPos =
+          _drawingHandler.stabilizerLevel > 0
+              ? _drawingHandler.applyStabilizer(canvasPosition)
+              : canvasPosition;
       final point = ProDrawingPoint(
-        position: canvasPosition,
+        position: stabilizedPos,
         pressure: pressure.clamp(0.0, 1.0),
         timestamp: DateTime.now().millisecondsSinceEpoch,
         tiltX: tiltX,
@@ -1429,5 +1454,38 @@ extension on _FlueraCanvasScreenState {
         ),
       ),
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 🔥 VULKAN: Lazy GPU overlay initialization
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Initialize the Vulkan stroke overlay on first use.
+  /// Falls back silently if Vulkan is not available.
+  void _initVulkanOverlayIfNeeded() {
+    if (_vulkanOverlayActive || _vulkanTextureId != null) {
+      _vulkanOverlayActive = true;
+      return;
+    }
+    _vulkanStrokeOverlay.isAvailable.then((available) {
+      if (!available || !mounted) return;
+      final rb =
+          _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+      final canvasSize = rb?.size ?? MediaQuery.of(context).size;
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      _vulkanStrokeOverlay
+          .init(
+            (canvasSize.width * dpr).toInt(),
+            (canvasSize.height * dpr).toInt(),
+          )
+          .then((textureId) {
+            if (textureId != null && mounted) {
+              setState(() {
+                _vulkanTextureId = textureId;
+                _vulkanOverlayActive = true;
+              });
+            }
+          });
+    });
   }
 }

@@ -911,3 +911,104 @@ class CommandHistory {
     revision.dispose();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Digital Text Commands
+// ---------------------------------------------------------------------------
+
+/// Add a digital text element. Undo removes it.
+class AddTextCommand extends Command {
+  final List<dynamic> elements;
+  final dynamic element;
+  final void Function() onChanged;
+
+  AddTextCommand({
+    required this.elements,
+    required this.element,
+    required this.onChanged,
+  }) : super(label: 'Add text');
+
+  @override
+  void execute() {
+    elements.add(element);
+    onChanged();
+  }
+
+  @override
+  void undo() {
+    elements.removeWhere((e) => e.id == element.id);
+    onChanged();
+  }
+}
+
+/// Delete a digital text element. Undo re-inserts at original index.
+class DeleteTextCommand extends Command {
+  final List<dynamic> elements;
+  final dynamic element;
+  final int _index;
+  final void Function() onChanged;
+
+  DeleteTextCommand({
+    required this.elements,
+    required this.element,
+    required this.onChanged,
+  }) : _index = elements.indexWhere((e) => e.id == element.id),
+       super(label: 'Delete text');
+
+  @override
+  void execute() {
+    elements.removeWhere((e) => e.id == element.id);
+    onChanged();
+  }
+
+  @override
+  void undo() {
+    elements.insert(_index.clamp(0, elements.length), element);
+    onChanged();
+  }
+}
+
+/// Update a digital text element. Stores old element for undo.
+/// Supports merge coalescing for rapid edits to the same element.
+class UpdateTextCommand extends Command {
+  final List<dynamic> elements;
+  final dynamic oldElement;
+  dynamic newElement;
+  final void Function() onChanged;
+
+  UpdateTextCommand({
+    required this.elements,
+    required this.oldElement,
+    required this.newElement,
+    required this.onChanged,
+  }) : super(label: 'Edit text');
+
+  @override
+  void execute() {
+    final idx = elements.indexWhere((e) => e.id == oldElement.id);
+    if (idx != -1) {
+      elements[idx] = newElement;
+      onChanged();
+    }
+  }
+
+  @override
+  void undo() {
+    final idx = elements.indexWhere((e) => e.id == newElement.id);
+    if (idx != -1) {
+      elements[idx] = oldElement;
+      onChanged();
+    }
+  }
+
+  @override
+  bool canMergeWith(Command other) =>
+      other is UpdateTextCommand && other.oldElement.id == newElement.id;
+
+  @override
+  void mergeWith(Command other) {
+    if (other is UpdateTextCommand) {
+      newElement = other.newElement;
+    }
+  }
+}

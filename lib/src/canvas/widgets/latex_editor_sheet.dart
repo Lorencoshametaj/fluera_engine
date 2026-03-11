@@ -13,6 +13,7 @@ import 'latex_preview_card.dart';
 import 'latex_ink_overlay.dart';
 import 'latex_symbol_palette.dart';
 import 'latex_confidence_chips.dart';
+import 'latex_function_graph.dart';
 import 'latex_syntax_highlighting.dart';
 
 part '_latex_editor_widgets.dart';
@@ -110,6 +111,11 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   String _autocompletePrefix = '';
   final FocusNode _editorFocusNode = FocusNode();
 
+  // ── New UX state fields ──
+  bool _previewCollapsed = false;
+  bool _wasKeyboardOpen = false;
+  final List<String> _recentCommands = [];
+
   @override
   void initState() {
     super.initState();
@@ -138,9 +144,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
 
     if (event.logicalKey == LogicalKeyboardKey.tab) {
       final text = _sourceController.text;
-      final cursor = _sourceController.selection.isValid
-          ? _sourceController.selection.baseOffset
-          : 0;
+      final cursor =
+          _sourceController.selection.isValid
+              ? _sourceController.selection.baseOffset
+              : 0;
 
       // Find next '{}' after cursor
       final nextPlaceholder = text.indexOf('{}', cursor);
@@ -246,10 +253,11 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     }
 
     final query = prefix.toLowerCase();
-    final matches = latexCommandDatabase
-        .where((e) => e.command.toLowerCase().startsWith(query))
-        .take(6)
-        .toList();
+    final matches =
+        latexCommandDatabase
+            .where((e) => e.command.toLowerCase().startsWith(query))
+            .take(6)
+            .toList();
 
     // Don't show if exact match only
     if (matches.length == 1 && matches.first.command == prefix) {
@@ -481,73 +489,155 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
 
-    // T5: Keyboard shortcuts + T6: Accessibility semantics
-    return Semantics(
-      label: 'Editor LaTeX',
-      container: true,
-      child: Shortcuts(
-        shortcuts: <ShortcutActivator, Intent>{
-          const SingleActivator(LogicalKeyboardKey.enter, control: true):
-              const _ConfirmIntent(),
-          const SingleActivator(LogicalKeyboardKey.enter, meta: true):
-              const _ConfirmIntent(),
-          const SingleActivator(
-            LogicalKeyboardKey.keyZ,
-            control: true,
-            shift: true,
-          ): const _RedoIntent(),
-          const SingleActivator(
-            LogicalKeyboardKey.keyZ,
-            meta: true,
-            shift: true,
-          ): const _RedoIntent(),
-          const SingleActivator(LogicalKeyboardKey.escape):
-              const _CancelIntent(),
-        },
-        child: Actions(
-          actions: <Type, Action<Intent>>{
-            _ConfirmIntent: CallbackAction<_ConfirmIntent>(
-              onInvoke: (_) {
-                if (_sourceController.text.isNotEmpty) _confirm();
-                return null;
+    return Scaffold(
+      backgroundColor: cs.surface,
+      appBar: AppBar(
+        title: const Text('Editor LaTeX'),
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed:
+              () => (widget.onCancel ?? () => Navigator.of(context).pop())(),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.undo_rounded),
+            tooltip: 'Annulla',
+            onPressed: _undoStack.isNotEmpty ? _undo : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.redo_rounded),
+            tooltip: 'Ripeti',
+            onPressed: _redoStack.isNotEmpty ? _redo : null,
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (val) {
+              switch (val) {
+                case 'history':
+                  _showHistorySheet();
+                case 'templates':
+                  _showTemplateSheet();
+                case 'graph':
+                  _showGraphSheet();
+                case 'palette':
+                  _showCommandPalette();
+              }
+            },
+            itemBuilder:
+                (_) => [
+                  const PopupMenuItem(
+                    value: 'history',
+                    child: ListTile(
+                      leading: Icon(Icons.history_rounded),
+                      title: Text('Cronologia'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'templates',
+                    child: ListTile(
+                      leading: Icon(Icons.grid_view_rounded),
+                      title: Text('Modelli'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'graph',
+                    child: ListTile(
+                      leading: Icon(Icons.show_chart_rounded),
+                      title: Text('Grafico'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'palette',
+                    child: ListTile(
+                      leading: Icon(Icons.terminal_rounded),
+                      title: Text('Comandi'),
+                      dense: true,
+                    ),
+                  ),
+                ],
+          ),
+        ],
+      ),
+      body: Builder(
+        builder: (ctx) {
+          final kbOpen = MediaQuery.of(ctx).viewInsets.bottom > 80;
+          if (kbOpen && !_wasKeyboardOpen) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _previewCollapsed = true);
+            });
+          }
+          _wasKeyboardOpen = kbOpen;
+          return Shortcuts(
+            shortcuts: <ShortcutActivator, Intent>{
+              const SingleActivator(LogicalKeyboardKey.enter, control: true):
+                  const _ConfirmIntent(),
+              const SingleActivator(LogicalKeyboardKey.enter, meta: true):
+                  const _ConfirmIntent(),
+              const SingleActivator(
+                    LogicalKeyboardKey.keyZ,
+                    control: true,
+                    shift: true,
+                  ):
+                  const _RedoIntent(),
+              const SingleActivator(
+                    LogicalKeyboardKey.keyZ,
+                    meta: true,
+                    shift: true,
+                  ):
+                  const _RedoIntent(),
+              const SingleActivator(LogicalKeyboardKey.escape):
+                  const _CancelIntent(),
+            },
+            child: Actions(
+              actions: <Type, Action<Intent>>{
+                _ConfirmIntent: CallbackAction<_ConfirmIntent>(
+                  onInvoke: (_) {
+                    if (_sourceController.text.isNotEmpty) _confirm();
+                    return null;
+                  },
+                ),
+                _RedoIntent: CallbackAction<_RedoIntent>(
+                  onInvoke: (_) {
+                    _redo();
+                    return null;
+                  },
+                ),
+                _CancelIntent: CallbackAction<_CancelIntent>(
+                  onInvoke: (_) {
+                    (widget.onCancel ?? () => Navigator.of(context).pop())();
+                    return null;
+                  },
+                ),
               },
-            ),
-            _RedoIntent: CallbackAction<_RedoIntent>(
-              onInvoke: (_) {
-                _redo();
-                return null;
-              },
-            ),
-            _CancelIntent: CallbackAction<_CancelIntent>(
-              onInvoke: (_) {
-                (widget.onCancel ?? () => Navigator.of(context).pop())();
-                return null;
-              },
-            ),
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: cs.surface,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
+              child: Column(
+                children: [
+                  if (isLandscape)
+                    Expanded(child: _buildLandscapeLayout(cs))
+                  else
+                    Expanded(child: _buildPortraitLayout(cs)),
+
+                  _buildToolbar(cs),
+                ],
               ),
             ),
-            child: Column(
-              children: [
-                _buildDragHandle(cs),
-                _buildHeader(cs),
-                const Divider(height: 1),
-
-                // E9: Adaptive layout
-                if (isLandscape)
-                  Expanded(child: _buildLandscapeLayout(cs))
-                else
-                  Expanded(child: _buildPortraitLayout(cs)),
-
-                _buildToolbar(cs),
-              ],
-            ),
-          ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _sourceController.text.isNotEmpty ? _confirm : null,
+        backgroundColor:
+            _sourceController.text.isNotEmpty
+                ? cs.primary
+                : cs.surfaceContainerHighest,
+        child: Icon(
+          Icons.check_rounded,
+          color:
+              _sourceController.text.isNotEmpty
+                  ? cs.onPrimary
+                  : cs.onSurfaceVariant,
         ),
       ),
     );
@@ -600,9 +690,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
-                  physics: _tabController.index == 1
-                      ? const NeverScrollableScrollPhysics()
-                      : null,
+                  physics:
+                      _tabController.index == 1
+                          ? const NeverScrollableScrollPhysics()
+                          : null,
                   children: [
                     _buildKeyboardMode(cs),
                     _buildHandwritingMode(cs),
@@ -618,55 +709,119 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     );
   }
 
-  // Portrait — stacked
+  // Portrait — stacked with collapsible preview
   Widget _buildPortraitLayout(ColorScheme cs) {
-    return Column(
-      children: [
-        // Preview (compact)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: LatexPreviewCard(
-            latexSource: _sourceController.text,
-            fontSize: _fontSize,
-            color: _color,
-            minHeight: 56,
+    return GestureDetector(
+      onVerticalDragUpdate: (d) {
+        if (d.delta.dy > 6) {
+          FocusScope.of(context).unfocus();
+        }
+      },
+      child: Column(
+        children: [
+          // Collapsible preview
+          GestureDetector(
+            onTap: () => setState(() => _previewCollapsed = !_previewCollapsed),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              child:
+                  _previewCollapsed
+                      ? Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.expand_more_rounded,
+                              size: 18,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Anteprima',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                      : Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                        child: GestureDetector(
+                          onLongPress: () {
+                            final src = _sourceController.text;
+                            if (src.isNotEmpty) {
+                              Clipboard.setData(ClipboardData(text: src));
+                              HapticFeedback.mediumImpact();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Text('LaTeX copiato'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 1),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: InteractiveViewer(
+                            child: LatexPreviewCard(
+                              latexSource: _sourceController.text,
+                              fontSize: _fontSize,
+                              color: _color,
+                              minHeight: 56,
+                            ),
+                          ),
+                        ),
+                      ),
+            ),
           ),
-        ),
 
-        // Validation warnings
-        if (_validationErrors.isNotEmpty) _buildValidationBar(cs),
+          // Compact status bar
+          _buildCompactStatusBar(cs),
 
-        // Confidence chips
-        if (_confidenceAnnotations.isNotEmpty)
-          LatexConfidenceChips(
-            annotations: _confidenceAnnotations,
-            onChipTapped: (ann) {
-              _sourceController.selection = TextSelection(
-                baseOffset: ann.startIndex,
-                extentOffset: ann.endIndex,
-              );
-            },
+          // Validation warnings
+          if (_validationErrors.isNotEmpty) _buildValidationBar(cs),
+
+          // Confidence chips
+          if (_confidenceAnnotations.isNotEmpty)
+            LatexConfidenceChips(
+              annotations: _confidenceAnnotations,
+              onChipTapped: (ann) {
+                _sourceController.selection = TextSelection(
+                  baseOffset: ann.startIndex,
+                  extentOffset: ann.endIndex,
+                );
+              },
+            ),
+
+          // Tab bar
+          _buildTabBar(cs),
+
+          // Mode content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              physics:
+                  _tabController.index == 1
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
+              children: [
+                _buildKeyboardMode(cs),
+                _buildHandwritingMode(cs),
+                _buildSymbolsMode(),
+                _buildCameraMode(cs),
+              ],
+            ),
           ),
-
-        // Tab bar
-        _buildTabBar(cs),
-
-        // Mode content
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            physics: _tabController.index == 1
-                ? const NeverScrollableScrollPhysics()
-                : null,
-            children: [
-              _buildKeyboardMode(cs),
-              _buildHandwritingMode(cs),
-              _buildSymbolsMode(),
-              _buildCameraMode(cs),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -747,17 +902,19 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   // ---------------------------------------------------------------------------
 
   Widget _buildValidationBar(ColorScheme cs) {
-    final errorCount = _validationErrors
-        .where((e) => e.severity == ValidationSeverity.error)
-        .length;
+    final errorCount =
+        _validationErrors
+            .where((e) => e.severity == ValidationSeverity.error)
+            .length;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: errorCount > 0
-            ? cs.errorContainer.withValues(alpha: 0.7)
-            : cs.tertiaryContainer.withValues(alpha: 0.7),
+        color:
+            errorCount > 0
+                ? cs.errorContainer.withValues(alpha: 0.7)
+                : cs.tertiaryContainer.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -771,9 +928,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     ? Icons.error_outline_rounded
                     : Icons.warning_amber_rounded,
                 size: 16,
-                color: errorCount > 0
-                    ? cs.onErrorContainer
-                    : cs.onTertiaryContainer,
+                color:
+                    errorCount > 0
+                        ? cs.onErrorContainer
+                        : cs.onTertiaryContainer,
               ),
               const SizedBox(width: 8),
               Text(
@@ -781,9 +939,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: errorCount > 0
-                      ? cs.onErrorContainer
-                      : cs.onTertiaryContainer,
+                  color:
+                      errorCount > 0
+                          ? cs.onErrorContainer
+                          : cs.onTertiaryContainer,
                 ),
               ),
             ],
@@ -823,9 +982,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                               ? Icons.circle
                               : Icons.circle_outlined,
                           size: 6,
-                          color: errorCount > 0
-                              ? cs.onErrorContainer
-                              : cs.onTertiaryContainer,
+                          color:
+                              errorCount > 0
+                                  ? cs.onErrorContainer
+                                  : cs.onTertiaryContainer,
                         ),
                         const SizedBox(width: 6),
                         Expanded(
@@ -833,9 +993,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                             err.message,
                             style: TextStyle(
                               fontSize: 11,
-                              color: errorCount > 0
-                                  ? cs.onErrorContainer
-                                  : cs.onTertiaryContainer,
+                              color:
+                                  errorCount > 0
+                                      ? cs.onErrorContainer
+                                      : cs.onTertiaryContainer,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -845,11 +1006,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                           'pos ${err.position}',
                           style: TextStyle(
                             fontSize: 9,
-                            color:
-                                (errorCount > 0
-                                        ? cs.onErrorContainer
-                                        : cs.onTertiaryContainer)
-                                    .withValues(alpha: 0.6),
+                            color: (errorCount > 0
+                                    ? cs.onErrorContainer
+                                    : cs.onTertiaryContainer)
+                                .withValues(alpha: 0.6),
                           ),
                         ),
                       ],
@@ -886,8 +1046,231 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     );
   }
 
+  // ── Compact status bar ──
+  Widget _buildCompactStatusBar(ColorScheme cs) {
+    final src = _sourceController.text;
+    final len = src.length;
+    final errCount = _validationErrors.length;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Icon(
+            Icons.text_snippet_outlined,
+            size: 14,
+            color: cs.onSurfaceVariant,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '$len car.',
+            style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(width: 12),
+          if (errCount > 0) ...[
+            Icon(Icons.warning_amber_rounded, size: 14, color: cs.error),
+            const SizedBox(width: 2),
+            Text(
+              '$errCount errori',
+              style: TextStyle(fontSize: 11, color: cs.error),
+            ),
+          ] else ...[
+            Icon(
+              Icons.check_circle_outline_rounded,
+              size: 14,
+              color: cs.primary,
+            ),
+            const SizedBox(width: 2),
+            Text('OK', style: TextStyle(fontSize: 11, color: cs.primary)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Track and insert (for quick-insert chips) ──
+  void _trackAndInsert(String latex) {
+    _recentCommands.remove(latex);
+    _recentCommands.insert(0, latex);
+    if (_recentCommands.length > 20) _recentCommands.removeLast();
+    _insertSymbol(latex);
+  }
+
+  // ── History sheet ──
+  void _showHistorySheet() {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (_) => DraggableScrollableSheet(
+            initialChildSize: 0.5,
+            minChildSize: 0.25,
+            maxChildSize: 0.85,
+            expand: false,
+            builder:
+                (ctx, sc) => Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Cronologia',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child:
+                          _expressionHistory.isEmpty
+                              ? Center(
+                                child: Text(
+                                  'Nessuna espressione recente',
+                                  style: TextStyle(color: cs.onSurfaceVariant),
+                                ),
+                              )
+                              : ListView.builder(
+                                controller: sc,
+                                itemCount: _expressionHistory.length,
+                                itemBuilder: (_, i) {
+                                  final expr = _expressionHistory[i];
+                                  final isFav = _expressionFavorites.contains(
+                                    expr,
+                                  );
+                                  return ListTile(
+                                    title: Text(
+                                      expr,
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    leading: Icon(
+                                      isFav
+                                          ? Icons.star_rounded
+                                          : Icons.history_rounded,
+                                      color: isFav ? cs.primary : null,
+                                    ),
+                                    trailing: IconButton(
+                                      icon: Icon(
+                                        isFav
+                                            ? Icons.star_rounded
+                                            : Icons.star_outline_rounded,
+                                      ),
+                                      onPressed: () {
+                                        HapticFeedback.selectionClick();
+                                        setState(() {
+                                          if (isFav) {
+                                            _expressionFavorites.remove(expr);
+                                          } else {
+                                            _expressionFavorites.insert(
+                                              0,
+                                              expr,
+                                            );
+                                          }
+                                        });
+                                        Navigator.of(ctx).pop();
+                                      },
+                                    ),
+                                    onTap: () {
+                                      HapticFeedback.selectionClick();
+                                      _sourceController.text = expr;
+                                      _sourceController
+                                          .selection = TextSelection.collapsed(
+                                        offset: expr.length,
+                                      );
+                                      _pushUndoSnapshot();
+                                      Navigator.of(ctx).pop();
+                                    },
+                                  );
+                                },
+                              ),
+                    ),
+                  ],
+                ),
+          ),
+    );
+  }
+
+  // ── Template sheet ──
+  void _showTemplateSheet() {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (_) => Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Modelli',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildTemplateGrid(cs),
+              ],
+            ),
+          ),
+    );
+  }
+
+  // ── Command palette ──
+  void _showCommandPalette() {
+    _openCommandReference();
+  }
+
+  // ── Graph sheet ──
+  void _showGraphSheet() {
+    final src = _sourceController.text;
+    if (src.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Inserisci un\'espressione prima di visualizzare il grafico',
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (_) => SizedBox(
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: LatexFunctionGraph(
+              latexSource: src,
+              curveColor: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
-  // Mode: Keyboard — E3 history + E4 expanded quick-insert + E5 templates
+  // Mode: Keyboard — simplified editor-first layout
   // ---------------------------------------------------------------------------
 
   Widget _buildKeyboardMode(ColorScheme cs) {
@@ -895,154 +1278,16 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // E3 + U5: Expression history + favorites chips
-          if (_expressionHistory.isNotEmpty ||
-              _expressionFavorites.isNotEmpty) ...[
-            SizedBox(
-              height: 30,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  // U5: Favorites first
-                  ..._expressionFavorites.map((expr) {
-                    final preview = expr.length > 20
-                        ? '${expr.substring(0, 17)}…'
-                        : expr;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: GestureDetector(
-                        onLongPress: () {
-                          // Remove from favorites
-                          HapticFeedback.mediumImpact();
-                          setState(() => _expressionFavorites.remove(expr));
-                        },
-                        child: ActionChip(
-                          label: Text(
-                            preview,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontFamily: 'monospace',
-                              color: cs.onPrimaryContainer,
-                            ),
-                          ),
-                          avatar: Icon(
-                            Icons.star_rounded,
-                            size: 14,
-                            color: cs.primary,
-                          ),
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            _sourceController.text = expr;
-                            _sourceController.selection =
-                                TextSelection.collapsed(offset: expr.length);
-                            _pushUndoSnapshot();
-                          },
-                          backgroundColor: cs.primaryContainer,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                        ),
-                      ),
-                    );
-                  }),
-                  // History (non-favorites)
-                  ..._expressionHistory
-                      .where((e) => !_expressionFavorites.contains(e))
-                      .map((expr) {
-                        final preview = expr.length > 20
-                            ? '${expr.substring(0, 17)}…'
-                            : expr;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: GestureDetector(
-                            onLongPress: () {
-                              // U5: Add to favorites
-                              HapticFeedback.mediumImpact();
-                              setState(() {
-                                if (!_expressionFavorites.contains(expr)) {
-                                  _expressionFavorites.insert(0, expr);
-                                  if (_expressionFavorites.length > 10) {
-                                    _expressionFavorites.removeLast();
-                                  }
-                                }
-                              });
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    'Aggiunto ai preferiti ★',
-                                  ),
-                                  behavior: SnackBarBehavior.floating,
-                                  duration: const Duration(seconds: 1),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              );
-                            },
-                            child: ActionChip(
-                              label: Text(
-                                preview,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontFamily: 'monospace',
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                              avatar: Icon(
-                                Icons.history_rounded,
-                                size: 14,
-                                color: cs.onSurfaceVariant,
-                              ),
-                              onPressed: () {
-                                HapticFeedback.selectionClick();
-                                _sourceController.text = expr;
-                                _sourceController.selection =
-                                    TextSelection.collapsed(
-                                      offset: expr.length,
-                                    );
-                                _pushUndoSnapshot();
-                              },
-                              backgroundColor: cs.surfaceContainerHigh,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-
-          // E4: Expanded quick-insert — compact when keyboard visible
-          _buildQuickInsertRows(
-            cs,
-            compact: MediaQuery.of(context).viewInsets.bottom > 80,
-          ),
+          // Single-row quick-insert with cursor keys
+          _buildQuickInsertRows(cs),
 
           const SizedBox(height: 12),
 
-          // E5: Template library (collapsible)
-          if (_showTemplates) ...[
-            _buildTemplateGrid(cs),
-            const SizedBox(height: 8),
-          ],
-
-          // Text field with T1 syntax highlighting + T3 auto-brackets
+          // Text field with autocomplete
           Expanded(
-            child: Stack(
+            child: Column(
               children: [
-                Semantics(
-                  label: 'Campo sorgente LaTeX',
-                  textField: true,
+                Expanded(
                   child: TextField(
                     controller: _sourceController,
                     focusNode: _editorFocusNode,
@@ -1051,158 +1296,42 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     textAlignVertical: TextAlignVertical.top,
                     style: TextStyle(
                       fontFamily: 'monospace',
-                      fontSize: 15,
+                      fontSize: _fontSize.clamp(12, 24),
                       color: cs.onSurface,
                     ),
-                    // T3: Auto-bracket closing
-                    inputFormatters: [_AutoBracketFormatter()],
-                    // U4: Context menu with 'Wrap in…' options
-                    contextMenuBuilder: (context, editableTextState) {
-                      final defaultItems =
-                          editableTextState.contextMenuButtonItems;
-                      final sel = _sourceController.selection;
-                      final hasSelection = sel.isValid && !sel.isCollapsed;
-
-                      if (!hasSelection) {
-                        return AdaptiveTextSelectionToolbar.buttonItems(
-                          anchors: editableTextState.contextMenuAnchors,
-                          buttonItems: defaultItems,
-                        );
-                      }
-
-                      // Add wrap-in commands
-                      final wrapItems = <ContextMenuButtonItem>[
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\frac{}{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\frac{}{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\sqrt{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\sqrt{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\hat{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\hat{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\overline{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\overline{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\mathbf{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\mathbf{}');
-                          },
-                        ),
-                      ];
-
-                      return AdaptiveTextSelectionToolbar.buttonItems(
-                        anchors: editableTextState.contextMenuAnchors,
-                        buttonItems: [...defaultItems, ...wrapItems],
-                      );
-                    },
                     decoration: InputDecoration(
-                      hintText: r'Es: \frac{x^2 + 1}{y}',
-                      hintStyle: TextStyle(
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-                        fontSize: 14,
-                      ),
-                      filled: true,
-                      fillColor: cs.surfaceContainerLow,
+                      hintText: r'es. \frac{a}{b}',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: cs.outlineVariant),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: cs.primary, width: 1.5),
                       ),
                       contentPadding: const EdgeInsets.all(12),
                     ),
+                    onChanged: (_) => _pushUndoSnapshot(),
                   ),
                 ),
-                // T2: Autocomplete overlay
+                // Autocomplete suggestions
                 if (_autocompleteSuggestions.isNotEmpty)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: 8,
-                    child: Material(
-                      elevation: 8,
-                      borderRadius: BorderRadius.circular(12),
-                      color: cs.surfaceContainerHigh,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: _autocompleteSuggestions.map((entry) {
-                          return InkWell(
-                            onTap: () => _acceptAutocomplete(entry),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    entry.command,
-                                    style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: cs.primary,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      entry.label,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: cs.onSurfaceVariant,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  if (entry.category != null)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: cs.primaryContainer.withValues(
-                                          alpha: 0.5,
-                                        ),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        entry.category!,
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          color: cs.onPrimaryContainer,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
+                  Container(
+                    height: 40,
+                    margin: const EdgeInsets.only(top: 4),
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _autocompleteSuggestions.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 4),
+                      itemBuilder: (_, i) {
+                        final entry = _autocompleteSuggestions[i];
+                        return ActionChip(
+                          label: Text(
+                            entry.command,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
                             ),
-                          );
-                        }).toList(),
-                      ),
+                          ),
+                          onPressed: () => _acceptAutocomplete(entry),
+                          visualDensity: VisualDensity.compact,
+                        );
+                      },
                     ),
                   ),
               ],
@@ -1213,277 +1342,111 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     );
   }
 
-  // ── E4: Three rows of quick-insert chips ──
+  // ---------------------------------------------------------------------------
+  // Quick-insert — single scrollable row with cursor keys
+  // ---------------------------------------------------------------------------
+
   Widget _buildQuickInsertRows(ColorScheme cs, {bool compact = false}) {
-    if (compact) {
-      // ── Keyboard visible: 2 compact rows ──
-      return Column(
-        children: [
-          // Row 1: Most-used structures
-          SizedBox(
-            height: 32,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              children: [
-                _QuickInsertChip(
-                  label: 'frac',
-                  onTap: () => _insertSymbol(r'\frac{}{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '√',
-                  onTap: () => _insertSymbol(r'\sqrt{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'x²',
-                  onTap: () => _insertSymbol('^{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'xᵢ',
-                  onTap: () => _insertSymbol('_{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∫',
-                  onTap: () => _insertSymbol(r'\int'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∑',
-                  onTap: () => _insertSymbol(r'\sum'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'lim',
-                  onTap: () => _insertSymbol(r'\lim'),
-                ),
-              ],
-            ),
+    Widget chip(String label, String latex, {IconData? icon}) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: ActionChip(
+          avatar: icon != null ? Icon(icon, size: 14) : null,
+          label: Text(
+            label,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
           ),
-          const SizedBox(height: 3),
-          // Row 2: Brackets + common functions
-          SizedBox(
-            height: 32,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              children: [
-                _QuickInsertChip(
-                  label: '(  )',
-                  onTap: () => _insertSymbol(r'\left( \right)'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '[  ]',
-                  onTap: () => _insertSymbol(r'\left[ \right]'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'sin',
-                  onTap: () => _insertSymbol(r'\sin'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'cos',
-                  onTap: () => _insertSymbol(r'\cos'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'log',
-                  onTap: () => _insertSymbol(r'\log'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∂',
-                  onTap: () => _insertSymbol(r'\partial'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∞',
-                  onTap: () => _insertSymbol(r'\infty'),
-                ),
-              ],
-            ),
-          ),
-        ],
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            _trackAndInsert(latex);
+          },
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
       );
     }
 
-    // ── Normal: 3 full rows ──
-    return Column(
-      children: [
-        // Row 1: Structures
-        SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _QuickInsertChip(
-                label: 'frac',
-                onTap: () => _insertSymbol(r'\frac{}{}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '√',
-                onTap: () => _insertSymbol(r'\sqrt{}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: 'x²', onTap: () => _insertSymbol('^{}')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: 'xᵢ', onTap: () => _insertSymbol('_{}')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: '∫', onTap: () => _insertSymbol(r'\int')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: '∑', onTap: () => _insertSymbol(r'\sum')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∏',
-                onTap: () => _insertSymbol(r'\prod'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'lim',
-                onTap: () => _insertSymbol(r'\lim'),
-              ),
-            ],
+    return SizedBox(
+      height: 36,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          // Cursor keys
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 32,
+                  child: IconButton(
+                    icon: const Icon(Icons.chevron_left_rounded, size: 18),
+                    onPressed: () => _moveCursor(-1),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+                SizedBox(
+                  width: 32,
+                  child: IconButton(
+                    icon: const Icon(Icons.chevron_right_rounded, size: 18),
+                    onPressed: () => _moveCursor(1),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        // Row 2: Environments
-        SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _QuickInsertChip(
-                label: '(  )',
-                onTap: () => _insertSymbol(r'\left( \right)'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '[  ]',
-                onTap: () => _insertSymbol(r'\left[ \right]'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '{  }',
-                onTap: () => _insertSymbol(r'\left\{ \right\}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'matrix',
-                onTap: () => _insertSymbol(r'\begin{matrix}  \\  \end{matrix}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'cases',
-                onTap: () => _insertSymbol(r'\begin{cases}  \\  \end{cases}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'aligned',
-                onTap: () =>
-                    _insertSymbol(r'\begin{aligned}  \\  \end{aligned}'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        // Row 3: Common functions + template toggle
-        SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _QuickInsertChip(
-                label: 'sin',
-                onTap: () => _insertSymbol(r'\sin'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'cos',
-                onTap: () => _insertSymbol(r'\cos'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'tan',
-                onTap: () => _insertSymbol(r'\tan'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'log',
-                onTap: () => _insertSymbol(r'\log'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: 'ln', onTap: () => _insertSymbol(r'\ln')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∂',
-                onTap: () => _insertSymbol(r'\partial'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∇',
-                onTap: () => _insertSymbol(r'\nabla'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∞',
-                onTap: () => _insertSymbol(r'\infty'),
-              ),
-              const SizedBox(width: 12),
-              // E5: Template toggle
-              _TemplateToggleChip(
-                isExpanded: _showTemplates,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() => _showTemplates = !_showTemplates);
-                },
-              ),
-            ],
-          ),
-        ),
-      ],
+          // Backslash key
+          chip(r'\', r'\'),
+          // Common symbols
+          chip('frac', r'\frac{}{}'),
+          chip('sqrt', r'\sqrt{}'),
+          chip('^', '^{}'),
+          chip('_', '_{}'),
+          chip('sum', r'\sum'),
+          chip('int', r'\int'),
+          chip('()', r'\left(\right)'),
+          chip('{}', r'\{\}'),
+          chip('inf', r'\infty'),
+          chip('pi', r'\pi'),
+          chip('alpha', r'\alpha'),
+          chip('beta', r'\beta'),
+        ],
+      ),
     );
   }
 
-  // ── E5: Template grid ──
+  // ---------------------------------------------------------------------------
+  // Template grid
+  // ---------------------------------------------------------------------------
+
   Widget _buildTemplateGrid(ColorScheme cs) {
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 130),
-      child: GridView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 6,
-          crossAxisSpacing: 6,
-          childAspectRatio: 0.35,
-        ),
-        itemCount: _templates.length,
-        itemBuilder: (context, i) {
-          final t = _templates[i];
-          return _TemplateCard(
-            name: t.name,
-            preview: t.preview,
-            onTap: () {
-              HapticFeedback.mediumImpact();
-              _sourceController.text = t.latex;
-              _sourceController.selection = TextSelection.collapsed(
-                offset: t.latex.length,
-              );
-              _pushUndoSnapshot();
-              setState(() => _showTemplates = false);
-            },
-          );
-        },
-      ),
+    final templates = <(String, String)>[
+      ('Fraction', r'\frac{a}{b}'),
+      ('Power', r'x^{n}'),
+      ('Square Root', r'\sqrt{x}'),
+      ('Integral', r'\int_{a}^{b} f(x)\,dx'),
+      ('Sum', r'\sum_{i=0}^{n} a_i'),
+      ('Matrix', r'\begin{pmatrix} a & b \\ c & d \end{pmatrix}'),
+      ('Limit', r'\lim_{x \to \infty} f(x)'),
+      ('Derivative', r'\frac{d}{dx} f(x)'),
+    ];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children:
+          templates.map((t) {
+            return ActionChip(
+              label: Text(t.$1, style: const TextStyle(fontSize: 12)),
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                _trackAndInsert(t.$2);
+                Navigator.of(context).pop();
+              },
+            );
+          }).toList(),
     );
   }
 
@@ -1590,94 +1553,98 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         children: [
           // Image preview or placeholder
           Expanded(
-            child: _cameraImageBytes != null
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Image.memory(_cameraImageBytes!, fit: BoxFit.contain),
-                        if (_isCameraRecognizing)
-                          Container(
-                            color: Colors.black54,
-                            child: const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  CircularProgressIndicator(
-                                    strokeWidth: 3,
-                                    color: Colors.white,
-                                  ),
-                                  SizedBox(height: 12),
-                                  Text(
-                                    'Riconoscimento in corso...',
-                                    style: TextStyle(
+            child:
+                _cameraImageBytes != null
+                    ? ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.memory(_cameraImageBytes!, fit: BoxFit.contain),
+                          if (_isCameraRecognizing)
+                            Container(
+                              color: Colors.black54,
+                              child: const Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircularProgressIndicator(
+                                      strokeWidth: 3,
                                       color: Colors.white,
-                                      fontSize: 14,
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        // Confidence badge
-                        if (!_isCameraRecognizing && _cameraConfidence > 0)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _cameraConfidence > 0.8
-                                    ? Colors.green
-                                    : _cameraConfidence > 0.5
-                                    ? Colors.orange
-                                    : Colors.red,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                '${(_cameraConfidence * 100).toStringAsFixed(0)}%',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
+                                    SizedBox(height: 12),
+                                    Text(
+                                      'Riconoscimento in corso...',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
-                  )
-                : Container(
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: cs.outlineVariant, width: 1),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.camera_alt_rounded,
-                            size: 48,
-                            color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Fotografa un\'equazione matematica',
-                            style: TextStyle(
-                              color: cs.onSurfaceVariant,
-                              fontSize: 14,
+                          // Confidence badge
+                          if (!_isCameraRecognizing && _cameraConfidence > 0)
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color:
+                                      _cameraConfidence > 0.8
+                                          ? Colors.green
+                                          : _cameraConfidence > 0.5
+                                          ? Colors.orange
+                                          : Colors.red,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${(_cameraConfidence * 100).toStringAsFixed(0)}%',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
                         ],
                       ),
+                    )
+                    : Container(
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHighest.withValues(
+                          alpha: 0.3,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: cs.outlineVariant, width: 1),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.camera_alt_rounded,
+                              size: 48,
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Fotografa un\'equazione matematica',
+                              style: TextStyle(
+                                color: cs.onSurfaceVariant,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
           ),
 
           const SizedBox(height: 12),
@@ -1686,9 +1653,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
           SizedBox(
             width: double.infinity,
             child: FilledButton.tonal(
-              onPressed: _isCameraRecognizing
-                  ? null
-                  : () => _pickAndRecognize(),
+              onPressed:
+                  _isCameraRecognizing ? null : () => _pickAndRecognize(),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -1885,9 +1851,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     SizedBox(
                       height: 32,
                       child: FilledButton(
-                        onPressed: _sourceController.text.isNotEmpty
-                            ? _confirm
-                            : null,
+                        onPressed:
+                            _sourceController.text.isNotEmpty ? _confirm : null,
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           shape: RoundedRectangleBorder(
@@ -1946,9 +1911,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
 
                   // Confirm
                   FilledButton.icon(
-                    onPressed: _sourceController.text.isNotEmpty
-                        ? _confirm
-                        : null,
+                    onPressed:
+                        _sourceController.text.isNotEmpty ? _confirm : null,
                     icon: const Icon(Icons.check_rounded, size: 18),
                     label: const Text('Confirm'),
                     style: FilledButton.styleFrom(
@@ -1995,12 +1959,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setPickerState) {
-            final currentColor = HSLColor.fromAHSL(
-              1,
-              hue,
-              saturation,
-              lightness,
-            ).toColor();
+            final currentColor =
+                HSLColor.fromAHSL(1, hue, saturation, lightness).toColor();
 
             return Container(
               padding: const EdgeInsets.all(16),
@@ -2097,12 +2057,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                             overlayShape: const RoundSliderOverlayShape(
                               overlayRadius: 14,
                             ),
-                            activeTrackColor: HSLColor.fromAHSL(
-                              1,
-                              hue,
-                              1,
-                              0.5,
-                            ).toColor(),
+                            activeTrackColor:
+                                HSLColor.fromAHSL(1, hue, 1, 0.5).toColor(),
                             inactiveTrackColor: cs.surfaceContainerHighest,
                           ),
                           child: Slider(
@@ -2153,8 +2109,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                           ),
                           child: Slider(
                             value: saturation,
-                            onChanged: (v) =>
-                                setPickerState(() => saturation = v),
+                            onChanged:
+                                (v) => setPickerState(() => saturation = v),
                           ),
                         ),
                       ),
@@ -2198,8 +2154,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                           ),
                           child: Slider(
                             value: lightness,
-                            onChanged: (v) =>
-                                setPickerState(() => lightness = v),
+                            onChanged:
+                                (v) => setPickerState(() => lightness = v),
                           ),
                         ),
                       ),

@@ -1,0 +1,181 @@
+// vk_stroke_renderer.h — Pure C++ Vulkan stroke renderer
+// Renders live strokes as triangle strips with round caps into an
+// ANativeWindow. Uses VK_KHR_android_surface + swapchain for zero-copy Flutter
+// TextureRegistry.
+
+#pragma once
+
+#include <android/log.h>
+#include <android/native_window.h>
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_android.h>
+
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#define VK_TAG "FlueraVk"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, VK_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, VK_TAG, __VA_ARGS__)
+
+#define VK_CHECK(x)                                                            \
+  do {                                                                         \
+    VkResult _r = (x);                                                         \
+    if (_r != VK_SUCCESS) {                                                    \
+      LOGE("%s failed: %d at %s:%d", #x, _r, __FILE__, __LINE__);              \
+      return false;                                                            \
+    }                                                                          \
+  } while (0)
+
+/// Vertex: 2D position + RGBA color (24 bytes)
+struct StrokeVertex {
+  float x, y;
+  float r, g, b, a;
+};
+
+/// Performance statistics snapshot from the Vulkan renderer.
+struct VkStrokeStats {
+  float frameTimeP50Us;     // GPU frame time P50 (microseconds)
+  float frameTimeP90Us;     // GPU frame time P90 (microseconds)
+  float frameTimeP99Us;     // GPU frame time P99 (microseconds)
+  uint32_t vertexCount;     // Vertices in last frame
+  uint32_t drawCalls;       // Draw calls in last frame
+  uint32_t swapchainImages; // Number of swapchain images
+  uint32_t totalFrames;     // Total frames rendered
+  char deviceName[256];     // GPU device name
+  uint32_t apiVersionMajor; // Vulkan API version major
+  uint32_t apiVersionMinor; // Vulkan API version minor
+  uint32_t apiVersionPatch; // Vulkan API version patch
+  bool active;              // Whether renderer is actively drawing
+};
+
+/// Manages the entire Vulkan pipeline for rendering strokes.
+class VkStrokeRenderer {
+public:
+  VkStrokeRenderer() = default;
+  ~VkStrokeRenderer();
+
+  /// Initialize Vulkan from an ANativeWindow (from
+  /// SurfaceTexture/SurfaceProducer).
+  bool init(ANativeWindow *window, int width, int height);
+
+  /// Tessellate touch points with pressure + render.
+  /// points: [x0, y0, p0, x1, y1, p1, ...] (stride 3), count: number of points.
+  /// color: RGBA [0..1], strokeWidth: logical pixels, totalPoints: total in
+  /// stroke.
+  void updateAndRender(const float *points, int pointCount, float r, float g,
+                       float b, float a, float strokeWidth, int totalPoints);
+
+  /// Set canvas transform (4x4 column-major matrix).
+  void setTransform(const float *matrix4x4);
+
+  /// Clear the render target (transparent).
+  void clearFrame();
+
+  /// Resize the render target.
+  bool resize(int width, int height);
+
+  /// Cleanup all Vulkan resources.
+  void destroy();
+
+  bool isInitialized() const { return initialized_; }
+
+  /// Get current performance statistics snapshot.
+  VkStrokeStats getStats() const;
+
+private:
+  // ─── Vulkan core objects ───────────────────────────────────────
+  VkInstance instance_ = VK_NULL_HANDLE;
+  VkPhysicalDevice physDevice_ = VK_NULL_HANDLE;
+  VkDevice device_ = VK_NULL_HANDLE;
+  VkQueue queue_ = VK_NULL_HANDLE;
+  uint32_t queueFamily_ = 0;
+
+  // ─── Surface + Swapchain ──────────────────────────────────────
+  VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+  VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
+  std::vector<VkImage> swapImages_;
+  std::vector<VkImageView> swapViews_;
+  std::vector<VkFramebuffer> framebuffers_;
+  VkFormat swapFormat_ = VK_FORMAT_R8G8B8A8_UNORM;
+  VkExtent2D swapExtent_ = {0, 0};
+
+  // ─── MSAA ─────────────────────────────────────────────────────
+  VkSampleCountFlagBits msaaSamples_ = VK_SAMPLE_COUNT_4_BIT;
+  VkImage msaaImage_ = VK_NULL_HANDLE;
+  VkImageView msaaView_ = VK_NULL_HANDLE;
+  VkDeviceMemory msaaMemory_ = VK_NULL_HANDLE;
+
+  // ─── Pipeline ─────────────────────────────────────────────────
+  VkRenderPass renderPass_ = VK_NULL_HANDLE;
+  VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
+  VkPipeline pipeline_ = VK_NULL_HANDLE;
+
+  // ─── Command ──────────────────────────────────────────────────
+  VkCommandPool cmdPool_ = VK_NULL_HANDLE;
+
+  // ─── Double-buffered sync (2 frames in flight) ────────────────
+  static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+  VkCommandBuffer cmdBuffers_[2] = {};
+  VkSemaphore imageAvailSems_[2] = {};
+  VkSemaphore renderDoneSems_[2] = {};
+  VkFence frameFences_[2] = {};
+  uint32_t currentFrame_ = 0;
+
+  // ─── Vertex buffer ────────────────────────────────────────────
+  VkBuffer vertexBuffer_ = VK_NULL_HANDLE;
+  VkDeviceMemory vertexMemory_ = VK_NULL_HANDLE;
+  static constexpr size_t MAX_VERTICES = 524288; // 512K vertices (~12MB)
+  uint32_t vertexCount_ = 0;
+  std::vector<StrokeVertex> accumulatedVerts_; // 🚀 Persistent vertex buffer
+  void *mappedVertexMemory_ = nullptr;         // 🚀 Persistent mapped pointer
+  int totalAccumulatedPoints_ = 0; // 🎨 Global point count for tapering
+
+  // ─── State ────────────────────────────────────────────────────
+  float transform_[16];
+  int width_ = 0, height_ = 0;
+  bool initialized_ = false;
+  ANativeWindow *window_ = nullptr;
+
+  // ─── Performance tracking ─────────────────────────────────────
+  static constexpr int STATS_MAX_SAMPLES = 120;
+  std::vector<float> frameTimesUs_;          // Rolling frame time buffer (µs)
+  uint32_t statsDrawCalls_ = 0;              // Draw calls last frame
+  uint32_t statsTotalFrames_ = 0;            // Total frames rendered
+  bool statsActive_ = false;                 // Currently rendering strokes?
+  VkPhysicalDeviceProperties deviceProps_{}; // Cached device properties
+  std::chrono::steady_clock::time_point lastFrameTime_; // For delta measurement
+  bool hasLastFrameTime_ = false;
+
+  // ─── Init helpers ─────────────────────────────────────────────
+  bool createInstance();
+  bool pickPhysicalDevice();
+  bool createDevice();
+  bool createSurface(ANativeWindow *window);
+  bool createSwapchain();
+  bool createRenderPass();
+  bool createPipeline();
+  bool createCommandPool();
+  bool createVertexBuffer();
+  bool createSyncObjects();
+  bool createFramebuffers();
+
+  void destroySwapchain();
+  bool createMsaaResources();
+  void destroyMsaaResources();
+
+  // ─── Tessellation ─────────────────────────────────────────────
+  /// Tessellate 2D polyline with pressure-aware width + tapering.
+  void tessellateStroke(const float *points, int pointCount, float r, float g,
+                        float b, float a, float strokeWidth,
+                        int pointStartIndex, int totalPoints,
+                        std::vector<StrokeVertex> &outVerts);
+
+  /// Generate filled circle at a point (round join/cap).
+  void generateCircle(float cx, float cy, float radius, float r, float g,
+                      float b, float a, std::vector<StrokeVertex> &outVerts);
+
+  uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags props);
+};

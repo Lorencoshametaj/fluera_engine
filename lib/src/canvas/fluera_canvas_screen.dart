@@ -75,6 +75,8 @@ import '../layers/adapters/infinite_canvas_adapter.dart';
 
 import '../tools/ruler/ruler_interactive_overlay.dart';
 import './overlays/selection_transform_overlay.dart';
+import './overlays/inline_text_overlay.dart';
+import './overlays/inline_text_toolbar.dart';
 import '../dialogs/digital_text_input_dialog.dart';
 import '../dialogs/image_editor_dialog.dart';
 import '../dialogs/image_editor_crop.dart';
@@ -118,6 +120,7 @@ import '../tools/pdf_page_drag_controller.dart';
 import './fluera_canvas_config.dart';
 import '../storage/sqlite_storage_adapter.dart';
 import '../storage/save_isolate_service.dart';
+import '../rendering/gpu/vulkan_stroke_overlay_service.dart';
 import '../storage/recording_storage_service.dart';
 import '../platform/display_capabilities_detector.dart';
 import '../config/adaptive_rendering_config.dart';
@@ -529,6 +532,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   late final Widget _remoteLiveStrokesHost;
   late final Widget _pdfPlaceholdersHost;
 
+  /// 🔥 VULKAN: Native GPU stroke overlay service
+  final VulkanStrokeOverlayService _vulkanStrokeOverlay =
+      VulkanStrokeOverlayService();
+  int? _vulkanTextureId;
+  bool _vulkanOverlayActive = false;
+
   /// 🚀 P99 FIX: Lightweight notifier for toolbar undo/redo state.
   /// Fires ONLY when canUndo/canRedo/elementCount transitions — not on every
   /// _layerController notification. Prevents toolbar rebuild per stroke add.
@@ -701,6 +710,43 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Digital text tool
   late final DigitalTextTool _digitalTextTool;
   final List<DigitalTextElement> _digitalTextElements = [];
+
+  /// 📝 Inline text editing state
+  bool _isInlineEditing = false;
+  DigitalTextElement? _inlineEditingElement;
+  final _inlineOverlayKey = GlobalKey<InlineTextOverlayState>();
+  Color _inlineTextColor = Colors.black;
+  FontWeight _inlineTextFontWeight = FontWeight.normal;
+  FontStyle _inlineTextFontStyle = FontStyle.normal;
+  double _inlineTextFontSize = 24.0;
+  String _inlineTextFontFamily = 'Roboto';
+  Shadow? _inlineTextShadow;
+  Color? _inlineTextBackgroundColor;
+  TextDecoration _inlineTextDecoration = TextDecoration.none;
+  TextAlign _inlineTextAlign = TextAlign.left;
+  double _inlineTextLetterSpacing = 0.0;
+  double _inlineTextOpacity = 1.0;
+  double _inlineTextRotation = 0.0;
+  Color? _inlineTextOutlineColor;
+  double _inlineTextOutlineWidth = 0.0;
+  List<Color>? _inlineTextGradientColors;
+
+  /// 📋 Copied text style for paste-style feature
+  Map<String, dynamic>? _copiedTextStyle;
+
+  /// ✨ Track last added text for entry animation
+  String? _lastAddedTextId;
+  DateTime _lastAddedTextTime = DateTime(2000);
+
+  /// 🔍 Text search query (empty = no search active)
+  String _textSearchQuery = '';
+
+  /// 🎨 Current text selection for rich text styling
+  TextSelection? _inlineTextSelection;
+
+  /// 📝 Double-tap detection for text editing
+  String? _lastTappedTextId;
+  DateTime _lastTextTapTime = DateTime(2000);
 
   /// 🖼️ Image tool
   late final ImageTool _imageTool;
@@ -920,6 +966,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Tracciamento movimento
   Offset? _initialTapPosition;
   int _lastImageTapTime = 0; // 🌀 Double-tap tracking for rotation reset
+
+  /// 📝 Deferred text creation position: saved on pointer-down, consumed on
+  /// pointer-up. Cleared on cancel (pinch) to prevent unwanted text creation.
+  Offset? _pendingTextCreationPosition;
+
   static const double _dragThreshold = 8.0;
 
   /// 🔄 SYNC: Throttle for real-time drag broadcast (100ms)
@@ -1346,6 +1397,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // 🚀 SPLASH SCREEN: Run ALL heavy init in parallel (shader, isolate,
       // textures, data load). The loading overlay is shown until complete.
       _initializeCanvas();
+
+      // 🔥 VULKAN: Eagerly initialize so first stroke uses GPU overlay
+      _initVulkanOverlayIfNeeded();
     });
 
     // 🖥️ DISPLAY DETECTION: Delay to avoid init contention
@@ -1587,6 +1641,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   @override
   void dispose() {
+    // 🔥 VULKAN: Release native GPU overlay resources
+    _vulkanStrokeOverlay.dispose();
+
     // 🚀 DISPOSE OPT: Remove listener FIRST to prevent _onLayerChanged
     // from firing during cleanup (cluster rebuilds on partial state).
     _layerController.removeListener(_onLayerChanged);

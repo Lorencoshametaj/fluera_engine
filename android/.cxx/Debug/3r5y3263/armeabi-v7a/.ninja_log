@@ -1,0 +1,16 @@
+# ninja log v5
+0	84	1773250128961024639	CMakeFiles/fluera_rnnoise.dir/rnnoise_jni.c.o	3ebb840bdd9fbe6c
+3	87	1773250128966564079	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnn.c.o	b64c43610d226d24
+5	102	1773250128978024639	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_tables.c.o	5fdfd4acd206ee2a
+9	154	1773250129031024640	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/celt_lpc.c.o	a49be5d2d4431701
+10	197	1773250129076024640	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/parse_lpcnet_weights.c.o	bf154be6aa303740
+2	230	1773250129107024641	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet.c.o	ae0dad876fabaa6e
+5	241	1773250129120024641	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/pitch.c.o	c795ce8df4625631
+1	288	1773250129166024641	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/denoise.c.o	d5413558f35b70d6
+6	288	1773250129167024641	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/kiss_fft.c.o	3fab16680cb7bfb7
+3	383	1773250129261024643	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet_default.c.o	4b654583166970ea
+14	931	1773250129804024649	CMakeFiles/fluera_vk_stroke.dir/vk_jni_bridge.cpp.o	84a085b912a9070f
+11	1426	1773250130297024655	CMakeFiles/fluera_vk_stroke.dir/vk_stroke_renderer.cpp.o	2e5c4a3aef446dbc
+1426	1459	1773250130337024656	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/Debug/3r5y3263/obj/armeabi-v7a/libfluera_vk_stroke.so	ce9ae0ebfd59cc11
+4	13849	1773250142689024806	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_data.c.o	dd5f49a4f4d7819e
+13849	13890	1773250142762581000	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/Debug/3r5y3263/obj/armeabi-v7a/libfluera_rnnoise.so	138afe61d0ee58a2

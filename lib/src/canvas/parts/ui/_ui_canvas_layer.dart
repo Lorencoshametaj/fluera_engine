@@ -36,7 +36,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           _drawingLayerHost,
           _imageLayerHost,
           _gestureLayerHost,
-          _currentStrokeHost,
+          // 🔥 VULKAN: Native GPU stroke overlay
+          if (_vulkanTextureId != null)
+            IgnorePointer(child: Texture(textureId: _vulkanTextureId!)),
+          // 🔥 VULKAN: Hide Flutter stroke when Vulkan handles it
+          if (!_vulkanOverlayActive) _currentStrokeHost,
           _remoteLiveStrokesHost,
           _pdfPlaceholdersHost,
 

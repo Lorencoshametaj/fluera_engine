@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import '../rendering/gpu/vulkan_stroke_overlay_service.dart';
 
 /// Performance monitoring service for Professional Canvas.
 ///
@@ -55,6 +56,12 @@ class CanvasPerformanceMonitor {
   /// Whether the overlay is collapsed (shows only FPS header).
   bool _isCollapsed = false;
 
+  /// Latest Vulkan stats snapshot (null if unavailable).
+  VulkanStats? _vulkanStats;
+
+  /// Vulkan service reference for polling stats.
+  VulkanStrokeOverlayService? _vulkanService;
+
   // ═══════════════════════════════════════════════════════════════════
   // Configuration
   // ═══════════════════════════════════════════════════════════════════
@@ -79,6 +86,11 @@ class CanvasPerformanceMonitor {
   }
 
   bool get isEnabled => _isEnabled;
+
+  /// Attach a VulkanStrokeOverlayService for real-time GPU stats.
+  void attachVulkanService(VulkanStrokeOverlayService service) {
+    _vulkanService = service;
+  }
 
   /// Register Flutter's FrameTiming callback to capture raster thread times.
   void _registerTimingsCallback() {
@@ -203,6 +215,8 @@ class CanvasPerformanceMonitor {
               : 0,
       // Sparkline data
       fpsSparkline: List.unmodifiable(_fpsSparkline),
+      // Vulkan stats
+      vulkanStats: _vulkanStats,
     );
   }
 
@@ -237,6 +251,11 @@ class CanvasPerformanceMonitor {
     return StreamBuilder(
       stream: Stream.periodic(const Duration(milliseconds: 500)),
       builder: (context, snapshot) {
+        // Poll Vulkan stats (fire-and-forget)
+        if (_vulkanService != null && _vulkanService!.isInitialized) {
+          _vulkanService!.getStats().then((s) => _vulkanStats = s);
+        }
+
         final m = getMetrics();
         final fpsColor =
             m.currentFPS >= 54
@@ -254,7 +273,7 @@ class CanvasPerformanceMonitor {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeInOut,
-              width: _isCollapsed ? 120 : 180,
+              width: _isCollapsed ? 120 : 200,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: const Color(0xCC1A1A2E),
@@ -399,6 +418,68 @@ class CanvasPerformanceMonitor {
                     ),
 
                     const Divider(color: Colors.white24, height: 12),
+
+                    // ── Vulkan GPU section ──
+                    if (m.vulkanStats != null) ...[
+                      _sectionHeader(
+                        m.vulkanStats!.active ? 'VULKAN ⚡' : 'VULKAN',
+                      ),
+                      _metricLine(
+                        'GPU',
+                        m.vulkanStats!.deviceName.length > 16
+                            ? '${m.vulkanStats!.deviceName.substring(0, 16)}…'
+                            : m.vulkanStats!.deviceName,
+                        Colors.white54,
+                      ),
+                      _metricLine(
+                        'P50',
+                        '${m.vulkanStats!.p50Ms.toStringAsFixed(1)}ms',
+                        m.vulkanStats!.p50Ms <= 8.33
+                            ? Colors.green
+                            : m.vulkanStats!.p50Ms <= 16.67
+                            ? Colors.orange
+                            : Colors.red,
+                      ),
+                      _metricLine(
+                        'P90',
+                        '${m.vulkanStats!.p90Ms.toStringAsFixed(1)}ms',
+                        m.vulkanStats!.p90Ms <= 8.33
+                            ? Colors.green
+                            : m.vulkanStats!.p90Ms <= 16.67
+                            ? Colors.orange
+                            : Colors.red,
+                      ),
+                      _metricLine(
+                        'P99',
+                        '${m.vulkanStats!.p99Ms.toStringAsFixed(1)}ms',
+                        m.vulkanStats!.p99Ms <= 16.67
+                            ? Colors.green
+                            : m.vulkanStats!.p99Ms <= 33.3
+                            ? Colors.orange
+                            : Colors.red,
+                      ),
+                      _metricLine(
+                        'VERTS',
+                        '${m.vulkanStats!.vertexCount}',
+                        Colors.white70,
+                      ),
+                      _metricLine(
+                        'DRAW',
+                        '${m.vulkanStats!.drawCalls}',
+                        Colors.white70,
+                      ),
+                      _metricLine(
+                        'SWAP',
+                        '${m.vulkanStats!.swapchainImages} imgs',
+                        Colors.white54,
+                      ),
+                      _metricLine(
+                        'VK',
+                        m.vulkanStats!.apiVersion,
+                        Colors.white54,
+                      ),
+                      const Divider(color: Colors.white24, height: 12),
+                    ],
 
                     // ── Memory + strokes ──
                     _metricLine(
@@ -588,6 +669,9 @@ class PerformanceMetrics {
   /// FPS sparkline data for mini graph.
   final List<double> fpsSparkline;
 
+  /// Vulkan GPU stats (null if Vulkan is not available).
+  final VulkanStats? vulkanStats;
+
   const PerformanceMetrics({
     required this.currentFPS,
     required this.avgFPS,
@@ -603,6 +687,7 @@ class PerformanceMetrics {
     this.frameBudgetPercent = 100,
     this.jankPercent = 0,
     this.fpsSparkline = const [],
+    this.vulkanStats,
   });
 
   @override
@@ -612,5 +697,6 @@ class PerformanceMetrics {
       'Raster[P50: ${rasterP50Ms.toStringAsFixed(1)}ms, P90: ${rasterP90Ms.toStringAsFixed(1)}ms, P99: ${rasterP99Ms.toStringAsFixed(1)}ms], '
       'Budget: ${frameBudgetPercent.toStringAsFixed(0)}%, '
       'Jank: ${jankPercent.toStringAsFixed(1)}%, '
-      'Memory: ${memoryUsageMB.toStringAsFixed(1)} MB)';
+      'Memory: ${memoryUsageMB.toStringAsFixed(1)} MB, '
+      'Vulkan: ${vulkanStats != null ? "active" : "N/A"})';
 }

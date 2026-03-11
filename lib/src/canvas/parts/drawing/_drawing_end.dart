@@ -463,8 +463,26 @@ extension on _FlueraCanvasScreenState {
       // 🚀 120Hz MODE: Use points directly from notifier (already built)
       if (_currentStrokeNotifier.value.isEmpty) return;
 
-      finalPoints = List.unmodifiable(_currentStrokeNotifier.value);
-      _rawInputProcessor120Hz!.reset(); // Reset per prossimo stroke
+      // 🆕 Catch-up: append stabilizer lag closure points
+      final pts = _currentStrokeNotifier.value;
+      if (_drawingHandler.stabilizerLevel > 0 && pts.isNotEmpty) {
+        final lastPos = pts.last.position;
+        final catchUp = _drawingHandler.finalizeStabilizer(lastPos);
+        final lastP = pts.last.pressure;
+        final lastTs = pts.last.timestamp;
+        for (int i = 0; i < catchUp.length; i++) {
+          pts.add(
+            ProDrawingPoint(
+              position: catchUp[i],
+              pressure: lastP,
+              timestamp: lastTs + i + 1,
+            ),
+          );
+        }
+      }
+
+      finalPoints = List.unmodifiable(pts);
+      _rawInputProcessor120Hz!.reset();
     } else {
       // ✅ 60Hz MODE: Usa DrawingInputHandler
       if (!_drawingHandler.hasStroke) return;
@@ -607,7 +625,6 @@ extension on _FlueraCanvasScreenState {
         final cosR = math.cos(-img.rotation);
         final sinR = math.sin(-img.rotation);
 
-
         final localPoints =
             stroke.points.map((p) {
               // 1. Un-translate
@@ -653,6 +670,11 @@ extension on _FlueraCanvasScreenState {
     // NOW safe to clear the live stroke — finalized is in the layer controller
     // and DrawingPainter will render it on the next paint via ListenableBuilder.
     _currentStrokeNotifier.clear();
+
+    // 🔥 VULKAN: Clear the native overlay (pen-up handoff to Flutter)
+    if (_vulkanOverlayActive) {
+      _vulkanStrokeOverlay.clear();
+    }
 
     // 🚀 PERF: setState() was here but is COMPLETELY REDUNDANT.
     // DrawingPainter repaints via ListenableBuilder(listenable: _layerController)

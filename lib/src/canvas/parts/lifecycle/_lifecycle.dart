@@ -631,6 +631,9 @@ extension on _FlueraCanvasScreenState {
         // 🏎️ Auto-enable performance overlay in debug + profile builds
         if (!kReleaseMode) {
           CanvasPerformanceMonitor.instance.setEnabled(true);
+          CanvasPerformanceMonitor.instance.attachVulkanService(
+            _vulkanStrokeOverlay,
+          );
         }
 
         // 🎨 FORCE REPAINT: The DrawingPainter repaints via two mechanisms:

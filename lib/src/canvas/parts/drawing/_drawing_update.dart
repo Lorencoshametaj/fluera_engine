@@ -676,9 +676,18 @@ extension on _FlueraCanvasScreenState {
     // 🆕 Disegno a mano libera - usa processor appropriato
     if (_is120HzMode && _rawInputProcessor120Hz != null) {
       // 🚀 120Hz MODE: Aggiungi punto direttamente (zero processing)
+      // 🎯 Apply stabilizer even in 120Hz mode (user-controlled setting)
+      final stabilizedPos =
+          _drawingHandler.stabilizerLevel > 0
+              ? _drawingHandler.applyStabilizer(canvasPosition)
+              : canvasPosition;
+      final smoothedPressure =
+          _drawingHandler.stabilizerLevel > 0
+              ? _drawingHandler.smoothPressure(pressure.clamp(0.0, 1.0))
+              : pressure.clamp(0.0, 1.0);
       final point = ProDrawingPoint(
-        position: canvasPosition,
-        pressure: pressure.clamp(0.0, 1.0),
+        position: stabilizedPos,
+        pressure: smoothedPressure,
         timestamp: DateTime.now().millisecondsSinceEpoch,
         tiltX: tiltX,
         tiltY: tiltY,
@@ -696,6 +705,15 @@ extension on _FlueraCanvasScreenState {
         tiltX: tiltX,
         tiltY: tiltY,
         orientation: 0.0,
+      );
+    }
+
+    // 🔥 VULKAN: Forward points to native GPU renderer (parallel to Flutter path)
+    if (_vulkanOverlayActive) {
+      _vulkanStrokeOverlay.updateAndRender(
+        _currentStrokeNotifier.value,
+        _effectiveColor,
+        _effectiveWidth,
       );
     }
 

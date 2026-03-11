@@ -26,6 +26,7 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
     private var latexRecognizerPlugin: LatexRecognizerPlugin? = null
     private var sharePlugin: SharePlugin? = null
     private var printPlugin: PrintPlugin? = null
+    private var vulkanStrokePlugin: VulkanStrokeOverlayPlugin? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         // Register predicted touch plugin
@@ -67,6 +68,10 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
         // Register print plugin
         printPlugin = PrintPlugin()
         printPlugin?.onAttachedToEngine(binding)
+
+        // Register Vulkan stroke overlay plugin (GPU live stroke renderer)
+        vulkanStrokePlugin = VulkanStrokeOverlayPlugin()
+        vulkanStrokePlugin?.onAttachedToEngine(binding)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -99,6 +104,9 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
 
         printPlugin?.onDetachedFromEngine(binding)
         printPlugin = null
+
+        vulkanStrokePlugin?.onDetachedFromEngine(binding)
+        vulkanStrokePlugin = null
     }
 
     // ─── ActivityAware — forward to plugins needing Activity ──────────
