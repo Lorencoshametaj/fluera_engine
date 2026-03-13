@@ -19,5 +19,6 @@ public class FlueraEnginePlugin: NSObject, FlutterPlugin {
         AudioPlayerPlugin.register(with: registrar)
         PdfRendererPlugin.register(with: registrar)
         PrintPlugin.register(with: registrar)
+        MetalStrokeOverlayPlugin.register(with: registrar)
     }
 }

@@ -118,6 +118,9 @@ class UnifiedToolController extends ChangeNotifier {
   bool get isPenToolMode => _activeToolId == 'pen_tool';
   bool get isLatexMode => _activeToolId == 'latex';
   bool get isTabularMode => _activeToolId == 'tabular';
+  bool get isLiquifyMode => _activeToolId == 'liquify';
+  bool get isSmudgeMode => _activeToolId == 'smudge';
+  bool get isWarpMode => _activeToolId == 'warp';
   bool get isShapeMode =>
       _shapeType != ShapeType.freehand && _activeToolId == 'shape';
 
@@ -322,6 +325,21 @@ class UnifiedToolController extends ChangeNotifier {
   /// 📊 Toggle Tabular (spreadsheet) mode
   void toggleTabularMode() {
     selectTool(_activeToolId == 'tabular' ? null : 'tabular');
+  }
+
+  /// 🌊 Toggle Liquify mode
+  void toggleLiquifyMode() {
+    selectTool(_activeToolId == 'liquify' ? null : 'liquify');
+  }
+
+  /// 👆 Toggle Smudge mode
+  void toggleSmudgeMode() {
+    selectTool(_activeToolId == 'smudge' ? null : 'smudge');
+  }
+
+  /// 🔄 Toggle Transform Warp mode
+  void toggleWarpMode() {
+    selectTool(_activeToolId == 'warp' ? null : 'warp');
   }
 
   /// Toggle stylus mode

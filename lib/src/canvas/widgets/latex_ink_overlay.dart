@@ -419,7 +419,7 @@ class _GhostLatexPainter extends CustomPainter {
               color: cmd.color,
               fontStyle: cmd.italic ? FontStyle.italic : FontStyle.normal,
               fontWeight: cmd.bold ? FontWeight.bold : FontWeight.normal,
-              fontFamily: cmd.fontFamily.isNotEmpty ? cmd.fontFamily : null,
+              fontFamily: (cmd.fontFamily != null && cmd.fontFamily!.isNotEmpty) ? cmd.fontFamily : null,
             );
             final tp = TextPainter(
               text: TextSpan(text: cmd.text, style: style),

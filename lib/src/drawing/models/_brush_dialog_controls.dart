@@ -22,7 +22,197 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
     ProPenType.sprayPaint ||
     ProPenType.neonGlow ||
     ProPenType.inkWash => [],
+    ProPenType.technicalPen => _technicalPenControls(cs, tt, accent),
   };
+
+  // ── Technical Pen ──
+  List<Widget> _technicalPenControls(
+    ColorScheme cs,
+    TextTheme tt,
+    Color accent,
+  ) {
+    // Snap angle index for discrete selector
+    final snapAngles = [5.0, 10.0, 15.0, 30.0, 45.0, 90.0];
+    final snapLabels = ['5°', '10°', '15°', '30°', '45°', '90°'];
+    final snapIdx = snapAngles.indexOf(_settings.techSnapAngleDeg);
+    final currentSnapIdx = snapIdx >= 0 ? snapIdx : 4; // default 45°
+
+    return [
+      presetChips(
+        cs: cs,
+        tt: tt,
+        accent: accent,
+        presets: {
+          'Freehand':
+              () => _update(
+                _settings.copyWith(
+                  techAngleSnap: false,
+                  techEndpointSnap: false,
+                  techCornerSharpening: 0.3,
+                  techGridSnap: false,
+                  techStraightAssist: false,
+                  techShowGuides: false,
+                  techParallelSnap: false,
+                  techPerpSnap: false,
+                ),
+              ),
+          'Technical':
+              () => _update(
+                _settings.copyWith(
+                  techAngleSnap: true,
+                  techSnapAngleDeg: 45.0,
+                  techEndpointSnap: true,
+                  techCornerSharpening: 0.6,
+                  techGridSnap: false,
+                  techStraightAssist: true,
+                  techShowGuides: true,
+                  techParallelSnap: false,
+                  techPerpSnap: false,
+                ),
+              ),
+          'Precision':
+              () => _update(
+                _settings.copyWith(
+                  techAngleSnap: true,
+                  techSnapAngleDeg: 15.0,
+                  techEndpointSnap: true,
+                  techCornerSharpening: 0.9,
+                  techGridSnap: true,
+                  techGridSize: 20.0,
+                  techStraightAssist: true,
+                  techShowGuides: true,
+                  techParallelSnap: true,
+                  techPerpSnap: true,
+                ),
+              ),
+        },
+      ),
+      const SizedBox(height: 4),
+      switchRow(
+        icon: Icons.rotate_90_degrees_cw_rounded,
+        label: 'Angle Snap',
+        tooltip:
+            'When enabled, straight lines snap to angular increments for precise technical drawing.',
+        value: _settings.techAngleSnap,
+        onChanged: (v) => _update(_settings.copyWith(techAngleSnap: v)),
+        cs: cs,
+        tt: tt,
+        accent: accent,
+      ),
+      if (_settings.techAngleSnap)
+        sliderRow(
+          icon: Icons.straighten_rounded,
+          label: 'Snap Angle',
+          tooltip: 'Angular resolution for line snapping.',
+          value: currentSnapIdx.toDouble(),
+          min: 0,
+          max: 5,
+          divisions: 5,
+          displayValue: snapLabels[currentSnapIdx],
+          onChanged:
+              (v) => _update(
+                _settings.copyWith(
+                  techSnapAngleDeg: snapAngles[v.round().clamp(0, 5)],
+                ),
+              ),
+          cs: cs,
+          tt: tt,
+        ),
+      switchRow(
+        icon: Icons.crop_square_rounded,
+        label: 'Close Shapes',
+        tooltip:
+            'Automatically close the shape when the stroke end is near the start.',
+        value: _settings.techEndpointSnap,
+        onChanged: (v) => _update(_settings.copyWith(techEndpointSnap: v)),
+        cs: cs,
+        tt: tt,
+        accent: accent,
+      ),
+      sliderRow(
+        icon: Icons.change_history_rounded,
+        label: 'Corner Sharpness',
+        tooltip:
+            'How aggressively direction changes become sharp corners instead of smooth curves.',
+        value: _settings.techCornerSharpening,
+        min: 0.0,
+        max: 1.0,
+        displayValue: '${(_settings.techCornerSharpening * 100).round()}%',
+        onChanged:
+            (v) => _update(_settings.copyWith(techCornerSharpening: v)),
+        cs: cs,
+        tt: tt,
+      ),
+      switchRow(
+        icon: Icons.grid_4x4_rounded,
+        label: 'Grid Snap',
+        tooltip:
+            'Snap drawing positions to a grid for precise alignment.',
+        value: _settings.techGridSnap,
+        onChanged: (v) => _update(_settings.copyWith(techGridSnap: v)),
+        cs: cs,
+        tt: tt,
+        accent: accent,
+      ),
+      if (_settings.techGridSnap)
+        sliderRow(
+          icon: Icons.space_bar_rounded,
+          label: 'Grid Size',
+          tooltip: 'Size of grid cells in logical pixels.',
+          value: _settings.techGridSize,
+          min: 5,
+          max: 50,
+          displayValue: '${_settings.techGridSize.round()}px',
+          onChanged: (v) => _update(_settings.copyWith(techGridSize: v)),
+          cs: cs,
+          tt: tt,
+        ),
+      switchRow(
+        icon: Icons.straighten_rounded,
+        label: 'Straight Assist',
+        tooltip:
+            'Automatically straighten lines when drawing slowly and nearly straight.',
+        value: _settings.techStraightAssist,
+        onChanged: (v) => _update(_settings.copyWith(techStraightAssist: v)),
+        cs: cs,
+        tt: tt,
+        accent: accent,
+      ),
+      switchRow(
+        icon: Icons.visibility_rounded,
+        label: 'Show Guides',
+        tooltip:
+            'Display visual guide lines, angle badge, and length measurements while drawing.',
+        value: _settings.techShowGuides,
+        onChanged: (v) => _update(_settings.copyWith(techShowGuides: v)),
+        cs: cs,
+        tt: tt,
+        accent: accent,
+      ),
+      switchRow(
+        icon: Icons.compare_arrows_rounded,
+        label: 'Parallel Snap',
+        tooltip:
+            'Snap to the angle of the previous stroke for parallelism.',
+        value: _settings.techParallelSnap,
+        onChanged: (v) => _update(_settings.copyWith(techParallelSnap: v)),
+        cs: cs,
+        tt: tt,
+        accent: accent,
+      ),
+      switchRow(
+        icon: Icons.vertical_align_center_rounded,
+        label: 'Perpendicular Snap',
+        tooltip:
+            'Snap to 90° relative to the previous stroke.',
+        value: _settings.techPerpSnap,
+        onChanged: (v) => _update(_settings.copyWith(techPerpSnap: v)),
+        cs: cs,
+        tt: tt,
+        accent: accent,
+      ),
+    ];
+  }
 
   // ── Fountain ──
   List<Widget> _fountainControls(ColorScheme cs, TextTheme tt, Color accent) {
@@ -338,6 +528,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
               _settings.copyWith(
                 highlighterOpacity: 0.2,
                 highlighterWidthMultiplier: 2.5,
+                highlighterAutoStraighten: true,
               ),
             ),
         'Bold':
@@ -345,6 +536,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
               _settings.copyWith(
                 highlighterOpacity: 0.55,
                 highlighterWidthMultiplier: 4.0,
+                highlighterAutoStraighten: true,
               ),
             ),
       },
@@ -375,6 +567,16 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
           (v) => _update(_settings.copyWith(highlighterWidthMultiplier: v)),
       cs: cs,
       tt: tt,
+    ),
+    switchRow(
+      icon: Icons.straighten_rounded,
+      label: 'Auto-Straighten',
+      tooltip: 'Automatically straightens nearly-horizontal highlight lines.',
+      value: _settings.highlighterAutoStraighten,
+      onChanged: (v) => _update(_settings.copyWith(highlighterAutoStraighten: v)),
+      cs: cs,
+      tt: tt,
+      accent: accent,
     ),
   ];
 

@@ -352,6 +352,25 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
 
                 const SizedBox(width: 4),
 
+                // 🔍 Handwriting Search button
+                if (widget.onSearchPressed != null)
+                  ToolbarCompactActionButton(
+                    icon: widget.isSearchActive
+                        ? Icons.search_off_rounded
+                        : Icons.search_rounded,
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      widget.onSearchPressed!();
+                    },
+                    tooltip: widget.isSearchActive
+                        ? 'Close Search'
+                        : 'Search Handwriting',
+                    isDark: isDark,
+                    isEnabled: true,
+                  ),
+
+                const SizedBox(width: 4),
+
                 // Settings Dropdown
                 ToolbarSettingsDropdown(
                   isDark: isDark,

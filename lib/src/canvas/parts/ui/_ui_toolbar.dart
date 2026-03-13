@@ -161,9 +161,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
           },
           onDigitalTextToggle: () {
             _toolController.toggleDigitalTextMode();
-            if (_toolController.isDigitalTextActive) {
-              _showDigitalTextDialog();
-            } else {
+            if (!_toolController.isDigitalTextActive) {
               _digitalTextTool.deselectElement();
             }
             setState(() {}); // 🚀 Toolbar-only rebuild
@@ -463,6 +461,17 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
             // 🚀 Launch new advanced split system
             _launchAdvancedSplitView();
           },
+          // 🔍 Handwriting search
+          onSearchPressed: () {
+            setState(() {
+              _showHandwritingSearch = !_showHandwritingSearch;
+              if (!_showHandwritingSearch) {
+                _hwSearchResults = [];
+                _hwSearchActiveIndex = 0;
+              }
+            });
+          },
+          isSearchActive: _showHandwritingSearch,
           onPenTypeChanged: (type) {
             _toolController.setPenType(type);
             _toolController.resetToDrawingMode();

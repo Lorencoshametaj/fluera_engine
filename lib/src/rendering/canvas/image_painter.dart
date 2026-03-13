@@ -3,6 +3,11 @@ import 'dart:ui' as ui;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/models/image_element.dart';
+import '../../core/models/text_overlay.dart';
+import '../../core/models/color_adjustments.dart';
+import '../../core/models/gradient_filter.dart';
+import '../../core/models/perspective_settings.dart';
+import '../image_adjustment_engine.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../tools/image/image_tool.dart';
 import '../../drawing/brushes/brushes.dart';
@@ -10,6 +15,8 @@ import '../../drawing/brushes/brush_engine.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 import '../optimization/spatial_index.dart';
 import 'image_memory_manager.dart';
+import '../native/image/native_image_processor.dart';
+import '../native/image/image_filter_params.dart';
 
 // =============================================================================
 // 🖼️ ENTERPRISE IMAGE PAINTER — Viewport-level image renderer
@@ -426,12 +433,17 @@ class ImagePainter extends CustomPainter {
     var h = e.scale.hashCode;
     h = h * 31 + e.rotation.hashCode;
     h = h * 31 + e.opacity.hashCode;
-    h = h * 31 + e.brightness.hashCode;
-    h = h * 31 + e.contrast.hashCode;
-    h = h * 31 + e.saturation.hashCode;
-    h = h * 31 + e.vignette.hashCode;
-    h = h * 31 + e.hueShift.hashCode;
-    h = h * 31 + e.temperature.hashCode;
+    h =
+        h * 31 +
+        (e.brightness.hashCode ^
+            e.contrast.hashCode ^
+            e.saturation.hashCode ^
+            e.hueShift.hashCode ^
+            e.temperature.hashCode ^
+            e.highlights.hashCode ^
+            e.shadows.hashCode ^
+            e.fade.hashCode ^
+            e.vignette.hashCode);
     h = h * 31 + e.flipHorizontal.hashCode;
     h = h * 31 + e.flipVertical.hashCode;
     h = h * 31 + (e.cropRect?.hashCode ?? 0);
@@ -559,12 +571,21 @@ class ImagePainter extends CustomPainter {
     }
 
     // Apply color filter if there are modifications
-    if (imageElement.brightness != 0 ||
-        imageElement.contrast != 0 ||
-        imageElement.saturation != 0 ||
-        imageElement.hueShift != 0 ||
-        imageElement.temperature != 0) {
-      paint.colorFilter = ColorFilter.matrix(_getColorMatrix(imageElement));
+    if (ImageAdjustmentEngine.needsColorMatrix(
+      imageElement.colorAdjustments,
+      imageElement.toneCurve,
+      imageElement.lutIndex,
+    )) {
+      paint.colorFilter = ColorFilter.matrix(
+        ImageAdjustmentEngine.computeColorMatrix(
+          imageElement.colorAdjustments,
+          toneCurve: imageElement.toneCurve,
+          lutIndex: imageElement.lutIndex,
+        ),
+      );
+
+      // 🎯 GPU fast-path: dispatch to native pipeline for real-time adjustments
+      _dispatchGpuFilters(imageElement);
     }
 
     // Draw the image
@@ -572,7 +593,26 @@ class ImagePainter extends CustomPainter {
 
     // Draw vignette overlay if active
     if (imageElement.vignette > 0) {
-      _drawVignette(canvas, dstRect, imageElement.vignette);
+      _drawVignette(
+        canvas,
+        dstRect,
+        imageElement.vignette,
+        Color(imageElement.vignetteColor),
+      );
+    }
+
+    // 🔍 GPU blur/sharpen post-processing
+    if (imageElement.blurRadius > 0) {
+      _dispatchGpuBlur(imageElement);
+    }
+    if (imageElement.sharpenAmount > 0) {
+      _dispatchGpuSharpen(imageElement);
+    }
+    if (imageElement.edgeDetectStrength > 0) {
+      _dispatchGpuEdgeDetect(imageElement);
+    }
+    if (imageElement.lutIndex > 0) {
+      _dispatchGpuLut(imageElement);
     }
 
     // Restore state (end of image transform: translate → rotate → scale)
@@ -603,6 +643,50 @@ class ImagePainter extends CustomPainter {
         }
       }
       canvas.restore();
+    }
+
+    // 📝 Render text overlays on the image
+    if (imageElement.textOverlays.isNotEmpty) {
+      final w = image.width.toDouble() * imageElement.scale;
+      final h = image.height.toDouble() * imageElement.scale;
+      for (final t in imageElement.textOverlays) {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: t.text,
+            style: TextStyle(
+              fontSize: t.fontSize,
+              color: Color(t.color).withValues(alpha: t.opacity),
+              fontFamily: t.fontFamily,
+              fontWeight: t.bold ? FontWeight.bold : FontWeight.normal,
+              fontStyle: t.italic ? FontStyle.italic : FontStyle.normal,
+              shadows:
+                  t.shadowColor != 0
+                      ? [
+                        Shadow(
+                          color: Color(t.shadowColor),
+                          blurRadius: 4,
+                          offset: const Offset(1, 1),
+                        ),
+                      ]
+                      : null,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        tp.layout();
+        final tx = imageElement.position.dx + t.x * w - w / 2 - tp.width / 2;
+        final ty = imageElement.position.dy + t.y * h - h / 2 - tp.height / 2;
+        if (t.rotation != 0) {
+          canvas.save();
+          canvas.translate(tx + tp.width / 2, ty + tp.height / 2);
+          canvas.rotate(t.rotation);
+          tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+          canvas.restore();
+        } else {
+          tp.paint(canvas, Offset(tx, ty));
+        }
+        tp.dispose();
+      }
     }
 
     // 🐛 FIX Bug 1: REMOVED canvas-space stroke overlay.
@@ -645,6 +729,10 @@ class ImagePainter extends CustomPainter {
     if (imageElement.scale != 1.0) {
       canvas.scale(imageElement.scale);
     }
+
+    // Perspective correction (keystone)
+    // Perspective correction (via shared engine)
+    ImageAdjustmentEngine.applyPerspective(canvas, imageElement.perspective);
 
     // Calculate dimensions (considering crop)
     // 🐛 FIX: Use cached ORIGINAL dimensions for dstRect (same as primary path)
@@ -693,18 +781,59 @@ class ImagePainter extends CustomPainter {
       paint.color = Color.fromRGBO(255, 255, 255, imageElement.opacity);
     }
 
-    if (imageElement.brightness != 0 ||
-        imageElement.contrast != 0 ||
-        imageElement.saturation != 0 ||
-        imageElement.hueShift != 0 ||
-        imageElement.temperature != 0) {
-      paint.colorFilter = ColorFilter.matrix(_getColorMatrix(imageElement));
+    if (ImageAdjustmentEngine.needsColorMatrix(
+      imageElement.colorAdjustments,
+      imageElement.toneCurve,
+      imageElement.lutIndex,
+    )) {
+      paint.colorFilter = ColorFilter.matrix(
+        ImageAdjustmentEngine.computeColorMatrix(
+          imageElement.colorAdjustments,
+          toneCurve: imageElement.toneCurve,
+          lutIndex: imageElement.lutIndex,
+        ),
+      );
+      _dispatchGpuFilters(imageElement);
     }
 
     canvas.drawImageRect(image, srcRect, dstRect, paint);
 
     if (imageElement.vignette > 0) {
-      _drawVignette(canvas, dstRect, imageElement.vignette);
+      _drawVignette(
+        canvas,
+        dstRect,
+        imageElement.vignette,
+        Color(imageElement.vignetteColor),
+      );
+    }
+
+    // Gradient filter overlay (via shared engine)
+    ImageAdjustmentEngine.drawGradientOverlay(
+      canvas,
+      dstRect,
+      imageElement.gradientFilter,
+    );
+
+    // Noise reduction (via shared engine)
+    ImageAdjustmentEngine.drawNoiseReduction(
+      canvas,
+      image,
+      srcRect,
+      dstRect,
+      imageElement.noiseReduction,
+    );
+
+    if (imageElement.blurRadius > 0) {
+      _dispatchGpuBlur(imageElement);
+    }
+    if (imageElement.sharpenAmount > 0) {
+      _dispatchGpuSharpen(imageElement);
+    }
+    if (imageElement.edgeDetectStrength > 0) {
+      _dispatchGpuEdgeDetect(imageElement);
+    }
+    if (imageElement.lutIndex > 0) {
+      _dispatchGpuLut(imageElement);
     }
 
     // Restore image transform (translate → rotate → scale)
@@ -764,111 +893,20 @@ class ImagePainter extends CustomPainter {
     return FilterQuality.high;
   }
 
-  // ===========================================================================
-  // 🎨 Color Matrix
-  // ===========================================================================
-
-  List<double> _getColorMatrix(ImageElement element) {
-    final b = element.brightness * 255;
-    final c = element.contrast + 1.0;
-    final t = (1.0 - c) / 2.0 * 255;
-    final s = element.saturation + 1.0;
-    const lumR = 0.3086;
-    const lumG = 0.6094;
-    const lumB = 0.0820;
-    final sr = (1.0 - s) * lumR;
-    final sg = (1.0 - s) * lumG;
-    final sb = (1.0 - s) * lumB;
-
-    // Base saturation + brightness + contrast matrix
-    double r0 = (sr + s) * c, r1 = sg * c, r2 = sb * c, r4 = b + t;
-    double g0 = sr * c, g1 = (sg + s) * c, g2 = sb * c, g4 = b + t;
-    double b0 = sr * c, b1 = sg * c, b2 = (sb + s) * c, b4 = b + t;
-
-    // Temperature tint (warm = +red +green -blue, cool = -red +blue)
-    if (element.temperature != 0) {
-      final temp = element.temperature * 30; // ±30 per channel
-      r4 += temp;
-      g4 += temp * 0.4;
-      b4 -= temp;
-    }
-
-    // Hue rotation via Rodrigues' formula in RGB space
-    if (element.hueShift != 0) {
-      final angle = element.hueShift * 3.14159265;
-      final cosA = _cos(angle);
-      final sinA = _sin(angle);
-      const k = 1.0 / 3.0;
-      final sqrt = 0.57735; // 1/sqrt(3)
-
-      final m00 = cosA + (1 - cosA) * k;
-      final m01 = k * (1 - cosA) - sqrt * sinA;
-      final m02 = k * (1 - cosA) + sqrt * sinA;
-      final m10 = k * (1 - cosA) + sqrt * sinA;
-      final m11 = cosA + (1 - cosA) * k;
-      final m12 = k * (1 - cosA) - sqrt * sinA;
-      final m20 = k * (1 - cosA) - sqrt * sinA;
-      final m21 = k * (1 - cosA) + sqrt * sinA;
-      final m22 = cosA + (1 - cosA) * k;
-
-      // Multiply: hue matrix × current matrix
-      final nr0 = m00 * r0 + m01 * g0 + m02 * b0;
-      final nr1 = m00 * r1 + m01 * g1 + m02 * b1;
-      final nr2 = m00 * r2 + m01 * g2 + m02 * b2;
-      final ng0 = m10 * r0 + m11 * g0 + m12 * b0;
-      final ng1 = m10 * r1 + m11 * g1 + m12 * b1;
-      final ng2 = m10 * r2 + m11 * g2 + m12 * b2;
-      final nb0 = m20 * r0 + m21 * g0 + m22 * b0;
-      final nb1 = m20 * r1 + m21 * g1 + m22 * b1;
-      final nb2 = m20 * r2 + m21 * g2 + m22 * b2;
-
-      r0 = nr0;
-      r1 = nr1;
-      r2 = nr2;
-      g0 = ng0;
-      g1 = ng1;
-      g2 = ng2;
-      b0 = nb0;
-      b1 = nb1;
-      b2 = nb2;
-    }
-
-    // Fill static buffer in-place (no allocation)
-    _colorMatrixBuffer[0] = r0;
-    _colorMatrixBuffer[1] = r1;
-    _colorMatrixBuffer[2] = r2;
-    _colorMatrixBuffer[3] = 0;
-    _colorMatrixBuffer[4] = r4;
-    _colorMatrixBuffer[5] = g0;
-    _colorMatrixBuffer[6] = g1;
-    _colorMatrixBuffer[7] = g2;
-    _colorMatrixBuffer[8] = 0;
-    _colorMatrixBuffer[9] = g4;
-    _colorMatrixBuffer[10] = b0;
-    _colorMatrixBuffer[11] = b1;
-    _colorMatrixBuffer[12] = b2;
-    _colorMatrixBuffer[13] = 0;
-    _colorMatrixBuffer[14] = b4;
-    _colorMatrixBuffer[15] = 0;
-    _colorMatrixBuffer[16] = 0;
-    _colorMatrixBuffer[17] = 0;
-    _colorMatrixBuffer[18] = 1;
-    _colorMatrixBuffer[19] = 0;
-
-    return _colorMatrixBuffer;
-  }
-
   /// Draw vignette as a radial gradient overlay.
-  void _drawVignette(Canvas canvas, Rect rect, double strength) {
-    final center = rect.center;
-    final radius = rect.longestSide / 2;
+  void _drawVignette(
+    Canvas canvas,
+    Rect rect,
+    double strength, [
+    Color color = const Color(0xFF000000),
+  ]) {
     final gradient = RadialGradient(
       center: Alignment.center,
       radius: 0.85,
       colors: [
         Colors.transparent,
-        Colors.black.withValues(alpha: 0.35 * strength),
-        Colors.black.withValues(alpha: 0.7 * strength),
+        color.withValues(alpha: 0.35 * strength),
+        color.withValues(alpha: 0.7 * strength),
       ],
       stops: const [0.3, 0.75, 1.0],
     );
@@ -876,7 +914,52 @@ class ImagePainter extends CustomPainter {
     canvas.drawRect(rect, _vignettePaint);
   }
 
-  // Fast inline trig for hot path (avoid dart:math import overhead)
+  // ─── GPU Dispatch (fire-and-forget from paint) ────────────────────────
+
+  /// Dispatch color grading filter params to native GPU pipeline.
+  /// Fire-and-forget: schedules GPU work asynchronously, CPU fallback
+  /// (ColorFilter.matrix) is already applied above for immediate display.
+  void _dispatchGpuFilters(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    final params = ImageFilterParams.fromImageElement(element);
+    // Fire-and-forget — GPU will re-render the texture asynchronously
+    processor.applyFilters(element.id, params);
+  }
+
+  /// Dispatch Gaussian blur to native GPU pipeline.
+  void _dispatchGpuBlur(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applyBlur(element.id, element.blurRadius);
+  }
+
+  /// Dispatch unsharp mask (sharpen) to native GPU pipeline.
+  void _dispatchGpuSharpen(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applySharpen(element.id, element.sharpenAmount);
+  }
+
+  /// Dispatch Sobel edge detection to native GPU pipeline.
+  void _dispatchGpuEdgeDetect(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applyEdgeDetect(element.id, element.edgeDetectStrength);
+  }
+
+  /// Dispatch LUT color grading to native GPU pipeline.
+  void _dispatchGpuLut(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applyLut(element.id, element.lutIndex);
+  }
+
   static double _cos(double x) {
     // Taylor approximation - good enough for color matrix
     x = x % 6.28318530718;

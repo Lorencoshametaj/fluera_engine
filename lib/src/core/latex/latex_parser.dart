@@ -110,6 +110,13 @@ class LatexParser {
 
     // Special single-char commands
     final nextChar = _source[_pos];
+
+    // Percentage: \%
+    if (nextChar == '%') {
+      _pos++;
+      return const LatexSymbol('%');
+    }
+
     if (nextChar == ',' ||
         nextChar == ';' ||
         nextChar == '!' ||
@@ -125,6 +132,12 @@ class LatexParser {
       // Fractions
       case 'frac':
         return _parseFraction();
+
+      // Binomial coefficient — parse like frac, wrap as binom sentinel
+      case 'binom':
+        final frac = _parseFraction();
+        // Wrap in LatexDelimited with '⟮' sentinel to signal binom to evaluator
+        return LatexDelimited('⟮', '⟯', frac);
 
       // Square roots
       case 'sqrt':
@@ -341,6 +354,16 @@ class LatexParser {
         // Should not appear standalone — handled by \left
         return const LatexErrorNode('\\right', 'Unmatched \\right');
 
+      // Floor / Ceil delimiters (standalone usage)
+      case 'lfloor':
+        return const LatexSymbol('⌊');
+      case 'rfloor':
+        return const LatexSymbol('⌋');
+      case 'lceil':
+        return const LatexSymbol('⌈');
+      case 'rceil':
+        return const LatexSymbol('⌉');
+
       // Spacing
       case 'quad':
         return const LatexSpace(1.0);
@@ -423,6 +446,10 @@ class LatexParser {
         return const LatexText('Pr');
       case 'mod':
         return const LatexText('mod');
+
+      // Escaped percent sign (percentage symbol)
+      case '%':
+        return const LatexSymbol('%');
 
       default:
         // Unknown command — return as error node.
@@ -602,9 +629,27 @@ class LatexParser {
       return const LatexErrorNode('\\left', 'Unexpected end after \\left');
     }
 
-    // Read opening delimiter
-    final open = _source[_pos] == '.' ? '' : _source[_pos].toString();
-    _pos++;
+    // Read opening delimiter — may be a single char or a \command like \lfloor
+    String open;
+    if (_source[_pos] == '.') {
+      open = '';
+      _pos++;
+    } else if (_source[_pos] == '\\') {
+      // Backslash-command delimiter: \lfloor, \lceil, etc.
+      _pos++;
+      final cmd = _readCommandName();
+      open = switch (cmd) {
+        'lfloor' => '⌊',
+        'lceil' => '⌈',
+        'langle' => '⟨',
+        'lvert' => '|',
+        'lVert' => '‖',
+        _ => cmd,
+      };
+    } else {
+      open = _source[_pos].toString();
+      _pos++;
+    }
 
     // Parse body until \right
     final bodyNodes = <LatexAstNode>[];
@@ -616,8 +661,25 @@ class LatexParser {
         _pos += 6; // skip \right
         _skipWhitespace();
         if (_pos < _source.length) {
-          final close = _source[_pos] == '.' ? '' : _source[_pos].toString();
-          _pos++;
+          String close;
+          if (_source[_pos] == '.') {
+            close = '';
+            _pos++;
+          } else if (_source[_pos] == '\\') {
+            _pos++;
+            final cmd = _readCommandName();
+            close = switch (cmd) {
+              'rfloor' => '⌋',
+              'rceil' => '⌉',
+              'rangle' => '⟩',
+              'rvert' => '|',
+              'rVert' => '‖',
+              _ => cmd,
+            };
+          } else {
+            close = _source[_pos].toString();
+            _pos++;
+          }
           final body =
               bodyNodes.length == 1 ? bodyNodes.first : LatexGroup(bodyNodes);
           return LatexDelimited(open, close, body);
@@ -728,15 +790,35 @@ class LatexParser {
       _skipWhitespace();
     }
 
+    // No postfix found → return as-is
+    if (!hasSub && !hasSup) return base;
+
+    // ── Special handling: BigOperator limits ──
+    // \int_0^1, \sum_{n=1}^{N}, \prod_{k}, etc.
+    // Fill the operator's own lower/upper fields so the layout engine
+    // uses the correct stacking (display) or inline positioning.
+    if (base is LatexBigOperator) {
+      return LatexBigOperator(
+        base.operator,
+        lower: sub,
+        upper: sup,
+      );
+    }
+
+    // ── Special handling: \lim subscript ──
+    // \lim_{x \to 0} → LatexLimit(subscript: x → 0)
+    if (base is LatexLimit && hasSub) {
+      return LatexLimit(subscript: sub);
+    }
+
+    // ── Standard sub/superscript ──
     if (hasSub && hasSup) {
       return LatexSubSuperscript(base, sub!, sup!);
     } else if (hasSup) {
       return LatexSuperscript(base, sup!);
-    } else if (hasSub) {
+    } else {
       return LatexSubscript(base, sub!);
     }
-
-    return base;
   }
 
   // ---------------------------------------------------------------------------

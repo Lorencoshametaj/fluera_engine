@@ -625,6 +625,14 @@ class _SyncedStrokesPainter extends CustomPainter {
           stroke.baseWidth,
         );
         break;
+      case ProPenType.technicalPen:
+        TechnicalPenBrush.drawStroke(
+          canvas,
+          stroke.points,
+          stroke.color,
+          stroke.baseWidth,
+        );
+        break;
     }
   }
 

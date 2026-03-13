@@ -55,6 +55,7 @@ class DrawingInputHandler {
       ProPenType.neonGlow => (blend: 0.05, trailing: 1),
       ProPenType.ballpoint => (blend: 0.0, trailing: 0),
       ProPenType.highlighter => (blend: 0.0, trailing: 0),
+      ProPenType.technicalPen => (blend: 0.0, trailing: 0),
       null => (blend: 0.15, trailing: 3),
     };
   }

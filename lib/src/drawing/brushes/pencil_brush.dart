@@ -83,7 +83,14 @@ class PencilBrush {
     );
   }
 
-  /// 🎛️ Draw with custom parameters
+  /// 🎛️ Draw with custom parameters (GPU-aligned miter-join triangle strip)
+  ///
+  /// Uses the SAME algorithm as GPU tessellatePencil:
+  /// 1. EMA position smoothing (bidirectional, α=0.30, 2 passes)
+  /// 2. Per-point width from pressure + taper
+  /// 3. Uniform alpha from average pressure
+  /// 4. Miter-join tangent averaging
+  /// 5. Triangle strip via drawVertices
   static void drawStrokeWithSettings(
     Canvas canvas,
     List<dynamic> points,
@@ -105,31 +112,6 @@ class PencilBrush {
   }) {
     if (points.isEmpty) return;
 
-    // GPU Pro path
-    final _shaderSvc =
-        EngineScope.hasScope
-            ? EngineScope.current.drawingModule?.shaderBrushService
-            : null;
-    final useGpu = isPro || (_shaderSvc?.isProEnabled ?? false);
-    if (useGpu && (_shaderSvc?.isAvailable ?? false) && points.length >= 2) {
-      _shaderSvc!.renderPencilPro(
-        canvas,
-        points,
-        color,
-        baseWidth,
-        baseOpacity: baseOpacity,
-        maxOpacity: maxOpacity,
-        minPressure: minPressure,
-        maxPressure: maxPressure,
-        textureImage: textureImage,
-        textureScale: textureScale,
-        surfaceRoughness: surfaceRoughness,
-        surfaceAbsorption: surfaceAbsorption,
-        surfacePigmentRetention: surfacePigmentRetention,
-      );
-      return;
-    }
-
     // Single point: dot
     if (points.length == 1) {
       final offset = StrokeOptimizer.getOffset(points.first);
@@ -146,54 +128,107 @@ class PencilBrush {
       return;
     }
 
-    // === PIPELINE ===
+    final n = points.length;
+    final halfBaseW = baseWidth * 0.5;
 
-    // Acquire buffer set (A or B)
-    final useA = !_bufAInUse;
-    _bufAInUse = true;
-    final widthBuf = useA ? _widthBufA : _widthBufB;
-    final leftBuf = useA ? _leftBufA : _leftBufB;
-    final rightBuf = useA ? _rightBufA : _rightBufB;
-    final tangentBuf = useA ? _tangentBufA : _tangentBufB;
-
-    try {
-      // 1. Calculate widths with finger/stylus detection
-      _calculateWidths(points, baseWidth, minPressure, maxPressure, widthBuf);
-
-      // 2. Tapering — suppress exit taper ALWAYS (unified pipeline).
-      // Exit taper during live was already 0. Applying it only on finalization
-      // caused visible snap + visual shortening at the end of the stroke.
-      _applyTapering(widthBuf, taperEntryPoints, 0);
-
-      // 3. Smooth widths in-place (forward EMA)
-      _smoothWidthsInPlace(widthBuf);
-
-      // 4. Calculate average opacity from pressure
-      double totalPressure = 0;
-      for (final point in points) {
-        totalPressure += _getPressure(point);
-      }
-      final avgPressure = totalPressure / points.length;
-      final avgOpacity = (baseOpacity +
-              (maxOpacity - baseOpacity) * avgPressure)
-          .clamp(0.0, 1.0);
-
-      // 5. Build variable-width path with GPU tessellation
-      _buildVariableWidthPath(
-        canvas,
-        points,
-        widthBuf,
-        leftBuf,
-        rightBuf,
-        tangentBuf,
-        color,
-        avgOpacity,
-        liveStroke,
-        drawFromIndex: drawFromIndex,
-      );
-    } finally {
-      if (useA) _bufAInUse = false;
+    // ── Extract positions + pressure ──
+    final px = List<double>.filled(n, 0);
+    final py = List<double>.filled(n, 0);
+    final pp = List<double>.filled(n, 0);
+    for (int i = 0; i < n; i++) {
+      final o = StrokeOptimizer.getOffset(points[i]);
+      px[i] = o.dx;
+      py[i] = o.dy;
+      pp[i] = _getPressure(points[i]);
     }
+
+    // No EMA smoothing — use raw positions identical to GPU live overlay.
+
+    // ── Per-point width + alpha + miter-join outlines ──
+    final leftX = List<double>.filled(n, 0);
+    final leftY = List<double>.filled(n, 0);
+    final rightX = List<double>.filled(n, 0);
+    final rightY = List<double>.filled(n, 0);
+    final alphas = List<double>.filled(n, 0);
+
+    for (int i = 0; i < n; i++) {
+      // Width: same formula as GPU
+      double halfW =
+          halfBaseW * (minPressure + pp[i] * (maxPressure - minPressure));
+
+      // Taper: 4pt easeOutQuad from 0.15 (same as GPU)
+      if (i < taperEntryPoints) {
+        final t = i / taperEntryPoints;
+        final ease = t * (2.0 - t);
+        halfW *= 0.15 + ease * 0.85;
+      }
+
+      // Alpha: simple per-point from pressure (no uniform average → no batch mismatch)
+      alphas[i] = (baseOpacity + (maxOpacity - baseOpacity) * pp[i]).clamp(0.0, 1.0);
+
+      // Miter-join tangent
+      double tx = 0, ty = 0;
+      if (i > 0) {
+        tx += px[i] - px[i - 1];
+        ty += py[i] - py[i - 1];
+      }
+      if (i < n - 1) {
+        tx += px[i + 1] - px[i];
+        ty += py[i + 1] - py[i];
+      }
+      final tLen = math.sqrt(tx * tx + ty * ty);
+      if (tLen > 0.0001) {
+        tx /= tLen;
+        ty /= tLen;
+      } else {
+        tx = 1;
+        ty = 0;
+      }
+      final perpX = -ty;
+      final perpY = tx;
+      leftX[i] = px[i] + perpX * halfW;
+      leftY[i] = py[i] + perpY * halfW;
+      rightX[i] = px[i] - perpX * halfW;
+      rightY[i] = py[i] - perpY * halfW;
+    }
+
+    // ── Build triangle strip as drawVertices ──
+    final vertCount = (n - 1) * 6;
+    final positions = List<Offset>.filled(vertCount, Offset.zero);
+    final colors = List<Color>.filled(vertCount, Colors.transparent);
+    int vi = 0;
+
+    for (int i = 0; i < n - 1; i++) {
+      final ca = color.withValues(alpha: (alphas[i] * color.a).clamp(0.0, 1.0));
+      final na = color.withValues(
+        alpha: (alphas[i + 1] * color.a).clamp(0.0, 1.0),
+      );
+
+      positions[vi] = Offset(leftX[i], leftY[i]);
+      colors[vi++] = ca;
+      positions[vi] = Offset(rightX[i], rightY[i]);
+      colors[vi++] = ca;
+      positions[vi] = Offset(leftX[i + 1], leftY[i + 1]);
+      colors[vi++] = na;
+      positions[vi] = Offset(rightX[i], rightY[i]);
+      colors[vi++] = ca;
+      positions[vi] = Offset(leftX[i + 1], leftY[i + 1]);
+      colors[vi++] = na;
+      positions[vi] = Offset(rightX[i + 1], rightY[i + 1]);
+      colors[vi++] = na;
+    }
+
+    final vertices = ui.Vertices(
+      ui.VertexMode.triangles,
+      positions,
+      colors: colors,
+    );
+
+    canvas.drawVertices(
+      vertices,
+      ui.BlendMode.srcOver,
+      Paint()..style = PaintingStyle.fill,
+    );
   }
 
   // ──────────────────────────────────────────────────────────

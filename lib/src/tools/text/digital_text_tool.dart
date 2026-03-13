@@ -235,6 +235,12 @@ class DigitalTextTool implements DrawingTool {
       ..add(element.id);
   }
 
+  /// Update the selected element in-place (e.g. after Smart Guides snap).
+  /// Does NOT reset drag or selection state — safe to call mid-drag.
+  void updateSelectedElement(DigitalTextElement element) {
+    _selectedElement = element;
+  }
+
   /// 🔀 Toggle element in multi-selection (shift-tap)
   void toggleMultiSelect(DigitalTextElement element) {
     if (_selectedElementIds.contains(element.id)) {

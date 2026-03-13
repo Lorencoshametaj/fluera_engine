@@ -42,6 +42,7 @@ abstract final class FountainPenPathBuilder {
     StrokeOffsetBuffer rightBuf, {
     bool liveStroke = false,
     int drawFromIndex = 0,
+    double nibAngleRad = 0.0,
   }) {
     final path = PathPool.instance.acquire();
     if (points.length < 2) return path;
@@ -170,14 +171,21 @@ abstract final class FountainPenPathBuilder {
     final paint = PaintPool.getFillPaint(color: color);
 
     // ─── Pass 1: Compute ALL outline points ──────────────────────
+    // 🖋️ Enhancement 5: Nib shear (parallelogram cross-section).
+    // Real broad-edge nibs create a sheared profile — the ink mark
+    // is not symmetric around the center line but shifted along
+    // the tangent by the nib angle. This adds authentic calligraphic
+    // character at larger widths.
+    final shearFactor = math.sin(nibAngleRad) * 0.15;
     for (int i = 0; i < smoothedPos.length; i++) {
       final current = smoothedPos[i];
       final halfWidth = widths[i] / 2;
       final tangent = tangentBuf[i];
       final normal = Offset(-tangent.dy, tangent.dx);
+      final shear = tangent * (halfWidth * shearFactor);
 
-      leftBuf.add(current + normal * halfWidth);
-      rightBuf.add(current - normal * halfWidth);
+      leftBuf.add(current + normal * halfWidth + shear);
+      rightBuf.add(current - normal * halfWidth - shear);
     }
 
     // ─── Pass 1b: Smooth outlines (adaptive EMA) ──────────────────
@@ -285,26 +293,18 @@ abstract final class FountainPenPathBuilder {
       final wFrac = wIdx - wLow;
       final w = widths[wLow] * (1.0 - wFrac) + widths[wHigh] * wFrac;
 
-      final poolFactor = 0.80 + 0.20 * (w / maxW).clamp(0.0, 1.0);
-      final grainL = inkNoise(i * 2, noiseSeed);
-      final grainR = inkNoise(i * 2 + 1, noiseSeed);
-
-      final leftAlpha = (baseAlpha * poolFactor * (0.93 + grainL))
-          .round()
-          .clamp(0, 255);
-      final rightAlpha = (baseAlpha * poolFactor * (0.90 + grainR))
-          .round()
-          .clamp(0, 255);
+      // Solid uniform alpha — no ink pooling or grain noise
+      final vertexAlpha = baseAlpha;
 
       // Left vertex
       _posBuf[vi * 2] = leftBuf[i].dx;
       _posBuf[vi * 2 + 1] = leftBuf[i].dy;
-      _colBuf[vi] = (leftAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      _colBuf[vi] = (vertexAlpha << 24) | (cR << 16) | (cG << 8) | cB;
       vi++;
       // Right vertex
       _posBuf[vi * 2] = rightBuf[i].dx;
       _posBuf[vi * 2 + 1] = rightBuf[i].dy;
-      _colBuf[vi] = (rightAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      _colBuf[vi] = (vertexAlpha << 24) | (cR << 16) | (cG << 8) | cB;
       vi++;
     }
     for (int i = 0; i < tessLen - 1; i++) {
@@ -320,66 +320,8 @@ abstract final class FountainPenPathBuilder {
       _idxBuf[ii++] = rNext;
     }
 
-    // ─── Edge feathering: semi-transparent fringe for AA ──────
-    // 🚀 LIVE PERF: Skip for live strokes.
-    if (!liveStroke) {
-      const double fringeWidth = 0.75;
-      final fringeArgb = (cR << 16) | (cG << 8) | cB; // alpha=0
-
-      // Left edge fringe
-      final leftFringeStart = vi;
-      for (int i = 0; i < n; i++) {
-        final center = (leftBuf[i] + rightBuf[i]) / 2.0;
-        final toLeft = leftBuf[i] - center;
-        final dist = toLeft.distance;
-        final ox = dist > 0.01 ? toLeft.dx / dist : 0.0;
-        final oy = dist > 0.01 ? toLeft.dy / dist : -1.0;
-
-        _posBuf[vi * 2] = leftBuf[i].dx + ox * fringeWidth;
-        _posBuf[vi * 2 + 1] = leftBuf[i].dy + oy * fringeWidth;
-        _colBuf[vi] = fringeArgb;
-        vi++;
-      }
-      for (int i = 0; i < n - 1; i++) {
-        final eIdx = 2 * i;
-        final eNext = 2 * (i + 1);
-        final fIdx = leftFringeStart + i;
-        final fNext = leftFringeStart + i + 1;
-        _idxBuf[ii++] = eIdx;
-        _idxBuf[ii++] = fIdx;
-        _idxBuf[ii++] = eNext;
-        _idxBuf[ii++] = fIdx;
-        _idxBuf[ii++] = eNext;
-        _idxBuf[ii++] = fNext;
-      }
-
-      // Right edge fringe
-      final rightFringeStart = vi;
-      for (int i = 0; i < n; i++) {
-        final center = (leftBuf[i] + rightBuf[i]) / 2.0;
-        final toRight = rightBuf[i] - center;
-        final dist = toRight.distance;
-        final ox = dist > 0.01 ? toRight.dx / dist : 0.0;
-        final oy = dist > 0.01 ? toRight.dy / dist : 1.0;
-
-        _posBuf[vi * 2] = rightBuf[i].dx + ox * fringeWidth;
-        _posBuf[vi * 2 + 1] = rightBuf[i].dy + oy * fringeWidth;
-        _colBuf[vi] = fringeArgb;
-        vi++;
-      }
-      for (int i = 0; i < n - 1; i++) {
-        final eIdx = 2 * i + 1;
-        final eNext = 2 * (i + 1) + 1;
-        final fIdx = rightFringeStart + i;
-        final fNext = rightFringeStart + i + 1;
-        _idxBuf[ii++] = eIdx;
-        _idxBuf[ii++] = fIdx;
-        _idxBuf[ii++] = eNext;
-        _idxBuf[ii++] = fIdx;
-        _idxBuf[ii++] = eNext;
-        _idxBuf[ii++] = fNext;
-      }
-    }
+    // Edge feathering: REMOVED for uniform Vulkan→Dart pipeline.
+    // Both live and committed now produce identical geometry.
 
     // ─── End cap: semicircular fan ────────────────────────────
     final lastL = leftBuf[n - 1];
@@ -392,10 +334,8 @@ abstract final class FountainPenPathBuilder {
         lastL.dy - endCenter.dy,
         lastL.dx - endCenter.dx,
       );
-      final capAlpha = (baseAlpha * 0.95).round().clamp(0, 255);
-      final capArgb = (capAlpha << 24) | (cR << 16) | (cG << 8) | cB;
-      final edgeAlpha = (capAlpha * 0.90).round().clamp(0, 255);
-      final edgeArgb = (edgeAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      final capArgb = (baseAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+      final edgeArgb = capArgb; // Solid alpha for caps too
 
       final centerIdx = vi;
       _posBuf[vi * 2] = endCenter.dx;
@@ -429,10 +369,8 @@ abstract final class FountainPenPathBuilder {
           firstR.dy - startCenter.dy,
           firstR.dx - startCenter.dx,
         );
-        final capAlpha = (baseAlpha * 0.95).round().clamp(0, 255);
-        final capArgb = (capAlpha << 24) | (cR << 16) | (cG << 8) | cB;
-        final edgeAlpha = (capAlpha * 0.90).round().clamp(0, 255);
-        final edgeArgb = (edgeAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+        final capArgb = (baseAlpha << 24) | (cR << 16) | (cG << 8) | cB;
+        final edgeArgb = capArgb; // Solid alpha for caps too
 
         final centerIdx = vi;
         _posBuf[vi * 2] = startCenter.dx;

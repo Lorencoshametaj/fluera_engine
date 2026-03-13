@@ -15,6 +15,7 @@ import '../nodes/advanced_mask_node.dart';
 import '../nodes/boolean_group_node.dart';
 import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
+import '../nodes/pdf_preview_card_node.dart';
 import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
@@ -22,6 +23,7 @@ import '../nodes/tabular_node.dart';
 import '../nodes/material_zone_node.dart';
 import '../nodes/section_node.dart';
 import '../nodes/adjustment_layer_node.dart';
+import '../nodes/function_graph_node.dart';
 import '../engine_scope.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
@@ -114,11 +116,11 @@ class CanvasNodeFactory {
         return PdfPageNode.fromJson(json);
 
       case 'pdfDocument':
-        final doc = PdfDocumentNode.fromJson(json);
-        if (json['children'] != null) {
-          doc.loadChildrenFromJson(json['children'] as List<dynamic>, fromJson);
-        }
-        return doc;
+        // 📄 Migration: old multi-page grid → preview card
+        return PdfPreviewCardNode.migrateFromDocumentJson(json);
+
+      case 'pdfPreviewCard':
+        return PdfPreviewCardNode.fromJson(json);
 
       case 'vector_network':
         return VectorNetworkNode.fromJson(json);
@@ -144,6 +146,9 @@ class CanvasNodeFactory {
 
       case 'adjustmentLayer':
         return AdjustmentLayerNode.fromJson(json);
+
+      case 'functionGraph':
+        return FunctionGraphNode.fromJson(json);
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');

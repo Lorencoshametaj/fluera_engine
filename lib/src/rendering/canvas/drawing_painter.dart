@@ -33,6 +33,7 @@ import '../../core/nodes/layer_node.dart';
 import '../../core/nodes/group_node.dart';
 import '../../core/nodes/section_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
+import '../../core/nodes/pdf_preview_card_node.dart';
 import '../../core/scene_graph/node_id.dart'; // 🚀 Added for NodeId
 import '../../core/effects/paint_stack.dart'; // 🚀 Added for FillLayer and StrokeLayer
 import '../../core/nodes/pdf_page_node.dart';
@@ -43,7 +44,9 @@ import '../../tools/pdf/pdf_text_selection_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
 import '../../export/pdf_annotation_exporter.dart';
 import '../../core/nodes/tabular_node.dart';
+import '../../core/nodes/function_graph_node.dart';
 import '../scene_graph/tabular_renderer.dart';
+import '../scene_graph/function_graph_renderer.dart';
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
 import '../optimization/tile_cache_manager.dart'; // 🧩 Tile caching
 import '../optimization/stroke_paging_manager.dart'; // 🗂️ Stroke paging to disk
@@ -166,6 +169,30 @@ class DrawingPainter extends CustomPainter {
   /// 🧩 Tile cache for regional invalidation.
   /// Shared across DrawingPainter instances via EngineScope or static fallback.
   static final TileCacheManager _tileCache = TileCacheManager();
+
+  /// 🏎️ Last paint() duration in microseconds (for debug overlay).
+  static int _lastPaintDurationUs = 0;
+
+  /// Current LOD tier: 0 = full, 1 = batched, 2 = sections.
+  static int get currentLodTier => _cachedLodTier;
+
+  /// Tile cache hit rate (0-100%).
+  static double get tileCacheHitRate => _tileCache.hitRate;
+
+  /// Number of cached tiles.
+  static int get tileCacheCount => _tileCache.tileCount;
+
+  /// Tile cache hits since last reset.
+  static int get tileCacheHits => _tileCache.cacheHits;
+
+  /// Tile cache misses since last reset.
+  static int get tileCacheMisses => _tileCache.cacheMisses;
+
+  /// Reset tile cache stats (call periodically from monitor).
+  static void resetTileCacheStats() => _tileCache.resetStats();
+
+  /// Last paint() duration in microseconds.
+  static int get lastPaintDurationUs => _lastPaintDurationUs;
 
   /// 🌲 R-Tree spatial index for O(log N) node lookup during tile rebuild.
   static final si.SpatialIndex _renderIndex = si.SpatialIndex();
@@ -636,6 +663,9 @@ class DrawingPainter extends CustomPainter {
     // 📊 Draw Tabular (spreadsheet) nodes
     _paintTabularNodes(canvas, pdfViewport);
 
+    // 📈 Draw Function Graph nodes (outside tile cache — always visible)
+    _paintFunctionGraphNodes(canvas, pdfViewport);
+
     // 🎨 Phase 3: Clear dirty regions after paint (prevents accumulation)
     dirtyRegionTracker?.clearDirty();
 
@@ -648,6 +678,7 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 🏎️ PERFORMANCE MONITORING: end frame measurement
+    _lastPaintDurationUs = _sw.elapsedMicroseconds;
     CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
 
     // 🔬 DIAGNOSTIC: print breakdown on frames > 5ms
@@ -970,7 +1001,7 @@ class DrawingPainter extends CustomPainter {
                 path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
                 continue;
               }
-              if (node is PdfDocumentNode || node is PdfPageNode) continue;
+              if (node is PdfDocumentNode || node is PdfPageNode || node is PdfPreviewCardNode || node is FunctionGraphNode) continue;
               _delegateRenderer.renderNode(recCanvas, node, tileBounds);
             }
             for (final entry in thumbBatches.entries) {
@@ -982,13 +1013,13 @@ class DrawingPainter extends CustomPainter {
             }
           } else if (effectiveScale < 0.5) {
             for (final node in visibleNodes) {
-              if (node is PdfDocumentNode || node is PdfPageNode) continue;
+              if (node is PdfDocumentNode || node is PdfPageNode || node is PdfPreviewCardNode || node is FunctionGraphNode) continue;
               if (node is StrokeNode && node.stroke.isStub) continue;
               _delegateRenderer.renderNode(recCanvas, node, tileBounds);
             }
           } else {
             for (final node in visibleNodes) {
-              if (node is PdfDocumentNode || node is PdfPageNode) continue;
+              if (node is PdfDocumentNode || node is PdfPageNode || node is PdfPreviewCardNode || node is FunctionGraphNode) continue;
               if (node is StrokeNode && node.stroke.isStub) continue;
               _delegateRenderer.renderNode(recCanvas, node, tileBounds);
             }
@@ -1194,7 +1225,7 @@ class DrawingPainter extends CustomPainter {
             path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
             continue;
           }
-          if (node is PdfDocumentNode || node is PdfPageNode) continue;
+          if (node is PdfDocumentNode || node is PdfPageNode || node is PdfPreviewCardNode || node is FunctionGraphNode) continue;
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
         }
 
@@ -1270,13 +1301,13 @@ class DrawingPainter extends CustomPainter {
         // Also render non-stroke nodes (shapes, images, etc.)
         for (final node in visibleNodes) {
           if (node is StrokeNode) continue;
-          if (node is PdfDocumentNode || node is PdfPageNode) continue;
+          if (node is PdfDocumentNode || node is PdfPageNode || node is PdfPreviewCardNode || node is FunctionGraphNode) continue;
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
         }
       } else {
         // 🖌️ TIER 3: Full quality per-node rendering
         for (final node in visibleNodes) {
-          if (node is PdfDocumentNode || node is PdfPageNode) continue;
+          if (node is PdfDocumentNode || node is PdfPageNode || node is PdfPreviewCardNode || node is FunctionGraphNode) continue;
           if (node is StrokeNode && node.stroke.isStub) continue;
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
         }
@@ -1350,7 +1381,7 @@ class DrawingPainter extends CustomPainter {
           final recorder = ui.PictureRecorder();
           final recCanvas = Canvas(recorder);
           for (final node in visibleNodes) {
-            if (node is PdfDocumentNode || node is PdfPageNode) continue;
+            if (node is PdfDocumentNode || node is PdfPageNode || node is PdfPreviewCardNode || node is FunctionGraphNode) continue;
             if (node is StrokeNode && node.stroke.isStub) continue;
             _delegateRenderer.renderNode(recCanvas, node, tileBounds);
           }
@@ -1813,6 +1844,53 @@ class DrawingPainter extends CustomPainter {
   /// Features: drop shadow, white background, LOD-aware content via
   /// [PdfPagePainter], thin border. Falls back to a numbered placeholder
   /// if no [PdfPagePainter] is available for this document.
+
+  // ---------------------------------------------------------------------------
+  // 📈 FUNCTION GRAPH RENDERING (outside tile cache — always visible)
+  // ---------------------------------------------------------------------------
+
+  /// Render all FunctionGraphNodes across visible layers.
+  ///
+  /// Like PDF/Tabular rendering, this runs OUTSIDE the tile/stroke cache
+  /// to avoid disappearing when caches are rebuilt without the graph node.
+  void _paintFunctionGraphNodes(Canvas canvas, Rect viewport) {
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      _collectAndPaintFunctionGraphs(canvas, layer, viewport);
+    }
+  }
+
+  /// Recursively find and paint FunctionGraphNodes in a subtree.
+  void _collectAndPaintFunctionGraphs(
+    Canvas canvas,
+    CanvasNode node,
+    Rect viewport,
+  ) {
+    if (node is FunctionGraphNode) {
+      // Viewport culling
+      final tx = node.localTransform.getTranslation();
+      final nodeBounds = node.localBounds.translate(tx.x, tx.y);
+      if (!viewport.overlaps(nodeBounds)) return;
+
+      canvas.save();
+      canvas.translate(tx.x, tx.y);
+      // Apply scale from transform (for resize)
+      final sx = node.localTransform.getColumn(0).length;
+      final sy = node.localTransform.getColumn(1).length;
+      if ((sx - 1.0).abs() > 0.001 || (sy - 1.0).abs() > 0.001) {
+        canvas.scale(sx, sy);
+      }
+      final isDark = true; // Default to dark (renderer can't access Theme)
+      FunctionGraphRenderer.drawFunctionGraphNode(canvas, node, isDark: isDark);
+      canvas.restore();
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) {
+          _collectAndPaintFunctionGraphs(canvas, child, viewport);
+        }
+      }
+    }
+  }
   void _paintPdfPage(
     Canvas canvas,
     PdfPageNode pageNode,
@@ -2423,6 +2501,12 @@ class DrawingPainter extends CustomPainter {
   static void invalidateAllTiles() {
     _tileCache.invalidateAll();
     invalidateLayerCaches();
+  }
+
+  /// Trigger a repaint of the DrawingPainter (increments the repaint notifier).
+  /// Use when non-stroke nodes change (e.g., FunctionGraphNode drag/resize).
+  static void triggerRepaint() {
+    _lodRepaintNotifier.value++;
   }
 
   /// 🗂️ Initialize stroke paging manager with shared SQLite database.

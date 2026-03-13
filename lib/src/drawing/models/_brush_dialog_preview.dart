@@ -30,6 +30,7 @@ class _StrokePreviewPainter extends CustomPainter {
       ProPenType.sprayPaint ||
       ProPenType.neonGlow ||
       ProPenType.inkWash => _ballpointPoints(size),
+      ProPenType.technicalPen => _technicalPenPoints(size),
     };
 
     BrushEngine.renderStroke(
@@ -121,6 +122,56 @@ class _StrokePreviewPainter extends CustomPainter {
         ProDrawingPoint(position: Offset(x, y), pressure: 0.5, timestamp: i),
       );
     }
+    return pts;
+  }
+
+  /// Technical Pen: staircase pattern with right angles and straight segments
+  List<ProDrawingPoint> _technicalPenPoints(Size size) {
+    final pts = <ProDrawingPoint>[];
+    final px = size.width * 0.08;
+    final w = size.width - px * 2;
+    final top = size.height * 0.25;
+    final bottom = size.height * 0.75;
+    final mid = size.height * 0.5;
+
+    // Generate a zigzag staircase: right-angle turns
+    final waypoints = [
+      Offset(px, mid),
+      Offset(px + w * 0.15, mid),
+      Offset(px + w * 0.15, top),
+      Offset(px + w * 0.40, top),
+      Offset(px + w * 0.40, bottom),
+      Offset(px + w * 0.60, bottom),
+      Offset(px + w * 0.60, top),
+      Offset(px + w * 0.80, top),
+      Offset(px + w * 0.80, mid),
+      Offset(px + w, mid),
+    ];
+
+    int ts = 0;
+    for (int i = 0; i < waypoints.length - 1; i++) {
+      final a = waypoints[i];
+      final b = waypoints[i + 1];
+      final segLen = (b - a).distance;
+      final steps = (segLen / 2.0).round().clamp(2, 30);
+      for (int s = 0; s < steps; s++) {
+        final t = s / steps;
+        pts.add(
+          ProDrawingPoint(
+            position: Offset.lerp(a, b, t)!,
+            pressure: 0.5,
+            timestamp: ts++,
+          ),
+        );
+      }
+    }
+    pts.add(
+      ProDrawingPoint(
+        position: waypoints.last,
+        pressure: 0.5,
+        timestamp: ts,
+      ),
+    );
     return pts;
   }
 

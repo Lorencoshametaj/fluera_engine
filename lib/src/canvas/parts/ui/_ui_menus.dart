@@ -215,6 +215,21 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
               });
               HapticFeedback.lightImpact();
             },
+            // Phase 3 — Procreate parity
+            onInverse: () {
+              setState(() {
+                _lassoTool.invertSelection();
+              });
+              HapticFeedback.mediumImpact();
+            },
+            onPasteInPlace: () {
+              setState(() {
+                _lassoTool.pasteInPlace();
+              });
+              DrawingPainter.invalidateAllTiles();
+              _autoSaveCanvas();
+              HapticFeedback.lightImpact();
+            },
           ),
         ),
 

@@ -124,13 +124,17 @@ class BrushPreset {
       id: 'builtin_technical',
       name: 'Technical Pen',
       icon: '📏',
-      penType: ProPenType.ballpoint,
+      penType: ProPenType.technicalPen,
       baseWidth: 1.0,
       color: Color(0xFF000000),
       settings: ProBrushSettings(
-        ballpointMinPressure: 0.95,
-        ballpointMaxPressure: 1.05,
         stabilizerLevel: 7, // 🎯 High stabilizer for straighter lines
+        techAngleSnap: true, // 📐 Snap to angle increments
+        techSnapAngleDeg: 45.0, // 📐 45° snap resolution
+        techEndpointSnap: true, // 🔗 Auto-close shapes
+        techCornerSharpening: 0.6, // 🔷 Moderate corner sharpening
+        techStraightAssist: true, // 📏 Straighten near-straight segments
+        techShowGuides: true, // 📐 Show visual guides + measurements
       ),
       isBuiltIn: true,
     ),

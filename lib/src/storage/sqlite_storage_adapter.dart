@@ -42,7 +42,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 8;
+const int _kSchemaVersion = 9;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -238,6 +238,11 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         ''');
         await db.execute('ALTER TABLE canvases ADD COLUMN folder_id TEXT');
       } catch (_) {}
+    }
+    if (oldVersion < 9) {
+      // 🔍 Handwriting index tables.
+      // The actual table creation is handled by HandwritingIndexService._createTables()
+      // when it initializes with this database. Migration here just bumps version.
     }
   }
 

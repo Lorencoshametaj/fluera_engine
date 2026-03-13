@@ -46,6 +46,9 @@ class SelectionActionsMenu extends StatefulWidget {
   final VoidCallback? onDistributeV;
   final VoidCallback? onToggleMultiLayer;
   final bool multiLayerMode;
+  // Phase 3 — Procreate parity
+  final VoidCallback? onInverse;
+  final VoidCallback? onPasteInPlace;
   final String? statsSummary;
 
   const SelectionActionsMenu({
@@ -83,6 +86,8 @@ class SelectionActionsMenu extends StatefulWidget {
     this.onToggleMultiLayer,
     this.multiLayerMode = false,
     this.statsSummary,
+    this.onInverse,
+    this.onPasteInPlace,
   });
 
   @override
@@ -635,6 +640,26 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
                       ? 'Multi-Layer: ON'
                       : 'Multi-Layer: OFF',
               onTap: widget.onToggleMultiLayer!,
+            ),
+
+          _buildDivider(),
+
+          // Inverse selection
+          if (widget.onInverse != null)
+            CompactActionButton(
+              icon: Icons.invert_colors_rounded,
+              color: Colors.amber.shade800,
+              tooltip: 'Inverse Selection',
+              onTap: widget.onInverse!,
+            ),
+
+          // Paste in place
+          if (widget.onPasteInPlace != null && widget.hasClipboard)
+            CompactActionButton(
+              icon: Icons.content_paste_go_rounded,
+              color: Colors.green.shade700,
+              tooltip: 'Paste in Place',
+              onTap: widget.onPasteInPlace!,
             ),
 
           _buildDivider(),

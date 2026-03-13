@@ -709,10 +709,8 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
   ) {
     return [
       if (widget.onShadowChanged != null)
-        _effectButton(
-          isDark,
-          accentColor,
-          mutedColor,
+        _effectCard(
+          isDark, accentColor, mutedColor,
           icon: Icons.wb_sunny_outlined,
           label: 'Ombra',
           isActive: widget.hasShadow,
@@ -725,10 +723,8 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         ),
 
       if (widget.onBackgroundChanged != null)
-        _effectButton(
-          isDark,
-          accentColor,
-          mutedColor,
+        _effectCard(
+          isDark, accentColor, mutedColor,
           icon: Icons.format_color_fill_outlined,
           label: 'Sfondo',
           isActive: widget.hasBackground,
@@ -741,10 +737,8 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         ),
 
       if (widget.onOutlineChanged != null)
-        _effectButton(
-          isDark,
-          accentColor,
-          mutedColor,
+        _effectCard(
+          isDark, accentColor, mutedColor,
           icon: Icons.border_color_outlined,
           label: 'Bordo',
           isActive: widget.hasOutline,
@@ -757,25 +751,22 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         ),
 
       if (widget.onGradientChanged != null)
-        GestureDetector(
+        _effectCard(
+          isDark, accentColor, mutedColor,
+          icon: Icons.gradient_outlined,
+          label: 'Gradient',
+          isActive: widget.hasGradient,
+          activeColor: null,
+          useGradientPreview: true,
           onTap: () {
             HapticFeedback.selectionClick();
             widget.onGradientChanged!(!widget.hasGradient);
           },
-          child: _ToggleIcon(
-            icon: Icons.gradient_outlined,
-            label: 'Gradient',
-            isActive: widget.hasGradient,
-            accentColor: accentColor,
-            mutedColor: mutedColor,
-          ),
         ),
 
       if (widget.onGlowChanged != null)
-        _effectButton(
-          isDark,
-          accentColor,
-          mutedColor,
+        _effectCard(
+          isDark, accentColor, mutedColor,
           icon: Icons.auto_awesome,
           label: 'Glow',
           isActive: widget.hasGlow,
@@ -789,8 +780,9 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
     ];
   }
 
-  /// Effect button: tap = toggle, long-press = color picker popup
-  Widget _effectButton(
+  /// Premium effect card: pill with icon + label + color swatch.
+  /// Tap = toggle, long-press = color picker popup.
+  Widget _effectCard(
     bool isDark,
     Color accentColor,
     Color mutedColor, {
@@ -798,51 +790,100 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
     required String label,
     required bool isActive,
     Color? activeColor,
+    bool useGradientPreview = false,
     required VoidCallback onTap,
     ValueChanged<Color>? onColorPick,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress:
-          isActive && onColorPick != null
-              ? () {
+    final effectiveColor = activeColor ?? accentColor;
+    final bg = isActive
+        ? effectiveColor.withValues(alpha: 0.12)
+        : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03));
+    final borderCol = isActive
+        ? effectiveColor.withValues(alpha: 0.4)
+        : Colors.transparent;
+    final iconColor = isActive ? effectiveColor : mutedColor;
+    final labelColor = isActive ? effectiveColor : mutedColor;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: isActive && onColorPick != null
+            ? () {
                 HapticFeedback.mediumImpact();
-                _showEffectColorPicker(
-                  context,
-                  isDark,
-                  activeColor,
-                  onColorPick,
-                );
+                _showEffectColorPicker(context, isDark, activeColor, onColorPick);
               }
-              : null,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          _ToggleIcon(
-            icon: icon,
-            label: label,
-            isActive: isActive,
-            accentColor: accentColor,
-            mutedColor: mutedColor,
+            : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: borderCol, width: 1.2),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: effectiveColor.withValues(alpha: 0.18),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
-          if (isActive && activeColor != null)
-            Positioned(
-              right: -2,
-              top: -2,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: activeColor,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isDark ? Colors.black : Colors.white,
-                    width: 1,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Color swatch / gradient preview
+              if (isActive && (activeColor != null || useGradientPreview))
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: useGradientPreview
+                          ? const LinearGradient(
+                              colors: [Colors.blue, Colors.purple],
+                            )
+                          : null,
+                      color: useGradientPreview ? null : activeColor,
+                      border: Border.all(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.3)
+                            : Colors.black.withValues(alpha: 0.15),
+                        width: 1,
+                      ),
+                    ),
                   ),
                 ),
+              Icon(icon, size: 14, color: iconColor),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                  color: labelColor,
+                  letterSpacing: isActive ? 0.3 : 0,
+                ),
               ),
-            ),
-        ],
+              // Long-press hint dot
+              if (isActive && onColorPick != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Icon(
+                    Icons.palette_outlined,
+                    size: 9,
+                    color: effectiveColor.withValues(alpha: 0.5),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

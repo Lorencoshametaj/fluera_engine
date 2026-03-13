@@ -8,6 +8,8 @@ import '../../utils/key_value_store.dart';
 import '../../core/tabular/cell_node.dart';
 import './formula_reference_sheet.dart';
 import './hsv_color_picker.dart';
+import './pro_color_picker.dart';
+import '../overlays/eyedropper_overlay.dart';
 import '../../core/engine_scope.dart';
 import '../../l10n/fluera_localizations.dart';
 import '../../drawing/models/brush_preset.dart';
@@ -31,6 +33,7 @@ import 'toolbar_shapes.dart';
 import 'toolbar_color_palette.dart';
 import 'toolbar_sliders.dart';
 import 'toolbar_settings_dropdown.dart';
+import 'handedness_settings_sheet.dart'; // 🖐️ Handedness & palm rejection
 import 'toolbar_recording.dart';
 import 'toolbar_layout.dart';
 import 'toolbar_tab_bar.dart';
@@ -187,6 +190,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback?
   onShapeRecognitionSensitivityCycle; // 🔷 Long-press to cycle sensitivity
   final VoidCallback? onGhostSuggestionToggle; // 👻 Double-tap to toggle ghost
+  final VoidCallback? onSearchPressed; // 🔍 Handwriting search
+  final bool isSearchActive; // 🔍 Search overlay visible
   final VoidCallback? onPdfImportPressed; // 📄 PDF import
   final VoidCallback? onPdfCreateBlankPressed; // 📄 PDF create blank
   // 📄 PDF active state — contextual tools appear when a PDF is loaded
@@ -390,6 +395,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onShapeRecognitionToggle, // 🔷 Shape recognition toggle
     this.onShapeRecognitionSensitivityCycle, // 🔷 Sensitivity cycle
     this.onGhostSuggestionToggle, // 👻 Ghost toggle
+    this.onSearchPressed, // 🔍 Handwriting search
+    this.isSearchActive = false, // 🔍 Search overlay state
     this.onPdfImportPressed, // 📄 PDF import
     this.onPdfCreateBlankPressed, // 📄 PDF create blank
     this.isPdfActive = false,
@@ -463,8 +470,8 @@ class _ProfessionalCanvasToolbarState
     final tabs = [ToolbarTab.main];
     // Always show PDF tab — even without documents, the import button is there
     tabs.add(ToolbarTab.pdf);
-    // V1: LaTeX & Excel hidden — tools stay in codebase, re-enable post-launch
-    // tabs.add(ToolbarTab.scientific);
+    // V1: Excel hidden — re-enable post-launch
+    tabs.add(ToolbarTab.scientific);
     // tabs.add(ToolbarTab.excel);
     tabs.add(ToolbarTab.media);
     // Design tab: SDK-only, not exposed in Looponia (see dev.md)
@@ -481,10 +488,14 @@ class _ProfessionalCanvasToolbarState
     const Color(0xFFFF6F00), // Arancione
   ];
 
+  // Color history (last 12 used)
+  List<Color> _colorHistory = [];
+
   @override
   void initState() {
     super.initState();
     _loadCustomColors();
+    _loadColorHistory();
   }
 
   // Load colori salvati
@@ -509,45 +520,53 @@ class _ProfessionalCanvasToolbarState
     await prefs.setStringList('custom_colors', colorStrings);
   }
 
-  // Show color picker per slot specifico
-  void _showColorPicker(int index) {
-    Color pickerColor = _customColors[index];
+  // Load color history
+  Future<void> _loadColorHistory() async {
+    final prefs = await KeyValueStore.getInstance();
+    final saved = prefs.getStringList('color_history');
+    if (saved != null && saved.isNotEmpty) {
+      setState(() {
+        _colorHistory = saved
+            .map((s) => Color(int.parse(s)))
+            .toList();
+      });
+    }
+  }
 
-    showDialog(
+  // Save color to history
+  Future<void> _addToColorHistory(Color color) async {
+    setState(() {
+      _colorHistory.removeWhere((c) => c.toARGB32() == color.toARGB32());
+      _colorHistory.insert(0, color);
+      if (_colorHistory.length > 12) _colorHistory = _colorHistory.sublist(0, 12);
+    });
+    final prefs = await KeyValueStore.getInstance();
+    await prefs.setStringList('color_history',
+        _colorHistory.map((c) => c.toARGB32().toString()).toList());
+  }
+
+  // Show pro color picker per slot specifico
+  void _showColorPicker(int index) async {
+    final color = await showProColorPicker(
       context: context,
-      builder: (context) {
-        final l10n = FlueraLocalizations.of(context);
-        return AlertDialog(
-          title: Text(l10n.proCanvas_chooseColor),
-          content: SingleChildScrollView(
-            child: HsvColorPicker(
-              pickerColor: pickerColor,
-              onColorChanged: (color) {
-                pickerColor = color;
-              },
-              pickerAreaHeightPercent: 0.8,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(l10n.cancel),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _customColors[index] = pickerColor;
-                });
-                _saveCustomColors();
-                widget.onColorChanged(pickerColor);
-                Navigator.pop(context);
-              },
-              child: Text(l10n.save),
-            ),
-          ],
-        );
+      currentColor: _customColors[index],
+      colorHistory: _colorHistory,
+      onEyedropperRequested: () async {
+        final picked = await showEyedropperOverlay(context: context);
+        if (picked != null && mounted) {
+          setState(() => _customColors[index] = picked);
+          _saveCustomColors();
+          _addToColorHistory(picked);
+          widget.onColorChanged(picked);
+        }
       },
     );
+    if (color != null && mounted) {
+      setState(() => _customColors[index] = color);
+      _saveCustomColors();
+      _addToColorHistory(color);
+      widget.onColorChanged(color);
+    }
   }
 
   @override

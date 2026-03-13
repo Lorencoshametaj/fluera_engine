@@ -512,6 +512,8 @@ extension on _FlueraCanvasScreenState {
           RecordingStorageService.instance.initialize(sqliteAdapter.database);
           // 🗂️ Initialize stroke paging with shared DB for 1M+ stroke support
           DrawingPainter.initializePaging(sqliteAdapter.database);
+          // 🔍 Initialize handwriting index with shared DB
+          HandwritingIndexService.instance.init(sqliteAdapter.database);
         }
 
         data = await _config.storageAdapter!.loadCanvas(_canvasId);

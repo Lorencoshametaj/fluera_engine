@@ -20,6 +20,8 @@ part '_lasso_advanced.dart';
 part '_lasso_alignment.dart';
 part '_lasso_properties.dart';
 part '_lasso_visual.dart';
+part '_lasso_color_select.dart';
+part '_lasso_warp.dart';
 
 // =============================================================================
 // Constants
@@ -105,11 +107,30 @@ class LassoTool {
   Offset? _marqueeStart;
   Offset? _marqueeEnd;
 
-  // Selection mode: lasso or marquee
+  // Selection mode: lasso, marquee, or ellipse
   SelectionMode _selectionMode = SelectionMode.lasso;
 
   // Additive selection mode (Shift + lasso adds to existing selection)
   bool _additiveMode = false;
+
+  // Subtractive selection mode (Alt + lasso removes from existing selection)
+  bool _subtractiveMode = false;
+
+  /// Feather radius for soft-edge selection (0.0 = sharp, higher = softer).
+  double featherRadius = 0.0;
+
+  /// Color tolerance for color-based automatic selection (0.0–1.0).
+  double colorTolerance = 0.15;
+
+  /// Reference layer ID — when set, hit-testing uses this layer's nodes
+  /// but selects the corresponding nodes on the active layer.
+  String? referenceLayerId;
+
+  /// Transform mode for handle-based transforms.
+  TransformMode transformMode = TransformMode.uniform;
+
+  /// Active warp mesh for mesh deformation (null when inactive).
+  WarpMeshGrid? _warpMesh;
 
   // 🌊 REFLOW: Delegated to ReflowController (tool-agnostic)
   ReflowController? reflowController;
@@ -311,11 +332,16 @@ class LassoTool {
   // ===========================================================================
 
   void _selectElementsInPath(Path lassoPath) {
-    final layerNode = _getActiveLayerNode();
+    // Determine which layer to hit-test against
+    final hitTestLayer = referenceLayerId != null
+        ? _getLayerNodeById(referenceLayerId!)
+        : _getActiveLayerNode();
+    // Determine which layer to select from
+    final selectionLayer = _getActiveLayerNode();
     final lassoBounds = lassoPath.getBounds();
     final hits = <CanvasNode>[];
 
-    for (final child in layerNode.children) {
+    for (final child in hitTestLayer.children) {
       if (!child.isVisible || child.isLocked) continue;
 
       final bounds = child.worldBounds;
@@ -328,7 +354,13 @@ class LassoTool {
           lassoPath.contains(bounds.topRight) ||
           lassoPath.contains(bounds.bottomLeft) ||
           lassoPath.contains(bounds.bottomRight)) {
-        hits.add(child);
+        if (referenceLayerId != null) {
+          // Reference layer mode: find corresponding node on active layer
+          final activeNode = selectionLayer.findChild(child.id);
+          if (activeNode != null) hits.add(activeNode);
+        } else {
+          hits.add(child);
+        }
       }
     }
 
@@ -556,6 +588,14 @@ class LassoTool {
   void scaleProportional(double factor, {Offset? center}) =>
       scaleSelected(factor, center: center);
 
+  // Freeform (non-uniform) Scale
+  void freeformScale(double sx, double sy, {Offset? anchor}) =>
+      _freeformScale(sx, sy, anchor: anchor);
+
+  // Distort (4-corner perspective deformation)
+  void distort(List<Offset> corners) => _distort(corners);
+
+
   // Selection Statistics
   SelectionStats get selectionStats => _getSelectionStats();
 
@@ -574,10 +614,50 @@ class LassoTool {
   void completeMarquee() => _completeMarquee();
   Rect? get marqueeRect => _getMarqueeRect();
 
+  // Ellipse Selection
+  void startEllipse(Offset position) => _startEllipse(position);
+  void updateEllipse(Offset position) => _updateEllipse(position);
+  void completeEllipse() => _completeEllipse();
+  Rect? get ellipseRect => _getEllipseRect();
+
   // Additive Selection (Shift + Lasso)
   bool get additiveMode => _additiveMode;
   set additiveMode(bool value) => _additiveMode = value;
   void completeLassoAdditive() => _completeLassoAdditive();
+
+  // Subtractive Selection (Alt + Lasso)
+  bool get subtractiveMode => _subtractiveMode;
+  set subtractiveMode(bool value) => _subtractiveMode = value;
+
+  // Inverse Selection
+  void invertSelection() => _invertSelection();
+
+  // Color-Based Automatic Selection
+  int selectByColor(Offset tapPoint, {double? tolerance, bool additive = false}) =>
+      _selectByColor(tapPoint, tolerance: tolerance ?? colorTolerance, additive: additive);
+
+  // Contiguous Flood-Fill Selection (Procreate-style)
+  int floodFillSelect(Offset tapPoint, {
+    double? tolerance,
+    double gapThreshold = 20.0,
+    bool additive = false,
+  }) => _floodFillSelect(
+    tapPoint,
+    tolerance: tolerance ?? colorTolerance,
+    gapThreshold: gapThreshold,
+    additive: additive,
+  );
+
+  // Rotation with Snap (15°/45°/90° detents)
+  void rotateWithSnap(double radians, {bool snap = true}) =>
+      _rotateWithSnap(radians, snap: snap);
+
+  // Edge-Magnetic Movement (snap to canvas edges/center)
+  Offset snapMoveToEdges(Offset delta, Rect selectionBounds, Size canvasSize) =>
+      _snapToEdges(delta, selectionBounds, canvasSize);
+
+  // Paste in Place (zero offset)
+  int pasteInPlace() => _pasteFromClipboard(offset: Offset.zero);
 
   // Smart Guides
   List<Rect> get nonSelectedElementBounds => _getNonSelectedElementBounds();
@@ -626,6 +706,16 @@ class LassoTool {
   }
 
   LayerNode _getActiveLayerNode() => _getActiveLayer().node;
+
+  /// Look up a layer node by its layer ID (used for reference layer hit-testing).
+  LayerNode _getLayerNodeById(String layerId) {
+    final layer = layerController.layers.firstWhere(
+      (l) => l.id == layerId,
+      orElse: () => _getActiveLayer(),
+    );
+    return layer.node;
+  }
+
 
   void _updateLayer(CanvasLayer updatedLayer) {
     layerController.updateLayer(updatedLayer);

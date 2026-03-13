@@ -117,6 +117,8 @@ class _ProBrushSettingsDialogState extends State<ProBrushSettingsDialog>
         isDark ? const Color(0xFF84FFFF) : const Color(0xFF00B8D4),
       ProPenType.inkWash =>
         isDark ? const Color(0xFF9E9E9E) : const Color(0xFF424242),
+      ProPenType.technicalPen =>
+        isDark ? const Color(0xFF78909C) : const Color(0xFF37474F),
     };
   }
 
@@ -132,6 +134,7 @@ class _ProBrushSettingsDialogState extends State<ProBrushSettingsDialog>
     ProPenType.sprayPaint => Icons.blur_on_rounded,
     ProPenType.neonGlow => Icons.flash_on_rounded,
     ProPenType.inkWash => Icons.water_rounded,
+    ProPenType.technicalPen => Icons.straighten_rounded,
   };
 
   String _brushTitle() => switch (widget.currentBrush) {
@@ -146,6 +149,7 @@ class _ProBrushSettingsDialogState extends State<ProBrushSettingsDialog>
     ProPenType.sprayPaint => 'Spray Paint',
     ProPenType.neonGlow => 'Neon Glow',
     ProPenType.inkWash => 'Ink Wash',
+    ProPenType.technicalPen => 'Technical Pen',
   };
 
   @override

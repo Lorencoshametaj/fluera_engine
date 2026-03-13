@@ -52,19 +52,24 @@ Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeInit(
 JNIEXPORT void JNICALL
 Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeUpdateAndRender(
     JNIEnv *env, jobject /* this */, jfloatArray pointsArray, jint colorArgb,
-    jfloat strokeWidth, jint totalPoints) {
+    jfloat strokeWidth, jint totalPoints, jint brushType,
+    jfloat pencilBaseOpacity, jfloat pencilMaxOpacity,
+    jfloat pencilMinPressure, jfloat pencilMaxPressure,
+    jfloat fountainThinning, jfloat fountainNibAngleDeg,
+    jfloat fountainNibStrength, jfloat fountainPressureRate,
+    jint fountainTaperEntry) {
   if (!g_renderer || !g_renderer->isInitialized())
     return;
 
   jsize len = env->GetArrayLength(pointsArray);
-  if (len < 6)
-    return; // Need at least 2 points (6 floats: x,y,p × 2)
+  if (len < 10)
+    return; // Need at least 2 points (10 floats: x,y,p,tx,ty × 2)
 
   jfloat *pts = env->GetFloatArrayElements(pointsArray, nullptr);
   if (!pts)
     return;
 
-  int pointCount = len / 3; // Stride 3: x, y, pressure
+  int pointCount = len / 5; // Stride 5: x, y, pressure, tiltX, tiltY
 
   // Extract ARGB color
   float a = ((colorArgb >> 24) & 0xFF) / 255.0f;
@@ -73,7 +78,12 @@ Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeUpdateAndRe
   float b = (colorArgb & 0xFF) / 255.0f;
 
   g_renderer->updateAndRender(pts, pointCount, r, g, b, a, strokeWidth,
-                              totalPoints);
+                              totalPoints, brushType,
+                              pencilBaseOpacity, pencilMaxOpacity,
+                              pencilMinPressure, pencilMaxPressure,
+                                                            fountainThinning, fountainNibAngleDeg,
+                              fountainNibStrength, fountainPressureRate,
+                              fountainTaperEntry);
 
   env->ReleaseFloatArrayElements(pointsArray, pts, JNI_ABORT);
 }

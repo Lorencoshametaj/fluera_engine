@@ -43,7 +43,7 @@ class LatexRenderer {
   /// Draw a text glyph at its computed position.
   static void _drawGlyph(Canvas canvas, GlyphDrawCommand cmd) {
     final style = TextStyle(
-      fontFamily: cmd.fontFamily.isNotEmpty ? cmd.fontFamily : null,
+      fontFamily: (cmd.fontFamily != null && cmd.fontFamily!.isNotEmpty) ? cmd.fontFamily : null,
       fontSize: cmd.fontSize,
       color: cmd.color,
       fontStyle: cmd.italic ? FontStyle.italic : FontStyle.normal,

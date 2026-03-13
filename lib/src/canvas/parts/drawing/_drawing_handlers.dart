@@ -8,6 +8,23 @@ extension on _FlueraCanvasScreenState {
     double tiltX,
     double tiltY,
   ) {
+    // 🎚️ SLIDER GUARD: If touching the parameter slider panel, skip canvas processing entirely
+    if (_isDraggingGraphSlider) return;
+
+    // 🔒 INLINE EDITING GUARD: If the user taps the canvas while inline text
+    // editing is active, finish/cancel the current edit and return.
+    // This handles: (1) Back button dismissing keyboard without Flutter unfocus,
+    // (2) Canvas Listener firing alongside overlay GestureDetector on same tap.
+    if (_isInlineEditing) {
+      final currentText = _inlineOverlayKey.currentState?.currentText ?? '';
+      if (currentText.trim().isNotEmpty) {
+        _finishInlineText(currentText);
+      } else {
+        _cancelInlineText();
+      }
+      return;
+    }
+
     // 🔒 VIEWER GUARD: Prevent all editing on shared canvas if viewer
     if (_checkViewerGuard()) return;
 
@@ -203,6 +220,8 @@ extension on _FlueraCanvasScreenState {
     if (_digitalTextTool.hasSelection) {
       _digitalTextTool.deselectElement();
       _uiRebuildNotifier.value++;
+      // In digital text mode, just deselect — don't create new text on same tap
+      if (_effectiveIsDigitalText) return;
       // Do not return — continue with other tools
     }
 
@@ -270,8 +289,58 @@ extension on _FlueraCanvasScreenState {
       _uiRebuildNotifier.value++;
     }
 
-    // If digital text mode is active and no text was hit, return (don't draw)
+    // 📈 FunctionGraphNode: check resize corners FIRST (only if already selected)
+    if (_selectedGraphNode != null) {
+      final gn = _selectedGraphNode!;
+      final gPos = gn.localTransform.getTranslation();
+      final gBounds = gn.localBounds.translate(gPos.x, gPos.y);
+      final hitRadius = 20.0 / _canvasController.scale;
+      final corners = [
+        gBounds.topLeft,     // 0=TL
+        gBounds.topRight,    // 1=TR
+        gBounds.bottomLeft,  // 2=BL
+        gBounds.bottomRight, // 3=BR
+      ];
+      for (int i = 0; i < corners.length; i++) {
+        if ((canvasPosition - corners[i]).distance < hitRadius) {
+          // Opposite corner is the anchor
+          _isResizingGraph = true;
+          _graphResizeCorner = i;
+          _graphResizeAnchor = corners[3 - i]; // TL↔BR, TR↔BL
+          HapticFeedback.selectionClick();
+          return;
+        }
+      }
+    }
+
+    // 📈 FunctionGraphNode hit-test (tap to select/drag, double-tap to edit)
+    final hitGraph = _hitTestGraphNode(canvasPosition);
+    if (hitGraph != null) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (_selectedGraphNode == hitGraph && now - _lastGraphTapTime < 400) {
+        // Double-tap → open editor
+        _openGraphEditor(hitGraph);
+        _lastGraphTapTime = 0;
+        return;
+      }
+      _lastGraphTapTime = now;
+      _selectedGraphNode = hitGraph;
+      _isDraggingGraph = true;
+      _graphPinchStarted = false; // Fresh capture for next pinch
+      _graphDragStart = canvasPosition;
+      _uiRebuildNotifier.value++;
+      return;
+    }
+    // Deselect FunctionGraphNode if tapped empty area
+    if (_selectedGraphNode != null) {
+      _selectedGraphNode = null;
+      _isDraggingGraph = false;
+      _uiRebuildNotifier.value++;
+    }
+
+    // If digital text mode is active and no text was hit, create new inline text
     if (_effectiveIsDigitalText) {
+      _startInlineTextCreation(canvasPosition);
       return;
     }
 
@@ -295,7 +364,18 @@ extension on _FlueraCanvasScreenState {
       } else {
         _lassoSelectionBackup = null;
       }
-      _lassoTool.startLasso(canvasPosition);
+      // Mode-aware start: marquee, ellipse, or freehand lasso
+      switch (_lassoTool.selectionMode) {
+        case SelectionMode.marquee:
+          _lassoTool.startMarquee(canvasPosition);
+          break;
+        case SelectionMode.ellipse:
+          _lassoTool.startEllipse(canvasPosition);
+          break;
+        case SelectionMode.lasso:
+          _lassoTool.startLasso(canvasPosition);
+          break;
+      }
       _uiRebuildNotifier.value++;
       return;
     }
@@ -313,6 +393,7 @@ extension on _FlueraCanvasScreenState {
     // 🐛 FIX: Set drawing flag ONLY when actual drawing/erasing starts,
     // not during image/text/table selection — keeps Image Actions visible.
     _isDrawingNotifier.value = true;
+    CanvasPerformanceMonitor.instance.notifyDrawingStarted(); // 🚀 Pause overlay
 
     // If l'eraser is active, cancella at the point
     if (_effectiveIsEraser) {
@@ -524,6 +605,14 @@ extension on _FlueraCanvasScreenState {
       _initVulkanOverlayIfNeeded();
     }
     if (_vulkanOverlayActive) {
+      // 🔥 Set per-brush opacity: controls Vulkan texture visibility.
+      // Highlighter: 0.0 → Vulkan invisible, Flutter stroke shows.
+      // Marker: 0.7 → partial opacity for MSAA blending.
+      // Others (incl. fountain pen): 1.0 → fully opaque Vulkan rendering.
+      _vulkanTextureOpacity.value =
+          _effectivePenType == ProPenType.highlighter ? 0.0
+          : _effectivePenType == ProPenType.marker ? 0.7
+          : 1.0;
       _vulkanStrokeOverlay.clear(); // Clear previous stroke
       final rb =
           _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
@@ -579,6 +668,14 @@ extension on _FlueraCanvasScreenState {
   void _onDrawCancel() {
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
+    CanvasPerformanceMonitor.instance.notifyDrawingEnded(); // 🚀 Resume overlay
+
+    // 📝 INLINE TEXT CANCEL: If inline text creation was triggered by the
+    // first finger, cancel it when a second finger arrives (pinch-zoom).
+    if (_isInlineEditing && _inlineEditingElement != null &&
+        _inlineEditingElement!.text.isEmpty) {
+      _cancelInlineText();
+    }
 
     // 📐 SECTION RESIZE CANCEL: Cancel resize on multi-touch interrupt
     if (_resizingSectionNode != null) {
@@ -628,6 +725,19 @@ extension on _FlueraCanvasScreenState {
     if (_isDraggingLatex) {
       _isDraggingLatex = false;
       _latexDragStart = null;
+    }
+
+    // 📈 FunctionGraphNode drag cancel (pinch-to-zoom interrupt)
+    // NOTE: Do NOT reset _isDraggingGraph/_isResizingGraph here!
+    // They must stay true during multi-touch so blockPanZoom() blocks
+    // canvas pan/zoom while the user is interacting with the graph.
+    // They are properly reset in _onDrawEnd when all fingers lift.
+    if (_isDraggingGraph) {
+      _graphDragStart = null;
+    }
+    if (_isResizingGraph) {
+      _graphResizeCorner = -1;
+      _graphResizeAnchor = null;
     }
 
     // 📄 PDF DOCUMENT DRAG: Cancel document drag on multi-touch interrupt
@@ -758,6 +868,209 @@ extension on _FlueraCanvasScreenState {
       }
     }
     return null;
+  }
+
+  /// 📈 Hit-test all FunctionGraphNodes on the canvas.
+  FunctionGraphNode? _hitTestGraphNode(Offset canvasPosition) {
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is FunctionGraphNode && child.isVisible) {
+          final pos = child.localTransform.getTranslation();
+          final bounds = child.localBounds.translate(pos.x, pos.y);
+          if (bounds.contains(canvasPosition)) {
+            return child;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// 📈 Open graph editor for a FunctionGraphNode (double-tap-to-edit).
+  void _openGraphEditor(FunctionGraphNode graphNode) {
+    // A5: Save old viewport for smooth transition later
+    final oldXMin = graphNode.xMin, oldXMax = graphNode.xMax;
+    final oldYMin = graphNode.yMin, oldYMax = graphNode.yMax;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: LatexFunctionGraph(
+          latexSource: graphNode.latexSource,
+          accentColor: graphNode.curveColor,
+          onInsertToCanvas: (latexSource, xMin, xMax, yMin, yMax, curveColor) {
+            // Update existing node instead of creating new
+            graphNode.latexSource = latexSource;
+            graphNode.curveColorValue = curveColor;
+
+            // A5: Smooth viewport transition (animate old → new over 300ms)
+            final viewportChanged =
+                xMin != oldXMin || xMax != oldXMax ||
+                yMin != oldYMin || yMax != oldYMax;
+
+            if (viewportChanged) {
+              final startMs = DateTime.now().millisecondsSinceEpoch;
+              const durationMs = 300;
+              void _animateViewport() {
+                if (!mounted) return;
+                final elapsed = DateTime.now().millisecondsSinceEpoch - startMs;
+                final t = (elapsed / durationMs).clamp(0.0, 1.0);
+                // Ease-out cubic
+                final ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+
+                graphNode.xMin = oldXMin + (xMin - oldXMin) * ease;
+                graphNode.xMax = oldXMax + (xMax - oldXMax) * ease;
+                graphNode.yMin = oldYMin + (yMin - oldYMin) * ease;
+                graphNode.yMax = oldYMax + (yMax - oldYMax) * ease;
+                graphNode.invalidateCache();
+                _layerController.sceneGraph.bumpVersion();
+                DrawingPainter.invalidateAllTiles();
+                DrawingPainter.triggerRepaint();
+                _uiRebuildNotifier.value++;
+
+                if (t < 1.0) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _animateViewport());
+                }
+              }
+              WidgetsBinding.instance.addPostFrameCallback((_) => _animateViewport());
+            } else {
+              graphNode.xMin = xMin;
+              graphNode.xMax = xMax;
+              graphNode.yMin = yMin;
+              graphNode.yMax = yMax;
+              graphNode.invalidateCache();
+            }
+            _layerController.sceneGraph.bumpVersion();
+            setState(() {});
+            _autoSaveCanvas();
+          },
+        ),
+      ),
+    );
+  }
+
+  /// 📈 A3: Long-press context menu for a FunctionGraphNode.
+  void _showGraphContextMenu(FunctionGraphNode graphNode, Offset screenPos) {
+    HapticFeedback.mediumImpact();
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(screenPos.dx, screenPos.dy, screenPos.dx, screenPos.dy),
+      items: [
+        const PopupMenuItem(value: 'edit',  child: ListTile(leading: Icon(Icons.edit, size: 20), title: Text('Modifica'), dense: true)),
+        const PopupMenuItem(value: 'table', child: ListTile(leading: Icon(Icons.table_chart, size: 20), title: Text('Tabella Valori'), dense: true)),
+        const PopupMenuItem(value: 'duplicate', child: ListTile(leading: Icon(Icons.copy, size: 20), title: Text('Duplica'), dense: true)),
+        const PopupMenuItem(value: 'reset', child: ListTile(leading: Icon(Icons.refresh, size: 20), title: Text('Reset Viewport'), dense: true)),
+        const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, size: 20, color: Colors.red), title: Text('Elimina', style: TextStyle(color: Colors.red)), dense: true)),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      switch (value) {
+        case 'edit':
+          _openGraphEditor(graphNode);
+          break;
+        case 'table':
+          _showGraphValueTable(graphNode);
+          break;
+        case 'duplicate':
+          final clone = graphNode.cloneInternal() as FunctionGraphNode;
+          final t = clone.localTransform;
+          final p = t.getTranslation();
+          t.setTranslationRaw(p.x + 30, p.y + 30, 0);
+          // Add to active layer, NOT rootNode
+          _layerController.sceneGraph.layers.first.add(clone);
+          _selectedGraphNode = clone;
+          _layerController.sceneGraph.bumpVersion();
+          DrawingPainter.invalidateAllTiles();
+          DrawingPainter.triggerRepaint();
+          _uiRebuildNotifier.value++;
+          _autoSaveCanvas();
+          break;
+        case 'reset':
+          graphNode.xMin = -10; graphNode.xMax = 10;
+          graphNode.yMin = -10; graphNode.yMax = 10;
+          graphNode.invalidateCache();
+          _layerController.sceneGraph.bumpVersion();
+          DrawingPainter.invalidateAllTiles();
+          DrawingPainter.triggerRepaint();
+          _uiRebuildNotifier.value++;
+          _autoSaveCanvas();
+          break;
+        case 'delete':
+          for (final layer in _layerController.layers) {
+            final children = layer.node.children.toList();
+            if (children.contains(graphNode)) {
+              layer.node.remove(graphNode);
+              break;
+            }
+          }
+          _selectedGraphNode = null;
+          _isDraggingGraph = false;
+          _layerController.sceneGraph.bumpVersion();
+          DrawingPainter.invalidateAllTiles();
+          DrawingPainter.triggerRepaint();
+          _uiRebuildNotifier.value++;
+          _autoSaveCanvas();
+          break;
+      }
+    });
+  }
+
+  /// 📊 Show a value table for the selected graph function.
+  void _showGraphValueTable(FunctionGraphNode node) {
+    final fns = node.functions;
+    if (fns.isEmpty) return;
+    final step = (node.xMax - node.xMin) / 10;
+    final rows = <TableRow>[];
+
+    // Header
+    rows.add(TableRow(
+      decoration: BoxDecoration(
+        color: node.curveColor.withValues(alpha: 0.15),
+      ),
+      children: [
+        Padding(padding: const EdgeInsets.all(8), child: Text('x', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'monospace', fontSize: 13))),
+        Padding(padding: const EdgeInsets.all(8), child: Text('f(x)', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'monospace', fontSize: 13))),
+      ],
+    ));
+
+    for (int i = 0; i <= 10; i++) {
+      final x = node.xMin + step * i;
+      final y = node.evaluateAt(x);
+      final yStr = y != null && y.isFinite ? y.toStringAsFixed(4) : '—';
+      rows.add(TableRow(
+        decoration: BoxDecoration(
+          color: i.isEven ? Colors.transparent : Colors.grey.withValues(alpha: 0.06),
+        ),
+        children: [
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Text(x.toStringAsFixed(2), style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Text(yStr, style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+        ],
+      ));
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('f(x) = ${fns.first}', style: const TextStyle(fontSize: 14, fontFamily: 'monospace')),
+        content: SingleChildScrollView(
+          child: Table(
+            columnWidths: const {
+              0: FlexColumnWidth(1),
+              1: FlexColumnWidth(1.5),
+            },
+            border: TableBorder.all(color: Colors.grey.withValues(alpha: 0.2), width: 0.5),
+            children: rows,
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Chiudi'))],
+      ),
+    );
   }
 
   /// Delete the currently selected LatexNode from the scene graph.

@@ -1,4 +1,5 @@
 import 'dart:convert' as convert;
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import './pro_brush_settings.dart';
@@ -196,6 +197,7 @@ class ProStroke {
     }
     return path;
   }
+
 
   ui.Path _buildCatmullRomPathImpl() {
     final path = ui.Path();
@@ -416,4 +418,5 @@ enum ProPenType {
   sprayPaint, // Spray paint (GPU stochastic dots + gaussian falloff)
   neonGlow, // Neon glow (GPU multi-layer bloom + bright core)
   inkWash, // Ink wash (GPU wet-ink diffusion + bleed edges)
+  technicalPen, // Technical pen (constant width, no taper, hard edges)
 }

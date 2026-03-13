@@ -50,7 +50,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
   final Color color;
 
   /// Font family (e.g. 'Latin Modern Math', or system default).
-  final String fontFamily;
+  final String? fontFamily;
 
   /// Whether to render in italic (common for math variables).
   final bool italic;
@@ -64,7 +64,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
     required this.y,
     required this.fontSize,
     required this.color,
-    this.fontFamily = '',
+    this.fontFamily,
     this.italic = false,
     this.bold = false,
   });
@@ -77,7 +77,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
     'y': y,
     'fontSize': fontSize,
     'color': color.toARGB32(),
-    if (fontFamily.isNotEmpty) 'fontFamily': fontFamily,
+    if (fontFamily != null && fontFamily!.isNotEmpty) 'fontFamily': fontFamily,
     if (italic) 'italic': true,
     if (bold) 'bold': true,
   };
@@ -89,7 +89,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
       y: (json['y'] as num).toDouble(),
       fontSize: (json['fontSize'] as num).toDouble(),
       color: Color(json['color'] as int),
-      fontFamily: json['fontFamily'] as String? ?? '',
+      fontFamily: json['fontFamily'] as String?,
       italic: json['italic'] as bool? ?? false,
       bold: json['bold'] as bool? ?? false,
     );

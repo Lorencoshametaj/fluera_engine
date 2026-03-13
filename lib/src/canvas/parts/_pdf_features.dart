@@ -236,35 +236,12 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     final pdfFile = File('${cacheDir.path}/$docId.pdf');
     await pdfFile.writeAsBytes(bytes);
 
-    // ☁️ Cloud upload moved to AFTER local import — see below.
-    // PDF is shown locally first for instant feedback.
-
     // Create a native provider for this document
     final provider = NativeFlueraPdfProvider(documentId: docId);
+    final loaded = await provider.loadDocument(bytes);
 
-    // Import via PdfImportController
-    final controller = PdfImportController(provider: provider);
-
-    // Use sender's position (remote sync) or calculate from viewport center
-    final insertPosition =
-        position ??
-        _canvasController.screenToCanvas(
-          Offset(
-            MediaQuery.of(context).size.width / 2,
-            MediaQuery.of(context).size.height / 2,
-          ),
-        );
-
-    final docNode = await controller.importDocument(
-      documentId: docId,
-      bytes: bytes,
-      insertPosition: insertPosition,
-      gridColumns: 1, // 📄 Single column: natural reading flow
-    );
-
-    if (docNode == null) {
+    if (!loaded) {
       provider.dispose();
-      // Clean up cached file on failure
       if (await pdfFile.exists()) await pdfFile.delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -277,18 +254,73 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       return;
     }
 
-    // 💾 Store file path and name in document model for persistence
-    docNode.documentModel = docNode.documentModel.copyWith(
+    final pageCount = provider.pageCount;
+    if (pageCount == 0) {
+      provider.dispose();
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Build page models (for the reader, not displayed on canvas)
+    final pageModels = <PdfPageModel>[];
+    for (int i = 0; i < pageCount; i++) {
+      final size = provider.pageSize(i);
+      pageModels.add(PdfPageModel(
+        pageIndex: i,
+        originalSize: size,
+        lastModifiedAt: now,
+      ));
+    }
+
+    // Compute source hash (simple non-crypto hash for dedup)
+    int _h = bytes.length;
+    final _ss = bytes.length < 512 ? bytes.length : 256;
+    for (int i = 0; i < _ss; i++) {
+      _h = (_h * 31 + bytes[i]) & 0x7FFFFFFF;
+    }
+    if (bytes.length > 512) {
+      for (int i = bytes.length - 256; i < bytes.length; i++) {
+        _h = (_h * 31 + bytes[i]) & 0x7FFFFFFF;
+      }
+    }
+    final sourceHash = _h.toRadixString(16).padLeft(8, '0');
+
+    // Use sender's position (remote sync) or calculate from viewport center
+    final insertPosition =
+        position ??
+        _canvasController.screenToCanvas(
+          Offset(
+            MediaQuery.of(context).size.width / 2,
+            MediaQuery.of(context).size.height / 2,
+          ),
+        );
+
+    // Create document model (full data for the reader)
+    final documentModel = PdfDocumentModel(
+      sourceHash: sourceHash,
+      totalPages: pageCount,
+      pages: pageModels,
+      gridColumns: 1,
+      gridSpacing: 20.0,
+      gridOrigin: insertPosition,
+      createdAt: now,
+      lastModifiedAt: now,
       filePath: pdfFile.path,
       fileName: fileName,
     );
 
-    // 📄 Set node name for toolbar display
-    if (fileName != null && fileName.isNotEmpty) {
-      docNode.name = fileName;
-    }
+    // 📄 Create preview card node (single compact element on canvas)
+    final cardNode = PdfPreviewCardNode(
+      id: NodeId(docId),
+      documentModel: documentModel,
+      documentId: docId,
+      name: fileName ?? 'PDF ($pageCount pages)',
+    );
+    cardNode.fitToPageAspectRatio(targetWidth: 200);
+    cardNode.setPosition(insertPosition.dx, insertPosition.dy);
 
-    // 📄 Store provider and create LOD-aware painter for this document
+    // 📄 Store provider and create LOD-aware painter
     _pdfProviders[docId] = provider;
     _pdfPainters[docId] = PdfPagePainter(
       provider: provider,
@@ -296,21 +328,22 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       documentId: docId,
     );
 
-    // 📡 Wire real-time broadcast callback
-    if (_realtimeEngine != null) {
-      docNode.onMutation = (subAction, data) {
-        _realtimeEngine!.broadcastPdfUpdated(
-          documentId: docId,
-          subAction: subAction,
-          data: data,
-        );
-      };
-    }
+    // 📄 Render page 1 thumbnail for the preview card
+    try {
+      final firstPageSize = pageModels.first.originalSize;
+      final thumbScale = 200.0 / firstPageSize.width;
+      final thumbImage = await provider.renderPage(
+        pageIndex: 0,
+        scale: thumbScale,
+        targetSize: Size(200, 200 * firstPageSize.height / firstPageSize.width),
+      );
+      if (thumbImage != null) {
+        cardNode.thumbnailImage = thumbImage;
+      }
+    } catch (_) {}
 
-    // 📄 Initialize annotation controller for toolbar
-    _pdfAnnotationController?.dispose();
-    _pdfAnnotationController = PdfAnnotationController();
-    _pdfAnnotationController!.attach(docNode);
+    // 📡 Wire real-time broadcast callback
+    // ... (to be added when reader mode handles mutations)
 
     // 📄 Register document in search controller (multi-doc aware)
     _pdfSearchController ??= PdfSearchController();
@@ -329,13 +362,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // Add to active layer's scene graph
     final activeLayer = _layerController.activeLayer;
     if (activeLayer != null) {
-      activeLayer.node.add(docNode);
-
-      // 📄 Retroactively link strokes that arrived before this PDF (race condition)
-      if (!broadcast) _retroactiveLinkStrokesToPdf(docNode);
+      activeLayer.node.add(cardNode);
     }
 
-    // 📄 Auto-select newly imported PDF in toolbar
+    // 📄 Auto-select newly imported PDF
     _activePdfDocumentId = docId;
 
     // Trigger rebuild + auto-save
@@ -344,50 +374,27 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     if (broadcast) HapticFeedback.mediumImpact();
 
-    // 🔥 Background warm-up: pre-render all pages at low LOD
-    final painter = _pdfPainters[docId];
-    if (painter != null) {
-      painter.warmUpAllPages(
-        docNode.pageNodes,
-        onNeedRepaint: () {
-          if (mounted) {
-            _pdfLayoutVersion++;
-            setState(() {});
-          }
-        },
+    // 📄 Auto-scroll to center on the preview card
+    if (broadcast) {
+      final cardPos = cardNode.position;
+      final cardCenter = Offset(
+        cardPos.dx + cardNode.cardWidth / 2,
+        cardPos.dy + cardNode.cardHeight / 2,
+      );
+      final screenSize = MediaQuery.of(context).size;
+      final scale = _canvasController.scale;
+      _canvasController.setOffset(
+        Offset(
+          screenSize.width / 2 - cardCenter.dx * scale,
+          screenSize.height / 2 - cardCenter.dy * scale,
+        ),
       );
     }
 
-    // 📄 Auto-scroll to center on first page (LOCAL imports only —
-    // never shift the other device's viewport on remote sync)
-    if (broadcast) {
-      final firstPage = docNode.pageNodes.firstOrNull;
-      if (firstPage != null) {
-        final pagePos = firstPage.position;
-        final pageSize = firstPage.pageModel.originalSize;
-        final pageCenter = Offset(
-          pagePos.dx + pageSize.width / 2,
-          pagePos.dy + pageSize.height / 2,
-        );
-        final screenSize = MediaQuery.of(context).size;
-        final scale = _canvasController.scale;
-        _canvasController.setOffset(
-          Offset(
-            screenSize.width / 2 - pageCenter.dx * scale,
-            screenSize.height / 2 - pageCenter.dy * scale,
-          ),
-        );
-      }
-    }
-
-    // 📡 Broadcast to collaborators — two-phase:
-    // Phase 1: Immediately broadcast pdfLoading (placeholder on remote)
-    // Phase 2: Background upload + broadcast pdfAdded (with gzip bytes)
+    // 📡 Broadcast to collaborators
     if (broadcast && _realtimeEngine != null) {
-      // Get first page size for placeholder
       final firstPageSize =
-          docNode.pageNodes.firstOrNull?.pageModel.originalSize ??
-          const Size(595, 842);
+          pageModels.firstOrNull?.originalSize ?? const Size(595, 842);
 
       // 📸 Capture first-page thumbnail (~50px wide, ~2KB PNG)
       String? thumbnailBase64;
@@ -414,10 +421,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         thumbnailBase64 = null;
       }
 
-      // Phase 1: Immediate placeholder notification (with thumbnail)
+      // Phase 1: Immediate placeholder notification
       _realtimeEngine!.broadcastPdfLoading(
         documentId: docId,
-        pageCount: docNode.documentModel.totalPages,
+        pageCount: documentModel.totalPages,
         pageWidth: firstPageSize.width,
         pageHeight: firstPageSize.height,
         positionX: insertPosition.dx,
@@ -430,7 +437,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       final uploadFuture = Future(() async {
         bool uploadOk = false;
 
-        // Upload to cloud storage with REAL progress from Firebase
         if (_syncEngine != null) {
           try {
             await _syncEngine!.adapter.uploadAsset(
@@ -439,7 +445,6 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
               bytes,
               mimeType: 'application/pdf',
               onProgress: (p) {
-                // Scale upload progress to 0–70% of total
                 _realtimeEngine?.broadcastPdfProgress(
                   documentId: docId,
                   progress: p * 0.7,
@@ -450,13 +455,9 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           } catch (e) {}
         }
 
-        // Broadcast pdfAdded — skip inline bytes for large PDFs (>10MB)
-        // RTDB has ~16MB write limit, gzip+base64 can exceed this for large files.
-        // Receivers will download from Cloud Storage instead.
         try {
           String? b64;
           if (bytes.length <= 10 * 1024 * 1024) {
-            // Small PDF: include inline gzip+base64 as fallback
             _realtimeEngine?.broadcastPdfProgress(
               documentId: docId,
               progress: 0.8,
@@ -467,14 +468,12 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
               progress: 0.9,
             );
             b64 = base64Encode(compressed);
-          } else {
-            // Large PDF: cloud-only transfer, no inline bytes
           }
 
           _realtimeEngine?.broadcastPdfAdded(
             documentId: docId,
             fileName: fileName,
-            pageCount: docNode.documentModel.totalPages,
+            pageCount: documentModel.totalPages,
             positionX: insertPosition.dx,
             positionY: insertPosition.dy,
             pdfBytesBase64: b64,
@@ -485,11 +484,9 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           }
         }
 
-        // Remove from active uploads
         _activePdfUploads.remove(docId);
       });
 
-      // Track active upload for cancel support
       _activePdfUploads[docId] = uploadFuture;
     }
   }
@@ -796,6 +793,111 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
   }
 
   // ---------------------------------------------------------------------------
+  // 📖 PDF Reader Mode — full-screen navigation
+  // ---------------------------------------------------------------------------
+
+  /// Hit-test a canvas position against all PdfPreviewCardNodes.
+  /// Returns the matching node, or null.
+  PdfPreviewCardNode? _hitTestPdfPreviewCard(Offset canvasPos) {
+    for (final layer in _layerController.layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfPreviewCardNode && child.hitTest(canvasPos)) {
+          return child;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Enter the full-screen PDF reader for a given preview card.
+  ///
+  /// Called on long-press of a [PdfPreviewCardNode]. Opens [PdfReaderScreen]
+  /// as a new route. On pop, refreshes the preview card's thumbnail.
+  void _enterPdfReader(PdfPreviewCardNode cardNode) {
+    final docId = cardNode.documentId;
+    final provider = _pdfProviders[docId];
+    final painter = _pdfPainters[docId];
+
+    if (provider == null || painter == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('PDF not loaded — try re-importing'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return PdfReaderScreen(
+            documentModel: cardNode.documentModel,
+            provider: provider,
+            documentId: docId,
+            pagePainter: painter,
+            onClose: (updatedModel) {
+              // Refresh preview card on return
+              cardNode.documentModel = updatedModel;
+              // Refresh thumbnail
+              _refreshPreviewCardThumbnail(cardNode);
+              if (mounted) setState(() {});
+            },
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOut,
+            ),
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.05),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              )),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 250),
+      ),
+    );
+  }
+
+  /// Re-render the page 1 thumbnail on a preview card.
+  Future<void> _refreshPreviewCardThumbnail(PdfPreviewCardNode cardNode) async {
+    final provider = _pdfProviders[cardNode.documentId];
+    if (provider == null) return;
+
+    try {
+      final firstPage = cardNode.documentModel.pages.first;
+      final thumbScale = 200.0 / firstPage.originalSize.width;
+      final thumbImage = await provider.renderPage(
+        pageIndex: 0,
+        scale: thumbScale,
+        targetSize: Size(
+          200,
+          200 * firstPage.originalSize.height / firstPage.originalSize.width,
+        ),
+      );
+      if (thumbImage != null) {
+        cardNode.disposeThumbnail();
+        cardNode.thumbnailImage = thumbImage;
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------------------
   // 📝 Page background chooser
   // ---------------------------------------------------------------------------
 
@@ -822,9 +924,15 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           final doc = _findPdfDocumentNode(_activePdfDocumentId!);
           if (doc != null) {
             doc.name = title.trim();
-            doc.documentModel = doc.documentModel.copyWith(
-              fileName: title.trim(),
-            );
+            if (doc is PdfPreviewCardNode) {
+              doc.documentModel = doc.documentModel.copyWith(
+                fileName: title.trim(),
+              );
+            } else if (doc is PdfDocumentNode) {
+              doc.documentModel = doc.documentModel.copyWith(
+                fileName: title.trim(),
+              );
+            }
             _realtimeEngine?.broadcastPdfUpdated(
               documentId: doc.id.toString(),
               subAction: 'documentRenamed',
@@ -837,10 +945,13 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     });
   }
 
-  /// Find a PdfDocumentNode by its document ID across all layers.
-  PdfDocumentNode? _findPdfDocumentNode(String documentId) {
+  /// Find a PDF node (preview card or legacy document) by its document ID across all layers.
+  CanvasNode? _findPdfDocumentNode(String documentId) {
     for (final layer in _layerController.layers) {
       for (final child in layer.node.children) {
+        if (child is PdfPreviewCardNode && child.documentId == documentId) {
+          return child;
+        }
         if (child is PdfDocumentNode && child.id.toString() == documentId) {
           return child;
         }
@@ -870,7 +981,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     for (final layer in _layerController.layers) {
       layer.node.children.removeWhere(
         (child) =>
-            child is PdfDocumentNode && child.id.toString() == documentId,
+            (child is PdfPreviewCardNode && child.documentId == documentId) ||
+            (child is PdfDocumentNode && child.id.toString() == documentId),
       );
     }
 
@@ -897,8 +1009,16 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
   /// 🗑️ Show confirmation dialog before deleting a PDF document.
   void showDeletePdfConfirmation(BuildContext context, String documentId) {
     final docNode = _findPdfDocumentNode(documentId);
-    final fileName = docNode?.documentModel.fileName ?? 'this document';
-    final pageCount = docNode?.documentModel.totalPages ?? 0;
+    String? fileName;
+    int pageCount = 0;
+    if (docNode is PdfPreviewCardNode) {
+      fileName = docNode.documentModel.fileName;
+      pageCount = docNode.documentModel.totalPages;
+    } else if (docNode is PdfDocumentNode) {
+      fileName = docNode.documentModel.fileName;
+      pageCount = docNode.documentModel.totalPages;
+    }
+    fileName ??= 'this document';
 
     showDialog(
       context: context,

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../rendering/gpu/vulkan_stroke_overlay_service.dart';
+import '../rendering/canvas/drawing_painter.dart';
 
 /// Performance monitoring service for Professional Canvas.
 ///
@@ -37,6 +39,9 @@ class CanvasPerformanceMonitor {
 
   /// 🖥️ Raster thread frame times (microseconds) from FrameTiming API.
   final List<int> _rasterTimesUs = [];
+
+  /// 🏗️ Build phase times (microseconds) from FrameTiming API.
+  final List<int> _buildTimesUs = [];
 
   /// FPS sparkline history (last 60 data points = ~30 seconds).
   final List<double> _fpsSparkline = [];
@@ -73,6 +78,16 @@ class CanvasPerformanceMonitor {
   static const int _sparklinePoints = 60; // 30 seconds of sparkline
 
   bool _isEnabled = false;
+
+  /// 🚀 PERF: When true, the overlay timer skips setState to avoid
+  /// colliding with drawing frames (which would push UI thread > 8.33ms).
+  bool _isDrawing = false;
+
+  /// Call from _onDrawStart to suppress overlay refreshes during drawing.
+  void notifyDrawingStarted() => _isDrawing = true;
+
+  /// Call from _onDrawEnd to resume overlay refreshes.
+  void notifyDrawingEnded() => _isDrawing = false;
 
   /// Enable/disable monitoring.
   void setEnabled(bool enabled) {
@@ -113,6 +128,12 @@ class CanvasPerformanceMonitor {
       _rasterTimesUs.add(rasterUs);
       if (_rasterTimesUs.length > _maxSamples) {
         _rasterTimesUs.removeAt(0);
+      }
+
+      final buildUs = timing.buildDuration.inMicroseconds;
+      _buildTimesUs.add(buildUs);
+      if (_buildTimesUs.length > _maxSamples) {
+        _buildTimesUs.removeAt(0);
       }
     }
   }
@@ -178,6 +199,10 @@ class CanvasPerformanceMonitor {
     final rasterSorted = List<int>.from(_rasterTimesUs)..sort();
     final rn = rasterSorted.length;
 
+    // Build thread percentiles (from FrameTiming API — real UI thread)
+    final buildSorted = List<int>.from(_buildTimesUs)..sort();
+    final bn = buildSorted.length;
+
     return PerformanceMetrics(
       currentFPS: _fpsSparkline.isNotEmpty ? _fpsSparkline.last : 0,
       avgFPS:
@@ -187,11 +212,21 @@ class CanvasPerformanceMonitor {
       memoryUsageMB: _getMemoryUsage(),
       strokeCount: _currentStrokeCount,
       targetFPS: _targetFPS,
-      // UI thread frame time percentiles
-      p50FrameTimeMs: n > 0 ? sorted[n ~/ 2] / 1000.0 : 0,
-      p90FrameTimeMs:
+      // UI thread (build phase) percentiles from FrameTiming API
+      buildP50Ms: bn > 0 ? buildSorted[bn ~/ 2] / 1000.0 : 0,
+      buildP90Ms:
+          bn > 0
+              ? buildSorted[(bn * 0.9).floor().clamp(0, bn - 1)] / 1000.0
+              : 0,
+      buildP99Ms:
+          bn > 0
+              ? buildSorted[(bn * 0.99).floor().clamp(0, bn - 1)] / 1000.0
+              : 0,
+      // Paint duration percentiles (DrawingPainter.paint() stopwatch)
+      paintP50Ms: n > 0 ? sorted[n ~/ 2] / 1000.0 : 0,
+      paintP90Ms:
           n > 0 ? sorted[(n * 0.9).floor().clamp(0, n - 1)] / 1000.0 : 0,
-      p99FrameTimeMs:
+      paintP99Ms:
           n > 0 ? sorted[(n * 0.99).floor().clamp(0, n - 1)] / 1000.0 : 0,
       // Raster thread frame time percentiles
       rasterP50Ms: rn > 0 ? rasterSorted[rn ~/ 2] / 1000.0 : 0,
@@ -217,6 +252,13 @@ class CanvasPerformanceMonitor {
       fpsSparkline: List.unmodifiable(_fpsSparkline),
       // Vulkan stats
       vulkanStats: _vulkanStats,
+      // Paint duration (last frame)
+      paintLastMs: DrawingPainter.lastPaintDurationUs / 1000.0,
+      // Tile cache stats
+      tileCacheHitRate: DrawingPainter.tileCacheHitRate,
+      tileCacheCount: DrawingPainter.tileCacheCount,
+      // LOD tier
+      lodTier: DrawingPainter.currentLodTier,
     );
   }
 
@@ -245,267 +287,13 @@ class CanvasPerformanceMonitor {
   // ═══════════════════════════════════════════════════════════════════
 
   /// Build the enhanced debug overlay with sparkline, percentiles, and budget.
+  ///
+  /// 🚀 PERF: Returns a self-contained StatefulWidget with its own Timer.
+  /// This isolates the 500ms refresh from the parent widget tree, preventing
+  /// the entire _buildImpl() Stack (~30+ widgets) from being re-diffed.
   Widget buildDebugOverlay() {
     if (!_isEnabled) return const SizedBox.shrink();
-
-    return StreamBuilder(
-      stream: Stream.periodic(const Duration(milliseconds: 500)),
-      builder: (context, snapshot) {
-        // Poll Vulkan stats (fire-and-forget)
-        if (_vulkanService != null && _vulkanService!.isInitialized) {
-          _vulkanService!.getStats().then((s) => _vulkanStats = s);
-        }
-
-        final m = getMetrics();
-        final fpsColor =
-            m.currentFPS >= 54
-                ? const Color(0xFF4CAF50)
-                : m.currentFPS >= 40
-                ? const Color(0xFFFF9800)
-                : const Color(0xFFF44336);
-
-        return Positioned(
-          top: 40,
-          right: 10,
-          child: GestureDetector(
-            onTap: () => _isCollapsed = !_isCollapsed,
-            behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeInOut,
-              width: _isCollapsed ? 120 : 200,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xCC1A1A2E),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: fpsColor.withValues(alpha: 0.6)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ── FPS header (always visible) ──
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '${m.currentFPS.toStringAsFixed(0)} FPS',
-                        style: TextStyle(
-                          color: fpsColor,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color:
-                                  m.frameBudgetPercent >= 95
-                                      ? const Color(0xFF4CAF50)
-                                      : m.frameBudgetPercent >= 80
-                                      ? const Color(0xFFFF9800)
-                                      : const Color(0xFFF44336),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '${m.frameBudgetPercent.toStringAsFixed(0)}%',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          if (!_isCollapsed) ...[
-                            const SizedBox(width: 4),
-                            Icon(
-                              Icons.expand_less,
-                              color: Colors.white38,
-                              size: 14,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-
-                  // ── Expanded content ──
-                  if (!_isCollapsed) ...[
-                    const SizedBox(height: 6),
-
-                    // ── Mini sparkline ──
-                    if (m.fpsSparkline.length > 1)
-                      CustomPaint(
-                        size: const Size(160, 30),
-                        painter: _SparklinePainter(m.fpsSparkline, fpsColor),
-                      ),
-
-                    const SizedBox(height: 8),
-
-                    // ── UI thread percentiles ──
-                    _sectionHeader('UI THREAD'),
-                    _metricLine(
-                      'P50',
-                      '${m.p50FrameTimeMs.toStringAsFixed(1)}ms',
-                      m.p50FrameTimeMs <= 8.33
-                          ? Colors.green
-                          : m.p50FrameTimeMs <= 16.67
-                          ? Colors.orange
-                          : Colors.red,
-                    ),
-                    _metricLine(
-                      'P90',
-                      '${m.p90FrameTimeMs.toStringAsFixed(1)}ms',
-                      m.p90FrameTimeMs <= 8.33
-                          ? Colors.green
-                          : m.p90FrameTimeMs <= 16.67
-                          ? Colors.orange
-                          : Colors.red,
-                    ),
-                    _metricLine(
-                      'P99',
-                      '${m.p99FrameTimeMs.toStringAsFixed(1)}ms',
-                      m.p99FrameTimeMs <= 16.67
-                          ? Colors.green
-                          : m.p99FrameTimeMs <= 33.3
-                          ? Colors.orange
-                          : Colors.red,
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    // ── Raster thread percentiles ──
-                    _sectionHeader('RASTER'),
-                    _metricLine(
-                      'P50',
-                      '${m.rasterP50Ms.toStringAsFixed(1)}ms',
-                      m.rasterP50Ms <= 8.33
-                          ? Colors.green
-                          : m.rasterP50Ms <= 16.67
-                          ? Colors.orange
-                          : Colors.red,
-                    ),
-                    _metricLine(
-                      'P90',
-                      '${m.rasterP90Ms.toStringAsFixed(1)}ms',
-                      m.rasterP90Ms <= 8.33
-                          ? Colors.green
-                          : m.rasterP90Ms <= 16.67
-                          ? Colors.orange
-                          : Colors.red,
-                    ),
-                    _metricLine(
-                      'P99',
-                      '${m.rasterP99Ms.toStringAsFixed(1)}ms',
-                      m.rasterP99Ms <= 16.67
-                          ? Colors.green
-                          : m.rasterP99Ms <= 33.3
-                          ? Colors.orange
-                          : Colors.red,
-                    ),
-
-                    const Divider(color: Colors.white24, height: 12),
-
-                    // ── Vulkan GPU section ──
-                    if (m.vulkanStats != null) ...[
-                      _sectionHeader(
-                        m.vulkanStats!.active ? 'VULKAN ⚡' : 'VULKAN',
-                      ),
-                      _metricLine(
-                        'GPU',
-                        m.vulkanStats!.deviceName.length > 16
-                            ? '${m.vulkanStats!.deviceName.substring(0, 16)}…'
-                            : m.vulkanStats!.deviceName,
-                        Colors.white54,
-                      ),
-                      _metricLine(
-                        'P50',
-                        '${m.vulkanStats!.p50Ms.toStringAsFixed(1)}ms',
-                        m.vulkanStats!.p50Ms <= 8.33
-                            ? Colors.green
-                            : m.vulkanStats!.p50Ms <= 16.67
-                            ? Colors.orange
-                            : Colors.red,
-                      ),
-                      _metricLine(
-                        'P90',
-                        '${m.vulkanStats!.p90Ms.toStringAsFixed(1)}ms',
-                        m.vulkanStats!.p90Ms <= 8.33
-                            ? Colors.green
-                            : m.vulkanStats!.p90Ms <= 16.67
-                            ? Colors.orange
-                            : Colors.red,
-                      ),
-                      _metricLine(
-                        'P99',
-                        '${m.vulkanStats!.p99Ms.toStringAsFixed(1)}ms',
-                        m.vulkanStats!.p99Ms <= 16.67
-                            ? Colors.green
-                            : m.vulkanStats!.p99Ms <= 33.3
-                            ? Colors.orange
-                            : Colors.red,
-                      ),
-                      _metricLine(
-                        'VERTS',
-                        '${m.vulkanStats!.vertexCount}',
-                        Colors.white70,
-                      ),
-                      _metricLine(
-                        'DRAW',
-                        '${m.vulkanStats!.drawCalls}',
-                        Colors.white70,
-                      ),
-                      _metricLine(
-                        'SWAP',
-                        '${m.vulkanStats!.swapchainImages} imgs',
-                        Colors.white54,
-                      ),
-                      _metricLine(
-                        'VK',
-                        m.vulkanStats!.apiVersion,
-                        Colors.white54,
-                      ),
-                      const Divider(color: Colors.white24, height: 12),
-                    ],
-
-                    // ── Memory + strokes ──
-                    _metricLine(
-                      'MEM',
-                      '${m.memoryUsageMB.toStringAsFixed(0)} MB',
-                      m.memoryUsageMB < 300 ? Colors.white70 : Colors.orange,
-                    ),
-                    _metricLine('STR', '${m.strokeCount}', Colors.white70),
-                    if (m.jankPercent > 0)
-                      _metricLine(
-                        'JANK',
-                        '${m.jankPercent.toStringAsFixed(1)}%',
-                        m.jankPercent < 1
-                            ? Colors.green
-                            : m.jankPercent < 5
-                            ? Colors.orange
-                            : Colors.red,
-                      ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
+    return const _PerformanceOverlayWidget();
   }
 
   Widget _metricLine(String label, String value, Color valueColor) {
@@ -550,6 +338,382 @@ class CanvasPerformanceMonitor {
           letterSpacing: 1.2,
         ),
       ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Performance Overlay Widget (self-contained — does NOT trigger parent rebuild)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 🚀 PERF: Self-contained overlay widget that manages its own 500ms Timer.
+/// Previously this was a StreamBuilder inside _buildImpl(), which forced
+/// Flutter to re-diff the entire parent Stack (~30+ widgets) every 500ms.
+/// By isolating it here, the 500ms rebuild is limited to ~20 widgets in this
+/// subtree alone, reducing idle UI thread cost from 12-16ms to <2ms.
+class _PerformanceOverlayWidget extends StatefulWidget {
+  const _PerformanceOverlayWidget();
+
+  @override
+  State<_PerformanceOverlayWidget> createState() =>
+      _PerformanceOverlayWidgetState();
+}
+
+class _PerformanceOverlayWidgetState extends State<_PerformanceOverlayWidget> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // 🚀 PERF: 1000ms (not 500ms) to minimize collisions with drawing frames.
+    // At 500ms, the timer hit every ~60th drawing frame → 4.5ms spike becomes 9ms.
+    // At 1000ms, collisions are halved. Metrics update slowly anyway.
+    _refreshTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
+      // 🚀 PERF: Skip refresh during active drawing — colliding with
+      // drawing frames pushes UI thread to 9ms, busting 120Hz budget.
+      if (mounted && !CanvasPerformanceMonitor.instance._isDrawing) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final monitor = CanvasPerformanceMonitor.instance;
+
+    // Poll Vulkan stats (fire-and-forget)
+    if (monitor._vulkanService != null &&
+        monitor._vulkanService!.isInitialized) {
+      monitor._vulkanService!.getStats().then((s) => monitor._vulkanStats = s);
+    }
+
+    // Reset tile cache stats each poll cycle for fresh hit rate
+    DrawingPainter.resetTileCacheStats();
+
+    final m = monitor.getMetrics();
+    final fpsColor =
+        m.currentFPS >= 54
+            ? const Color(0xFF4CAF50)
+            : m.currentFPS >= 40
+            ? const Color(0xFFFF9800)
+            : const Color(0xFFF44336);
+
+    return GestureDetector(
+        onTap: () {
+          monitor._isCollapsed = !monitor._isCollapsed;
+          setState(() {});
+        },
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          width: monitor._isCollapsed ? 120 : 200,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xCC1A1A2E),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: fpsColor.withValues(alpha: 0.6)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 8,
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── FPS header (always visible) ──
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${m.currentFPS.toStringAsFixed(0)} FPS',
+                    style: TextStyle(
+                      color: fpsColor,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              m.frameBudgetPercent >= 95
+                                  ? const Color(0xFF4CAF50)
+                                  : m.frameBudgetPercent >= 80
+                                  ? const Color(0xFFFF9800)
+                                  : const Color(0xFFF44336),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${m.frameBudgetPercent.toStringAsFixed(0)}%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      if (!monitor._isCollapsed) ...[
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.expand_less,
+                          color: Colors.white38,
+                          size: 14,
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+
+              // ── Expanded content ──
+              if (!monitor._isCollapsed) ...[
+                const SizedBox(height: 6),
+
+                // ── Mini sparkline ──
+                if (m.fpsSparkline.length > 1)
+                  CustomPaint(
+                    size: const Size(160, 30),
+                    painter: _SparklinePainter(m.fpsSparkline, fpsColor),
+                  ),
+
+                const SizedBox(height: 8),
+
+                // ── UI thread (build phase) percentiles ──
+                monitor._sectionHeader('UI THREAD'),
+                monitor._metricLine(
+                  'P50',
+                  '${m.buildP50Ms.toStringAsFixed(1)}ms',
+                  m.buildP50Ms <= 4
+                      ? Colors.green
+                      : m.buildP50Ms <= 8
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'P90',
+                  '${m.buildP90Ms.toStringAsFixed(1)}ms',
+                  m.buildP90Ms <= 4
+                      ? Colors.green
+                      : m.buildP90Ms <= 8
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'P99',
+                  '${m.buildP99Ms.toStringAsFixed(1)}ms',
+                  m.buildP99Ms <= 8
+                      ? Colors.green
+                      : m.buildP99Ms <= 16.67
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+
+                const SizedBox(height: 4),
+
+                // ── Paint (DrawingPainter.paint()) percentiles ──
+                monitor._sectionHeader('PAINT'),
+                monitor._metricLine(
+                  'P50',
+                  '${m.paintP50Ms.toStringAsFixed(1)}ms',
+                  m.paintP50Ms <= 8.33
+                      ? Colors.green
+                      : m.paintP50Ms <= 16.67
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'P90',
+                  '${m.paintP90Ms.toStringAsFixed(1)}ms',
+                  m.paintP90Ms <= 8.33
+                      ? Colors.green
+                      : m.paintP90Ms <= 16.67
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'P99',
+                  '${m.paintP99Ms.toStringAsFixed(1)}ms',
+                  m.paintP99Ms <= 16.67
+                      ? Colors.green
+                      : m.paintP99Ms <= 33.3
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+
+                const SizedBox(height: 4),
+
+                // ── Raster thread percentiles ──
+                monitor._sectionHeader('RASTER'),
+                monitor._metricLine(
+                  'P50',
+                  '${m.rasterP50Ms.toStringAsFixed(1)}ms',
+                  m.rasterP50Ms <= 8.33
+                      ? Colors.green
+                      : m.rasterP50Ms <= 16.67
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'P90',
+                  '${m.rasterP90Ms.toStringAsFixed(1)}ms',
+                  m.rasterP90Ms <= 8.33
+                      ? Colors.green
+                      : m.rasterP90Ms <= 16.67
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'P99',
+                  '${m.rasterP99Ms.toStringAsFixed(1)}ms',
+                  m.rasterP99Ms <= 16.67
+                      ? Colors.green
+                      : m.rasterP99Ms <= 33.3
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+
+                const Divider(color: Colors.white24, height: 12),
+
+                // ── Vulkan GPU section ──
+                if (m.vulkanStats != null) ...[
+                  monitor._sectionHeader(
+                    m.vulkanStats!.active ? 'VULKAN ⚡' : 'VULKAN',
+                  ),
+                  monitor._metricLine(
+                    'GPU',
+                    m.vulkanStats!.deviceName.length > 16
+                        ? '${m.vulkanStats!.deviceName.substring(0, 16)}…'
+                        : m.vulkanStats!.deviceName,
+                    Colors.white54,
+                  ),
+                  monitor._metricLine(
+                    'P50',
+                    '${m.vulkanStats!.p50Ms.toStringAsFixed(1)}ms',
+                    m.vulkanStats!.p50Ms <= 8.33
+                        ? Colors.green
+                        : m.vulkanStats!.p50Ms <= 16.67
+                        ? Colors.orange
+                        : Colors.red,
+                  ),
+                  monitor._metricLine(
+                    'P90',
+                    '${m.vulkanStats!.p90Ms.toStringAsFixed(1)}ms',
+                    m.vulkanStats!.p90Ms <= 8.33
+                        ? Colors.green
+                        : m.vulkanStats!.p90Ms <= 16.67
+                        ? Colors.orange
+                        : Colors.red,
+                  ),
+                  monitor._metricLine(
+                    'P99',
+                    '${m.vulkanStats!.p99Ms.toStringAsFixed(1)}ms',
+                    m.vulkanStats!.p99Ms <= 16.67
+                        ? Colors.green
+                        : m.vulkanStats!.p99Ms <= 33.3
+                        ? Colors.orange
+                        : Colors.red,
+                  ),
+                  monitor._metricLine(
+                    'VERTS',
+                    '${m.vulkanStats!.vertexCount}',
+                    Colors.white70,
+                  ),
+                  monitor._metricLine(
+                    'DRAW',
+                    '${m.vulkanStats!.drawCalls}',
+                    Colors.white70,
+                  ),
+                  monitor._metricLine(
+                    'SWAP',
+                    '${m.vulkanStats!.swapchainImages} imgs',
+                    Colors.white54,
+                  ),
+                  monitor._metricLine(
+                    'VK',
+                    m.vulkanStats!.apiVersion,
+                    Colors.white54,
+                  ),
+                  const Divider(color: Colors.white24, height: 12),
+                ],
+
+                // ── Memory + strokes ──
+                monitor._metricLine(
+                  'MEM',
+                  '${m.memoryUsageMB.toStringAsFixed(0)} MB',
+                  m.memoryUsageMB < 300 ? Colors.white70 : Colors.orange,
+                ),
+                monitor._metricLine(
+                  'STR',
+                  '${m.strokeCount}',
+                  Colors.white70,
+                ),
+                if (m.jankPercent > 0)
+                  monitor._metricLine(
+                    'JANK',
+                    '${m.jankPercent.toStringAsFixed(1)}%',
+                    m.jankPercent < 1
+                        ? Colors.green
+                        : m.jankPercent < 5
+                        ? Colors.orange
+                        : Colors.red,
+                  ),
+
+                const Divider(color: Colors.white24, height: 12),
+
+                // ── Pipeline detail section ──
+                monitor._sectionHeader('PIPELINE'),
+                monitor._metricLine(
+                  'PAINT',
+                  '${m.paintLastMs.toStringAsFixed(1)}ms',
+                  m.paintLastMs <= 4
+                      ? Colors.green
+                      : m.paintLastMs <= 8
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'TILES',
+                  '${m.tileCacheCount} (${m.tileCacheHitRate.toStringAsFixed(0)}%)',
+                  m.tileCacheHitRate >= 95
+                      ? Colors.green
+                      : m.tileCacheHitRate >= 80
+                      ? Colors.orange
+                      : Colors.red,
+                ),
+                monitor._metricLine(
+                  'LOD',
+                  m.lodTier == 0
+                      ? 'Full'
+                      : m.lodTier == 1
+                      ? 'Batched'
+                      : 'Section',
+                  m.lodTier == 0
+                      ? Colors.green
+                      : m.lodTier == 1
+                      ? Colors.cyan
+                      : Colors.amber,
+                ),
+              ],
+            ],
+          ),
+        ),
     );
   }
 }
@@ -642,14 +806,23 @@ class PerformanceMetrics {
   final int strokeCount;
   final double targetFPS;
 
-  /// Frame time at the 50th percentile (median).
-  final double p50FrameTimeMs;
+  /// Build phase (UI thread) time at the 50th percentile.
+  final double buildP50Ms;
 
-  /// Frame time at the 90th percentile.
-  final double p90FrameTimeMs;
+  /// Build phase (UI thread) time at the 90th percentile.
+  final double buildP90Ms;
 
-  /// Frame time at the 99th percentile (worst-case).
-  final double p99FrameTimeMs;
+  /// Build phase (UI thread) time at the 99th percentile.
+  final double buildP99Ms;
+
+  /// Paint duration (DrawingPainter.paint()) at the 50th percentile.
+  final double paintP50Ms;
+
+  /// Paint duration at the 90th percentile.
+  final double paintP90Ms;
+
+  /// Paint duration at the 99th percentile.
+  final double paintP99Ms;
 
   /// Raster thread frame time at the 50th percentile.
   final double rasterP50Ms;
@@ -672,15 +845,30 @@ class PerformanceMetrics {
   /// Vulkan GPU stats (null if Vulkan is not available).
   final VulkanStats? vulkanStats;
 
+  /// Paint duration of last frame (milliseconds).
+  final double paintLastMs;
+
+  /// Tile cache hit rate (0-100%).
+  final double tileCacheHitRate;
+
+  /// Number of cached tiles.
+  final int tileCacheCount;
+
+  /// Current LOD tier: 0 = full, 1 = batched, 2 = sections.
+  final int lodTier;
+
   const PerformanceMetrics({
     required this.currentFPS,
     required this.avgFPS,
     required this.memoryUsageMB,
     required this.strokeCount,
     required this.targetFPS,
-    this.p50FrameTimeMs = 0,
-    this.p90FrameTimeMs = 0,
-    this.p99FrameTimeMs = 0,
+    this.buildP50Ms = 0,
+    this.buildP90Ms = 0,
+    this.buildP99Ms = 0,
+    this.paintP50Ms = 0,
+    this.paintP90Ms = 0,
+    this.paintP99Ms = 0,
     this.rasterP50Ms = 0,
     this.rasterP90Ms = 0,
     this.rasterP99Ms = 0,
@@ -688,12 +876,17 @@ class PerformanceMetrics {
     this.jankPercent = 0,
     this.fpsSparkline = const [],
     this.vulkanStats,
+    this.paintLastMs = 0,
+    this.tileCacheHitRate = 100,
+    this.tileCacheCount = 0,
+    this.lodTier = 0,
   });
 
   @override
   String toString() =>
       'PerformanceMetrics(FPS: ${currentFPS.toStringAsFixed(1)}/${targetFPS.toInt()}, '
-      'UI[P50: ${p50FrameTimeMs.toStringAsFixed(1)}ms, P90: ${p90FrameTimeMs.toStringAsFixed(1)}ms, P99: ${p99FrameTimeMs.toStringAsFixed(1)}ms], '
+      'Build[P50: ${buildP50Ms.toStringAsFixed(1)}ms, P90: ${buildP90Ms.toStringAsFixed(1)}ms, P99: ${buildP99Ms.toStringAsFixed(1)}ms], '
+      'Paint[P50: ${paintP50Ms.toStringAsFixed(1)}ms, P90: ${paintP90Ms.toStringAsFixed(1)}ms, P99: ${paintP99Ms.toStringAsFixed(1)}ms], '
       'Raster[P50: ${rasterP50Ms.toStringAsFixed(1)}ms, P90: ${rasterP90Ms.toStringAsFixed(1)}ms, P99: ${rasterP99Ms.toStringAsFixed(1)}ms], '
       'Budget: ${frameBudgetPercent.toStringAsFixed(0)}%, '
       'Jank: ${jankPercent.toStringAsFixed(1)}%, '

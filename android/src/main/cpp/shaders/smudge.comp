@@ -1,0 +1,54 @@
+// smudge.comp — GLSL compute shader for Smudge color blending (Vulkan)
+// Compile: glslc -fshader-stage=compute smudge.comp -o smudge.spv
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba8) uniform image2D texture;
+
+struct SmudgeSample {
+    float x, y;
+    float radius;
+    float strength;
+    float r, g, b, a;
+};
+
+layout(set = 0, binding = 1) buffer SmudgeSamples {
+    SmudgeSample samples[];
+} smudgeData;
+
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+    uint sampleCount;
+} params;
+
+void main() {
+    uint gx = gl_GlobalInvocationID.x;
+    uint gy = gl_GlobalInvocationID.y;
+    if (gx >= params.width || gy >= params.height) return;
+
+    vec4 texColor = imageLoad(texture, ivec2(gx, gy));
+    float px = float(gx);
+    float py = float(gy);
+
+    for (uint i = 0; i < params.sampleCount; i++) {
+        SmudgeSample s = smudgeData.samples[i];
+        float dx = px - s.x;
+        float dy = py - s.y;
+        float dist2 = dx * dx + dy * dy;
+        float r2 = s.radius * s.radius;
+
+        if (dist2 > r2) continue;
+
+        float dist = sqrt(dist2);
+        float falloff = 1.0 - (dist / s.radius);
+        falloff = falloff * falloff;
+
+        float blendAmount = s.strength * falloff;
+        vec4 smudgeColor = vec4(s.r, s.g, s.b, s.a);
+        texColor = mix(texColor, smudgeColor, blendAmount);
+    }
+
+    imageStore(texture, ivec2(gx, gy), texColor);
+}

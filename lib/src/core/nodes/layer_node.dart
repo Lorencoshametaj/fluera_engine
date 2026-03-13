@@ -11,6 +11,7 @@ import '../models/digital_text_element.dart';
 import '../models/image_element.dart';
 import '../editing/adjustment_layer.dart';
 import './adjustment_layer_node.dart';
+import './function_graph_node.dart';
 
 /// A [GroupNode] that represents a canvas layer.
 ///
@@ -77,6 +78,10 @@ class LayerNode extends GroupNode {
   List<AdjustmentLayerNode> get adjustmentNodes =>
       childrenOfType<AdjustmentLayerNode>();
 
+  /// All function graph nodes in this layer.
+  List<FunctionGraphNode> get graphNodes =>
+      childrenOfType<FunctionGraphNode>();
+
   /// All ProStroke objects in this layer (convenience for rendering).
   List<ProStroke> get strokes =>
       _cachedStrokes ??= strokeNodes.map((n) => n.stroke).toList();
@@ -140,6 +145,12 @@ class LayerNode extends GroupNode {
     return node;
   }
 
+  /// Add a function graph to this layer.
+  FunctionGraphNode addGraph(FunctionGraphNode graphNode) {
+    add(graphNode);
+    return graphNode;
+  }
+
   // ---------------------------------------------------------------------------
   // Typed remove helpers
   // ---------------------------------------------------------------------------
@@ -169,6 +180,11 @@ class LayerNode extends GroupNode {
     return removeById(adjustmentId) != null;
   }
 
+  /// Remove a function graph by its ID.
+  bool removeGraphById(String graphId) {
+    return removeById(graphId) != null;
+  }
+
   // ---------------------------------------------------------------------------
   // Typed find helpers
   // ---------------------------------------------------------------------------
@@ -195,6 +211,12 @@ class LayerNode extends GroupNode {
   ImageNode? findImageNode(String imageId) {
     final node = findChild(imageId);
     return node is ImageNode ? node : null;
+  }
+
+  /// Find a function graph node by its ID.
+  FunctionGraphNode? findGraphNode(String graphId) {
+    final node = findChild(graphId);
+    return node is FunctionGraphNode ? node : null;
   }
 
   // ---------------------------------------------------------------------------

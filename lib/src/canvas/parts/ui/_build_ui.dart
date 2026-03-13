@@ -148,6 +148,18 @@ extension on _FlueraCanvasScreenState {
             });
             return KeyEventResult.handled;
           }
+
+          // 🔍 Ctrl+F → Toggle handwriting search
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyF) {
+            setState(() {
+              _showHandwritingSearch = !_showHandwritingSearch;
+              if (!_showHandwritingSearch) {
+                _hwSearchResults = [];
+                _hwSearchActiveIndex = 0;
+              }
+            });
+            return KeyEventResult.handled;
+          }
         }
 
         return KeyEventResult.ignored;
@@ -331,6 +343,62 @@ extension on _FlueraCanvasScreenState {
               // 👻 Ghost shape suggestion overlay
               _buildGhostSuggestionOverlay(),
 
+              // 🔍 Handwriting Search Overlay (above canvas, below menus)
+              if (_showHandwritingSearch)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: HandwritingSearchOverlay(
+                    canvasId: _canvasId,
+                    onNavigate: (result) {
+                      // Scroll canvas to matched stroke bounds
+                      final center = result.bounds.center;
+                      final screenCenter = Offset(
+                        MediaQuery.of(context).size.width / 2,
+                        MediaQuery.of(context).size.height / 2,
+                      );
+                      final targetOffset = Offset(
+                        screenCenter.dx - center.dx * _canvasController.scale,
+                        screenCenter.dy - center.dy * _canvasController.scale,
+                      );
+                      _canvasController.animateOffsetTo(targetOffset);
+                      setState(() {
+                        _hwSearchActiveIndex = _hwSearchResults.indexOf(result);
+                      });
+                    },
+                    onDismiss: () {
+                      setState(() {
+                        _showHandwritingSearch = false;
+                        _hwSearchResults = [];
+                        _hwSearchActiveIndex = 0;
+                      });
+                    },
+                    onResultsChanged: (results) {
+                      setState(() {
+                        _hwSearchResults = results;
+                        _hwSearchActiveIndex = results.isNotEmpty ? 0 : -1;
+                      });
+                    },
+                  ),
+                ),
+
+              // 🔍 Handwriting Search Highlights on canvas
+              if (_hwSearchResults.isNotEmpty)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _canvasController,
+                      builder: (context, _) {
+                        return HandwritingSearchHighlights(
+                          results: _hwSearchResults,
+                          activeIndex: _hwSearchActiveIndex,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+
               // 🎬 Loading overlay (splash screen during initialization)
               _buildLoadingOverlay(),
 
@@ -374,8 +442,24 @@ extension on _FlueraCanvasScreenState {
               // if (kDebugMode) const ConsciousDebugOverlay(),
 
               // 🏎️ Performance Monitor: frame time overlay (debug + profile)
+              // 🚀 PERF: RepaintBoundary isolates the overlay's 500ms repaint
+              // from the rest of the Stack. Positioned must be OUTSIDE
+              // RepaintBoundary (it requires Stack as parent).
               if (!kReleaseMode)
-                CanvasPerformanceMonitor.instance.buildDebugOverlay(),
+                Positioned(
+                  top: 40,
+                  right: 10,
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _isDrawingNotifier,
+                    builder: (_, isDrawing, child) => Offstage(
+                      offstage: isDrawing,
+                      child: child,
+                    ),
+                    child: RepaintBoundary(
+                      child: CanvasPerformanceMonitor.instance.buildDebugOverlay(),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

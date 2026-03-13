@@ -57,6 +57,31 @@ class TileCacheManager {
   bool get hasCachedTiles => _tiles.isNotEmpty;
 
   // =========================================================================
+  // CACHE STATS (for debug overlay)
+  // =========================================================================
+
+  int _cacheHits = 0;
+  int _cacheMisses = 0;
+
+  /// Cache hit count since last reset.
+  int get cacheHits => _cacheHits;
+
+  /// Cache miss count since last reset.
+  int get cacheMisses => _cacheMisses;
+
+  /// Hit rate as a percentage (0-100). Returns 100 if no requests.
+  double get hitRate {
+    final total = _cacheHits + _cacheMisses;
+    return total > 0 ? (_cacheHits / total * 100) : 100;
+  }
+
+  /// Reset hit/miss counters (call periodically from monitor).
+  void resetStats() {
+    _cacheHits = 0;
+    _cacheMisses = 0;
+  }
+
+  // =========================================================================
   // TILE KEY COMPUTATION
   // =========================================================================
 
@@ -215,12 +240,14 @@ class TileCacheManager {
       final picture = _tiles[key];
       if (picture != null) {
         canvas.drawPicture(picture);
+        _cacheHits++;
       } else {
         // 🚀 STALE FALLBACK: draw old-LOD tile if available (GPU-scaled)
         final stale = _staleTiles[key];
         if (stale != null) {
           canvas.drawPicture(stale);
         }
+        _cacheMisses++;
         missing.add(key);
       }
     }

@@ -140,8 +140,11 @@ class BrushEngine {
     // material, compositing, wetness, pressure curves. At zoom <0.5
     // strokes are <5px on screen — pressure, textures, blend modes
     // are invisible. Cost: ~0.01ms/stroke instead of ~0.07ms.
+    // ⚡ Exception: Highlighter — its translucent multiply-blend
+    // appearance is visible even at small sizes (opaque vs translucent).
     // ──────────────────────────────────────────────────────────────
-    if (scale < 0.5 && !isLive && blendMode == null) {
+    if (scale < 0.5 && !isLive && blendMode == null &&
+        penType != ProPenType.highlighter) {
       BallpointBrush.drawStrokeWithSettings(
         canvas,
         points,
@@ -160,21 +163,25 @@ class BrushEngine {
     // pressure curve + no stamp. Avoids: EngineScope lookup, surface
     // material, wetness, texture resolve, compositing, saveLayer.
     // ──────────────────────────────────────────────────────────────
-    if (penType == ProPenType.ballpoint &&
+    if ((penType == ProPenType.ballpoint || penType == ProPenType.technicalPen) &&
         blendMode == null &&
         settings.textureType == 'none' &&
         settings.pressureCurve.isLinear &&
         !settings.stampEnabled) {
-      BallpointBrush.drawStrokeWithSettings(
-        canvas,
-        points,
-        color,
-        baseWidth,
-        minPressure: settings.ballpointMinPressure,
-        maxPressure: settings.ballpointMaxPressure,
-        isLive: isLive,
-        cachedPath: cachedPath,
-      );
+      if (penType == ProPenType.technicalPen) {
+        TechnicalPenBrush.drawStroke(
+          canvas, points, color, baseWidth,
+          isLive: isLive, cachedPath: cachedPath,
+          settings: settings,
+        );
+      } else {
+        BallpointBrush.drawStrokeWithSettings(
+          canvas, points, color, baseWidth,
+          minPressure: settings.ballpointMinPressure,
+          maxPressure: settings.ballpointMaxPressure,
+          isLive: isLive, cachedPath: cachedPath,
+        );
+      }
       return;
     }
 
@@ -454,6 +461,7 @@ class BrushEngine {
             baseWidth,
             opacity: settings.highlighterOpacity,
             widthMultiplier: settings.highlighterWidthMultiplier,
+            autoStraighten: settings.highlighterAutoStraighten,
           );
         case ProPenType.watercolor:
           final wSvc = _shaderSvc;
@@ -559,6 +567,12 @@ class BrushEngine {
               maxPressure: settings.ballpointMaxPressure,
             );
           }
+        case ProPenType.technicalPen:
+          TechnicalPenBrush.drawStroke(
+            canvas, effectivePoints, color, baseWidth,
+            isLive: isLive,
+            settings: settings,
+          );
       }
     }
 
@@ -1132,7 +1146,7 @@ class BrushEngine {
   static ui.BlendMode _defaultBlendMode(ProPenType penType) {
     switch (penType) {
       case ProPenType.highlighter:
-        return ui.BlendMode.darken;
+        return ui.BlendMode.multiply;
       default:
         return ui.BlendMode.srcOver;
     }
@@ -1160,6 +1174,7 @@ class BrushEngine {
       ProPenType.neonGlow => (amplitude: 0.15, freqMult: 1.2),
       ProPenType.highlighter => (amplitude: 0.1, freqMult: 1.0),
       ProPenType.ballpoint => (amplitude: 0.1, freqMult: 1.5),
+      ProPenType.technicalPen => (amplitude: 0.05, freqMult: 2.0),
     };
   }
 

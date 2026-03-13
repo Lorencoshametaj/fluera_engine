@@ -194,36 +194,22 @@ class FountainPenBrush {
         nibStrength: nibStrength,
       );
 
-      // 2. Tapering — suppress exit taper ALWAYS (unified pipeline).
-      // Exit taper during live was already 0. Applying it only on finalization
-      // caused visible snap + visual shortening at the end of the stroke.
-      _applyTapering(widthBuf, taperEntry, 0);
+      // 2. Tapering — both entry AND exit taper now applied uniformly.
+      // Safe because live and committed use the same pipeline (liveStroke: true always).
+      // Exit taper of ~4 points gives a natural ink lift-off effect.
+      _applyTapering(widthBuf, taperEntry, taperExit);
 
-      // 3. Smooth — bidirectional EMA
-      // 🚀 PERF: Live strokes use 2 passes (F→B) instead of 6 (F→B→F→B + post).
-      // 4 extra passes add no perceptible quality for real-time preview
-      // but cost 4 × O(N) iterations per frame.
-      if (liveStroke) {
-        _smoothWidths(widthBuf, forward: true);
-        _smoothWidths(widthBuf, forward: false);
-      } else {
-        _smoothWidths(widthBuf, forward: true);
-        _smoothWidths(widthBuf, forward: false);
-        _smoothWidths(widthBuf, forward: true);
-        _smoothWidths(widthBuf, forward: false);
-      }
+      // 3. Smooth — bidirectional EMA (2 passes: F,B)
+      // Unified: both live and committed use 2 passes for seamless
+      // Vulkan→Dart transition. Extra passes caused visible width jump.
+      _smoothWidths(widthBuf, forward: true);
+      _smoothWidths(widthBuf, forward: false);
 
       // 3b. Rate-limit width change between consecutive points.
       // Very tight limit (0.12) prevents any visible bumps.
       _rateLimitWidths(widthBuf, maxChangeRate: 0.12);
 
-      // 3c. Post-smooth: clean any residual steps from rate-limiting.
-      // 🚀 PERF: Skip for live strokes — rate-limiting residuals are
-      // imperceptible at drawing speed.
-      if (!liveStroke) {
-        _smoothWidths(widthBuf, forward: true);
-        _smoothWidths(widthBuf, forward: false);
-      }
+      // Post-smooth: SKIPPED (unified pipeline — no extra passes)
 
       // NOTE: GPU per-segment rendering (renderFountainPenPro) removed.
       // The capsule-based segment approach creates visible joints at angles
@@ -248,6 +234,7 @@ class FountainPenBrush {
         rightBuf,
         liveStroke: liveStroke,
         drawFromIndex: drawFromIndex,
+        nibAngleRad: nibAngleRad ?? _nibAngle,
       );
 
       // 6. Render
@@ -341,7 +328,7 @@ class FountainPenBrush {
       double acceleration = 0.0;
 
       if (isFingerInput) {
-        final sp = math.min(1.0, distance / (baseWidth * 0.35));
+        final sp = math.min(1.0, distance / (baseWidth * 0.55));
         final rp = math.min(1.0, 1.0 - sp);
         accPressure = math.min(
           1.0,
@@ -350,6 +337,13 @@ class FountainPenBrush {
         pressure = accPressure;
         acceleration = sp - prevSp;
         prevSp = sp;
+
+        // 🖋️ Enhancement 4: Ink pooling at slow speed.
+        // When drawing slowly (sp < 0.15), ink accumulates at the contact
+        // point — simulated as a subtle width boost of up to 15%.
+        if (sp < 0.15 && i > 3) {
+          pressure = math.min(1.0, pressure + (0.15 - sp) * 0.5);
+        }
       } else {
         pressure = _getPressure(points[i]);
       }
@@ -358,13 +352,32 @@ class FountainPenBrush {
       double width = baseWidth * thinned;
 
       if (isFingerInput) {
-        final accelMod = 1.0 - acceleration * 1.8;
-        width *= accelMod.clamp(0.65, 1.4);
+        final accelMod = 1.0 - acceleration * 0.6;
+        width *= accelMod.clamp(0.88, 1.12);
       }
 
       if (direction != Offset.zero) {
         final strokeAngle = math.atan2(direction.dy, direction.dx);
-        final angleDiff = (strokeAngle - effNibAngle).abs() % math.pi;
+
+        // 🖋️ Enhancement 1: Azimuth-based nib rotation.
+        // When stylus tilt data is available, derive the azimuth angle from
+        // tiltX/tiltY and blend it into the nib angle. This makes the nib
+        // rotate naturally with the user's hand orientation — authentic
+        // broad-edge calligraphy behavior.
+        double activeNibAngle = effNibAngle;
+        if (!isFingerInput && tiltEnable) {
+          final tiltX = _getTiltX(points[i]);
+          final tiltY = _getTiltY(points[i]);
+          final tiltMag = math.sqrt(tiltX * tiltX + tiltY * tiltY);
+          if (tiltMag > 0.05) {
+            final azimuth = math.atan2(tiltY, tiltX);
+            // Blend: stronger tilt = more azimuth influence (up to 60%)
+            final blend = (tiltMag * 0.6).clamp(0.0, 0.6);
+            activeNibAngle = effNibAngle * (1.0 - blend) + azimuth * blend;
+          }
+        }
+
+        final angleDiff = (strokeAngle - activeNibAngle).abs() % math.pi;
         final perpendicularity = math.sin(angleDiff);
         final ns = isFingerInput ? effNibStrengthFinger : effNibStrengthStylus;
         width *= (1.0 - ns + perpendicularity * ns * 2.0);
@@ -395,6 +408,15 @@ class FountainPenBrush {
             .sqrt(tiltX * tiltX + tiltY * tiltY)
             .clamp(0.0, 1.0);
         width *= 1.0 + (tiltInfluence * tiltMagnitude);
+      }
+
+      // 🖋️ Enhancement 2: Ink blob at stroke start.
+      // First 3 points get a gradual width boost simulating capillary ink
+      // deposit when the pen first contacts paper. easeOutQuad for natural feel.
+      if (i < 3) {
+        final t = i / 3.0;
+        final blobFactor = 1.0 + (1.0 - t * (2.0 - t)) * 0.2; // up to +20%
+        width *= blobFactor;
       }
 
       buf.add(width.clamp(baseWidth * 0.12, baseWidth * 3.5));

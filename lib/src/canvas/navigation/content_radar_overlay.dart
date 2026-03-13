@@ -52,7 +52,7 @@ class _ContentRadarOverlayState extends State<ContentRadarOverlay>
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2500),
-    )..repeat(reverse: true);
+    ); // 🚀 PERF: Starts stopped — repeat() called on-demand in build().
     _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
@@ -189,8 +189,11 @@ class _ContentRadarOverlayState extends State<ContentRadarOverlay>
 
   @override
   Widget build(BuildContext context) {
+    // 🚀 PERF: Only listen to the controller (not the pulse) for the initial
+    // radar check. The pulse listener is added inside the builder only when
+    // the radar is active. This avoids 60fps rebuilds when idle.
     return AnimatedBuilder(
-      animation: Listenable.merge([widget.controller, _pulseAnimation]),
+      animation: widget.controller,
       builder: (context, _) {
         return ValueListenableBuilder<List<ContentRegion>>(
           valueListenable: widget.boundsTracker.regions,
@@ -198,88 +201,106 @@ class _ContentRadarOverlayState extends State<ContentRadarOverlay>
             final viewport = _viewportInCanvas();
             final radar = _computeRadar(viewport, regions);
 
-            if (radar.isEmpty) return const SizedBox.shrink();
+            if (radar.isEmpty) {
+              // 🚀 PERF: Stop pulse when there's nothing to show.
+              // This eliminates 60fps of idle AnimatedBuilder ticks.
+              if (_pulseController.isAnimating) {
+                _pulseController.stop();
+              }
+              return const SizedBox.shrink();
+            }
 
-            final glow = _glowColor;
-            final pulse = _pulseAnimation.value;
+            // Radar has data — ensure pulse is running.
+            if (!_pulseController.isAnimating) {
+              _pulseController.repeat(reverse: true);
+            }
 
-            return Stack(
-              children: [
-                if (radar.top > 0)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: _glowDepth(radar.top),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () => _navigateToDirection(_Direction.top),
-                      onLongPress:
-                          () => _showDirectionTooltip(context, _Direction.top),
-                      child: _EdgeGlow(
-                        direction: _Direction.top,
-                        color: glow,
-                        opacity: _glowOpacity(radar.top) * pulse,
+            // Now wrap in a pulse-driven builder for smooth glow animation.
+            return AnimatedBuilder(
+              animation: _pulseAnimation,
+              builder: (context, _) {
+                final glow = _glowColor;
+                final pulse = _pulseAnimation.value;
+
+                return Stack(
+                  children: [
+                    if (radar.top > 0)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: _glowDepth(radar.top),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () => _navigateToDirection(_Direction.top),
+                          onLongPress:
+                              () => _showDirectionTooltip(context, _Direction.top),
+                          child: _EdgeGlow(
+                            direction: _Direction.top,
+                            color: glow,
+                            opacity: _glowOpacity(radar.top) * pulse,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                if (radar.right > 0)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    width: _glowDepth(radar.right),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () => _navigateToDirection(_Direction.right),
-                      onLongPress:
-                          () =>
-                              _showDirectionTooltip(context, _Direction.right),
-                      child: _EdgeGlow(
-                        direction: _Direction.right,
-                        color: glow,
-                        opacity: _glowOpacity(radar.right) * pulse,
+                    if (radar.right > 0)
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: _glowDepth(radar.right),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () => _navigateToDirection(_Direction.right),
+                          onLongPress:
+                              () =>
+                                  _showDirectionTooltip(context, _Direction.right),
+                          child: _EdgeGlow(
+                            direction: _Direction.right,
+                            color: glow,
+                            opacity: _glowOpacity(radar.right) * pulse,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                if (radar.bottom > 0)
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: _glowDepth(radar.bottom),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () => _navigateToDirection(_Direction.bottom),
-                      onLongPress:
-                          () =>
-                              _showDirectionTooltip(context, _Direction.bottom),
-                      child: _EdgeGlow(
-                        direction: _Direction.bottom,
-                        color: glow,
-                        opacity: _glowOpacity(radar.bottom) * pulse,
+                    if (radar.bottom > 0)
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: _glowDepth(radar.bottom),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () => _navigateToDirection(_Direction.bottom),
+                          onLongPress:
+                              () =>
+                                  _showDirectionTooltip(context, _Direction.bottom),
+                          child: _EdgeGlow(
+                            direction: _Direction.bottom,
+                            color: glow,
+                            opacity: _glowOpacity(radar.bottom) * pulse,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                if (radar.left > 0)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    bottom: 0,
-                    width: _glowDepth(radar.left),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () => _navigateToDirection(_Direction.left),
-                      onLongPress:
-                          () => _showDirectionTooltip(context, _Direction.left),
-                      child: _EdgeGlow(
-                        direction: _Direction.left,
-                        color: glow,
-                        opacity: _glowOpacity(radar.left) * pulse,
+                    if (radar.left > 0)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        bottom: 0,
+                        width: _glowDepth(radar.left),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () => _navigateToDirection(_Direction.left),
+                          onLongPress:
+                              () => _showDirectionTooltip(context, _Direction.left),
+                          child: _EdgeGlow(
+                            direction: _Direction.left,
+                            color: glow,
+                            opacity: _glowOpacity(radar.left) * pulse,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                );
+              },
             );
           },
         );

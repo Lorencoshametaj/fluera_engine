@@ -50,6 +50,9 @@ import '../rendering/optimization/stroke_data_manager.dart';
 import '../drawing/services/stroke_persistence_service.dart';
 import '../rendering/canvas/image_painter.dart';
 import './toolbar/professional_canvas_toolbar.dart';
+import './overlays/eyedropper_overlay.dart';
+import './overlays/floating_color_disc.dart';
+import './toolbar/pro_color_picker.dart';
 import './infinite_canvas_controller.dart';
 import './infinite_canvas_gesture_detector.dart';
 import '../layers/layer_controller.dart';
@@ -82,6 +85,13 @@ import '../dialogs/image_editor_dialog.dart';
 import '../dialogs/image_editor_crop.dart';
 import '../services/image_service.dart';
 import '../services/adaptive_debouncer_service.dart';
+import '../services/digital_ink_service.dart';
+import '../services/text_recognition_service.dart';
+import '../dialogs/handwriting_confirmation_dialog.dart';
+import '../dialogs/ocr_scan_dialog.dart';
+import '../services/handwriting_index_service.dart';
+import '../canvas/widgets/handwriting_search_overlay.dart';
+import '../rendering/canvas/handwriting_search_painter.dart';
 import '../drawing/input/raw_input_processor_120hz.dart';
 import '../history/canvas_delta_tracker.dart';
 import '../history/background_checkpoint_service.dart';
@@ -102,6 +112,9 @@ import './overlays/canvas_viewport_overlay.dart';
 import '../time_travel/services/time_travel_recorder.dart';
 import '../services/phase2_service_stubs.dart'; // Stub implementations for Phase 2 services
 import '../services/canvas_performance_monitor.dart'; // 🏎️ Frame time overlay
+import '../services/handedness_settings.dart'; // 🖐️ Handedness & palm rejection
+import './toolbar/handedness_settings_sheet.dart'; // 🖐️ Handedness onboarding
+import './overlays/stylus_hover_overlay.dart'; // 🖊️ Stylus hover cursor
 import '../time_travel/services/time_travel_playback_engine.dart';
 import '../time_travel/widgets/time_travel_timeline_widget.dart';
 import '../history/branching_manager.dart';
@@ -146,6 +159,7 @@ import '../core/models/pdf_document_model.dart';
 import '../canvas/toolbar/pdf_presentation_overlay.dart';
 // TODO(future): pdf_signature_pad.dart — re-import when digital signing is implemented.
 import '../core/nodes/pdf_page_node.dart';
+import '../core/nodes/pdf_preview_card_node.dart';
 import '../rendering/canvas/pdf_page_painter.dart';
 import '../rendering/canvas/pdf_memory_budget.dart';
 import './toolbar/pdf_contextual_toolbar.dart';
@@ -154,6 +168,7 @@ import '../tools/pdf/pdf_search_controller.dart';
 import '../export/pdf_annotation_exporter.dart';
 import '../export/pdf_export_writer.dart';
 import '../canvas/overlays/pdf_export_settings_panel.dart';
+import '../canvas/pdf_reader_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import './overlays/variable_manager_panel.dart';
 import './overlays/variable_property_sheet.dart';
@@ -165,9 +180,12 @@ import '../systems/design_token_exporter.dart';
 import '../history/command_history.dart';
 import '../systems/variable_commands.dart';
 import '../core/nodes/latex_node.dart';
+import '../core/nodes/function_graph_node.dart';
+import '../core/scene_graph/canvas_node.dart';
 import '../core/scene_graph/canvas_node_factory.dart';
 import '../core/scene_graph/node_id.dart';
 import './widgets/latex_editor_sheet.dart';
+import './widgets/latex_function_graph.dart';
 import '../history/latex_commands.dart';
 import '../core/nodes/tabular_node.dart';
 import '../core/nodes/section_node.dart';
@@ -525,6 +543,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Caching them as `late final` means parent setState() NEVER reconstructs
   /// their widget trees (~700+ widgets). Internal ListenableBuilder/
   /// ValueListenableBuilder handle canvas-specific repaints autonomously.
+  late final Widget _backgroundLayerHost;
   late final Widget _drawingLayerHost;
   late final Widget _imageLayerHost;
   late final Widget _gestureLayerHost;
@@ -537,6 +556,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       VulkanStrokeOverlayService();
   int? _vulkanTextureId;
   bool _vulkanOverlayActive = false;
+  /// 🔥 VULKAN HANDOFF: controls Texture widget opacity without setState.
+  /// 0.0 = hidden (pen-up), 0.7 = marker brush, 1.0 = other brushes.
+  final ValueNotifier<double> _vulkanTextureOpacity = ValueNotifier<double>(1.0);
 
   /// 🚀 P99 FIX: Lightweight notifier for toolbar undo/redo state.
   /// Fires ONLY when canUndo/canRedo/elementCount transitions — not on every
@@ -615,6 +637,35 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool get _is120HzMode =>
       _displayCapabilities != null &&
       _displayCapabilities!.refreshRate.value >= 120;
+
+  // ============================================================================
+  // 🖊️ HOVER CURSOR SYNC — maps tool state to StylusHoverState
+  // ============================================================================
+
+  void _syncHoverState() {
+    final hover = StylusHoverState.instance;
+
+    // Map tool mode
+    if (_toolController.isEraserMode) {
+      hover.setToolMode(HoverToolMode.eraser);
+      hover.setEraserSize(_toolController.width * 3); // Eraser is wider
+    } else if (_toolController.isLassoMode) {
+      hover.setToolMode(HoverToolMode.selection);
+    } else if (_toolController.isPanMode) {
+      hover.setToolMode(HoverToolMode.pan);
+    } else if (_toolController.isTextMode) {
+      hover.setToolMode(HoverToolMode.text);
+    } else {
+      hover.setToolMode(HoverToolMode.brush);
+    }
+
+    // Sync brush context
+    hover.setBrushContext(
+      size: _toolController.width,
+      color: _toolController.color,
+      opacity: _toolController.opacity,
+    );
+  }
 
   /// 🖼️ Modalità editing immagine DA INFINITE CANVAS
   bool get _isImageEditFromInfiniteCanvas => widget.backgroundImageUrl != null;
@@ -714,6 +765,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 📝 Inline text editing state
   bool _isInlineEditing = false;
   DigitalTextElement? _inlineEditingElement;
+  DateTime? _inlineTextFinishedAt; // 🔒 Cooldown to prevent spurious re-creation
   final _inlineOverlayKey = GlobalKey<InlineTextOverlayState>();
   Color _inlineTextColor = Colors.black;
   FontWeight _inlineTextFontWeight = FontWeight.normal;
@@ -740,6 +792,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🔍 Text search query (empty = no search active)
   String _textSearchQuery = '';
+
+  /// 🔍 Handwriting search overlay state
+  bool _showHandwritingSearch = false;
+  List<HandwritingSearchResult> _hwSearchResults = [];
+  int _hwSearchActiveIndex = 0;
 
   /// 🎨 Current text selection for rich text styling
   TextSelection? _inlineTextSelection;
@@ -773,6 +830,22 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   LatexNode? _selectedLatexNode;
   bool _isDraggingLatex = false;
   Offset? _latexDragStart;
+
+  /// 📈 FunctionGraphNode interaction state
+  FunctionGraphNode? _selectedGraphNode;
+  bool _isDraggingGraph = false;
+  bool _isMovingGraph = false; // Long-press initiated: drag moves graph position
+  bool _isDraggingGraphSlider = false; // Slider panel touch — blocks canvas processing
+  Offset? _graphDragStart;
+  int _lastGraphTapTime = 0; // double-tap detection
+  bool _isResizingGraph = false;
+  int _graphResizeCorner = -1; // 0=TL,1=TR,2=BL,3=BR
+  Offset? _graphResizeAnchor; // opposite corner (fixed)
+
+  // 📈 Graph pinch-to-viewport-zoom state
+  double _graphPinchInitXMin = 0, _graphPinchInitXMax = 0;
+  double _graphPinchInitYMin = 0, _graphPinchInitYMax = 0;
+  bool _graphPinchStarted = false;
 
   /// 🧠 Version counter: incremented on every image content mutation
   /// Used by ImagePainter for fast shouldRepaint + Picture cache invalidation
@@ -1162,6 +1235,24 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Offset? _sectionCurrentEndPoint;
   int _sectionCounter = 1;
 
+  // 📐 Technical Pen — Angle Snap State Machine
+  Offset? _techAnchor; // Fixed anchor for current line segment
+  double? _techLockedAngle; // Locked direction angle (radians), null = undecided
+  double? _techPrevRawAngle; // Previous raw angle for hysteresis
+
+  // 📐 Technical Pen — Visual Overlay State (fed to _TechPenGuidePainter)
+  Offset? _techSnapAnchor; // Current anchor for guide line
+  double? _techSnapAngleDeg; // Current angle for badge (degrees)
+  double? _techSegmentLength; // Current segment length for display
+
+  // 📐 Technical Pen — Other Feature State
+  bool _techNearStartPoint = false; // True when endpoint near start (close shape)
+  Offset? _techStraightGhostEnd; // End of straightened ghost line
+  Offset? _techLastGridCell; // Last grid cell for haptic dedup
+  double? _techLastStrokeAngleRad; // Angle of last completed stroke (for parallel/perp)
+  List<Offset> _techMultiSegmentPoints = []; // Multi-segment tap points
+  List<Offset> _techIntersections = []; // Intersection points with existing strokes
+
   // Section drag-to-move state
   SectionNode? _draggingSectionNode;
   Offset? _sectionDragGrabOffset;
@@ -1182,6 +1273,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
     // ── Tool state controller (replaces Riverpod) ──────────────────────────
     _toolController = UnifiedToolController();
+    _toolController.addListener(_syncHoverState);
+    _syncHoverState(); // Initial sync
 
     // ✨ Shader init, isolate spawn, texture preload — all moved to
     // _initializeCanvas() pipeline (runs during splash screen).
@@ -1224,6 +1317,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // identical(old, new) == true on parent setState → Flutter skips these
     // entire sub-trees. Internal ListenableBuilder/ValueListenableBuilder
     // handle canvas-specific repaints autonomously.
+    _backgroundLayerHost = Builder(builder: (_) => _buildBackgroundLayer());
     _drawingLayerHost = Builder(builder: (_) => _buildDrawingLayer());
     _imageLayerHost = Builder(builder: (_) => _buildImageLayer());
     _gestureLayerHost = Builder(
@@ -1397,6 +1491,18 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // 🚀 SPLASH SCREEN: Run ALL heavy init in parallel (shader, isolate,
       // textures, data load). The loading overlay is shown until complete.
       _initializeCanvas();
+
+      // 🖐️ HANDEDNESS: Load persisted palm rejection settings
+      HandednessSettings.instance.load().then((_) {
+        // 🚀 FEATURE 7: First-launch onboarding — auto-show settings sheet
+        Future.delayed(const Duration(seconds: 4), () {
+          if (mounted) {
+            HandednessSettingsSheet.showIfNeeded(context, onChanged: () {
+              if (mounted) setState(() {});
+            });
+          }
+        });
+      });
 
       // 🔥 VULKAN: Eagerly initialize so first stroke uses GPU overlay
       _initVulkanOverlayIfNeeded();
@@ -1744,6 +1850,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
     _toolSystemBridge?.dispose();
     _unifiedToolController?.dispose();
+    _toolController.removeListener(_syncHoverState);
     _toolController.dispose();
 
     // 🚀 PERSISTENT ISOLATE: Shut down the background encoding isolate

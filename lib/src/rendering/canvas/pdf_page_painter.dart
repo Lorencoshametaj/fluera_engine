@@ -312,9 +312,20 @@ class PdfPagePainter {
         );
       }
     } else {
-      // ⚡ Cold path: no cached image — draw placeholder
+      // ⚡ Cold path: no cached image — draw thumbnail or placeholder
       stats.recordMemoryMiss();
-      _drawPlaceholder(canvas, node, pageRect);
+
+      // 🖼️ Show thumbnail if available (instant low-res preview)
+      if (node.thumbnailImage != null) {
+        _drawThumbnailImage(canvas, node, pageRect);
+      } else {
+        _drawPlaceholder(canvas, node, pageRect);
+        // 🚀 Trigger async thumbnail fetch (fire-and-forget)
+        if (_provider != null && !_isDisposed) {
+          _fetchThumbnail(node);
+        }
+      }
+
       // 🚀 SCROLL OPT: Defer cold renders to after scroll stops.
       if (!isPanning &&
           canEnqueue &&
@@ -422,6 +433,55 @@ class PdfPagePainter {
         (pageRect.height - _textPainter.height) / 2,
       ),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Thumbnail drawing
+  // ---------------------------------------------------------------------------
+
+  /// 🖼️ Draw a low-res thumbnail image scaled to fill the page rect.
+  /// Used as an instant placeholder while the full-LOD render is pending.
+  void _drawThumbnailImage(Canvas canvas, PdfPageNode node, Rect pageRect) {
+    final img = node.thumbnailImage;
+    if (img == null) {
+      _drawPlaceholder(canvas, node, pageRect);
+      return;
+    }
+
+    try {
+      final srcRect = Rect.fromLTWH(
+        0,
+        0,
+        img.width.toDouble(),
+        img.height.toDouble(),
+      );
+      canvas.drawImageRect(img, srcRect, pageRect, _imagePaint);
+    } catch (_) {
+      node.thumbnailImage = null;
+      _drawPlaceholder(canvas, node, pageRect);
+    }
+  }
+
+  /// Set of node IDs with pending thumbnail fetches — prevents duplicates.
+  final Set<String> _pendingThumbnails = {};
+
+  /// 🖼️ Fetch a thumbnail for a page node (one-shot, fire-and-forget).
+  void _fetchThumbnail(PdfPageNode node) {
+    final nodeId = node.id.toString();
+    if (_pendingThumbnails.contains(nodeId)) return;
+    _pendingThumbnails.add(nodeId);
+
+    _provider!.renderThumbnail(node.pageModel.pageIndex).then((image) {
+      if (!_isDisposed && image != null && node.cachedImage == null) {
+        node.thumbnailImage = image;
+        // Don't trigger repaint for thumbnails — the next frame will
+        // pick it up automatically. This avoids repaint storms when
+        // loading 100+ page documents.
+      }
+      _pendingThumbnails.remove(nodeId);
+    }).catchError((_) {
+      _pendingThumbnails.remove(nodeId);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -861,6 +921,11 @@ class PdfPagePainter {
   }
 
   /// Async implementation of render execution with disk cache support.
+  ///
+  /// Render priority:
+  /// 1. Disk cache (fastest — decompresses gzipped pixels)
+  /// 2. 🚀 Texture path (zero-copy — no pixel data crosses MethodChannel)
+  /// 3. Pixel path (legacy — transfers RGBA bytes via MethodChannel)
   Future<void> _executeRenderAsync(
     _RenderRequest request,
     int pageIndex,
@@ -907,8 +972,64 @@ class PdfPagePainter {
       }
     }
 
-    // 💻 Step 2: Render via native provider
     stats.recordDiskMiss();
+
+    // 🚀 Step 2: Try zero-copy texture path (no pixel data via MethodChannel)
+    try {
+      final textureTile = await _provider!.renderPageTexture(
+        pageIndex: pageIndex,
+        scale: request.targetScale,
+        targetSize: Size(targetWidth.toDouble(), targetHeight.toDouble()),
+      );
+
+      if (textureTile != null && !_isDisposed) {
+        // Capture the GPU texture as a ui.Image via Scene.toImage()
+        final image = await _captureTextureAsImage(
+          textureTile.textureId,
+          textureTile.width,
+          textureTile.height,
+        );
+
+        textureTile.dispose();
+
+        if (image != null) {
+          renderStopwatch.stop();
+          stats.recordNativeRender(renderStopwatch.elapsedMilliseconds);
+          _applyRenderResult(request, image);
+
+          // 💾 Save to disk cache asynchronously (fire-and-forget)
+          if (_diskCache != null) {
+            image
+                .toByteData(format: ui.ImageByteFormat.rawRgba)
+                .then((byteData) {
+                  if (byteData != null && !_isDisposed) {
+                    _diskCache.save(
+                      pageIndex,
+                      targetWidth,
+                      targetHeight,
+                      byteData.buffer.asUint8List(),
+                    );
+                  }
+                })
+                .catchError((e) {
+                  EngineScope.current.errorRecovery.reportError(
+                    EngineError(
+                      severity: ErrorSeverity.transient,
+                      domain: ErrorDomain.storage,
+                      source: 'PdfPagePainter.diskCacheSave.texture',
+                      original: e,
+                    ),
+                  );
+                });
+          }
+          return;
+        }
+      }
+    } catch (_) {
+      // Texture path failed — fall through to pixel path
+    }
+
+    // 💻 Step 3: Render via native provider (legacy pixel path)
     try {
       final image = await _provider!.renderPage(
         pageIndex: pageIndex,
@@ -994,6 +1115,35 @@ class PdfPagePainter {
         _pendingGenerations.remove(request.node.id);
       }
       _drainQueue();
+    }
+  }
+
+  /// 🚀 Capture a Flutter texture (registered via TextureRegistry) as a
+  /// `ui.Image` using `SceneBuilder.addTexture()` + `Scene.toImage()`.
+  ///
+  /// This is the bridge between the zero-copy texture path and the existing
+  /// `Canvas.drawImageRect()`-based painting pipeline. The resulting
+  /// `ui.Image` is GPU-backed and avoids any pixel copy.
+  Future<ui.Image?> _captureTextureAsImage(
+    int textureId,
+    int width,
+    int height,
+  ) async {
+    try {
+      final builder = ui.SceneBuilder();
+      builder.pushOffset(0, 0);
+      builder.addTexture(
+        textureId,
+        width: width.toDouble(),
+        height: height.toDouble(),
+      );
+      builder.pop();
+      final scene = builder.build();
+      final image = await scene.toImage(width, height);
+      scene.dispose();
+      return image;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -1333,6 +1483,7 @@ class PdfPagePainter {
       if (page.cachedImage != null) {
         page.disposeCachedImage();
       }
+      page.disposeThumbnail();
     }
     _totalCachedBytes = 0;
     _renderQueue.clear();
@@ -1385,6 +1536,7 @@ class PdfPagePainter {
     warmUpProgress.dispose();
     for (final page in allPages) {
       page.disposeCachedImage();
+      page.disposeThumbnail();
     }
     _totalCachedBytes = 0;
     _pendingGenerations.clear();

@@ -32,26 +32,41 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // 🚀 STRUCTURAL FIX: Use cached widget hosts — identical() skips
           // these entire sub-trees on parent setState, eliminating ~90% of
           // the widget reconstruction cost (700+ widgets × 293 setState calls).
-          _buildBackgroundLayer(),
+          _backgroundLayerHost,
           _drawingLayerHost,
           _imageLayerHost,
           _gestureLayerHost,
           // 🔥 VULKAN: Native GPU stroke overlay
+          // 🖍️ Flutter live stroke: ALWAYS in tree, placed BELOW Vulkan texture.
+          // For non-highlighter pens, Vulkan (above, at opacity 1.0) covers this.
+          // For highlighter, Vulkan opacity = 0.0 → this Flutter stroke shows through.
+          _currentStrokeHost,
           if (_vulkanTextureId != null)
-            IgnorePointer(child: Texture(textureId: _vulkanTextureId!)),
-          // 🔥 VULKAN: Hide Flutter stroke when Vulkan handles it
-          if (!_vulkanOverlayActive) _currentStrokeHost,
+            ValueListenableBuilder<double>(
+              valueListenable: _vulkanTextureOpacity,
+              builder: (_, opacity, child) {
+                // 🚀 PERF: Skip Opacity widget at 1.0 — avoids potential
+                // compositing layer creation by Impeller.
+                if (opacity == 1.0) return child!;
+                if (opacity == 0.0) return const SizedBox.shrink();
+                return Opacity(opacity: opacity, child: child);
+              },
+              child: IgnorePointer(child: Texture(textureId: _vulkanTextureId!)),
+            ),
           _remoteLiveStrokesHost,
           _pdfPlaceholdersHost,
 
           // 🚀 PERF: All conditional overlays wrapped in ValueListenableBuilder.
           // Drawing handlers increment _uiRebuildNotifier instead of setState,
           // so only this subtree rebuilds (not the entire widget tree).
-          ValueListenableBuilder<int>(
+          Positioned.fill(
+            child: ValueListenableBuilder<int>(
             valueListenable: _uiRebuildNotifier,
             builder:
                 (context, _, __) => Stack(
                   children: [
+                    // 🖊️ STYLUS HOVER: Cursor preview overlay
+                    const StylusHoverOverlay(),
                     // 📐 SECTION PREVIEW OVERLAY
                     if (_isSectionActive &&
                         _sectionStartPoint != null &&
@@ -80,6 +95,51 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                                   _draggingSectionNode ?? _resizingSectionNode!,
                               controller: _canvasController,
                               isResizing: _resizingSectionNode != null,
+                            ),
+                            size: Size.infinite,
+                          ),
+                        ),
+                      ),
+
+                    // 📐 TECHNICAL PEN: Snap guide + measurements
+                    if (_techSnapAnchor != null &&
+                        _techSnapAngleDeg != null &&
+                        _isDrawingNotifier.value &&
+                        _effectivePenType == ProPenType.technicalPen &&
+                        _brushSettings.techShowGuides)
+                      IgnorePointer(
+                        child: RepaintBoundary(
+                          child: CustomPaint(
+                            painter: _TechPenGuidePainter(
+                              anchor: _techSnapAnchor!,
+                              angleDeg: _techSnapAngleDeg!,
+                              segmentLength: _techSegmentLength ?? 0.0,
+                              controller: _canvasController,
+                              color: _effectiveColor,
+                              nearStartPoint: _techNearStartPoint,
+                              startPoint: (_currentStrokeNotifier.value.isNotEmpty)
+                                  ? _currentStrokeNotifier.value.first.position
+                                  : null,
+                              straightGhostEnd: _techStraightGhostEnd,
+                              intersections: _techIntersections,
+                            ),
+                            size: Size.infinite,
+                          ),
+                        ),
+                      ),
+
+                    // 🔲 TECHNICAL PEN: Visible grid dots
+                    if (_isDrawingNotifier.value &&
+                        _effectivePenType == ProPenType.technicalPen &&
+                        _brushSettings.techGridSnap &&
+                        _brushSettings.techShowGuides)
+                      IgnorePointer(
+                        child: RepaintBoundary(
+                          child: CustomPaint(
+                            painter: _TechPenGridPainter(
+                              gridSize: _brushSettings.techGridSize,
+                              controller: _canvasController,
+                              color: _effectiveColor,
                             ),
                             size: Size.infinite,
                           ),
@@ -208,9 +268,34 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
 
                     // 🎵 Audio Mini-Player (floating bar during audio-only playback)
                     if (_isPlayingAudio) _buildAudioMiniPlayer(context),
+
+                    // 🎨 Floating Color Disc (Procreate-style compact picker)
+                    if (_isDrawingNotifier.value && !_effectiveIsEraser && !_effectiveIsPanMode)
+                      FloatingColorDisc(
+                        color: _effectiveSelectedColor,
+                        onColorChanged: (c) {
+                          _toolController.setColor(c);
+                          setState(() {});
+                        },
+                        onExpand: () async {
+                          final picked = await showProColorPicker(
+                            context: context,
+                            currentColor: _effectiveSelectedColor,
+                            onEyedropperRequested: () {
+                              Navigator.pop(context);
+                              _launchEyedropperFromCanvas();
+                            },
+                          );
+                          if (picked != null && mounted) {
+                            _toolController.setColor(picked);
+                            setState(() {});
+                          }
+                        },
+                      ),
                   ],
                 ),
-          ),
+              ),  // close ValueListenableBuilder
+          ),  // close Positioned.fill
         ],
       ),
     );
@@ -538,7 +623,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 _isMultiPageEditMode
                     ? false
                     : _effectiveIsStylusMode, // 🖊️ Disable stylus mode in multi-page edit
-            blockPanZoom:
+            // 🖐️ PALM REJECTION: compute exclusion zone from HandednessSettings
+            palmExclusionZone: HandednessSettings.instance.getPalmExclusionZone(viewportSize),
+            blockPanZoom: () =>
                 _digitalTextTool.isResizing ||
                 _digitalTextTool.isDragging ||
                 _imageTool.isResizing ||
@@ -546,8 +633,46 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 _imageTool.isRotating ||
                 _tabularTool.isDragging ||
                 _tabularTool.isResizing ||
+                _isDraggingGraph ||
+                _isResizingGraph ||
+                _isDraggingGraphSlider ||
                 _imageTool
-                    .isHandleRotating, // 🌀 Block only during active image manipulation
+                    .isHandleRotating, // 🌀 Block only during active manipulation
+            // 📈 Graph pinch-to-viewport zoom+pan (Desmos-style)
+            onBlockedScale: (scale, focalDelta) {
+              final node = _selectedGraphNode;
+              if (node == null) return;
+              // Capture initial viewport on first pinch frame
+              if (!_graphPinchStarted) {
+                _graphPinchStarted = true;
+                _graphPinchInitXMin = node.xMin;
+                _graphPinchInitXMax = node.xMax;
+                _graphPinchInitYMin = node.yMin;
+                _graphPinchInitYMax = node.yMax;
+              }
+              // Zoom: pinch-out (scale > 1) = zoom in (narrower range)
+              final factor = 1.0 / scale;
+              final cx = (_graphPinchInitXMin + _graphPinchInitXMax) / 2;
+              final cy = (_graphPinchInitYMin + _graphPinchInitYMax) / 2;
+              final hw = (_graphPinchInitXMax - _graphPinchInitXMin) / 2 * factor;
+              final hh = (_graphPinchInitYMax - _graphPinchInitYMin) / 2 * factor;
+              node.xMin = cx - hw;
+              node.xMax = cx + hw;
+              node.yMin = cy - hh;
+              node.yMax = cy + hh;
+              // Pan: convert screen delta to graph-space delta
+              final canvasScale = _canvasController.scale;
+              final dxGraph = -focalDelta.dx / canvasScale / node.graphWidth * (node.xMax - node.xMin);
+              final dyGraph = focalDelta.dy / canvasScale / node.graphHeight * (node.yMax - node.yMin);
+              node.xMin += dxGraph;
+              node.xMax += dxGraph;
+              node.yMin += dyGraph;
+              node.yMax += dyGraph;
+              node.invalidateCache();
+              _layerController.sceneGraph.bumpVersion();
+              DrawingPainter.triggerRepaint();
+              _uiRebuildNotifier.value++;
+            },
             // 🌀 IMAGE ROTATION: Two-finger rotate + scale on selected image (pan mode only)
             onImageScaleStart:
                 (_effectiveIsPanMode && _imageTool.selectedImage != null)
@@ -660,6 +785,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     return ListenableBuilder(
       listenable: _toolController,
       builder: (_, __) {
+        // 🚀 PERF: When Vulkan handles the stroke (non-highlighter), skip
+        // the entire CustomPaint + RepaintBoundary. Even with repaint: null,
+        // the RPB creates a GPU compositing layer that costs ~0.5-1ms/frame.
+        if (_vulkanOverlayActive && _effectivePenType != ProPenType.highlighter) {
+          return const SizedBox.shrink();
+        }
+
         return IgnorePointer(
           child: RepaintBoundary(
             child: CustomPaint(
@@ -677,6 +809,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 controller: _canvasController, // 🚀 viewport-level mode
                 pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
                 surface: _activeSurface, // 🧬 Programmable materiality
+                useNativeOverlay: _vulkanOverlayActive, // 🔥 Skip Dart when Vulkan handles it
               ),
               size: Size.infinite,
             ),

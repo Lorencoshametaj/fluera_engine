@@ -46,6 +46,9 @@ class CurrentStrokePainter extends CustomPainter {
   // to the page rect so ink doesn't overflow outside the page.
   final Rect? pdfClipRect;
 
+  // 🔥 Skip Dart rendering when Vulkan/Metal native overlay handles the stroke
+  final bool useNativeOverlay;
+
   // 🚀 Predictive renderer for anti-lag (ghost trail prediction)
   static final PredictiveRenderer _predictor = PredictiveRenderer(
     predictedPointsCount: 2,
@@ -99,7 +102,16 @@ class CurrentStrokePainter extends CustomPainter {
     this.controller,
     this.pdfClipRect,
     this.surface,
-  }) : super(repaint: strokeNotifier);
+    this.useNativeOverlay = false,
+  }) : super(
+         // 🚀 PERF: When Vulkan handles the stroke (non-highlighter),
+         // skip subscribing to strokeNotifier. Otherwise, paint() is
+         // called 120x/sec (returning immediately), but the RepaintBoundary
+         // layer is still invalidated → GPU re-composites for nothing.
+         repaint: (useNativeOverlay && penType != ProPenType.highlighter)
+             ? null
+             : strokeNotifier,
+       );
 
   /// Style hash to detect when cached picture must be invalidated.
   int get _styleHash =>
@@ -114,6 +126,12 @@ class CurrentStrokePainter extends CustomPainter {
       _predictor.reset();
       _predictorFedCount = 0;
       _invalidateCache();
+      return;
+    }
+
+    // 🔥 Skip Dart rendering when native overlay (Vulkan/Metal) handles it
+    if (useNativeOverlay &&
+        penType != ProPenType.highlighter) {
       return;
     }
 
@@ -152,17 +170,21 @@ class CurrentStrokePainter extends CustomPainter {
         guideSystem!.symmetryEnabled &&
         currentStroke.length >= 2;
 
-    // ─── 🚀 BALLPOINT DIRECT-DRAW: skip PictureRecorder ──────────
-    // Ballpoint uses a single drawPath() with incremental path O(ΔN).
-    // PictureRecorder adds ~0.3ms of alloc+copy overhead with zero
-    // benefit (nothing expensive to cache). Draw straight to canvas.
-    final isBallpointFast =
-        penType == ProPenType.ballpoint &&
-        settings.textureType == 'none' &&
-        !settings.stampEnabled;
+    // ─── 🚀 DIRECT-DRAW: skip PictureRecorder ──────────────────
+    // These pens use rendering algorithms that need ALL points at once
+    // (triangle-strip tessellation, Catmull-Rom spline). Incremental
+    // drawFromIndex would produce different geometry than full render,
+    // causing live/committed mismatch.
+    final isDirectDraw =
+        (penType == ProPenType.ballpoint &&
+            settings.textureType == 'none' &&
+            !settings.stampEnabled) ||
+        penType == ProPenType.highlighter ||
+        penType == ProPenType.marker ||
+        penType == ProPenType.fountain;
 
     // ─── Choose render strategy ──────────────────────────────────
-    if (isBallpointFast || hasSymmetry) {
+    if (isDirectDraw || hasSymmetry) {
       // Direct draw: ballpoint fast-path or symmetry (needs full re-render)
       _invalidateCache();
       _drawStroke(canvas, currentStroke, color, width, penType, settings);
@@ -185,7 +207,7 @@ class CurrentStrokePainter extends CustomPainter {
     // This reduces perceived latency by ~15-20ms.
     // 🚀 Skip for ballpoint: constant-width stroke has no visual latency
     // to hide, and the predictor costs ~0.2ms/frame in feed + predict.
-    if (enablePredictive && !isBallpointFast && currentStroke.length >= 3) {
+    if (enablePredictive && !isDirectDraw && currentStroke.length >= 3) {
       final feedStart = _predictorFedCount.clamp(0, currentStroke.length - 1);
       for (int i = feedStart; i < currentStroke.length; i++) {
         final pt = currentStroke[i];

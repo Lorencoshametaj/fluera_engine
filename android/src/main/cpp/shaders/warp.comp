@@ -1,0 +1,122 @@
+// warp.comp — GLSL compute shader for Transform Warp (Vulkan)
+// Compile: glslc -fshader-stage=compute warp.comp -o warp.spv
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba8) uniform readonly  image2D srcImage;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D dstImage;
+
+struct WarpMeshPoint {
+    float origX, origY;
+    float dispX, dispY;
+};
+
+layout(set = 0, binding = 2) buffer MeshBuffer {
+    WarpMeshPoint points[];
+} mesh;
+
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+    uint meshCols;
+    uint meshRows;
+    float boundsLeft;
+    float boundsTop;
+    float boundsWidth;
+    float boundsHeight;
+} params;
+
+vec4 bilinearSample(ivec2 size, float fx, float fy) {
+    fx = clamp(fx, 0.0, float(size.x - 1));
+    fy = clamp(fy, 0.0, float(size.y - 1));
+
+    int x0 = int(floor(fx));
+    int y0 = int(floor(fy));
+    int x1 = min(x0 + 1, size.x - 1);
+    int y1 = min(y0 + 1, size.y - 1);
+
+    float fracX = fx - float(x0);
+    float fracY = fy - float(y0);
+
+    vec4 tl = imageLoad(srcImage, ivec2(x0, y0));
+    vec4 tr = imageLoad(srcImage, ivec2(x1, y0));
+    vec4 bl = imageLoad(srcImage, ivec2(x0, y1));
+    vec4 br = imageLoad(srcImage, ivec2(x1, y1));
+
+    return mix(mix(tl, tr, fracX), mix(bl, br, fracX), fracY);
+}
+
+vec2 inverseBilinear(vec2 p, vec2 tl, vec2 tr, vec2 bl, vec2 br) {
+    float u = 0.5, v = 0.5;
+
+    for (int iter = 0; iter < 8; iter++) {
+        vec2 top = mix(tl, tr, u);
+        vec2 bot = mix(bl, br, u);
+        vec2 f = mix(top, bot, v) - p;
+
+        if (length(f) < 0.001) break;
+
+        vec2 dFdu = (1.0 - v) * (tr - tl) + v * (br - bl);
+        vec2 dFdv = (1.0 - u) * (bl - tl) + u * (br - tr);
+
+        float det = dFdu.x * dFdv.y - dFdu.y * dFdv.x;
+        if (abs(det) < 1e-10) break;
+
+        float invDet = 1.0 / det;
+        u -= (dFdv.y * f.x - dFdv.x * f.y) * invDet;
+        v -= (dFdu.x * f.y - dFdu.y * f.x) * invDet;
+    }
+
+    return vec2(clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0));
+}
+
+void main() {
+    uint gx = gl_GlobalInvocationID.x;
+    uint gy = gl_GlobalInvocationID.y;
+    if (gx >= params.width || gy >= params.height) return;
+
+    float canvasX = params.boundsLeft + float(gx) / float(params.width) * params.boundsWidth;
+    float canvasY = params.boundsTop + float(gy) / float(params.height) * params.boundsHeight;
+    vec2 p = vec2(canvasX, canvasY);
+
+    vec4 resultColor = vec4(0.0);
+    bool found = false;
+
+    for (uint row = 0; row < params.meshRows - 1 && !found; row++) {
+        for (uint col = 0; col < params.meshCols - 1 && !found; col++) {
+            uint iTL = row * params.meshCols + col;
+            uint iTR = row * params.meshCols + col + 1;
+            uint iBL = (row + 1) * params.meshCols + col;
+            uint iBR = (row + 1) * params.meshCols + col + 1;
+
+            vec2 tl = vec2(mesh.points[iTL].dispX, mesh.points[iTL].dispY);
+            vec2 tr = vec2(mesh.points[iTR].dispX, mesh.points[iTR].dispY);
+            vec2 bl = vec2(mesh.points[iBL].dispX, mesh.points[iBL].dispY);
+            vec2 br = vec2(mesh.points[iBR].dispX, mesh.points[iBR].dispY);
+
+            // AABB check
+            float minX = min(min(tl.x, tr.x), min(bl.x, br.x));
+            float maxX = max(max(tl.x, tr.x), max(bl.x, br.x));
+            float minY = min(min(tl.y, tr.y), min(bl.y, br.y));
+            float maxY = max(max(tl.y, tr.y), max(bl.y, br.y));
+
+            if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) continue;
+
+            vec2 uv = inverseBilinear(p, tl, tr, bl, br);
+
+            if (uv.x >= -0.01 && uv.x <= 1.01 && uv.y >= -0.01 && uv.y <= 1.01) {
+                float globalU = (float(col) + uv.x) / float(params.meshCols - 1);
+                float globalV = (float(row) + uv.y) / float(params.meshRows - 1);
+
+                float srcX = globalU * float(params.width);
+                float srcY = globalV * float(params.height);
+
+                resultColor = bilinearSample(ivec2(params.width, params.height), srcX, srcY);
+                found = true;
+            }
+        }
+    }
+
+    imageStore(dstImage, ivec2(gx, gy), found ? resultColor : vec4(0.0));
+}

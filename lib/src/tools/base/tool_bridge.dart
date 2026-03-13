@@ -4,6 +4,9 @@ import './tool_context.dart';
 import './tool_registry.dart';
 import '../unified_tools.dart';
 import '../text/digital_text_tool.dart';
+import '../transform/liquify_tool.dart';
+import '../transform/smudge_tool.dart';
+import '../transform/transform_warp_tool.dart';
 import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
 import '../../layers/fluera_layer_controller.dart';
@@ -100,7 +103,13 @@ class ToolSystemBridge {
 
   /// Register the default tools
   void registerDefaultTools() {
-    _registry.registerAll([UnifiedShapeTool(), DigitalTextTool()]);
+    _registry.registerAll([
+      UnifiedShapeTool(),
+      DigitalTextTool(),
+      LiquifyTool(),
+      SmudgeTool(),
+      TransformWarpTool(),
+    ]);
   }
 
   /// Register a custom tool

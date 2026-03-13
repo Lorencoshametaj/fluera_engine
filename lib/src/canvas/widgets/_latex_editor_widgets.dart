@@ -4,7 +4,6 @@ part of 'latex_editor_sheet.dart';
 // 🧮 LaTeX Editor — Helper Widgets, Data & Formatters
 // ═══════════════════════════════════════════════════════════════════════════
 
-
 // =============================================================================
 // Editor Mode
 // =============================================================================
@@ -283,17 +282,19 @@ class _CompactKey extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final ColorScheme cs;
+  final Color? bgColor;
 
   const _CompactKey({
     required this.label,
     required this.onTap,
     required this.cs,
+    this.bgColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: cs.surfaceContainerHighest,
+      color: bgColor ?? cs.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: () {
@@ -326,17 +327,19 @@ class _CompactIconKey extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final ColorScheme cs;
+  final Color? bgColor;
 
   const _CompactIconKey({
     required this.icon,
     required this.onTap,
     required this.cs,
+    this.bgColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: cs.surfaceContainerHighest,
+      color: bgColor ?? cs.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: () {
@@ -455,4 +458,11 @@ class _RedoIntent extends Intent {
 
 class _CancelIntent extends Intent {
   const _CancelIntent();
+}
+
+/// Helper for history sheet items.
+class _HistoryItem {
+  final String expr;
+  final bool isFavorite;
+  const _HistoryItem(this.expr, {required this.isFavorite});
 }

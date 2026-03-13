@@ -1,9 +1,12 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import './infinite_canvas_controller.dart';
 import '../drawing/input/stylus_detector.dart';
+import '../services/handedness_settings.dart';
+import './overlays/stylus_hover_overlay.dart';
 
 /// Widget canvas infinito con zoom e pan
 ///
@@ -13,6 +16,8 @@ import '../drawing/input/stylus_detector.dart';
 /// - Drawing (one finger)
 /// - Pan with a dito (se enableSingleFingerPan = true)
 /// - 🖊️ Stylus Mode: stylus draws, finger pans
+bool _defaultBlockPanZoom() => false;
+
 class InfiniteCanvasGestureDetector extends StatefulWidget {
   final InfiniteCanvasController controller;
   final Widget child;
@@ -35,7 +40,7 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final VoidCallback?
   onDoubleTapZoom; // 🎯 Called on double-tap zoom to undo the first tap's dot
   final Function(Offset)? onLongPress;
-  final bool blockPanZoom; // 🔒 Block pan/zoom when true
+  final bool Function() blockPanZoom; // 🔒 Block pan/zoom when true (evaluated at gesture time)
   final bool
   enableSingleFingerPan; // 🖐️ Enable pan with a finger instead of drawing
   /// 📄 Optional callback: given a canvas-space position, returns true if
@@ -44,10 +49,18 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final bool Function(Offset canvasPosition)? onPanInterceptTest;
   final bool isStylusModeEnabled; // 🖊️ Stylus mode: stylus draws, finger pans
 
+  /// 🖐️ PALM REJECTION: optional exclusion zone where large-area touches
+  /// (palms) are silently ignored. Stylus events are never rejected.
+  final ui.Rect? palmExclusionZone;
+
   // 🌀 Image rotation callbacks (two-finger rotate + scale on selected image)
   final VoidCallback? onImageScaleStart;
   final Function(double rotationDelta, double scaleDelta)? onImageTransform;
   final VoidCallback? onImageScaleEnd;
+
+  // 📈 Graph viewport zoom+pan: called when blockPanZoom blocks canvas zoom.
+  // Routes two-finger pinch scale and pan delta to graph viewport.
+  final Function(double scale, Offset focalDelta)? onBlockedScale;
 
   const InfiniteCanvasGestureDetector({
     super.key,
@@ -60,13 +73,15 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onDrawCancel,
     this.onDoubleTapZoom,
     this.onLongPress,
-    this.blockPanZoom = false,
+    this.blockPanZoom = _defaultBlockPanZoom,
     this.enableSingleFingerPan = false,
     this.onPanInterceptTest,
     this.isStylusModeEnabled = false,
+    this.palmExclusionZone,
     this.onImageScaleStart,
     this.onImageTransform,
     this.onImageScaleEnd,
+    this.onBlockedScale,
   });
 
   @override
@@ -231,6 +246,8 @@ class _InfiniteCanvasGestureDetectorState
       onPointerMove: _onPointerMove,
       onPointerUp: _onPointerUp,
       onPointerCancel: _onPointerCancel,
+      // 🖊️ FEATURE 7: Track stylus hover for aggressive palm rejection
+      onPointerHover: _onPointerHover,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onScaleStart: _onScaleStart,
@@ -250,7 +267,63 @@ class _InfiniteCanvasGestureDetectorState
     );
   }
 
+  // 🖊️ AUTO-DETECT: Track first draw position for stroke direction
+  Offset? _strokeStartPosition;
+
+  // 🖊️ Stylus hover detection + cursor preview
+  void _onPointerHover(PointerHoverEvent event) {
+    if (StylusDetector.isStylus(event)) {
+      HandednessSettings.instance.onStylusHover(event.localPosition);
+      // 🖊️ Feed hover state for cursor preview overlay
+      StylusHoverState.instance.updateHover(
+        event.localPosition,
+        distance: event.distance,
+      );
+    } else {
+      HandednessSettings.instance.onStylusHoverExit();
+      StylusHoverState.instance.endHover();
+    }
+  }
+
   void _onPointerDown(PointerDownEvent event) {
+    final isStylus = StylusDetector.isStylus(event);
+
+    // 🖊️ STYLUS TRACKING: Inform HandednessSettings for temporal rejection
+    if (isStylus) {
+      HandednessSettings.instance.onStylusDown(event.localPosition);
+      StylusHoverState.instance.endHover(); // Hide cursor on touch-down
+    }
+
+    // 🖐️ COMPREHENSIVE PALM REJECTION:
+    // UI bypass + temporal + cooldown + hover + multi-point + velocity + area + wrist + zone
+    // 🔧 FIX: Skip palm rejection when a pointer is already down — the incoming
+    // touch is likely the 2nd finger for pinch-zoom/pan, NOT a palm. Rejecting
+    // it would prevent _pointerCount from reaching 2, breaking zoom/pan.
+    if (!isStylus && _pointerCount == 0) {
+      final speed = event.delta.distance.clamp(0.0, 100.0);
+      final screenSize = MediaQuery.sizeOf(context);
+
+      // 🛡️ UI safe zone: top 60px (toolbar) + bottom 44px (nav bar)
+      final uiSafeZone = Rect.fromLTRB(0, 0, screenSize.width, 60);
+
+      if (HandednessSettings.instance.shouldRejectTouch(
+        position: event.localPosition,
+        radiusMajor: event.radiusMajor,
+        radiusMinor: event.radiusMinor,
+        screenSize: screenSize,
+        speed: speed,
+        uiSafeZone: uiSafeZone,
+      )) {
+        // Trigger auto-calibration periodically
+        HandednessSettings.instance.triggerAutoCalibration(screenSize);
+        return; // Palm touch — rejected
+      }
+
+      // 🐌 Begin drift tracking for deferred rejection
+      HandednessSettings.instance.beginDriftTracking(
+          event.pointer, event.localPosition);
+    }
+
     _pointerCount++;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
@@ -332,6 +405,7 @@ class _InfiniteCanvasGestureDetectorState
           event.localPosition,
         );
         _lastCanvasPosition = canvasPoint;
+        _strokeStartPosition = canvasPoint; // 📊 AUTO-DETECT: record stroke start
         widget.onDrawStart!(
           canvasPoint,
           normalizedPressure,
@@ -345,6 +419,29 @@ class _InfiniteCanvasGestureDetectorState
   void _onPointerMove(PointerMoveEvent event) {
     // 🖊️ Update pointer for stylus manager
     _stylusManager.updatePointer(event);
+
+    // 🖊️ STYLUS TRACKING: Update pen position for wrist guard
+    if (StylusDetector.isStylus(event)) {
+      HandednessSettings.instance.onStylusMove(event.localPosition);
+    } else {
+      // 📊 DEFERRED REJECTION: Pressure curve + drift analysis for non-stylus
+      // These catch palms that passed the initial shouldRejectTouch check.
+      final settings = HandednessSettings.instance;
+      if (settings.recordPressureSample(event.pointer, event.pressure)) {
+        // Flat pressure curve detected — cancel this touch
+        settings.recordDeferredRejection(
+            event.localPosition, PalmRejectionReason.pressureCurve,
+            event.radiusMajor);
+        return; // Swallow further move events for this palm
+      }
+      if (settings.checkDrift(
+          event.pointer, event.localPosition, event.radiusMajor)) {
+        settings.recordDeferredRejection(
+            event.localPosition, PalmRejectionReason.drift,
+            event.radiusMajor);
+        return; // Near-zero movement — likely palm resting
+      }
+    }
 
     // Ignora se ci sono 2+ dita (zoom/pan)
     if (_pointerCount >= 2) return;
@@ -600,6 +697,14 @@ class _InfiniteCanvasGestureDetectorState
     // This ensures that all buffered points are dispatched before onDrawEnd.
     _flushBatch();
 
+    // 🖊️ STYLUS TRACKING: Inform HandednessSettings stylus is up
+    if (StylusDetector.isStylus(event)) {
+      HandednessSettings.instance.onStylusUp();
+    } else {
+      // 🧹 Clean up pressure/drift tracking for this pointer
+      HandednessSettings.instance.clearPointerTracking(event.pointer);
+    }
+
     _previousPointerCount = _pointerCount;
     _pointerCount--;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
@@ -639,6 +744,13 @@ class _InfiniteCanvasGestureDetectorState
             event.localPosition,
           );
           widget.onDrawEnd!(canvasPoint);
+
+          // 📊 AUTO-DETECT: Record stroke direction for handedness inference
+          if (_strokeStartPosition != null) {
+            final deltaX = canvasPoint.dx - _strokeStartPosition!.dx;
+            HandednessSettings.instance.recordStrokeDirection(deltaX);
+            _strokeStartPosition = null;
+          }
         }
         // Drawing stroke resets double-tap state
         _pendingFirstTap = false;
@@ -703,6 +815,14 @@ class _InfiniteCanvasGestureDetectorState
         _isDrawing = false;
         _pendingFirstTap = false;
         _lastSingleTapTime = 0;
+        // 📈 Call onDrawEnd to clean up any active drag state (graph, latex, etc.)
+        // that was cancelled by multi-touch but never finalized.
+        if (widget.onDrawEnd != null) {
+          final canvasPoint = widget.controller.screenToCanvas(
+            event.localPosition,
+          );
+          widget.onDrawEnd!(canvasPoint);
+        }
       }
 
       // Reset state
@@ -748,6 +868,8 @@ class _InfiniteCanvasGestureDetectorState
   Offset _lastTwoFingerTapPosition = Offset.zero;
 
   void _onScaleStart(ScaleStartDetails details) {
+    // 🔒 Block pan/zoom when an interactive element is being manipulated
+    if (widget.blockPanZoom()) return;
     // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
     // (e.g., 2→1 fingers), re-anchor to current state to prevent jumps.
     if (_gestureTransitioning) {
@@ -802,6 +924,15 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
+    // 🔒 Block canvas pan/zoom; route scale+pan to graph viewport instead
+    if (widget.blockPanZoom()) {
+      if (_pointerCount >= 2) {
+        final delta = details.localFocalPoint - _lastScaleFocalPoint;
+        widget.onBlockedScale?.call(details.scale, delta);
+        _lastScaleFocalPoint = details.localFocalPoint;
+      }
+      return;
+    }
     // Only process with 2+ fingers
     if (_pointerCount < 2) return;
     widget.controller.isPanning = true; // 🚀 SCROLL OPT
@@ -985,6 +1116,8 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
+    // 🔒 Block momentum/spring-back when an interactive element is being manipulated
+    if (widget.blockPanZoom()) return;
     // 🎯 FIX: If this scale-end follows a drawing gesture, skip ALL viewport
     // animations (spring-back, momentum, rotation). The GestureDetector fires
     // onScaleEnd after every gesture — including single-finger drawing.

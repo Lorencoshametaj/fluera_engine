@@ -249,9 +249,7 @@ class InlineTextOverlayState extends State<InlineTextOverlay>
                 ),
               ),
               const SizedBox(height: 2),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
+              Container(
                 height: 2,
                 width:
                     _hasText

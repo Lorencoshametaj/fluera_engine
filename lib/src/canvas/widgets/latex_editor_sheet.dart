@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/latex/ink_stroke_data.dart';
 import '../../core/latex/latex_fuzzy_corrector.dart';
 import '../../core/latex/latex_validator.dart';
+import '../../core/latex/latex_evaluator.dart';
 import '../../core/latex/latex_confidence_annotator.dart';
 import '../../platform/latex_recognition_bridge.dart';
 import 'latex_command_reference.dart';
@@ -62,7 +63,11 @@ class LatexEditorSheet extends StatefulWidget {
     this.recognizer,
     this.onConfirm,
     this.onCancel,
+    this.onInsertGraphToCanvas,
   });
+
+  /// Called when user inserts graph to canvas from the graph sheet.
+  final void Function(String latexSource, double xMin, double xMax, double yMin, double yMax, int curveColor)? onInsertGraphToCanvas;
 
   @override
   State<LatexEditorSheet> createState() => _LatexEditorSheetState();
@@ -91,6 +96,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   String _lastSnapshotText = '';
   Timer? _undoDebounce;
 
+  // ── P3: Evaluation state ──
+  double? _evaluationResult;
+  String? _evaluationError;
+
   // ── E3: Expression history ──
   static final List<String> _expressionHistory = [];
 
@@ -115,6 +124,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   bool _previewCollapsed = false;
   bool _wasKeyboardOpen = false;
   final List<String> _recentCommands = [];
+  // P4: Font size slider toggle
+  bool _showFontSlider = false;
 
   @override
   void initState() {
@@ -203,6 +214,21 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
 
     // T2: Update autocomplete suggestions
     _updateAutocompleteSuggestions();
+
+    // P3: Live evaluation
+    final src = _sourceController.text.trim();
+    if (src.isNotEmpty && !src.contains('x')) {
+      try {
+        _evaluationResult = LatexEvaluator.evaluate(src);
+        _evaluationError = null;
+      } catch (e) {
+        _evaluationResult = null;
+        _evaluationError = e.toString().replaceFirst('Exception: ', '');
+      }
+    } else {
+      _evaluationResult = null;
+      _evaluationError = null;
+    }
 
     // Trigger rebuild for preview (immediate, lightweight)
     setState(() {});
@@ -775,7 +801,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                               latexSource: _sourceController.text,
                               fontSize: _fontSize,
                               color: _color,
-                              minHeight: 56,
+                              minHeight: 100,
                             ),
                           ),
                         ),
@@ -783,8 +809,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
             ),
           ),
 
-          // Compact status bar
-          _buildCompactStatusBar(cs),
+          // P3: Unified status bar (eval + graph chip + char count)
+          _buildUnifiedStatusBar(cs),
 
           // Validation warnings
           if (_validationErrors.isNotEmpty) _buildValidationBar(cs),
@@ -1047,41 +1073,84 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   }
 
   // ── Compact status bar ──
-  Widget _buildCompactStatusBar(ColorScheme cs) {
+  // P3: Unified status bar — eval result + graph chip + validation badge + char count
+  Widget _buildUnifiedStatusBar(ColorScheme cs) {
     final src = _sourceController.text;
     final len = src.length;
     final errCount = _validationErrors.length;
+    final containsX = src.contains('x');
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       child: Row(
         children: [
-          Icon(
-            Icons.text_snippet_outlined,
-            size: 14,
-            color: cs.onSurfaceVariant,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '$len car.',
-            style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-          ),
-          const SizedBox(width: 12),
+          // Evaluation result
+          if (_evaluationResult != null && errCount == 0)
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  final formatted = LatexEvaluator.formatResult(_evaluationResult!);
+                  Clipboard.setData(ClipboardData(text: formatted));
+                  HapticFeedback.selectionClick();
+                },
+                child: Text(
+                  '= ${LatexEvaluator.formatResult(_evaluationResult!)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: cs.primary,
+                    fontFamily: 'monospace',
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
+          else if (_evaluationError != null)
+            Expanded(
+              child: Text(
+                _evaluationError!,
+                style: TextStyle(fontSize: 11, color: cs.error, fontStyle: FontStyle.italic),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            )
+          else
+            const Spacer(),
+
+          // P2: Graph chip instead of inline graph
+          if (containsX)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ActionChip(
+                avatar: Icon(Icons.show_chart_rounded, size: 14, color: cs.primary),
+                label: Text('f(x)', style: TextStyle(fontSize: 11, color: cs.primary)),
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  _showGraphSheet();
+                },
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                backgroundColor: cs.primaryContainer.withValues(alpha: 0.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                side: BorderSide.none,
+              ),
+            ),
+
+          // Validation badge
           if (errCount > 0) ...[
             Icon(Icons.warning_amber_rounded, size: 14, color: cs.error),
             const SizedBox(width: 2),
-            Text(
-              '$errCount errori',
-              style: TextStyle(fontSize: 11, color: cs.error),
-            ),
-          ] else ...[
-            Icon(
-              Icons.check_circle_outline_rounded,
-              size: 14,
-              color: cs.primary,
-            ),
-            const SizedBox(width: 2),
-            Text('OK', style: TextStyle(fontSize: 11, color: cs.primary)),
+            Text('$errCount', style: TextStyle(fontSize: 11, color: cs.error, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 8),
           ],
+
+          // Char count
+          if (len > 0)
+            Text(
+              '$len car.',
+              style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+            ),
         ],
       ),
     );
@@ -1263,7 +1332,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
             height: MediaQuery.of(context).size.height * 0.7,
             child: LatexFunctionGraph(
               latexSource: src,
-              curveColor: Theme.of(context).colorScheme.primary,
+              accentColor: Theme.of(context).colorScheme.primary,
+              onInsertToCanvas: widget.onInsertGraphToCanvas,
             ),
           ),
     );
@@ -1274,12 +1344,13 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   // ---------------------------------------------------------------------------
 
   Widget _buildKeyboardMode(ColorScheme cs) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Single-row quick-insert with cursor keys
-          _buildQuickInsertRows(cs),
+          // P1+P5: Paginated quick-insert (with history as page 0)
+          _buildPaginatedQuickInsert(cs),
 
           const SizedBox(height: 12),
 
@@ -1288,27 +1359,88 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
             child: Column(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _sourceController,
-                    focusNode: _editorFocusNode,
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: _fontSize.clamp(12, 24),
-                      color: cs.onSurface,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: r'es. \frac{a}{b}',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFF5F5FF),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _color.withValues(alpha: 0.3),
+                        width: 1.5,
                       ),
-                      contentPadding: const EdgeInsets.all(12),
                     ),
-                    onChanged: (_) => _pushUndoSnapshot(),
+                    child: TextField(
+                      controller: _sourceController,
+                      focusNode: _editorFocusNode,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: _fontSize.clamp(16, 28),
+                        color: cs.onSurface,
+                        height: 1.5,
+                        letterSpacing: 0.5,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: r'es. \frac{a}{b} + \sqrt{x}',
+                        hintStyle: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 16,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                          fontStyle: FontStyle.italic,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(14),
+                      ),
+                      onChanged: (_) => _pushUndoSnapshot(),
+                    ),
                   ),
                 ),
+                // Live evaluation result badge
+                if (_evaluationResult != null || _evaluationError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _evaluationResult != null
+                            ? Colors.green.withValues(alpha: isDark ? 0.15 : 0.08)
+                            : Colors.red.withValues(alpha: isDark ? 0.15 : 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _evaluationResult != null
+                              ? Colors.green.withValues(alpha: 0.3)
+                              : Colors.red.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _evaluationResult != null ? Icons.functions_rounded : Icons.error_outline_rounded,
+                            size: 14,
+                            color: _evaluationResult != null ? Colors.green : Colors.red.shade300,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              _evaluationResult != null
+                                  ? '= ${_evaluationResult!.toStringAsFixed(_evaluationResult! == _evaluationResult!.roundToDouble() ? 0 : 4)}'
+                                  : _evaluationError ?? '',
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _evaluationResult != null ? Colors.green : Colors.red.shade300,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 // Autocomplete suggestions
                 if (_autocompleteSuggestions.isNotEmpty)
                   Container(
@@ -1346,16 +1478,14 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   // Quick-insert — single scrollable row with cursor keys
   // ---------------------------------------------------------------------------
 
-  Widget _buildQuickInsertRows(ColorScheme cs, {bool compact = false}) {
+  // P1+P5: Paginated quick-insert with optional history page
+  Widget _buildPaginatedQuickInsert(ColorScheme cs) {
     Widget chip(String label, String latex, {IconData? icon}) {
       return Padding(
         padding: const EdgeInsets.only(right: 4),
         child: ActionChip(
           avatar: icon != null ? Icon(icon, size: 14) : null,
-          label: Text(
-            label,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-          ),
+          label: Text(label, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
           onPressed: () {
             HapticFeedback.selectionClick();
             _trackAndInsert(latex);
@@ -1366,54 +1496,160 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       );
     }
 
-    return SizedBox(
-      height: 36,
-      child: ListView(
+    final hasHistory = _expressionHistory.isNotEmpty || _expressionFavorites.isNotEmpty;
+
+    // Build pages list
+    final pages = <Widget>[
+      // Page 0 (optional): History + Favorites
+      if (hasHistory)
+        ListView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          children: [
+            ..._expressionFavorites.map((expr) {
+              final preview = expr.length > 18 ? '${expr.substring(0, 15)}…' : expr;
+              return Padding(
+                padding: const EdgeInsets.only(right: 5),
+                child: GestureDetector(
+                  onLongPress: () {
+                    HapticFeedback.mediumImpact();
+                    setState(() => _expressionFavorites.remove(expr));
+                  },
+                  child: ActionChip(
+                    label: Text(preview, style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: cs.onPrimaryContainer)),
+                    avatar: Icon(Icons.star_rounded, size: 14, color: cs.primary),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      _sourceController.text = expr;
+                      _sourceController.selection = TextSelection.collapsed(offset: expr.length);
+                      _pushUndoSnapshot();
+                    },
+                    backgroundColor: cs.primaryContainer,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                ),
+              );
+            }),
+            ..._expressionHistory.where((e) => !_expressionFavorites.contains(e)).map((expr) {
+              final preview = expr.length > 18 ? '${expr.substring(0, 15)}…' : expr;
+              return Padding(
+                padding: const EdgeInsets.only(right: 5),
+                child: GestureDetector(
+                  onLongPress: () {
+                    HapticFeedback.mediumImpact();
+                    setState(() {
+                      if (!_expressionFavorites.contains(expr)) {
+                        _expressionFavorites.insert(0, expr);
+                        if (_expressionFavorites.length > 10) _expressionFavorites.removeLast();
+                      }
+                    });
+                  },
+                  child: ActionChip(
+                    label: Text(preview, style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: cs.onSurfaceVariant)),
+                    avatar: Icon(Icons.history_rounded, size: 14, color: cs.onSurfaceVariant),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      _sourceController.text = expr;
+                      _sourceController.selection = TextSelection.collapsed(offset: expr.length);
+                      _pushUndoSnapshot();
+                    },
+                    backgroundColor: cs.surfaceContainerHigh,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+
+      // Page: Structures (with cursor keys)
+      ListView(
         scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
         children: [
-          // Cursor keys
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Row(
               children: [
-                SizedBox(
-                  width: 32,
-                  child: IconButton(
-                    icon: const Icon(Icons.chevron_left_rounded, size: 18),
-                    onPressed: () => _moveCursor(-1),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                  ),
-                ),
-                SizedBox(
-                  width: 32,
-                  child: IconButton(
-                    icon: const Icon(Icons.chevron_right_rounded, size: 18),
-                    onPressed: () => _moveCursor(1),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                  ),
-                ),
+                SizedBox(width: 32, child: IconButton(icon: const Icon(Icons.chevron_left_rounded, size: 18), onPressed: () => _moveCursor(-1), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero)),
+                SizedBox(width: 32, child: IconButton(icon: const Icon(Icons.chevron_right_rounded, size: 18), onPressed: () => _moveCursor(1), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero)),
               ],
             ),
           ),
-          // Backslash key
-          chip(r'\', r'\'),
-          // Common symbols
+          chip(r'\\', r'\\'),
           chip('frac', r'\frac{}{}'),
           chip('sqrt', r'\sqrt{}'),
           chip('^', '^{}'),
           chip('_', '_{}'),
           chip('sum', r'\sum'),
           chip('int', r'\int'),
+        ],
+      ),
+
+      // Page: Environments
+      ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
           chip('()', r'\left(\right)'),
+          chip('[]', r'\left[\right]'),
           chip('{}', r'\{\}'),
+          chip('matrix', r'\begin{pmatrix}  \\  \end{pmatrix}'),
+          chip('cases', r'\begin{cases}  \\  \end{cases}'),
+          chip('aligned', r'\begin{aligned}  \\  \end{aligned}'),
+        ],
+      ),
+
+      // Page: Functions + Greek
+      ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          chip('sin', r'\sin'),
+          chip('cos', r'\cos'),
+          chip('tan', r'\tan'),
+          chip('log', r'\log'),
+          chip('ln', r'\ln'),
           chip('inf', r'\infty'),
           chip('pi', r'\pi'),
           chip('alpha', r'\alpha'),
           chip('beta', r'\beta'),
         ],
       ),
+    ];
+
+    final pageCount = pages.length;
+    // Use a consistent PageController — avoid recreating
+    return Column(
+      children: [
+        SizedBox(
+          height: 36,
+          child: PageView(
+            onPageChanged: (i) => setState(() {}), // refresh dots
+            children: pages,
+          ),
+        ),
+        const SizedBox(height: 4),
+        // Dot indicators
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(pageCount, (i) {
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            );
+          }),
+        ),
+      ],
     );
   }
 
@@ -1718,55 +1954,37 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // E8: Font size slider — hide when keyboard is up
-          if (MediaQuery.of(context).viewInsets.bottom < 80)
-            Row(
-              children: [
-                Icon(
-                  Icons.format_size_rounded,
-                  size: 18,
-                  color: cs.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${_fontSize.toInt()}',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurface,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderThemeData(
-                      trackHeight: 3,
-                      thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 7,
-                      ),
-                      overlayShape: const RoundSliderOverlayShape(
-                        overlayRadius: 14,
-                      ),
-                      activeTrackColor: cs.primary,
-                      inactiveTrackColor: cs.primaryContainer,
-                      thumbColor: cs.primary,
+          // P4: Font size slider — toggled by icon, hidden by default
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _showFontSlider && MediaQuery.of(context).viewInsets.bottom < 80
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.format_size_rounded, size: 18, color: cs.onSurfaceVariant),
+                        const SizedBox(width: 8),
+                        Text('${_fontSize.toInt()}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface, fontFeatures: const [FontFeature.tabularFigures()])),
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderThemeData(
+                              trackHeight: 3,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                              activeTrackColor: cs.primary,
+                              inactiveTrackColor: cs.primaryContainer,
+                              thumbColor: cs.primary,
+                            ),
+                            child: Slider(value: _fontSize, min: 10, max: 96, divisions: 43, onChanged: (v) => setState(() => _fontSize = v), onChangeEnd: (_) => HapticFeedback.selectionClick()),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Slider(
-                      value: _fontSize,
-                      min: 10,
-                      max: 96,
-                      divisions: 43,
-                      onChanged: (v) {
-                        setState(() => _fontSize = v);
-                      },
-                      onChangeEnd: (_) => HapticFeedback.selectionClick(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          if (MediaQuery.of(context).viewInsets.bottom < 80)
-            const SizedBox(height: 4),
+                  )
+                : const SizedBox.shrink(),
+          ),
           // Action buttons row — compact when keyboard is visible
           Builder(
             builder: (context) {
@@ -1885,6 +2103,18 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     icon: Icons.menu_book_rounded,
                     tooltip: 'LaTeX Commands',
                     onTap: () => _openCommandReference(),
+                  ),
+
+                  const SizedBox(width: 4),
+
+                  // P4: Font size toggle
+                  _ToolbarIconButton(
+                    icon: Icons.format_size_rounded,
+                    tooltip: 'Dimensione: ${_fontSize.toInt()}',
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _showFontSlider = !_showFontSlider);
+                    },
                   ),
 
                   const Spacer(),

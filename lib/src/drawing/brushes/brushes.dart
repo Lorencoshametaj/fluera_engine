@@ -21,3 +21,4 @@ export './watercolor_brush.dart';
 export './marker_brush.dart';
 export './charcoal_brush.dart';
 export '../models/surface_material.dart';
+export './technical_pen_brush.dart';

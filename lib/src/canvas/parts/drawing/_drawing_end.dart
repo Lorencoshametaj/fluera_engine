@@ -3,8 +3,12 @@ part of '../../fluera_canvas_screen.dart';
 /// 📦 Drawing End — pointer-up finalization, stroke save, symmetry mirror
 extension on _FlueraCanvasScreenState {
   void _onDrawEnd(Offset canvasPosition) {
+    // 🔒 INLINE EDITING GUARD
+    if (_isInlineEditing) return;
+
     // Indica che l'utente ha finito di disegnare
     _isDrawingNotifier.value = false;
+    CanvasPerformanceMonitor.instance.notifyDrawingEnded(); // 🚀 Resume overlay
     _pushConsciousContext(); // 🧠 Notify intelligence subsystems
 
     // 📌 PIN DRAG END: Finalize pin position
@@ -333,6 +337,35 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // 📈 FunctionGraphNode resize end
+    if (_isResizingGraph) {
+      _isResizingGraph = false;
+      _graphResizeCorner = -1;
+      _graphResizeAnchor = null;
+      HapticFeedback.mediumImpact();
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      _uiRebuildNotifier.value++;
+      _autoSaveCanvas();
+      return;
+    }
+
+    // 📈 FunctionGraphNode drag end
+    if (_isDraggingGraph) {
+      _isDraggingGraph = false;
+      _isMovingGraph = false;
+      _graphPinchStarted = false;
+      _graphDragStart = null;
+      // T1: Clear trace cursor
+      if (_selectedGraphNode != null) _selectedGraphNode!.traceX = null;
+      HapticFeedback.lightImpact();
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      _uiRebuildNotifier.value++;
+      _autoSaveCanvas();
+      return;
+    }
+
     // If il lasso is active, completa il lasso o termina il drag
     if (_effectiveIsLasso) {
       if (_lassoTool.isDragging) {
@@ -349,7 +382,18 @@ extension on _FlueraCanvasScreenState {
         // 💾 Persist the moved elements
         _autoSaveCanvas();
       } else {
-        _lassoTool.completeLasso();
+        // Mode-aware completion
+        switch (_lassoTool.selectionMode) {
+          case SelectionMode.marquee:
+            _lassoTool.completeMarquee();
+            break;
+          case SelectionMode.ellipse:
+            _lassoTool.completeEllipse();
+            break;
+          case SelectionMode.lasso:
+            _lassoTool.completeLasso();
+            break;
+        }
 
         // Feedback tattile e visivo per selezione completata
         if (_lassoTool.hasSelection) {
@@ -560,6 +604,57 @@ extension on _FlueraCanvasScreenState {
     final strokeStartTime = _lastStrokeStartTime ?? strokeEndTime;
     _lastStrokeStartTime = null; // Reset
 
+    // 🔗 TECHNICAL PEN: Endpoint snap — close shape if end is near start
+    if (_effectivePenType == ProPenType.technicalPen &&
+        _brushSettings.techEndpointSnap &&
+        finalPoints.length >= 3) {
+      final start = finalPoints.first.position;
+      final end = finalPoints.last.position;
+      final dist = (end - start).distance;
+      final snapThreshold = math.max(_effectiveWidth * 10.0, 30.0);
+      if (dist < snapThreshold && dist > 0.1) {
+        // Create new list with closing point (finalPoints is unmodifiable)
+        finalPoints = List.unmodifiable([
+          ...finalPoints,
+          ProDrawingPoint(
+            position: start,
+            pressure: finalPoints.last.pressure,
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+            tiltX: finalPoints.last.tiltX,
+            tiltY: finalPoints.last.tiltY,
+          ),
+        ]);
+      }
+    }
+
+    // 📐 TECHNICAL PEN: No post-processing needed — state machine guarantees
+    // exact angle alignment during drawing. The old "right angle lock" is removed
+    // because it corrupted the already-straight lines.
+
+    // 📐 TECHNICAL PEN: Clear overlay state
+    if (_effectivePenType == ProPenType.technicalPen) {
+      // 🔀 Save angle that current stroke traveled for parallel/perp snap on next stroke
+      if (finalPoints.length >= 2) {
+        final first = finalPoints.first.position;
+        final last = finalPoints.last.position;
+        final d = last - first;
+        if (d.distance > 10.0) {
+          _techLastStrokeAngleRad = math.atan2(d.dy, d.dx);
+        }
+      }
+      _techAnchor = null;
+      _techLockedAngle = null;
+      _techPrevRawAngle = null;
+      _techSnapAnchor = null;
+      _techSnapAngleDeg = null;
+      _techSegmentLength = null;
+      _techNearStartPoint = false;
+      _techStraightGhostEnd = null;
+      _techLastGridCell = null;
+      _techIntersections = [];
+      _uiRebuildNotifier.value++;
+    }
+
     // Create stroke completo con valori immutabili
     final stroke = ProStroke(
       id: generateUid(),
@@ -655,26 +750,32 @@ extension on _FlueraCanvasScreenState {
       }
     } else {
       // Regular canvas stroke
+      if (_vulkanOverlayActive) {
+        // 🔥 VULKAN HANDOFF — Flash-free sequence:
+        // 1. Instantly hide GPU texture (opacity 0 via ValueNotifier, synchronous)
+        //    This prevents double-opacity overlap (GPU + committed both visible).
+        // 2. addStroke normally — DrawingPainter paints on next frame.
+        // 3. clear() GPU in background — texture content cleaned for next stroke.
+        //    GPU texture is made visible again at next draw-start.
+        _vulkanTextureOpacity.value = 0.0;
+        _vulkanStrokeOverlay.clear();
+      }
       _layerController.addStroke(stroke);
-      // 🔴 RT: Broadcast completed stroke to collaborators
+      DrawingPainter.invalidateTilesForStroke(stroke);
       _broadcastStrokeAdded(stroke);
+
+      // 🔍 Auto-index stroke for handwriting search
+      if (stroke.points.length >= 5) {
+        HandwritingIndexService.instance.enqueueStroke(
+          _canvasId,
+          stroke.id,
+          stroke.points,
+          stroke.bounds,
+        );
+      }
     }
 
-    // 🚀 PERF FIX: Just invalidate tiles — do NOT call incrementalUpdateForStroke!
-    // incrementalUpdateForStroke calls toImageSync() which BLOCKS the UI thread
-    // for 51ms+ waiting for GPU completion (see: "waiting for GPU 51ms" in logs).
-    // DrawingPainter.paint() already handles dirty tile rasterization within its
-    // frame budget system (lines 412-424), so this is redundant work that stalls.
-    DrawingPainter.invalidateTilesForStroke(stroke);
-
-    // NOW safe to clear the live stroke — finalized is in the layer controller
-    // and DrawingPainter will render it on the next paint via ListenableBuilder.
     _currentStrokeNotifier.clear();
-
-    // 🔥 VULKAN: Clear the native overlay (pen-up handoff to Flutter)
-    if (_vulkanOverlayActive) {
-      _vulkanStrokeOverlay.clear();
-    }
 
     // 🚀 PERF: setState() was here but is COMPLETELY REDUNDANT.
     // DrawingPainter repaints via ListenableBuilder(listenable: _layerController)

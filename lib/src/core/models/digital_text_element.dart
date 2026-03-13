@@ -111,6 +111,9 @@ class DigitalTextSpan {
 // Digital Text Element
 // ---------------------------------------------------------------------------
 
+/// Sentinel value for copyWith — distinguishes "not provided" from explicit null.
+const Object _sentinel = Object();
+
 /// 📝 Digital text element on the canvas
 ///
 /// Represents text inserted via keyboard with support for:
@@ -224,16 +227,16 @@ class DigitalTextElement {
     double? rotation,
     double? scale,
     bool? isOCR,
-    int? pageIndex,
+    Object? pageIndex = _sentinel,
     DateTime? createdAt,
-    DateTime? modifiedAt,
-    ui.Shadow? shadow,
-    Color? backgroundColor,
-    Color? outlineColor,
+    Object? modifiedAt = _sentinel,
+    Object? shadow = _sentinel,
+    Object? backgroundColor = _sentinel,
+    Object? outlineColor = _sentinel,
     double? outlineWidth,
-    List<Color>? gradientColors,
-    List<DigitalTextSpan>? spans,
-    double? maxWidth,
+    Object? gradientColors = _sentinel,
+    Object? spans = _sentinel,
+    Object? maxWidth = _sentinel,
   }) {
     return DigitalTextElement(
       id: id ?? this.id,
@@ -251,16 +254,16 @@ class DigitalTextElement {
       rotation: rotation ?? this.rotation,
       scale: scale ?? this.scale,
       isOCR: isOCR ?? this.isOCR,
-      pageIndex: pageIndex ?? this.pageIndex,
+      pageIndex: pageIndex == _sentinel ? this.pageIndex : pageIndex as int?,
       createdAt: createdAt ?? this.createdAt,
-      modifiedAt: modifiedAt ?? this.modifiedAt,
-      shadow: shadow ?? this.shadow,
-      backgroundColor: backgroundColor ?? this.backgroundColor,
-      outlineColor: outlineColor ?? this.outlineColor,
+      modifiedAt: modifiedAt == _sentinel ? this.modifiedAt : modifiedAt as DateTime?,
+      shadow: shadow == _sentinel ? this.shadow : shadow as ui.Shadow?,
+      backgroundColor: backgroundColor == _sentinel ? this.backgroundColor : backgroundColor as Color?,
+      outlineColor: outlineColor == _sentinel ? this.outlineColor : outlineColor as Color?,
       outlineWidth: outlineWidth ?? this.outlineWidth,
-      gradientColors: gradientColors ?? this.gradientColors,
-      spans: spans ?? this.spans,
-      maxWidth: maxWidth ?? this.maxWidth,
+      gradientColors: gradientColors == _sentinel ? this.gradientColors : gradientColors as List<Color>?,
+      spans: spans == _sentinel ? this.spans : spans as List<DigitalTextSpan>?,
+      maxWidth: maxWidth == _sentinel ? this.maxWidth : maxWidth as double?,
     );
   }
 

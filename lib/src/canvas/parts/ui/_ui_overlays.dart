@@ -30,6 +30,12 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                     path: _lassoTool.lassoPath,
                     color: Colors.blue,
                     canvasController: _canvasController,
+                    selectionMode: _lassoTool.selectionMode,
+                    marqueeRect: _lassoTool.selectionMode == SelectionMode.marquee
+                        ? _lassoTool.marqueeRect
+                        : _lassoTool.selectionMode == SelectionMode.ellipse
+                            ? _lassoTool.ellipseRect
+                            : null,
                     repaint: _lassoTool.lassoPathNotifier,
                   ),
                   size: Size.infinite,
@@ -48,6 +54,7 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               layerController: _layerController,
               canvasController: _canvasController,
               isDragging: _lassoTool.isDragging,
+              featherRadius: _lassoTool.featherRadius,
               dragNotifier: _lassoTool.dragNotifier,
             ),
           ),
@@ -73,6 +80,40 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
           onEdgeAutoScrollEnd: _stopAutoScroll,
           isDark: Theme.of(context).brightness == Brightness.dark,
           onComputeSnap: _applySmartGuides,
+        ),
+
+      // 🎯 Selection Mode Toolbar — mode switching + feather slider
+      if (_effectiveIsLasso && !_isDrawingNotifier.value)
+        Positioned(
+          top: 8,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: _LassoModeToolbar(
+              currentMode: _lassoTool.selectionMode,
+              featherRadius: _lassoTool.featherRadius,
+              onModeChanged: (mode) {
+                setState(() {
+                  _lassoTool.selectionMode = mode;
+                });
+                HapticFeedback.selectionClick();
+              },
+              onFeatherChanged: (value) {
+                setState(() {
+                  _lassoTool.featherRadius = value;
+                });
+              },
+              onColorSelect: () {
+                // Use current canvas position tap as color selection
+                // (user taps the button then taps on canvas)
+                setState(() {
+                  _lassoTool.selectionMode = SelectionMode.lasso;
+                });
+                HapticFeedback.mediumImpact();
+              },
+              isDark: Theme.of(context).brightness == Brightness.dark,
+            ),
+          ),
         ),
 
       // ✒️ Pen Tool Overlay — anchors, handles, rubber-band
@@ -274,6 +315,589 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         ),
                       ),
                     ),
+                ],
+              );
+            },
+          ),
+        ),
+
+      // 📈 FunctionGraphNode selection overlay — BORDER + RESIZE HANDLES
+      if (_selectedGraphNode != null)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _canvasController,
+              builder: (context, _) {
+                final node = _selectedGraphNode!;
+                final pos = node.localTransform.getTranslation();
+                final bounds = node.localBounds.translate(pos.x, pos.y);
+                final screenTL = _canvasController.canvasToScreen(bounds.topLeft);
+                final screenBR = _canvasController.canvasToScreen(bounds.bottomRight);
+                final screenRect = Rect.fromPoints(screenTL, screenBR);
+                const handleSize = 10.0;
+                final corners = [
+                  screenRect.topLeft,
+                  screenRect.topRight,
+                  screenRect.bottomLeft,
+                  screenRect.bottomRight,
+                ];
+                return Stack(
+                  children: [
+                    // Dashed border
+                    Positioned(
+                      left: screenRect.left - 2,
+                      top: screenRect.top - 2,
+                      width: screenRect.width + 4,
+                      height: screenRect.height + 4,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: const Color(0xFF4285F4).withValues(alpha: 0.8),
+                            width: 2,
+                          ),
+                          color: const Color(0xFF4285F4).withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    // Corner handles
+                    for (final corner in corners)
+                      Positioned(
+                        left: corner.dx - handleSize / 2,
+                        top: corner.dy - handleSize / 2,
+                        width: handleSize,
+                        height: handleSize,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(
+                              color: const Color(0xFF4285F4),
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(3),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x30000000),
+                                blurRadius: 3,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+
+      // 📈 FunctionGraphNode selection overlay — BUTTONS (interactive)
+      if (_selectedGraphNode != null)
+        Positioned.fill(
+          child: AnimatedBuilder(
+            animation: _canvasController,
+            builder: (context, _) {
+              final node = _selectedGraphNode!;
+              final pos = node.localTransform.getTranslation();
+              final bounds = node.localBounds.translate(pos.x, pos.y);
+              final screenTL = _canvasController.canvasToScreen(bounds.topLeft);
+              final screenBR = _canvasController.canvasToScreen(bounds.bottomRight);
+              final screenRect = Rect.fromPoints(screenTL, screenBR);
+              final isDark = Theme.of(context).brightness == Brightness.dark;
+              final btnY = screenRect.top - 20;
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // ✏️ Edit
+                  Positioned(
+                    left: screenRect.right - 12,
+                    top: btnY,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) => _openGraphEditor(node),
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF4285F4),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                          ],
+                        ),
+                        child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                      ),
+                    ),
+                  ),
+                  // 🗑️ Delete
+                  Positioned(
+                    left: screenRect.right - 44,
+                    top: btnY,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) {
+                        final graphNode = _selectedGraphNode;
+                        if (graphNode == null) return;
+                        for (final layer in _layerController.layers) {
+                          layer.node.remove(graphNode);
+                        }
+                        _selectedGraphNode = null;
+                        _isDraggingGraph = false;
+                        _layerController.sceneGraph.bumpVersion();
+                        DrawingPainter.invalidateAllTiles();
+                        DrawingPainter.triggerRepaint();
+                        _uiRebuildNotifier.value++;
+                        _autoSaveCanvas();
+                        HapticFeedback.mediumImpact();
+                      },
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE53935),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                          ],
+                        ),
+                        child: const Icon(Icons.delete_outline, color: Colors.white, size: 14),
+                      ),
+                    ),
+                  ),
+                  // 📋 Duplicate
+                  Positioned(
+                    left: screenRect.right - 76,
+                    top: btnY,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) {
+                        final graphNode = _selectedGraphNode;
+                        if (graphNode == null) return;
+                        final clone = graphNode.cloneInternal() as FunctionGraphNode;
+                        final t = clone.localTransform;
+                        final p = t.getTranslation();
+                        t.setTranslationRaw(p.x + 30, p.y + 30, 0);
+                        _layerController.sceneGraph.layers.first.add(clone);
+                        _selectedGraphNode = clone;
+                        _layerController.sceneGraph.bumpVersion();
+                        DrawingPainter.invalidateAllTiles();
+                        DrawingPainter.triggerRepaint();
+                        _uiRebuildNotifier.value++;
+                        _autoSaveCanvas();
+                        HapticFeedback.mediumImpact();
+                      },
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF37474F) : const Color(0xFF78909C),
+                          shape: BoxShape.circle,
+                          boxShadow: const [
+                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                          ],
+                        ),
+                        child: const Icon(Icons.copy, color: Colors.white, size: 14),
+                      ),
+                    ),
+                  ),
+                  // ⋮ More (context menu)
+                  Positioned(
+                    left: screenRect.right - 108,
+                    top: btnY,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (event) => _showGraphContextMenu(
+                        node, event.position,
+                      ),
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF263238) : const Color(0xFF90A4AE),
+                          shape: BoxShape.circle,
+                          boxShadow: const [
+                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                          ],
+                        ),
+                        child: const Icon(Icons.more_vert, color: Colors.white, size: 14),
+                      ),
+                    ),
+                  ),
+                  // 📍 A4: Viewport info strip below the graph — tappable to edit coordinates
+                  Positioned(
+                    left: screenRect.left,
+                    top: screenRect.bottom + 6,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) {},
+                      child: GestureDetector(
+                        onTap: () {
+                          final xMinC = TextEditingController(text: node.xMin.toStringAsFixed(1));
+                          final xMaxC = TextEditingController(text: node.xMax.toStringAsFixed(1));
+                          final yMinC = TextEditingController(text: node.yMin.toStringAsFixed(1));
+                          final yMaxC = TextEditingController(text: node.yMax.toStringAsFixed(1));
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Coordinate Viewport', style: TextStyle(fontSize: 16)),
+                              content: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const SizedBox(width: 24, child: Text('x', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'serif', fontStyle: FontStyle.italic))),
+                                      Expanded(child: TextField(controller: xMinC, decoration: const InputDecoration(labelText: 'Min', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
+                                      const SizedBox(width: 12),
+                                      Expanded(child: TextField(controller: xMaxC, decoration: const InputDecoration(labelText: 'Max', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      const SizedBox(width: 24, child: Text('y', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'serif', fontStyle: FontStyle.italic))),
+                                      Expanded(child: TextField(controller: yMinC, decoration: const InputDecoration(labelText: 'Min', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
+                                      const SizedBox(width: 12),
+                                      Expanded(child: TextField(controller: yMaxC, decoration: const InputDecoration(labelText: 'Max', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')),
+                                FilledButton(
+                                  onPressed: () {
+                                    final x0 = double.tryParse(xMinC.text);
+                                    final x1 = double.tryParse(xMaxC.text);
+                                    final y0 = double.tryParse(yMinC.text);
+                                    final y1 = double.tryParse(yMaxC.text);
+                                    if (x0 != null && x1 != null && y0 != null && y1 != null && x0 < x1 && y0 < y1) {
+                                      node.xMin = x0; node.xMax = x1;
+                                      node.yMin = y0; node.yMax = y1;
+                                      node.invalidateCache();
+                                      _layerController.sceneGraph.bumpVersion();
+                                      DrawingPainter.invalidateAllTiles();
+                                      DrawingPainter.triggerRepaint();
+                                      _uiRebuildNotifier.value++;
+                                      _autoSaveCanvas();
+                                    }
+                                    Navigator.pop(ctx);
+                                  },
+                                  child: const Text('OK'),
+                                ),
+                              ],
+                            ),
+                          );
+                          HapticFeedback.selectionClick();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xDD1E1E2E) : const Color(0xDDFFFFFF),
+                            borderRadius: BorderRadius.circular(6),
+                            boxShadow: const [
+                              BoxShadow(color: Color(0x20000000), blurRadius: 4, offset: Offset(0, 1)),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'x: [${node.xMin.toStringAsFixed(1)}, ${node.xMax.toStringAsFixed(1)}]  '
+                                'y: [${node.yMin.toStringAsFixed(1)}, ${node.yMax.toStringAsFixed(1)}]  '
+                                '${node.graphWidth.round()}×${node.graphHeight.round()}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontFamily: 'monospace',
+                                  color: isDark ? const Color(0x99FFFFFF) : const Color(0x99000000),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.edit, size: 10, color: isDark ? const Color(0x66FFFFFF) : const Color(0x66000000)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 🔍 T2: Zoom +/- buttons
+                  Positioned(
+                    right: screenRect.right > MediaQuery.of(context).size.width - 60
+                        ? null
+                        : MediaQuery.of(context).size.width - screenRect.right - 4,
+                    left: screenRect.right > MediaQuery.of(context).size.width - 60
+                        ? screenRect.left - 40
+                        : null,
+                    top: screenRect.top + (screenRect.height - 90) / 2,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Zoom in
+                        Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (_) {
+                            final cx = (node.xMin + node.xMax) / 2;
+                            final cy = (node.yMin + node.yMax) / 2;
+                            final rw = (node.xMax - node.xMin) * 0.4;
+                            final rh = (node.yMax - node.yMin) * 0.4;
+                            node.xMin = cx - rw; node.xMax = cx + rw;
+                            node.yMin = cy - rh; node.yMax = cy + rh;
+                            node.invalidateCache();
+                            _layerController.sceneGraph.bumpVersion();
+                            DrawingPainter.invalidateAllTiles();
+                            DrawingPainter.triggerRepaint();
+                            _uiRebuildNotifier.value++;
+                            _autoSaveCanvas();
+                            HapticFeedback.selectionClick();
+                          },
+                          child: Container(
+                            width: 32, height: 32,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                            ),
+                            child: Icon(Icons.add, size: 18, color: isDark ? Colors.white70 : Colors.black54),
+                          ),
+                        ),
+                        // Zoom out
+                        Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (_) {
+                            final cx = (node.xMin + node.xMax) / 2;
+                            final cy = (node.yMin + node.yMax) / 2;
+                            final rw = (node.xMax - node.xMin) * 0.6;
+                            final rh = (node.yMax - node.yMin) * 0.6;
+                            node.xMin = cx - rw; node.xMax = cx + rw;
+                            node.yMin = cy - rh; node.yMax = cy + rh;
+                            node.invalidateCache();
+                            _layerController.sceneGraph.bumpVersion();
+                            DrawingPainter.invalidateAllTiles();
+                            DrawingPainter.triggerRepaint();
+                            _uiRebuildNotifier.value++;
+                            _autoSaveCanvas();
+                            HapticFeedback.selectionClick();
+                          },
+                          child: Container(
+                            width: 32, height: 32,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
+                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                            ),
+                            child: Icon(Icons.remove, size: 18, color: isDark ? Colors.white70 : Colors.black54),
+                          ),
+                        ),
+                        // Auto-fit viewport: compute optimal yMin/yMax from sampled data
+                        Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (_) {
+                            node.ensureSampled();
+                            final pts = node.cachedPoints;
+                            if (pts.isEmpty) return;
+                            double minY = double.infinity, maxY = double.negativeInfinity;
+                            for (final pt in pts) {
+                              if (pt.dy.isFinite && pt.dy.abs() < 1e8) {
+                                if (pt.dy < minY) minY = pt.dy;
+                                if (pt.dy > maxY) maxY = pt.dy;
+                              }
+                            }
+                            // Also check extra functions
+                            for (final extra in node.cachedExtraPoints) {
+                              for (final pt in extra) {
+                                if (pt.dy.isFinite && pt.dy.abs() < 1e8) {
+                                  if (pt.dy < minY) minY = pt.dy;
+                                  if (pt.dy > maxY) maxY = pt.dy;
+                                }
+                              }
+                            }
+                            if (minY.isFinite && maxY.isFinite && maxY > minY) {
+                              final padding = (maxY - minY) * 0.1;
+                              node.yMin = minY - padding;
+                              node.yMax = maxY + padding;
+                            } else {
+                              node.yMin = -6; node.yMax = 6;
+                            }
+                            node.invalidateCache();
+                            _layerController.sceneGraph.bumpVersion();
+                            DrawingPainter.invalidateAllTiles();
+                            DrawingPainter.triggerRepaint();
+                            _uiRebuildNotifier.value++;
+                            _autoSaveCanvas();
+                            HapticFeedback.selectionClick();
+                          },
+                          child: Container(
+                            width: 32, height: 32,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
+                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                            ),
+                            child: Icon(Icons.fit_screen, size: 16, color: isDark ? Colors.white70 : Colors.black54),
+                          ),
+                        ),
+                        // Reset zoom
+                        Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (_) {
+                            node.xMin = -10; node.xMax = 10;
+                            node.yMin = -6; node.yMax = 6;
+                            node.invalidateCache();
+                            _layerController.sceneGraph.bumpVersion();
+                            DrawingPainter.invalidateAllTiles();
+                            DrawingPainter.triggerRepaint();
+                            _uiRebuildNotifier.value++;
+                            _autoSaveCanvas();
+                            HapticFeedback.selectionClick();
+                          },
+                          child: Container(
+                            width: 32, height: 32,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
+                              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(8)),
+                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                            ),
+                            child: Icon(Icons.center_focus_strong, size: 16, color: isDark ? Colors.white70 : Colors.black54),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+
+      // 🎚️ Always-visible k/d + parameter sliders for graph functions
+      if (_selectedGraphNode != null)
+        Positioned.fill(
+          child: AnimatedBuilder(
+            animation: _canvasController,
+            builder: (context, _) {
+              final node = _selectedGraphNode!;
+              final params = node.detectedParams;
+              final pos = node.localTransform.getTranslation();
+              final bounds = node.localBounds.translate(pos.x, pos.y);
+              final screenBL = _canvasController.canvasToScreen(bounds.bottomLeft);
+              final screenBR = _canvasController.canvasToScreen(bounds.bottomRight);
+              final isDark = Theme.of(context).brightness == Brightness.dark;
+              final sliderWidth = (screenBR.dx - screenBL.dx).clamp(180.0, 340.0);
+              final accentColor = node.curveColor;
+
+              // Formula string
+              final kStr = node.coeffK == 1.0 ? '' : '${node.coeffK.toStringAsFixed(1)}·';
+              final dStr = node.offsetD == 0.0 ? '' : (node.offsetD > 0 ? ' + ${node.offsetD.toStringAsFixed(1)}' : ' − ${(-node.offsetD).toStringAsFixed(1)}');
+              final formulaStr = '${kStr}f(x)$dStr';
+
+              Widget buildSliderRow(String label, Color color, double value, double min, double max, ValueChanged<double> onChanged) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 0),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, fontFamily: 'serif', fontStyle: FontStyle.italic, color: color)),
+                      ),
+                      Expanded(
+                        child: SliderTheme(
+                          data: SliderThemeData(
+                            trackHeight: 3,
+                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                            activeTrackColor: color,
+                            inactiveTrackColor: color.withValues(alpha: 0.2),
+                            thumbColor: color,
+                          ),
+                          child: Slider(
+                            min: min, max: max,
+                            value: value.clamp(min, max),
+                            onChanged: onChanged,
+                            onChangeEnd: (_) => _autoSaveCanvas(),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 34,
+                        child: Text(
+                          value.toStringAsFixed(1),
+                          textAlign: TextAlign.end,
+                          style: TextStyle(fontSize: 10, fontFamily: 'monospace', color: isDark ? Colors.white54 : Colors.black45),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return Stack(
+                children: [
+                  Positioned(
+                    left: screenBL.dx,
+                    top: screenBL.dy + 28,
+                    width: sliderWidth,
+                    // 🔒 Absorb pointer events
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) { _isDraggingGraphSlider = true; },
+                      onPointerMove: (_) {},
+                      onPointerUp: (_) { _isDraggingGraphSlider = false; },
+                      onPointerCancel: (_) { _isDraggingGraphSlider = false; },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xF01E1E2E) : const Color(0xF0FFFFFF),
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: const [BoxShadow(color: Color(0x30000000), blurRadius: 6, offset: Offset(0, 2))],
+                          border: Border.all(color: isDark ? const Color(0x22FFFFFF) : const Color(0x18000000)),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Formula badge
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 2),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: accentColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  formulaStr.isEmpty ? 'f(x)' : formulaStr,
+                                  style: TextStyle(fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: accentColor),
+                                ),
+                              ),
+                            ),
+                            // k slider (coefficient)
+                            buildSliderRow('k', accentColor, node.coeffK, -5.0, 5.0, (v) {
+                              node.coeffK = double.parse(v.toStringAsFixed(2));
+                              node.invalidateCache();
+                              _layerController.sceneGraph.bumpVersion();
+                              DrawingPainter.triggerRepaint();
+                              _uiRebuildNotifier.value++;
+                            }),
+                            // d slider (vertical offset)
+                            buildSliderRow('d', isDark ? Colors.tealAccent : Colors.teal, node.offsetD, -10.0, 10.0, (v) {
+                              node.offsetD = double.parse(v.toStringAsFixed(2));
+                              node.invalidateCache();
+                              _layerController.sceneGraph.bumpVersion();
+                              DrawingPainter.triggerRepaint();
+                              _uiRebuildNotifier.value++;
+                            }),
+                            // Detected parameter sliders
+                            for (final p in params)
+                              buildSliderRow(p, isDark ? Colors.amberAccent : Colors.amber.shade800, node.parameters[p] ?? 1.0, -10.0, 10.0, (v) {
+                                node.parameters[p] = double.parse(v.toStringAsFixed(2));
+                                node.invalidateCache();
+                                _layerController.sceneGraph.bumpVersion();
+                                DrawingPainter.triggerRepaint();
+                                _uiRebuildNotifier.value++;
+                              }),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               );
             },
@@ -647,6 +1271,91 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
     ];
   }
 
+  /// 📝 Build a rich Text widget from a DigitalTextElement, applying ALL effects.
+  /// Used by both the element loop and the selected element rendering block.
+  Widget _buildDigitalTextWidget(DigitalTextElement textElement) {
+    final scaledFontSize =
+        textElement.fontSize * textElement.scale * _canvasController.scale;
+    final baseStyle = TextStyle(
+      fontSize: scaledFontSize,
+      color: textElement.color.withValues(alpha: textElement.opacity),
+      fontWeight: textElement.fontWeight,
+      fontStyle: textElement.fontStyle,
+      fontFamily: textElement.fontFamily,
+      decoration: textElement.textDecoration,
+      letterSpacing:
+          textElement.letterSpacing != 0 ? textElement.letterSpacing : null,
+      shadows: textElement.shadow != null ? [textElement.shadow!] : null,
+    );
+
+    Widget textWidget = Text(
+      textElement.text,
+      style: baseStyle,
+      textAlign: textElement.textAlign,
+    );
+
+    // 🎨 Outline effect: render text twice — outline behind, fill in front
+    if (textElement.outlineColor != null && textElement.outlineWidth > 0) {
+      final outlineStyle = baseStyle.copyWith(
+        foreground: Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = textElement.outlineWidth * _canvasController.scale
+          ..color = textElement.outlineColor!,
+        shadows: null, // outline doesn't need shadow
+      );
+      textWidget = Stack(
+        children: [
+          Text(
+            textElement.text,
+            style: outlineStyle,
+            textAlign: textElement.textAlign,
+          ),
+          textWidget,
+        ],
+      );
+    }
+
+    // 🌈 Gradient effect: wrap in ShaderMask
+    if (textElement.gradientColors != null &&
+        textElement.gradientColors!.length >= 2) {
+      textWidget = ShaderMask(
+        blendMode: BlendMode.srcIn,
+        shaderCallback: (bounds) {
+          return LinearGradient(
+            colors: textElement.gradientColors!,
+          ).createShader(bounds);
+        },
+        child: textWidget,
+      );
+    }
+
+    // 🎨 Background color (pill/label style)
+    if (textElement.backgroundColor != null) {
+      textWidget = Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: 4 * _canvasController.scale,
+          vertical: 2 * _canvasController.scale,
+        ),
+        decoration: BoxDecoration(
+          color: textElement.backgroundColor,
+          borderRadius: BorderRadius.circular(4 * _canvasController.scale),
+        ),
+        child: textWidget,
+      );
+    }
+
+    // 🔄 Rotation
+    if (textElement.rotation != 0) {
+      textWidget = Transform.rotate(
+        angle: textElement.rotation,
+        alignment: Alignment.topLeft,
+        child: textWidget,
+      );
+    }
+
+    return textWidget;
+  }
+
   /// Tool overlays: ruler, digital text, text selection, recorded playback.
   /// Ordered AFTER eraser overlays in the Z-stack.
   List<Widget> _buildToolOverlays(BuildContext context) {
@@ -663,188 +1372,468 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
           ),
         ),
 
-      // Digital Text Elements - Rendering dei testi
-      ..._digitalTextElements.map((textElement) {
-        // Durante drag/resize, salta l'selected element
-        if (_digitalTextTool.hasSelection &&
-            _digitalTextTool.selectedElement!.id == textElement.id) {
-          return const SizedBox.shrink();
-        }
-
-        final screenPos = _canvasController.canvasToScreen(
-          textElement.position,
-        );
-
-        return Positioned(
-          left: screenPos.dx,
-          top: screenPos.dy,
-          child: IgnorePointer(
-            child: Text(
-              textElement.text,
-              style: TextStyle(
-                fontSize:
-                    textElement.fontSize *
-                    textElement.scale *
-                    _canvasController.scale,
-                color: textElement.color,
-                fontWeight: textElement.fontWeight,
-                fontFamily: textElement.fontFamily,
-              ),
-            ),
-          ),
-        );
-      }),
-
-      // Rendering dell'selected element dal TOOL
-      if (_digitalTextTool.hasSelection)
+      // 📝 Digital Text Elements — wrapped in AnimatedBuilder so text
+      // positions update on every canvas pan/zoom/rotation.
+      if (_digitalTextElements.isNotEmpty || _digitalTextTool.hasSelection)
         Positioned.fill(
-          child: Builder(
-            builder: (context) {
-              final textElement = _digitalTextTool.selectedElement!;
-              final screenPos = _canvasController.canvasToScreen(
-                textElement.position,
-              );
-
+          child: AnimatedBuilder(
+            animation: _canvasController,
+            builder: (context, _) {
               return Stack(
                 children: [
-                  Positioned(
-                    left: screenPos.dx,
-                    top: screenPos.dy,
-                    child: IgnorePointer(
-                      child: Text(
-                        textElement.text,
-                        style: TextStyle(
-                          fontSize:
-                              textElement.fontSize *
-                              textElement.scale *
-                              _canvasController.scale,
-                          color: textElement.color,
-                          fontWeight: textElement.fontWeight,
-                          fontFamily: textElement.fontFamily,
-                        ),
+                  // Digital Text Elements - Rendering dei testi
+                  ..._digitalTextElements.map((textElement) {
+                    // Durante drag/resize, salta l'selected element
+                    if (_digitalTextTool.hasSelection &&
+                        _digitalTextTool.selectedElement!.id == textElement.id) {
+                      return const SizedBox.shrink();
+                    }
+                    // Skip element being inline-edited (rendered by InlineTextOverlay)
+                    if (_isInlineEditing &&
+                        _inlineEditingElement != null &&
+                        _inlineEditingElement!.id == textElement.id) {
+                      return const SizedBox.shrink();
+                    }
+
+                    final screenPos = _canvasController.canvasToScreen(
+                      textElement.position,
+                    );
+
+                    return Positioned(
+                      left: screenPos.dx,
+                      top: screenPos.dy,
+                      child: IgnorePointer(
+                        child: _buildDigitalTextWidget(textElement),
                       ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
+                    );
+                  }),
 
-      // Rettangolo di selezione per l'selected element
-      if (_digitalTextTool.hasSelection)
-        Positioned.fill(
-          child: Builder(
-            builder: (context) {
-              final textElement = _digitalTextTool.selectedElement!;
-              final screenPos = _canvasController.canvasToScreen(
-                textElement.position,
-              );
-
-              final textPainter = TextPainter(
-                text: TextSpan(
-                  text: textElement.text,
-                  style: TextStyle(
-                    fontSize:
-                        textElement.fontSize *
-                        textElement.scale *
-                        _canvasController.scale,
-                    fontWeight: textElement.fontWeight,
-                    fontFamily: textElement.fontFamily,
-                  ),
-                ),
-                textDirection: TextDirection.ltr,
-              )..layout();
-
-              final width = textPainter.width;
-              final height = textPainter.height;
-
-              return Stack(
-                children: [
-                  Positioned(
-                    left: screenPos.dx,
-                    top: screenPos.dy,
-                    width: width,
-                    height: height,
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Colors.deepPurple.withValues(alpha: 0.3),
-                            width: 2.0,
+                  // Rendering dell'selected element dal TOOL
+                  if (_digitalTextTool.hasSelection) ...[
+                    // Selected element text
+                    Builder(
+                      builder: (context) {
+                        final textElement = _digitalTextTool.selectedElement!;
+                        final screenPos = _canvasController.canvasToScreen(
+                          textElement.position,
+                        );
+                        return Positioned(
+                          left: screenPos.dx,
+                          top: screenPos.dy,
+                          child: IgnorePointer(
+                            child: _buildDigitalTextWidget(textElement),
                           ),
-                          color: Colors.deepPurple.withValues(alpha: 0.05),
-                        ),
-                      ),
+                        );
+                      },
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
 
-      // Handle di resize - 4 cerchietti agli angoli
-      if (_digitalTextTool.hasSelection)
-        Positioned.fill(
-          child: Builder(
-            builder: (context) {
-              final textElement = _digitalTextTool.selectedElement!;
-              final screenPos = _canvasController.canvasToScreen(
-                textElement.position,
-              );
+                    // Selection rectangle
+                    Builder(
+                      builder: (context) {
+                        final textElement = _digitalTextTool.selectedElement!;
+                        final screenPos = _canvasController.canvasToScreen(
+                          textElement.position,
+                        );
+                        final textPainter = TextPainter(
+                          text: TextSpan(
+                            text: textElement.text,
+                            style: TextStyle(
+                              fontSize:
+                                  textElement.fontSize *
+                                  textElement.scale *
+                                  _canvasController.scale,
+                              fontWeight: textElement.fontWeight,
+                              fontFamily: textElement.fontFamily,
+                            ),
+                          ),
+                          textDirection: TextDirection.ltr,
+                        )..layout();
+                        final width = textPainter.width;
+                        final height = textPainter.height;
 
-              final textPainter = TextPainter(
-                text: TextSpan(
-                  text: textElement.text,
-                  style: TextStyle(
-                    fontSize:
-                        textElement.fontSize *
-                        textElement.scale *
-                        _canvasController.scale,
-                    fontWeight: textElement.fontWeight,
-                    fontFamily: textElement.fontFamily,
-                  ),
-                ),
-                textDirection: TextDirection.ltr,
-              )..layout();
-
-              final width = textPainter.width;
-              final height = textPainter.height;
-
-              final handles = [
-                Offset(screenPos.dx, screenPos.dy),
-                Offset(screenPos.dx + width, screenPos.dy),
-                Offset(screenPos.dx, screenPos.dy + height),
-                Offset(screenPos.dx + width, screenPos.dy + height),
-              ];
-
-              return Stack(
-                children:
-                    handles.map((handlePos) {
-                      return Positioned(
-                        left: handlePos.dx - 8,
-                        top: handlePos.dy - 8,
-                        child: IgnorePointer(
-                          child: Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurple,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 2.0,
+                        return Positioned(
+                          left: screenPos.dx,
+                          top: screenPos.dy,
+                          width: width,
+                          height: height,
+                          child: IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: Colors.deepPurple.withValues(alpha: 0.3),
+                                  width: 2.0,
+                                ),
+                                color: Colors.deepPurple.withValues(alpha: 0.05),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    }).toList(),
+                        );
+                      },
+                    ),
+
+                    // Resize handles - 4 circles at corners
+                    Builder(
+                      builder: (context) {
+                        final textElement = _digitalTextTool.selectedElement!;
+                        final screenPos = _canvasController.canvasToScreen(
+                          textElement.position,
+                        );
+                        final textPainter = TextPainter(
+                          text: TextSpan(
+                            text: textElement.text,
+                            style: TextStyle(
+                              fontSize:
+                                  textElement.fontSize *
+                                  textElement.scale *
+                                  _canvasController.scale,
+                              fontWeight: textElement.fontWeight,
+                              fontFamily: textElement.fontFamily,
+                            ),
+                          ),
+                          textDirection: TextDirection.ltr,
+                        )..layout();
+                        final width = textPainter.width;
+                        final height = textPainter.height;
+                        final handles = [
+                          Offset(screenPos.dx, screenPos.dy),
+                          Offset(screenPos.dx + width, screenPos.dy),
+                          Offset(screenPos.dx, screenPos.dy + height),
+                          Offset(screenPos.dx + width, screenPos.dy + height),
+                        ];
+
+                        return Stack(
+                          children: handles.map((handlePos) {
+                            return Positioned(
+                              left: handlePos.dx - 8,
+                              top: handlePos.dy - 8,
+                              child: IgnorePointer(
+                                child: Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: BoxDecoration(
+                                    color: Colors.deepPurple,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2.0,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        );
+                      },
+                    ),
+                  ],
+                ],
               );
             },
           ),
         ),
+
+      // ── 📝 Inline Text Editing Overlay ──────────────────────────────────
+      if (_isInlineEditing && _inlineEditingElement != null) ...[
+        Positioned.fill(
+          child: AnimatedBuilder(
+            animation: _canvasController,
+            builder: (context, _) {
+              final element = _inlineEditingElement!;
+              final screenPos = _canvasController.canvasToScreen(
+                element.position,
+              );
+              final scale = _canvasController.scale;
+              final screenWidth = MediaQuery.of(context).size.width;
+              return Stack(
+                children: [
+                  // Tap-outside detector to finish editing
+                  // ⚠️ Must be OPAQUE to block tap from reaching canvas
+                  // gesture detector (otherwise it triggers a new text creation)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                      },
+                    ),
+                  ),
+
+                  // Formatting toolbar (above the text)
+                  Positioned(
+                    left: (screenPos.dx - 20).clamp(8.0, screenWidth - 350),
+                    top: (screenPos.dy - 130).clamp(8.0, double.infinity),
+                    child: InlineTextToolbar(
+                      currentColor: _inlineTextColor,
+                      currentFontWeight: _inlineTextFontWeight,
+                      isItalic: _inlineTextFontStyle == FontStyle.italic,
+                      currentFontSize: _inlineTextFontSize,
+                      onColorChanged: (color) {
+                        setState(() => _inlineTextColor = color);
+                      },
+                      onFontWeightChanged: (weight) {
+                        setState(() => _inlineTextFontWeight = weight);
+                      },
+                      onItalicChanged: (italic) {
+                        setState(
+                          () =>
+                              _inlineTextFontStyle =
+                                  italic ? FontStyle.italic : FontStyle.normal,
+                        );
+                      },
+                      textDecoration: _inlineTextDecoration,
+                      onTextDecorationChanged: (decoration) {
+                        setState(() => _inlineTextDecoration = decoration);
+                      },
+                      textAlign: _inlineTextAlign,
+                      onTextAlignChanged: (align) {
+                        setState(() => _inlineTextAlign = align);
+                      },
+                      onFontSizeChanged: (size) {
+                        setState(() => _inlineTextFontSize = size);
+                      },
+                      currentFontFamily: _inlineTextFontFamily,
+                      onFontFamilyChanged: (family) {
+                        setState(() => _inlineTextFontFamily = family);
+                      },
+                      letterSpacing: _inlineTextLetterSpacing,
+                      onLetterSpacingChanged: (spacing) {
+                        setState(() => _inlineTextLetterSpacing = spacing);
+                      },
+                      opacity: _inlineTextOpacity,
+                      onOpacityChanged: (opacity) {
+                        setState(() => _inlineTextOpacity = opacity);
+                      },
+                      bgColor: _inlineTextBackgroundColor,
+                      hasBackground: _inlineTextBackgroundColor != null,
+                      onBackgroundChanged: (enabled) {
+                        setState(() {
+                          _inlineTextBackgroundColor = enabled
+                              ? Colors.yellow.withValues(alpha: 0.3)
+                              : null;
+                        });
+                      },
+                      onBackgroundColorChanged: (color) {
+                        setState(() => _inlineTextBackgroundColor = color);
+                      },
+                      hasShadow: _inlineTextShadow != null,
+                      onShadowChanged: (enabled) {
+                        setState(() {
+                          if (enabled) {
+                            _inlineTextShadow = Shadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 16,
+                              offset: Offset.zero,
+                            );
+                          } else {
+                            _inlineTextShadow = null;
+                          }
+                        });
+                      },
+                      shadowColor: _inlineTextShadow?.color,
+                      onShadowColorChanged: (color) {
+                        setState(() {
+                          _inlineTextShadow = Shadow(
+                            color: color,
+                            blurRadius: _inlineTextShadow?.blurRadius ?? 16,
+                            offset: _inlineTextShadow?.offset ?? Offset.zero,
+                          );
+                        });
+                      },
+                      hasOutline: _inlineTextOutlineColor != null,
+                      onOutlineChanged: (enabled) {
+                        setState(() {
+                          if (enabled) {
+                            _inlineTextOutlineColor = Colors.black;
+                            _inlineTextOutlineWidth = 1.5;
+                          } else {
+                            _inlineTextOutlineColor = null;
+                            _inlineTextOutlineWidth = 0.0;
+                          }
+                        });
+                      },
+                      outlineColor: _inlineTextOutlineColor,
+                      onOutlineColorChanged: (color) {
+                        setState(() => _inlineTextOutlineColor = color);
+                      },
+                      hasGradient: _inlineTextGradientColors != null,
+                      onGradientChanged: (enabled) {
+                        setState(() {
+                          if (enabled) {
+                            _inlineTextGradientColors = [
+                              Colors.blue,
+                              Colors.purple,
+                            ];
+                          } else {
+                            _inlineTextGradientColors = null;
+                          }
+                        });
+                      },
+                      hasGlow: _inlineTextShadow != null &&
+                          _inlineTextShadow!.blurRadius >= 10 &&
+                          _inlineTextShadow!.color != Colors.black.withValues(alpha: 0.3),
+                      onGlowChanged: (enabled) {
+                        setState(() {
+                          if (enabled) {
+                            _inlineTextShadow = Shadow(
+                              color: Colors.blue.withValues(alpha: 0.6),
+                              blurRadius: 16,
+                              offset: Offset.zero,
+                            );
+                          } else {
+                            _inlineTextShadow = null;
+                          }
+                        });
+                      },
+                      glowColor: _inlineTextShadow?.color,
+                      onGlowColorChanged: (color) {
+                        setState(() {
+                          _inlineTextShadow = Shadow(
+                            color: color,
+                            blurRadius: 16,
+                            offset: Offset.zero,
+                          );
+                        });
+                      },
+                      onDuplicate:
+                          _inlineEditingElement != null &&
+                                  _digitalTextElements.any(
+                                    (e) => e.id == _inlineEditingElement!.id,
+                                  )
+                              ? () {
+                                _finishInlineText(_inlineEditingElement!.text);
+                                final source = _digitalTextElements.lastWhere(
+                                  (e) => e.id == _inlineEditingElement?.id,
+                                  orElse: () => _digitalTextElements.last,
+                                );
+                                final copy = source.copyWith(
+                                  id: generateUid(),
+                                  position:
+                                      source.position + const Offset(20, 20),
+                                  createdAt: DateTime.now(),
+                                );
+                                setState(() {
+                                  _digitalTextElements.add(copy);
+                                });
+                              }
+                              : null,
+                      onCopyStyle: () {
+                        setState(() {
+                          _copiedTextStyle = {
+                            'fontWeight': _inlineTextFontWeight,
+                            'fontStyle': _inlineTextFontStyle,
+                            'color': _inlineTextColor,
+                            'fontSize': _inlineTextFontSize,
+                            'fontFamily': _inlineTextFontFamily,
+                            'shadow': _inlineTextShadow,
+                            'backgroundColor': _inlineTextBackgroundColor,
+                            'textDecoration': _inlineTextDecoration,
+                            'letterSpacing': _inlineTextLetterSpacing,
+                            'opacity': _inlineTextOpacity,
+                            'outlineColor': _inlineTextOutlineColor,
+                            'outlineWidth': _inlineTextOutlineWidth,
+                            'gradientColors': _inlineTextGradientColors,
+                          };
+                        });
+                        HapticFeedback.lightImpact();
+                      },
+                      onPasteStyle:
+                          _copiedTextStyle != null
+                              ? () {
+                                final s = _copiedTextStyle!;
+                                setState(() {
+                                  _inlineTextFontWeight =
+                                      s['fontWeight'] as FontWeight;
+                                  _inlineTextFontStyle =
+                                      s['fontStyle'] as FontStyle;
+                                  _inlineTextColor = s['color'] as Color;
+                                  _inlineTextFontSize = s['fontSize'] as double;
+                                  _inlineTextFontFamily =
+                                      s['fontFamily'] as String;
+                                  _inlineTextShadow = s['shadow'] as Shadow?;
+                                  _inlineTextBackgroundColor =
+                                      s['backgroundColor'] as Color?;
+                                  _inlineTextDecoration =
+                                      s['textDecoration'] as TextDecoration;
+                                  _inlineTextLetterSpacing =
+                                      s['letterSpacing'] as double;
+                                  _inlineTextOpacity = s['opacity'] as double;
+                                  _inlineTextOutlineColor =
+                                      s['outlineColor'] as Color?;
+                                  _inlineTextOutlineWidth =
+                                      s['outlineWidth'] as double;
+                                  _inlineTextGradientColors =
+                                      s['gradientColors'] as List<Color>?;
+                                });
+                                HapticFeedback.lightImpact();
+                              }
+                              : null,
+                      onTemplateApply: (template) {
+                        setState(() {
+                          _inlineTextFontSize = template['fontSize'] as double;
+                          _inlineTextFontWeight =
+                              template['fontWeight'] as FontWeight;
+                          _inlineTextLetterSpacing =
+                              template['letterSpacing'] as double;
+                        });
+                        HapticFeedback.lightImpact();
+                      },
+                      onDelete:
+                          _inlineEditingElement != null &&
+                                  _digitalTextElements.any(
+                                    (e) => e.id == _inlineEditingElement!.id,
+                                  )
+                              ? _deleteInlineTextElement
+                              : null,
+                      onBeforeDialog: () {
+                        _inlineOverlayKey.currentState?.suppressFocusLoss();
+                      },
+                    ),
+                  ),
+
+                  // The inline TextField
+                  Positioned(
+                    left: screenPos.dx,
+                    top: screenPos.dy,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth:
+                            element.maxWidth != null
+                                ? element.maxWidth! * scale
+                                : screenWidth - screenPos.dx - 16,
+                        minWidth: 40,
+                      ),
+                      child: InlineTextOverlay(
+                        key: _inlineOverlayKey,
+                        initialText: element.text,
+                        color: _inlineTextColor,
+                        fontSize: _inlineTextFontSize,
+                        fontWeight: _inlineTextFontWeight,
+                        fontStyle: _inlineTextFontStyle,
+                        fontFamily: _inlineTextFontFamily,
+                        canvasScale: scale,
+                        elementScale: element.scale,
+                        shadow: _inlineTextShadow,
+                        backgroundColor: _inlineTextBackgroundColor,
+                        outlineColor: _inlineTextOutlineColor,
+                        outlineWidth: _inlineTextOutlineWidth,
+                        gradientColors: _inlineTextGradientColors,
+                        opacity: _inlineTextOpacity,
+                        letterSpacing: _inlineTextLetterSpacing,
+                        textDecoration: _inlineTextDecoration,
+                        onSubmit: _finishInlineText,
+                        onCancel: _cancelInlineText,
+                        onSelectionChanged: (selection) {
+                          _inlineTextSelection = selection;
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],  // close spread for inline editing overlay
     ];
   }
 }
@@ -1060,6 +2049,261 @@ class _FillHandleWidgetState extends State<_FillHandleWidget> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 🎯 Floating toolbar for lasso selection mode switching + feather slider.
+/// Appears at the top of the canvas when the lasso tool is active.
+class _LassoModeToolbar extends StatefulWidget {
+  final SelectionMode currentMode;
+  final double featherRadius;
+  final ValueChanged<SelectionMode> onModeChanged;
+  final ValueChanged<double> onFeatherChanged;
+  final VoidCallback onColorSelect;
+  final bool isDark;
+
+  const _LassoModeToolbar({
+    required this.currentMode,
+    required this.featherRadius,
+    required this.onModeChanged,
+    required this.onFeatherChanged,
+    required this.onColorSelect,
+    required this.isDark,
+  });
+
+  @override
+  State<_LassoModeToolbar> createState() => _LassoModeToolbarState();
+}
+
+class _LassoModeToolbarState extends State<_LassoModeToolbar> {
+  bool _showFeather = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = widget.isDark
+        ? const Color(0xDD1A1A2E)
+        : const Color(0xDDFFFFFF);
+    final accent = const Color(0xFF4A90D9);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Mode buttons row
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: widget.isDark
+                      ? Colors.white.withValues(alpha: 0.12)
+                      : Colors.black.withValues(alpha: 0.08),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 12,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildModeButton(
+                    icon: Icons.gesture_rounded,
+                    label: 'Lasso',
+                    mode: SelectionMode.lasso,
+                    accent: accent,
+                  ),
+                  _buildModeButton(
+                    icon: Icons.crop_square_rounded,
+                    label: 'Rect',
+                    mode: SelectionMode.marquee,
+                    accent: accent,
+                  ),
+                  _buildModeButton(
+                    icon: Icons.circle_outlined,
+                    label: 'Ellipse',
+                    mode: SelectionMode.ellipse,
+                    accent: accent,
+                  ),
+
+                  // Divider
+                  Container(
+                    width: 1,
+                    height: 22,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    color: widget.isDark
+                        ? Colors.white.withValues(alpha: 0.15)
+                        : Colors.black.withValues(alpha: 0.1),
+                  ),
+
+                  // Feather toggle
+                  _buildIconButton(
+                    icon: Icons.blur_on_rounded,
+                    tooltip: 'Feather: ${widget.featherRadius.toStringAsFixed(0)}',
+                    isActive: _showFeather,
+                    color: Colors.purple,
+                    onTap: () {
+                      setState(() => _showFeather = !_showFeather);
+                      HapticFeedback.selectionClick();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // Feather slider (expandable)
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          child: _showFeather
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Container(
+                        width: 220,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.purple.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.blur_on, size: 14,
+                                color: Colors.purple.shade300),
+                            Expanded(
+                              child: SliderTheme(
+                                data: SliderThemeData(
+                                  trackHeight: 3,
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 6,
+                                  ),
+                                  activeTrackColor: Colors.purple.shade400,
+                                  inactiveTrackColor:
+                                      Colors.purple.withValues(alpha: 0.2),
+                                  thumbColor: Colors.purple.shade300,
+                                ),
+                                child: Slider(
+                                  min: 0,
+                                  max: 20,
+                                  value: widget.featherRadius.clamp(0, 20),
+                                  onChanged: widget.onFeatherChanged,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 28,
+                              child: Text(
+                                widget.featherRadius.toStringAsFixed(0),
+                                textAlign: TextAlign.end,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                  color: widget.isDark
+                                      ? Colors.white54
+                                      : Colors.black45,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModeButton({
+    required IconData icon,
+    required String label,
+    required SelectionMode mode,
+    required Color accent,
+  }) {
+    final isActive = widget.currentMode == mode;
+    return GestureDetector(
+      onTap: () => widget.onModeChanged(mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isActive
+              ? accent.withValues(alpha: 0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isActive ? accent : Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                color: isActive
+                    ? accent
+                    : (widget.isDark ? Colors.white60 : Colors.black54),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIconButton({
+    required IconData icon,
+    required String tooltip,
+    required bool isActive,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: isActive
+                ? color.withValues(alpha: 0.2)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            size: 16,
+            color: isActive ? color : Colors.grey,
           ),
         ),
       ),

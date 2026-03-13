@@ -20,6 +20,7 @@ import '../../core/nodes/advanced_mask_node.dart';
 import '../../core/nodes/boolean_group_node.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
+import '../../core/nodes/pdf_preview_card_node.dart';
 import '../../core/nodes/vector_network_node.dart';
 import '../../core/effects/shader_effect.dart';
 import '../../core/nodes/latex_node.dart';
@@ -27,6 +28,7 @@ import '../../core/nodes/tabular_node.dart';
 import '../../core/nodes/material_zone_node.dart';
 import '../../core/nodes/section_node.dart';
 import '../../core/nodes/adjustment_layer_node.dart';
+import '../../core/nodes/function_graph_node.dart';
 import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
@@ -44,6 +46,7 @@ import './render_interceptor.dart';
 import './render_batch.dart';
 import './tabular_renderer.dart';
 import './latex_renderer.dart';
+import './function_graph_renderer.dart';
 import '../optimization/layer_picture_cache.dart';
 import '../optimization/snapshot_cache_manager.dart';
 import '../optimization/optimization.dart';
@@ -1688,6 +1691,143 @@ class SceneGraphRenderer {
     _renderChildren(canvas, node, viewport);
   }
 
+  /// Render a PDF preview card — single-page thumbnail with title badge.
+  void _renderPdfPreviewCard(Canvas canvas, PdfPreviewCardNode node) {
+    final bounds = node.localBounds;
+    final cardRadius = 12.0;
+
+    // 1. Drop shadow
+    final shadowPaint = Paint()
+      ..color = const Color(0x20000000)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        bounds.shift(const Offset(2, 3)),
+        Radius.circular(cardRadius),
+      ),
+      shadowPaint,
+    );
+
+    // 2. White card background
+    final cardPaint = Paint()..color = const Color(0xFFFFFFFF);
+    final cardRRect = RRect.fromRectAndRadius(
+      bounds,
+      Radius.circular(cardRadius),
+    );
+    canvas.drawRRect(cardRRect, cardPaint);
+
+    // 3. Thumbnail image area (top portion, minus badge)
+    final badgeHeight = 40.0;
+    final imageRect = Rect.fromLTWH(
+      bounds.left,
+      bounds.top,
+      bounds.width,
+      bounds.height - badgeHeight,
+    );
+
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndCorners(
+      imageRect,
+      topLeft: Radius.circular(cardRadius),
+      topRight: Radius.circular(cardRadius),
+    ));
+
+    if (node.thumbnailImage != null) {
+      final img = node.thumbnailImage!;
+      try {
+        final srcRect = Rect.fromLTWH(
+          0, 0, img.width.toDouble(), img.height.toDouble(),
+        );
+        canvas.drawImageRect(img, srcRect, imageRect, Paint());
+      } catch (_) {
+        canvas.drawRect(imageRect, Paint()..color = const Color(0xFFF5F5F5));
+      }
+    } else {
+      // Placeholder
+      canvas.drawRect(imageRect, Paint()..color = const Color(0xFFF5F5F5));
+      // PDF icon (simple rectangle with fold)
+      final iconSize = 40.0;
+      final iconRect = Rect.fromCenter(
+        center: imageRect.center,
+        width: iconSize * 0.8,
+        height: iconSize,
+      );
+      canvas.drawRect(
+        iconRect,
+        Paint()
+          ..color = const Color(0xFFBBBBBB)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+    canvas.restore();
+
+    // 4. Bottom badge (dark background with name + page count)
+    final badgeRect = Rect.fromLTWH(
+      bounds.left,
+      bounds.bottom - badgeHeight,
+      bounds.width,
+      badgeHeight,
+    );
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndCorners(
+      badgeRect,
+      bottomLeft: Radius.circular(cardRadius),
+      bottomRight: Radius.circular(cardRadius),
+    ));
+    canvas.drawRect(badgeRect, Paint()..color = const Color(0xE61E1E2E));
+
+    // PDF name
+    final displayName = node.name.isNotEmpty
+        ? node.name
+        : 'PDF (${node.documentModel.totalPages} pages)';
+    final namePainter = TextPainter(
+      text: TextSpan(
+        text: displayName,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: bounds.width - 16);
+    namePainter.paint(
+      canvas,
+      Offset(badgeRect.left + 8, badgeRect.top + 5),
+    );
+
+    // Page count badge
+    final countText = '${node.documentModel.totalPages} pages';
+    final countPainter = TextPainter(
+      text: TextSpan(
+        text: countText,
+        style: const TextStyle(
+          color: Color(0x99FFFFFF),
+          fontSize: 10,
+          fontWeight: FontWeight.w400,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    countPainter.paint(
+      canvas,
+      Offset(badgeRect.left + 8, badgeRect.top + 22),
+    );
+
+    canvas.restore();
+
+    // 5. Subtle border
+    final borderPaint = Paint()
+      ..color = const Color(0x22000000)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawRRect(cardRRect, borderPaint);
+  }
+
   /// Render a single PDF page from its raster cache or a placeholder.
   ///
   /// Uses the pre-decoded [PdfPageNode.cachedImage] if available.
@@ -1798,6 +1938,15 @@ class SceneGraphRenderer {
   }
 
   // ---------------------------------------------------------------------------
+  // Function Graph rendering
+  // ---------------------------------------------------------------------------
+
+  /// Render a function graph node via FunctionGraphRenderer.
+  void _renderFunctionGraph(Canvas canvas, FunctionGraphNode node) {
+    FunctionGraphRenderer.drawFunctionGraphNode(canvas, node);
+  }
+
+  // ---------------------------------------------------------------------------
   // Internal Visitor
   // ---------------------------------------------------------------------------
 }
@@ -1886,6 +2035,11 @@ class _RendererVisitor implements NodeVisitor<void> {
   }
 
   @override
+  void visitPdfPreviewCard(PdfPreviewCardNode node) {
+    renderer._renderPdfPreviewCard(_canvas, node);
+  }
+
+  @override
   void visitVectorNetwork(VectorNetworkNode node) =>
       renderer._renderVectorNetwork(_canvas, node);
 
@@ -1907,6 +2061,10 @@ class _RendererVisitor implements NodeVisitor<void> {
   void visitAdjustmentLayer(AdjustmentLayerNode node) {
     renderer._renderAdjustmentLayer(_canvas, node, _viewport);
   }
+
+  @override
+  void visitFunctionGraph(FunctionGraphNode node) =>
+      renderer._renderFunctionGraph(_canvas, node);
 }
 
 // ---------------------------------------------------------------------------

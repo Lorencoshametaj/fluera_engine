@@ -8,6 +8,7 @@ import '../core/models/canvas_layer.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/pdf_text_rect.dart';
 import '../core/models/ocr_result.dart';
+import '../rendering/canvas/pdf_texture_tile.dart';
 import '../export/export_preset.dart';
 import '../core/models/image_element.dart';
 import '../core/models/recording_pin.dart';
@@ -515,6 +516,30 @@ abstract class FlueraPdfProvider {
   ///
   /// Default implementation returns `null` (OCR unavailable).
   Future<OcrPageResult?> ocrPage(int pageIndex) async => null;
+
+  /// 🚀 Zero-copy rendering via TextureRegistry.
+  ///
+  /// Returns a [PdfTextureTile] containing a Flutter texture ID that
+  /// can be composited directly by Impeller/Skia without any pixel copy.
+  /// Returns `null` if the platform doesn't support TextureRegistry or
+  /// if the render fails — caller should fall back to [renderPage].
+  ///
+  /// Default implementation returns `null` (texture path unavailable).
+  Future<PdfTextureTile?> renderPageTexture({
+    required int pageIndex,
+    required double scale,
+    required Size targetSize,
+  }) async =>
+      null;
+
+  /// 🖼️ Fast low-resolution thumbnail for instant page preview.
+  ///
+  /// Returns a small `ui.Image` (~200px wide) suitable for showing
+  /// an immediate placeholder while the full-LOD render is in progress.
+  /// On iOS this uses Apple's optimized `PDFPage.thumbnail(of:for:)`.
+  /// 
+  /// Default implementation returns `null` (thumbnails unavailable).
+  Future<ui.Image?> renderThumbnail(int pageIndex) async => null;
 
   /// Release all resources associated with the loaded document.
   void dispose();

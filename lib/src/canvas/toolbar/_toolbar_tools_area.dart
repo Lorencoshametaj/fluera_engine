@@ -123,6 +123,19 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 ),
               ],
 
+              // 📝 Digital Text
+              if (!widget.isImageEditingMode) ...[
+                const SizedBox(width: 12),
+                ToolbarDigitalTextButton(
+                  isActive: widget.isDigitalTextActive,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onDigitalTextToggle();
+                  },
+                  isDark: isDark,
+                ),
+              ],
+
               // 🗺️ Minimap
               if (!widget.isImageEditingMode) ...[
                 const SizedBox(width: 8),
@@ -1513,6 +1526,44 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             },
             isDark: isDark,
           ),
+          const SizedBox(width: 6),
+          // 🖐️ Handedness & Palm Rejection Settings
+          Tooltip(
+            message: 'Handedness & Palm Rejection',
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  showModalBottomSheet(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => HandednessSettingsSheet(
+                      onChanged: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : Colors.black.withValues(alpha: 0.04),
+                  ),
+                  child: Icon(
+                    Icons.back_hand_rounded,
+                    size: 18,
+                    color: isDark ? Colors.white54 : Colors.black45,
+                  ),
+                ),
+              ),
+            ),
+          ),
           const SizedBox(width: 12),
           ToolbarEraserButton(
             isActive: widget.isEraserActive,
@@ -1579,15 +1630,56 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
       title: l10n.proCanvas_color,
       icon: Icons.palette_rounded,
       isDark: isDark,
-      child: ToolbarColorPalette(
-        colors: _customColors,
-        selectedColor: widget.selectedColor,
-        onChanged: (color) {
-          HapticFeedback.selectionClick();
-          widget.onColorChanged(color);
-        },
-        onLongPress: _showColorPicker,
-        isDark: isDark,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ToolbarColorPalette(
+            colors: _customColors,
+            selectedColor: widget.selectedColor,
+            onChanged: (color) {
+              HapticFeedback.selectionClick();
+              widget.onColorChanged(color);
+            },
+            onLongPress: _showColorPicker,
+            isDark: isDark,
+          ),
+          const SizedBox(width: 6),
+          // 🎨 Eyedropper quick-access
+          Tooltip(
+            message: 'Eyedropper',
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () async {
+                  HapticFeedback.selectionClick();
+                  final picked = await showEyedropperOverlay(context: context);
+                  if (picked != null && mounted) {
+                    _addToColorHistory(picked);
+                    widget.onColorChanged(picked);
+                  }
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.2)
+                          : Colors.black.withValues(alpha: 0.15),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.colorize_rounded,
+                    size: 15,
+                    color: isDark ? Colors.white54 : Colors.black45,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

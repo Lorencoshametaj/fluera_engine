@@ -65,8 +65,15 @@ public:
   /// points: [x0, y0, p0, x1, y1, p1, ...] (stride 3), count: number of points.
   /// color: RGBA [0..1], strokeWidth: logical pixels, totalPoints: total in
   /// stroke.
+  /// brushType: 0 = ballpoint, 1 = marker, 2 = pencil, 3 = technical, 4 = fountain
   void updateAndRender(const float *points, int pointCount, float r, float g,
-                       float b, float a, float strokeWidth, int totalPoints);
+                       float b, float a, float strokeWidth, int totalPoints,
+                       int brushType = 0,
+                       float pencilBaseOpacity = 0.4f, float pencilMaxOpacity = 0.8f,
+                       float pencilMinPressure = 0.5f, float pencilMaxPressure = 1.2f,
+                       float fountainThinning = 0.5f, float fountainNibAngleDeg = 30.0f,
+                       float fountainNibStrength = 0.35f, float fountainPressureRate = 0.275f,
+                        int fountainTaperEntry = 6);
 
   /// Set canvas transform (4x4 column-major matrix).
   void setTransform(const float *matrix4x4);
@@ -116,12 +123,12 @@ private:
   // ─── Command ──────────────────────────────────────────────────
   VkCommandPool cmdPool_ = VK_NULL_HANDLE;
 
-  // ─── Double-buffered sync (2 frames in flight) ────────────────
-  static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-  VkCommandBuffer cmdBuffers_[2] = {};
-  VkSemaphore imageAvailSems_[2] = {};
-  VkSemaphore renderDoneSems_[2] = {};
-  VkFence frameFences_[2] = {};
+  // ─── Triple-buffered sync (3 frames in flight) ────────────────
+  static constexpr int MAX_FRAMES_IN_FLIGHT = 3;
+  VkCommandBuffer cmdBuffers_[3] = {};
+  VkSemaphore imageAvailSems_[3] = {};
+  VkSemaphore renderDoneSems_[3] = {};
+  VkFence frameFences_[3] = {};
   uint32_t currentFrame_ = 0;
 
   // ─── Vertex buffer ────────────────────────────────────────────
@@ -130,6 +137,7 @@ private:
   static constexpr size_t MAX_VERTICES = 524288; // 512K vertices (~12MB)
   uint32_t vertexCount_ = 0;
   std::vector<StrokeVertex> accumulatedVerts_; // 🚀 Persistent vertex buffer
+  std::vector<float> allPoints_;              // Raw accumulated points (stride 5)
   void *mappedVertexMemory_ = nullptr;         // 🚀 Persistent mapped pointer
   int totalAccumulatedPoints_ = 0; // 🎨 Global point count for tapering
 
@@ -171,7 +179,37 @@ private:
   void tessellateStroke(const float *points, int pointCount, float r, float g,
                         float b, float a, float strokeWidth,
                         int pointStartIndex, int totalPoints,
+                        std::vector<StrokeVertex> &outVerts,
+                        float minPressure = 0.7f, float maxPressure = 1.1f);
+
+  /// Thick marker tessellation: wider quads, no circles, pressure → width.
+  void tessellateMarker(const float *points, int pointCount, float r, float g,
+                        float b, float a, float strokeWidth,
                         std::vector<StrokeVertex> &outVerts);
+
+  /// Technical pen tessellation: constant width, no taper, squared ends.
+  void tessellateTechnicalPen(const float *points, int pointCount, float r,
+                              float g, float b, float a, float strokeWidth,
+                              std::vector<StrokeVertex> &outVerts);
+
+  /// Soft pencil tessellation: pressure → opacity + width, round caps, grain.
+  void tessellatePencil(const float *points, int pointCount, float r, float g,
+                        float b, float a, float strokeWidth,
+                        int pointStartIndex, int totalPoints,
+                        std::vector<StrokeVertex> &outVerts,
+                        float pencilBaseOpacity = 0.4f, float pencilMaxOpacity = 0.8f,
+                        float pencilMinPressure = 0.5f, float pencilMaxPressure = 1.2f);
+
+  /// Fountain pen (stilografica) tessellation: pressure accumulator, nib angle,
+  /// thinning, tapering, 6-pass EMA smoothing, Chaikin subdivision, edge
+  /// feathering, and semicircular caps. Full calligraphic pipeline.
+  void tessellateFountainPen(const float *points, int pointCount,
+                             float r, float g, float b, float a,
+                             float strokeWidth, int totalPoints,
+                             std::vector<StrokeVertex> &outVerts,
+                             float thinning, float nibAngleRad,
+                             float nibStrength, float pressureRate,
+                             int taperEntry);
 
   /// Generate filled circle at a point (round join/cap).
   void generateCircle(float cx, float cy, float radius, float r, float g,

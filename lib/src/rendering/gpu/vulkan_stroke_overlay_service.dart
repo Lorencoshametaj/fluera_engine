@@ -74,6 +74,16 @@ class VulkanStrokeOverlayService {
     ui.Color color,
     double strokeWidth, {
     bool force = false,
+    int brushType = 0,
+    double pencilBaseOpacity = 0.4,
+    double pencilMaxOpacity = 0.8,
+    double pencilMinPressure = 0.5,
+    double pencilMaxPressure = 1.2,
+    double fountainThinning = 0.5,
+    double fountainNibAngleDeg = 30.0,
+    double fountainNibStrength = 0.35,
+    double fountainPressureRate = 0.275,
+    int fountainTaperEntry = 6,
   }) {
     if (!_initialized || points.length < 2) return;
 
@@ -83,17 +93,28 @@ class VulkanStrokeOverlayService {
       return; // Points accumulate, will be sent in next batch
     }
 
-    // 🚀 INCREMENTAL: Only send new points since last call
-    final newStart = _lastSentCount > 0 ? _lastSentCount - 1 : 0;
+    // OPT-4: For ballpoint (brushType==0), send only NEW points incrementally.
+    // C++ accumulates internally and only tessellates the delta.
+    // Other brushes need ALL points for correct smoothing/tangents.
+    int newStart;
+    if (brushType == 0 && _lastSentCount > 0) {
+      // 1-point overlap for segment continuity at the boundary
+      newStart = (_lastSentCount - 1).clamp(0, points.length);
+    } else {
+      newStart = 0;
+    }
     if (newStart >= points.length) return;
 
     final newCount = points.length - newStart;
-    final flatPoints = List<double>.filled(newCount * 3, 0.0);
+    // Stride 5: x, y, pressure, tiltX, tiltY
+    final flatPoints = List<double>.filled(newCount * 5, 0.0);
     for (int i = 0; i < newCount; i++) {
       final pt = points[newStart + i];
-      flatPoints[i * 3] = pt.position.dx;
-      flatPoints[i * 3 + 1] = pt.position.dy;
-      flatPoints[i * 3 + 2] = pt.pressure;
+      flatPoints[i * 5] = pt.position.dx;
+      flatPoints[i * 5 + 1] = pt.position.dy;
+      flatPoints[i * 5 + 2] = pt.pressure;
+      flatPoints[i * 5 + 3] = pt.tiltX;
+      flatPoints[i * 5 + 4] = pt.tiltY;
     }
     _lastSentCount = points.length;
     _lastSendTimeMs = now;
@@ -102,7 +123,17 @@ class VulkanStrokeOverlayService {
       'points': flatPoints,
       'color': color.toARGB32(),
       'width': strokeWidth,
-      'totalPoints': points.length, // For tapering calculation
+      'totalPoints': points.length,
+      'brushType': brushType,
+      'pencilBaseOpacity': pencilBaseOpacity,
+      'pencilMaxOpacity': pencilMaxOpacity,
+      'pencilMinPressure': pencilMinPressure,
+      'pencilMaxPressure': pencilMaxPressure,
+      'fountainThinning': fountainThinning,
+      'fountainNibAngleDeg': fountainNibAngleDeg,
+      'fountainNibStrength': fountainNibStrength,
+      'fountainPressureRate': fountainPressureRate,
+      'fountainTaperEntry': fountainTaperEntry,
     });
   }
 

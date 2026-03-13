@@ -11,7 +11,7 @@ canvas applications.
   s.license          = { :type => 'MIT', :file => '../LICENSE' }
   s.author           = { 'Fluera Engine' => 'dev@flueraengine.com' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*.swift', 'Classes/rnnoise_src/{denoise,nnet,nnet_default,rnn,rnnoise_data,rnnoise_tables,pitch,kiss_fft,celt_lpc,parse_lpcnet_weights}.c', 'Classes/rnnoise_src/*.h', 'Classes/rnnoise_include/**/*.h'
+  s.source_files     = 'Classes/**/*.swift', 'Classes/**/*.metal', 'Classes/rnnoise_src/{denoise,nnet,nnet_default,rnn,rnnoise_data,rnnoise_tables,pitch,kiss_fft,celt_lpc,parse_lpcnet_weights}.c', 'Classes/rnnoise_src/*.h', 'Classes/rnnoise_include/**/*.h'
   s.public_header_files = 'Classes/rnnoise_include/**/*.h'
   s.dependency 'Flutter'
   # PyTorch Mobile Lite for on-device pix2tex LaTeX recognition

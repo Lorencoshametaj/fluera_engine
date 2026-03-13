@@ -1,4 +1,9 @@
 import 'dart:ui';
+import '../core/models/text_overlay.dart';
+import '../core/models/tone_curve.dart';
+import '../core/models/color_adjustments.dart';
+import '../core/models/gradient_filter.dart';
+import '../core/models/perspective_settings.dart';
 import '../l10n/fluera_localizations.dart';
 
 // ============================================================================
@@ -72,27 +77,106 @@ String _labelWarm(FlueraLocalizations l) => l.proCanvas_filterWarm;
 String _labelDramatic(FlueraLocalizations l) => l.proCanvas_filterDramatic;
 
 /// Snapshot of all editor state values for undo/redo.
+///
+/// Uses composed sub-models for cleaner grouping:
+/// - [ColorAdjustments] for color grading (brightness, contrast, etc.)
+/// - [GradientFilter] for gradient overlay settings
+/// - [PerspectiveSettings] for keystone correction
 class EditorSnapshot {
-  final double rotation, brightness, contrast, saturation, opacity;
-  final double vignette, hueShift, temperature;
+  // ── Composed sub-models ──
+  final ColorAdjustments colorAdjustments;
+  final GradientFilter gradientFilter;
+  final PerspectiveSettings perspective;
+  final ToneCurve toneCurve;
+
+  // ── Other state ──
+  final double rotation, opacity;
+  final double vignette;
+  final int vignetteColor;
+  final double blurRadius, sharpenAmount;
+  final double edgeDetectStrength;
+  final int lutIndex;
+  final double grainAmount;
+  final double grainSize;
+  final List<TextOverlay> textOverlays;
   final bool flipH, flipV;
   final Rect? cropRect;
   final String filterId;
 
+  // ── HSL per-channel (kept flat — 21 doubles, "Color Mixer") ──
+  final List<double> hslAdjustments;
+
+  // ── Noise reduction ──
+  final double noiseReduction;
+
   const EditorSnapshot({
+    this.colorAdjustments = const ColorAdjustments(),
+    this.gradientFilter = const GradientFilter(),
+    this.perspective = const PerspectiveSettings(),
+    this.toneCurve = const ToneCurve(),
     required this.rotation,
-    required this.brightness,
-    required this.contrast,
-    required this.saturation,
     required this.opacity,
-    required this.vignette,
-    required this.hueShift,
-    required this.temperature,
-    required this.flipH,
+    this.vignette = 0.0,
+    this.vignetteColor = 0xFF000000,
+    this.blurRadius = 0.0,
+    this.sharpenAmount = 0.0,
+    this.edgeDetectStrength = 0.0,
+    this.lutIndex = -1,
+    this.grainAmount = 0.0,
+    this.grainSize = 1.0,
+    this.textOverlays = const [],
+    this.flipH = false,
     required this.flipV,
     this.cropRect,
     required this.filterId,
+    this.hslAdjustments = const [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    ],
+    this.noiseReduction = 0.0,
   });
+
+  // ── Convenience getters for backward compat ──
+  double get brightness => colorAdjustments.brightness;
+  double get contrast => colorAdjustments.contrast;
+  double get saturation => colorAdjustments.saturation;
+  double get hueShift => colorAdjustments.hueShift;
+  double get temperature => colorAdjustments.temperature;
+  double get highlights => colorAdjustments.highlights;
+  double get shadows => colorAdjustments.shadows;
+  double get fade => colorAdjustments.fade;
+  double get clarity => colorAdjustments.clarity;
+  int get splitHighlightColor => colorAdjustments.splitHighlightColor;
+  int get splitShadowColor => colorAdjustments.splitShadowColor;
+  double get splitBalance => colorAdjustments.splitBalance;
+  double get splitIntensity => colorAdjustments.splitIntensity;
+  double get texture => colorAdjustments.texture;
+  double get dehaze => colorAdjustments.dehaze;
+  double get gradientAngle => gradientFilter.angle;
+  double get gradientPosition => gradientFilter.position;
+  double get gradientStrength => gradientFilter.strength;
+  int get gradientColor => gradientFilter.color;
+  double get perspectiveX => perspective.x;
+  double get perspectiveY => perspective.y;
 }
 
 /// Aspect ratio constraint for the crop editor.

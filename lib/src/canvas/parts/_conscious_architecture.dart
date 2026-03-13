@@ -92,10 +92,13 @@ extension ConsciousArchitectureWiring on _FlueraCanvasScreenState {
     styleEngine.restoreFromPrefs(); // Fire-and-forget restore
     styleEngine.onToolSwitchRecommendation = (color, strokeWidth, opacity) {
       // Auto-apply learned defaults when the user switches tools.
-      if (color != null) _toolController.setColor(color);
-      if (strokeWidth != null) _toolController.setStrokeWidth(strokeWidth);
-      if (opacity != null) _toolController.setOpacity(opacity);
-      if (mounted) setState(() {});
+      // 🚀 PERF: Only call setState if a value was actually applied,
+      // to avoid a full _buildImpl() rebuild on no-op callbacks.
+      bool changed = false;
+      if (color != null) { _toolController.setColor(color); changed = true; }
+      if (strokeWidth != null) { _toolController.setStrokeWidth(strokeWidth); changed = true; }
+      if (opacity != null) { _toolController.setOpacity(opacity); changed = true; }
+      if (changed && mounted) setState(() {});
     };
     arch.register(styleEngine);
 

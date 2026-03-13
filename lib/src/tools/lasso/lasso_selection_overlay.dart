@@ -20,6 +20,9 @@ class LassoSelectionOverlay extends StatefulWidget {
   final InfiniteCanvasController canvasController;
   final bool isDragging;
 
+  /// Feather radius for soft-edge selection highlight (0 = sharp).
+  final double featherRadius;
+
   /// 🚀 PERF: Optional notifier for smooth repositioning during drag.
   final ValueNotifier<int>? dragNotifier;
 
@@ -32,6 +35,7 @@ class LassoSelectionOverlay extends StatefulWidget {
     required this.layerController,
     required this.canvasController,
     this.isDragging = false,
+    this.featherRadius = 0.0,
     this.dragNotifier,
     this.onConvertToLatex,
   });
@@ -94,6 +98,7 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
                   animationValue: _pulseAnimation.value,
                   canvasController: widget.canvasController,
                   isDragging: widget.isDragging,
+                  featherRadius: widget.featherRadius,
                 ),
                 child: const SizedBox.expand(),
               ),
@@ -190,6 +195,7 @@ class _SelectionHighlightPainter extends CustomPainter {
   final double animationValue;
   final InfiniteCanvasController canvasController;
   final bool isDragging;
+  final double featherRadius;
 
   _SelectionHighlightPainter({
     required this.selectedIds,
@@ -197,6 +203,7 @@ class _SelectionHighlightPainter extends CustomPainter {
     required this.animationValue,
     required this.canvasController,
     this.isDragging = false,
+    this.featherRadius = 0.0,
   });
 
   @override
@@ -205,6 +212,62 @@ class _SelectionHighlightPainter extends CustomPainter {
       (layer) => layer.id == layerController.activeLayerId,
       orElse: () => layerController.layers.first,
     );
+
+    // =========================================================================
+    // Selection Mask Dimming — dim non-selected area (Procreate-style)
+    // =========================================================================
+    if (selectedIds.isNotEmpty && !isDragging) {
+      // Collect screen-space bounding rects for all selected elements
+      final selectedRects = <Rect>[];
+
+      for (final stroke in activeLayer.strokes) {
+        if (!selectedIds.contains(stroke.id)) continue;
+        final bounds = _getStrokeScreenBounds(stroke);
+        if (bounds != null) selectedRects.add(bounds.inflate(4));
+      }
+      for (final shape in activeLayer.shapes) {
+        if (!selectedIds.contains(shape.id)) continue;
+        final startScreen = canvasController.canvasToScreen(shape.startPoint);
+        final endScreen = canvasController.canvasToScreen(shape.endPoint);
+        selectedRects.add(Rect.fromPoints(startScreen, endScreen).inflate(4));
+      }
+      for (final text in activeLayer.texts) {
+        if (!selectedIds.contains(text.id)) continue;
+        final pos = canvasController.canvasToScreen(text.position);
+        final w = text.fontSize * text.text.length * 0.6 * text.scale;
+        final h = text.fontSize * 1.4 * text.scale;
+        selectedRects.add(Rect.fromLTWH(pos.dx, pos.dy, w, h).inflate(4));
+      }
+      for (final image in activeLayer.images) {
+        if (!selectedIds.contains(image.id)) continue;
+        final pos = canvasController.canvasToScreen(image.position);
+        final imgSize = 200.0 * image.scale; // estimated default size
+        selectedRects.add(Rect.fromLTWH(pos.dx, pos.dy, imgSize, imgSize).inflate(4));
+      }
+
+      if (selectedRects.isNotEmpty) {
+        // Build a path that covers the full canvas MINUS the selected areas
+        final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
+        final dimPath = Path()..addRect(fullRect);
+
+        for (final r in selectedRects) {
+          // Use rounded rects for a softer look
+          dimPath.addRRect(RRect.fromRectAndRadius(r, const Radius.circular(4)));
+        }
+        dimPath.fillType = PathFillType.evenOdd;
+
+        final dimPaint = Paint()
+          ..color = Colors.black.withValues(alpha: 0.25 + animationValue * 0.05);
+        if (featherRadius > 0) {
+          dimPaint.maskFilter = MaskFilter.blur(BlurStyle.normal, featherRadius * 0.5);
+        }
+        canvas.drawPath(dimPath, dimPaint);
+      }
+    }
+
+    // =========================================================================
+    // Element Highlights
+    // =========================================================================
 
     // Highlight selected strokes
     for (final stroke in activeLayer.strokes) {
@@ -233,6 +296,36 @@ class _SelectionHighlightPainter extends CustomPainter {
         _drawImageHighlight(canvas, image);
       }
     }
+  }
+
+  /// Get screen-space bounding rect for a stroke (with node offset).
+  Rect? _getStrokeScreenBounds(ProStroke stroke) {
+    if (stroke.points.isEmpty) return null;
+
+    Offset nodeOffset = Offset.zero;
+    for (final layer in layerController.sceneGraph.layers) {
+      for (final child in layer.children) {
+        if (child is StrokeNode && child.stroke.id == stroke.id) {
+          nodeOffset = child.position;
+          break;
+        }
+      }
+      if (nodeOffset != Offset.zero) break;
+    }
+
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+
+    for (final p in stroke.points) {
+      final sp = canvasController.canvasToScreen(p.position + nodeOffset);
+      if (sp.dx < minX) minX = sp.dx;
+      if (sp.dy < minY) minY = sp.dy;
+      if (sp.dx > maxX) maxX = sp.dx;
+      if (sp.dy > maxY) maxY = sp.dy;
+    }
+
+    if (!minX.isFinite) return null;
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   void _drawStrokeHighlight(Canvas canvas, ProStroke stroke) {
@@ -295,6 +388,9 @@ class _SelectionHighlightPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round;
+    if (featherRadius > 0) {
+      mainPaint.maskFilter = MaskFilter.blur(BlurStyle.normal, featherRadius);
+    }
     canvas.drawPath(path, mainPaint);
 
     // White inner border

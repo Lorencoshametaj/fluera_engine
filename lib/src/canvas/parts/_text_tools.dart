@@ -101,6 +101,12 @@ extension on _FlueraCanvasScreenState {
   /// 📝 Start inline text creation at a canvas position.
   /// Creates an empty text element and opens the inline editor overlay.
   void _startInlineTextCreation(Offset canvasPosition) {
+    // 🔒 Cooldown: prevent spurious re-creation when keyboard dismissal
+    // fires _onDrawStart immediately after _finishInlineText.
+    if (_inlineTextFinishedAt != null &&
+        DateTime.now().difference(_inlineTextFinishedAt!) < const Duration(milliseconds: 500)) {
+      return;
+    }
     // If already editing inline, finish the current one first
     if (_isInlineEditing) {
       _cancelInlineText();
@@ -138,6 +144,7 @@ extension on _FlueraCanvasScreenState {
       _inlineEditingElement = newElement;
       _isInlineEditing = true;
     });
+    _uiRebuildNotifier.value++;
   }
 
   /// 📝 Start inline editing of an existing text element.
@@ -162,11 +169,14 @@ extension on _FlueraCanvasScreenState {
     _inlineTextOutlineWidth = element.outlineWidth;
     _inlineTextGradientColors = element.gradientColors;
 
+    // deselectElement() already calls endDrag() internally
+
     setState(() {
       _inlineEditingElement = element;
       _isInlineEditing = true;
       _digitalTextTool.deselectElement();
     });
+    _uiRebuildNotifier.value++;
   }
 
   /// 📝 Finish inline text editing — save the element.
@@ -204,6 +214,7 @@ extension on _FlueraCanvasScreenState {
       modifiedAt: existingIdx != -1 ? DateTime.now() : null,
     );
 
+
     setState(() {
       if (existingIdx != -1) {
         // Use UpdateTextCommand for undo/redo
@@ -214,12 +225,6 @@ extension on _FlueraCanvasScreenState {
             oldElement: oldElement,
             newElement: updatedElement,
             onChanged: () {
-              _layerController.updateText(
-                _digitalTextElements.firstWhere(
-                  (e) => e.id == updatedElement.id,
-                  orElse: () => updatedElement,
-                ),
-              );
               if (mounted) setState(() {});
             },
           ),
@@ -231,7 +236,6 @@ extension on _FlueraCanvasScreenState {
             elements: _digitalTextElements,
             element: updatedElement,
             onChanged: () {
-              _layerController.addText(updatedElement);
               if (mounted) setState(() {});
             },
           ),
@@ -240,9 +244,10 @@ extension on _FlueraCanvasScreenState {
         _lastAddedTextId = updatedElement.id;
         _lastAddedTextTime = DateTime.now();
       }
+
       _isInlineEditing = false;
       _inlineEditingElement = null;
-      _digitalTextTool.selectElement(updatedElement);
+      // Don't auto-select — just leave the text on canvas
     });
 
     // 🔑 Notify overlay subtree to rebuild (it's inside ValueListenableBuilder)
@@ -250,6 +255,9 @@ extension on _FlueraCanvasScreenState {
 
     _broadcastTextChange(updatedElement);
     _autoSaveCanvas();
+
+    // 🔒 Set cooldown timestamp to prevent spurious re-creation
+    _inlineTextFinishedAt = DateTime.now();
   }
 
   /// 📝 Cancel inline text editing.
@@ -335,14 +343,52 @@ extension on _FlueraCanvasScreenState {
     // 📌 Check recording pins first
     if (_handleRecordingPinLongPress(canvasPosition)) return;
 
+    // 📄 PDF Preview Card: long-press → enter full-screen reader
+    final hitCard = _hitTestPdfPreviewCard(canvasPosition);
+    if (hitCard != null) {
+      _enterPdfReader(hitCard);
+      return;
+    }
+
+    // 📈 FunctionGraphNode: long-press → enable graph move mode
+    final hitGraph = _hitTestGraphNode(canvasPosition);
+    if (hitGraph != null) {
+      _selectedGraphNode = hitGraph;
+      _isDraggingGraph = true;
+      _isMovingGraph = true;
+      _graphDragStart = canvasPosition;
+      _graphPinchStarted = false;
+      HapticFeedback.mediumImpact();
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
     // Check if pressed on a text element → inline editing
     final hitElement = _digitalTextTool.hitTest(
       canvasPosition,
       _digitalTextElements,
     );
 
+
     if (hitElement != null) {
       _startInlineTextEdit(hitElement);
+      return;
+    }
+
+    // 🎨 Eyedropper fallback: long-press empty canvas → pick color
+    // Matches Procreate's touch-and-hold behavior
+    if (!_effectiveIsPanMode) {
+      HapticFeedback.mediumImpact();
+      _launchEyedropperFromCanvas();
+    }
+  }
+
+  /// Launch eyedropper overlay from a canvas long-press.
+  void _launchEyedropperFromCanvas() async {
+    final picked = await showEyedropperOverlay(context: context);
+    if (picked != null && mounted) {
+      _toolController.setColor(picked);
+      setState(() {});
     }
   }
 
@@ -352,7 +398,185 @@ extension on _FlueraCanvasScreenState {
     if (idx != -1) {
       _digitalTextElements[idx] = updated;
     }
-    _layerController.updateText(updated);
     _broadcastTextChange(updated);
+  }
+
+  // ── Handwriting Recognition ────────────────────────────────────────────────
+
+  /// ✍️ Recognize recent strokes as handwritten text and convert to digital text.
+  Future<void> _recognizeHandwriting() async {
+    final service = DigitalInkService.instance;
+
+    if (!service.isAvailable) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Handwriting recognition is not available on this platform'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Initialize the service if needed
+    if (!service.isReady) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Downloading handwriting model...'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      await service.init();
+      if (!service.isReady) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not load handwriting model'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    // Collect recent strokes from the active layer
+    final strokes = _layerController.activeLayer?.strokes ?? [];
+    if (strokes.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Draw something first, then tap Handwriting Recognition'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Collect all points from recent strokes
+    final allPoints = <ProDrawingPoint>[];
+    for (final stroke in strokes) {
+      allPoints.addAll(stroke.points);
+    }
+
+    // Recognize
+    final recognizedText = await service.recognizeStroke(allPoints);
+    if (recognizedText == null || recognizedText.isEmpty || !mounted) return;
+
+    // Show confirmation dialog
+    final result = await HandwritingConfirmationDialog.show(
+      context,
+      recognizedText: recognizedText,
+      languageCode: service.languageCode,
+    );
+
+    if (result == null || !mounted) return;
+
+    // Create digital text element at the center of the strokes
+    final screenCenter = Offset(
+      MediaQuery.of(context).size.width / 2,
+      MediaQuery.of(context).size.height / 2,
+    );
+    final canvasCenter = _canvasController.screenToCanvas(screenCenter);
+
+    final newElement = DigitalTextElement(
+      id: generateUid(),
+      text: result.text,
+      position: canvasCenter,
+      color: _effectiveColor,
+      fontSize: 24.0,
+      scale: 1.0,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() {
+      _digitalTextElements.add(newElement);
+      _digitalTextTool.selectElement(newElement);
+    });
+
+    _layerController.addText(newElement);
+    _broadcastTextChange(newElement);
+    _autoSaveCanvas();
+
+    // Optionally delete the original strokes
+    if (result.deleteStrokes) {
+      for (final stroke in strokes.toList()) {
+        _layerController.removeStroke(stroke.id);
+      }
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      setState(() {});
+    }
+
+    HapticFeedback.mediumImpact();
+  }
+
+  // ── OCR Scan ───────────────────────────────────────────────────────────────
+
+  /// 📷 Show OCR scan dialog to recognize text from an image.
+  Future<void> _showOcrScanDialog() async {
+    final result = await OcrScanDialog.show(context);
+    if (result == null || !mounted) return;
+
+    final screenCenter = Offset(
+      MediaQuery.of(context).size.width / 2,
+      MediaQuery.of(context).size.height / 2,
+    );
+    final canvasCenter = _canvasController.screenToCanvas(screenCenter);
+
+    if (result.mergeAll && result.fullText != null) {
+      // Import as a single text element
+      final newElement = DigitalTextElement(
+        id: generateUid(),
+        text: result.fullText!,
+        position: canvasCenter,
+        color: _effectiveColor,
+        fontSize: 18.0,
+        scale: 1.0,
+        createdAt: DateTime.now(),
+      );
+
+      setState(() {
+        _digitalTextElements.add(newElement);
+        _digitalTextTool.selectElement(newElement);
+      });
+
+      _layerController.addText(newElement);
+      _broadcastTextChange(newElement);
+    } else if (result.blocks != null) {
+      // Import individual blocks with relative positions
+      final scaleX = 1.0 / result.imageWidth;
+      final scaleY = 1.0 / result.imageHeight;
+
+      for (final block in result.blocks!) {
+        final relativeOffset = Offset(
+          block.boundingBox.left * scaleX * 400, // Scale to ~400px canvas area
+          block.boundingBox.top * scaleY * 400,
+        );
+
+        final newElement = DigitalTextElement(
+          id: generateUid(),
+          text: block.text,
+          position: canvasCenter + relativeOffset,
+          color: _effectiveColor,
+          fontSize: 16.0,
+          scale: 1.0,
+          createdAt: DateTime.now(),
+        );
+
+        _digitalTextElements.add(newElement);
+        _layerController.addText(newElement);
+        _broadcastTextChange(newElement);
+      }
+
+      setState(() {});
+    }
+
+    _autoSaveCanvas();
+    HapticFeedback.mediumImpact();
   }
 }

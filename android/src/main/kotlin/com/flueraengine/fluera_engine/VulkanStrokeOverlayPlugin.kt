@@ -17,6 +17,7 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
 
     private var channel: MethodChannel? = null
     private var textureRegistry: TextureRegistry? = null
+    private var reusableFloatBuffer: FloatArray? = null  // Reused to avoid GC pressure
 
     // SurfaceProducer path (Impeller-compatible)
     private var surfaceProducer: TextureRegistry.SurfaceProducer? = null
@@ -114,10 +115,30 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
                 val color = (call.argument<Number>("color") ?: 0xFF000000L).toInt()
                 val width = (call.argument<Number>("width") ?: 2.0).toDouble()
                 val totalPoints = (call.argument<Number>("totalPoints") ?: 0).toInt()
+                val brushType = (call.argument<Number>("brushType") ?: 0).toInt()
+                val pencilBaseOpacity = (call.argument<Number>("pencilBaseOpacity") ?: 0.4).toFloat()
+                val pencilMaxOpacity = (call.argument<Number>("pencilMaxOpacity") ?: 0.8).toFloat()
+                val pencilMinPressure = (call.argument<Number>("pencilMinPressure") ?: 0.5).toFloat()
+                val pencilMaxPressure = (call.argument<Number>("pencilMaxPressure") ?: 1.2).toFloat()
+                val fountainThinning = (call.argument<Number>("fountainThinning") ?: 0.5).toFloat()
+                val fountainNibAngleDeg = (call.argument<Number>("fountainNibAngleDeg") ?: 30.0).toFloat()
+                val fountainNibStrength = (call.argument<Number>("fountainNibStrength") ?: 0.35).toFloat()
+                val fountainPressureRate = (call.argument<Number>("fountainPressureRate") ?: 0.275).toFloat()
+                val fountainTaperEntry = (call.argument<Number>("fountainTaperEntry") ?: 6).toInt()
 
-                if (points != null && points.size >= 6) { // Need at least 2 points (6 floats: x,y,p × 2)
-                    val floatArray = FloatArray(points.size) { points[it].toFloat() }
-                    nativeUpdateAndRender(floatArray, color, width.toFloat(), totalPoints)
+                if (points != null && points.size >= 10) {
+                    val needed = points.size
+                    // Reuse buffer when exact size matches, otherwise create new
+                    if (reusableFloatBuffer == null || reusableFloatBuffer!!.size != needed) {
+                        reusableFloatBuffer = FloatArray(needed)
+                    }
+                    val buf = reusableFloatBuffer!!
+                    for (i in 0 until needed) {
+                        buf[i] = points[i].toFloat()
+                    }
+                    nativeUpdateAndRender(buf, color, width.toFloat(), totalPoints, brushType,
+                        pencilBaseOpacity, pencilMaxOpacity, pencilMinPressure, pencilMaxPressure,
+                        fountainThinning, fountainNibAngleDeg, fountainNibStrength, fountainPressureRate, fountainTaperEntry)
                 }
                 result.success(null)
             }
@@ -194,11 +215,12 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
         surfaceProducer?.release()
         surfaceProducer = null
         currentTextureId = -1
+        reusableFloatBuffer = null
     }
 
     // ─── JNI native methods ──────────────────────────────────────
     private external fun nativeInit(surface: Surface, width: Int, height: Int): Boolean
-    private external fun nativeUpdateAndRender(points: FloatArray, color: Int, strokeWidth: Float, totalPoints: Int)
+    private external fun nativeUpdateAndRender(points: FloatArray, color: Int, strokeWidth: Float, totalPoints: Int, brushType: Int, pencilBaseOpacity: Float, pencilMaxOpacity: Float, pencilMinPressure: Float, pencilMaxPressure: Float, fountainThinning: Float, fountainNibAngleDeg: Float, fountainNibStrength: Float, fountainPressureRate: Float, fountainTaperEntry: Int)
     private external fun nativeSetTransform(matrix: FloatArray)
     private external fun nativeClear()
     private external fun nativeResize(width: Int, height: Int): Boolean

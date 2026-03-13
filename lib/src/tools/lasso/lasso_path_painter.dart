@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../canvas/infinite_canvas_controller.dart';
+import 'lasso_tool.dart';
 
 // =============================================================================
 // Visual Constants
@@ -46,20 +47,42 @@ const double _kCloseIndicatorRadius = 7.0;
 const double _kDecimationDistSq = 4.0; // 2px squared
 
 /// Widget showing the lasso path during drawing.
+///
+/// Supports freehand lasso, rectangular marquee, and elliptical marquee
+/// rendering modes.
 class LassoPathPainter extends CustomPainter {
   final List<Offset> path;
   final Color color;
   final InfiniteCanvasController canvasController;
 
+  /// Current selection mode (determines visual shape).
+  final SelectionMode selectionMode;
+
+  /// Current marquee/ellipse bounding rect (for marquee and ellipse modes).
+  final Rect? marqueeRect;
+
   LassoPathPainter({
     required this.path,
     this.color = Colors.blue,
     required this.canvasController,
+    this.selectionMode = SelectionMode.lasso,
+    this.marqueeRect,
     Listenable? repaint,
   }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Marquee or Ellipse mode: draw shape from marqueeRect
+    if (selectionMode == SelectionMode.marquee && marqueeRect != null) {
+      _paintMarqueeRect(canvas, marqueeRect!);
+      return;
+    }
+    if (selectionMode == SelectionMode.ellipse && marqueeRect != null) {
+      _paintEllipseMarquee(canvas, marqueeRect!);
+      return;
+    }
+
+    // Freehand lasso mode
     if (path.length < 2) return;
 
     // 🚀 PERF: Convert to screen coords with decimation.
@@ -249,6 +272,113 @@ class LassoPathPainter extends CustomPainter {
     }
 
     return dashes;
+  }
+
+  // ===========================================================================
+  // Marquee Rect Rendering
+  // ===========================================================================
+
+  void _paintMarqueeRect(Canvas canvas, Rect rect) {
+    final screenTL = canvasController.canvasToScreen(rect.topLeft);
+    final screenBR = canvasController.canvasToScreen(rect.bottomRight);
+    final screenRect = Rect.fromPoints(screenTL, screenBR);
+
+    // Glow
+    canvas.drawRect(
+      screenRect,
+      Paint()
+        ..color = color.withValues(alpha: 0.15)
+        ..strokeWidth = _kGlowWidth
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _kGlowBlurSigma),
+    );
+
+    // Fill
+    canvas.drawRect(
+      screenRect,
+      Paint()
+        ..color = color.withValues(alpha: 0.08)
+        ..style = PaintingStyle.fill,
+    );
+
+    // Dashed border
+    final rectPath = Path()..addRect(screenRect);
+    final dashPath = _createDashedPath(rectPath, dashLength: _kDashLength, gapLength: _kGapLength);
+    canvas.drawPath(
+      dashPath,
+      Paint()
+        ..color = color.withValues(alpha: 0.8)
+        ..strokeWidth = _kMainBorderWidth
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Corner handles
+    for (final corner in [screenRect.topLeft, screenRect.topRight, screenRect.bottomLeft, screenRect.bottomRight]) {
+      canvas.drawCircle(corner, 4.0, Paint()..color = Colors.white);
+      canvas.drawCircle(corner, 2.5, Paint()..color = color);
+    }
+  }
+
+  // ===========================================================================
+  // Ellipse Marquee Rendering
+  // ===========================================================================
+
+  void _paintEllipseMarquee(Canvas canvas, Rect rect) {
+    final screenTL = canvasController.canvasToScreen(rect.topLeft);
+    final screenBR = canvasController.canvasToScreen(rect.bottomRight);
+    final screenRect = Rect.fromPoints(screenTL, screenBR);
+
+    // Glow
+    canvas.drawOval(
+      screenRect,
+      Paint()
+        ..color = color.withValues(alpha: 0.15)
+        ..strokeWidth = _kGlowWidth
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _kGlowBlurSigma),
+    );
+
+    // Fill
+    canvas.drawOval(
+      screenRect,
+      Paint()
+        ..color = color.withValues(alpha: 0.08)
+        ..style = PaintingStyle.fill,
+    );
+
+    // Dashed border
+    final ovalPath = Path()..addOval(screenRect);
+    final dashPath = _createDashedPath(ovalPath, dashLength: _kDashLength, gapLength: _kGapLength);
+    canvas.drawPath(
+      dashPath,
+      Paint()
+        ..color = color.withValues(alpha: 0.8)
+        ..strokeWidth = _kMainBorderWidth
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Inner highlight
+    canvas.drawOval(
+      screenRect,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.4)
+        ..strokeWidth = _kInnerBorderWidth
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Axis handles (top, right, bottom, left)
+    final cx = screenRect.center.dx;
+    final cy = screenRect.center.dy;
+    final handles = [
+      Offset(cx, screenRect.top),
+      Offset(screenRect.right, cy),
+      Offset(cx, screenRect.bottom),
+      Offset(screenRect.left, cy),
+    ];
+    for (final h in handles) {
+      canvas.drawCircle(h, 4.0, Paint()..color = Colors.white);
+      canvas.drawCircle(h, 2.5, Paint()..color = color);
+    }
   }
 
   /// 🚀 PERF: Repainting is driven by the `repaint` Listenable passed in
