@@ -157,7 +157,7 @@ extension on _FlueraCanvasScreenState {
     _inlineTextFontWeight = element.fontWeight;
     _inlineTextFontStyle = element.fontStyle;
     _inlineTextFontSize = element.fontSize;
-    _inlineTextFontFamily = element.fontFamily;
+    _inlineTextFontFamily = element.fontFamily ?? 'Roboto';
     _inlineTextShadow = element.shadow;
     _inlineTextBackgroundColor = element.backgroundColor;
     _inlineTextDecoration = element.textDecoration;
@@ -373,6 +373,102 @@ extension on _FlueraCanvasScreenState {
     if (hitElement != null) {
       _startInlineTextEdit(hitElement);
       return;
+    }
+
+    // 🧠 KNOWLEDGE FLOW: Long-press in knowledge view
+    if (_effectiveIsPanMode &&
+        _knowledgeFlowController != null &&
+        _clusterCache.isNotEmpty) {
+
+      // 🎯 DRAG-TO-CONNECT: Long-press on cluster bubble → start connection drag
+      // This MUST come first so the user can always drag from a cluster.
+      final hitCluster = _knowledgeFlowController!.findNearestCluster(
+        canvasPosition,
+        _clusterCache,
+        maxDistance: 40.0 / _canvasController.scale,
+      );
+
+      if (hitCluster != null) {
+        _isConnectionDragging = true;
+        _connectionDragSourceClusterId = hitCluster.id;
+        _connectionDragSourcePoint = hitCluster.centroid;
+        _connectionDragCurrentPoint = canvasPosition;
+        _connectionSnapTargetClusterId = null;
+
+        // Start particle ticker if needed
+        if (_knowledgeParticleTicker != null &&
+            !_knowledgeParticleTicker!.isActive) {
+          _knowledgeParticleTicker!.start();
+        }
+
+        HapticFeedback.mediumImpact();
+        _knowledgeFlowController!.version.value++;
+        _uiRebuildNotifier.value++;
+        return;
+      }
+
+      // 💡 SUGGESTION: Long-press near suggestion dot → show preview card
+      final hitSuggestion = _knowledgeFlowController!.hitTestSuggestion(
+        canvasPosition,
+        _clusterCache,
+        radius: 30.0 / _canvasController.scale,
+      );
+      if (hitSuggestion != null) {
+        HapticFeedback.selectionClick();
+        // Compute midpoint for card positioning
+        final cMap = <String, ContentCluster>{};
+        for (final c in _clusterCache) cMap[c.id] = c;
+        final src = cMap[hitSuggestion.sourceClusterId];
+        final tgt = cMap[hitSuggestion.targetClusterId];
+        if (src != null && tgt != null) {
+          final mid = Offset(
+            (src.centroid.dx + tgt.centroid.dx) / 2,
+            (src.centroid.dy + tgt.centroid.dy) / 2,
+          );
+          final screenPos = _canvasController.canvasToScreen(mid);
+          setState(() {
+            _previewSuggestion = hitSuggestion;
+            _previewSuggestionPosition = screenPos;
+            // Populate recognized text from cache
+            _previewClusterTexts = {
+              hitSuggestion.sourceClusterId:
+                  _clusterTextCache[hitSuggestion.sourceClusterId] ?? '?',
+              hitSuggestion.targetClusterId:
+                  _clusterTextCache[hitSuggestion.targetClusterId] ?? '?',
+            };
+          });
+        }
+        return;
+      }
+
+      // 🏷️ EDIT/ADD LABEL: Long-press on connection → open label editor
+      final hitConn = _knowledgeFlowController!.hitTestConnection(
+        canvasPosition,
+        _clusterCache,
+        maxDistance: 40.0 / _canvasController.scale,
+      );
+      if (hitConn != null) {
+        // Compute midpoint of connection for label overlay position
+        final cMap = <String, ContentCluster>{};
+        for (final c in _clusterCache) cMap[c.id] = c;
+        final src = cMap[hitConn.sourceClusterId];
+        final tgt = cMap[hitConn.targetClusterId];
+        if (src != null && tgt != null) {
+          final cp = _knowledgeFlowController!.getControlPoint(
+            src.centroid, tgt.centroid, hitConn.curveStrength,
+          );
+          final midCanvas = _knowledgeFlowController!.pointOnQuadBezier(
+            src.centroid, cp, tgt.centroid, 0.5,
+          );
+          final screenPos = _canvasController.canvasToScreen(midCanvas);
+          HapticFeedback.mediumImpact();
+          setState(() {
+            _editingLabelConnectionId = hitConn.id;
+            _labelOverlayScreenPosition = screenPos;
+          });
+          return;
+        }
+      }
     }
 
     // 🎨 Eyedropper fallback: long-press empty canvas → pick color

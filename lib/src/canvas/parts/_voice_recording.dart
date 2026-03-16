@@ -419,7 +419,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   final originalSize = audioBytes.length;
 
                   // ⚡ #6 Offload compression + waveform to Isolate
-                  final result = await Isolate.run(() {
+                  final result = await compute((_) {
                     final compressed = GZipCodec().encode(audioBytes);
 
                     // 📊 Waveform: 48 normalized amplitudes
@@ -465,7 +465,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                       'compressed': Uint8List.fromList(compressed),
                       'waveform': waveform,
                     };
-                  });
+                  }, null);
 
                   final compressedData = result['compressed'] as Uint8List;
                   final waveformSamples = result['waveform'] as List<double>;
@@ -515,7 +515,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                           persistable.syncedStrokes
                               .map((s) => s.toJson())
                               .toList();
-                      final strokesBytes = await Isolate.run(() {
+                      final strokesBytes = await compute((_) {
                         // ⚡ Point decimation: keep every 2nd point for dense strokes
                         // Preserves first + last point for timing accuracy
                         for (final strokeMap in strokesJson) {
@@ -538,7 +538,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                         return Uint8List.fromList(
                           GZipCodec().encode(utf8.encode(jsonStr)),
                         );
-                      });
+                      }, null);
                       strokesAssetKey = 'strokes_${persistable.id}';
                       await _syncEngine!.adapter.uploadAsset(
                         _canvasId,
@@ -1087,14 +1087,14 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                             // Use recording start time if available,
                             // otherwise extract date from filename or use
                             // a friendly fallback
-                            final file = File(path);
+                            final file = kIsWeb ? null : File(path);
                             if (synced?.startTime != null) {
                               final dt = synced!.startTime;
                               displayName =
                                   'Recording ${dt.day}/${dt.month} '
                                   '${dt.hour.toString().padLeft(2, '0')}:'
                                   '${dt.minute.toString().padLeft(2, '0')}';
-                            } else if (file.existsSync()) {
+                            } else if (!kIsWeb && file!.existsSync()) {
                               final dt = file.lastModifiedSync();
                               displayName =
                                   'Recording ${dt.day}/${dt.month} '
@@ -1207,8 +1207,10 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                               }
 
                               try {
-                                final file = File(deletedPath);
-                                if (await file.exists()) await file.delete();
+                                if (!kIsWeb) {
+                                  final file = File(deletedPath);
+                                  if (await file.exists()) await file.delete();
+                                }
                               } catch (e, stack) {
                                 EngineScope.current.errorRecovery.reportError(
                                   EngineError(
@@ -1552,7 +1554,9 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
 
                                                 // Waveform preview
                                                 FutureBuilder<List<double>>(
-                                                  future: File(
+                                                  future: kIsWeb
+                                                      ? Future.value(<double>[])
+                                                      : File(
                                                     path,
                                                   ).exists().then((
                                                     exists,

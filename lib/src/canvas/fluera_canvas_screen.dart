@@ -1,18 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, kReleaseMode;
+import 'package:flutter/foundation.dart' show compute, kIsWeb, kReleaseMode;
+import 'package:flutter/scheduler.dart' show Ticker;
 import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/semantics.dart';
 import '../utils/safe_path_provider.dart';
+import '../utils/platform_guard.dart';
 import '../audio/native_audio_models.dart';
 import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
@@ -43,6 +44,12 @@ import '../rendering/shaders/shader_brush_service.dart';
 import '../rendering/gpu/gpu_texture_service.dart';
 import '../rendering/canvas/drawing_painter.dart';
 import '../rendering/canvas/origin_indicator_painter.dart';
+import '../rendering/canvas/implicit_section_painter.dart';
+import '../rendering/canvas/knowledge_flow_painter.dart';
+import '../rendering/canvas/cluster_thumbnail_cache.dart';
+import '../reflow/knowledge_connection.dart';
+import '../reflow/knowledge_flow_controller.dart';
+import '../reflow/connection_suggestion_engine.dart';
 import '../rendering/canvas/current_stroke_painter.dart';
 import '../rendering/canvas/pro_stroke_painter.dart';
 
@@ -52,6 +59,9 @@ import '../rendering/canvas/image_painter.dart';
 import './toolbar/professional_canvas_toolbar.dart';
 import './overlays/eyedropper_overlay.dart';
 import './overlays/floating_color_disc.dart';
+import './overlays/connection_label_overlay.dart';
+import './overlays/cluster_preview_overlay.dart';
+import './overlays/knowledge_map_overlay.dart';
 import './toolbar/pro_color_picker.dart';
 import './infinite_canvas_controller.dart';
 import './infinite_canvas_gesture_detector.dart';
@@ -134,6 +144,9 @@ import './fluera_canvas_config.dart';
 import '../storage/sqlite_storage_adapter.dart';
 import '../storage/save_isolate_service.dart';
 import '../rendering/gpu/vulkan_stroke_overlay_service.dart';
+import '../rendering/gpu/webgpu_overlay_view.dart';
+import '../rendering/gpu/webgpu_stroke_overlay_service_stub.dart'
+    if (dart.library.js_interop) '../rendering/gpu/webgpu_stroke_overlay_service.dart';
 import '../storage/recording_storage_service.dart';
 import '../platform/display_capabilities_detector.dart';
 import '../config/adaptive_rendering_config.dart';
@@ -141,6 +154,7 @@ import '../reflow/cluster_detector.dart';
 import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
 import '../reflow/reflow_controller.dart';
+import '../reflow/animated_reflow_controller.dart';
 import './smart_guides/smart_guide_engine.dart';
 import './smart_guides/smart_guide_overlay.dart';
 import '../audio/default_voice_recording_provider.dart';
@@ -169,6 +183,7 @@ import '../export/pdf_annotation_exporter.dart';
 import '../export/pdf_export_writer.dart';
 import '../canvas/overlays/pdf_export_settings_panel.dart';
 import '../canvas/pdf_reader_screen.dart';
+import '../canvas/image_viewer_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import './overlays/variable_manager_panel.dart';
 import './overlays/variable_property_sheet.dart';
@@ -544,9 +559,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// their widget trees (~700+ widgets). Internal ListenableBuilder/
   /// ValueListenableBuilder handle canvas-specific repaints autonomously.
   late final Widget _backgroundLayerHost;
+  /// 🎨 Notifier for background settings changes (paper type, color, surface).
+  /// Incrementing this causes the background layer to rebuild with new values.
+  final ValueNotifier<int> _backgroundVersionNotifier = ValueNotifier<int>(0);
   late final Widget _drawingLayerHost;
   late final Widget _imageLayerHost;
   late final Widget _gestureLayerHost;
+  /// 🎯 Fires ONLY when gesture-affecting tool state changes (pan/stylus mode).
+  /// Much more targeted than listening to the full _toolController.
+  final _gestureRebuildNotifier = ValueNotifier<int>(0);
   late final Widget _currentStrokeHost;
   late final Widget _remoteLiveStrokesHost;
   late final Widget _pdfPlaceholdersHost;
@@ -559,6 +580,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 🔥 VULKAN HANDOFF: controls Texture widget opacity without setState.
   /// 0.0 = hidden (pen-up), 0.7 = marker brush, 1.0 = other brushes.
   final ValueNotifier<double> _vulkanTextureOpacity = ValueNotifier<double>(1.0);
+
+  /// 🌐 WEBGPU: Web GPU stroke overlay (active only on web)
+  bool _webGpuOverlayActive = false;
+  final WebGpuStrokeOverlayService _webGpuStrokeOverlay =
+      WebGpuStrokeOverlayService();
 
   /// 🚀 P99 FIX: Lightweight notifier for toolbar undo/redo state.
   /// Fires ONLY when canUndo/canRedo/elementCount transitions — not on every
@@ -729,9 +755,39 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Restored in _onDrawCancel if a zoom gesture interrupts the new lasso.
   Set<String>? _lassoSelectionBackup;
 
-  // 🌊 REFLOW: Cluster detector and cache
+  // 🌊 REFLOW: Cluster detector, cache, and animated controller
   ClusterDetector? _clusterDetector;
   List<ContentCluster> _clusterCache = [];
+  AnimatedReflowController? _animatedReflowController;
+
+  // 🧠 KNOWLEDGE FLOW: Connection graph + particle animation
+  KnowledgeFlowController? _knowledgeFlowController;
+  Ticker? _knowledgeParticleTicker;
+  bool _particleTickerWasActive = false; // 🔮 Tracks ticker state across app lifecycle
+  ClusterThumbnailCache? _thumbnailCache;
+
+  // 🧠 KNOWLEDGE FLOW: Connection drag state
+  bool _isConnectionDragging = false;
+  Offset? _connectionDragSourcePoint;
+  Offset? _connectionDragCurrentPoint;
+  String? _connectionDragSourceClusterId;
+  String? _connectionSnapTargetClusterId;
+
+  // 🏷️ KNOWLEDGE FLOW: Label editor overlay state
+  String? _editingLabelConnectionId;
+  Offset? _labelOverlayScreenPosition;
+
+  // 🔍 KNOWLEDGE FLOW: Cluster preview overlay state
+  String? _previewingClusterId;
+  Offset? _previewOverlayScreenPosition;
+
+  // 💡 KNOWLEDGE FLOW: Suggestion preview card state
+  SuggestedConnection? _previewSuggestion;
+  Offset? _previewSuggestionPosition;
+  Map<String, String> _previewClusterTexts = {};
+
+  // 🧠 KNOWLEDGE MAP: Fullscreen graph overlay
+  bool _showKnowledgeMap = false;
 
   // === PHASE 3 TOOLS ===
   final RulerGuideSystem _rulerGuideSystem = RulerGuideSystem();
@@ -942,6 +998,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Whether to show page number badges on PDF pages.
   bool _showPdfPageNumbers = true;
 
+  /// Cooldown flag to prevent re-triggering zoom-to-enter during animation.
+  bool _pdfZoomEnterCooldown = false;
+  bool _imageZoomEnterCooldown = false;
+
+  /// Timestamp of last zoom-to-enter check (throttle continuous detection).
+  int _lastZoomCheckTime = 0;
+
   // ============================================================================
   // 🧠 CONSCIOUS ARCHITECTURE STATE
   // ============================================================================
@@ -1021,6 +1084,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🔄 Loading pulse animation for image placeholders
   Timer? _loadingPulseTimer;
+  Timer? _suggestionDebounceTimer; // 💡 Debounced suggestion recomputation
+  // 🔤 SEMANTIC CACHE: Avoid re-recognizing unchanged clusters
+  final Map<String, String> _clusterTextCache = {};        // clusterId → text
+  final Map<String, String> _clusterTextCacheKeys = {};    // clusterId → sorted strokeIds hash
   double _loadingPulseValue = 0.0;
 
   /// 🎤 Real-time listener for remote recordings
@@ -1039,6 +1106,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Tracciamento movimento
   Offset? _initialTapPosition;
   int _lastImageTapTime = 0; // 🌀 Double-tap tracking for rotation reset
+  double? _lastSnapAngle; // 🧲 Track last snapped angle for haptic dedup
 
   /// 📝 Deferred text creation position: saved on pointer-down, consumed on
   /// pointer-up. Cleared on cancel (pinch) to prevent unwanted text creation.
@@ -1317,12 +1385,17 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // identical(old, new) == true on parent setState → Flutter skips these
     // entire sub-trees. Internal ListenableBuilder/ValueListenableBuilder
     // handle canvas-specific repaints autonomously.
-    _backgroundLayerHost = Builder(builder: (_) => _buildBackgroundLayer());
+    _backgroundLayerHost = ValueListenableBuilder<int>(
+      valueListenable: _backgroundVersionNotifier,
+      builder: (_, __, ___) => _buildBackgroundLayer(),
+    );
     _drawingLayerHost = Builder(builder: (_) => _buildDrawingLayer());
     _imageLayerHost = Builder(builder: (_) => _buildImageLayer());
-    _gestureLayerHost = Builder(
-      builder: (ctx) => _buildGestureDetectorLayer(ctx),
+    _gestureLayerHost = ValueListenableBuilder<int>(
+      valueListenable: _gestureRebuildNotifier,
+      builder: (ctx, _, __) => _buildGestureDetectorLayer(ctx),
     );
+
     _currentStrokeHost = Builder(builder: (_) => _buildCurrentStrokeLayer());
     _remoteLiveStrokesHost = Builder(
       builder: (_) => _buildRemoteLiveStrokesLayer(),
@@ -1424,6 +1497,21 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       DrawingPainter.invalidateAllTiles();
       _layerController.notifyListeners();
       HapticFeedback.lightImpact(); // subtle "mode change" feedback
+
+      // 🔮 PARTICLE TICKER: Auto-start when entering LOD 1/2 with connections,
+      // auto-stop when returning to LOD 0 (battery savings)
+      final scale = _canvasController.scale;
+      if (scale < 0.5 &&
+          _knowledgeFlowController != null &&
+          _knowledgeFlowController!.connections.isNotEmpty &&
+          _knowledgeParticleTicker != null &&
+          !_knowledgeParticleTicker!.isActive) {
+        _knowledgeParticleTicker!.start();
+      } else if (scale >= 0.5 &&
+          _knowledgeParticleTicker != null &&
+          _knowledgeParticleTicker!.isActive) {
+        _knowledgeParticleTicker!.stop();
+      }
     };
 
     // 🔑 When gesture/animation fully ends, rebuild the DrawingPainter child
@@ -1431,7 +1519,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // caches the child widget and never rebuilds it after zoom.
     _canvasController.onGestureEnd = () {
       if (mounted) _layerController.notifyListeners();
+      // 🔍 Check if zoom level triggers PDF immersive entry
+      if (mounted) _checkPdfZoomToEnter();
+      // 🖼️ Check if zoom level triggers Image immersive entry
+      if (mounted) _checkImageZoomToEnter();
     };
+
+    // 🔍 Real-time zoom detection: check continuously during pinch gestures
+    _canvasController.addListener(_onPdfZoomCheck);
+    _canvasController.addListener(_onImageZoomCheck);
 
     // 🌀 Load persisted rotation lock preference
     _canvasController.loadPersistedState();
@@ -1474,6 +1570,30 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         );
         // 🌊 Share reflow controller with PDF document drag
         _pdfPageDragController.reflowController = _lassoTool.reflowController;
+        // 🧠 KNOWLEDGE FLOW: Initialize controller + particle ticker + thumbnails
+        _knowledgeFlowController = KnowledgeFlowController();
+        _thumbnailCache = ClusterThumbnailCache();
+        _knowledgeParticleTicker = createTicker((elapsed) {
+          // Tick particles at ~60fps (16ms = 0.016s)
+          _knowledgeFlowController?.tickParticles(0.016, _clusterCache);
+          if (mounted) {
+            _knowledgeFlowController?.version.value++;
+          }
+        });
+        // Start particle animation only when connections exist
+        // (started lazily when first connection is created)
+
+        // 🌊 Auto-reflow: animated controller for stroke-commit reflow
+        _animatedReflowController = AnimatedReflowController(
+          reflowController: _lassoTool.reflowController!,
+          vsync: this,
+          onApplyDeltas: _applyReflowDeltas,
+          onReflowComplete: () {
+            DrawingPainter.invalidateAllTiles();
+            _layerController.sceneGraph.bumpVersion();
+            _autoSaveCanvas();
+          },
+        );
       }
 
       // 💾 Initialize stroke persistence service
@@ -1569,6 +1689,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       _imageEvictionTimer?.cancel();
       _imageEvictionTimer = null;
 
+      // 🔮 PARTICLE THROTTLE: Stop particle ticker to save battery
+      if (_knowledgeParticleTicker != null &&
+          _knowledgeParticleTicker!.isActive) {
+        _particleTickerWasActive = true;
+        _knowledgeParticleTicker!.stop();
+      }
+
       BackgroundSaveService.instance.flush();
 
       // ☁️ Flush pending cloud save on app background
@@ -1585,9 +1712,27 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       _imageEvictionTimer = null;
       _loadingPulseTimer?.cancel();
       _loadingPulseTimer = null;
+
+      // 🔮 PARTICLE THROTTLE: Also stop in app switcher
+      if (_knowledgeParticleTicker != null &&
+          _knowledgeParticleTicker!.isActive) {
+        _particleTickerWasActive = true;
+        _knowledgeParticleTicker!.stop();
+      }
     } else if (state == AppLifecycleState.resumed) {
       // 🚀 SCREEN-ON OPT: Recover from background
       _onResumeFromBackground();
+
+      // 🔮 PARTICLE THROTTLE: Restart ticker if it was active before pause
+      if (_particleTickerWasActive &&
+          _knowledgeParticleTicker != null &&
+          !_knowledgeParticleTicker!.isActive &&
+          _canvasController.scale < 0.5 &&
+          _knowledgeFlowController != null &&
+          _knowledgeFlowController!.connections.isNotEmpty) {
+        _knowledgeParticleTicker!.start();
+      }
+      _particleTickerWasActive = false;
     }
   }
 
@@ -1749,6 +1894,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   void dispose() {
     // 🔥 VULKAN: Release native GPU overlay resources
     _vulkanStrokeOverlay.dispose();
+    // 🌊 REFLOW: Release animated reflow controller
+    _animatedReflowController?.dispose();
+    // 🧠 KNOWLEDGE FLOW: Release controller + ticker + thumbnails
+    _knowledgeParticleTicker?.stop();
+    _knowledgeParticleTicker?.dispose();
+    _knowledgeFlowController?.dispose();
+    _thumbnailCache?.dispose();
 
     // 🚀 DISPOSE OPT: Remove listener FIRST to prevent _onLayerChanged
     // from firing during cleanup (cluster rebuilds on partial state).
@@ -1838,6 +1990,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _isRecordingNotifier.dispose();
     // 🌊 LIQUID: Detach physics ticker before disposal
     _canvasController.detachTicker();
+    _canvasController.removeListener(_onPdfZoomCheck);
     _canvasController.dispose();
     _playbackController?.dispose();
 
@@ -1853,8 +2006,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _toolController.removeListener(_syncHoverState);
     _toolController.dispose();
 
-    // 🚀 PERSISTENT ISOLATE: Shut down the background encoding isolate
-    SaveIsolateService.instance.dispose();
+    // 🚀 PERSISTENT ISOLATE: Do NOT kill the isolate here — it's a singleton
+    // and _performSave() (fire-and-forget above) may still be using it.
+    // The isolate stays warm for the next canvas open, which is desirable.
+    // SaveIsolateService.instance.dispose(); // 🐛 FIX: was racing with _performSave
 
     // 🎤 VOICE RECORDING: Stop active recording and clean up provider
     if (_isRecordingAudio) {

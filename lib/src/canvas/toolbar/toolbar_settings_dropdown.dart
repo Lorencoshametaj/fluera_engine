@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../l10n/fluera_localizations.dart';
 import '../../../testing/brush_testing.dart';
+import '../../dialogs/handwriting_language_picker.dart';
+import '../../services/digital_ink_service.dart';
 
 // ============================================================================
 // TOOLBAR SETTINGS DROPDOWN — Settings menu, rename dialog, OCR, filters
@@ -170,6 +173,65 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
                 ],
               ),
             ),
+            // ✍️ Handwriting Languages (download models)
+            PopupMenuItem<String>(
+              value: 'handwriting_languages',
+              height: 48,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.translate_rounded,
+                    size: 20,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Handwriting Languages',
+                      style: TextStyle(fontSize: 14, color: cs.onSurface),
+                    ),
+                  ),
+                  // Show current language flag + auto-detect badge
+                  Builder(
+                    builder: (_) {
+                      final service = DigitalInkService.instance;
+                      final code = service.languageCode;
+                      final lang = DigitalInkService.supportedLanguages[code];
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (service.autoDetect)
+                            Container(
+                              margin: const EdgeInsets.only(right: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.deepPurple.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Auto',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.deepPurple,
+                                ),
+                              ),
+                            ),
+                          if (lang != null)
+                            Text(
+                              lang.$3, // flag emoji
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
             const PopupMenuDivider(),
             PopupMenuItem<String>(
               value: 'brush_testing',
@@ -215,6 +277,9 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
             break;
           case 'ocr':
             _showOCRLanguageDialog(context);
+            break;
+          case 'handwriting_languages':
+            _showHandwritingLanguagePicker(context);
             break;
           case 'brush_testing':
             _openBrushTestingLab(context);
@@ -307,6 +372,30 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
               ),
             ],
           ),
+    );
+  }
+
+  void _showHandwritingLanguagePicker(BuildContext context) {
+    final service = DigitalInkService.instance;
+    HandwritingLanguagePicker.show(
+      context,
+      activeLanguage: service.languageCode,
+      onLanguageSelected: (code) async {
+        final ok = await service.switchLanguage(code);
+        if (ok && context.mounted) {
+          HapticFeedback.mediumImpact();
+          final lang = DigitalInkService.supportedLanguages[code];
+          if (lang != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${lang.$3} ${lang.$1} activated'),
+                backgroundColor: Colors.deepPurple,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+      },
     );
   }
 

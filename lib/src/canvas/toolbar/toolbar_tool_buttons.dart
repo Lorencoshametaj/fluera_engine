@@ -419,3 +419,28 @@ class ToolbarSectionButton extends StatelessWidget {
     );
   }
 }
+
+/// 🔍 Handwriting Search button (ML Kit powered)
+class ToolbarSearchButton extends StatelessWidget {
+  final bool isActive;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const ToolbarSearchButton({
+    super.key,
+    required this.isActive,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ToolToggleButton(
+      isActive: isActive,
+      onTap: onTap,
+      isDark: isDark,
+      icon: Icons.search_rounded,
+      activeColor: Colors.cyan,
+    );
+  }
+}

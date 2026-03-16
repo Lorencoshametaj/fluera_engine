@@ -169,6 +169,84 @@ class ReflowController {
   }
 
   // ===========================================================================
+  // Displacement Computation (without applying)
+  // ===========================================================================
+
+  /// Compute final displacements without applying them to the scene graph.
+  ///
+  /// Returns a map of element ID → displacement offset for ALL elements
+  /// (strokes, shapes, texts, images) that should be moved.
+  /// This is used by [AnimatedReflowController] to apply displacements
+  /// gradually via spring animation.
+  ///
+  /// Also returns the cluster-level displacements for cache updates.
+  ReflowResult computeFinalDisplacements({
+    required Rect disturbance,
+    required Set<String> excludeIds,
+  }) {
+    final finalDisplacements = engine.solve(
+      clusters: clusterCache,
+      disturbance: disturbance,
+      excludeIds: excludeIds,
+    );
+
+    if (finalDisplacements.isEmpty) {
+      return const ReflowResult.empty();
+    }
+
+    // Expand cluster displacements → element displacements
+    final elementDisplacements = <String, Offset>{};
+    for (final entry in finalDisplacements.entries) {
+      final cluster = clusterCache.firstWhere(
+        (c) => c.id == entry.key,
+        orElse:
+            () => ContentCluster(
+              id: '',
+              strokeIds: const [],
+              bounds: Rect.zero,
+              centroid: Offset.zero,
+            ),
+      );
+      if (cluster.id.isEmpty) continue;
+      for (final id in cluster.strokeIds) {
+        elementDisplacements[id] = entry.value;
+      }
+      for (final id in cluster.shapeIds) {
+        elementDisplacements[id] = entry.value;
+      }
+      for (final id in cluster.textIds) {
+        elementDisplacements[id] = entry.value;
+      }
+      for (final id in cluster.imageIds) {
+        elementDisplacements[id] = entry.value;
+      }
+    }
+
+    return ReflowResult(
+      elementDisplacements: elementDisplacements,
+      clusterDisplacements: finalDisplacements,
+    );
+  }
+
+  /// Update cluster cache bounds after displacements have been applied.
+  ///
+  /// Call this after animation completes to keep cluster bounds accurate.
+  void updateClusterBoundsAfterReflow(Map<String, Offset> clusterDisplacements) {
+    for (final entry in clusterDisplacements.entries) {
+      final displacement = entry.value;
+      if (displacement == Offset.zero) continue;
+      for (final cluster in clusterCache) {
+        if (cluster.id == entry.key) {
+          cluster.bounds = cluster.bounds.shift(displacement);
+          cluster.centroid = cluster.centroid + displacement;
+          cluster.resetDisplacement();
+          break;
+        }
+      }
+    }
+  }
+
+  // ===========================================================================
   // Utilities
   // ===========================================================================
 
@@ -194,4 +272,27 @@ class ReflowController {
     }
     return ids;
   }
+}
+
+/// Result of a reflow displacement computation.
+///
+/// Contains both element-level and cluster-level displacements.
+class ReflowResult {
+  /// Map of element ID → displacement offset.
+  final Map<String, Offset> elementDisplacements;
+
+  /// Map of cluster ID → displacement offset.
+  final Map<String, Offset> clusterDisplacements;
+
+  const ReflowResult({
+    required this.elementDisplacements,
+    required this.clusterDisplacements,
+  });
+
+  const ReflowResult.empty()
+    : elementDisplacements = const {},
+      clusterDisplacements = const {};
+
+  bool get isEmpty => elementDisplacements.isEmpty;
+  bool get isNotEmpty => elementDisplacements.isNotEmpty;
 }

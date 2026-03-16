@@ -249,6 +249,10 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
                     borderRadius: BorderRadius.circular(20),
                     onTap: () {
                       HapticFeedback.lightImpact();
+                      // 🐛 Guard: selection may have been cleared between
+                      // build and tap (e.g. by a concurrent gesture).
+                      final imageElement = _imageTool.selectedImage;
+                      if (imageElement == null) return;
                       final box = btnContext.findRenderObject() as RenderBox;
                       final pos = box.localToGlobal(Offset.zero);
                       final anchor = Rect.fromLTWH(
@@ -257,7 +261,6 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
                         box.size.width,
                         box.size.height,
                       );
-                      final imageElement = _imageTool.selectedImage!;
                       final image = _loadedImages[imageElement.imagePath];
                       showImageActionsPopup(
                         context: btnContext,

@@ -463,6 +463,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
           _paperType = paperType;
         }
       });
+      // 🎨 Refresh background layer with new remote settings
+      BackgroundPainter.clearCache();
+      _backgroundVersionNotifier.value++;
     } catch (e) {
     }
   }
@@ -910,9 +913,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       //    #6 Offload to Isolate for non-blocking main thread
       if (isCompressed) {
         try {
-          finalBytes = await Isolate.run(() {
+          finalBytes = await compute((_) {
             return Uint8List.fromList(GZipCodec().decode(finalBytes));
-          });
+          }, null);
         } catch (e) {
           // Fallback: use bytes as-is (might not be compressed)
         }
@@ -933,7 +936,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
 
       final localPath =
           '${recordingsDir.path}/fluera_recording_$recordingId.m4a';
-      await File(localPath).writeAsBytes(finalBytes, flush: true);
+      if (!kIsWeb) {
+        await File(localPath).writeAsBytes(finalBytes, flush: true);
+      }
 
       // Save to SQLite
       if (RecordingStorageService.instance.isInitialized) {
@@ -1018,7 +1023,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
             .catchError((_) {});
 
         // Delete local file
-        File(removedPath).delete().catchError((_) => File(removedPath));
+        if (!kIsWeb) {
+          File(removedPath).delete().catchError((_) => File(removedPath));
+        }
       }
 
       if (mounted) {
@@ -1148,11 +1155,11 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       if (bytes == null || bytes.isEmpty) return const [];
 
       // Decompress + parse in Isolate (non-blocking)
-      final parsed = await Isolate.run(() {
+      final parsed = await compute((_) {
         final decompressed = GZipCodec().decode(bytes);
         final jsonStr = utf8.decode(decompressed);
         return jsonDecode(jsonStr) as List;
-      });
+      }, null);
 
       final strokes = <SyncedStroke>[];
       for (final raw in parsed) {

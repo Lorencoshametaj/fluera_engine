@@ -65,6 +65,7 @@ extension on _FlueraCanvasScreenState {
         setState(() => _canvasBackgroundColor = color);
         BackgroundPainter.clearCache();
         DrawingPainter.invalidateAllTiles();
+        _backgroundVersionNotifier.value++;
         _autoSaveCanvas();
       },
       onPaperTypeChanged: _changePaperType,
@@ -84,6 +85,8 @@ extension on _FlueraCanvasScreenState {
     BackgroundPainter.clearCache();
     // Invalidate drawing tiles (paper pattern is baked into export tiles)
     DrawingPainter.invalidateAllTiles();
+    // 🎨 Trigger background layer rebuild with new paper type
+    _backgroundVersionNotifier.value++;
     // Auto-save with new paper type
     _autoSaveCanvas();
   }

@@ -387,6 +387,9 @@ class HandednessSettings {
     _recordRejection(position, reason, radiusMajor);
   }
 
+  /// ⏱️ Throttle: last time haptic fired for rejection (ms since epoch).
+  int _lastRejectionHapticTime = 0;
+
   void _recordRejection(
       Offset position, PalmRejectionReason reason, double radiusMajor) {
     // 🐛 Debug info
@@ -394,8 +397,13 @@ class HandednessSettings {
     lastRejectionReason = reason;
     rejectedTouchCount++;
 
-    // 📳 Haptic
-    HapticFeedback.lightImpact();
+    // 📳 Haptic — throttled to max 1x per 500ms to avoid infinite vibration
+    // when palm rests on screen during stylus drawing.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastRejectionHapticTime > 500) {
+      _lastRejectionHapticTime = now;
+      HapticFeedback.lightImpact();
+    }
 
     // 🧠 ADAPTIVE LEARNING — collect radii to refine threshold
     if (radiusMajor > 5.0) {

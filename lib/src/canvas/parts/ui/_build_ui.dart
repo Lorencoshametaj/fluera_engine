@@ -261,6 +261,102 @@ extension on _FlueraCanvasScreenState {
                             ),
                           ),
                         ),
+
+                        // 🔍 Handwriting Search Overlay (inside canvas stack = below toolbar)
+                        if (_showHandwritingSearch)
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: HandwritingSearchOverlay(
+                              canvasId: _canvasId,
+                              textElements: _digitalTextElements,
+                              getViewportRect: () {
+                                final s = _canvasController.scale;
+                                final o = _canvasController.offset;
+                                final vp = MediaQuery.of(context).size;
+                                return Rect.fromLTWH(
+                                  -o.dx / s,
+                                  -o.dy / s,
+                                  vp.width / s,
+                                  vp.height / s,
+                                );
+                              },
+                              onNavigate: (result) {
+                                // 🔍 Navigate to search result: optimal pan + zoom
+                                final viewportSize = MediaQuery.of(context).size;
+                                final center = result.bounds.center;
+                                final currentScale = _canvasController.scale;
+
+                                // Compute optimal scale: result should fill ~50% of viewport width
+                                final resultW = result.bounds.width.clamp(10.0, double.infinity);
+                                final resultH = result.bounds.height.clamp(10.0, double.infinity);
+                                final scaleForWidth = (viewportSize.width * 0.5) / resultW;
+                                final scaleForHeight = (viewportSize.height * 0.4) / resultH;
+                                final optimalScale = scaleForWidth < scaleForHeight
+                                    ? scaleForWidth
+                                    : scaleForHeight;
+                                // Clamp to reasonable range and add 20% padding
+                                final targetScale = (optimalScale * 0.8).clamp(0.5, 4.0);
+
+                                // Check if zoom change is needed (result too small or too large on screen)
+                                final resultScreenW = resultW * currentScale;
+                                final needsZoom = resultScreenW < 100 || resultScreenW > 400;
+
+                                final useScale = needsZoom ? targetScale : currentScale;
+
+                                // Pan to center the result at the (potentially new) scale
+                                final targetOffset = Offset(
+                                  viewportSize.width / 2 - center.dx * useScale,
+                                  viewportSize.height / 2 - center.dy * useScale,
+                                );
+                                _canvasController.animateOffsetTo(targetOffset);
+
+                                // Zoom if needed
+                                if (needsZoom && (targetScale - currentScale).abs() > 0.1) {
+                                  _canvasController.animateZoomTo(
+                                    targetScale,
+                                    Offset(viewportSize.width / 2, viewportSize.height / 2),
+                                  );
+                                }
+
+                                setState(() {
+                                  _hwSearchActiveIndex = _hwSearchResults.indexOf(result);
+                                });
+                              },
+                              onDismiss: () {
+                                setState(() {
+                                  _showHandwritingSearch = false;
+                                  _hwSearchResults = [];
+                                  _hwSearchActiveIndex = 0;
+                                });
+                              },
+                              onResultsChanged: (results) {
+                                setState(() {
+                                  _hwSearchResults = results;
+                                  _hwSearchActiveIndex = results.isNotEmpty ? 0 : -1;
+                                });
+                              },
+                            ),
+                          ),
+
+                        // 🔍 Handwriting Search Highlights on canvas
+                        if (_hwSearchResults.isNotEmpty)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: AnimatedBuilder(
+                                animation: _canvasController,
+                                builder: (context, _) {
+                                  return HandwritingSearchHighlights(
+                                    results: _hwSearchResults,
+                                    activeIndex: _hwSearchActiveIndex,
+                                    canvasOffset: _canvasController.offset,
+                                    canvasScale: _canvasController.scale,
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -343,61 +439,7 @@ extension on _FlueraCanvasScreenState {
               // 👻 Ghost shape suggestion overlay
               _buildGhostSuggestionOverlay(),
 
-              // 🔍 Handwriting Search Overlay (above canvas, below menus)
-              if (_showHandwritingSearch)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: HandwritingSearchOverlay(
-                    canvasId: _canvasId,
-                    onNavigate: (result) {
-                      // Scroll canvas to matched stroke bounds
-                      final center = result.bounds.center;
-                      final screenCenter = Offset(
-                        MediaQuery.of(context).size.width / 2,
-                        MediaQuery.of(context).size.height / 2,
-                      );
-                      final targetOffset = Offset(
-                        screenCenter.dx - center.dx * _canvasController.scale,
-                        screenCenter.dy - center.dy * _canvasController.scale,
-                      );
-                      _canvasController.animateOffsetTo(targetOffset);
-                      setState(() {
-                        _hwSearchActiveIndex = _hwSearchResults.indexOf(result);
-                      });
-                    },
-                    onDismiss: () {
-                      setState(() {
-                        _showHandwritingSearch = false;
-                        _hwSearchResults = [];
-                        _hwSearchActiveIndex = 0;
-                      });
-                    },
-                    onResultsChanged: (results) {
-                      setState(() {
-                        _hwSearchResults = results;
-                        _hwSearchActiveIndex = results.isNotEmpty ? 0 : -1;
-                      });
-                    },
-                  ),
-                ),
 
-              // 🔍 Handwriting Search Highlights on canvas
-              if (_hwSearchResults.isNotEmpty)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: AnimatedBuilder(
-                      animation: _canvasController,
-                      builder: (context, _) {
-                        return HandwritingSearchHighlights(
-                          results: _hwSearchResults,
-                          activeIndex: _hwSearchActiveIndex,
-                        );
-                      },
-                    ),
-                  ),
-                ),
 
               // 🎬 Loading overlay (splash screen during initialization)
               _buildLoadingOverlay(),

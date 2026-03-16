@@ -165,7 +165,7 @@ class ClusterDetector {
       // Create new single-stroke cluster
       result.add(
         ContentCluster(
-          id: 'cluster_stroke_${generateUid()}',
+          id: 'cluster_stroke_${newStroke.id}',
           strokeIds: [newStroke.id],
           bounds: newBounds,
           centroid: newBounds.center,
@@ -186,7 +186,7 @@ class ClusterDetector {
       final bounds = strokes[0].bounds;
       return [
         ContentCluster(
-          id: 'cluster_stroke_${generateUid()}',
+          id: 'cluster_stroke_${strokes[0].id}',
           strokeIds: [strokes[0].id],
           bounds: bounds,
           centroid: bounds.center,
@@ -264,8 +264,12 @@ class ClusterDetector {
         bounds = bounds.expandToInclude(clusterStrokes[i].bounds);
       }
 
+      // Deterministic ID: hash of sorted stroke IDs → stable across rebuilds
+      final sortedIds = List<String>.from(ids)..sort();
+      final deterministicId = 'cluster_stroke_${sortedIds.join("_").hashCode.toRadixString(36)}';
+
       return ContentCluster(
-        id: 'cluster_stroke_${generateUid()}',
+        id: deterministicId,
         strokeIds: ids,
         bounds: bounds,
         centroid: bounds.center,

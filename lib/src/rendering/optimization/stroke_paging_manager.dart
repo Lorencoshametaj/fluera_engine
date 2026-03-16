@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../../storage/sqflite_stub_web.dart'
     if (dart.library.ffi) 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../drawing/models/pro_drawing_point.dart';
@@ -279,9 +280,14 @@ class StrokePagingManager {
     if (_db == null) return;
 
     final batch = _db!.batch();
+    int indexed = 0;
+    int skippedStubs = 0;
 
     for (final (layerId, stroke) in allStrokes) {
-      if (stroke.isStub) continue; // Skip stubs — already indexed
+      if (stroke.isStub) {
+        skippedStubs++;
+        continue; // Skip stubs — already indexed
+      }
       final strokeJson = jsonEncode(stroke.toJson());
       final bounds = stroke.bounds;
 
@@ -295,8 +301,10 @@ class StrokePagingManager {
         'bounds_r': bounds.right,
         'bounds_b': bounds.bottom,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
+      indexed++;
     }
 
+    debugPrint('🗂️ [INDEX-DEBUG] indexAllStrokes: canvasId=$canvasId, total=${allStrokes.length}, indexed=$indexed, skippedStubs=$skippedStubs');
     await batch.commit(noResult: true);
   }
 

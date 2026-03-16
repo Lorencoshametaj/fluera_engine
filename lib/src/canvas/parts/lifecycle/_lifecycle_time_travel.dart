@@ -302,9 +302,11 @@ extension on _FlueraCanvasScreenState {
 
     // Images: sposta position + verifica file
     for (final image in _pendingRecoveryImages) {
-      final file = File(image.imagePath);
-      if (!file.existsSync()) {
-        continue;
+      if (!kIsWeb) {
+        final file = File(image.imagePath);
+        if (!file.existsSync()) {
+          continue;
+        }
       }
 
       final recovered = image.copyWith(

@@ -11,6 +11,31 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🧠 KNOWLEDGE FLOW: Update connection drag position + snap detection
+    if (_isConnectionDragging && _knowledgeFlowController != null) {
+      _connectionDragCurrentPoint = canvasPosition;
+
+      // Detect magnetic snap to nearest cluster
+      final snap = _knowledgeFlowController!.findNearestCluster(
+        canvasPosition,
+        _clusterCache,
+        maxDistance: 60.0 / _canvasController.scale,
+        excludeClusterId: _connectionDragSourceClusterId,
+      );
+
+      final prevSnap = _connectionSnapTargetClusterId;
+      _connectionSnapTargetClusterId = snap?.id;
+
+      // Haptic feedback on new snap
+      if (snap != null && snap.id != prevSnap) {
+        HapticFeedback.lightImpact();
+      }
+
+      _knowledgeFlowController!.version.value++;
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
     //  PRESENCE: Feed cursor + tool info to remote users (Phase 2)
 
     // 📌 PIN DRAG: Route drag updates to pin handler
@@ -198,7 +223,7 @@ extension on _FlueraCanvasScreenState {
         return;
       }
     } // 🌀 Handle single-finger rotation via rotation handle (pan mode only)
-    if (_effectiveIsPanMode && _imageTool.isHandleRotating) {
+    if (_imageTool.isHandleRotating) {
       final updated = _imageTool.updateHandleRotation(canvasPosition);
       if (updated != null) {
         final index = _imageElements.indexWhere((e) => e.id == updated.id);
@@ -1122,34 +1147,60 @@ extension on _FlueraCanvasScreenState {
     // with multiply blend mode. The GPU would render an opaque ballpoint stroke
     // instead, overriding the Flutter translucent highlighter appearance.
     if (_vulkanOverlayActive && _effectivePenType != ProPenType.highlighter) {
-      _vulkanStrokeOverlay.updateAndRender(
-        _currentStrokeNotifier.value,
-        _effectiveColor,
-        _effectiveWidth,
-        brushType:
-            _effectivePenType == ProPenType.marker
-                ? 1
-                : _effectivePenType == ProPenType.pencil
-                ? 2
-                : _effectivePenType == ProPenType.technicalPen
-                ? 3
-                : _effectivePenType == ProPenType.fountain
-                ? 4
-                : 0,
-        pencilBaseOpacity: _brushSettings.pencilBaseOpacity,
-        pencilMaxOpacity: _brushSettings.pencilMaxOpacity,
-        pencilMinPressure: _effectivePenType == ProPenType.ballpoint
-            ? _brushSettings.ballpointMinPressure
-            : _brushSettings.pencilMinPressure,
-        pencilMaxPressure: _effectivePenType == ProPenType.ballpoint
-            ? _brushSettings.ballpointMaxPressure
-            : _brushSettings.pencilMaxPressure,
-        fountainThinning: _brushSettings.fountainThinning,
-        fountainNibAngleDeg: _brushSettings.fountainNibAngleDeg,
-        fountainNibStrength: _brushSettings.fountainNibStrength,
-        fountainPressureRate: _brushSettings.fountainPressureRate,
-        fountainTaperEntry: _brushSettings.fountainTaperEntry,
-      );
+      final brushType =
+          _effectivePenType == ProPenType.marker
+              ? 1
+              : _effectivePenType == ProPenType.pencil
+              ? 2
+              : _effectivePenType == ProPenType.technicalPen
+              ? 3
+              : _effectivePenType == ProPenType.fountain
+              ? 4
+              : 0;
+
+      if (kIsWeb && _webGpuOverlayActive) {
+        // 🌐 WEB: Forward to WebGPU renderer
+        _webGpuStrokeOverlay.updateAndRender(
+          _currentStrokeNotifier.value,
+          _effectiveColor,
+          _effectiveWidth,
+          brushType: brushType,
+          pencilBaseOpacity: _brushSettings.pencilBaseOpacity,
+          pencilMaxOpacity: _brushSettings.pencilMaxOpacity,
+          pencilMinPressure: _effectivePenType == ProPenType.ballpoint
+              ? _brushSettings.ballpointMinPressure
+              : _brushSettings.pencilMinPressure,
+          pencilMaxPressure: _effectivePenType == ProPenType.ballpoint
+              ? _brushSettings.ballpointMaxPressure
+              : _brushSettings.pencilMaxPressure,
+          fountainThinning: _brushSettings.fountainThinning,
+          fountainNibAngleDeg: _brushSettings.fountainNibAngleDeg,
+          fountainNibStrength: _brushSettings.fountainNibStrength,
+          fountainPressureRate: _brushSettings.fountainPressureRate,
+          fountainTaperEntry: _brushSettings.fountainTaperEntry,
+        );
+      } else {
+        // 🔥 NATIVE: Forward to Vulkan/Metal renderer
+        _vulkanStrokeOverlay.updateAndRender(
+          _currentStrokeNotifier.value,
+          _effectiveColor,
+          _effectiveWidth,
+          brushType: brushType,
+          pencilBaseOpacity: _brushSettings.pencilBaseOpacity,
+          pencilMaxOpacity: _brushSettings.pencilMaxOpacity,
+          pencilMinPressure: _effectivePenType == ProPenType.ballpoint
+              ? _brushSettings.ballpointMinPressure
+              : _brushSettings.pencilMinPressure,
+          pencilMaxPressure: _effectivePenType == ProPenType.ballpoint
+              ? _brushSettings.ballpointMaxPressure
+              : _brushSettings.pencilMaxPressure,
+          fountainThinning: _brushSettings.fountainThinning,
+          fountainNibAngleDeg: _brushSettings.fountainNibAngleDeg,
+          fountainNibStrength: _brushSettings.fountainNibStrength,
+          fountainPressureRate: _brushSettings.fountainPressureRate,
+          fountainTaperEntry: _brushSettings.fountainTaperEntry,
+        );
+      }
     }
 
     // ☁️ REALTIME: Stream live stroke points to collaborators (throttled)

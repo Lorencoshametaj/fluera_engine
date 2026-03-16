@@ -6,6 +6,78 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🧠 KNOWLEDGE FLOW: Finalize connection drag
+    if (_isConnectionDragging && _knowledgeFlowController != null) {
+      if (_connectionSnapTargetClusterId != null &&
+          _connectionDragSourceClusterId != null) {
+        // Create the connection!
+        final conn = _knowledgeFlowController!.addConnection(
+          sourceClusterId: _connectionDragSourceClusterId!,
+          targetClusterId: _connectionSnapTargetClusterId!,
+        );
+
+        if (conn != null) {
+          HapticFeedback.heavyImpact(); // Success!
+          // Start particle animation if not already running
+          if (_knowledgeParticleTicker != null &&
+              !_knowledgeParticleTicker!.isActive) {
+            _knowledgeParticleTicker!.start();
+          }
+          // 💾 Auto-save after creating connection
+          _autoSaveCanvas();
+
+          // 🏷️ Show label editor at connection midpoint
+          final srcCluster = _clusterCache.firstWhere(
+            (c) => c.id == _connectionDragSourceClusterId,
+            orElse: () => _clusterCache.first,
+          );
+          final tgtCluster = _clusterCache.firstWhere(
+            (c) => c.id == _connectionSnapTargetClusterId,
+            orElse: () => _clusterCache.first,
+          );
+          final cp = _knowledgeFlowController!.getControlPoint(
+            srcCluster.centroid,
+            tgtCluster.centroid,
+            conn.curveStrength,
+          );
+          final midCanvas = _knowledgeFlowController!.pointOnQuadBezier(
+            srcCluster.centroid,
+            cp,
+            tgtCluster.centroid,
+            0.5,
+          );
+          // Convert canvas → screen
+          final screenPos = _canvasController.canvasToScreen(midCanvas);
+          setState(() {
+            _editingLabelConnectionId = conn.id;
+            _labelOverlayScreenPosition = screenPos;
+          });
+        }
+      } else if (_connectionDragSourceClusterId != null) {
+        // 🔍 No snap target → show cluster preview
+        final srcCluster = _clusterCache
+            .where((c) => c.id == _connectionDragSourceClusterId)
+            .firstOrNull;
+        if (srcCluster != null) {
+          final screenPos = _canvasController.canvasToScreen(srcCluster.centroid);
+          setState(() {
+            _previewingClusterId = srcCluster.id;
+            _previewOverlayScreenPosition = screenPos;
+          });
+        }
+      }
+
+      // Reset drag state
+      _isConnectionDragging = false;
+      _connectionDragSourcePoint = null;
+      _connectionDragCurrentPoint = null;
+      _connectionDragSourceClusterId = null;
+      _connectionSnapTargetClusterId = null;
+      _knowledgeFlowController!.version.value++;
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
     // Indica che l'utente ha finito di disegnare
     _isDrawingNotifier.value = false;
     CanvasPerformanceMonitor.instance.notifyDrawingEnded(); // 🚀 Resume overlay
@@ -196,7 +268,7 @@ extension on _FlueraCanvasScreenState {
     }
 
     // 🌀 End single-finger handle rotation (pan mode only)
-    if (_effectiveIsPanMode && _imageTool.isHandleRotating) {
+    if (_imageTool.isHandleRotating) {
       _imageTool.endHandleRotation();
       _imageVersion++;
       _rebuildImageSpatialIndex();
@@ -206,6 +278,7 @@ extension on _FlueraCanvasScreenState {
         _broadcastImageUpdate(_imageTool.selectedImage!);
       }
       _uiRebuildNotifier.value++;
+      _autoSaveCanvas(); // 💾 Persist handle rotation to disk
       return;
     }
 
@@ -447,6 +520,8 @@ extension on _FlueraCanvasScreenState {
           _eraserTool.persistRadius();
           // 📄 Clean up orphaned PDF annotation IDs
           _reconcilePdfAnnotations();
+          // 🔍 Fix 3: Reconcile search index after erasing
+          _reconcileSearchIndex();
           DrawingPainter.invalidateAllTiles();
           _autoSaveCanvas();
           if (mounted) _uiRebuildNotifier.value++;
@@ -474,6 +549,8 @@ extension on _FlueraCanvasScreenState {
         _eraserTool.mergeAdjacentFragments();
         // 📄 Clean up orphaned PDF annotation IDs after erase
         _reconcilePdfAnnotations();
+        // 🔍 Fix 3: Reconcile search index after erasing
+        _reconcileSearchIndex();
         DrawingPainter.invalidateAllTiles();
         _autoSaveCanvas();
       });
@@ -678,9 +755,11 @@ extension on _FlueraCanvasScreenState {
     // The SNAP FIX (trim to renderedCount above) prevents elongation
     // from unrendered tail points.
 
-    // 🖼️ IMAGE STROKE ROUTING: If stroke started on an image, attach it
-    // to the image's drawingStrokes instead of the canvas layer.
+    // 🖼️ IMAGE STROKE ROUTING: If stroke started on an image, clip it to
+    // the image boundary. Segments inside → image.drawingStrokes,
+    // segments outside → regular canvas layer.
     ImageElement? targetImage;
+    Rect? targetImageRect;
     if (stroke.points.isNotEmpty) {
       final firstPoint = stroke.points.first.position;
       for (int i = 0; i < _imageElements.length; i++) {
@@ -699,66 +778,150 @@ extension on _FlueraCanvasScreenState {
         );
         if (imageRect.contains(firstPoint)) {
           targetImage = img;
+          targetImageRect = imageRect;
           break;
         }
       }
     }
 
-    if (targetImage != null) {
-      // 🖼️ Stroke belongs to the image — convert to image-local coordinates
+    if (targetImage != null && targetImageRect != null) {
+      // 🖼️ Split stroke at image boundary crossings
       final idx = _imageElements.indexWhere((e) => e.id == targetImage!.id);
       if (idx != -1) {
         final img = _imageElements[idx];
-        // Transform: canvas → image-local
-        // 🐛 FIX: Only un-translate + un-rotate, do NOT apply invScale!
-        //    Velocity-based brushes (fountain pen) compute width from
-        //    inter-point distances. Multiplying positions by invScale
-        //    inflates distances (e.g., 8.6× for scale=0.116), causing
-        //    the brush to over-thin the stroke. Strokes are stored in
-        //    un-translated, un-rotated canvas space and rendered with
-        //    translate + rotate only (no canvas.scale for strokes).
         final cosR = math.cos(-img.rotation);
         final sinR = math.sin(-img.rotation);
 
-        final localPoints =
-            stroke.points.map((p) {
-              // 1. Un-translate
-              final dx = p.position.dx - img.position.dx;
-              final dy = p.position.dy - img.position.dy;
-              // 2. Un-rotate
-              final rx = dx * cosR - dy * sinR;
-              final ry = dx * sinR + dy * cosR;
-              // 3. NO invScale — preserve canvas-space distances
-              return p.copyWith(position: Offset(rx, ry));
-            }).toList();
+        // Walk the stroke and split into inside/outside segments
+        final insideSegments = <List<ProDrawingPoint>>[];
+        final outsideSegments = <List<ProDrawingPoint>>[];
 
-        final localStroke = stroke.copyWith(
-          points: localPoints,
-          baseWidth: stroke.baseWidth, // NO invScale
-          referenceScale: img.scale, // 🖼️ Store image scale at draw time
-        );
+        var currentInside = <ProDrawingPoint>[];
+        var currentOutside = <ProDrawingPoint>[];
+        bool wasInside = true; // starts inside (first point confirmed)
+
+        for (int pi = 0; pi < stroke.points.length; pi++) {
+          final pt = stroke.points[pi];
+          final isInside = targetImageRect.contains(pt.position);
+
+          if (isInside) {
+            if (!wasInside && currentOutside.isNotEmpty) {
+              // Crossed back inside — finalize outside segment
+              // Interpolate the crossing point
+              if (pi > 0) {
+                final edgePt = _interpolateEdgeCrossing(
+                  stroke.points[pi - 1].position, pt.position, targetImageRect,
+                );
+                if (edgePt != null) {
+                  final crossPt = pt.copyWith(position: edgePt);
+                  currentOutside.add(crossPt);
+                  currentInside.add(crossPt);
+                }
+              }
+              outsideSegments.add(currentOutside);
+              currentOutside = <ProDrawingPoint>[];
+            }
+            currentInside.add(pt);
+            wasInside = true;
+          } else {
+            if (wasInside && currentInside.isNotEmpty) {
+              // Crossed outside — finalize inside segment
+              if (pi > 0) {
+                final edgePt = _interpolateEdgeCrossing(
+                  stroke.points[pi - 1].position, pt.position, targetImageRect,
+                );
+                if (edgePt != null) {
+                  final crossPt = pt.copyWith(position: edgePt);
+                  currentInside.add(crossPt);
+                  currentOutside.add(crossPt);
+                }
+              }
+              insideSegments.add(currentInside);
+              currentInside = <ProDrawingPoint>[];
+            }
+            currentOutside.add(pt);
+            wasInside = false;
+          }
+        }
+        // Flush remaining segment
+        if (currentInside.isNotEmpty) insideSegments.add(currentInside);
+        if (currentOutside.isNotEmpty) outsideSegments.add(currentOutside);
+
+        // 🐛 DEBUG: Trace stroke splitting behavior (profile-safe — no toString)
+        final _fp = stroke.points.first.position;
+        final _lp = stroke.points.last.position;
+        debugPrint('[IMAGE CLIP] rect=LTRB(${targetImageRect.left.toStringAsFixed(0)},${targetImageRect.top.toStringAsFixed(0)},${targetImageRect.right.toStringAsFixed(0)},${targetImageRect.bottom.toStringAsFixed(0)}) '
+            'first=(${_fp.dx.toStringAsFixed(0)},${_fp.dy.toStringAsFixed(0)}) '
+            'last=(${_lp.dx.toStringAsFixed(0)},${_lp.dy.toStringAsFixed(0)}) '
+            'total=${stroke.points.length} '
+            'insideSegs=${insideSegments.length}[${insideSegments.map((s) => s.length).join(",")}] '
+            'outsideSegs=${outsideSegments.length}[${outsideSegments.map((s) => s.length).join(",")}]');
+
+        // ── Add inside segments to image ──
+        final newDrawingStrokes = [..._imageElements[idx].drawingStrokes];
+        for (final seg in insideSegments) {
+          if (seg.length < 2) continue;
+          // Transform: canvas → image-local
+          final localPoints = seg.map((p) {
+            final dx = p.position.dx - img.position.dx;
+            final dy = p.position.dy - img.position.dy;
+            final rx = dx * cosR - dy * sinR;
+            final ry = dx * sinR + dy * cosR;
+            return p.copyWith(position: Offset(rx, ry));
+          }).toList();
+
+          newDrawingStrokes.add(stroke.copyWith(
+            id: insideSegments.length == 1 ? stroke.id : generateUid(),
+            points: localPoints,
+            baseWidth: stroke.baseWidth,
+            referenceScale: img.scale,
+          ));
+        }
         final updated = _imageElements[idx].copyWith(
-          drawingStrokes: [..._imageElements[idx].drawingStrokes, localStroke],
+          drawingStrokes: newDrawingStrokes,
         );
         _imageElements[idx] = updated;
         _layerController.updateImage(updated);
         _imageVersion++;
-        _rebuildImageSpatialIndex(); // 🔧 R-tree must see updated drawingStrokes
+        _rebuildImageSpatialIndex();
         _imageRepaintNotifier.value++;
-        // 🔴 RT: Broadcast as image update (includes drawingStrokes)
         _broadcastImageUpdate(updated);
+
+        // ── Add outside segments to regular canvas ──
+        for (final seg in outsideSegments) {
+          if (seg.length < 2) continue;
+          final outsideStroke = stroke.copyWith(
+            id: generateUid(),
+            points: seg,
+          );
+          _layerController.addStroke(outsideStroke);
+          DrawingPainter.invalidateTilesForStroke(outsideStroke);
+          _broadcastStrokeAdded(outsideStroke);
+          if (outsideStroke.points.length >= 5) {
+            HandwritingIndexService.instance.enqueueStroke(
+              _canvasId,
+              outsideStroke.id,
+              outsideStroke.points,
+              outsideStroke.bounds,
+            );
+          }
+        }
       }
     } else {
       // Regular canvas stroke
       if (_vulkanOverlayActive) {
-        // 🔥 VULKAN HANDOFF — Flash-free sequence:
+        // 🔥 GPU HANDOFF — Flash-free sequence:
         // 1. Instantly hide GPU texture (opacity 0 via ValueNotifier, synchronous)
         //    This prevents double-opacity overlap (GPU + committed both visible).
         // 2. addStroke normally — DrawingPainter paints on next frame.
         // 3. clear() GPU in background — texture content cleaned for next stroke.
         //    GPU texture is made visible again at next draw-start.
         _vulkanTextureOpacity.value = 0.0;
-        _vulkanStrokeOverlay.clear();
+        if (kIsWeb && _webGpuOverlayActive) {
+          _webGpuStrokeOverlay.clear();
+        } else {
+          _vulkanStrokeOverlay.clear();
+        }
       }
       _layerController.addStroke(stroke);
       DrawingPainter.invalidateTilesForStroke(stroke);
@@ -809,6 +972,26 @@ extension on _FlueraCanvasScreenState {
         activeLayer.strokes,
       );
       _lassoTool.reflowController?.updateClusters(_clusterCache);
+
+      // 🖼️ THUMBNAIL: Generate/update thumbnails for changed clusters
+      if (_thumbnailCache != null) {
+        final strokes = activeLayer.strokes;
+        for (final cluster in _clusterCache) {
+          if (cluster.elementCount < 1) continue;
+          if (!_thumbnailCache!.isStale(cluster.id, cluster.bounds)) continue;
+
+          // Collect strokes for this cluster
+          final clusterStrokes = <ProStroke>[];
+          for (final sid in cluster.strokeIds) {
+            final s = strokes.where((s) => s.id == sid);
+            if (s.isNotEmpty) clusterStrokes.add(s.first);
+          }
+
+          if (clusterStrokes.isNotEmpty) {
+            _thumbnailCache!.generateThumbnail(cluster, clusterStrokes);
+          }
+        }
+      }
     }
 
     // 🪞 Phase 5: Symmetry mode — mirror/kaleidoscope stroke
@@ -962,6 +1145,80 @@ extension on _FlueraCanvasScreenState {
 
   /// 📄 Translate all annotation strokes matching [annotationIds] by [delta].
   ///
+  /// 🌊 REFLOW: Apply incremental displacement deltas to strokes.
+  ///
+  /// Called by [AnimatedReflowController] on each animation frame.
+  /// Translates stroke points by the given delta for each affected element.
+  /// This follows the same pattern as [_translateAnnotationStrokes].
+  void _applyReflowDeltas(Map<String, Offset> deltas) {
+    if (deltas.isEmpty) return;
+
+    final deltaIds = deltas.keys.toSet();
+    bool anyModified = false;
+
+    for (final layer in _layerController.layers) {
+      bool layerModified = false;
+      for (final strokeNode in layer.node.strokeNodes) {
+        final delta = deltas[strokeNode.stroke.id];
+        if (delta == null || delta == Offset.zero) continue;
+
+        final old = strokeNode.stroke;
+        final translatedPoints =
+            old.points.map((p) {
+              return p.copyWith(position: p.position + delta);
+            }).toList();
+        strokeNode.stroke = old.copyWith(points: translatedPoints);
+        layerModified = true;
+      }
+      if (layerModified) {
+        layer.node.invalidateTypedCaches();
+        anyModified = true;
+      }
+    }
+
+    // Also translate shapes, text, images if they were affected
+    for (final entry in deltas.entries) {
+      final delta = entry.value;
+      if (delta == Offset.zero) continue;
+
+      // Shapes
+      for (int i = 0; i < _cachedAllShapes.length; i++) {
+        if (_cachedAllShapes[i].id == entry.key) {
+          _cachedAllShapes[i] = _cachedAllShapes[i].copyWith(
+            startPoint: _cachedAllShapes[i].startPoint + delta,
+            endPoint: _cachedAllShapes[i].endPoint + delta,
+          );
+          anyModified = true;
+        }
+      }
+
+      // Digital text elements
+      for (int i = 0; i < _digitalTextElements.length; i++) {
+        if (_digitalTextElements[i].id == entry.key) {
+          _digitalTextElements[i] = _digitalTextElements[i].copyWith(
+            position: _digitalTextElements[i].position + delta,
+          );
+          anyModified = true;
+        }
+      }
+
+      // Image elements
+      for (int i = 0; i < _imageElements.length; i++) {
+        if (_imageElements[i].id == entry.key) {
+          _imageElements[i] = _imageElements[i].copyWith(
+            position: _imageElements[i].position + delta,
+          );
+          anyModified = true;
+        }
+      }
+    }
+
+    if (anyModified) {
+      _layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+    }
+  }
+
   /// Creates new ProStroke instances with translated point positions and
   /// replaces them on their StrokeNode. This ensures strokes follow
   /// their linked PDF page when it's dragged to a new position.
@@ -990,5 +1247,63 @@ extension on _FlueraCanvasScreenState {
     }
     // Bump version so caches (stroke cache, annotation cache) rebuild
     _layerController.sceneGraph.bumpVersion();
+  }
+
+  /// 🔍 Fix 3: Reconcile handwriting search index with actual strokes.
+  ///
+  /// Removes orphaned index entries for strokes that were erased.
+  /// Fire-and-forget — runs asynchronously without blocking UI.
+  void _reconcileSearchIndex() {
+    if (!HandwritingIndexService.instance.isInitialized) return;
+    final existingIds = <String>{};
+    for (final layer in _layerController.layers) {
+      for (final stroke in layer.strokes) {
+        existingIds.add(stroke.id);
+      }
+    }
+    HandwritingIndexService.instance.reconcileWithStrokes(
+      _canvasId,
+      existingIds,
+    );
+  }
+
+  /// Finds the exact point where a line segment from→to crosses the rect edge.
+  /// Returns null if no crossing is found (both inside or both outside on same side).
+  Offset? _interpolateEdgeCrossing(Offset from, Offset to, Rect rect) {
+    // Check intersection with each of the 4 rect edges
+    double? bestT;
+    Offset? bestPt;
+
+    // Helper: intersect segment from→to with an axis-aligned line segment
+    void checkEdge(Offset a, Offset b) {
+      final dFrom = to - from;
+      final dEdge = b - a;
+      final cross = dFrom.dx * dEdge.dy - dFrom.dy * dEdge.dx;
+      if (cross.abs() < 1e-10) return; // Parallel
+
+      final t = ((a.dx - from.dx) * dEdge.dy - (a.dy - from.dy) * dEdge.dx) / cross;
+      final u = ((a.dx - from.dx) * dFrom.dy - (a.dy - from.dy) * dFrom.dx) / cross;
+
+      if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        if (bestT == null || t < bestT!) {
+          bestT = t;
+          bestPt = Offset(
+            from.dx + t * dFrom.dx,
+            from.dy + t * dFrom.dy,
+          );
+        }
+      }
+    }
+
+    // Top edge
+    checkEdge(rect.topLeft, rect.topRight);
+    // Bottom edge
+    checkEdge(rect.bottomLeft, rect.bottomRight);
+    // Left edge
+    checkEdge(rect.topLeft, rect.bottomLeft);
+    // Right edge
+    checkEdge(rect.topRight, rect.bottomRight);
+
+    return bestPt;
   }
 }

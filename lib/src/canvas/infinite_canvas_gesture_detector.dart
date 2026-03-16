@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,7 @@ import './overlays/stylus_hover_overlay.dart';
 /// - Pan with a dito (se enableSingleFingerPan = true)
 /// - 🖊️ Stylus Mode: stylus draws, finger pans
 bool _defaultBlockPanZoom() => false;
+bool _defaultShouldRotateImage(Offset _) => false;
 
 class InfiniteCanvasGestureDetector extends StatefulWidget {
   final InfiniteCanvasController controller;
@@ -55,8 +57,13 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
 
   // 🌀 Image rotation callbacks (two-finger rotate + scale on selected image)
   final VoidCallback? onImageScaleStart;
-  final Function(double rotationDelta, double scaleDelta)? onImageTransform;
+  final Function(double rotationDelta, double scaleDelta, Offset focalPointDelta)? onImageTransform;
   final VoidCallback? onImageScaleEnd;
+  /// ⚡ Evaluated at GESTURE TIME (not build time) to decide whether
+  /// two-finger gestures should route to image rotation.
+  /// Receives the gesture focal point (screen coords) to hit-test images.
+  /// Returns true when a two-finger gesture is over an image.
+  final bool Function(Offset focalPoint) shouldRouteToImageRotation;
 
   // 📈 Graph viewport zoom+pan: called when blockPanZoom blocks canvas zoom.
   // Routes two-finger pinch scale and pan delta to graph viewport.
@@ -81,6 +88,7 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onImageScaleStart,
     this.onImageTransform,
     this.onImageScaleEnd,
+    this.shouldRouteToImageRotation = _defaultShouldRotateImage, // default: never route
     this.onBlockedScale,
   });
 
@@ -163,8 +171,9 @@ class _InfiniteCanvasGestureDetectorState
   bool _imageRotationUnlocked = false;
   double _imageRotationAccum = 0.0; // Accumulated rotation for image
   bool _imageScaleStarted = false; // Whether we fired onImageScaleStart
-  double? _imageLastSnappedAngle; // For haptic deduplication
+
   double _imageInitialScale = 1.0; // Scale at gesture start
+  Offset _imagePreviousFocalPoint = Offset.zero; // Previous focal point for drag delta
 
   // 🎯 DOUBLE-TAP ZOOM: State tracking
   int _lastSingleTapTime = 0;
@@ -248,6 +257,10 @@ class _InfiniteCanvasGestureDetectorState
       onPointerCancel: _onPointerCancel,
       // 🖊️ FEATURE 7: Track stylus hover for aggressive palm rejection
       onPointerHover: _onPointerHover,
+      onPointerPanZoomStart: _onPointerPanZoomStart,
+      onPointerPanZoomUpdate: _onPointerPanZoomUpdate,
+      onPointerPanZoomEnd: _onPointerPanZoomEnd,
+      onPointerSignal: _onPointerSignal,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onScaleStart: _onScaleStart,
@@ -260,6 +273,32 @@ class _InfiniteCanvasGestureDetectorState
               details.localPosition,
             );
             widget.onLongPress!(canvasPoint);
+          }
+        },
+        onLongPressMoveUpdate: (details) {
+          // 🧠 KNOWLEDGE FLOW: Route long-press movement to draw update
+          // ONLY at LOD 1/2 (scale < 0.5) for connection drag.
+          // At normal zoom, this must NOT fire — it interferes with
+          // pinch-to-zoom gesture detection.
+          if (_pointerCount == 1 &&
+              widget.controller.scale < 0.5 &&
+              widget.onDrawUpdate != null) {
+            final canvasPoint = widget.controller.screenToCanvas(
+              details.localPosition,
+            );
+            widget.onDrawUpdate!(canvasPoint, 0.5, 0.0, 0.0);
+          }
+        },
+        onLongPressEnd: (details) {
+          // 🧠 KNOWLEDGE FLOW: Route long-press end to draw end
+          // ONLY at LOD 1/2 for connection drag finalization.
+          if (_pointerCount <= 1 &&
+              widget.controller.scale < 0.5 &&
+              widget.onDrawEnd != null) {
+            final canvasPoint = widget.controller.screenToCanvas(
+              details.localPosition,
+            );
+            widget.onDrawEnd!(canvasPoint);
           }
         },
         child: widget.child,
@@ -286,6 +325,9 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onPointerDown(PointerDownEvent event) {
+    // 🛡️ SAFETY: If _pointerCount somehow went negative (e.g. PointerCancel
+    // for a pointer we never saw the Down for), reset to 0 now.
+    if (_pointerCount < 0) _pointerCount = 0;
     final isStylus = StylusDetector.isStylus(event);
 
     // 🖊️ STYLUS TRACKING: Inform HandednessSettings for temporal rejection
@@ -707,6 +749,7 @@ class _InfiniteCanvasGestureDetectorState
 
     _previousPointerCount = _pointerCount;
     _pointerCount--;
+    if (_pointerCount < 0) _pointerCount = 0; // 🛡️ SAFETY: Never go negative
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
     // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
@@ -720,8 +763,11 @@ class _InfiniteCanvasGestureDetectorState
 
     // Only se siamo all'ultimo dito e stiamo disegnando
     if (_pointerCount == 0) {
-      // Reset multi-touch flag when all fingers are lifted
-      _wasMultiTouch = false;
+      // 🐛 FIX: Do NOT reset _wasMultiTouch here — the conditional checks
+      // below depend on it to distinguish single-tap from multi-touch cleanup.
+      // Resetting it before the checks caused multi-touch gestures (pan) to
+      // fall into the single-tap path, arming double-tap detection and
+      // blocking the next stroke within 300ms.
       _gestureTransitioning = false; // Reset stale transition flag
 
       // 🌊 LIQUID: Launch momentum from single-finger pan
@@ -825,6 +871,9 @@ class _InfiniteCanvasGestureDetectorState
         }
       }
 
+      // 🐛 FIX: Reset multi-touch flag AFTER the checks that depend on it
+      _wasMultiTouch = false;
+
       // Reset state
       _firstPointerPosition = null;
       _hasMoved = false;
@@ -837,6 +886,7 @@ class _InfiniteCanvasGestureDetectorState
   void _onPointerCancel(PointerCancelEvent event) {
     _flushBatch(); // 🚀 COALESCING: Flush pending points
     _pointerCount--;
+    if (_pointerCount < 0) _pointerCount = 0; // 🛡️ SAFETY: Never go negative
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
     // 🖊️ Remove the pointer from stylus manager
@@ -863,13 +913,112 @@ class _InfiniteCanvasGestureDetectorState
     }
   }
 
+  // ─── 🖱️ DESKTOP SCROLL/TRACKPAD ZOOM ────────────────────────────────
+
+  // Trackpad pinch-to-zoom state
+  double _trackpadInitialScale = 1.0;
+  Offset _trackpadInitialOffset = Offset.zero;
+
+  /// 🖱️ Mouse scroll wheel zoom: Ctrl+scroll = zoom, plain scroll = pan.
+  /// On Linux/macOS, trackpad pinch also fires PointerScrollEvent.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent) {
+      // Check if Ctrl is held (zoom) or plain scroll (pan)
+      final isCtrlHeld = HardwareKeyboard.instance.logicalKeysPressed
+          .any((key) => key == LogicalKeyboardKey.controlLeft ||
+                        key == LogicalKeyboardKey.controlRight ||
+                        key == LogicalKeyboardKey.metaLeft ||
+                        key == LogicalKeyboardKey.metaRight);
+
+      if (isCtrlHeld) {
+        // 🔍 Ctrl+Scroll = Zoom
+        _handleScrollZoom(event);
+      } else {
+        // 🖐️ Plain scroll = Pan
+        _handleScrollPan(event);
+      }
+    }
+  }
+
+  /// Handle scroll-to-zoom (Ctrl+scroll wheel or trackpad).
+  void _handleScrollZoom(PointerScrollEvent event) {
+    if (widget.blockPanZoom()) return;
+
+    final controller = widget.controller;
+    final focalPoint = event.localPosition;
+
+    // Scroll up = zoom in, scroll down = zoom out
+    // scrollDelta.dy is positive for scroll down
+    final zoomDelta = -event.scrollDelta.dy;
+    const double sensitivity = 0.002; // Adjust for feel
+    final scaleFactor = math.exp(zoomDelta * sensitivity);
+
+    // Clamp to prevent drift when at scale limits (0.1 - 5.0)
+    final newScale = (controller.scale * scaleFactor).clamp(0.1, 5.0);
+    if ((newScale - controller.scale).abs() < 0.0001) return; // No change
+
+    // Zoom centered on cursor position
+    final focalCanvas = controller.screenToCanvas(focalPoint);
+    final newOffset = focalPoint - focalCanvas * newScale;
+
+    controller.updateTransform(offset: newOffset, scale: newScale);
+  }
+
+  /// Handle plain scroll = pan (two-finger swipe on trackpad).
+  void _handleScrollPan(PointerScrollEvent event) {
+    if (widget.blockPanZoom()) return;
+
+    final controller = widget.controller;
+    final delta = Offset(-event.scrollDelta.dx, -event.scrollDelta.dy);
+
+    controller.updateTransform(
+      offset: controller.offset + delta,
+      scale: controller.scale,
+    );
+  }
+
+  /// 🖱️ Trackpad pinch-to-zoom start (PointerPanZoomStartEvent).
+  void _onPointerPanZoomStart(PointerPanZoomStartEvent event) {
+    if (widget.blockPanZoom()) return;
+    _trackpadInitialScale = widget.controller.scale;
+    _trackpadInitialOffset = widget.controller.offset;
+    widget.controller.stopAnimation();
+  }
+
+  /// 🖱️ Trackpad pinch-to-zoom update (PointerPanZoomUpdateEvent).
+  void _onPointerPanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    if (widget.blockPanZoom()) return;
+
+    final controller = widget.controller;
+    final focalPoint = event.localPosition;
+
+    // Apply scale from trackpad pinch, clamp to prevent drift at limits
+    final newScale = (_trackpadInitialScale * event.scale).clamp(0.1, 5.0);
+    if ((newScale - controller.scale).abs() < 0.0001 &&
+        event.panDelta == Offset.zero) return; // No change
+
+    // Zoom centered on trackpad focal point
+    final focalCanvas = controller.screenToCanvas(focalPoint);
+    final newOffset = focalPoint - focalCanvas * newScale +
+        event.panDelta; // Include pan delta from trackpad
+
+    controller.updateTransform(offset: newOffset, scale: newScale);
+  }
+
+  /// 🖱️ Trackpad pinch-to-zoom end (PointerPanZoomEndEvent).
+  void _onPointerPanZoomEnd(PointerPanZoomEndEvent event) {
+    // Nothing to clean up — state is handled per-event
+  }
+
   // 🌀 Two-finger double-tap detection (reset view)
   int _lastTwoFingerTapTime = 0;
   Offset _lastTwoFingerTapPosition = Offset.zero;
 
   void _onScaleStart(ScaleStartDetails details) {
     // 🔒 Block pan/zoom when an interactive element is being manipulated
-    if (widget.blockPanZoom()) return;
+    // ⚡ BUT allow through when image rotation is active (evaluated at gesture time) —
+    // blockPanZoom includes _imageTool.isRotating, which creates a deadlock.
+    if (widget.blockPanZoom() && !widget.shouldRouteToImageRotation(details.localFocalPoint)) return;
     // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
     // (e.g., 2→1 fingers), re-anchor to current state to prevent jumps.
     if (_gestureTransitioning) {
@@ -924,6 +1073,45 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
+    // Only process with 2+ fingers
+    if (_pointerCount < 2) return;
+
+    // 🌀 IMAGE ROTATION: When image rotation is active (evaluated at gesture time),
+    // route rotation + scale to the image instead of the canvas.
+    // ⚡ Uses shouldRouteToImageRotation() instead of checking callbacks at build time
+    // because the gesture detector widget may not rebuild when state changes.
+    final shouldRotateImage = widget.shouldRouteToImageRotation(details.localFocalPoint);
+    if (shouldRotateImage && widget.onImageScaleStart != null) {
+      // Fire start callback once
+      if (!_imageScaleStarted) {
+        _imageScaleStarted = true;
+        _imageRotationAccum = 0.0;
+        _imageRotationUnlocked = false;
+
+        _imageInitialScale = details.scale;
+        _imagePreviousFocalPoint = details.localFocalPoint;
+        widget.onImageScaleStart?.call();
+      }
+
+      // 🌀 Rotation deadzone: ignore small rotation until threshold exceeded
+      double rotation = 0.0;
+      if (_imageRotationUnlocked ||
+          details.rotation.abs() > _rotationDeadzone) {
+        _imageRotationUnlocked = true;
+        rotation = details.rotation;
+      }
+
+      // 🤏 Simultaneous scale: ratio relative to gesture start
+      final scaleRatio = details.scale / _imageInitialScale;
+
+      // 🖐️ Simultaneous drag: focal point delta (screen space)
+      final focalDelta = details.localFocalPoint - _imagePreviousFocalPoint;
+      _imagePreviousFocalPoint = details.localFocalPoint;
+
+      widget.onImageTransform?.call(rotation, scaleRatio, focalDelta);
+      return;
+    }
+
     // 🔒 Block canvas pan/zoom; route scale+pan to graph viewport instead
     if (widget.blockPanZoom()) {
       if (_pointerCount >= 2) {
@@ -933,57 +1121,8 @@ class _InfiniteCanvasGestureDetectorState
       }
       return;
     }
-    // Only process with 2+ fingers
-    if (_pointerCount < 2) return;
     widget.controller.isPanning = true; // 🚀 SCROLL OPT
 
-    // 🌀 IMAGE ROTATION: When image callbacks are wired (pan mode + selected image),
-    // route rotation + scale to the image instead of the canvas.
-    if (widget.onImageScaleStart != null) {
-      // Fire start callback once
-      if (!_imageScaleStarted) {
-        _imageScaleStarted = true;
-        _imageRotationAccum = 0.0;
-        _imageRotationUnlocked = false;
-        _imageLastSnappedAngle = null;
-        _imageInitialScale = details.scale;
-        widget.onImageScaleStart?.call();
-      }
-
-      // 🧲 MAGNETIC SNAP: Snap to 0°/45°/90°/180°/270° with haptic
-      double rotation = 0.0;
-      if (_imageRotationUnlocked ||
-          details.rotation.abs() > _rotationDeadzone) {
-        _imageRotationUnlocked = true;
-        rotation = details.rotation;
-
-        // Check snap angles (every 45° = π/4 radians)
-        const snapInterval = 0.7853981633974483; // π/4 = 45°
-        const snapThreshold = 0.12; // ~7° magnetic zone
-        final nearestSnap = (rotation / snapInterval).round() * snapInterval;
-        final distFromSnap = (rotation - nearestSnap).abs();
-        if (distFromSnap < snapThreshold) {
-          // Cubic dampening for magnetic feel
-          final t = (distFromSnap / snapThreshold).clamp(0.0, 1.0);
-          final dampening = t * t * t;
-          rotation = nearestSnap + (rotation - nearestSnap) * dampening;
-
-          // Haptic at snap crossing
-          if (_imageLastSnappedAngle != nearestSnap) {
-            HapticFeedback.lightImpact();
-            _imageLastSnappedAngle = nearestSnap;
-          }
-        } else {
-          _imageLastSnappedAngle = null;
-        }
-      }
-
-      // 🤏 Simultaneous scale: ratio relative to gesture start
-      final scaleRatio = details.scale / _imageInitialScale;
-
-      widget.onImageTransform?.call(rotation, scaleRatio);
-      return;
-    }
 
     // 🌊 LIQUID: Track velocity for momentum
     final now = DateTime.now().microsecondsSinceEpoch;
@@ -1116,6 +1255,18 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
+    // 🌀 IMAGE ROTATION: End image rotation FIRST (before blockPanZoom check,
+    // because blockPanZoom includes isRotating → deadlock)
+    final wasImageScaling = _imageScaleStarted;
+    if (_imageScaleStarted) {
+      _imageScaleStarted = false;
+      _imageRotationUnlocked = false;
+      _imageRotationAccum = 0.0;
+
+      widget.onImageScaleEnd?.call();
+    }
+    if (wasImageScaling) return; // Don't launch viewport animations
+
     // 🔒 Block momentum/spring-back when an interactive element is being manipulated
     if (widget.blockPanZoom()) return;
     // 🎯 FIX: If this scale-end follows a drawing gesture, skip ALL viewport
@@ -1135,19 +1286,7 @@ class _InfiniteCanvasGestureDetectorState
       return;
     }
 
-    // 🌀 IMAGE ROTATION: End image rotation if active
-    final wasImageScaling = _imageScaleStarted;
-    if (_imageScaleStarted) {
-      _imageScaleStarted = false;
-      _imageRotationUnlocked = false;
-      _imageRotationAccum = 0.0;
-      _imageLastSnappedAngle = null;
-      widget.onImageScaleEnd?.call();
-    }
 
-    // If we were handling image gestures (rotation/scale),
-    // skip canvas momentum to avoid conflicting animations.
-    if (wasImageScaling) return;
 
     // 🌊 LIQUID: Launch zoom spring-back if scale is beyond limits
     widget.controller.startZoomSpringBack(_lastScaleEndFocalPoint);

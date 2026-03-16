@@ -61,6 +61,7 @@ class MetalStrokeRenderer {
     private static let maxVertices = 524288       // 512K vertices (~12MB)
     private var vertexBuffer: MTLBuffer?
     private var accumulatedVerts: [StrokeVertex] = []
+    private var allRawPoints: [Float] = []          // Raw accumulated points (stride 5)
     private var totalAccumulatedPoints: Int = 0
     
     // ─── Uniforms ───────────────────────────────────────────────
@@ -256,8 +257,14 @@ class MetalStrokeRenderer {
     // UPDATE AND RENDER
     // ═══════════════════════════════════════════════════════════════
     
-    func updateAndRender(points: [Float], color: UInt32, strokeWidth: Float, totalPoints: Int, brushType: Int = 0) {
-        guard isInitialized, points.count >= 6 else { return }
+    func updateAndRender(points: [Float], color: UInt32, strokeWidth: Float, totalPoints: Int,
+                         brushType: Int = 0,
+                         pencilBaseOpacity: Float = 0.4, pencilMaxOpacity: Float = 0.8,
+                         pencilMinPressure: Float = 0.5, pencilMaxPressure: Float = 1.2,
+                         fountainThinning: Float = 0.5, fountainNibAngleDeg: Float = 30.0,
+                         fountainNibStrength: Float = 0.35, fountainPressureRate: Float = 0.275,
+                         fountainTaperEntry: Int = 6) {
+        guard isInitialized, points.count >= 10 else { return }
         guard let vertexBuffer = vertexBuffer else { return }
         
         let pointCount = points.count / 5
@@ -268,33 +275,62 @@ class MetalStrokeRenderer {
         let g = Float((color >> 8) & 0xFF) / 255.0
         let b = Float(color & 0xFF) / 255.0
         
-        // Track global point index for tapering
-        let startIndex = totalAccumulatedPoints
-        totalAccumulatedPoints += pointCount
-        let adjustedStart = startIndex > 0 ? startIndex - 1 : 0
+        let prevCount: Int
         
-        // Tessellate new points
-        let prevCount = accumulatedVerts.count
-        
-        if brushType == 1 {
-            // 🖍️ THICK MARKER: wider, pressure-sensitive, flat caps
-            tessellateMarker(points: points, pointCount: pointCount,
-                             r: r, g: g, b: b, a: a,
-                             strokeWidth: strokeWidth)
-        } else if brushType == 2 {
-            // ✏️ SOFT PENCIL: pressure→opacity+width, round caps, grain
-            tessellatePencil(points: points, pointCount: pointCount,
-                             r: r, g: g, b: b, a: a,
-                             strokeWidth: strokeWidth,
-                             pointStartIndex: adjustedStart,
-                             totalPoints: totalPoints)
+        if brushType == 0 {
+            // ── FULL RETESSELLATION (ballpoint) ──────────────────────
+            // Accumulate raw points, retessellate entire stroke for smooth
+            // curves. Incremental tessellation caused sawtooth edges.
+            let skipFirst = totalAccumulatedPoints > 0 ? 1 : 0
+            for i in skipFirst..<pointCount {
+                for j in 0..<5 {
+                    allRawPoints.append(points[i * 5 + j])
+                }
+            }
+            totalAccumulatedPoints = allRawPoints.count / 5
+            
+            accumulatedVerts.removeAll(keepingCapacity: true)
+            prevCount = 0
+            
+            if totalAccumulatedPoints >= 2 {
+                tessellateStroke(points: allRawPoints, pointCount: totalAccumulatedPoints,
+                                 r: r, g: g, b: b, a: a,
+                                 strokeWidth: strokeWidth,
+                                 pointStartIndex: 0,
+                                 totalPoints: totalPoints,
+                                 minPressure: pencilMinPressure,
+                                 maxPressure: pencilMaxPressure)
+            }
         } else {
-            // ✒️ BALLPOINT (default): constant width, round caps, entry taper
-            tessellateStroke(points: points, pointCount: pointCount,
-                             r: r, g: g, b: b, a: a,
-                             strokeWidth: strokeWidth,
-                             pointStartIndex: adjustedStart,
-                             totalPoints: totalPoints)
+            // ── FULL RETESSELLATION (marker/pencil/fountain) ─────────
+            accumulatedVerts.removeAll(keepingCapacity: true)
+            totalAccumulatedPoints = pointCount
+            prevCount = 0
+            
+            if brushType == 1 {
+                tessellateMarker(points: points, pointCount: pointCount,
+                                 r: r, g: g, b: b, a: a,
+                                 strokeWidth: strokeWidth)
+            } else if brushType == 4 {
+                let nibAngleRad = fountainNibAngleDeg * Float.pi / 180.0
+                tessellateFountainPen(points: points, pointCount: pointCount,
+                                      r: r, g: g, b: b, a: a,
+                                      strokeWidth: strokeWidth, totalPoints: pointCount,
+                                      thinning: fountainThinning, nibAngleRad: nibAngleRad,
+                                      nibStrength: fountainNibStrength, pressureRate: fountainPressureRate,
+                                      taperEntry: fountainTaperEntry)
+            } else {
+                // brushType == 2 (pencil)
+                tessellatePencil(points: points, pointCount: pointCount,
+                                 r: r, g: g, b: b, a: a,
+                                 strokeWidth: strokeWidth,
+                                 pointStartIndex: 0,
+                                 totalPoints: pointCount,
+                                 pencilBaseOpacity: pencilBaseOpacity,
+                                 pencilMaxOpacity: pencilMaxOpacity,
+                                 pencilMinPressure: pencilMinPressure,
+                                 pencilMaxPressure: pencilMaxPressure)
+            }
         }
         
         guard accumulatedVerts.count <= MetalStrokeRenderer.maxVertices else {
@@ -302,13 +338,13 @@ class MetalStrokeRenderer {
             return
         }
         
-        // Upload only new vertices
-        let newCount = accumulatedVerts.count - prevCount
-        if newCount > 0 {
-            let dst = vertexBuffer.contents().advanced(by: prevCount * MemoryLayout<StrokeVertex>.stride)
+        // Upload entire vertex buffer
+        let totalCount = accumulatedVerts.count
+        if totalCount > 0 {
+            let dst = vertexBuffer.contents()
             accumulatedVerts.withUnsafeBufferPointer { buffer in
-                let src = UnsafeRawPointer(buffer.baseAddress! + prevCount)
-                dst.copyMemory(from: src, byteCount: newCount * MemoryLayout<StrokeVertex>.stride)
+                let src = UnsafeRawPointer(buffer.baseAddress!)
+                dst.copyMemory(from: src, byteCount: totalCount * MemoryLayout<StrokeVertex>.stride)
             }
         }
         
@@ -379,6 +415,7 @@ class MetalStrokeRenderer {
     
     func clearFrame() {
         accumulatedVerts.removeAll(keepingCapacity: true)
+        allRawPoints.removeAll(keepingCapacity: true)
         totalAccumulatedPoints = 0
         statsActive = false
         
@@ -462,150 +499,186 @@ class MetalStrokeRenderer {
     var outputPixelBuffer: CVPixelBuffer? {
         return pixelBuffer
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
     // TESSELLATION (ported from vk_stroke_renderer.cpp)
     // ═══════════════════════════════════════════════════════════════
     
+    // ─── BALLPOINT: Catmull-Rom spline + EMA smoothing ───────────
     private func tessellateStroke(points: [Float], pointCount: Int,
                                   r: Float, g: Float, b: Float, a: Float,
                                   strokeWidth: Float, pointStartIndex: Int,
-                                  totalPoints: Int) {
+                                  totalPoints: Int,
+                                  minPressure: Float = 0.7, maxPressure: Float = 1.1) {
         guard pointCount >= 2 else { return }
         
-        // Ballpoint: constant width matching Dart
-        let widthFactor: Float = 0.925
-        let taperPoints = 3
-        let taperStartFrac: Float = 0.60
-        let baseHalfW = strokeWidth * widthFactor * 0.5
+        let adjustedWidth = strokeWidth * (minPressure + 0.5 * (maxPressure - minPressure))
+        let baseHalfW = adjustedWidth * 0.5
+        let n = pointCount
         
-        for i in 0..<pointCount {
-            let px = points[i * 5]
-            let py = points[i * 5 + 1]
-            let globalIdx = pointStartIndex + i
+        // Pass 1: Extract positions
+        var px = [Float](repeating: 0, count: n)
+        var py = [Float](repeating: 0, count: n)
+        for i in 0..<n { px[i] = points[i * 5]; py[i] = points[i * 5 + 1] }
+        
+        // Pass 2: 2-pass bi-directional EMA smoothing
+        if n >= 4 {
+            let alpha: Float = 0.25
+            for _ in 0..<2 {
+                for i in 1..<(n - 1) {
+                    px[i] = px[i - 1] * alpha + px[i] * (1.0 - alpha)
+                    py[i] = py[i - 1] * alpha + py[i] * (1.0 - alpha)
+                }
+                for i in stride(from: n - 2, through: 1, by: -1) {
+                    px[i] = px[i + 1] * alpha + px[i] * (1.0 - alpha)
+                    py[i] = py[i + 1] * alpha + py[i] * (1.0 - alpha)
+                }
+            }
+        }
+        
+        // Pass 3: Catmull-Rom dense sampling at ~1.5px intervals
+        struct Vec2 { var x: Float; var y: Float }
+        var dense = [Vec2]()
+        dense.reserveCapacity(n * 10)
+        let sampleStep: Float = 1.5
+        
+        for seg in 0..<(n - 1) {
+            let i0 = seg > 0 ? seg - 1 : 0
+            let i1 = seg
+            let i2 = seg + 1
+            let i3 = seg + 2 < n ? seg + 2 : n - 1
             
-            // Width = base × entry taper
-            var halfW = baseHalfW
-            if globalIdx < taperPoints {
-                let t = Float(globalIdx + 1) / Float(taperPoints)
-                let ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)  // easeOutCubic
-                halfW *= taperStartFrac + (1.0 - taperStartFrac) * ease
+            let x0 = px[i0], y0 = py[i0]
+            let x1 = px[i1], y1 = py[i1]
+            let x2 = px[i2], y2 = py[i2]
+            let x3 = px[i3], y3 = py[i3]
+            
+            let segDx = x2 - x1, segDy = y2 - y1
+            let segLen = sqrt(segDx * segDx + segDy * segDy)
+            let nSamples = max(2, Int(segLen / sampleStep) + 1)
+            
+            for s in 0..<nSamples {
+                if seg < n - 2 && s == nSamples - 1 { continue }
+                let t = Float(s) / Float(nSamples - 1)
+                let t2 = t * t, t3 = t2 * t
+                let cx = 0.5 * ((2.0 * x1) + (-x0 + x2) * t +
+                    (2.0 * x0 - 5.0 * x1 + 4.0 * x2 - x3) * t2 +
+                    (-x0 + 3.0 * x1 - 3.0 * x2 + x3) * t3)
+                let cy = 0.5 * ((2.0 * y1) + (-y0 + y2) * t +
+                    (2.0 * y0 - 5.0 * y1 + 4.0 * y2 - y3) * t2 +
+                    (-y0 + 3.0 * y1 - 3.0 * y2 + y3) * t3)
+                dense.append(Vec2(x: cx, y: cy))
+            }
+        }
+        dense.append(Vec2(x: px[n - 1], y: py[n - 1]))
+        
+        let denseCount = dense.count
+        guard denseCount >= 2 else { return }
+        
+        // Pass 4: Perpendicular offsets on dense samples
+        for i in 0..<denseCount {
+            var dtx: Float = 0, dty: Float = 0
+            if i > 0 { dtx += dense[i].x - dense[i-1].x; dty += dense[i].y - dense[i-1].y }
+            if i < denseCount - 1 { dtx += dense[i+1].x - dense[i].x; dty += dense[i+1].y - dense[i].y }
+            var tLen = sqrt(dtx * dtx + dty * dty)
+            if tLen < 0.0001 { dtx = 1; dty = 0; tLen = 1 }
+            dtx /= tLen; dty /= tLen
+            
+            if i == 0 || i == denseCount - 1 {
+                generateCircle(cx: dense[i].x, cy: dense[i].y, radius: baseHalfW, r: r, g: g, b: b, a: a)
             }
             
-            // Circle at every point (round join/cap)
-            generateCircle(cx: px, cy: py, radius: halfW, r: r, g: g, b: b, a: a)
-            
-            // Segment quad to next point
-            if i < pointCount - 1 {
-                let nx = points[(i + 1) * 5]
-                let ny = points[(i + 1) * 5 + 1]
+            if i < denseCount - 1 {
+                let perpX = -dty, perpY = dtx
+                var ntx: Float = 0, nty: Float = 0
+                ntx += dense[i+1].x - dense[i].x; nty += dense[i+1].y - dense[i].y
+                if i + 1 < denseCount - 1 { ntx += dense[i+2].x - dense[i+1].x; nty += dense[i+2].y - dense[i+1].y }
+                var nLen = sqrt(ntx * ntx + nty * nty)
+                if nLen < 0.0001 { ntx = 1; nty = 0; nLen = 1 }
+                ntx /= nLen; nty /= nLen
+                let perpX2 = -nty, perpY2 = ntx
                 
-                let dx = nx - px
-                let dy = ny - py
-                let len = sqrt(dx * dx + dy * dy)
-                guard len >= 0.001 else { continue }
-                
-                // Next point's taper width
-                let nextGlobal = globalIdx + 1
-                var nHalfW = baseHalfW
-                if nextGlobal < taperPoints {
-                    let t = Float(nextGlobal + 1) / Float(taperPoints)
-                    let ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
-                    nHalfW *= taperStartFrac + (1.0 - taperStartFrac) * ease
-                }
-                
-                let perpX = -dy / len
-                let perpY = dx / len
-                
-                // Two triangles forming a quad
-                accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: a))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: a))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: a))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: a))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: a))
-                accumulatedVerts.append(StrokeVertex(x: nx - perpX * nHalfW, y: ny - perpY * nHalfW, r: r, g: g, b: b, a: a))
+                accumulatedVerts.append(StrokeVertex(x: dense[i].x + perpX * baseHalfW, y: dense[i].y + perpY * baseHalfW, r: r, g: g, b: b, a: a))
+                accumulatedVerts.append(StrokeVertex(x: dense[i].x - perpX * baseHalfW, y: dense[i].y - perpY * baseHalfW, r: r, g: g, b: b, a: a))
+                accumulatedVerts.append(StrokeVertex(x: dense[i+1].x + perpX2 * baseHalfW, y: dense[i+1].y + perpY2 * baseHalfW, r: r, g: g, b: b, a: a))
+                accumulatedVerts.append(StrokeVertex(x: dense[i].x - perpX * baseHalfW, y: dense[i].y - perpY * baseHalfW, r: r, g: g, b: b, a: a))
+                accumulatedVerts.append(StrokeVertex(x: dense[i+1].x + perpX2 * baseHalfW, y: dense[i+1].y + perpY2 * baseHalfW, r: r, g: g, b: b, a: a))
+                accumulatedVerts.append(StrokeVertex(x: dense[i+1].x - perpX2 * baseHalfW, y: dense[i+1].y - perpY2 * baseHalfW, r: r, g: g, b: b, a: a))
             }
         }
     }
     
     private func generateCircle(cx: Float, cy: Float, radius: Float,
                                  r: Float, g: Float, b: Float, a: Float) {
-        // Adaptive segment count based on radius
-        let segments = max(8, min(24, Int(radius * 2.0)))
-        
+        let segments = max(6, min(16, Int(radius * 1.5)))
         for i in 0..<segments {
             let a0 = 2.0 * Float.pi * Float(i) / Float(segments)
             let a1 = 2.0 * Float.pi * Float(i + 1) / Float(segments)
-            
-            let x0 = cx + radius * cos(a0)
-            let y0 = cy + radius * sin(a0)
-            let x1 = cx + radius * cos(a1)
-            let y1 = cy + radius * sin(a1)
-            
-            // Triangle fan
             accumulatedVerts.append(StrokeVertex(x: cx, y: cy, r: r, g: g, b: b, a: a))
-            accumulatedVerts.append(StrokeVertex(x: x0, y: y0, r: r, g: g, b: b, a: a))
-            accumulatedVerts.append(StrokeVertex(x: x1, y: y1, r: r, g: g, b: b, a: a))
+            accumulatedVerts.append(StrokeVertex(x: cx + radius * cos(a0), y: cy + radius * sin(a0), r: r, g: g, b: b, a: a))
+            accumulatedVerts.append(StrokeVertex(x: cx + radius * cos(a1), y: cy + radius * sin(a1), r: r, g: g, b: b, a: a))
         }
     }
     
-    // ═══════════════════════════════════════════════════════════════
-    // TESSELLATE MARKER (ported from vk_stroke_renderer.cpp)
-    // ═══════════════════════════════════════════════════════════════
-    
+    // ─── MARKER: Catmull-Rom spline dense sampling ───────────────
     private func tessellateMarker(points: [Float], pointCount: Int,
                                    r: Float, g: Float, b: Float, a: Float,
                                    strokeWidth: Float) {
         guard pointCount >= 2 else { return }
         let halfW = strokeWidth * 2.5 * 0.5
-        let ma = a * 0.7
+        let ma = a  // Full alpha — marker opacity handled by Flutter Opacity widget
         
-        // No EMA on GPU — applied only in Dart committed stroke
+        // Extract positions
+        var px = [Float](repeating: 0, count: pointCount)
+        var py = [Float](repeating: 0, count: pointCount)
+        for i in 0..<pointCount { px[i] = points[i * 5]; py[i] = points[i * 5 + 1] }
         
-        struct V2 { var x: Float; var y: Float }
-        var lp = [V2](repeating: V2(x:0,y:0), count: pointCount)
-        var rp = [V2](repeating: V2(x:0,y:0), count: pointCount)
-        for i in 0..<pointCount {
-            let px = points[i*5], py = points[i*5+1]
-            var tx: Float = 0, ty: Float = 0
-            if i > 0 { tx += px-points[(i-1)*5]; ty += py-points[(i-1)*5+1] }
-            if i < pointCount-1 { tx += points[(i+1)*5]-px; ty += points[(i+1)*5+1]-py }
-            var tl = sqrt(tx*tx+ty*ty); if tl < 0.0001 { tx=1; ty=0; tl=1 }; tx/=tl; ty/=tl
-            lp[i] = V2(x: px+(-ty)*halfW, y: py+tx*halfW)
-            rp[i] = V2(x: px-(-ty)*halfW, y: py-tx*halfW)
+        // Catmull-Rom spline dense sampling
+        struct Vec2 { var x: Float; var y: Float }
+        var dense = [Vec2]()
+        dense.reserveCapacity(pointCount * 10)
+        let sampleStep: Float = 1.5
+        
+        for seg in 0..<(pointCount - 1) {
+            let i0 = seg > 0 ? seg - 1 : 0
+            let i1 = seg, i2 = seg + 1
+            let i3 = seg + 2 < pointCount ? seg + 2 : pointCount - 1
+            let x0 = px[i0], y0 = py[i0], x1 = px[i1], y1 = py[i1]
+            let x2 = px[i2], y2 = py[i2], x3 = px[i3], y3 = py[i3]
+            let segDx = x2 - x1, segDy = y2 - y1
+            let segLen = sqrt(segDx * segDx + segDy * segDy)
+            let nSamples = max(2, Int(segLen / sampleStep) + 1)
+            for s in 0..<nSamples {
+                if seg < pointCount - 2 && s == nSamples - 1 { continue }
+                let t = Float(s) / Float(nSamples - 1)
+                let t2 = t * t, t3 = t2 * t
+                let cx = 0.5 * ((2*x1) + (-x0+x2)*t + (2*x0-5*x1+4*x2-x3)*t2 + (-x0+3*x1-3*x2+x3)*t3)
+                let cy = 0.5 * ((2*y1) + (-y0+y2)*t + (2*y0-5*y1+4*y2-y3)*t2 + (-y0+3*y1-3*y2+y3)*t3)
+                dense.append(Vec2(x: cx, y: cy))
+            }
         }
-        for i in 0..<(pointCount-1) {
-            accumulatedVerts.append(StrokeVertex(x:lp[i].x,y:lp[i].y,r:r,g:g,b:b,a:ma))
-            accumulatedVerts.append(StrokeVertex(x:rp[i].x,y:rp[i].y,r:r,g:g,b:b,a:ma))
-            accumulatedVerts.append(StrokeVertex(x:lp[i+1].x,y:lp[i+1].y,r:r,g:g,b:b,a:ma))
-            accumulatedVerts.append(StrokeVertex(x:rp[i].x,y:rp[i].y,r:r,g:g,b:b,a:ma))
-            accumulatedVerts.append(StrokeVertex(x:lp[i+1].x,y:lp[i+1].y,r:r,g:g,b:b,a:ma))
-            accumulatedVerts.append(StrokeVertex(x:rp[i+1].x,y:rp[i+1].y,r:r,g:g,b:b,a:ma))
-        }
-    }
-                                   strokeWidth: Float) {
-        guard pointCount >= 2 else { return }
-        let halfW = strokeWidth * 2.5 * 0.5
-        let ma = a * 0.7
+        dense.append(Vec2(x: px[pointCount - 1], y: py[pointCount - 1]))
         
-        struct V2 { var x: Float; var y: Float }
-        var leftPts = [V2](repeating: V2(x:0,y:0), count: pointCount)
-        var rightPts = [V2](repeating: V2(x:0,y:0), count: pointCount)
+        let denseCount = dense.count
+        guard denseCount >= 2 else { return }
         
-        for i in 0..<pointCount {
-            let px = points[i*5], py = points[i*5+1]
+        // Perpendicular offsets on dense spline
+        struct Vec2L { var x: Float; var y: Float }
+        var leftPts = [Vec2L](repeating: Vec2L(x: 0, y: 0), count: denseCount)
+        var rightPts = [Vec2L](repeating: Vec2L(x: 0, y: 0), count: denseCount)
+        
+        for i in 0..<denseCount {
             var tx: Float = 0, ty: Float = 0
-            if i > 0 { tx += px - points[(i-1)*5]; ty += py - points[(i-1)*5+1] }
-            if i < pointCount-1 { tx += points[(i+1)*5] - px; ty += points[(i+1)*5+1] - py }
-            var tLen = sqrt(tx*tx + ty*ty)
+            if i > 0 { tx += dense[i].x - dense[i-1].x; ty += dense[i].y - dense[i-1].y }
+            if i < denseCount - 1 { tx += dense[i+1].x - dense[i].x; ty += dense[i+1].y - dense[i].y }
+            var tLen = sqrt(tx * tx + ty * ty)
             if tLen < 0.0001 { tx = 1; ty = 0; tLen = 1 }
             tx /= tLen; ty /= tLen
-            leftPts[i] = V2(x: px + (-ty)*halfW, y: py + tx*halfW)
-            rightPts[i] = V2(x: px - (-ty)*halfW, y: py - tx*halfW)
+            leftPts[i] = Vec2L(x: dense[i].x + (-ty) * halfW, y: dense[i].y + tx * halfW)
+            rightPts[i] = Vec2L(x: dense[i].x - (-ty) * halfW, y: dense[i].y - tx * halfW)
         }
         
-        generateCircle(cx: points[0], cy: points[1], radius: halfW, r: r, g: g, b: b, a: ma)
-        for i in 0..<(pointCount-1) {
+        for i in 0..<(denseCount - 1) {
             accumulatedVerts.append(StrokeVertex(x: leftPts[i].x, y: leftPts[i].y, r: r, g: g, b: b, a: ma))
             accumulatedVerts.append(StrokeVertex(x: rightPts[i].x, y: rightPts[i].y, r: r, g: g, b: b, a: ma))
             accumulatedVerts.append(StrokeVertex(x: leftPts[i+1].x, y: leftPts[i+1].y, r: r, g: g, b: b, a: ma))
@@ -613,594 +686,368 @@ class MetalStrokeRenderer {
             accumulatedVerts.append(StrokeVertex(x: leftPts[i+1].x, y: leftPts[i+1].y, r: r, g: g, b: b, a: ma))
             accumulatedVerts.append(StrokeVertex(x: rightPts[i+1].x, y: rightPts[i+1].y, r: r, g: g, b: b, a: ma))
         }
-        let last = (pointCount-1)*5
-        generateCircle(cx: points[last], cy: points[last+1], radius: halfW, r: r, g: g, b: b, a: ma)
-    }
-                                   strokeWidth: Float) {
-        guard pointCount >= 2 else { return }
-        let widthMult: Float = 2.5
-        let markerOpacity: Float = 0.7
-        let halfW = strokeWidth * widthMult * 0.5
-        let ma = a * markerOpacity
-        
-        // Start cap only
-        generateCircle(cx: points[0], cy: points[1], radius: halfW, r: r, g: g, b: b, a: ma)
-        
-        // Body quads (no per-point circles)
-        for i in 0..<(pointCount - 1) {
-            let px = points[i * 5], py = points[i * 5 + 1]
-            let nx = points[(i + 1) * 5], ny = points[(i + 1) * 5 + 1]
-            let dx = nx - px, dy = ny - py
-            let len = sqrt(dx * dx + dy * dy)
-            guard len >= 0.001 else { continue }
-            let perpX = -dy / len, perpY = dx / len
-            accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: ma))
-            accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: ma))
-            accumulatedVerts.append(StrokeVertex(x: nx + perpX * halfW, y: ny + perpY * halfW, r: r, g: g, b: b, a: ma))
-            accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: ma))
-            accumulatedVerts.append(StrokeVertex(x: nx + perpX * halfW, y: ny + perpY * halfW, r: r, g: g, b: b, a: ma))
-            accumulatedVerts.append(StrokeVertex(x: nx - perpX * halfW, y: ny - perpY * halfW, r: r, g: g, b: b, a: ma))
-        }
-        
-        // End cap
-        let last = (pointCount - 1) * 5
-        generateCircle(cx: points[last], cy: points[last + 1], radius: halfW, r: r, g: g, b: b, a: ma)
-    }
-                                   strokeWidth: Float) {
-        guard pointCount >= 2 else { return }
-        
-        // Aligned with MarkerBrush.dart
-        let widthMult: Float = 2.5
-        let markerOpacity: Float = 0.7
-        let halfW = strokeWidth * widthMult * 0.5
-        let ma = a * markerOpacity
-        
-        for i in 0..<pointCount {
-            let px = points[i * 5]
-            let py = points[i * 5 + 1]
-            
-            // Round cap (matches Dart StrokeCap.round)
-            generateCircle(cx: px, cy: py, radius: halfW, r: r, g: g, b: b, a: ma)
-            
-            if i < pointCount - 1 {
-                let nx = points[(i + 1) * 5]
-                let ny = points[(i + 1) * 5 + 1]
-                
-                let dx = nx - px
-                let dy = ny - py
-                let len = sqrt(dx * dx + dy * dy)
-                guard len >= 0.001 else { continue }
-                
-                let perpX = -dy / len
-                let perpY = dx / len
-                
-                // Constant width, constant alpha
-                accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: ma))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: ma))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * halfW, y: ny + perpY * halfW, r: r, g: g, b: b, a: ma))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: ma))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * halfW, y: ny + perpY * halfW, r: r, g: g, b: b, a: ma))
-                accumulatedVerts.append(StrokeVertex(x: nx - perpX * halfW, y: ny - perpY * halfW, r: r, g: g, b: b, a: ma))
-            }
-        }
-    }
-                                  strokeWidth: Float) {
-        guard pointCount >= 2 else { return }
-        
-        // Thick marker: 2.5× wider than ballpoint, pressure-sensitive
-        let markerWidthMult: Float = 2.5
-        let baseHalfW = strokeWidth * markerWidthMult * 0.5
-        
-        for i in 0..<(pointCount - 1) {
-            let px = points[i * 5]
-            let py = points[i * 5 + 1]
-            let pp = points[i * 5 + 2]  // pressure
-            let nx = points[(i + 1) * 5]
-            let ny = points[(i + 1) * 5 + 1]
-            let np = points[(i + 1) * 5 + 2]  // next pressure
-            
-            // Pressure modulates width: 0.4× (light) to 1.0× (full)
-            let halfW = baseHalfW * (0.4 + 0.6 * pp)
-            let nHalfW = baseHalfW * (0.4 + 0.6 * np)
-            
-            let dx = nx - px
-            let dy = ny - py
-            let len = sqrt(dx * dx + dy * dy)
-            guard len >= 0.001 else { continue }
-            
-            let perpX = -dy / len
-            let perpY = dx / len
-            
-            // Two triangles forming a quad (flat caps, no circles)
-            accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: a))
-            accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: a))
-            accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: a))
-            accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: a))
-            accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: a))
-            accumulatedVerts.append(StrokeVertex(x: nx - perpX * nHalfW, y: ny - perpY * nHalfW, r: r, g: g, b: b, a: a))
-        }
     }
     
-    // ═══════════════════════════════════════════════════════════════
-    // TESSELLATE PENCIL (ported from vk_stroke_renderer.cpp)
-    // ═══════════════════════════════════════════════════════════════
-    
+    // ─── PENCIL: pressure→opacity+width, round caps, grain ───────
     private func tessellatePencil(points: [Float], pointCount: Int,
                                   r: Float, g: Float, b: Float, a: Float,
                                   strokeWidth: Float,
-                                  pointStartIndex: Int, totalPoints: Int) {
+                                  pointStartIndex: Int, totalPoints: Int,
+                                  pencilBaseOpacity: Float = 0.4, pencilMaxOpacity: Float = 0.8,
+                                  pencilMinPressure: Float = 0.5, pencilMaxPressure: Float = 1.2) {
         guard pointCount >= 2 else { return }
-        let minP: Float=0.5, maxP: Float=1.2, tPts=4, tStart: Float=0.15
-        let bOp: Float=0.4, mOp: Float=0.8, gr: Float=0.08
-        let twb: Float=0.5, tod: Float=0.15, vad: Float=0.10
-        let bhw = strokeWidth * 0.5
-        
-        func gh(_ x: Float, _ y: Float) -> Float {
-            var ix=Int(x*7.3), iy=Int(y*11.7)
-            var h=(ix &* 374761393 &+ iy &* 668265263)^(ix &* 1274126177)
-            h=(h^(h>>13)) &* 1103515245
-            return Float(h&0x7FFFFFFF)/Float(0x7FFFFFFF)
-        }
-        
-        // No EMA on GPU — applied only in Dart committed stroke
-        
-        var tp: Float=0; for i in 0..<pointCount { tp+=points[i*5+2] }
-        let ua=a*(bOp+(mOp-bOp)*tp/Float(pointCount))
-        
-        struct OP { var lx:Float,ly:Float,rx:Float,ry:Float,a:Float }
-        var ol=[OP](repeating:OP(lx:0,ly:0,rx:0,ry:0,a:0),count:pointCount)
-        
-        for i in 0..<pointCount {
-            let px=points[i*5],py=points[i*5+1],pp=points[i*5+2],ptx=points[i*5+3],pty=points[i*5+4]
-            let gi=pointStartIndex+i
-            var hw=bhw*(minP+pp*(maxP-minP))
-            let tm=min(sqrt(ptx*ptx+pty*pty),1.0)
-            hw *= 1+tm*twb
-            if gi<tPts { let t=Float(gi)/Float(tPts); hw *= tStart+t*(2-t)*(1-tStart) }
-            let wr=(minP+pp*(maxP-minP))/maxP
-            var pa=ua*(0.85+0.15*wr)
-            pa *= 1-tm*tod
-            if i>0 { let d1=points[i*5]-points[(i-1)*5],d2=points[i*5+1]-points[(i-1)*5+1]; pa *= 1-vad*min(sqrt(d1*d1+d2*d2)/30,1) }
-            pa *= 1-gr+gr*gh(px,py); pa *= 0.92
-            var tx:Float=0,ty:Float=0
-            if i>0 { tx+=px-points[(i-1)*5]; ty+=py-points[(i-1)*5+1] }
-            if i<pointCount-1 { tx+=points[(i+1)*5]-px; ty+=points[(i+1)*5+1]-py }
-            var tl=sqrt(tx*tx+ty*ty); if tl<0.0001 { tx=1;ty=0;tl=1 }; tx/=tl; ty/=tl
-            ol[i]=OP(lx:px+(-ty)*hw,ly:py+tx*hw,rx:px-(-ty)*hw,ry:py-tx*hw,a:pa)
-        }
-        for i in 0..<(pointCount-1) {
-            let p=ol[i],n=ol[i+1]
-            accumulatedVerts.append(StrokeVertex(x:p.lx,y:p.ly,r:r,g:g,b:b,a:p.a))
-            accumulatedVerts.append(StrokeVertex(x:p.rx,y:p.ry,r:r,g:g,b:b,a:p.a))
-            accumulatedVerts.append(StrokeVertex(x:n.lx,y:n.ly,r:r,g:g,b:b,a:n.a))
-            accumulatedVerts.append(StrokeVertex(x:p.rx,y:p.ry,r:r,g:g,b:b,a:p.a))
-            accumulatedVerts.append(StrokeVertex(x:n.lx,y:n.ly,r:r,g:g,b:b,a:n.a))
-            accumulatedVerts.append(StrokeVertex(x:n.rx,y:n.ry,r:r,g:g,b:b,a:n.a))
-        }
-    }
-
-                                  strokeWidth: Float,
-                                  pointStartIndex: Int, totalPoints: Int) {
-        guard pointCount >= 2 else { return }
-        let minP: Float = 0.5, maxP: Float = 1.2
+        let minP = pencilMinPressure, maxP = pencilMaxPressure
         let taperPts = 4; let taperStart: Float = 0.15
-        let baseOp: Float = 0.4, maxOp: Float = 0.8
-        let grain: Float = 0.08, tiltWB: Float = 0.5, tiltOD: Float = 0.15, velAD: Float = 0.10
+        let baseOp = pencilBaseOpacity, maxOp = pencilMaxOpacity
+        let grainI: Float = 0.08
         let baseHW = strokeWidth * 0.5
         
-        func gh(_ x: Float, _ y: Float) -> Float {
-            var ix = Int(x * 7.3); var iy = Int(y * 11.7)
+        func grainHash(_ x: Float, _ y: Float) -> Float {
+            var ix = Int(x * 7.3), iy = Int(y * 11.7)
             var h = (ix &* 374761393 &+ iy &* 668265263) ^ (ix &* 1274126177)
             h = (h ^ (h >> 13)) &* 1103515245
             return Float(h & 0x7FFFFFFF) / Float(0x7FFFFFFF)
         }
         
-        var totalPressure: Float = 0
-        for i in 0..<pointCount { totalPressure += points[i*5+2] }
-        let uAlpha = a * (baseOp + (maxOp - baseOp) * totalPressure / Float(pointCount))
-        
-        struct OPt { var lx: Float; var ly: Float; var rx: Float; var ry: Float; var alpha: Float }
-        var outline = [OPt](repeating: OPt(lx:0,ly:0,rx:0,ry:0,alpha:0), count: pointCount)
+        struct OutPt { var lx: Float; var ly: Float; var rx: Float; var ry: Float; var alpha: Float }
+        var outline = [OutPt](repeating: OutPt(lx: 0, ly: 0, rx: 0, ry: 0, alpha: 0), count: pointCount)
         
         for i in 0..<pointCount {
             let px = points[i*5], py = points[i*5+1], pp = points[i*5+2]
-            let ptx = points[i*5+3], pty = points[i*5+4]
             let gi = pointStartIndex + i
             var hw = baseHW * (minP + pp * (maxP - minP))
-            let tm = min(sqrt(ptx*ptx + pty*pty), 1.0)
-            hw *= 1.0 + tm * tiltWB
-            if gi < taperPts { let t = Float(gi)/Float(taperPts); let e = t*(2-t); hw *= taperStart + e*(1-taperStart) }
-            let wr = (minP + pp*(maxP-minP))/maxP
-            var pa = uAlpha * (0.85 + 0.15*wr)
-            pa *= 1.0 - tm*tiltOD
-            if i > 0 { let d1=px-points[(i-1)*5],d2=py-points[(i-1)*5+1]; pa *= 1.0-velAD*min(sqrt(d1*d1+d2*d2)/30,1) }
-            pa *= 1.0 - grain + grain*gh(px,py)
-            pa *= 0.92
+            if gi < taperPts { let t = Float(gi) / Float(taperPts); hw *= taperStart + t * (2 - t) * (1 - taperStart) }
+            var pa = a * (baseOp + (maxOp - baseOp) * pp)
             var tx: Float = 0, ty: Float = 0
-            if i > 0 { tx += px-points[(i-1)*5]; ty += py-points[(i-1)*5+1] }
-            if i < pointCount-1 { tx += points[(i+1)*5]-px; ty += points[(i+1)*5+1]-py }
-            var tL = sqrt(tx*tx+ty*ty); if tL < 0.0001 { tx=1; ty=0; tL=1 }; tx /= tL; ty /= tL
-            outline[i] = OPt(lx: px+(-ty)*hw, ly: py+tx*hw, rx: px-(-ty)*hw, ry: py-tx*hw, alpha: pa)
+            if i > 0 { tx += px - points[(i-1)*5]; ty += py - points[(i-1)*5+1] }
+            if i < pointCount-1 { tx += points[(i+1)*5] - px; ty += points[(i+1)*5+1] - py }
+            var tLen = sqrt(tx*tx + ty*ty); if tLen < 0.0001 { tx = 1; ty = 0; tLen = 1 }
+            tx /= tLen; ty /= tLen
+            outline[i] = OutPt(lx: px + (-ty)*hw, ly: py + tx*hw, rx: px - (-ty)*hw, ry: py - tx*hw, alpha: pa)
         }
         
-        if pointStartIndex == 0 {
-            let pp = points[2]; let hw = baseHW*(minP+pp*(maxP-minP))
-            generateCircle(cx: points[0], cy: points[1], radius: hw, r: r, g: g, b: b, a: outline[0].alpha)
-        }
-        for i in 0..<(pointCount-1) {
-            let p = outline[i], n = outline[i+1]
-            accumulatedVerts.append(StrokeVertex(x:p.lx,y:p.ly,r:r,g:g,b:b,a:p.alpha))
-            accumulatedVerts.append(StrokeVertex(x:p.rx,y:p.ry,r:r,g:g,b:b,a:p.alpha))
-            accumulatedVerts.append(StrokeVertex(x:n.lx,y:n.ly,r:r,g:g,b:b,a:n.alpha))
-            accumulatedVerts.append(StrokeVertex(x:p.rx,y:p.ry,r:r,g:g,b:b,a:p.alpha))
-            accumulatedVerts.append(StrokeVertex(x:n.lx,y:n.ly,r:r,g:g,b:b,a:n.alpha))
-            accumulatedVerts.append(StrokeVertex(x:n.rx,y:n.ry,r:r,g:g,b:b,a:n.alpha))
-        }
-        let last = pointCount-1; let pp = points[last*5+2]
-        let hw = baseHW*(minP+pp*(maxP-minP))
-        generateCircle(cx: points[last*5], cy: points[last*5+1], radius: hw, r:r,g:g,b:b,a:outline[last].alpha)
-    }
-
-                                  strokeWidth: Float,
-                                  pointStartIndex: Int, totalPoints: Int) {
-        guard pointCount >= 2 else { return }
-        
-        let minPressure: Float = 0.5
-        let maxPressure: Float = 1.2
-        let taperPoints = 4
-        let taperStartFrac: Float = 0.15
-        let baseOpacity: Float = 0.4
-        let maxOpacityVal: Float = 0.8
-        let grainIntensity: Float = 0.08
-        let tiltWidthBoost: Float = 0.5
-        let tiltOpacityDrop: Float = 0.15
-        let velocityAlphaDrop: Float = 0.10
-        let baseHalfW = strokeWidth * 0.5
-        
-        func grainHash(_ x: Float, _ y: Float) -> Float {
-            var ix = Int(x * 7.3)
-            var iy = Int(y * 11.7)
-            var h = (ix &* 374761393 &+ iy &* 668265263) ^ (ix &* 1274126177)
-            h = (h ^ (h >> 13)) &* 1103515245
-            return Float(h & 0x7FFFFFFF) / Float(0x7FFFFFFF)
-        }
-        
-        var totalPressure: Float = 0.0
-        for i in 0..<pointCount { totalPressure += points[i * 5 + 2] }
-        let avgPressure = totalPressure / Float(pointCount)
-        let uniformAlpha = a * (baseOpacity + (maxOpacityVal - baseOpacity) * avgPressure)
-        
-        func computeHalfW(_ i: Int) -> Float {
-            let pp = points[i * 5 + 2]
-            let ptx = points[i * 5 + 3], pty = points[i * 5 + 4]
-            let globalIdx = pointStartIndex + i
-            var hw = baseHalfW * (minPressure + pp * (maxPressure - minPressure))
-            let tiltMag = min(sqrt(ptx * ptx + pty * pty), 1.0)
-            hw *= 1.0 + tiltMag * tiltWidthBoost
-            if globalIdx < taperPoints {
-                let t = Float(globalIdx) / Float(taperPoints)
-                let ease = t * (2.0 - t)
-                hw *= taperStartFrac + ease * (1.0 - taperStartFrac)
-            }
-            return hw
-        }
-        
-        func computeAlpha(_ i: Int, _ vel: Float) -> Float {
-            let pp = points[i * 5 + 2]
-            let ptx = points[i * 5 + 3], pty = points[i * 5 + 4]
-            let tiltMag = min(sqrt(ptx * ptx + pty * pty), 1.0)
-            let widthRatio = (minPressure + pp * (maxPressure - minPressure)) / maxPressure
-            var pa = uniformAlpha * (0.85 + 0.15 * widthRatio)
-            pa *= 1.0 - tiltMag * tiltOpacityDrop
-            pa *= 1.0 - velocityAlphaDrop * min(vel / 30.0, 1.0)
-            let px = points[i * 5], py = points[i * 5 + 1]
-            pa *= 1.0 - grainIntensity + grainIntensity * grainHash(px, py)
-            pa *= 0.92
-            return pa
-        }
-        
-        // Start cap only
-        if pointStartIndex == 0 {
-            let hw0 = computeHalfW(0)
-            let pa0 = computeAlpha(0, 0.0)
-            generateCircle(cx: points[0], cy: points[1], radius: hw0, r: r, g: g, b: b, a: pa0)
-        }
-        
-        // Body quads (NO per-point circles)
         for i in 0..<(pointCount - 1) {
-            let px = points[i * 5], py = points[i * 5 + 1]
-            let nx = points[(i + 1) * 5], ny = points[(i + 1) * 5 + 1]
-            let dx = nx - px, dy = ny - py
-            let len = sqrt(dx * dx + dy * dy)
-            guard len >= 0.001 else { continue }
-            
-            let halfW = computeHalfW(i)
-            let vel: Float = i > 0 ? len : 0.0
-            let pa = computeAlpha(i, vel)
-            let nHalfW = computeHalfW(i + 1)
-            let na = computeAlpha(i + 1, len)
-            
-            let perpX = -dy / len, perpY = dx / len
-            accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: pa))
-            accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-            accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-            accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-            accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-            accumulatedVerts.append(StrokeVertex(x: nx - perpX * nHalfW, y: ny - perpY * nHalfW, r: r, g: g, b: b, a: na))
-        }
-        
-        // End cap
-        let last = pointCount - 1
-        let hwLast = computeHalfW(last)
-        var velLast: Float = 0.0
-        if last > 0 {
-            let dx = points[last*5] - points[(last-1)*5]
-            let dy = points[last*5+1] - points[(last-1)*5+1]
-            velLast = sqrt(dx*dx + dy*dy)
-        }
-        let paLast = computeAlpha(last, velLast)
-        generateCircle(cx: points[last*5], cy: points[last*5+1], radius: hwLast, r: r, g: g, b: b, a: paLast)
-    }
-
-                                  strokeWidth: Float,
-                                  pointStartIndex: Int, totalPoints: Int) {
-        guard pointCount >= 2 else { return }
-        
-        // Aligned with PencilBrush.dart
-        let minPressure: Float = 0.5
-        let maxPressure: Float = 1.2
-        let taperPoints = 4
-        let taperStartFrac: Float = 0.15
-        let baseOpacity: Float = 0.4
-        let maxOpacity: Float = 0.8
-        let grainIntensity: Float = 0.08
-        let tiltWidthBoost: Float = 0.5
-        let tiltOpacityDrop: Float = 0.15
-        let velocityAlphaDrop: Float = 0.10
-        let baseHalfW = strokeWidth * 0.5
-        
-        func grainHash(_ x: Float, _ y: Float) -> Float {
-            var ix = Int(x * 7.3)
-            var iy = Int(y * 11.7)
-            var h = (ix &* 374761393 &+ iy &* 668265263) ^ (ix &* 1274126177)
-            h = (h ^ (h >> 13)) &* 1103515245
-            return Float(h & 0x7FFFFFFF) / Float(0x7FFFFFFF)
-        }
-        
-        // Average pressure for uniform alpha (like Dart)
-        var totalPressure: Float = 0.0
-        for i in 0..<pointCount { totalPressure += points[i * 5 + 2] }
-        let avgPressure = totalPressure / Float(pointCount)
-        let uniformAlpha = a * (baseOpacity + (maxOpacity - baseOpacity) * avgPressure)
-        
-        for i in 0..<pointCount {
-            let px = points[i * 5]
-            let py = points[i * 5 + 1]
-            let pp = points[i * 5 + 2]
-            let ptx = points[i * 5 + 3]
-            let pty = points[i * 5 + 4]
-            let globalIdx = pointStartIndex + i
-            
-            var halfW = baseHalfW * (minPressure + pp * (maxPressure - minPressure))
-            let tiltMag = min(sqrt(ptx * ptx + pty * pty), 1.0)
-            halfW *= 1.0 + tiltMag * tiltWidthBoost
-            
-            // Taper: 4pt easeOutQuad from 0.15
-            if globalIdx < taperPoints {
-                let t = Float(globalIdx) / Float(taperPoints)
-                let ease = t * (2.0 - t)
-                halfW *= taperStartFrac + ease * (1.0 - taperStartFrac)
-            }
-            
-            let widthRatio = (minPressure + pp * (maxPressure - minPressure)) / maxPressure
-            var pa = uniformAlpha * (0.85 + 0.15 * widthRatio)
-            pa *= 1.0 - tiltMag * tiltOpacityDrop
-            if i > 0 {
-                let dx = px - points[(i - 1) * 5]
-                let dy = py - points[(i - 1) * 5 + 1]
-                let vel = sqrt(dx * dx + dy * dy)
-                pa *= 1.0 - velocityAlphaDrop * min(vel / 30.0, 1.0)
-            }
-            pa *= 1.0 - grainIntensity + grainIntensity * grainHash(px, py)
-            pa *= 0.92
-            
-            generateCircle(cx: px, cy: py, radius: halfW, r: r, g: g, b: b, a: pa)
-            
-            if i < pointCount - 1 {
-                let nx = points[(i + 1) * 5]
-                let ny = points[(i + 1) * 5 + 1]
-                let np = points[(i + 1) * 5 + 2]
-                let ntx = points[(i + 1) * 5 + 3]
-                let nty = points[(i + 1) * 5 + 4]
-                
-                let dx = nx - px
-                let dy = ny - py
-                let len = sqrt(dx * dx + dy * dy)
-                guard len >= 0.001 else { continue }
-                
-                let nextGlobal = globalIdx + 1
-                let nTilt = min(sqrt(ntx * ntx + nty * nty), 1.0)
-                var nHalfW = baseHalfW * (minPressure + np * (maxPressure - minPressure))
-                nHalfW *= 1.0 + nTilt * tiltWidthBoost
-                if nextGlobal < taperPoints {
-                    let t = Float(nextGlobal) / Float(taperPoints)
-                    let ease = t * (2.0 - t)
-                    nHalfW *= taperStartFrac + ease * (1.0 - taperStartFrac)
-                }
-                
-                let nWidthRatio = (minPressure + np * (maxPressure - minPressure)) / maxPressure
-                var na = uniformAlpha * (0.85 + 0.15 * nWidthRatio)
-                na *= 1.0 - nTilt * tiltOpacityDrop
-                na *= 1.0 - velocityAlphaDrop * min(len / 30.0, 1.0)
-                na *= 1.0 - grainIntensity + grainIntensity * grainHash(nx, ny)
-                na *= 0.92
-                
-                let perpX = -dy / len
-                let perpY = dx / len
-                
-                accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-                accumulatedVerts.append(StrokeVertex(x: nx - perpX * nHalfW, y: ny - perpY * nHalfW, r: r, g: g, b: b, a: na))
-            }
+            let p = outline[i], n = outline[i+1]
+            accumulatedVerts.append(StrokeVertex(x: p.lx, y: p.ly, r: r, g: g, b: b, a: p.alpha))
+            accumulatedVerts.append(StrokeVertex(x: p.rx, y: p.ry, r: r, g: g, b: b, a: p.alpha))
+            accumulatedVerts.append(StrokeVertex(x: n.lx, y: n.ly, r: r, g: g, b: b, a: n.alpha))
+            accumulatedVerts.append(StrokeVertex(x: p.rx, y: p.ry, r: r, g: g, b: b, a: p.alpha))
+            accumulatedVerts.append(StrokeVertex(x: n.lx, y: n.ly, r: r, g: g, b: b, a: n.alpha))
+            accumulatedVerts.append(StrokeVertex(x: n.rx, y: n.ry, r: r, g: g, b: b, a: n.alpha))
         }
     }
-                                  strokeWidth: Float,
-                                  pointStartIndex: Int, totalPoints: Int) {
+    // ═══════════════════════════════════════════════════════════════
+    // FOUNTAIN PEN (STILOGRAFICA) — Full calligraphic pipeline
+    // Ported from vk_stroke_renderer.cpp tessellateFountainPen
+    // ═══════════════════════════════════════════════════════════════
+    
+    private func tessellateFountainPen(points: [Float], pointCount: Int,
+                                       r: Float, g: Float, b: Float, a: Float,
+                                       strokeWidth: Float, totalPoints: Int,
+                                       thinning: Float, nibAngleRad: Float,
+                                       nibStrength: Float, pressureRate: Float,
+                                       taperEntry: Int) {
         guard pointCount >= 2 else { return }
+        let n = pointCount
         
-        let widthFactor: Float = 1.2
-        let taperPoints = 3
-        let taperStartFrac: Float = 0.40
-        let grainIntensity: Float = 0.25
-        let tiltWidthBoost: Float = 2.0
-        let tiltOpacityDrop: Float = 0.5
-        let velocityMaxDist: Float = 30.0
-        let baseHalfW = strokeWidth * widthFactor * 0.5
-        
-        func grainHash(_ x: Float, _ y: Float) -> Float {
-            var ix = Int(x * 7.3)
-            var iy = Int(y * 11.7)
-            var h = (ix &* 374761393 &+ iy &* 668265263) ^ (ix &* 1274126177)
-            h = (h ^ (h >> 13)) &* 1103515245
-            return Float(h & 0x7FFFFFFF) / Float(0x7FFFFFFF)
+        // Detect finger input (constant pressure)
+        var isFingerInput = true
+        do {
+            let firstP = Double(points[2])
+            let checkLen = min(n, 10)
+            var minP = firstP, maxP = firstP
+            for i in 1..<checkLen {
+                let p = Double(points[i * 5 + 2])
+                if p < minP { minP = p }
+                if p > maxP { maxP = p }
+            }
+            isFingerInput = (maxP - minP) < 0.15
         }
         
-        for i in 0..<pointCount {
-            let px = points[i * 5]
-            let py = points[i * 5 + 1]
-            let pp = points[i * 5 + 2]
-            let ptx = points[i * 5 + 3]
-            let pty = points[i * 5 + 4]
-            let globalIdx = pointStartIndex + i
+        // Streamline + pressure accumulator + width calculation (all Double)
+        var widths = [Double](repeating: 0, count: n)
+        var px = [Double](repeating: 0, count: n)
+        var py = [Double](repeating: 0, count: n)
+        
+        do {
+            let streamT = 0.575
+            var prevSX = Double(points[0]), prevSY = Double(points[1])
+            var accPressure = 0.25
+            var prevSp = 0.0
+            let dSW = Double(strokeWidth)
+            let dThin = Double(thinning)
+            let dNibRad = Double(nibAngleRad)
+            let dPRate = Double(pressureRate)
+            let effNibStr = isFingerInput
+                ? min(Double(nibStrength) * 0.7, 0.7)
+                : min(Double(nibStrength) * 0.75, 0.75)
             
-            var halfW = baseHalfW * (0.5 + 0.7 * pp)
-            let tiltMag = min(sqrt(ptx * ptx + pty * pty), 1.0)
-            halfW *= 1.0 + tiltMag * tiltWidthBoost
-            
-            if globalIdx < taperPoints {
-                let t = Float(globalIdx + 1) / Float(taperPoints)
-                let ease: Float = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
-                halfW *= taperStartFrac + (1.0 - taperStartFrac) * ease
-            }
-            
-            var velocity: Float = 0.0
-            if i > 0 {
-                let dx = px - points[(i - 1) * 5]
-                let dy = py - points[(i - 1) * 5 + 1]
-                velocity = sqrt(dx * dx + dy * dy)
-            }
-            let velAlpha: Float = 1.0 - 0.30 * min(velocity / velocityMaxDist, 1.0)
-            
-            var pa = a * (0.30 + 0.60 * pp)
-            pa *= 1.0 - tiltMag * tiltOpacityDrop
-            pa *= velAlpha
-            pa *= 1.0 - grainIntensity + grainIntensity * grainHash(px, py)
-            
-            generateCircle(cx: px, cy: py, radius: halfW, r: r, g: g, b: b, a: pa)
-            
-            if i < pointCount - 1 {
-                let nx = points[(i + 1) * 5]
-                let ny = points[(i + 1) * 5 + 1]
-                let np = points[(i + 1) * 5 + 2]
-                let ntx = points[(i + 1) * 5 + 3]
-                let nty = points[(i + 1) * 5 + 4]
+            for i in 0..<n {
+                let rawX = Double(points[i * 5]), rawY = Double(points[i * 5 + 1])
+                let sx: Double, sy: Double
+                if i == 0 { sx = rawX; sy = rawY }
+                else { sx = prevSX + (rawX - prevSX) * streamT; sy = prevSY + (rawY - prevSY) * streamT }
+                let dist = i > 0 ? sqrt((sx - prevSX) * (sx - prevSX) + (sy - prevSY) * (sy - prevSY)) : 0.0
+                px[i] = rawX; py[i] = rawY
+                prevSX = sx; prevSY = sy
                 
-                let dx = nx - px
-                let dy = ny - py
-                let len = sqrt(dx * dx + dy * dy)
-                guard len >= 0.001 else { continue }
-                
-                let nextGlobal = globalIdx + 1
-                let nTilt = min(sqrt(ntx * ntx + nty * nty), 1.0)
-                var nHalfW = baseHalfW * (0.5 + 0.7 * np)
-                nHalfW *= 1.0 + nTilt * tiltWidthBoost
-                if nextGlobal < taperPoints {
-                    let t = Float(nextGlobal + 1) / Float(taperPoints)
-                    let ease: Float = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
-                    nHalfW *= taperStartFrac + (1.0 - taperStartFrac) * ease
+                var dirX = 0.0, dirY = 0.0
+                if i > 0 && dist > 0.01 {
+                    let dx = rawX - Double(points[(i-1)*5]), dy = rawY - Double(points[(i-1)*5+1])
+                    let dlen = sqrt(dx*dx + dy*dy)
+                    if dlen > 0 { dirX = dx / dlen; dirY = dy / dlen }
                 }
                 
-                let nVelAlpha: Float = 1.0 - 0.30 * min(len / velocityMaxDist, 1.0)
-                var na = a * (0.30 + 0.60 * np)
-                na *= 1.0 - nTilt * tiltOpacityDrop
-                na *= nVelAlpha
-                na *= 1.0 - grainIntensity + grainIntensity * grainHash(nx, ny)
+                // Pressure accumulator
+                var pressure: Double
+                var acceleration = 0.0
+                if isFingerInput {
+                    let sp = min(1.0, dist / (dSW * 0.55))
+                    let rp = min(1.0, 1.0 - sp)
+                    accPressure = min(1.0, accPressure + (rp - accPressure) * sp * dPRate)
+                    pressure = accPressure
+                    acceleration = sp - prevSp
+                    prevSp = sp
+                } else {
+                    pressure = Double(points[i * 5 + 2])
+                }
                 
-                let perpX = -dy / len
-                let perpY = dx / len
+                var thinned = max(0.02, min(1.0, 0.5 - dThin * (0.5 - pressure)))
+                var w = dSW * thinned
                 
-                accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-                accumulatedVerts.append(StrokeVertex(x: nx - perpX * nHalfW, y: ny - perpY * nHalfW, r: r, g: g, b: b, a: na))
+                if isFingerInput {
+                    let accelMod = max(0.88, min(1.12, 1.0 - acceleration * 0.6))
+                    w *= accelMod
+                }
+                
+                // Nib angle
+                if dirX != 0 || dirY != 0 {
+                    let strokeAngle = atan2(dirY, dirX)
+                    let angleDiff = fmod(abs(strokeAngle - dNibRad), Double.pi)
+                    let perp = sin(angleDiff)
+                    w *= (1.0 - effNibStr + perp * effNibStr * 2.0)
+                }
+                
+                // Curvature modulation
+                if i >= 2 {
+                    let p0x = Double(points[(i-2)*5]), p0y = Double(points[(i-2)*5+1])
+                    let p1x = Double(points[(i-1)*5]), p1y = Double(points[(i-1)*5+1])
+                    let d1x = p1x-p0x, d1y = p1y-p0y, d2x = rawX-p1x, d2y = rawY-p1y
+                    let cross = abs(d1x*d2y - d1y*d2x)
+                    let dot = d1x*d2x + d1y*d2y
+                    let angle = atan2(cross, dot)
+                    let curv = max(0, min(1, angle / Double.pi))
+                    w *= 1.0 + curv * 0.35
+                }
+                
+                // Velocity modifier (stylus only)
+                if !isFingerInput && dist > 0 {
+                    let sp = min(1.0, dist / dSW)
+                    let velMod = max(0.5, min(1.3, 1.15 - sp * 0.5 * 0.6))
+                    w *= velMod
+                }
+                
+                widths[i] = max(dSW * 0.12, min(dSW * 3.5, w))
             }
         }
-    }
-                                  strokeWidth: Float,
-                                  pointStartIndex: Int, totalPoints: Int) {
-        guard pointCount >= 2 else { return }
         
-        let widthFactor: Float = 1.2
-        let taperPoints = 3
-        let taperStartFrac: Float = 0.40
-        let baseHalfW = strokeWidth * widthFactor * 0.5
-        
-        for i in 0..<pointCount {
-            let px = points[i * 5]
-            let py = points[i * 5 + 1]
-            let pp = points[i * 5 + 2]  // pressure
-            let globalIdx = pointStartIndex + i
-            
-            // Pressure → width: 0.5× (light) to 1.2× (full)
-            var halfW = baseHalfW * (0.5 + 0.7 * pp)
-            
-            // Entry taper
-            if globalIdx < taperPoints {
-                let t = Float(globalIdx + 1) / Float(taperPoints)
-                let ease: Float = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
-                halfW *= taperStartFrac + (1.0 - taperStartFrac) * ease
+        // Tapering (entry only, easeInOutCubic)
+        do {
+            let entryLen = min(taperEntry, n - 1)
+            for i in 0..<entryLen {
+                let t = Double(i) / Double(taperEntry)
+                let factor: Double
+                if t < 0.5 { factor = 4.0 * t * t * t }
+                else { let v = -2.0 * t + 2.0; factor = 1.0 - (v * v * v) / 2.0 }
+                widths[i] *= max(0.0, min(1.0, factor))
             }
-            
-            // Pressure → opacity: 0.30 (light) to 0.90 (full)
-            let pa = a * (0.30 + 0.60 * pp)
-            
-            // Round cap
-            generateCircle(cx: px, cy: py, radius: halfW, r: r, g: g, b: b, a: pa)
-            
-            // Segment quad
-            if i < pointCount - 1 {
-                let nx = points[(i + 1) * 5]
-                let ny = points[(i + 1) * 5 + 1]
-                let np = points[(i + 1) * 5 + 2]
-                
-                let dx = nx - px
-                let dy = ny - py
-                let len = sqrt(dx * dx + dy * dy)
-                guard len >= 0.001 else { continue }
-                
-                let nextGlobal = globalIdx + 1
-                var nHalfW = baseHalfW * (0.5 + 0.7 * np)
-                if nextGlobal < taperPoints {
-                    let t = Float(nextGlobal + 1) / Float(taperPoints)
-                    let ease: Float = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
-                    nHalfW *= taperStartFrac + (1.0 - taperStartFrac) * ease
+        }
+        
+        // 2-pass EMA width smoothing (alpha=0.35)
+        do {
+            let alpha = 0.35
+            var sm = widths[0]
+            for i in 1..<n { sm = sm * alpha + widths[i] * (1.0 - alpha); widths[i] = sm }
+            sm = widths[n - 1]
+            for i in stride(from: n - 2, through: 0, by: -1) { sm = sm * alpha + widths[i] * (1.0 - alpha); widths[i] = sm }
+        }
+        
+        // Rate limiting (maxChangeRate=0.12)
+        do {
+            let mcr = 0.12
+            for i in 1..<n { widths[i] = max(widths[i-1] * (1-mcr), min(widths[i-1] * (1+mcr), widths[i])) }
+            for i in stride(from: n - 2, through: 0, by: -1) { widths[i] = max(widths[i+1] * (1-mcr), min(widths[i+1] * (1+mcr), widths[i])) }
+        }
+        
+        // Position smoothing (2-pass bi-directional)
+        if n >= 4 {
+            let posAlpha = 0.3
+            for _ in 0..<2 {
+                for i in 1..<(n - 1) { px[i] = px[i-1]*posAlpha + px[i]*(1-posAlpha); py[i] = py[i-1]*posAlpha + py[i]*(1-posAlpha) }
+                for i in stride(from: n - 2, through: 1, by: -1) { px[i] = px[i+1]*posAlpha + px[i]*(1-posAlpha); py[i] = py[i+1]*posAlpha + py[i]*(1-posAlpha) }
+            }
+        }
+        
+        // Curvature-adaptive smoothing
+        if n >= 5 {
+            for i in 2..<(n - 2) {
+                let v1x = px[i]-px[i-1], v1y = py[i]-py[i-1]
+                let v2x = px[i+1]-px[i], v2y = py[i+1]-py[i]
+                let crossV = abs(v1x*v2y - v1y*v2x), dotV = v1x*v2x + v1y*v2y
+                let blend = max(0, min(1, atan2(crossV, dotV) / Double.pi)) * 0.4
+                if blend > 0.02 {
+                    let avgX = (px[i-1]+px[i+1])*0.5, avgY = (py[i-1]+py[i+1])*0.5
+                    px[i] = px[i]*(1-blend) + avgX*blend; py[i] = py[i]*(1-blend) + avgY*blend
                 }
-                let na = a * (0.30 + 0.60 * np)
-                
-                let perpX = -dy / len
-                let perpY = dx / len
-                
-                accumulatedVerts.append(StrokeVertex(x: px + perpX * halfW, y: py + perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-                accumulatedVerts.append(StrokeVertex(x: px - perpX * halfW, y: py - perpY * halfW, r: r, g: g, b: b, a: pa))
-                accumulatedVerts.append(StrokeVertex(x: nx + perpX * nHalfW, y: ny + perpY * nHalfW, r: r, g: g, b: b, a: na))
-                accumulatedVerts.append(StrokeVertex(x: nx - perpX * nHalfW, y: ny - perpY * nHalfW, r: r, g: g, b: b, a: na))
+            }
+        }
+        
+        // Arc-length reparameterization
+        if n >= 10 {
+            var arcLen = [Double](repeating: 0, count: n)
+            for i in 1..<n { let dx = px[i]-px[i-1], dy = py[i]-py[i-1]; arcLen[i] = arcLen[i-1] + sqrt(dx*dx + dy*dy) }
+            let totalLen = arcLen[n - 1]
+            if totalLen > 1.0 {
+                let numSamples = n
+                let step = totalLen / Double(numSamples - 1)
+                var rPx = [Double](repeating: 0, count: numSamples)
+                var rPy = [Double](repeating: 0, count: numSamples)
+                var rW = [Double](repeating: 0, count: numSamples)
+                rPx[0] = px[0]; rPy[0] = py[0]; rW[0] = widths[0]
+                var seg = 0
+                for s in 1..<(numSamples - 1) {
+                    let targetLen = Double(s) * step
+                    while seg < n - 2 && arcLen[seg + 1] < targetLen { seg += 1 }
+                    let segLen = arcLen[seg + 1] - arcLen[seg]
+                    let frac = segLen > 0.001 ? (targetLen - arcLen[seg]) / segLen : 0.0
+                    rPx[s] = px[seg] + (px[seg+1]-px[seg])*frac
+                    rPy[s] = py[seg] + (py[seg+1]-py[seg])*frac
+                    rW[s] = widths[seg] + (widths[seg+1]-widths[seg])*frac
+                }
+                rPx[numSamples-1] = px[n-1]; rPy[numSamples-1] = py[n-1]; rW[numSamples-1] = widths[n-1]
+                for i in 0..<numSamples { px[i] = rPx[i]; py[i] = rPy[i]; widths[i] = rW[i] }
+            }
+        }
+        
+        // 7-point weighted tangent computation
+        var tanX = [Double](repeating: 0, count: n), tanY = [Double](repeating: 0, count: n)
+        for i in 0..<n {
+            var tx: Double, ty: Double
+            if i == 0 { tx = px[1]-px[0]; ty = py[1]-py[0] }
+            else if i == n-1 { tx = px[n-1]-px[n-2]; ty = py[n-1]-py[n-2] }
+            else {
+                tx = px[i+1]-px[i-1]; ty = py[i+1]-py[i-1]
+                if i >= 2 && i < n-2 {
+                    let fx = px[i+2]-px[i-2], fy = py[i+2]-py[i-2]
+                    tx = tx*0.6 + fx*0.3; ty = ty*0.6 + fy*0.3
+                    if i >= 3 && i < n-3 { tx += (px[i+3]-px[i-3])*0.1; ty += (py[i+3]-py[i-3])*0.1 }
+                }
+            }
+            let tlen = sqrt(tx*tx + ty*ty)
+            if tlen > 0 { tanX[i] = tx/tlen; tanY[i] = ty/tlen } else { tanX[i] = 1; tanY[i] = 0 }
+        }
+        
+        // Outline generation
+        var leftX = [Double](repeating: 0, count: n), leftY = [Double](repeating: 0, count: n)
+        var rightX = [Double](repeating: 0, count: n), rightY = [Double](repeating: 0, count: n)
+        for i in 0..<n {
+            let hw = widths[i] * 0.5, nx = -tanY[i], ny = tanX[i]
+            leftX[i] = px[i] + nx*hw; leftY[i] = py[i] + ny*hw
+            rightX[i] = px[i] - nx*hw; rightY[i] = py[i] - ny*hw
+        }
+        
+        // Outline smoothing
+        do {
+            var avgW = 0.0; for i in 0..<n { avgW += widths[i] }; avgW /= Double(n)
+            let alpha = max(0.35, min(0.65, 0.35 + avgW / 40.0))
+            let passes = avgW > 8.0 ? 3 : 2
+            for _ in 0..<passes {
+                for i in 1..<(n-1) {
+                    leftX[i] = leftX[i-1]*alpha + leftX[i]*(1-alpha); leftY[i] = leftY[i-1]*alpha + leftY[i]*(1-alpha)
+                    rightX[i] = rightX[i-1]*alpha + rightX[i]*(1-alpha); rightY[i] = rightY[i-1]*alpha + rightY[i]*(1-alpha)
+                }
+                for i in stride(from: n-2, through: 1, by: -1) {
+                    leftX[i] = leftX[i+1]*alpha + leftX[i]*(1-alpha); leftY[i] = leftY[i+1]*alpha + leftY[i]*(1-alpha)
+                    rightX[i] = rightX[i+1]*alpha + rightX[i]*(1-alpha); rightY[i] = rightY[i+1]*alpha + rightY[i]*(1-alpha)
+                }
+            }
+        }
+        
+        // Chaikin corner-cutting subdivision (1 iteration)
+        do {
+            let outLen = 2 * (n - 1) + 2
+            var cLX = [Double](repeating: 0, count: outLen), cLY = [Double](repeating: 0, count: outLen)
+            var cRX = [Double](repeating: 0, count: outLen), cRY = [Double](repeating: 0, count: outLen)
+            var ci = 0
+            cLX[ci] = leftX[0]; cLY[ci] = leftY[0]; cRX[ci] = rightX[0]; cRY[ci] = rightY[0]; ci += 1
+            for i in 0..<(n-1) {
+                cLX[ci] = leftX[i]*0.75+leftX[i+1]*0.25; cLY[ci] = leftY[i]*0.75+leftY[i+1]*0.25
+                cRX[ci] = rightX[i]*0.75+rightX[i+1]*0.25; cRY[ci] = rightY[i]*0.75+rightY[i+1]*0.25; ci += 1
+                cLX[ci] = leftX[i]*0.25+leftX[i+1]*0.75; cLY[ci] = leftY[i]*0.25+leftY[i+1]*0.75
+                cRX[ci] = rightX[i]*0.25+rightX[i+1]*0.75; cRY[ci] = rightY[i]*0.25+rightY[i+1]*0.75; ci += 1
+            }
+            cLX[ci] = leftX[n-1]; cLY[ci] = leftY[n-1]; cRX[ci] = rightX[n-1]; cRY[ci] = rightY[n-1]; ci += 1
+            leftX = Array(cLX[0..<ci]); leftY = Array(cLY[0..<ci])
+            rightX = Array(cRX[0..<ci]); rightY = Array(cRY[0..<ci])
+        }
+        
+        let outN = leftX.count
+        
+        // Crossed-outline fix
+        for i in 1..<outN {
+            let pLRx = rightX[i-1]-leftX[i-1], pLRy = rightY[i-1]-leftY[i-1]
+            let cLRx = rightX[i]-leftX[i], cLRy = rightY[i]-leftY[i]
+            let cross = pLRx*cLRy - pLRy*cLRx, dot = pLRx*cLRx + pLRy*cLRy
+            let pD = sqrt(pLRx*pLRx + pLRy*pLRy), cD = sqrt(cLRx*cLRx + cLRy*cLRy)
+            if dot < 0 || abs(cross) > pD * cD * 0.95 {
+                let cx = (leftX[i]+rightX[i])*0.5, cy = (leftY[i]+rightY[i])*0.5
+                leftX[i] = cx; leftY[i] = cy; rightX[i] = cx; rightY[i] = cy
+            }
+        }
+        
+        // Triangle strip
+        for i in 0..<(outN - 1) {
+            let ni = i + 1
+            accumulatedVerts.append(StrokeVertex(x: Float(leftX[i]), y: Float(leftY[i]), r: r, g: g, b: b, a: a))
+            accumulatedVerts.append(StrokeVertex(x: Float(rightX[i]), y: Float(rightY[i]), r: r, g: g, b: b, a: a))
+            accumulatedVerts.append(StrokeVertex(x: Float(leftX[ni]), y: Float(leftY[ni]), r: r, g: g, b: b, a: a))
+            accumulatedVerts.append(StrokeVertex(x: Float(rightX[i]), y: Float(rightY[i]), r: r, g: g, b: b, a: a))
+            accumulatedVerts.append(StrokeVertex(x: Float(leftX[ni]), y: Float(leftY[ni]), r: r, g: g, b: b, a: a))
+            accumulatedVerts.append(StrokeVertex(x: Float(rightX[ni]), y: Float(rightY[ni]), r: r, g: g, b: b, a: a))
+        }
+        
+        // End cap: semicircular
+        do {
+            let lx = leftX[outN-1], ly = leftY[outN-1], rx = rightX[outN-1], ry = rightY[outN-1]
+            let cx = (lx+rx)*0.5, cy = (ly+ry)*0.5
+            let rad = sqrt((lx-rx)*(lx-rx)+(ly-ry)*(ly-ry)) * 0.5
+            if rad > 0.1 {
+                let segs = 10
+                let base = atan2(ly-cy, lx-cx)
+                for s in 0..<segs {
+                    let a0 = base - Double.pi * Double(s) / Double(segs)
+                    let a1 = base - Double.pi * Double(s+1) / Double(segs)
+                    accumulatedVerts.append(StrokeVertex(x: Float(cx), y: Float(cy), r: r, g: g, b: b, a: a))
+                    accumulatedVerts.append(StrokeVertex(x: Float(cx + rad*cos(a0)), y: Float(cy + rad*sin(a0)), r: r, g: g, b: b, a: a))
+                    accumulatedVerts.append(StrokeVertex(x: Float(cx + rad*cos(a1)), y: Float(cy + rad*sin(a1)), r: r, g: g, b: b, a: a))
+                }
+            }
+        }
+        // Start cap: semicircular
+        do {
+            let lx = leftX[0], ly = leftY[0], rx = rightX[0], ry = rightY[0]
+            let cx = (lx+rx)*0.5, cy = (ly+ry)*0.5
+            let rad = sqrt((lx-rx)*(lx-rx)+(ly-ry)*(ly-ry)) * 0.5
+            if rad > 0.1 {
+                let segs = 10
+                let base = atan2(ry-cy, rx-cx)
+                for s in 0..<segs {
+                    let a0 = base - Double.pi * Double(s) / Double(segs)
+                    let a1 = base - Double.pi * Double(s+1) / Double(segs)
+                    accumulatedVerts.append(StrokeVertex(x: Float(cx), y: Float(cy), r: r, g: g, b: b, a: a))
+                    accumulatedVerts.append(StrokeVertex(x: Float(cx + rad*cos(a0)), y: Float(cy + rad*sin(a0)), r: r, g: g, b: b, a: a))
+                    accumulatedVerts.append(StrokeVertex(x: Float(cx + rad*cos(a1)), y: Float(cy + rad*sin(a1)), r: r, g: g, b: b, a: a))
+                }
             }
         }
     }

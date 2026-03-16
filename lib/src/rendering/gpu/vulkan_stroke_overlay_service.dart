@@ -1,8 +1,11 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../canvas/infinite_canvas_controller.dart';
+import 'native_stroke_ffi_stub.dart'
+    if (dart.library.ffi) 'native_stroke_ffi.dart';
 
 /// 🎨 VulkanStrokeOverlayService — Dart bridge to the C++ Vulkan stroke renderer.
 ///
@@ -25,6 +28,9 @@ class VulkanStrokeOverlayService {
   bool? _available;
   int _lastSentCount = 0;
   int _lastSendTimeMs = 0;
+
+  /// 🚀 FFI: Direct shared memory bridge for hot-path calls
+  final NativeStrokeFfi _ffi = NativeStrokeFfi();
 
   /// Flutter texture ID for use with Texture(textureId:) widget.
   int? get textureId => _textureId;
@@ -55,6 +61,12 @@ class VulkanStrokeOverlayService {
       if (id != null) {
         _textureId = id;
         _initialized = true;
+        // 🚀 FFI: Initialize direct path after native renderer is ready
+        if (_ffi.init()) {
+          debugPrint('[FlueraVk] FFI hot-path active');
+        } else {
+          debugPrint('[FlueraVk] FFI unavailable, using MethodChannel fallback');
+        }
       }
       return id;
     } catch (e) {
@@ -104,9 +116,33 @@ class VulkanStrokeOverlayService {
       newStart = 0;
     }
     if (newStart >= points.length) return;
+    _lastSentCount = points.length;
+    _lastSendTimeMs = now;
 
+    // 🚀 FFI HOT PATH: Zero-copy shared buffer write
+    if (_ffi.isInitialized) {
+      _ffi.updateAndRender(
+        points,
+        newStart,
+        color,
+        strokeWidth,
+        points.length,
+        brushType: brushType,
+        pencilBaseOpacity: pencilBaseOpacity,
+        pencilMaxOpacity: pencilMaxOpacity,
+        pencilMinPressure: pencilMinPressure,
+        pencilMaxPressure: pencilMaxPressure,
+        fountainThinning: fountainThinning,
+        fountainNibAngleDeg: fountainNibAngleDeg,
+        fountainNibStrength: fountainNibStrength,
+        fountainPressureRate: fountainPressureRate,
+        fountainTaperEntry: fountainTaperEntry,
+      );
+      return;
+    }
+
+    // ─── FALLBACK: MethodChannel (if FFI unavailable) ────────
     final newCount = points.length - newStart;
-    // Stride 5: x, y, pressure, tiltX, tiltY
     final flatPoints = List<double>.filled(newCount * 5, 0.0);
     for (int i = 0; i < newCount; i++) {
       final pt = points[newStart + i];
@@ -116,8 +152,6 @@ class VulkanStrokeOverlayService {
       flatPoints[i * 5 + 3] = pt.tiltX;
       flatPoints[i * 5 + 4] = pt.tiltY;
     }
-    _lastSentCount = points.length;
-    _lastSendTimeMs = now;
 
     _channel.invokeMethod('updateAndRender', {
       'points': flatPoints,
@@ -154,41 +188,100 @@ class VulkanStrokeOverlayService {
     final scale = controller.scale;
     final ox = controller.offset.dx;
     final oy = controller.offset.dy;
+    final rotation = controller.rotation;
 
     final double w = width.toDouble();
     final double h = height.toDouble();
 
     // Canvas coordinates are in logical pixels.
     // The Vulkan surface is in physical pixels (width/height already scaled).
-    // So we need to scale canvas coords by dpr before NDC conversion:
-    //   ndcX = (canvasX * scale * dpr + ox * dpr) * (2/w) - 1
+    // Flutter transform chain: translate(offset) → rotate(θ) → scale(s)
+    //
+    // Combined matrix: NDC_projection * translate * rotate * scale * dpr
+    //   P = point in canvas space
+    //   Step 1: scale       → P' = P * scale * dpr
+    //   Step 2: rotate      → P'' = R(θ) * P'
+    //   Step 3: translate   → P''' = P'' + offset * dpr
+    //   Step 4: NDC         → ndc = P''' * (2/w, 2/h) - (1, 1)
+    //
+    // As a single 4x4 column-major matrix:
     final effectiveScale = scale * dpr;
     final effectiveOx = ox * dpr;
     final effectiveOy = oy * dpr;
 
+    final cosR = _cos(rotation);
+    final sinR = _sin(rotation);
+
+    // M = NDC * Translate * Rotate * Scale
+    // NDC maps physical pixels → [-1, 1]:  x' = x * 2/w - 1, y' = y * 2/h - 1
+    //
+    // Row 0: sx*cosR, sx*(-sinR), 0, tx
+    // Row 1: sy*sinR, sy*cosR,    0, ty
+    // Column-major storage for Vulkan:
     final sx = 2.0 * effectiveScale / w;
     final sy = 2.0 * effectiveScale / h;
     final tx = (2.0 * effectiveOx / w) - 1.0;
     final ty = (2.0 * effectiveOy / h) - 1.0;
 
-    // Column-major 4x4 matrix (no rotation for now)
     final matrix = <double>[
-      sx,
+      // Column 0
+      sx * cosR,
+      sy * sinR,
       0.0,
       0.0,
+      // Column 1
+      sx * -sinR,
+      sy * cosR,
       0.0,
       0.0,
-      sy,
-      0.0,
-      0.0,
+      // Column 2
       0.0,
       0.0,
       1.0,
       0.0,
+      // Column 3
       tx,
       ty,
       0.0,
       1.0,
+    ];
+
+    // 🚀 FFI HOT PATH
+    if (_ffi.isInitialized) {
+      _ffi.setTransform(controller, width, height, dpr);
+      return;
+    }
+
+    // ─── FALLBACK: MethodChannel ─────────────────────────────
+    _channel.invokeMethod('setTransform', {'matrix': matrix});
+  }
+
+  // 🚀 PERF: Fast-path for rotation=0 (most common case)
+  static double _cos(double r) => r == 0.0 ? 1.0 : math.cos(r);
+  static double _sin(double r) => r == 0.0 ? 0.0 : math.sin(r);
+
+  /// Set a screen-space identity transform (no pan/zoom).
+  ///
+  /// Points sent to [updateAndRender] are interpreted as physical-pixel
+  /// screen coordinates. Used by the PDF reader where there is no
+  /// InfiniteCanvasController.
+  void setScreenSpaceTransform(int width, int height, double dpr) {
+    if (!_initialized) return;
+
+    final double w = width.toDouble();
+    final double h = height.toDouble();
+
+    // Identity canvas transform: scale=1.0, offset=0.
+    // ndcX = x * dpr * (2/w) - 1
+    // ndcY = y * dpr * (2/h) - 1
+    final sx = 2.0 * dpr / w;
+    final sy = 2.0 * dpr / h;
+
+    final matrix = <double>[
+      sx,  0.0, 0.0, 0.0,
+      0.0, sy,  0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      -1.0, -1.0, 0.0, 1.0,
     ];
 
     _channel.invokeMethod('setTransform', {'matrix': matrix});
@@ -199,6 +292,14 @@ class VulkanStrokeOverlayService {
     if (!_initialized) return;
     _lastSentCount = 0;
     _lastSendTimeMs = 0;
+
+    // 🚀 FFI HOT PATH
+    if (_ffi.isInitialized) {
+      _ffi.clear();
+      return;
+    }
+
+    // ─── FALLBACK: MethodChannel ─────────────────────────────
     _channel.invokeMethod('clear');
   }
 
@@ -220,6 +321,7 @@ class VulkanStrokeOverlayService {
   /// Dispose all resources.
   Future<void> dispose() async {
     if (!_initialized) return;
+    _ffi.dispose(); // 🚀 Free shared buffer
     try {
       await _channel.invokeMethod('destroy');
     } catch (e) {

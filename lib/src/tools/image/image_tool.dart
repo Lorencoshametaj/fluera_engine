@@ -297,20 +297,38 @@ class ImageTool {
   }
 
   /// Update rotation + scale simultaneously (absolute deltas from gesture start)
-  ImageElement? updateRotation(
+  /// Returns (updatedImage, didSnap) — didSnap is true when the angle
+  /// magnetically locks to a common angle (0°/45°/90°/135°/180°/...).
+  (ImageElement?, bool) updateRotation(
     double absoluteRotationDelta,
     double scaleRatio,
   ) {
-    if (_selectedImage == null || !_isRotating) return null;
+    if (_selectedImage == null || !_isRotating) return (null, false);
 
-    final newRotation = _initialImageRotation + absoluteRotationDelta;
+    double newRotation = _initialImageRotation + absoluteRotationDelta;
     final newScale = (_initialImageScale * scaleRatio).clamp(0.05, 3.0);
+
+    // 🧲 MAGNETIC SNAP: Snap TOTAL rotation to 0°/45°/90°/135°/180°/...
+    // Applied to the absolute angle so the image actually lands on famous angles.
+    const snapInterval = 0.7853981633974483; // π/4 = 45°
+    const snapThreshold = 0.12; // ~7° magnetic zone
+    final nearestSnap = (newRotation / snapInterval).round() * snapInterval;
+    final distFromSnap = (newRotation - nearestSnap).abs();
+    bool didSnap = false;
+    if (distFromSnap < snapThreshold) {
+      // Cubic dampening for magnetic feel
+      final t = (distFromSnap / snapThreshold).clamp(0.0, 1.0);
+      final dampening = t * t * t;
+      newRotation = nearestSnap + (newRotation - nearestSnap) * dampening;
+      didSnap = true;
+    }
+
     final updatedImage = _selectedImage!.copyWith(
       rotation: newRotation,
       scale: newScale,
     );
     _selectedImage = updatedImage;
-    return updatedImage;
+    return (updatedImage, didSnap);
   }
 
   /// End rotation

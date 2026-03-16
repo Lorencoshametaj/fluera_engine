@@ -33,6 +33,50 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // these entire sub-trees on parent setState, eliminating ~90% of
           // the widget reconstruction cost (700+ widgets × 293 setState calls).
           _backgroundLayerHost,
+          // 🧠 KNOWLEDGE FLOW: Glassmorphism bubbles + flowing particle arrows
+          if (_knowledgeFlowController != null && _clusterCache.isNotEmpty)
+            IgnorePointer(
+              child: RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _canvasController,
+                  builder: (context, _) {
+                    final m = Matrix4.identity()
+                      ..translate(
+                        _canvasController.offset.dx,
+                        _canvasController.offset.dy,
+                      );
+                    if (_canvasController.rotation != 0.0) {
+                      m.rotateZ(_canvasController.rotation);
+                    }
+                    m.scale(_canvasController.scale);
+                    return Transform(
+                      transform: m,
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: _knowledgeFlowController!.version,
+                        builder: (_, __, ___) => CustomPaint(
+                          painter: KnowledgeFlowPainter(
+                            clusters: _clusterCache,
+                            controller: _knowledgeFlowController!,
+                            canvasScale: _canvasController.scale,
+                            showSuggestions: _effectiveIsPanMode,
+                            dragSourcePoint: _connectionDragSourcePoint,
+                            dragCurrentPoint: _connectionDragCurrentPoint,
+                            dragSourceClusterId: _connectionDragSourceClusterId,
+                            snapTargetClusterId: _connectionSnapTargetClusterId,
+                            animationTime: DateTime.now().millisecondsSinceEpoch % 10000 / 1000.0,
+                            clusterTexts: _clusterTextCache,
+                            thumbnails: _thumbnailCache != null
+                                ? {for (final c in _clusterCache) if (_thumbnailCache!.hasThumbnail(c.id)) c.id: _thumbnailCache!.getThumbnail(c.id)!}
+                                : const {},
+                          ),
+                          size: Size.infinite,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
           _drawingLayerHost,
           _imageLayerHost,
           _gestureLayerHost,
@@ -41,6 +85,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // For non-highlighter pens, Vulkan (above, at opacity 1.0) covers this.
           // For highlighter, Vulkan opacity = 0.0 → this Flutter stroke shows through.
           _currentStrokeHost,
+          // 🌐 WEB: WebGPU overlay (replaces Texture widget on web)
+          if (kIsWeb && _webGpuOverlayActive)
+            const Positioned.fill(
+              child: IgnorePointer(child: WebGpuOverlayView()),
+            ),
           if (_vulkanTextureId != null)
             ValueListenableBuilder<double>(
               valueListenable: _vulkanTextureOpacity,
@@ -616,6 +665,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                           }
                         }
                       }
+                      // 🧠 KNOWLEDGE FLOW: Cluster drag → route to draw callbacks
+                      if (_isConnectionDragging) return true;
                       return false;
                     }
                     : null,
@@ -635,6 +686,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 _tabularTool.isResizing ||
                 _isDraggingGraph ||
                 _isResizingGraph ||
+                _isConnectionDragging || // 🧠 Block pan during connection drag
                 _isDraggingGraphSlider ||
                 _imageTool
                     .isHandleRotating, // 🌀 Block only during active manipulation
@@ -673,19 +725,34 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
               DrawingPainter.triggerRepaint();
               _uiRebuildNotifier.value++;
             },
-            // 🌀 IMAGE ROTATION: Two-finger rotate + scale on selected image (pan mode only)
-            onImageScaleStart:
-                (_effectiveIsPanMode && _imageTool.selectedImage != null)
-                    ? _onImageScaleStart
-                    : null,
-            onImageTransform:
-                (_effectiveIsPanMode && _imageTool.selectedImage != null)
-                    ? _onImageTransform
-                    : null,
-            onImageScaleEnd:
-                (_effectiveIsPanMode && _imageTool.selectedImage != null)
-                    ? _onImageScaleEnd
-                    : null,
+            // 🌀 IMAGE ROTATION: Two-finger rotate + scale on selected image
+            // ⚡ shouldRouteToImageRotation is evaluated at GESTURE TIME, not build time.
+            // The gesture detector widget is cached and may not rebuild when
+            // pan mode or image selection changes — so we CANNOT rely on
+            // conditional callbacks being set at build time.
+            shouldRouteToImageRotation: (Offset screenFocalPoint) {
+                // Mid-rotation: route immediately (no per-frame hit-test needed)
+                if (_imageTool.isRotating) return true;
+                // Only route to image rotation if the image is ALREADY selected
+                // (via tap in pan mode). This preserves canvas zoom for unselected
+                // images, allowing image viewer mode to trigger.
+                final sel = _imageTool.selectedImage;
+                if (sel == null) return false;
+                final canvasPos = _canvasController.screenToCanvas(screenFocalPoint);
+                final image = _loadedImages[sel.imagePath];
+                if (image == null) return false;
+                final rawW = image.width.toDouble();
+                final rawH = image.height.toDouble();
+                final crop = sel.cropRect;
+                final imageSize = crop != null
+                    ? Size((crop.right - crop.left) * rawW,
+                           (crop.bottom - crop.top) * rawH)
+                    : Size(rawW, rawH);
+                return _imageTool.hitTest(sel, canvasPos, imageSize);
+              },
+            onImageScaleStart: _onImageScaleStart,
+            onImageTransform: _onImageTransform,
+            onImageScaleEnd: _onImageScaleEnd,
             // 🚀 PERF FIX: Content builders OUTSIDE AnimatedBuilder.
             child: ValueListenableBuilder<GeometricShape?>(
               valueListenable: _currentShapeNotifier,

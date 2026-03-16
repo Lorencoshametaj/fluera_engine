@@ -1532,6 +1532,277 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
           ),
         ),
 
+      // ── 🔍 Cluster Preview Overlay ──────────────────────────────────────
+      if (_previewingClusterId != null &&
+          _previewOverlayScreenPosition != null) ...[
+        // Tap-outside to dismiss
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              setState(() {
+                _previewingClusterId = null;
+                _previewOverlayScreenPosition = null;
+              });
+            },
+          ),
+        ),
+        Builder(
+          builder: (context) {
+            final cluster = _clusterCache
+                .where((c) => c.id == _previewingClusterId)
+                .firstOrNull;
+            if (cluster == null) return const SizedBox.shrink();
+
+            // 🖼️ ON-DEMAND THUMBNAIL: Generate if missing
+            if (_thumbnailCache != null &&
+                !_thumbnailCache!.hasThumbnail(cluster.id)) {
+              final activeLayer = _layerController.activeLayer;
+              if (activeLayer != null) {
+                final clusterStrokes = <ProStroke>[];
+                for (final sid in cluster.strokeIds) {
+                  final s = activeLayer.strokes.where((s) => s.id == sid);
+                  if (s.isNotEmpty) clusterStrokes.add(s.first);
+                }
+                if (clusterStrokes.isNotEmpty) {
+                  _thumbnailCache!.generateThumbnail(
+                    cluster, clusterStrokes,
+                  ).then((_) {
+                    if (mounted) setState(() {});
+                  });
+                }
+              }
+            }
+
+            // Compute accent color (same logic as painter)
+            final hasStrokes = cluster.strokeIds.isNotEmpty;
+            final hasShapes = cluster.shapeIds.isNotEmpty;
+            final hasText = cluster.textIds.isNotEmpty;
+            final hasImages = cluster.imageIds.isNotEmpty;
+            final types = (hasStrokes ? 1 : 0) + (hasShapes ? 1 : 0) +
+                          (hasText ? 1 : 0) + (hasImages ? 1 : 0);
+            Color accent;
+            if (types > 1) {
+              accent = const Color(0xFF7EC8E3);
+            } else if (hasStrokes) {
+              accent = const Color(0xFF5C9CE6);
+            } else if (hasShapes) {
+              accent = const Color(0xFF6BCB7F);
+            } else if (hasText) {
+              accent = const Color(0xFFA87FDB);
+            } else if (hasImages) {
+              accent = const Color(0xFFE8A84C);
+            } else {
+              accent = const Color(0xFF7EC8E3);
+            }
+
+            // Build element count label
+            final parts = <String>[];
+            if (cluster.strokeIds.isNotEmpty) {
+              parts.add('${cluster.strokeIds.length} tratti');
+            }
+            if (cluster.shapeIds.isNotEmpty) {
+              parts.add('${cluster.shapeIds.length} forme');
+            }
+            if (cluster.textIds.isNotEmpty) {
+              parts.add('${cluster.textIds.length} testi');
+            }
+            if (cluster.imageIds.isNotEmpty) {
+              parts.add('${cluster.imageIds.length} img');
+            }
+            final label = parts.isEmpty ? 'Cluster' : parts.join(' • ');
+
+            return Positioned(
+              left: (_previewOverlayScreenPosition!.dx - 100).clamp(
+                  8.0, MediaQuery.of(context).size.width - 220),
+              top: (_previewOverlayScreenPosition!.dy - 180).clamp(
+                  8.0, MediaQuery.of(context).size.height - 220),
+              child: ClusterPreviewOverlay(
+                thumbnail: _thumbnailCache?.hasThumbnail(cluster.id) == true
+                    ? _thumbnailCache!.getThumbnail(cluster.id)
+                    : null,
+                label: label,
+                elementCount: cluster.elementCount,
+                connectionCount: _knowledgeFlowController?.connections
+                    .where((c) => c.sourceClusterId == cluster.id ||
+                                  c.targetClusterId == cluster.id)
+                    .length ?? 0,
+                accentColor: accent,
+                onDismiss: () {
+                  setState(() {
+                    _previewingClusterId = null;
+                    _previewOverlayScreenPosition = null;
+                  });
+                },
+                onZoomTo: () {
+                  // Animate zoom to cluster bounds
+                  final bounds = cluster.bounds.inflate(40);
+                  final viewportSize = MediaQuery.of(context).size;
+                  final targetScale = (viewportSize.width / bounds.width)
+                      .clamp(0.5, 2.0)
+                      .toDouble();
+                  final center = bounds.center;
+                  final targetOffset = Offset(
+                    viewportSize.width / 2 - center.dx * targetScale,
+                    viewportSize.height / 2 - center.dy * targetScale,
+                  );
+                  // Use separate pan + zoom to avoid focal-point distortion
+                  final screenCenter = Offset(
+                    viewportSize.width / 2,
+                    viewportSize.height / 2,
+                  );
+                  _canvasController.animateOffsetTo(targetOffset);
+                  _canvasController.animateZoomTo(
+                      targetScale, screenCenter);
+                  setState(() {
+                    _previewingClusterId = null;
+                    _previewOverlayScreenPosition = null;
+                  });
+                },
+              ),
+            );
+          },
+        ),
+      ],
+
+      // ── 🏷️ Connection Label Editing Overlay ──────────────────────────────
+      if (_editingLabelConnectionId != null &&
+          _labelOverlayScreenPosition != null) ...[
+        // Tap-outside to dismiss
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              setState(() {
+                _editingLabelConnectionId = null;
+                _labelOverlayScreenPosition = null;
+              });
+            },
+          ),
+        ),
+        Positioned(
+          left: (_labelOverlayScreenPosition!.dx - 110).clamp(8.0, MediaQuery.of(context).size.width - 240),
+          top: (_labelOverlayScreenPosition!.dy - 20).clamp(8.0, MediaQuery.of(context).size.height - 60),
+          child: ConnectionLabelOverlay(
+            initialText: _knowledgeFlowController?.connections
+                .where((c) => c.id == _editingLabelConnectionId)
+                .firstOrNull?.label ?? '',
+            accentColor: const Color(0xFF64B5F6),
+            onSubmit: (label) {
+              final conn = _knowledgeFlowController?.connections
+                  .where((c) => c.id == _editingLabelConnectionId)
+                  .firstOrNull;
+              if (conn != null) {
+                conn.label = label;
+                _knowledgeFlowController!.version.value++;
+                _autoSaveCanvas();
+              }
+              setState(() {
+                _editingLabelConnectionId = null;
+                _labelOverlayScreenPosition = null;
+              });
+            },
+            onDismiss: () {
+              setState(() {
+                _editingLabelConnectionId = null;
+                _labelOverlayScreenPosition = null;
+              });
+            },
+            onDelete: () {
+              if (_editingLabelConnectionId != null) {
+                _knowledgeFlowController?.removeConnection(
+                    _editingLabelConnectionId!);
+                _autoSaveCanvas();
+              }
+              setState(() {
+                _editingLabelConnectionId = null;
+                _labelOverlayScreenPosition = null;
+              });
+            },
+          ),
+        ),
+      ],
+
+      // ── 💡 Suggestion Preview Card Overlay ──────────────────────────────
+      if (_previewSuggestion != null &&
+          _previewSuggestionPosition != null) ...[
+        // Tap-outside to dismiss
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() {
+              _previewSuggestion = null;
+              _previewSuggestionPosition = null;
+            }),
+          ),
+        ),
+        Positioned(
+          left: (_previewSuggestionPosition!.dx - 130)
+              .clamp(12.0, MediaQuery.of(context).size.width - 280),
+          top: (_previewSuggestionPosition!.dy - 100)
+              .clamp(12.0, MediaQuery.of(context).size.height - 120),
+          child: _buildSuggestionPreviewCard(context),
+        ),
+      ],
+
+      // ── 🧠 Knowledge Map floating button (pan mode only) ─────────────────
+      if (_effectiveIsPanMode &&
+          _knowledgeFlowController != null &&
+          _clusterCache.length >= 2 &&
+          !_showKnowledgeMap)
+        Positioned(
+          bottom: MediaQuery.of(context).padding.bottom + 80,
+          right: 16,
+          child: GestureDetector(
+            onTap: () {
+              HapticFeedback.mediumImpact();
+              setState(() => _showKnowledgeMap = true);
+            },
+            child: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A2E).withValues(alpha: 0.85),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF64B5F6).withValues(alpha: 0.3),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF64B5F6).withValues(alpha: 0.15),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Text('🧠', style: TextStyle(fontSize: 22)),
+              ),
+            ),
+          ),
+        ),
+
+      // ── 🧠 Knowledge Map fullscreen overlay ──────────────────────────────
+      if (_showKnowledgeMap &&
+          _knowledgeFlowController != null)
+        Positioned.fill(
+          child: KnowledgeMapOverlay(
+            controller: _knowledgeFlowController!,
+            clusters: _clusterCache,
+            clusterTexts: _clusterTextCache,
+            onDismiss: () => setState(() => _showKnowledgeMap = false),
+            onNavigateToCluster: (cluster) {
+              // Animate canvas to center on the selected cluster
+              final viewportSize = MediaQuery.of(context).size;
+              final targetOffset = Offset(
+                viewportSize.width / 2 - cluster.centroid.dx * _canvasController.scale,
+                viewportSize.height / 2 - cluster.centroid.dy * _canvasController.scale,
+              );
+              _canvasController.animateOffsetTo(targetOffset);
+            },
+          ),
+        ),
+
       // ── 📝 Inline Text Editing Overlay ──────────────────────────────────
       if (_isInlineEditing && _inlineEditingElement != null) ...[
         Positioned.fill(
@@ -1835,6 +2106,288 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
         ),
       ],  // close spread for inline editing overlay
     ];
+  }
+
+  /// 💡 Build the suggestion preview card with recognized text + accept/dismiss
+  Widget _buildSuggestionPreviewCard(BuildContext context) {
+    final suggestion = _previewSuggestion!;
+    final srcText = _previewClusterTexts[suggestion.sourceClusterId] ?? '?';
+    final tgtText = _previewClusterTexts[suggestion.targetClusterId] ?? '?';
+
+    String trunc(String s, int max) =>
+        s.length > max ? '${s.substring(0, max)}…' : s;
+
+    // 🏷️ Reason chip: icon + color based on reason type
+    final reason = suggestion.reason.toLowerCase();
+    String chipIcon;
+    Color chipColor;
+    if (reason.contains('color') || reason.contains('colori')) {
+      chipIcon = '🎨';
+      chipColor = const Color(0xFF9C27B0);
+    } else if (reason.contains('near') || reason.contains('vicin') || reason.contains('proxim')) {
+      chipIcon = '📍';
+      chipColor = const Color(0xFFFF9800);
+    } else if (reason.contains('keyword') || reason.contains('word') || reason.contains('parol')) {
+      chipIcon = '🔤';
+      chipColor = const Color(0xFF4CAF50);
+    } else if (reason.contains('size') || reason.contains('dimens')) {
+      chipIcon = '📐';
+      chipColor = const Color(0xFF2196F3);
+    } else {
+      chipIcon = '✨';
+      chipColor = const Color(0xFF64B5F6);
+    }
+
+    // ✨ ENTRANCE ANIMATION: Scale up + fade in
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) {
+        return Transform.scale(
+          scale: 0.85 + 0.15 * t,
+          child: Opacity(opacity: t, child: child),
+        );
+      },
+      child: Material(
+        color: Colors.transparent,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              width: 260,
+              decoration: BoxDecoration(
+                color: const Color(0xBB1A1A2E),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  width: 0.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Cluster texts ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            trunc(srcText, 20),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: Text('↔',
+                            style: TextStyle(
+                              color: Color(0xFF64B5F6),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w300,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            trunc(tgtText, 20),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // ── Reason chip ──
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: chipColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: chipColor.withValues(alpha: 0.3),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Text(
+                        '$chipIcon  ${suggestion.reason}',
+                        style: TextStyle(
+                          color: chipColor.withValues(alpha: 0.9),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // ── Buttons ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              _knowledgeFlowController?.dismissSuggestion(
+                                suggestion,
+                              );
+                              setState(() {
+                                _previewSuggestion = null;
+                                _previewSuggestionPosition = null;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text('✗  Skip',
+                                style: TextStyle(
+                                  color: Color(0xFFEF9A9A),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              debugPrint('🔗 [Suggestion] Connect tapped');
+                              HapticFeedback.mediumImpact();
+                              final conn = _knowledgeFlowController
+                                  ?.acceptSuggestion(suggestion);
+                              debugPrint('🔗 [Suggestion] acceptSuggestion → $conn');
+                              setState(() {
+                                _previewSuggestion = null;
+                                _previewSuggestionPosition = null;
+                              });
+                              if (conn != null) {
+                                final cMap = <String, ContentCluster>{};
+                                for (final c in _clusterCache) {
+                                  cMap[c.id] = c;
+                                }
+                                final src = cMap[conn.sourceClusterId];
+                                final tgt = cMap[conn.targetClusterId];
+                                if (src != null && tgt != null) {
+                                  final cp = _knowledgeFlowController!
+                                      .getControlPoint(
+                                    src.centroid,
+                                    tgt.centroid,
+                                    conn.curveStrength,
+                                  );
+                                  final midCanvas = _knowledgeFlowController!
+                                      .pointOnQuadBezier(
+                                    src.centroid, cp, tgt.centroid, 0.5,
+                                  );
+                                  final screenPos =
+                                      _canvasController.canvasToScreen(
+                                    midCanvas,
+                                  );
+                                  setState(() {
+                                    _editingLabelConnectionId = conn.id;
+                                    _labelOverlayScreenPosition = screenPos;
+                                  });
+                                }
+                                _autoSaveCanvas();
+                                // 🔔 UNDO TOAST: safely try SnackBar
+                                try {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: const Text(
+                                          '✓  Connected',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        backgroundColor:
+                                            const Color(0xDD1A1A2E),
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        duration: const Duration(seconds: 3),
+                                        action: SnackBarAction(
+                                          label: '↩ Undo',
+                                          textColor: const Color(0xFF64B5F6),
+                                          onPressed: () {
+                                            _knowledgeFlowController
+                                                ?.removeConnection(conn.id);
+                                            _autoSaveCanvas();
+                                            setState(() {});
+                                          },
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                } catch (_) {
+                                  // No Scaffold ancestor — skip SnackBar
+                                }
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF64B5F6)
+                                    .withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: const Color(0xFF64B5F6)
+                                      .withValues(alpha: 0.3),
+                                ),
+                              ),
+                              child: const Text('✓  Connect',
+                                style: TextStyle(
+                                  color: Color(0xFF64B5F6),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

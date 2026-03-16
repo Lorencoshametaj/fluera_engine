@@ -113,9 +113,6 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
 
           // 🗂️ PRE-SAVE: Restore paged-out stubs with full data from SQLite
           // to prevent data loss during binary encoding.
-          // 🐛 FIX: Restore via StrokeNode.stroke directly (not the cached
-          // list copy from layer.strokes) so BinaryCanvasFormat.encode sees
-          // the full strokes.
           final restoredForSave =
               await DrawingPainter.restorePagedStrokesForSave();
           if (restoredForSave.isNotEmpty) {
@@ -148,7 +145,7 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
               variablesJson: _buildVariablesJsonString(saveData),
             );
           } finally {
-            // 🗂️ POST-SAVE: Re-stub restored strokes to free RAM
+            // 🗂️ POST-SAVE: Re-stub only strokes that were paged-out (restored above)
             if (restoredForSave.isNotEmpty) {
               for (final layer in saveData.layers) {
                 for (final sn in layer.node.strokeNodes) {
@@ -176,21 +173,6 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       // ✅ Save succeeded — clear dirty tracking
       _layerController.clearDirtyLayerIds();
       _lastLocalSaveTimestamp = DateTime.now().millisecondsSinceEpoch;
-
-      // 🗂️ POST-SAVE: Index all strokes for lazy-load on next canvas open.
-      // Fire-and-forget — doesn't block the save completion.
-      final allStrokeTuples = <(String, ProStroke)>[];
-      for (final layer in saveData.layers) {
-        for (final stroke in layer.strokes) {
-          allStrokeTuples.add((layer.id, stroke));
-        }
-      }
-      if (allStrokeTuples.isNotEmpty) {
-        DrawingPainter.indexStrokesForLazyLoad(
-          saveData.canvasId,
-          allStrokeTuples,
-        ).catchError((e) {});
-      }
 
       // 🖼️ 1.5: Capture viewport snapshot for next splash screen (fire-and-forget)
       _captureCanvasSnapshot(saveData.canvasId);
@@ -246,7 +228,9 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
           );
         }
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('💾 [SAVE-DEBUG] ❌ Save FAILED: $e');
+      debugPrint('💾 [SAVE-DEBUG] ❌ Stack: $st');
       if (!_autoSaveErrorLogged) {
         _autoSaveErrorLogged = true;
       }
@@ -376,8 +360,10 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       if (img.storageUrl == null || img.storageUrl!.isEmpty) continue;
 
       // Check if local file already exists
-      final localFile = File(img.imagePath);
-      if (await localFile.exists()) continue;
+      if (!kIsWeb) {
+        final localFile = File(img.imagePath);
+        if (await localFile.exists()) continue;
+      }
 
       downloadTasks.add(_downloadSingleAsset(img.id, img.imagePath));
     }
@@ -397,9 +383,11 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       );
 
       if (bytes != null) {
-        final localFile = File(localPath);
-        await localFile.parent.create(recursive: true);
-        await localFile.writeAsBytes(bytes, flush: true);
+        if (!kIsWeb) {
+          final localFile = File(localPath);
+          await localFile.parent.create(recursive: true);
+          await localFile.writeAsBytes(bytes, flush: true);
+        }
         // 💾 Cache compressed bytes for instant reload after eviction
         _imageMemoryManager.cacheCompressedBytes(localPath, bytes);
       }
@@ -414,6 +402,7 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
     if (_syncEngine == null) return null;
 
     try {
+      if (kIsWeb) return null; // No file system on web
       final bytes = await File(filePath).readAsBytes();
       final url = await _syncEngine!.adapter.uploadAsset(
         _canvasId,

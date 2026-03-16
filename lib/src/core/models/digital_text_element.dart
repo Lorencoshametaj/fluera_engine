@@ -136,7 +136,7 @@ class DigitalTextElement {
   final double fontSize;
   final FontWeight fontWeight;
   final FontStyle fontStyle;
-  final String fontFamily;
+  final String? fontFamily;
   final TextAlign textAlign;
   final TextDecoration textDecoration;
   final double letterSpacing;

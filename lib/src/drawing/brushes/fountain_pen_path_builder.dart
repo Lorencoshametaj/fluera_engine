@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../input/path_pool.dart';
@@ -21,6 +22,17 @@ import 'fountain_pen_buffers.dart';
 /// - Edge feathering with semi-transparent fringe for hardware anti-aliasing
 /// - Ink grain noise for realistic per-vertex alpha variation
 abstract final class FountainPenPathBuilder {
+  /// Returns true on platforms that use Skia (not Impeller) for rendering.
+  /// On Skia, drawVertices() produces pixelated edges, so we use drawPath()
+  /// with Catmull-Rom curves instead for proper sub-pixel anti-aliasing.
+  /// Android/iOS/macOS use Impeller → drawVertices works great with native MSAA.
+  static bool get _useSkiaPathRendering {
+    if (kIsWeb) return true; // CanvasKit = Skia WASM
+    // On native platforms, use defaultTargetPlatform (avoids dart:io import)
+    return defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.windows;
+  }
+
   // 🚀 Pre-allocated arc-length buffer (avoids per-call allocation + GC)
   static var _arcLenBuf = Float64List(512);
 
@@ -228,80 +240,55 @@ abstract final class FountainPenPathBuilder {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // GPU VERTEX TESSELLATION — triangle strip + semicircular caps
-    // ═══════════════════════════════════════════════════════════
-    // Instead of Path-based rendering (Impeller internal tessellation),
-    // we build the triangle mesh ourselves and send it directly
-    // to the GPU via drawVertices(). Benefits:
-    //   • Hardware sub-pixel precision + MSAA anti-aliasing
-    //   • One draw call (no backing fill + path overlay needed)
-    //   • Dense Chaikin-subdivided outlines → ultra-smooth edges
+    // RENDER DISPATCH: Path (Linux/Skia) vs drawVertices (Impeller)
     // ═══════════════════════════════════════════════════════════
 
     final n = leftBuf.length;
     if (n < 2) return path;
 
+    // 🐧🪟🌐 SKIA PLATFORMS: Use drawPath for proper sub-pixel anti-aliasing.
+    // drawVertices produces pixelated edges on Skia because it bypasses
+    // Skia's AA pipeline. On Android/iOS/macOS with Impeller, drawVertices
+    // gets native MSAA so it looks smooth.
+    // Web uses CanvasKit (Skia WASM), so it needs drawPath too.
+    if (_useSkiaPathRendering) {
+      _drawPathOutline(canvas, path, leftBuf, rightBuf, n, paint, drawFromIndex);
+      return path;
+    }
+
     // ═══════════════════════════════════════════════════════════
     // 🚀 GPU VERTEX TESSELLATION — typed arrays + Vertices.raw()
     // ═══════════════════════════════════════════════════════════
-    // Pre-allocated static buffers eliminate thousands of Offset/Color
-    // object allocations per frame. Vertices.raw() skips the internal
-    // typed-array conversion that ui.Vertices() does.
-    //
-    // Estimate vertices: body=2*tessLen, caps=2*12, feathering=2*n
     final origLen = widths.length;
     final tessStart =
         drawFromIndex > 0
             ? (drawFromIndex / origLen * n).round().clamp(0, n - 1)
             : 0;
     final tessLen = n - tessStart;
-    final maxVerts = 2 * tessLen + 2 * n + 30; // body + feathering + caps
+    final maxVerts = 2 * tessLen + 2 * n + 30;
     final maxIndices =
         6 * (tessLen - 1) +
         6 * 2 * (n - 1) +
-        6 * 20; // body + feathering + caps
+        6 * 20;
 
-    // Grow static buffers if needed
     if (_posBuf.length < maxVerts * 2) _posBuf = Float32List(maxVerts * 3);
     if (_colBuf.length < maxVerts) _colBuf = Int32List(maxVerts * 2);
     if (_idxBuf.length < maxIndices) _idxBuf = Uint16List(maxIndices * 2);
 
-    int vi = 0; // vertex write index
-    int ii = 0; // index write index
+    int vi = 0;
+    int ii = 0;
 
-    // Pre-compute per-outline-point alpha from width (pressure proxy).
     final baseAlpha = (color.a * 255.0).round().clamp(0, 255);
     final cR = (color.r * 255.0).round().clamp(0, 255);
     final cG = (color.g * 255.0).round().clamp(0, 255);
     final cB = (color.b * 255.0).round().clamp(0, 255);
 
-    // Pre-compute max width for ink pooling normalization
-    double maxW = 0.01;
-    for (int i = 0; i < origLen; i++) {
-      if (widths[i] > maxW) maxW = widths[i];
-    }
-
-    // Deterministic ink grain noise seed (varies per stroke position)
-    final noiseSeed = color.hashCode * 0.001;
-
-    // ─── Body: interleave left/right into triangle strip ──────
     for (int i = tessStart; i < n; i++) {
-      final t = n > 1 ? i / (n - 1) : 0.0;
-      final wIdx = (t * (origLen - 1)).clamp(0.0, origLen - 1.0);
-      final wLow = wIdx.floor();
-      final wHigh = wIdx.ceil().clamp(0, origLen - 1);
-      final wFrac = wIdx - wLow;
-      final w = widths[wLow] * (1.0 - wFrac) + widths[wHigh] * wFrac;
-
-      // Solid uniform alpha — no ink pooling or grain noise
       final vertexAlpha = baseAlpha;
-
-      // Left vertex
       _posBuf[vi * 2] = leftBuf[i].dx;
       _posBuf[vi * 2 + 1] = leftBuf[i].dy;
       _colBuf[vi] = (vertexAlpha << 24) | (cR << 16) | (cG << 8) | cB;
       vi++;
-      // Right vertex
       _posBuf[vi * 2] = rightBuf[i].dx;
       _posBuf[vi * 2 + 1] = rightBuf[i].dy;
       _colBuf[vi] = (vertexAlpha << 24) | (cR << 16) | (cG << 8) | cB;
@@ -320,9 +307,6 @@ abstract final class FountainPenPathBuilder {
       _idxBuf[ii++] = rNext;
     }
 
-    // Edge feathering: REMOVED for uniform Vulkan→Dart pipeline.
-    // Both live and committed now produce identical geometry.
-
     // ─── End cap: semicircular fan ────────────────────────────
     final lastL = leftBuf[n - 1];
     final lastR = rightBuf[n - 1];
@@ -335,7 +319,6 @@ abstract final class FountainPenPathBuilder {
         lastL.dx - endCenter.dx,
       );
       final capArgb = (baseAlpha << 24) | (cR << 16) | (cG << 8) | cB;
-      final edgeArgb = capArgb; // Solid alpha for caps too
 
       final centerIdx = vi;
       _posBuf[vi * 2] = endCenter.dx;
@@ -347,7 +330,7 @@ abstract final class FountainPenPathBuilder {
         final a = baseAngle - math.pi * s / endSegs;
         _posBuf[vi * 2] = endCenter.dx + endRadius * math.cos(a);
         _posBuf[vi * 2 + 1] = endCenter.dy + endRadius * math.sin(a);
-        _colBuf[vi] = edgeArgb;
+        _colBuf[vi] = capArgb;
         vi++;
       }
       for (int s = 0; s < endSegs; s++) {
@@ -370,7 +353,6 @@ abstract final class FountainPenPathBuilder {
           firstR.dx - startCenter.dx,
         );
         final capArgb = (baseAlpha << 24) | (cR << 16) | (cG << 8) | cB;
-        final edgeArgb = capArgb; // Solid alpha for caps too
 
         final centerIdx = vi;
         _posBuf[vi * 2] = startCenter.dx;
@@ -382,7 +364,7 @@ abstract final class FountainPenPathBuilder {
           final a = baseAngle - math.pi * s / startSegs;
           _posBuf[vi * 2] = startCenter.dx + startRadius * math.cos(a);
           _posBuf[vi * 2 + 1] = startCenter.dy + startRadius * math.sin(a);
-          _colBuf[vi] = edgeArgb;
+          _colBuf[vi] = capArgb;
           vi++;
         }
         for (int s = 0; s < startSegs; s++) {
@@ -405,6 +387,126 @@ abstract final class FountainPenPathBuilder {
 
     // Return empty path — all rendering done via drawVertices
     return path;
+  }
+
+  /// 🐧 LINUX PATH RENDERING: Build a single closed Path from left/right
+  /// contour points using Catmull-Rom cubic curves. Skia applies full
+  /// sub-pixel AA to Path fills, producing perfectly smooth edges.
+  static void _drawPathOutline(
+    Canvas canvas,
+    Path path,
+    StrokeOffsetBuffer leftBuf,
+    StrokeOffsetBuffer rightBuf,
+    int n,
+    Paint paint,
+    int drawFromIndex,
+  ) {
+    // Build closed path: left contour forward (smooth), caps, right backward (smooth)
+    path.moveTo(leftBuf[0].dx, leftBuf[0].dy);
+    _addSmoothContour(path, leftBuf, n, forward: true);
+
+    // End cap: semicircular arc from left to right
+    final lastL = leftBuf[n - 1];
+    final lastR = rightBuf[n - 1];
+    final endCenter = (lastL + lastR) / 2.0;
+    final endRadius = (lastL - lastR).distance / 2.0;
+    if (endRadius > 0.1) {
+      final endAngle = math.atan2(
+        lastL.dy - endCenter.dy,
+        lastL.dx - endCenter.dx,
+      );
+      path.arcTo(
+        Rect.fromCircle(center: endCenter, radius: endRadius),
+        endAngle,
+        -math.pi,
+        false,
+      );
+    } else {
+      path.lineTo(lastR.dx, lastR.dy);
+    }
+
+    // Right contour: backward (smooth)
+    _addSmoothContour(path, rightBuf, n, forward: false);
+
+    // Start cap: semicircular arc from right to left
+    if (drawFromIndex <= 0) {
+      final firstL = leftBuf[0];
+      final firstR = rightBuf[0];
+      final startCenter = (firstL + firstR) / 2.0;
+      final startRadius = (firstL - firstR).distance / 2.0;
+      if (startRadius > 0.1) {
+        final startAngle = math.atan2(
+          firstR.dy - startCenter.dy,
+          firstR.dx - startCenter.dx,
+        );
+        path.arcTo(
+          Rect.fromCircle(center: startCenter, radius: startRadius),
+          startAngle,
+          -math.pi,
+          false,
+        );
+      }
+    }
+
+    path.close();
+    // Path is drawn by the caller (FountainPenBrush.drawStrokeWithSettings)
+  }
+
+  /// Add a smooth Catmull-Rom spline contour to the path.
+  /// Converts each pair of control points to cubic Bézier curves.
+  static void _addSmoothContour(
+    Path path,
+    StrokeOffsetBuffer buf,
+    int n, {
+    required bool forward,
+  }) {
+    if (n < 3) {
+      // Too few points — use straight lines
+      if (forward) {
+        for (int i = 1; i < n; i++) path.lineTo(buf[i].dx, buf[i].dy);
+      } else {
+        for (int i = n - 2; i >= 0; i--) path.lineTo(buf[i].dx, buf[i].dy);
+      }
+      return;
+    }
+
+    // Catmull-Rom → cubic Bézier conversion
+    // For each segment [P1, P2], control points are:
+    //   C1 = P1 + (P2 - P0) / 6
+    //   C2 = P2 - (P3 - P1) / 6
+    if (forward) {
+      for (int i = 0; i < n - 1; i++) {
+        final p0 = i > 0 ? buf[i - 1] : buf[i];
+        final p1 = buf[i];
+        final p2 = buf[i + 1];
+        final p3 = i < n - 2 ? buf[i + 2] : buf[i + 1];
+
+        path.cubicTo(
+          p1.dx + (p2.dx - p0.dx) / 6.0,
+          p1.dy + (p2.dy - p0.dy) / 6.0,
+          p2.dx - (p3.dx - p1.dx) / 6.0,
+          p2.dy - (p3.dy - p1.dy) / 6.0,
+          p2.dx,
+          p2.dy,
+        );
+      }
+    } else {
+      for (int i = n - 1; i > 0; i--) {
+        final p0 = i < n - 1 ? buf[i + 1] : buf[i];
+        final p1 = buf[i];
+        final p2 = buf[i - 1];
+        final p3 = i > 1 ? buf[i - 2] : buf[i - 1];
+
+        path.cubicTo(
+          p1.dx + (p2.dx - p0.dx) / 6.0,
+          p1.dy + (p2.dy - p0.dy) / 6.0,
+          p2.dx - (p3.dx - p1.dx) / 6.0,
+          p2.dy - (p3.dy - p1.dy) / 6.0,
+          p2.dx,
+          p2.dy,
+        );
+      }
+    }
   }
 
   /// Smooth outline points (left or right contour) with adaptive EMA.

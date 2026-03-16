@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1741,7 +1742,14 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       final pickedFile = result.files.first;
       if (pickedFile.path == null) return;
 
-      final bytes = await File(pickedFile.path!).readAsBytes();
+      // On web, use bytes directly from FilePicker (no File access)
+      final Uint8List bytes;
+      if (kIsWeb) {
+        if (pickedFile.bytes == null) return;
+        bytes = pickedFile.bytes!;
+      } else {
+        bytes = await File(pickedFile.path!).readAsBytes();
+      }
       setState(() {
         _cameraImageBytes = bytes;
         _isCameraRecognizing = true;

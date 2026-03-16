@@ -85,6 +85,14 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                     ? _layerController.activeLayer?.strokes.last.id
                     : null;
 
+            // 🔍 Fix 3: Capture stroke ID for search index cleanup
+            final undoStrokeCount =
+                _layerController.activeLayer?.strokes.length ?? 0;
+            final undoStrokeId =
+                undoStrokeCount > 0
+                    ? _layerController.activeLayer?.strokes.last.id
+                    : null;
+
             _layerController.undo(); // 🔄 Phase 2: New undo system
 
             // If a stroke was removed during undo, remove it from sync builder
@@ -93,6 +101,18 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   _layerController.activeLayer?.strokes.length ?? 0;
               if (strokesAfter < strokesBefore) {
                 _syncRecordingBuilder!.removeStrokeById(lastStrokeId);
+              }
+            }
+
+            // 🔍 Fix 3: Remove undone stroke from search index
+            if (undoStrokeId != null) {
+              final strokesAfterUndo =
+                  _layerController.activeLayer?.strokes.length ?? 0;
+              if (strokesAfterUndo < undoStrokeCount) {
+                HandwritingIndexService.instance.removeStroke(
+                  _canvasId,
+                  undoStrokeId,
+                );
               }
             }
           },
@@ -172,10 +192,12 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               _digitalTextTool.deselectElement();
             }
             setState(() {}); // 🚀 Toolbar-only rebuild
+            _gestureRebuildNotifier.value++; // 🎯 Rebuild gesture layer
           },
           onStylusModeToggle: () {
             _toolController.toggleStylusMode();
             setState(() {}); // 🚀 Toolbar-only rebuild
+            _gestureRebuildNotifier.value++; // 🎯 Rebuild gesture layer
           },
           onRulerToggle: () {
             _showRulers = !_showRulers;

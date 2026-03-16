@@ -158,6 +158,18 @@ extension on _FlueraCanvasScreenState {
       _loadSavedRecordings(),
     ]);
 
+    // 6. 🐛 FIX: Pre-warm Digital Ink Recognition engine AFTER splash.
+    // Loading libdigitalink.so + TFLite model (~1s) inside Future.wait
+    // overlaps with shader/texture/SQLite init, raising peak memory ~50MB.
+    // Deferring to post-splash keeps peak memory lower while still
+    // completing before the user starts drawing (500ms head start).
+    Future.delayed(const Duration(milliseconds: 500), () {
+      final inkService = DigitalInkService.instance;
+      if (inkService.isAvailable && !inkService.isReady) {
+        inkService.init();
+      }
+    });
+
     // 🚀 PHASE 5: Removed post-Future.wait yield — splash is now inside the
     // parallel group, so no separate yield needed. Saves ~16ms.
 
@@ -554,68 +566,19 @@ extension on _FlueraCanvasScreenState {
       }
 
       if (data != null && mounted) {
-        // 🚀 LAZY DECODE: Check if stroke index exists BEFORE layer
-        // deserialization. If it does, we skip full stroke decode entirely
-        // (saving ~750MB transient peak at 100K strokes) and inject stubs
-        // from SQLite instead.
-        bool hasIndex = false;
-        if (_config.storageAdapter is SqliteStorageAdapter) {
-          hasIndex = await DrawingPainter.hasStrokeIndex(_canvasId);
-        }
-
-        await _applyCanvasData(data, skipStrokes: hasIndex);
-
-        // 🗂️ POST-LOAD STUB INJECTION
-        if (_config.storageAdapter is SqliteStorageAdapter) {
-          if (hasIndex) {
-            // 🚀 LAZY DECODE PATH (2nd+ open): Layers loaded without strokes.
-            // Inject lightweight stubs from SQLite index (~64B each).
-            // No 750MB peak — stubs go directly into empty layers.
-            final stubsByLayer = await DrawingPainter.loadStubsForLazyLoad(
-              _canvasId,
-            );
-            if (stubsByLayer.isNotEmpty) {
-              for (final layer in _layerController.layers) {
-                final stubs = stubsByLayer[layer.id];
-                if (stubs != null) {
-                  for (final stub in stubs) {
-                    layer.node.addStroke(stub);
-                  }
-                }
-              }
-              _layerController.sceneGraph.bumpVersion();
-            }
-          } else {
-            // 🗂️ FIRST-EVER LOAD: No index yet — eagerly stub all strokes
-            // to free RAM immediately. The binary decode loaded everything
-            // into RAM; stub them now and the paging system will page-in
-            // visible ones during the first render.
-            // 🚀 FIRST-ENTRY OPT: Batch stub in chunks of 500 with
-            // frame yields to keep splash screen responsive.
-            int stubbed = 0;
-            const batchSize = 500;
-            for (final layer in _layerController.layers) {
-              for (int i = 0; i < layer.strokes.length; i++) {
-                if (layer.strokes[i].points.length > 3) {
-                  layer.strokes[i] = layer.strokes[i].toStub();
-                  stubbed++;
-                  if (stubbed % batchSize == 0) {
-                    await _yieldFrame();
-                  }
-                }
-              }
-            }
-            if (stubbed > 0) {
-              _layerController.sceneGraph.bumpVersion();
-            }
-          }
-        }
+        // 🐛 FIX: Always do full decode — the lazy-load stub system had
+        // multiple bugs (Isolate.run closure capture, stub corruption during
+        // save, re-stub after save corrupting the index). Full decode is
+        // fast enough for normal canvases (< 10K strokes). The lazy-load
+        // optimization can be re-enabled once the stub lifecycle is robust.
+        await _applyCanvasData(data, skipStrokes: false);
 
         // ☁️ Download images/PDFs that are in cloud but missing locally
         // (runs in background — non-blocking)
         downloadMissingAssets();
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('❌ _loadCanvasData EXCEPTION: $e\n$st');
     } finally {
       // 🔄 Reveal canvas: setState triggers AnimatedOpacity fade-out
       if (mounted) {
@@ -654,6 +617,16 @@ extension on _FlueraCanvasScreenState {
           setState(() {});
           // Direct repaint signal to the DrawingPainter via its repaint listenable
           _canvasController.markNeedsPaint();
+
+          // 🏎️ PERF: Flush cold-start frames from the P99 rolling window.
+          // The first 1-2 paint frames after load are always expensive
+          // (cache warmup, RenderPlan compilation, R-tree build). Without
+          // this reset, those ~25ms frames inflate P99 for 2 full seconds
+          // (120-sample window / 60fps) despite steady-state being <5ms.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            CanvasPerformanceMonitor.instance.reset();
+          });
         });
       } else {
         _isLoading = false;
@@ -929,12 +902,18 @@ extension on _FlueraCanvasScreenState {
       if (shouldReloadLayers) {
         // 🚀 PHASE 5: Deserialize layers on background isolate.
         // CanvasLayer.fromJson is pure Dart (no Flutter bindings),
-        // safe for isolate execution via Isolate.run().
-        final jsonCopy = layersJson;
-        final skip = skipStrokes;
-        final parsedLayers = await Isolate.run(() {
-          return _deserializeLayersOnIsolate(<dynamic>[jsonCopy, skip]);
-        });
+        // safe for isolate execution via compute().
+        //
+        // 🐛 FIX: Use compute() instead of Isolate.run() — the anonymous
+        // closure in Isolate.run() implicitly captures `this` (the
+        // _FlueraCanvasScreenState) from the extension method context.
+        // `this` contains a _Timer (_saveDebounceTimer) which is
+        // unsendable across isolate boundaries, causing a silent crash
+        // that was swallowed by catch(e){} → empty canvas on re-open.
+        final parsedLayers = await compute(
+          _deserializeLayersOnIsolate,
+          <dynamic>[layersJson, skipStrokes],
+        );
         _layerController.clearAllAndLoadLayers(parsedLayers);
       }
     }
@@ -945,6 +924,9 @@ extension on _FlueraCanvasScreenState {
     // strokes remain invisible until the user draws a new stroke.
     _layerController.sceneGraph.bumpVersion();
     DrawingPainter.invalidateAllTiles();
+    // 🎨 Rebuild background layer with loaded paper type / color
+    BackgroundPainter.clearCache();
+    _backgroundVersionNotifier.value++;
 
     // 🎯 Set active layer AFTER loading layers
     final activeLayerIdFromData = data['activeLayerId'] as String?;

@@ -392,6 +392,267 @@ extension on _FlueraCanvasScreenState {
           ),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // 🖼️ Image Zoom-to-Enter — immersive image viewer
+  // ---------------------------------------------------------------------------
+
+  /// Called continuously during canvas transform changes.
+  void _onImageZoomCheck() {
+    if (!mounted) return;
+    if (_imageZoomEnterCooldown) return;
+    if (_canvasController.scale > 0.8) {
+      _checkImageZoomToEnter();
+    }
+  }
+
+  /// Check if any image fills enough of the viewport to trigger immersive entry.
+  void _checkImageZoomToEnter() {
+    if (_imageZoomEnterCooldown) return;
+
+    final scale = _canvasController.scale;
+    if (scale < 0.8) return; // Too zoomed out
+
+    final viewportSize = MediaQuery.sizeOf(context);
+    final viewportCenter = Offset(viewportSize.width / 2, viewportSize.height / 2);
+
+    ImageElement? bestImage;
+    double bestCoverage = 0;
+    ui.Image? bestDecodedImage;
+
+    for (final img in _imageElements) {
+      final decodedImg = _loadedImages[img.imagePath];
+      if (decodedImg == null) continue;
+
+      // Compute world bounds of the image (position = CENTER point)
+      // 🐛 FIX: Use cached ORIGINAL dimensions (same as ImagePainter)
+      // not decoded texture size (which may be a LOD thumbnail).
+      final cachedSize = _imageMemoryManager.getImageDimensions(img.imagePath);
+      final origW = cachedSize?.width ?? decodedImg.width.toDouble();
+      final origH = cachedSize?.height ?? decodedImg.height.toDouble();
+      // Account for crop
+      final crop = img.cropRect;
+      final visW = crop != null ? (crop.right - crop.left) * origW : origW;
+      final visH = crop != null ? (crop.bottom - crop.top) * origH : origH;
+      final imgW = visW * img.scale;
+      final imgH = visH * img.scale;
+      final worldRect = Rect.fromCenter(
+        center: img.position,
+        width: imgW,
+        height: imgH,
+      );
+
+      // Convert to screen coordinates
+      final screenTL = _canvasController.canvasToScreen(worldRect.topLeft);
+      final screenBR = _canvasController.canvasToScreen(worldRect.bottomRight);
+      final screenRect = Rect.fromPoints(screenTL, screenBR);
+
+      // Coverage: how much of the viewport width does this image fill?
+      final widthCoverage = screenRect.width / viewportSize.width;
+
+      // Distance from center
+      final imgCenter = screenRect.center;
+      final centerDistance = (imgCenter - viewportCenter).distance;
+      final maxDistance = viewportSize.width * 0.5;
+
+      if (widthCoverage > bestCoverage && centerDistance < maxDistance) {
+        bestCoverage = widthCoverage;
+        bestImage = img;
+        bestDecodedImage = decodedImg;
+      }
+    }
+
+    // Trigger at >75% coverage: enter image viewer directly.
+    // 🐛 FIX: Previously there was a snap-center step that animated the canvas
+    // offset to center the image before the transition. This caused a visible
+    // 90px downward scroll. The expanding-clip animation handles the visual
+    // transition smoothly without needing pre-centering.
+    if (bestImage != null && bestDecodedImage != null && bestCoverage > 0.65) {
+      _imageZoomEnterCooldown = true;
+      _enterImageViewerWithZoomAnimation(bestImage, bestDecodedImage);
+    }
+  }
+
+  /// Open the image viewer with a cinematic zoom-dive animation.
+  void _enterImageViewerWithZoomAnimation(
+    ImageElement imageElement,
+    ui.Image image,
+  ) {
+    _imageZoomEnterCooldown = true;
+
+    // Capture image's current screen rect (position = CENTER)
+    // 🐛 FIX: Use cached ORIGINAL dimensions (same as ImagePainter)
+    // not decoded texture size (which may be a LOD thumbnail).
+    final cachedSize = _imageMemoryManager.getImageDimensions(imageElement.imagePath);
+    final origW = cachedSize?.width ?? image.width.toDouble();
+    final origH = cachedSize?.height ?? image.height.toDouble();
+    // Account for crop
+    final crop = imageElement.cropRect;
+    final visW = crop != null ? (crop.right - crop.left) * origW : origW;
+    final visH = crop != null ? (crop.bottom - crop.top) * origH : origH;
+    final imgW = visW * imageElement.scale;
+    final imgH = visH * imageElement.scale;
+    final worldRect = Rect.fromCenter(
+      center: imageElement.position,
+      width: imgW,
+      height: imgH,
+    );
+    // canvasToScreen returns coords relative to the canvas WIDGET area,
+    // which sits below the toolbar. The animation overlay (Navigator route)
+    // positions relative to the FULL SCREEN. Add canvas widget's global offset.
+    final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
+        ?.findRenderObject() as RenderBox?;
+    final canvasGlobalOffset = canvasRenderBox?.localToGlobal(Offset.zero) ?? Offset.zero;
+    final rawTL = _canvasController.canvasToScreen(worldRect.topLeft);
+    final rawBR = _canvasController.canvasToScreen(worldRect.bottomRight);
+    final screenTL = rawTL + canvasGlobalOffset;
+    final screenBR = rawBR + canvasGlobalOffset;
+    final cardRect = Rect.fromPoints(screenTL, screenBR);
+    final vp = MediaQuery.sizeOf(context);
+    final fullRect = Offset.zero & vp;
+
+
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return ImageViewerScreen(
+            imageElement: imageElement,
+            image: image,
+            onClose: () {
+              if (mounted) setState(() {});
+            },
+            onEdit: (element) {
+              // Open the existing ImageEditorDialog
+              final decodedImage = _loadedImages[element.imagePath];
+              if (decodedImage != null) {
+                Navigator.of(context).pop(); // Close viewer first
+                _openImageEditor(element, decodedImage);
+              }
+            },
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: const Cubic(0.16, 1.0, 0.3, 1.0),
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          return AnimatedBuilder(
+            animation: curved,
+            builder: (context, _) {
+              final t = curved.value;
+
+              // 🎨 Backdrop: real gaussian blur + dark scrim
+              final blurSigma = t * 12.0;
+              final scrimOpacity = (t * 0.85).clamp(0.0, 0.85);
+
+              // 📐 Expanding clip rect with deceleration
+              final clipT = Curves.easeOutQuint.transform(t);
+              final clipRect = Rect.lerp(cardRect, fullRect, clipT)!;
+              final borderRadius = 16.0 * (1.0 - clipT);
+
+              // 🌑 Shadow: grows then fades as card approaches full screen
+              final shadowT = t < 0.6
+                  ? Curves.easeOut.transform((t / 0.6).clamp(0.0, 1.0))
+                  : Curves.easeIn.transform(((1.0 - t) / 0.4).clamp(0.0, 1.0));
+
+              return Stack(
+                children: [
+                  // Real gaussian blur backdrop
+                  if (blurSigma > 0.1)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: BackdropFilter(
+                          filter: ui.ImageFilter.blur(
+                            sigmaX: blurSigma,
+                            sigmaY: blurSigma,
+                          ),
+                          child: ColoredBox(
+                            color: Color.fromARGB(
+                              (scrimOpacity * 255).round().clamp(0, 255),
+                              8, 10, 25,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Expanding image card → fullscreen
+                  Positioned.fromRect(
+                    rect: clipRect,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(borderRadius),
+                        boxShadow: shadowT > 0.01 ? [
+                          BoxShadow(
+                            color: Color.fromARGB(
+                              (shadowT * 100).round().clamp(0, 255),
+                              0, 0, 0,
+                            ),
+                            blurRadius: 24 + shadowT * 48,
+                            spreadRadius: shadowT * 4,
+                            offset: Offset(0, shadowT * 8),
+                          ),
+                        ] : null,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(borderRadius),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // Bottom: ImageViewerScreen (always mounted)
+                            child,
+                            // Top: RawImage overlay (fades out t=0.80→1.0)
+                            if (t < 1.0)
+                              Opacity(
+                                opacity: t < 0.80 ? 1.0 : ((1.0 - t) / 0.20).clamp(0.0, 1.0),
+                                child: Container(
+                                  color: const Color(0xFF080A19),
+                                  child: Center(
+                                    child: RawImage(
+                                      image: image,
+                                      fit: BoxFit.contain,
+                                      width: clipRect.width,
+                                      height: clipRect.height,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                ],
+              );
+            },
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 800),
+        reverseTransitionDuration: const Duration(milliseconds: 400),
+      ),
+    ).then((_) {
+      // Center the canvas on the image at a clean zoom level
+      final targetScale = 1.0;
+      final vp = MediaQuery.sizeOf(context);
+      final imageCenter = imageElement.position;
+      // Compute offset that places imageCenter at screen center at targetScale
+      final targetOffset = Offset(
+        vp.width / 2 - imageCenter.dx * targetScale,
+        vp.height / 2 - imageCenter.dy * targetScale,
+      );
+      _canvasController.setScale(targetScale);
+      _canvasController.setOffset(targetOffset);
+      // Cooldown before re-entry is allowed
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) _imageZoomEnterCooldown = false;
+      });
+    });
+  }
 }
 
 /// #4: Data class for queued offline uploads.

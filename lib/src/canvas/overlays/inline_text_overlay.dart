@@ -27,7 +27,7 @@ class InlineTextOverlay extends StatefulWidget {
   final FontStyle fontStyle;
 
   /// Font family.
-  final String fontFamily;
+  final String? fontFamily;
 
   /// Canvas scale factor — applied to font size.
   final double canvasScale;

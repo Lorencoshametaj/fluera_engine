@@ -286,7 +286,7 @@ class BinaryCanvasFormat {
     builder.addByte(text.fontWeight.index);
     builder.add(_encodeFloat32(text.scale));
     builder.addByte(text.isOCR ? 1 : 0);
-    _writeString(builder, text.fontFamily);
+    _writeString(builder, text.fontFamily ?? 'Roboto');
   }
 
   static void _writeImage(BytesBuilder builder, ImageElement image) {

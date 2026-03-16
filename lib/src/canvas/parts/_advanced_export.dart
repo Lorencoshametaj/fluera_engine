@@ -152,7 +152,8 @@ extension AdvancedExportFeatures on _FlueraCanvasScreenState {
 
       if (result != null && mounted) {
         // On desktop, file_picker returns a path; on mobile, bytes are written directly
-        if (result.isNotEmpty) {
+        // On web, bytes are downloaded via browser — no File access needed
+        if (!kIsWeb && result.isNotEmpty) {
           final file = File(result);
           if (!await file.exists()) {
             await file.writeAsBytes(bytes);

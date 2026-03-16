@@ -11,7 +11,7 @@ class TextOverlay {
   final double y; // 0.0 (top) to 1.0 (bottom)
   final double fontSize; // in logical pixels
   final int color; // Color.value
-  final String fontFamily; // 'sans-serif', 'serif', 'monospace'
+  final String? fontFamily; // 'sans-serif', 'serif', 'monospace'
   final bool bold;
   final bool italic;
   final double rotation; // radians

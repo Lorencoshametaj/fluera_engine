@@ -3268,32 +3268,36 @@ void VkStrokeRenderer::updateAndRender(const float *points, int pointCount,
     return;
 
   if (brushType == 0) {
-    // ── INCREMENTAL (ballpoint) ──────────────────────────────────
-    // Dart sends only new points with 1-point overlap for segment continuity.
-    // Only tessellate + upload the new delta → O(new points) not O(all points).
-    int startIndex = totalAccumulatedPoints_;
-    totalAccumulatedPoints_ += pointCount;
-    if (startIndex > 0) startIndex -= 1;
+    // ── FULL RETESSELLATION (ballpoint) ──────────────────────────
+    // Accumulate raw points in allPoints_, retessellate entire stroke
+    // each frame. Incremental tessellation caused sawtooth edges on
+    // curves because EMA smoothing + Catmull-Rom only saw each batch.
+    int skipFirst = (totalAccumulatedPoints_ > 0) ? 1 : 0;
+    for (int i = skipFirst; i < pointCount; i++) {
+      for (int j = 0; j < 5; j++)
+        allPoints_.push_back(points[i * 5 + j]);
+    }
+    totalAccumulatedPoints_ = (int)(allPoints_.size() / 5);
 
-    size_t prevSize = accumulatedVerts_.size();
-    tessellateStroke(points, pointCount, r, g, b, a, strokeWidth,
-                     startIndex, totalPoints, accumulatedVerts_,
-                     pencilMinPressure, pencilMaxPressure);
+    accumulatedVerts_.clear();
+    if (totalAccumulatedPoints_ >= 2) {
+      tessellateStroke(allPoints_.data(), totalAccumulatedPoints_,
+                       r, g, b, a, strokeWidth,
+                       0, totalPoints, accumulatedVerts_,
+                       pencilMinPressure, pencilMaxPressure);
+    }
 
     if (accumulatedVerts_.size() > MAX_VERTICES) {
-      accumulatedVerts_.resize(prevSize);
-      return;
+      accumulatedVerts_.resize(MAX_VERTICES);
     }
 
     vertexCount_ = static_cast<uint32_t>(accumulatedVerts_.size());
 
-    // Upload only the NEW delta
-    size_t newCount = accumulatedVerts_.size() - prevSize;
-    if (newCount > 0) {
-      auto *dst =
-          reinterpret_cast<StrokeVertex *>(mappedVertexMemory_) + prevSize;
-      memcpy(dst, accumulatedVerts_.data() + prevSize,
-             newCount * sizeof(StrokeVertex));
+    // Upload entire vertex buffer
+    if (vertexCount_ > 0) {
+      auto *dst = reinterpret_cast<StrokeVertex *>(mappedVertexMemory_);
+      memcpy(dst, accumulatedVerts_.data(),
+             vertexCount_ * sizeof(StrokeVertex));
     }
   } else {
     // ── FULL RETESSELLATION (marker/pencil/technical/fountain) ───
@@ -3734,6 +3738,10 @@ void VkStrokeRenderer::clearFrame() {
 
 
   accumulatedVerts_.clear();
+
+
+
+  allPoints_.clear();
 
 
 

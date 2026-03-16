@@ -766,6 +766,7 @@ extension _VoiceRecordingUtils on _FlueraCanvasScreenState {
 
   /// 📡 Upload all queued recordings (call when connectivity returns).
   Future<int> _syncOfflineUploads() async {
+    if (kIsWeb) return 0; // No file system on web
     if (VoiceRecordingExtension._offlineUploadQueue.isEmpty || _syncEngine == null) return 0;
 
 
@@ -786,9 +787,9 @@ extension _VoiceRecordingUtils on _FlueraCanvasScreenState {
         final audioBytes = await file.readAsBytes();
 
         // Compress on isolate
-        final compressedData = await Isolate.run(() {
+        final compressedData = await compute((_) {
           return Uint8List.fromList(GZipCodec().encode(audioBytes));
-        });
+        }, null);
 
         // Upload audio
         await _syncEngine!.adapter.uploadAsset(
@@ -809,12 +810,12 @@ extension _VoiceRecordingUtils on _FlueraCanvasScreenState {
               final strokes = recording.syncedStrokes;
               strokeCount = strokes.length;
               final strokesJson = strokes.map((s) => s.toJson()).toList();
-              final strokesBytes = await Isolate.run(() {
+              final strokesBytes = await compute((_) {
                 final jsonStr = jsonEncode(strokesJson);
                 return Uint8List.fromList(
                   GZipCodec().encode(utf8.encode(jsonStr)),
                 );
-              });
+              }, null);
               strokesAssetKey = 'strokes_$recordingId';
               await _syncEngine!.adapter.uploadAsset(
                 _canvasId,

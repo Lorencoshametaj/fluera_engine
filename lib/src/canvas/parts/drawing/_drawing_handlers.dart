@@ -25,6 +25,16 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // 🧹 KNOWLEDGE FLOW OVERLAY CLEANUP: Clear any active preview/label
+    // overlays on new touch. Prevents ghost Positioned.fill GestureDetector
+    // from blocking canvas input after tool switches or zoom changes.
+    if (_previewingClusterId != null || _editingLabelConnectionId != null) {
+      _previewingClusterId = null;
+      _previewOverlayScreenPosition = null;
+      _editingLabelConnectionId = null;
+      _labelOverlayScreenPosition = null;
+    }
+
     // 🔒 VIEWER GUARD: Prevent all editing on shared canvas if viewer
     if (_checkViewerGuard()) return;
 
@@ -88,11 +98,36 @@ extension on _FlueraCanvasScreenState {
     // 🎤 Traccia tempo inizio (per recording esterno)
     _lastStrokeStartTime = DateTime.now();
 
+    // 🌀 ROTATION HANDLE: Check BEFORE auto-deselect so it works in ANY mode.
+    // If an image is selected and the user touches the rotation handle, start
+    // handle rotation regardless of the current tool.
+    if (_imageTool.selectedImage != null) {
+      final rawImage = _loadedImages[_imageTool.selectedImage!.imagePath];
+      if (rawImage != null) {
+        final crop = _imageTool.selectedImage!.cropRect;
+        final w = rawImage.width.toDouble();
+        final h = rawImage.height.toDouble();
+        final imageSize = crop != null
+            ? Size((crop.right - crop.left) * w, (crop.bottom - crop.top) * h)
+            : Size(w, h);
+        if (_imageTool.hitTestRotationHandle(canvasPosition, imageSize)) {
+          _imageTool.startHandleRotation(canvasPosition);
+          _uiRebuildNotifier.value++;
+          return;
+        }
+      }
+    }
+
     // 🖼️ AUTO-DESELECT IMAGE: When starting any draw action (pen, eraser, etc.)
     // outside pan mode, clear the image selection so the blue outline disappears.
+    // 🐛 FIX: setState is required to hide the 'Image Actions' menu button
+    //    which is in the main build tree (not reactive via notifiers).
     if (!_effectiveIsPanMode && _imageTool.selectedImage != null) {
-      _imageTool.clearSelection();
+      setState(() {
+        _imageTool.clearSelection();
+      });
       _imageRepaintNotifier.value++;
+      _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer so image rotation callbacks update
       _uiRebuildNotifier.value++;
     }
 
@@ -115,13 +150,6 @@ extension on _FlueraCanvasScreenState {
                       : Size(w, h);
                 }()
                 : Size.zero;
-
-        // 🌀 Check rotation handle first (above the image)
-        if (_imageTool.hitTestRotationHandle(canvasPosition, imageSize)) {
-          _imageTool.startHandleRotation(canvasPosition);
-          _uiRebuildNotifier.value++;
-          return;
-        }
 
         final handle = _imageTool.hitTestResizeHandle(
           canvasPosition,
@@ -163,24 +191,32 @@ extension on _FlueraCanvasScreenState {
               // 🔴 RT: Broadcast rotation reset to collaborators
               _broadcastImageUpdate(resetImage);
               _lastImageTapTime = 0; // Prevent triple-tap
+              _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer
               _uiRebuildNotifier.value++;
               return;
             }
             _lastImageTapTime = now;
 
             // Select the image but do NOT start dragging yet
-            _imageTool.selectImage(imageElement);
+            // 🐛 FIX: setState needed to show 'Image Actions' menu button
+            setState(() {
+              _imageTool.selectImage(imageElement);
+            });
 
             // 📍 Save initial position to detect movement
             _initialTapPosition = canvasPosition;
 
+            _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer so onImageScaleStart becomes non-null
             _uiRebuildNotifier.value++;
             return; // 🛑 Block other tools when touching image in pan mode
           }
         }
       } // If tocco area vuota con selected image, deseleziona
       if (_imageTool.selectedImage != null) {
-        _imageTool.clearSelection();
+        setState(() {
+          _imageTool.clearSelection();
+        });
+        _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer so onImageScaleStart becomes null
         _uiRebuildNotifier.value++;
         // Do not return - continua con gli altri tool
       }
@@ -613,17 +649,44 @@ extension on _FlueraCanvasScreenState {
           _effectivePenType == ProPenType.highlighter ? 0.0
           : _effectivePenType == ProPenType.marker ? 0.7
           : 1.0;
-      _vulkanStrokeOverlay.clear(); // Clear previous stroke
-      final rb =
-          _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
-      final canvasSize = rb?.size ?? MediaQuery.of(context).size;
-      final dpr = MediaQuery.of(context).devicePixelRatio;
-      _vulkanStrokeOverlay.setTransform(
-        _canvasController,
-        (canvasSize.width * dpr).toInt(),
-        (canvasSize.height * dpr).toInt(),
-        dpr,
-      );
+
+      if (kIsWeb && _webGpuOverlayActive) {
+        // 🌐 WEB: Initialize WebGPU pipeline if needed, then clear + transform
+        if (!_webGpuStrokeOverlay.isInitialized) {
+          final rb =
+              _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+          final canvasSize = rb?.size ?? MediaQuery.of(context).size;
+          final dpr = MediaQuery.of(context).devicePixelRatio;
+          _webGpuStrokeOverlay.init(
+            (canvasSize.width * dpr).toInt(),
+            (canvasSize.height * dpr).toInt(),
+          );
+        }
+        _webGpuStrokeOverlay.clear();
+        final rb =
+            _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+        final canvasSize = rb?.size ?? MediaQuery.of(context).size;
+        final dpr = MediaQuery.of(context).devicePixelRatio;
+        _webGpuStrokeOverlay.setTransform(
+          _canvasController,
+          (canvasSize.width * dpr).toInt(),
+          (canvasSize.height * dpr).toInt(),
+          dpr,
+        );
+      } else {
+        // 🔥 NATIVE: Vulkan/Metal clear + transform
+        _vulkanStrokeOverlay.clear(); // Clear previous stroke
+        final rb =
+            _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+        final canvasSize = rb?.size ?? MediaQuery.of(context).size;
+        final dpr = MediaQuery.of(context).devicePixelRatio;
+        _vulkanStrokeOverlay.setTransform(
+          _canvasController,
+          (canvasSize.width * dpr).toInt(),
+          (canvasSize.height * dpr).toInt(),
+          dpr,
+        );
+      }
     }
 
     if (_is120HzMode && _rawInputProcessor120Hz != null) {
@@ -670,6 +733,15 @@ extension on _FlueraCanvasScreenState {
     _isDrawingNotifier.value = false;
     CanvasPerformanceMonitor.instance.notifyDrawingEnded(); // 🚀 Resume overlay
 
+    // 🔥 VULKAN: Clear the GPU overlay so the interrupted stroke doesn't
+    // remain visible at the old transform during/after a pan gesture.
+    // Without this, the Vulkan texture shows a "ghost" stroke at the
+    // pre-pan position while the new stroke draws at the post-pan position.
+    if (_vulkanOverlayActive) {
+      _vulkanTextureOpacity.value = 0.0;
+      _vulkanStrokeOverlay.clear();
+    }
+
     // 📝 INLINE TEXT CANCEL: If inline text creation was triggered by the
     // first finger, cancel it when a second finger arrives (pinch-zoom).
     if (_isInlineEditing && _inlineEditingElement != null &&
@@ -709,6 +781,23 @@ extension on _FlueraCanvasScreenState {
       _uiRebuildNotifier.value++;
       return;
     }
+
+    // 🖼️ IMAGE TOOL: Cancel any image drag/resize/handle-rotation so that
+    // the two-finger gesture can cleanly transition to image rotation.
+    if (_imageTool.isDragging) {
+      _imageTool.endDrag();
+    }
+    if (_imageTool.isResizing) {
+      _imageTool.endResize();
+    }
+    if (_imageTool.isHandleRotating) {
+      _imageTool.endHandleRotation();
+    }
+    // Clear deferred drag start so _onDrawUpdate doesn't re-start drag
+    _initialTapPosition = null;
+    // Cancel long-press timers (editor dialog etc.)
+    _imageLongPressTimer?.cancel();
+    _imageLongPressEditorTimer?.cancel();
 
     // ✂️ Clear PDF clip rect on cancel
     _activePdfClipRect = null;
@@ -826,13 +915,19 @@ extension on _FlueraCanvasScreenState {
     _imageTool.startRotation();
   }
 
-  /// Called continuously with rotation + scale during two-finger gesture
-  void _onImageTransform(double rotationDelta, double scaleRatio) {
-    final updated = _imageTool.updateRotation(rotationDelta, scaleRatio);
+  /// Called continuously with rotation + scale + drag during two-finger gesture
+  void _onImageTransform(double rotationDelta, double scaleRatio, Offset focalDelta) {
+    final (updated, didSnap) = _imageTool.updateRotation(rotationDelta, scaleRatio);
     if (updated != null) {
-      final index = _imageElements.indexWhere((e) => e.id == updated.id);
+      // 🖐️ Apply simultaneous drag: convert screen-space delta to canvas-space
+      final canvasDelta = focalDelta / _canvasController.scale;
+      final dragged = updated.copyWith(
+        position: updated.position + canvasDelta,
+      );
+      _imageTool.selectImage(dragged); // Keep _selectedImage in sync
+      final index = _imageElements.indexWhere((e) => e.id == dragged.id);
       if (index != -1) {
-        _imageElements[index] = updated;
+        _imageElements[index] = dragged;
       }
       _imageVersion++;
       _imageRepaintNotifier.value++;
@@ -846,6 +941,16 @@ extension on _FlueraCanvasScreenState {
       // 🔴 RT: Broadcast two-finger scale/rotate to collaborators
       _broadcastImageUpdate(_imageTool.selectedImage!);
       _imageTool.endRotation();
+      // 🖼️ Rebuild R-tree + invalidate cache so the standard paint path
+      // picks up the new rotation (without this, the old cached picture
+      // with pre-rotation angle is drawn → image snaps back visually).
+      _imageVersion++;
+      _rebuildImageSpatialIndex();
+      _uiRebuildNotifier.value++;
+      _autoSaveCanvas(); // 💾 Persist rotation to disk
+      // 🐛 FIX: setState needed to show 'Image Actions' menu button
+      // after auto-selection during two-finger gesture.
+      setState(() {});
     }
   }
 
@@ -1776,6 +1881,26 @@ extension on _FlueraCanvasScreenState {
   /// Initialize the Vulkan stroke overlay on first use.
   /// Falls back silently if Vulkan is not available.
   void _initVulkanOverlayIfNeeded() {
+    // 🐧🪟 DESKTOP: Skip native overlay (GL/D3D11) — use Dart CurrentStrokePainter.
+    // This ensures live strokes look identical to committed strokes (same
+    // BallpointBrush code path). Native tessellation produces visually different
+    // output from Skia's path rendering.
+    if (PlatformGuard.isLinux || PlatformGuard.isWindows) return;
+
+    // 🌐 WEB: Use WebGPU overlay instead of Vulkan/Metal
+    if (kIsWeb) {
+      if (_webGpuOverlayActive || _vulkanOverlayActive) return;
+      // WebGPU init is async — register view factory and set active
+      // The actual WebGPU pipeline is initialized in JS when the canvas
+      // element becomes available in the DOM.
+      WebGpuOverlayView.registerViewFactory();
+      setState(() {
+        _webGpuOverlayActive = true;
+        _vulkanOverlayActive = true; // Reuse same flag to skip Dart rendering
+      });
+      return;
+    }
+
     if (_vulkanOverlayActive || _vulkanTextureId != null) {
       _vulkanOverlayActive = true;
       return;

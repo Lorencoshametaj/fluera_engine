@@ -204,3 +204,83 @@ Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeGetDeviceNa
 }
 
 } // extern "C"
+
+// ═══════════════════════════════════════════════════════════════════
+// 🚀 FFI EXPORT — Direct Dart→C++ hot path (replaces MethodChannel)
+//
+// Shared buffer layout defined in fluera_stroke_ffi.h.
+// Called from Dart via dart:ffi on the UI isolate thread.
+// ═══════════════════════════════════════════════════════════════════
+
+// Buffer layout — mirrors fluera_stroke_ffi.h
+#define FLUERA_FFI_CMD           0
+#define FLUERA_FFI_POINT_COUNT   1
+#define FLUERA_FFI_COLOR_R       2
+#define FLUERA_FFI_COLOR_G       3
+#define FLUERA_FFI_COLOR_B       4
+#define FLUERA_FFI_COLOR_A       5
+#define FLUERA_FFI_STROKE_WIDTH  6
+#define FLUERA_FFI_TOTAL_POINTS  7
+#define FLUERA_FFI_BRUSH_TYPE    8
+#define FLUERA_FFI_PENCIL_BASE   9
+#define FLUERA_FFI_PENCIL_MAX    10
+#define FLUERA_FFI_PENCIL_MIN_P  11
+#define FLUERA_FFI_PENCIL_MAX_P  12
+#define FLUERA_FFI_FOUNTAIN_THIN 13
+#define FLUERA_FFI_FOUNTAIN_ANGLE 14
+#define FLUERA_FFI_FOUNTAIN_STR  15
+#define FLUERA_FFI_FOUNTAIN_RATE 16
+#define FLUERA_FFI_FOUNTAIN_TAPER 17
+#define FLUERA_FFI_TRANSFORM     20
+#define FLUERA_FFI_POINTS        36
+#define FLUERA_CMD_UPDATE_AND_RENDER  1.0f
+#define FLUERA_CMD_SET_TRANSFORM     2.0f
+#define FLUERA_CMD_CLEAR             3.0f
+
+extern "C" {
+
+__attribute__((visibility("default")))
+void fluera_stroke_execute(float* buf) {
+  if (!buf || !g_renderer || !g_renderer->isInitialized()) return;
+
+  const float cmd = buf[FLUERA_FFI_CMD];
+
+  if (cmd == FLUERA_CMD_CLEAR) {
+    g_renderer->clearFrame();
+    return;
+  }
+
+  if (cmd == FLUERA_CMD_SET_TRANSFORM) {
+    g_renderer->setTransform(&buf[FLUERA_FFI_TRANSFORM]);
+    return;
+  }
+
+  if (cmd == FLUERA_CMD_UPDATE_AND_RENDER) {
+    const int pointCount = (int)buf[FLUERA_FFI_POINT_COUNT];
+    if (pointCount < 2) return;
+
+    const float r = buf[FLUERA_FFI_COLOR_R];
+    const float g = buf[FLUERA_FFI_COLOR_G];
+    const float b = buf[FLUERA_FFI_COLOR_B];
+    const float a = buf[FLUERA_FFI_COLOR_A];
+
+    g_renderer->updateAndRender(
+        &buf[FLUERA_FFI_POINTS], pointCount,
+        r, g, b, a,
+        buf[FLUERA_FFI_STROKE_WIDTH],
+        (int)buf[FLUERA_FFI_TOTAL_POINTS],
+        (int)buf[FLUERA_FFI_BRUSH_TYPE],
+        buf[FLUERA_FFI_PENCIL_BASE],
+        buf[FLUERA_FFI_PENCIL_MAX],
+        buf[FLUERA_FFI_PENCIL_MIN_P],
+        buf[FLUERA_FFI_PENCIL_MAX_P],
+        buf[FLUERA_FFI_FOUNTAIN_THIN],
+        buf[FLUERA_FFI_FOUNTAIN_ANGLE],
+        buf[FLUERA_FFI_FOUNTAIN_STR],
+        buf[FLUERA_FFI_FOUNTAIN_RATE],
+        (int)buf[FLUERA_FFI_FOUNTAIN_TAPER]);
+  }
+}
+
+} // extern "C"
+

@@ -163,6 +163,20 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 ),
               ],
 
+              // 🔍 Handwriting Search (ML Kit)
+              if (widget.onSearchPressed != null &&
+                  !widget.isImageEditingMode) ...[
+                const SizedBox(width: 8),
+                ToolbarSearchButton(
+                  isActive: widget.isSearchActive,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onSearchPressed!();
+                  },
+                  isDark: isDark,
+                ),
+              ],
+
               const SizedBox(width: 12),
 
               // 🎨 COLOR PALETTE

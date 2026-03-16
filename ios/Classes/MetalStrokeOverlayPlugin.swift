@@ -71,9 +71,14 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
             
             renderer = newRenderer
             
+            // 🚀 FFI: Set global refs for direct Dart→Swift hot path
+            flueraMetalRenderer = newRenderer
+            
             // Register texture with Flutter
             if let registry = textureRegistry {
                 textureId = registry.register(self)
+                flueraTextureRegistry = registry  // 🚀 FFI
+                flueraTextureId = textureId        // 🚀 FFI
                 NSLog("[FlueraMtl] Renderer initialized, textureId=%lld", textureId)
                 result(textureId)
             } else {
@@ -91,6 +96,15 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
             let width = (args["width"] as? Double) ?? 2.0
             let totalPoints = (args["totalPoints"] as? Int) ?? 0
             let brushType = (args["brushType"] as? Int) ?? 0
+            let pencilBaseOpacity = Float((args["pencilBaseOpacity"] as? Double) ?? 0.4)
+            let pencilMaxOpacity = Float((args["pencilMaxOpacity"] as? Double) ?? 0.8)
+            let pencilMinPressure = Float((args["pencilMinPressure"] as? Double) ?? 0.5)
+            let pencilMaxPressure = Float((args["pencilMaxPressure"] as? Double) ?? 1.2)
+            let fountainThinning = Float((args["fountainThinning"] as? Double) ?? 0.5)
+            let fountainNibAngleDeg = Float((args["fountainNibAngleDeg"] as? Double) ?? 30.0)
+            let fountainNibStrength = Float((args["fountainNibStrength"] as? Double) ?? 0.35)
+            let fountainPressureRate = Float((args["fountainPressureRate"] as? Double) ?? 0.275)
+            let fountainTaperEntry = (args["fountainTaperEntry"] as? Int) ?? 6
             
             // Convert Double array to Float array
             if pointsList.count >= 10 {
@@ -100,7 +114,16 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
                     color: UInt32(bitPattern: Int32(truncatingIfNeeded: color)),
                     strokeWidth: Float(width),
                     totalPoints: totalPoints,
-                    brushType: brushType
+                    brushType: brushType,
+                    pencilBaseOpacity: pencilBaseOpacity,
+                    pencilMaxOpacity: pencilMaxOpacity,
+                    pencilMinPressure: pencilMinPressure,
+                    pencilMaxPressure: pencilMaxPressure,
+                    fountainThinning: fountainThinning,
+                    fountainNibAngleDeg: fountainNibAngleDeg,
+                    fountainNibStrength: fountainNibStrength,
+                    fountainPressureRate: fountainPressureRate,
+                    fountainTaperEntry: fountainTaperEntry
                 )
                 
                 // Notify Flutter that texture has new content
@@ -176,5 +199,83 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
         }
         textureId = -1
         renderer = nil
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 🚀 FFI EXPORT — Direct Dart→Swift hot path (replaces MethodChannel)
+//
+// Buffer layout — mirrors fluera_stroke_ffi.h
+// Called from Dart via dart:ffi (DynamicLibrary.process() on Apple)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Module-level reference for FFI access (set during plugin init)
+var flueraMetalRenderer: MetalStrokeRenderer?
+var flueraTextureRegistry: FlutterTextureRegistry?
+var flueraTextureId: Int64 = -1
+
+@_cdecl("fluera_stroke_execute")
+public func flueraStrokeExecute(_ buf: UnsafeMutablePointer<Float>) {
+    guard let renderer = flueraMetalRenderer else { return }
+
+    let cmd = buf[0]
+
+    // CLEAR
+    if cmd == 3.0 {
+        renderer.clearFrame()
+        if flueraTextureId >= 0 {
+            flueraTextureRegistry?.textureFrameAvailable(flueraTextureId)
+        }
+        return
+    }
+
+    // SET TRANSFORM
+    if cmd == 2.0 {
+        let matrix = (0..<16).map { buf[20 + $0] }
+        renderer.setTransform(matrix)
+        return
+    }
+
+    // UPDATE AND RENDER
+    if cmd == 1.0 {
+        let pointCount = Int(buf[1])
+        if pointCount < 2 { return }
+
+        let colorR = buf[2]
+        let colorG = buf[3]
+        let colorB = buf[4]
+        let colorA = buf[5]
+        let colorArgb = UInt32(
+            (UInt32(colorA * 255) << 24) |
+            (UInt32(colorR * 255) << 16) |
+            (UInt32(colorG * 255) << 8) |
+            UInt32(colorB * 255)
+        )
+
+        // Extract points directly from buffer (zero-copy pointer)
+        let pointsPtr = buf + 36
+        let floatCount = pointCount * 5
+        let floatPoints = Array(UnsafeBufferPointer(start: pointsPtr, count: floatCount))
+
+        renderer.updateAndRender(
+            points: floatPoints,
+            color: colorArgb,
+            strokeWidth: buf[6],
+            totalPoints: Int(buf[7]),
+            brushType: Int(buf[8]),
+            pencilBaseOpacity: buf[9],
+            pencilMaxOpacity: buf[10],
+            pencilMinPressure: buf[11],
+            pencilMaxPressure: buf[12],
+            fountainThinning: buf[13],
+            fountainNibAngleDeg: buf[14],
+            fountainNibStrength: buf[15],
+            fountainPressureRate: buf[16],
+            fountainTaperEntry: Int(buf[17])
+        )
+
+        if flueraTextureId >= 0 {
+            flueraTextureRegistry?.textureFrameAvailable(flueraTextureId)
+        }
     }
 }

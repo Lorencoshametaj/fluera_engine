@@ -286,7 +286,13 @@ class ImagePainter extends CustomPainter {
       }
 
       // 🚀 Per-image dynamic check
-      final isThisImageActive = selectedImage?.id == imageElement.id;
+      // ⚡ Check BOTH the build-time selectedImage AND the live imageTool.selectedImage.
+      // When auto-selection happens during a gesture (shouldRouteToImageRotation),
+      // the widget isn't rebuilt, so selectedImage is null. But imageTool has the
+      // up-to-date selection.
+      final isThisImageActive =
+          selectedImage?.id == imageElement.id ||
+          imageTool.selectedImage?.id == imageElement.id;
       final isDragging = isThisImageActive && imageTool.isDragging;
       final isResizing = isThisImageActive && imageTool.isResizing;
       final isRotating = isThisImageActive && imageTool.isRotating;
@@ -333,7 +339,7 @@ class ImagePainter extends CustomPainter {
         canvas.restore();
 
         // Selection overlay (handles need to track position)
-        if (selectedImage?.id == liveImage.id) {
+        if (selectedImage?.id == liveImage.id || imageTool.selectedImage?.id == liveImage.id) {
           _drawSelection(canvas, liveImage, image);
         }
         continue;
@@ -360,7 +366,7 @@ class ImagePainter extends CustomPainter {
       if (isRotating) {
         final liveImage = imageTool.selectedImage!;
         _renderSingleImage(canvas, liveImage, image);
-        if (selectedImage?.id == liveImage.id) {
+        if (selectedImage?.id == liveImage.id || imageTool.selectedImage?.id == liveImage.id) {
           _drawSelection(canvas, liveImage, image);
         }
         continue;
