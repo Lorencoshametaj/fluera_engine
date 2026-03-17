@@ -363,19 +363,10 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-    // Check if pressed on a text element → inline editing
-    final hitElement = _digitalTextTool.hitTest(
-      canvasPosition,
-      _digitalTextElements,
-    );
-
-
-    if (hitElement != null) {
-      _startInlineTextEdit(hitElement);
-      return;
-    }
-
     // 🧠 KNOWLEDGE FLOW: Long-press in knowledge view
+    // ⚠️ MUST come BEFORE inline text edit — otherwise _digitalTextTool.hitTest()
+    // matches the word's text element and opens the editor/keyboard, preventing
+    // connection drag from ever being reached.
     if (_effectiveIsPanMode &&
         _knowledgeFlowController != null &&
         _clusterCache.isNotEmpty) {
@@ -406,69 +397,18 @@ extension on _FlueraCanvasScreenState {
         _uiRebuildNotifier.value++;
         return;
       }
+    }
 
-      // 💡 SUGGESTION: Long-press near suggestion dot → show preview card
-      final hitSuggestion = _knowledgeFlowController!.hitTestSuggestion(
-        canvasPosition,
-        _clusterCache,
-        radius: 30.0 / _canvasController.scale,
-      );
-      if (hitSuggestion != null) {
-        HapticFeedback.selectionClick();
-        // Compute midpoint for card positioning
-        final cMap = <String, ContentCluster>{};
-        for (final c in _clusterCache) cMap[c.id] = c;
-        final src = cMap[hitSuggestion.sourceClusterId];
-        final tgt = cMap[hitSuggestion.targetClusterId];
-        if (src != null && tgt != null) {
-          final mid = Offset(
-            (src.centroid.dx + tgt.centroid.dx) / 2,
-            (src.centroid.dy + tgt.centroid.dy) / 2,
-          );
-          final screenPos = _canvasController.canvasToScreen(mid);
-          setState(() {
-            _previewSuggestion = hitSuggestion;
-            _previewSuggestionPosition = screenPos;
-            // Populate recognized text from cache
-            _previewClusterTexts = {
-              hitSuggestion.sourceClusterId:
-                  _clusterTextCache[hitSuggestion.sourceClusterId] ?? '?',
-              hitSuggestion.targetClusterId:
-                  _clusterTextCache[hitSuggestion.targetClusterId] ?? '?',
-            };
-          });
-        }
-        return;
-      }
+    // Check if pressed on a text element → inline editing
+    // (only reached if NOT in KF pan mode, or KF found no matching cluster)
+    final hitElement = _digitalTextTool.hitTest(
+      canvasPosition,
+      _digitalTextElements,
+    );
 
-      // 🏷️ EDIT/ADD LABEL: Long-press on connection → open label editor
-      final hitConn = _knowledgeFlowController!.hitTestConnection(
-        canvasPosition,
-        _clusterCache,
-        maxDistance: 40.0 / _canvasController.scale,
-      );
-      if (hitConn != null) {
-        // Compute midpoint of connection for label overlay position
-        final cMap = <String, ContentCluster>{};
-        for (final c in _clusterCache) cMap[c.id] = c;
-        final src = cMap[hitConn.sourceClusterId];
-        final tgt = cMap[hitConn.targetClusterId];
-        if (src != null && tgt != null) {
-          final cp = _knowledgeFlowController!.getControlPoint(
-            src.centroid, tgt.centroid, hitConn.curveStrength,
-          );
-          final midCanvas = _knowledgeFlowController!.pointOnQuadBezier(
-            src.centroid, cp, tgt.centroid, 0.5,
-          );
-          final screenPos = _canvasController.canvasToScreen(midCanvas);
-          HapticFeedback.mediumImpact();
-          setState(() {
-            _editingLabelConnectionId = hitConn.id;
-            _labelOverlayScreenPosition = screenPos;
-          });
-          return;
-        }
-      }
+    if (hitElement != null) {
+      _startInlineTextEdit(hitElement);
+      return;
     }
 
     // 🎨 Eyedropper fallback: long-press empty canvas → pick color

@@ -671,6 +671,110 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     }
   }
 
+  /// 📄 Restore a [PdfPreviewCardNode] that was deserialized from the
+  /// `scene_nodes_json` sidecar during canvas load.
+  ///
+  /// Re-opens the PDF file from disk, creates the native provider and
+  /// LOD-aware painter, renders the page-1 thumbnail, and registers the
+  /// document in the search controller — exactly like [_importPdfBytes]
+  /// but for a node that already exists in the scene graph.
+  Future<void> _restorePdfPreviewCardNode(PdfPreviewCardNode cardNode) async {
+    final docId = cardNode.documentId;
+    final filePath = cardNode.documentModel.filePath;
+
+    // Skip if provider already exists (e.g. double-restore guard)
+    if (_pdfProviders.containsKey(docId)) return;
+
+    // Blank PDFs have no backing file — create provider-less painter
+    if (filePath == null || filePath.isEmpty) {
+      _pdfPainters[docId] = PdfPagePainter(
+        provider: null,
+        memoryBudget: PdfMemoryBudget(),
+        documentId: docId,
+      );
+      _activePdfDocumentId = docId;
+      return;
+    }
+
+    // Check if the PDF file still exists on disk
+    if (kIsWeb) return;
+    final pdfFile = File(filePath);
+    if (!await pdfFile.exists()) {
+      // ☁️ Try downloading from cloud
+      if (_syncEngine != null) {
+        try {
+          final cloudBytes = await _syncEngine!.adapter.downloadAsset(
+            _canvasId,
+            docId,
+          );
+          if (cloudBytes != null) {
+            await pdfFile.parent.create(recursive: true);
+            await pdfFile.writeAsBytes(cloudBytes);
+          } else {
+            return;
+          }
+        } catch (_) {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    // Create native provider and load the document
+    final provider = NativeFlueraPdfProvider(documentId: docId);
+    final bytes = await pdfFile.readAsBytes();
+    final loaded = await provider.loadDocument(bytes);
+
+    if (!loaded) {
+      provider.dispose();
+      return;
+    }
+
+    // Store provider and create LOD-aware painter
+    _pdfProviders[docId] = provider;
+    _pdfPainters[docId] = PdfPagePainter(
+      provider: provider,
+      memoryBudget: PdfMemoryBudget(),
+      documentId: docId,
+    );
+
+    // 🔋 Update shared budget across all active documents
+    final docCount = _pdfPainters.length;
+    for (final p in _pdfPainters.values) {
+      p.memoryBudget.activeDocumentCount = docCount;
+    }
+
+    // Render page 1 thumbnail for the preview card
+    try {
+      final firstPage = cardNode.documentModel.pages.first;
+      final thumbScale = 200.0 / firstPage.originalSize.width;
+      final thumbImage = await provider.renderPage(
+        pageIndex: 0,
+        scale: thumbScale,
+        targetSize: Size(
+          200,
+          200 * firstPage.originalSize.height / firstPage.originalSize.width,
+        ),
+      );
+      if (thumbImage != null) {
+        cardNode.disposeThumbnail();
+        cardNode.thumbnailImage = thumbImage;
+      }
+    } catch (_) {}
+
+    // Register document in search controller
+    _pdfSearchController ??= PdfSearchController();
+    _pdfSearchController!.registerDocument(
+      docId,
+      Uint8List.fromList(bytes),
+      provider: provider,
+    );
+
+    // Auto-select last restored PDF
+    _activePdfDocumentId = docId;
+  }
+
   // ---------------------------------------------------------------------------
   // Annotation linking
   // ---------------------------------------------------------------------------
@@ -837,42 +941,71 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     HapticFeedback.mediumImpact();
 
+    // Capture card's screen rect for the expanding-clip transition
+    final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
+        ?.findRenderObject() as RenderBox?;
+    final canvasGlobalOffset =
+        canvasRenderBox?.localToGlobal(Offset.zero) ?? Offset.zero;
+    final worldBounds = cardNode.worldBounds;
+    final rawTL = _canvasController.canvasToScreen(worldBounds.topLeft);
+    final rawBR = _canvasController.canvasToScreen(worldBounds.bottomRight);
+    final screenTL = rawTL + canvasGlobalOffset;
+    final screenBR = rawBR + canvasGlobalOffset;
+    final cardRect = Rect.fromPoints(screenTL, screenBR);
+    final vp = MediaQuery.sizeOf(context);
+    final fullRect = Offset.zero & vp;
+    final thumbnail = cardNode.thumbnailImage;
+
     Navigator.of(context).push(
       PageRouteBuilder(
+        opaque: true,
         pageBuilder: (context, animation, secondaryAnimation) {
           return PdfReaderScreen(
             documentModel: cardNode.documentModel,
             provider: provider,
             documentId: docId,
             onClose: (updatedModel) {
-              // Refresh preview card on return
               cardNode.documentModel = updatedModel;
-              // Refresh thumbnail
               _refreshPreviewCardThumbnail(cardNode);
               if (mounted) setState(() {});
             },
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOut,
-            ),
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.05),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-              )),
-              child: child,
-            ),
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: const Cubic(0.16, 1.0, 0.3, 1.0),
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          return AnimatedBuilder(
+            animation: curved,
+            builder: (context, _) {
+              final t = curved.value;
+              if (t >= 1.0) return child;
+
+              final painter = CustomPaint(
+                painter: _PdfZoomTransitionPainter(
+                  t: t,
+                  thumbnail: thumbnail,
+                  cardRect: cardRect,
+                  fullRect: fullRect,
+                ),
+                size: Size.infinite,
+              );
+
+              if (t >= 0.95) {
+                return Stack(
+                  children: [child, Positioned.fill(child: painter)],
+                );
+              }
+
+              return painter;
+            },
           );
         },
-        transitionDuration: const Duration(milliseconds: 300),
-        reverseTransitionDuration: const Duration(milliseconds: 250),
+        transitionDuration: const Duration(milliseconds: 450),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
     );
   }
@@ -983,20 +1116,31 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     _pdfZoomEnterCooldown = true;
 
-    // Capture card's current screen rect
+    // Capture card's current screen rect.
+    // canvasToScreen returns coords relative to the canvas WIDGET area,
+    // which sits below the toolbar. The animation overlay (Navigator route)
+    // positions relative to the FULL SCREEN. Add canvas widget's global offset.
+    final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
+        ?.findRenderObject() as RenderBox?;
+    final canvasGlobalOffset =
+        canvasRenderBox?.localToGlobal(Offset.zero) ?? Offset.zero;
     final worldBounds = cardNode.worldBounds;
-    final screenTL = _canvasController.canvasToScreen(worldBounds.topLeft);
-    final screenBR = _canvasController.canvasToScreen(worldBounds.bottomRight);
+    final rawTL = _canvasController.canvasToScreen(worldBounds.topLeft);
+    final rawBR = _canvasController.canvasToScreen(worldBounds.bottomRight);
+    final screenTL = rawTL + canvasGlobalOffset;
+    final screenBR = rawBR + canvasGlobalOffset;
     final cardRect = Rect.fromPoints(screenTL, screenBR);
-    final vp = MediaQuery.of(context).size;
+    final vp = MediaQuery.sizeOf(context);
     final fullRect = Offset.zero & vp;
 
-    // Page count for depth parallax effect
-    final pageCount = cardNode.documentModel.totalPages.clamp(2, 5);
+    // Grab the thumbnail for the transition (may be null)
+    final thumbnail = cardNode.thumbnailImage;
 
     Navigator.of(context).push(
       PageRouteBuilder(
-        opaque: false,
+        // 🚀 PERF: opaque=true prevents Flutter from painting the entire
+        // canvas behind the route on every frame (~10-15ms saved).
+        opaque: true,
         pageBuilder: (context, animation, secondaryAnimation) {
           return PdfReaderScreen(
             documentModel: cardNode.documentModel,
@@ -1010,325 +1154,50 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          // Main curve: fast start, gentle settle
           final curved = CurvedAnimation(
             parent: animation,
             curve: const Cubic(0.16, 1.0, 0.3, 1.0),
-            reverseCurve: Curves.easeInQuart,
+            reverseCurve: Curves.easeInCubic,
           );
 
+          // 🚀 PERF: Zero-widget transition — single CustomPainter draws
+          // scrim + expanding clipped thumbnail. Matches image viewer style.
           return AnimatedBuilder(
             animation: curved,
             builder: (context, _) {
               final t = curved.value;
+              // Show the real PdfReaderScreen once transition is done.
+              if (t >= 1.0) return child;
 
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 1: Backdrop — blur + darken
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final blurSigma = t * 20.0;
-              final backdropOpacity = (t * 0.92).clamp(0.0, 0.92);
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 2: Expanding clip rect — card → full screen
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final clipT = Curves.easeOutCubic.transform(t);
-              final clipRect = Rect.lerp(cardRect, fullRect, clipT)!;
-              final borderRadius = 16.0 * (1.0 - clipT);
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 3: Radial light burst — soft glow behind the card
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final lightBurstT = t < 0.4
-                  ? Curves.easeOut.transform((t / 0.4).clamp(0.0, 1.0))
-                  : t < 0.85
-                      ? 1.0
-                      : Curves.easeIn.transform(((1.0 - t) / 0.15).clamp(0.0, 1.0));
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 4: Page fan parallax — rotated + offset pages
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final fanT = t < 0.65
-                  ? Curves.easeOut.transform((t / 0.65).clamp(0.0, 1.0))
-                  : Curves.easeIn.transform(((1.0 - t) / 0.35).clamp(0.0, 1.0));
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 5: Evolving shadow — deepens as card lifts
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final shadowT = t < 0.5
-                  ? Curves.easeOut.transform((t / 0.5).clamp(0.0, 1.0))
-                  : Curves.easeIn.transform(((1.0 - t) / 0.5).clamp(0.0, 1.0));
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 6: 3D perspective tilt
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final tiltT = t < 0.3
-                  ? Curves.easeOut.transform((t / 0.3).clamp(0.0, 1.0))
-                  : Curves.easeInCubic.transform(((1.0 - t) / 0.7).clamp(0.0, 1.0));
-              final tiltAngle = tiltT * 0.05;
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 7: Content — elastic overshoot + fade
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final elasticT = Curves.easeOut.transform(t);
-              final overshoot = t > 0.7
-                  ? math.sin((t - 0.7) / 0.3 * math.pi) * 0.015
-                  : 0.0;
-              final contentScale = 0.90 + 0.10 * elasticT + overshoot;
-              final contentOpacity = Curves.easeOut.transform(
-                ((t - 0.08) / 0.92).clamp(0.0, 1.0),
+              final painter = CustomPaint(
+                painter: _PdfZoomTransitionPainter(
+                  t: t,
+                  thumbnail: thumbnail,
+                  cardRect: cardRect,
+                  fullRect: fullRect,
+                ),
+                size: Size.infinite,
               );
 
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 8: Light sweep — diagonal shine
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final sweepPos = -0.3 + t * 1.6;
+              // 🚀 PERF: Pre-mount PdfReaderScreen at t≥0.95 behind the
+              // painter to spread widget tree creation across ~2-3 frames
+              // instead of a single spike at t=1.0.
+              if (t >= 0.95) {
+                return Stack(
+                  children: [child, Positioned.fill(child: painter)],
+                );
+              }
 
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 9: White flash — peaks at 55-65%
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final flashT = (t > 0.50 && t < 0.70)
-                  ? (t < 0.60
-                      ? (t - 0.50) / 0.10
-                      : (0.70 - t) / 0.10)
-                  : 0.0;
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 10: Vignette — edges darken to focus center
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final vignetteT = t < 0.6
-                  ? Curves.easeOut.transform((t / 0.6).clamp(0.0, 1.0))
-                  : Curves.easeIn.transform(((1.0 - t) / 0.4).clamp(0.0, 1.0));
-
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              // PHASE 11: Canvas zoom-out parallax
-              // Canvas slightly scales down (0.95) as reader rises
-              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-              final canvasScaleDown = 1.0 - t * 0.06;
-
-              return Stack(
-                children: [
-                  // ── 1. Backdrop blur + canvas scale-down parallax ──
-                  if (blurSigma > 0.1)
-                    Positioned.fill(
-                      child: Transform.scale(
-                        scale: canvasScaleDown,
-                        child: BackdropFilter(
-                          filter: ui.ImageFilter.blur(
-                            sigmaX: blurSigma,
-                            sigmaY: blurSigma,
-                          ),
-                          child: ColoredBox(
-                            color: Color.fromARGB(
-                              (backdropOpacity * 255).round(),
-                              8, 8, 22,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // ── 2. Vignette overlay ──
-                  if (vignetteT > 0.03)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              colors: [
-                                const Color(0x00000000),
-                                Color.fromARGB(
-                                  (vignetteT * 60).round(), 0, 0, 0,
-                                ),
-                              ],
-                              stops: const [0.4, 1.0],
-                              radius: 1.0,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // ── 3. Radial light burst ──
-                  if (lightBurstT > 0.02)
-                    Positioned.fromRect(
-                      rect: clipRect.inflate(80 * lightBurstT),
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              colors: [
-                                Color.fromARGB(
-                                  (lightBurstT * 30).round(),
-                                  255, 255, 255,
-                                ),
-                                const Color(0x00FFFFFF),
-                              ],
-                              stops: const [0.0, 1.0],
-                            ),
-                            borderRadius: BorderRadius.circular(borderRadius + 40),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // ── 4. Page fan parallax (3D book-opening) ──
-                  if (fanT > 0.03)
-                    for (int i = pageCount.clamp(2, 4); i >= 1; i--)
-                      Positioned.fromRect(
-                        rect: clipRect.translate(
-                          i * 4.0 * fanT,
-                          i * 5.0 * fanT,
-                        ),
-                        child: IgnorePointer(
-                          child: Transform(
-                            alignment: Alignment.bottomLeft,
-                            transform: Matrix4.identity()
-                              ..rotateZ(-i * 0.008 * fanT),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: Color.fromARGB(
-                                  (fanT * (50 - i * 10)).round().clamp(0, 255),
-                                  230, 230, 235,
-                                ),
-                                borderRadius: BorderRadius.circular(borderRadius),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Color.fromARGB(
-                                      (fanT * 30).round(), 0, 0, 0,
-                                    ),
-                                    blurRadius: 8 + i * 2.0,
-                                    offset: Offset(0, i * 2.0),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                  // ── 5. Evolving shadow beneath card ──
-                  if (shadowT > 0.05)
-                    Positioned.fromRect(
-                      rect: clipRect.translate(0, 6 * shadowT),
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(borderRadius),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Color.fromARGB(
-                                  (shadowT * 80).round(), 0, 0, 0,
-                                ),
-                                blurRadius: 30 + shadowT * 40,
-                                spreadRadius: shadowT * 12,
-                                offset: Offset(0, 8 + shadowT * 20),
-                              ),
-                              BoxShadow(
-                                color: Color.fromARGB(
-                                  (shadowT * 30).round(), 0, 0, 0,
-                                ),
-                                blurRadius: 80,
-                                spreadRadius: shadowT * 8,
-                                offset: Offset(0, shadowT * 40),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // ── 6. Main content: 3D tilt + clip + scale ──
-                  Positioned.fromRect(
-                    rect: clipRect,
-                    child: Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.identity()
-                        ..setEntry(3, 2, 0.001)
-                        ..rotateX(tiltAngle),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(borderRadius),
-                        child: Transform.scale(
-                          scale: contentScale,
-                          child: Opacity(
-                            opacity: contentOpacity.clamp(0.0, 1.0),
-                            child: SizedBox(
-                              width: vp.width,
-                              height: vp.height,
-                              child: FittedBox(
-                                fit: BoxFit.cover,
-                                alignment: Alignment.center,
-                                child: SizedBox(
-                                  width: vp.width,
-                                  height: vp.height,
-                                  child: child,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // ── 7. Light sweep across document ──
-                  if (t > 0.05 && t < 0.85)
-                    Positioned.fromRect(
-                      rect: clipRect,
-                      child: IgnorePointer(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(borderRadius),
-                          child: ShaderMask(
-                            shaderCallback: (bounds) {
-                              return LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: const [
-                                  Color(0x00FFFFFF),
-                                  Color(0x26FFFFFF),
-                                  Color(0x00FFFFFF),
-                                ],
-                                stops: [
-                                  (sweepPos - 0.18).clamp(0.0, 1.0),
-                                  sweepPos.clamp(0.0, 1.0),
-                                  (sweepPos + 0.18).clamp(0.0, 1.0),
-                                ],
-                              ).createShader(bounds);
-                            },
-                            blendMode: BlendMode.srcATop,
-                            child: ColoredBox(
-                              color: Color.fromARGB(
-                                (contentOpacity * 50).round().clamp(0, 255),
-                                255, 255, 255,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // ── 8. White flash — moment of arrival ──
-                  if (flashT > 0.01)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: ColoredBox(
-                          color: Color.fromARGB(
-                            (flashT * 35).round().clamp(0, 255),
-                            255, 255, 255,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
+              return painter;
             },
           );
         },
-        transitionDuration: const Duration(milliseconds: 750),
+        // 🚀 PERF: Match image viewer timing
+        transitionDuration: const Duration(milliseconds: 450),
         reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
     ).then((_) {
       // Zoom canvas back below entry threshold to prevent immediate re-entry
-      // Use animateScaleTo if available, otherwise just set directly
       final currentScale = _canvasController.scale;
       if (currentScale > 1.1) {
         _canvasController.setScale(1.0);
@@ -1524,4 +1393,88 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       },
     );
   }
+}
+
+/// 🚀 PERF: Zero-widget transition painter for PDF reader entry.
+/// Matches image viewer's _ZoomTransitionPainter style:
+/// scrim + expanding clipped thumbnail. No widget allocation per frame.
+class _PdfZoomTransitionPainter extends CustomPainter {
+  final double t;
+  final ui.Image? thumbnail;
+  final Rect cardRect;
+  final Rect fullRect;
+
+  // Static paints — allocated once, reused across all frames
+  static final Paint _scrimPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _bgPaint = Paint()..color = const Color(0xFF1A1A2E);
+  static final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
+
+  _PdfZoomTransitionPainter({
+    required this.t,
+    required this.thumbnail,
+    required this.cardRect,
+    required this.fullRect,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 1. Dark scrim (lerps from transparent to near-opaque)
+    final scrimAlpha = (t * 0.92).clamp(0.0, 0.92);
+    if (scrimAlpha > 0.01) {
+      _scrimPaint.color = Color.fromARGB(
+        (scrimAlpha * 255).round().clamp(0, 255),
+        8, 10, 25,
+      );
+      canvas.drawRect(Offset.zero & size, _scrimPaint);
+    }
+
+    // 2. Expanding clip rect with deceleration
+    final clipT = Curves.easeOutQuint.transform(t);
+    final clipRect = Rect.lerp(cardRect, fullRect, clipT)!;
+    final borderRadius = 16.0 * (1.0 - clipT);
+
+    canvas.save();
+    if (borderRadius > 0.5) {
+      canvas.clipRRect(
+        RRect.fromRectAndRadius(clipRect, Radius.circular(borderRadius)),
+      );
+    } else {
+      canvas.clipRect(clipRect);
+    }
+
+    // 3. Dark background (PDF reader background color)
+    canvas.drawRect(clipRect, _bgPaint);
+
+    // 4. Thumbnail fitted (contain) inside the clip rect
+    if (thumbnail != null) {
+      final imgW = thumbnail!.width.toDouble();
+      final imgH = thumbnail!.height.toDouble();
+      final imgAspect = imgW / imgH;
+      final clipAspect = clipRect.width / clipRect.height;
+
+      double dstW, dstH;
+      if (imgAspect > clipAspect) {
+        dstW = clipRect.width;
+        dstH = clipRect.width / imgAspect;
+      } else {
+        dstH = clipRect.height;
+        dstW = clipRect.height * imgAspect;
+      }
+
+      final dstRect = Rect.fromCenter(
+        center: clipRect.center,
+        width: dstW,
+        height: dstH,
+      );
+      final srcRect = Rect.fromLTWH(0, 0, imgW, imgH);
+
+      _imagePaint.color = const Color(0xFFFFFFFF);
+      canvas.drawImageRect(thumbnail!, srcRect, dstRect, _imagePaint);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_PdfZoomTransitionPainter old) => old.t != t;
 }

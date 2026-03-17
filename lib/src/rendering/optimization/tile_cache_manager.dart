@@ -24,7 +24,7 @@ class TileCacheManager {
   /// Maximum cached tiles to prevent OOM on large canvases.
   /// 128 tiles × display lists = very memory-efficient (Pictures are
   /// GPU command lists, not raw bitmaps).
-  static const int maxTiles = 128;
+  static const int maxTiles = 48;
 
   /// Cached pictures keyed by tile coordinates.
   /// LinkedHashMap preserves insertion order for LRU eviction.

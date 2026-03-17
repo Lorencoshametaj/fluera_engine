@@ -501,9 +501,18 @@ class _InfiniteCanvasGestureDetectorState
 
     // 🖐️ If finger pan mode is active, pan instead of drawing
     // 📄 But NOT if pan was intercepted (e.g. PDF document drag)
+    // 🧠 KNOWLEDGE FLOW: If blockPanZoom is active (connection drag started
+    // via long-press), forward to draw callbacks instead of panning.
     if (_pointerCount == 1 &&
         widget.enableSingleFingerPan &&
         !_panIntercepted) {
+      if (widget.blockPanZoom()) {
+        final canvasPoint = widget.controller.screenToCanvas(
+          event.localPosition,
+        );
+        widget.onDrawUpdate?.call(canvasPoint, 1.0, 0.0, 0.0);
+        return;
+      }
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
         widget.controller.isPanning = true; // 🚀 SCROLL OPT
@@ -542,6 +551,15 @@ class _InfiniteCanvasGestureDetectorState
     if (widget.isStylusModeEnabled &&
         _pointerCount == 1 &&
         !_shouldEnableDrawing) {
+      // 🧠 KNOWLEDGE FLOW: If blockPanZoom is active (connection drag started
+      // via long-press), forward to draw callbacks instead of panning.
+      if (widget.blockPanZoom()) {
+        final canvasPoint = widget.controller.screenToCanvas(
+          event.localPosition,
+        );
+        widget.onDrawUpdate?.call(canvasPoint, 1.0, 0.0, 0.0);
+        return;
+      }
       // È un dito in stylus mode → fai pan
       if (!_isSingleFingerPanning) {
         _isSingleFingerPanning = true;
@@ -771,7 +789,31 @@ class _InfiniteCanvasGestureDetectorState
       _gestureTransitioning = false; // Reset stale transition flag
 
       // 🌊 LIQUID: Launch momentum from single-finger pan
-      if (_isSingleFingerPanning && _panVelocity.distance > 0) {
+      // 🧠 KNOWLEDGE FLOW: If blockPanZoom is active (connection drag), call
+      // onDrawEnd instead of launching momentum — connection needs finalization.
+      if (_isSingleFingerPanning && widget.blockPanZoom()) {
+        _isSingleFingerPanning = false;
+        widget.controller.isPanning = false;
+        if (widget.onDrawEnd != null) {
+          final canvasPoint = widget.controller.screenToCanvas(
+            event.localPosition,
+          );
+          widget.onDrawEnd!(canvasPoint);
+        }
+        _panVelocity = Offset.zero;
+        // 🧠 Skip ALL remaining cleanup — connection drag finalized above.
+        // Without this, code falls into tap/draw branches that call onDrawEnd
+        // a second time, triggering unwanted keyboard popup.
+        _panIntercepted = false;
+        _shouldEnableDrawing = true;
+        _wasMultiTouch = false;
+        _firstPointerPosition = null;
+        _hasMoved = false;
+        _lastDrawPosition = null;
+        _lastCanvasPosition = null;
+        _lastPressure = 1.0;
+        // Don't execute any other pointer-up logic
+      } else if (_isSingleFingerPanning && _panVelocity.distance > 0) {
         widget.controller.startMomentum(_panVelocity);
         _panVelocity = Offset.zero;
       }

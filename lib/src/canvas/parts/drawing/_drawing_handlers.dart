@@ -599,6 +599,27 @@ extension on _FlueraCanvasScreenState {
           }
         }
       }
+      // 🧠 KNOWLEDGE FLOW: Tap connection with gesture tool → edit label
+      if (_knowledgeFlowController != null && _clusterCache.isNotEmpty) {
+        final scale = _canvasController.scale;
+        final hitConn = _knowledgeFlowController!.hitTestConnection(
+          canvasPosition, _clusterCache, maxDistance: 20.0 / scale,
+        );
+        if (hitConn != null) {
+          final midCanvas = _knowledgeFlowController!.getConnectionMidpoint(
+            hitConn, _clusterCache,
+          );
+          if (midCanvas != null) {
+            final screenPos = _canvasController.canvasToScreen(midCanvas);
+            setState(() {
+              _editingLabelConnectionId = hitConn.id;
+              _labelOverlayScreenPosition = screenPos;
+            });
+            HapticFeedback.selectionClick();
+            return;
+          }
+        }
+      }
       return; // Pan mode, no page hit — let canvas pan handle it
     }
 
@@ -645,10 +666,18 @@ extension on _FlueraCanvasScreenState {
       // Highlighter: 0.0 → Vulkan invisible, Flutter stroke shows.
       // Marker: 0.7 → partial opacity for MSAA blending.
       // Others (incl. fountain pen): 1.0 → fully opaque Vulkan rendering.
-      _vulkanTextureOpacity.value =
+      final brushOpacity =
           _effectivePenType == ProPenType.highlighter ? 0.0
           : _effectivePenType == ProPenType.marker ? 0.7
           : 1.0;
+      _vulkanTextureOpacity.value = brushOpacity;
+
+      // 🚀 DIRECT OVERLAY: Enable CAMetalLayer bypass (iOS only).
+      // Renders strokes directly to display, skipping Impeller compositing.
+      // Highlighter stays on Flutter path (opacity=0.0 hides native overlay).
+      if (brushOpacity > 0.0) {
+        _vulkanStrokeOverlay.enableDirectOverlay(opacity: brushOpacity);
+      }
 
       if (kIsWeb && _webGpuOverlayActive) {
         // 🌐 WEB: Initialize WebGPU pipeline if needed, then clear + transform
@@ -740,6 +769,8 @@ extension on _FlueraCanvasScreenState {
     if (_vulkanOverlayActive) {
       _vulkanTextureOpacity.value = 0.0;
       _vulkanStrokeOverlay.clear();
+      // 🚀 DIRECT OVERLAY: Disable CAMetalLayer bypass on cancel
+      _vulkanStrokeOverlay.disableDirectOverlay();
     }
 
     // 📝 INLINE TEXT CANCEL: If inline text creation was triggered by the
@@ -919,8 +950,17 @@ extension on _FlueraCanvasScreenState {
   void _onImageTransform(double rotationDelta, double scaleRatio, Offset focalDelta) {
     final (updated, didSnap) = _imageTool.updateRotation(rotationDelta, scaleRatio);
     if (updated != null) {
-      // 🖐️ Apply simultaneous drag: convert screen-space delta to canvas-space
-      final canvasDelta = focalDelta / _canvasController.scale;
+      // 🖐️ Apply simultaneous drag: convert screen-space delta to canvas-space.
+      // Must un-rotate by canvas rotation AND divide by scale.
+      final rot = _canvasController.rotation;
+      final scale = _canvasController.scale;
+      final cosR = math.cos(-rot);
+      final sinR = math.sin(-rot);
+      final unrotated = Offset(
+        focalDelta.dx * cosR - focalDelta.dy * sinR,
+        focalDelta.dx * sinR + focalDelta.dy * cosR,
+      );
+      final canvasDelta = unrotated / scale;
       final dragged = updated.copyWith(
         position: updated.position + canvasDelta,
       );

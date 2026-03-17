@@ -930,6 +930,7 @@ extension on _FlueraCanvasScreenState {
     // 🎨 Rebuild background layer with loaded paper type / color
     BackgroundPainter.clearCache();
     _backgroundVersionNotifier.value++;
+    _layerController.notifyListeners(); // 🚀 LAYER MERGE: rebuild DrawingPainter with loaded paperType
 
     // 🎯 Set active layer AFTER loading layers
     final activeLayerIdFromData = data['activeLayerId'] as String?;
@@ -1022,13 +1023,17 @@ extension on _FlueraCanvasScreenState {
       );
     }
 
-    // 🧮 Restore scene nodes (LatexNode, TabularNode, SectionNode) from JSON sidecar
+    // 🧮 Restore scene nodes (LatexNode, TabularNode, SectionNode, PdfPreviewCardNode)
+    // from JSON sidecar.
     // 🚀 FIRST-ENTRY OPT: Defer to post-frame — canvas reveals first,
     // scene nodes appear on the next frame.
     final sceneNodesList = data['sceneNodes'] as List<dynamic>?;
     if (sceneNodesList != null && sceneNodesList.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
+
+        final pdfCardsToRestore = <PdfPreviewCardNode>[];
+
         for (final entry in sceneNodesList) {
           try {
             final map = Map<String, dynamic>.from(entry as Map);
@@ -1041,11 +1046,24 @@ extension on _FlueraCanvasScreenState {
               orElse: () => _layerController.layers.first,
             );
             targetLayer.node.add(restoredNode);
+
+            // 📄 Collect PdfPreviewCardNodes for async provider/thumbnail setup
+            if (restoredNode is PdfPreviewCardNode) {
+              pdfCardsToRestore.add(restoredNode);
+            }
           } catch (e) {}
         }
+
+        // 📄 Restore PDF providers, painters, and thumbnails
+        if (pdfCardsToRestore.isNotEmpty) {
+          await Future.wait(
+            pdfCardsToRestore.map((card) => _restorePdfPreviewCardNode(card)),
+          );
+        }
+
         _layerController.sceneGraph.bumpVersion();
         _layerController.notifyListeners();
-        setState(() {});
+        if (mounted) setState(() {});
       });
     }
   }

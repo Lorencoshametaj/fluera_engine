@@ -123,11 +123,13 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
       _knowledgeFlowController!.remapClusterIds(oldClusters, _clusterCache);
     }
 
-    // 💡 SMART PAUSE: Recompute after user pauses writing (1.5s idle)
-    // Longer than a simple debounce — this detects intentional pauses,
-    // so suggestions appear when the user has ~stopped writing.
+    // 🔇 SUGGESTIONS DISABLED: Manual connections only.
+    // The suggestion engine, ML Kit cluster-level recognition, and
+    // recomputeSuggestions() are disabled to simplify the UX.
+    // Cluster detection and manual drag-to-connect remain active.
     _suggestionDebounceTimer?.cancel();
-    if (_knowledgeFlowController != null && _clusterCache.length >= 2) {
+    // ignore: dead_code
+    if (false && _knowledgeFlowController != null && _clusterCache.length >= 2) {
       _suggestionDebounceTimer = Timer(const Duration(milliseconds: 1500), () async {
         if (!mounted) return;
         final activeLayer = _layerController.layers.firstWhere(

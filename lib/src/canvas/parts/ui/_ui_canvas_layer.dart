@@ -29,15 +29,16 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
       // 🔒 ClipRect prevents canvas from invading the toolbar
       child: Stack(
         children: [
-          // 🚀 STRUCTURAL FIX: Use cached widget hosts — identical() skips
-          // these entire sub-trees on parent setState, eliminating ~90% of
-          // the widget reconstruction cost (700+ widgets × 293 setState calls).
-          _backgroundLayerHost,
-          // 🧠 KNOWLEDGE FLOW: Glassmorphism bubbles + flowing particle arrows
-          if (_knowledgeFlowController != null && _clusterCache.isNotEmpty)
+          // 🚀 LAYER MERGE: Background is now painted inside DrawingPainter
+          // (via inverse transform), eliminating 1 compositing layer.
+          // _backgroundLayerHost removed — see DrawingPainter.paint().
+          _drawingLayerHost,
+          _imageLayerHost,
+          // 🧠 KNOWLEDGE FLOW: Word underlines + connections + label pills
+          // Must be AFTER drawing/image layers so it renders ON TOP of canvas content.
+          if (_knowledgeFlowController != null && (_clusterCache.isNotEmpty || _knowledgeFlowController!.connections.isNotEmpty))
             IgnorePointer(
-              child: RepaintBoundary(
-                child: AnimatedBuilder(
+              child: AnimatedBuilder(
                   animation: _canvasController,
                   builder: (context, _) {
                     final m = Matrix4.identity()
@@ -58,13 +59,14 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                             clusters: _clusterCache,
                             controller: _knowledgeFlowController!,
                             canvasScale: _canvasController.scale,
-                            showSuggestions: _effectiveIsPanMode,
+                            showSuggestions: false,
                             dragSourcePoint: _connectionDragSourcePoint,
                             dragCurrentPoint: _connectionDragCurrentPoint,
                             dragSourceClusterId: _connectionDragSourceClusterId,
                             snapTargetClusterId: _connectionSnapTargetClusterId,
                             animationTime: DateTime.now().millisecondsSinceEpoch % 10000 / 1000.0,
                             clusterTexts: _clusterTextCache,
+                            selectedConnectionId: _editingLabelConnectionId,
                             thumbnails: _thumbnailCache != null
                                 ? {for (final c in _clusterCache) if (_thumbnailCache!.hasThumbnail(c.id)) c.id: _thumbnailCache!.getThumbnail(c.id)!}
                                 : const {},
@@ -75,15 +77,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     );
                   },
                 ),
-              ),
             ),
-          _drawingLayerHost,
-          _imageLayerHost,
           _gestureLayerHost,
           // 🔥 VULKAN: Native GPU stroke overlay
           // 🖍️ Flutter live stroke: ALWAYS in tree, placed BELOW Vulkan texture.
           // For non-highlighter pens, Vulkan (above, at opacity 1.0) covers this.
           // For highlighter, Vulkan opacity = 0.0 → this Flutter stroke shows through.
+          // NOTE: Do NOT conditionally hide — Vulkan may not be ready on first stroke.
           _currentStrokeHost,
           // 🌐 WEB: WebGPU overlay (replaces Texture widget on web)
           if (kIsWeb && _webGpuOverlayActive)
@@ -94,6 +94,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             ValueListenableBuilder<double>(
               valueListenable: _vulkanTextureOpacity,
               builder: (_, opacity, child) {
+                // 🚀 PERF: Skip Texture widget entirely when CAMetalLayer
+                // direct overlay is active — strokes render to native layer.
+                if (_vulkanStrokeOverlay.isDirectOverlayActive) {
+                  return const SizedBox.shrink();
+                }
                 // 🚀 PERF: Skip Opacity widget at 1.0 — avoids potential
                 // compositing layer creation by Impeller.
                 if (opacity == 1.0) return child!;
@@ -112,10 +117,20 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             child: ValueListenableBuilder<int>(
             valueListenable: _uiRebuildNotifier,
             builder:
-                (context, _, __) => Stack(
-                  children: [
-                    // 🖊️ STYLUS HOVER: Cursor preview overlay
-                    const StylusHoverOverlay(),
+                (context, _, __) {
+                  // 🚀 PERF: Determine if we're actively drawing freehand
+                  // (not eraser, not pan). When true, hide non-essential
+                  // overlays to reduce Impeller compositing layer count.
+                  final isActivelyDrawingFreehand =
+                      _isDrawingNotifier.value &&
+                      !_effectiveIsEraser &&
+                      !_effectiveIsPanMode;
+
+                  return Stack(
+                   children: [
+                    // 🖊️ STYLUS HOVER: Hidden during active drawing (finger/pen is down)
+                    if (!isActivelyDrawingFreehand)
+                      const StylusHoverOverlay(),
                     // 📐 SECTION PREVIEW OVERLAY
                     if (_isSectionActive &&
                         _sectionStartPoint != null &&
@@ -196,18 +211,22 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       ),
 
                     // 🗺️ SECTION NAVIGATOR PANEL
-                    if (_isSectionActive) _buildSectionNavigator(),
+                    if (_isSectionActive && !isActivelyDrawingFreehand)
+                      _buildSectionNavigator(),
 
-                    // 📌 RECORDING PINS OVERLAY
-                    if (_recordingPins.isNotEmpty || _isPinPlacementMode)
+                    // 📌 RECORDING PINS OVERLAY — hidden during drawing
+                    if ((_recordingPins.isNotEmpty || _isPinPlacementMode) &&
+                        !isActivelyDrawingFreehand)
                       _buildRecordingPinsOverlay(context),
 
                     // 🎤 SYNCHRONIZED PLAYBACK OVERLAY (Locale)
-                    if (widget.externalPlaybackController != null)
+                    if (widget.externalPlaybackController != null &&
+                        !isActivelyDrawingFreehand)
                       _buildLocalPlaybackOverlay(context),
 
-                    // 🔲 REMOTE VIEWPORT & PRESENCE OVERLAYS
-                    ..._buildRemoteOverlays(context),
+                    // 🔲 REMOTE VIEWPORT & PRESENCE OVERLAYS — hidden during drawing
+                    if (!isActivelyDrawingFreehand)
+                      ..._buildRemoteOverlays(context),
 
                     // 🛠️ STANDARD OVERLAYS (Lasso, Selection, Pen, Ruler, Text)
                     ..._buildStandardOverlays(context),
@@ -315,11 +334,14 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         ),
                     ],
 
-                    // 🎵 Audio Mini-Player (floating bar during audio-only playback)
-                    if (_isPlayingAudio) _buildAudioMiniPlayer(context),
+                    // 🎵 Audio Mini-Player — hidden during drawing
+                    if (_isPlayingAudio && !isActivelyDrawingFreehand)
+                      _buildAudioMiniPlayer(context),
 
-                    // 🎨 Floating Color Disc (Procreate-style compact picker)
-                    if (_isDrawingNotifier.value && !_effectiveIsEraser && !_effectiveIsPanMode)
+                    // 🎨 Floating Color Disc — hidden during active stroke
+                    if (_isDrawingNotifier.value && !_effectiveIsEraser &&
+                        !_effectiveIsPanMode &&
+                        !isActivelyDrawingFreehand)
                       FloatingColorDisc(
                         color: _effectiveSelectedColor,
                         onColorChanged: (c) {
@@ -342,8 +364,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         },
                       ),
                   ],
-                ),
-              ),  // close ValueListenableBuilder
+                );
+              },
+            ),  // close ValueListenableBuilder
           ),  // close Positioned.fill
         ],
       ),
@@ -667,6 +690,41 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       }
                       // 🧠 KNOWLEDGE FLOW: Cluster drag → route to draw callbacks
                       if (_isConnectionDragging) return true;
+
+                      // 🔥 FIX: Tapping empty space in pan mode must deselect
+                      // the image. _onDrawStart is never called here because
+                      // we return false (canvas pan), so the deselect logic
+                      // there is unreachable.
+                      if (_imageTool.selectedImage != null) {
+                        setState(() {
+                          _imageTool.clearSelection();
+                        });
+                        _gestureRebuildNotifier.value++;
+                        _imageRepaintNotifier.value++;
+                        _uiRebuildNotifier.value++;
+                      }
+                      // 🧠 KNOWLEDGE FLOW: Tap connection → open label editor
+                      if (_knowledgeFlowController != null &&
+                          _clusterCache.isNotEmpty) {
+                        final scale = _canvasController.scale;
+                        final hitConn = _knowledgeFlowController!.hitTestConnection(
+                          canvasPos, _clusterCache, maxDistance: 20.0 / scale,
+                        );
+                        if (hitConn != null) {
+                          final midCanvas = _knowledgeFlowController!.getConnectionMidpoint(
+                            hitConn, _clusterCache,
+                          );
+                          if (midCanvas != null) {
+                            final screenPos = _canvasController.canvasToScreen(midCanvas);
+                            setState(() {
+                              _editingLabelConnectionId = hitConn.id;
+                              _labelOverlayScreenPosition = screenPos;
+                            });
+                            HapticFeedback.selectionClick();
+                            return true;
+                          }
+                        }
+                      }
                       return false;
                     }
                     : null,

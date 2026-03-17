@@ -1687,7 +1687,9 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
             initialText: _knowledgeFlowController?.connections
                 .where((c) => c.id == _editingLabelConnectionId)
                 .firstOrNull?.label ?? '',
-            accentColor: const Color(0xFF64B5F6),
+            accentColor: _knowledgeFlowController?.connections
+                .where((c) => c.id == _editingLabelConnectionId)
+                .firstOrNull?.color ?? const Color(0xFF64B5F6),
             onSubmit: (label) {
               final conn = _knowledgeFlowController?.connections
                   .where((c) => c.id == _editingLabelConnectionId)
@@ -1718,6 +1720,16 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                 _editingLabelConnectionId = null;
                 _labelOverlayScreenPosition = null;
               });
+            },
+            onColorChanged: (color) {
+              final conn = _knowledgeFlowController?.connections
+                  .where((c) => c.id == _editingLabelConnectionId)
+                  .firstOrNull;
+              if (conn != null) {
+                conn.color = color;
+                _knowledgeFlowController!.version.value++;
+                _autoSaveCanvas();
+              }
             },
           ),
         ),

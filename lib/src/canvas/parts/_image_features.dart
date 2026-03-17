@@ -583,16 +583,22 @@ extension on _FlueraCanvasScreenState {
         reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
     ).then((_) {
-      // Zoom out the canvas when returning so the image doesn't immediately
-      // fill the viewport and re-trigger entry.
-      final vp = MediaQuery.sizeOf(context);
+      // Animate back to show the image centered at a safe zoom level.
+      // Must account for canvas widget offset (toolbar/status bar) —
+      // canvasToScreen returns coords relative to canvas widget, not screen.
+      final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
+          ?.findRenderObject() as RenderBox?;
+      final canvasSize = canvasRenderBox?.size ?? MediaQuery.sizeOf(context);
+      // Center of the canvas widget area (not full screen)
+      final canvasCenter = Offset(canvasSize.width / 2, canvasSize.height / 2);
       final imageCenter = imageElement.position;
-      // Zoom out to 0.5× so the user can see the full canvas context
-      final targetScale = 0.5;
+      // Scale 0.8× keeps image visible but below the 65% re-trigger threshold
+      final targetScale = 0.8;
       final targetOffset = Offset(
-        vp.width / 2 - imageCenter.dx * targetScale,
-        vp.height / 2 - imageCenter.dy * targetScale,
+        canvasCenter.dx - imageCenter.dx * targetScale,
+        canvasCenter.dy - imageCenter.dy * targetScale,
       );
+      _canvasController.stopAnimation();
       _canvasController.setScale(targetScale);
       _canvasController.setOffset(targetOffset);
       // Cooldown before re-entry is allowed — 2s to let user pan away

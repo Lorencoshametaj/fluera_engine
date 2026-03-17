@@ -57,6 +57,11 @@ class MetalStrokeRenderer {
     private var textureCache: CVMetalTextureCache?
     private var cvMetalTexture: CVMetalTexture?
     
+    // ─── 🚀 CAMetalLayer Direct Rendering ────────────────────
+    var directMetalLayer: CAMetalLayer?           // Direct output (bypasses Flutter TextureRegistry)
+    private var directMsaaTexture: MTLTexture?    // MSAA texture sized for CAMetalLayer
+    private(set) var isDirectMode: Bool = false    // Active when rendering to CAMetalLayer
+    
     // ─── Vertex Buffer ──────────────────────────────────────────
     private static let maxVertices = 524288       // 512K vertices (~12MB)
     private var vertexBuffer: MTLBuffer?
@@ -440,6 +445,12 @@ class MetalStrokeRenderer {
     }
     
     private func renderFrame(vertexCount: Int) {
+        // 🚀 Direct CAMetalLayer path — bypass CVPixelBuffer entirely
+        if isDirectMode, let metalLayer = directMetalLayer {
+            renderFrameDirectToLayer(vertexCount: vertexCount, metalLayer: metalLayer)
+            return
+        }
+        
         guard let msaaTex = msaaTexture,
               let resolveTex = renderTexture,
               let cmdBuffer = commandQueue.makeCommandBuffer() else { return }
@@ -483,8 +494,111 @@ class MetalStrokeRenderer {
         cmdBuffer.commit()
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // 🚀 DIRECT CAMetalLayer RENDERING (bypasses Flutter compositor)
+    // ═══════════════════════════════════════════════════════════════
+    
+    /// Render directly to a CAMetalLayer drawable.
+    /// This path skips CVPixelBuffer + Flutter TextureRegistry entirely,
+    /// presenting frames directly to the display via Core Animation.
+    private func renderFrameDirectToLayer(vertexCount: Int, metalLayer: CAMetalLayer) {
+        guard let drawable = metalLayer.nextDrawable(),
+              let cmdBuffer = commandQueue.makeCommandBuffer() else { return }
+        
+        // Ensure MSAA texture matches drawable size
+        let drawableSize = metalLayer.drawableSize
+        let dw = Int(drawableSize.width)
+        let dh = Int(drawableSize.height)
+        if directMsaaTexture == nil ||
+           directMsaaTexture!.width != dw ||
+           directMsaaTexture!.height != dh {
+            directMsaaTexture = createMsaaTexture(width: dw, height: dh)
+        }
+        
+        guard let msaaTex = directMsaaTexture else {
+            return
+        }
+        
+        // 🚀 Triple-buffered: wait for a slot
+        inFlightSemaphore.wait()
+        
+        // Stats
+        statsActive = true
+        totalFrames += 1
+        let frameStart = CACurrentMediaTime()
+        
+        let rpd = MTLRenderPassDescriptor()
+        rpd.colorAttachments[0].texture = msaaTex
+        rpd.colorAttachments[0].resolveTexture = drawable.texture  // 🚀 Resolve directly to drawable!
+        rpd.colorAttachments[0].loadAction = .clear
+        rpd.colorAttachments[0].storeAction = .multisampleResolve
+        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        
+        guard let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) else {
+            inFlightSemaphore.signal()
+            return
+        }
+        
+        encoder.setRenderPipelineState(pipelineState)
+        encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
+        encoder.setVertexBuffer(uniformBuffer, offset: 0, index: 1)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        encoder.endEncoding()
+        
+        // 🚀 Present drawable immediately (async — minimum latency)
+        cmdBuffer.present(drawable)
+        
+        // 🚀 Async: signal semaphore + stats in completion handler
+        cmdBuffer.addCompletedHandler { [weak self] _ in
+            guard let self = self else { return }
+            let frameTimeUs = Float((CACurrentMediaTime() - frameStart) * 1_000_000)
+            self.frameTimes.append(frameTimeUs)
+            if self.frameTimes.count > MetalStrokeRenderer.statsMaxSamples {
+                self.frameTimes.removeFirst()
+            }
+            self.inFlightSemaphore.signal()
+        }
+        cmdBuffer.commit()
+    }
+    
+    /// Create a standalone MSAA texture (for direct rendering, independent of CVPixelBuffer).
+    private func createMsaaTexture(width: Int, height: Int) -> MTLTexture? {
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: width, height: height,
+            mipmapped: false
+        )
+        desc.textureType = .type2DMultisample
+        desc.sampleCount = msaaSampleCount
+        desc.storageMode = .memoryless  // GPU-only, no readback needed
+        desc.usage = .renderTarget
+        return device.makeTexture(descriptor: desc)
+    }
+    
+    /// Enable direct CAMetalLayer rendering mode.
+    func enableDirectMode(metalLayer: CAMetalLayer) {
+        self.directMetalLayer = metalLayer
+        self.isDirectMode = true
+        NSLog("[FlueraMtl] 🚀 Direct CAMetalLayer rendering ENABLED")
+    }
+    
+    /// Disable direct rendering, fall back to CVPixelBuffer path.
+    func disableDirectMode() {
+        self.isDirectMode = false
+        self.directMetalLayer = nil
+        self.directMsaaTexture = nil
+        NSLog("[FlueraMtl] 🚀 Direct rendering DISABLED, back to CVPixelBuffer")
+    }
+    
     /// 🚀 Render using compute output buffer directly (no CPU vertex upload)
     private func renderFrameFromComputeBuffer(cmdBuffer: MTLCommandBuffer, vertBuf: MTLBuffer, vertexCount: Int) {
+        // 🚀 Direct CAMetalLayer path for compute output
+        if isDirectMode, let metalLayer = directMetalLayer {
+            renderFrameFromComputeBufferDirect(cmdBuffer: cmdBuffer, vertBuf: vertBuf,
+                                               vertexCount: vertexCount, metalLayer: metalLayer)
+            return
+        }
+        
         guard let msaaTex = msaaTexture,
               let resolveTex = renderTexture else { return }
         
@@ -515,6 +629,67 @@ class MetalStrokeRenderer {
         encoder.endEncoding()
         
         // 🚀 Async: signal semaphore + stats in completion handler
+        cmdBuffer.addCompletedHandler { [weak self] _ in
+            guard let self = self else { return }
+            let frameTimeUs = Float((CACurrentMediaTime() - frameStart) * 1_000_000)
+            self.frameTimes.append(frameTimeUs)
+            if self.frameTimes.count > MetalStrokeRenderer.statsMaxSamples {
+                self.frameTimes.removeFirst()
+            }
+            self.inFlightSemaphore.signal()
+        }
+        cmdBuffer.commit()
+    }
+    
+    /// 🚀 Render compute output buffer directly to CAMetalLayer drawable
+    private func renderFrameFromComputeBufferDirect(cmdBuffer: MTLCommandBuffer, vertBuf: MTLBuffer,
+                                                     vertexCount: Int, metalLayer: CAMetalLayer) {
+        guard let drawable = metalLayer.nextDrawable() else {
+            cmdBuffer.commit() // Still commit compute work
+            return
+        }
+        
+        let drawableSize = metalLayer.drawableSize
+        let dw = Int(drawableSize.width)
+        let dh = Int(drawableSize.height)
+        if directMsaaTexture == nil ||
+           directMsaaTexture!.width != dw ||
+           directMsaaTexture!.height != dh {
+            directMsaaTexture = createMsaaTexture(width: dw, height: dh)
+        }
+        
+        guard let msaaTex = directMsaaTexture else {
+            cmdBuffer.commit()
+            return
+        }
+        
+        // 🚀 Triple-buffered
+        inFlightSemaphore.wait()
+        
+        statsActive = true
+        totalFrames += 1
+        let frameStart = CACurrentMediaTime()
+        
+        let rpd = MTLRenderPassDescriptor()
+        rpd.colorAttachments[0].texture = msaaTex
+        rpd.colorAttachments[0].resolveTexture = drawable.texture
+        rpd.colorAttachments[0].loadAction = .clear
+        rpd.colorAttachments[0].storeAction = .multisampleResolve
+        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        
+        guard let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) else {
+            inFlightSemaphore.signal()
+            return
+        }
+        
+        encoder.setRenderPipelineState(pipelineState)
+        encoder.setVertexBuffer(vertBuf, offset: 0, index: 0)
+        encoder.setVertexBuffer(uniformBuffer, offset: 0, index: 1)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        encoder.endEncoding()
+        
+        cmdBuffer.present(drawable)
+        
         cmdBuffer.addCompletedHandler { [weak self] _ in
             guard let self = self else { return }
             let frameTimeUs = Float((CACurrentMediaTime() - frameStart) * 1_000_000)

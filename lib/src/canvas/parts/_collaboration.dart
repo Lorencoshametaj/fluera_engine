@@ -466,6 +466,7 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       // 🎨 Refresh background layer with new remote settings
       BackgroundPainter.clearCache();
       _backgroundVersionNotifier.value++;
+      _layerController.notifyListeners(); // 🚀 LAYER MERGE: rebuild DrawingPainter
     } catch (e) {
     }
   }

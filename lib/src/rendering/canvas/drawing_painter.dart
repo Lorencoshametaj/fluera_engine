@@ -21,6 +21,7 @@ import '../optimization/stroke_offset_index.dart';
 import '../optimization/pdf_page_stub_manager.dart';
 
 import '../optimization/stroke_cache_manager.dart';
+import './background_painter.dart';
 import '../../core/models/canvas_layer.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 import '../../core/scene_graph/scene_graph.dart';
@@ -134,6 +135,22 @@ class DrawingPainter extends CustomPainter {
   static ui.Picture? _lodSnapshotPicture;
   static double _lodCrossFadeProgress = 0.0; // 0.0 = snapshot, 1.0 = new cache
   static final ValueNotifier<int> _lodRepaintNotifier = ValueNotifier<int>(0);
+
+  /// 🚀 LAYER MERGE: Cached merged listenable to avoid allocating a new
+  /// Listenable.merge on every DrawingPainter construction.
+  static Listenable? _cachedMergedRepaint;
+  static Listenable? _cachedMergedController;
+
+  static Listenable _getRepaintListenable(Listenable? controller) {
+    if (controller == null) return _lodRepaintNotifier;
+    // Reuse cached merge if the controller hasn't changed
+    if (_cachedMergedController == controller && _cachedMergedRepaint != null) {
+      return _cachedMergedRepaint!;
+    }
+    _cachedMergedController = controller;
+    _cachedMergedRepaint = Listenable.merge([_lodRepaintNotifier, controller]);
+    return _cachedMergedRepaint!;
+  }
 
   /// 🚀 LOD GRACE PERIOD: delays transition until zoom tier is stable for
   /// 2 consecutive frames. Prevents 20ms spike during rapid zoom.
@@ -348,8 +365,10 @@ class DrawingPainter extends CustomPainter {
     this.isActivelyDrawing = false, // 🚀 suppress repaint during live drawing
   }) : _sceneGraphVersion = sceneGraph.version,
        super(
-         repaint: _lodRepaintNotifier,
-       ); // 🚀 Progressive LOD repaint trigger
+         // 🚀 LAYER MERGE: cached repaint trigger — avoids allocating
+         // a new Listenable.merge on every painter construction.
+         repaint: _getRepaintListenable(controller),
+       );
   // Flutter's raster cache persists across transform changes = 0ms raster
 
   /// 🌲 Effective strokes: materialized from the scene graph tree.
@@ -560,6 +579,36 @@ class DrawingPainter extends CustomPainter {
 
     final _t0 = _sw.elapsedMicroseconds;
 
+    // 🚀 LAYER MERGE: Paint background before strokes.
+    // Undo the widget-level transform to draw in viewport space,
+    // then restore for canvas-space stroke rendering.
+    if (paperType != null && backgroundColor != null && controller != null) {
+      final s = controller!.scale;
+      final ox = controller!.offset.dx;
+      final oy = controller!.offset.dy;
+      final rot = controller!.rotation;
+
+      canvas.save();
+      // Undo widget transform: inverse of [translate(ox,oy) → rotate(r) → scale(s)]
+      canvas.scale(1.0 / s, 1.0 / s);
+      if (rot != 0.0) canvas.rotate(-rot);
+      canvas.translate(-ox, -oy);
+
+      // Viewport rect: size is the actual widget allocation (viewport dimensions)
+      final vpRect = Rect.fromLTWH(0, 0, size.width, size.height);
+
+      // Solid background fill
+      canvas.drawRect(vpRect, Paint()..color = backgroundColor!);
+
+      // Pattern tiles
+      if (paperType != 'blank') {
+        BackgroundPainter.paintTilesStatic(
+          canvas, size, paperType!, backgroundColor!, controller!);
+      }
+
+      canvas.restore();
+    }
+
     // ✂️ Applica clipping se abilitato (per editing immagini)
     if (enableClipping) {
       canvas.clipRect(Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height));
@@ -655,6 +704,9 @@ class DrawingPainter extends CustomPainter {
     final pdfViewport = viewport.inflate(viewport.longestSide * 2.0);
     _paintPdfDocuments(canvas, pdfViewport);
     _lastRenderedPdfViewport = pdfViewport;
+
+    // 📄 Draw PDF preview cards (single-page thumbnails)
+    _paintPdfPreviewCards(canvas, pdfViewport);
 
     final _t2 = _sw.elapsedMicroseconds;
 
@@ -1869,6 +1921,26 @@ class DrawingPainter extends CustomPainter {
     }
   }
 
+  /// 📄 Paint all [PdfPreviewCardNode]s in the scene graph.
+  ///
+  /// Walks all visible layers, finds PdfPreviewCardNodes, and delegates
+  /// rendering to [SceneGraphRenderer._renderPdfPreviewCard] via the visitor.
+  void _paintPdfPreviewCards(Canvas canvas, Rect viewport) {
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      for (final child in layer.children) {
+        if (child is PdfPreviewCardNode && child.isVisible) {
+          // Viewport culling: skip cards outside the inflated viewport
+          final worldBounds = child.worldBounds;
+          if (!viewport.overlaps(worldBounds)) continue;
+
+          // renderNode applies localTransform, effects, and compositing
+          _delegateRenderer.renderNode(canvas, child, viewport);
+        }
+      }
+    }
+  }
+
   /// Paint a single PDF page with professional styling.
   ///
   /// Features: drop shadow, white background, LOD-aware content via
@@ -2460,7 +2532,10 @@ class DrawingPainter extends CustomPainter {
         oldDelegate.currentShape != currentShape ||
         oldDelegate.layers != layers ||
         oldDelegate.eraserPreviewIds != eraserPreviewIds ||
-        oldDelegate.pdfLayoutVersion != pdfLayoutVersion) {
+        oldDelegate.pdfLayoutVersion != pdfLayoutVersion ||
+        // 🚀 LAYER MERGE: background now drawn inside this painter
+        oldDelegate.paperType != paperType ||
+        oldDelegate.backgroundColor != backgroundColor) {
       return true;
     }
 

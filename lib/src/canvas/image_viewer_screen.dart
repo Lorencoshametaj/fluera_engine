@@ -135,7 +135,6 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _computeFittedDimensions();
         _startChromeHideTimer();
         // 🚀 PERF: Defer heavy pixel work (toByteData GPU→CPU readback)
         // to after the viewer is fully visible.
@@ -146,6 +145,14 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
         });
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Compute fitted dimensions immediately so strokes render correctly
+    // on the very first frame (was in addPostFrameCallback, causing 1-frame delay).
+    _computeFittedDimensions();
   }
 
   @override

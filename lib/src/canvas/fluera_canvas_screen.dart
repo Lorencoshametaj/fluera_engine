@@ -1510,7 +1510,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       } else if (scale >= 0.5 &&
           _knowledgeParticleTicker != null &&
           _knowledgeParticleTicker!.isActive) {
-        _knowledgeParticleTicker!.stop();
+        // Don't stop ticker if birth/dissolve animations are still running
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final hasActiveAnimation = _knowledgeFlowController?.connections.any(
+          (c) => (c.createdAtMs > 0 && nowMs - c.createdAtMs < 2000) ||
+                 c.deletedAtMs > 0,
+        ) ?? false;
+        if (!hasActiveAnimation) {
+          _knowledgeParticleTicker!.stop();
+        }
       }
     };
 

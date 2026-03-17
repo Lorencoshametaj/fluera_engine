@@ -32,6 +32,7 @@ import 'fluera_storage_adapter.dart';
 import 'canvas_creation_options.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
+import '../core/nodes/pdf_preview_card_node.dart';
 import '../core/nodes/latex_node.dart';
 import '../core/nodes/tabular_node.dart';
 import '../core/nodes/section_node.dart';
@@ -389,8 +390,9 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     final pdfJson =
         pdfDocumentsJson.isNotEmpty ? jsonEncode(pdfDocumentsJson) : null;
 
-    // 💾 Extract LatexNode, TabularNode, and SectionNode from layers
-    // (binary format doesn't support them — stored as JSON sidecar).
+    // 💾 Extract scene graph nodes not supported by binary format
+    // (LatexNode, TabularNode, SectionNode, PdfPreviewCardNode)
+    // — stored as JSON sidecar in scene_nodes_json column.
     final sceneNodesJson = <Map<String, dynamic>>[];
     for (final layer in layers) {
       for (final child in layer.node.children) {
@@ -399,6 +401,8 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         } else if (child is TabularNode) {
           sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
         } else if (child is SectionNode) {
+          sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
+        } else if (child is PdfPreviewCardNode) {
           sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
         }
       }

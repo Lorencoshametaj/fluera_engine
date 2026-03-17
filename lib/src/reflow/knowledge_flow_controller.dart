@@ -191,7 +191,8 @@ class KnowledgeFlowController {
       sourceClusterId: sourceClusterId,
       targetClusterId: targetClusterId,
       label: label,
-      color: color ?? const Color(0xFF64B5F6),
+      color: color ?? KnowledgeConnection.mindMapPalette[
+          _connections.length % KnowledgeConnection.mindMapPalette.length],
     );
 
     _connections.add(connection);
@@ -199,10 +200,19 @@ class KnowledgeFlowController {
     return connection;
   }
 
-  /// Remove a connection by ID.
+  /// Soft-delete a connection by ID (starts dissolve animation).
+  /// The connection remains in the list with deletedAtMs set.
+  /// Actual removal happens via [cleanupDyingConnections] after animation.
   bool removeConnection(String connectionId) {
-    final removed = _connections.removeWhere((c) => c.id == connectionId);
+    final conn = _connections.where((c) => c.id == connectionId).firstOrNull;
+    if (conn == null) return false;
+    conn.deletedAtMs = DateTime.now().millisecondsSinceEpoch;
     version.value++;
+    // Schedule actual cleanup after dissolve animation (500ms)
+    Future.delayed(const Duration(milliseconds: 550), () {
+      _connections.removeWhere((c) => c.id == connectionId);
+      version.value++;
+    });
     return true;
   }
 
@@ -312,7 +322,8 @@ class KnowledgeFlowController {
         label: conn.label,
         color: conn.color,
         curveStrength: conn.curveStrength,
-      ));
+        createdAt: conn.createdAtMs, // 🔧 Preserve original timestamp!
+      )..deletedAtMs = conn.deletedAtMs);
     }
 
     _connections
@@ -325,17 +336,21 @@ class KnowledgeFlowController {
   // Hit Testing (for delete gesture)
   // ===========================================================================
 
-  /// Find the closest connection to a canvas point (for tap-to-delete).
+  /// Find the closest connection to a canvas point.
   ///
   /// Samples points along each connection's Bézier curve and returns
   /// the connection whose curve passes closest to [canvasPoint],
-  /// within [maxDistance] pixels.
+  /// within [maxDistance] canvas-space pixels.
+  /// Uses 4-way smart anchoring (matches painter).
   KnowledgeConnection? hitTestConnection(
     Offset canvasPoint,
     List<ContentCluster> clusters, {
-    double maxDistance = 30.0,
+    double maxDistance = 20.0,
   }) {
     if (_connections.isEmpty) return null;
+
+    // Clamp to prevent absurdly large or tiny hit zones at extreme zoom
+    final effectiveMaxDist = maxDistance.clamp(8.0, 40.0);
 
     final cMap = <String, ContentCluster>{};
     for (final c in clusters) {
@@ -343,18 +358,38 @@ class KnowledgeFlowController {
     }
 
     KnowledgeConnection? closest;
-    double closestDist = maxDistance;
+    double closestDist = effectiveMaxDist;
 
     for (final conn in _connections) {
+      if (conn.deletedAtMs > 0) continue;
       final src = cMap[conn.sourceClusterId];
       final tgt = cMap[conn.targetClusterId];
       if (src == null || tgt == null) continue;
 
-      final srcPt = src.centroid;
-      final tgtPt = tgt.centroid;
+      // 4-WAY smart anchor (matches painter)
+      final adx = (tgt.centroid.dx - src.centroid.dx).abs();
+      final ady = (tgt.centroid.dy - src.centroid.dy).abs();
+      final Offset srcPt;
+      final Offset tgtPt;
+      if (adx > ady * 1.5) {
+        if (tgt.centroid.dx > src.centroid.dx) {
+          srcPt = Offset(src.bounds.right + 4, src.bounds.center.dy);
+          tgtPt = Offset(tgt.bounds.left - 4, tgt.bounds.center.dy);
+        } else {
+          srcPt = Offset(src.bounds.left - 4, src.bounds.center.dy);
+          tgtPt = Offset(tgt.bounds.right + 4, tgt.bounds.center.dy);
+        }
+      } else {
+        if (tgt.centroid.dy < src.centroid.dy) {
+          srcPt = Offset(src.bounds.center.dx, src.bounds.top - 4);
+          tgtPt = Offset(tgt.bounds.center.dx, tgt.bounds.bottom + 4);
+        } else {
+          srcPt = Offset(src.bounds.center.dx, src.bounds.bottom + 4);
+          tgtPt = Offset(tgt.bounds.center.dx, tgt.bounds.top - 4);
+        }
+      }
       final cp = getControlPoint(srcPt, tgtPt, conn.curveStrength);
 
-      // Sample 20 points along the curve
       for (int i = 0; i <= 20; i++) {
         final t = i / 20.0;
         final pt = pointOnQuadBezier(srcPt, cp, tgtPt, t);
@@ -367,6 +402,42 @@ class KnowledgeFlowController {
     }
 
     return closest;
+  }
+
+  /// Get the midpoint of a connection's curve (for label overlay positioning).
+  Offset? getConnectionMidpoint(
+    KnowledgeConnection conn,
+    List<ContentCluster> clusters,
+  ) {
+    final cMap = <String, ContentCluster>{};
+    for (final c in clusters) cMap[c.id] = c;
+    final src = cMap[conn.sourceClusterId];
+    final tgt = cMap[conn.targetClusterId];
+    if (src == null || tgt == null) return null;
+
+    final adx = (tgt.centroid.dx - src.centroid.dx).abs();
+    final ady = (tgt.centroid.dy - src.centroid.dy).abs();
+    final Offset srcPt;
+    final Offset tgtPt;
+    if (adx > ady * 1.5) {
+      if (tgt.centroid.dx > src.centroid.dx) {
+        srcPt = Offset(src.bounds.right + 4, src.bounds.center.dy);
+        tgtPt = Offset(tgt.bounds.left - 4, tgt.bounds.center.dy);
+      } else {
+        srcPt = Offset(src.bounds.left - 4, src.bounds.center.dy);
+        tgtPt = Offset(tgt.bounds.right + 4, tgt.bounds.center.dy);
+      }
+    } else {
+      if (tgt.centroid.dy < src.centroid.dy) {
+        srcPt = Offset(src.bounds.center.dx, src.bounds.top - 4);
+        tgtPt = Offset(tgt.bounds.center.dx, tgt.bounds.bottom + 4);
+      } else {
+        srcPt = Offset(src.bounds.center.dx, src.bounds.bottom + 4);
+        tgtPt = Offset(tgt.bounds.center.dx, tgt.bounds.top - 4);
+      }
+    }
+    final cp = getControlPoint(srcPt, tgtPt, conn.curveStrength);
+    return pointOnQuadBezier(srcPt, cp, tgtPt, 0.5);
   }
 
   // ===========================================================================
@@ -505,7 +576,17 @@ class KnowledgeFlowController {
       if (cluster.id == excludeClusterId) continue;
       if (cluster.elementCount < 1) continue;
 
-      final dist = (cluster.centroid - canvasPoint).distance;
+      // Use bounds-based distance: 0 if inside bounds, nearest-edge distance otherwise
+      final inflated = cluster.bounds.inflate(10.0); // Small padding for easier tapping
+      double dist;
+      if (inflated.contains(canvasPoint)) {
+        dist = 0.0; // Inside bounds = perfect hit
+      } else {
+        // Distance to nearest edge of bounds
+        final dx = (canvasPoint.dx - canvasPoint.dx.clamp(inflated.left, inflated.right)).abs();
+        final dy = (canvasPoint.dy - canvasPoint.dy.clamp(inflated.top, inflated.bottom)).abs();
+        dist = math.sqrt(dx * dx + dy * dy);
+      }
       if (dist < nearestDist) {
         nearestDist = dist;
         nearest = cluster;

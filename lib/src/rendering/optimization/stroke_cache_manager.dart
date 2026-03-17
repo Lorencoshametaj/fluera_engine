@@ -30,7 +30,7 @@ class StrokeCacheManager {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Maximum number of undo snapshots to keep
-  static const int maxUndoSnapshots = 20;
+  static const int maxUndoSnapshots = 10;
 
   /// Ring buffer: stroke count → cached Picture
   /// LinkedHashMap for insertion-order iteration (LRU eviction)

@@ -19,6 +19,7 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
     private var textureId: Int64 = -1
     private var renderer: MetalStrokeRenderer?
     private var channel: FlutterMethodChannel?
+    private var overlayView: MetalStrokeOverlayView?
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
@@ -197,8 +198,75 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
                 result(nil)
             }
             
+        case "enableDirectOverlay":
+            let opacity = (call.arguments as? [String: Any])?["opacity"] as? Double ?? 1.0
+            enableDirectOverlay(opacity: Float(opacity))
+            result(true)
+            
+        case "disableDirectOverlay":
+            disableDirectOverlay()
+            result(true)
+            
         default:
             result(FlutterMethodNotImplemented)
+        }
+    }
+    
+    // ─── Direct CAMetalLayer overlay management ──────────────
+    
+    private func enableDirectOverlay(opacity: Float) {
+        guard let renderer = renderer else { return }
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Find Flutter view
+            guard let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }),
+                  let rootVC = window.rootViewController else {
+                NSLog("[FlueraMtl] ⚠️ Cannot find root view for overlay")
+                return
+            }
+            
+            // Find FlutterViewController
+            var flutterView: UIView? = rootVC.view
+            var vc: UIViewController? = rootVC
+            while let current = vc {
+                if current is FlutterViewController {
+                    flutterView = current.view
+                    break
+                }
+                vc = current.presentedViewController ?? current.children.first
+            }
+            
+            guard let parentView = flutterView else {
+                NSLog("[FlueraMtl] ⚠️ Cannot find Flutter view")
+                return
+            }
+            
+            if self.overlayView == nil {
+                // Create overlay view
+                guard let device = MTLCreateSystemDefaultDevice() else { return }
+                let overlay = MetalStrokeOverlayView(device: device, frame: parentView.bounds)
+                parentView.addSubview(overlay)
+                self.overlayView = overlay
+                NSLog("[FlueraMtl] 🚀 Overlay view created and added to Flutter view")
+            }
+            
+            // Activate
+            self.overlayView?.show(opacity: opacity)
+            renderer.enableDirectMode(metalLayer: self.overlayView!.metalLayer)
+            
+            // Update global ref for FFI
+            flueraDirectModeActive = true
+        }
+    }
+    
+    private func disableDirectOverlay() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.overlayView?.hide()
+            self.renderer?.disableDirectMode()
+            flueraDirectModeActive = false
         }
     }
     
@@ -208,6 +276,10 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
         }
         textureId = -1
         renderer = nil
+        // Clean up overlay
+        overlayView?.removeFromSuperview()
+        overlayView = nil
+        flueraDirectModeActive = false
     }
 }
 
@@ -222,6 +294,7 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
 var flueraMetalRenderer: MetalStrokeRenderer?
 var flueraTextureRegistry: FlutterTextureRegistry?
 var flueraTextureId: Int64 = -1
+var flueraDirectModeActive: Bool = false
 
 @_cdecl("fluera_stroke_execute")
 public func flueraStrokeExecute(_ buf: UnsafeMutablePointer<Float>) {
@@ -283,7 +356,7 @@ public func flueraStrokeExecute(_ buf: UnsafeMutablePointer<Float>) {
             fountainTaperEntry: Int(buf[17])
         )
 
-        if flueraTextureId >= 0 {
+        if flueraTextureId >= 0 && !flueraDirectModeActive {
             flueraTextureRegistry?.textureFrameAvailable(flueraTextureId)
         }
     }

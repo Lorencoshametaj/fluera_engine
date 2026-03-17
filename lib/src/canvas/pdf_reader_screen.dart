@@ -97,8 +97,25 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   List<ProDrawingPoint>? _livePoints;
   int? _livePageIndex;
 
+  /// 🚀 Screen-space points for Vulkan GPU rendering.
+  /// Tracked separately because the InteractiveViewer's transform makes
+  /// converting PDF-page coords back to screen coords unreliable.
+  final List<ProDrawingPoint> _liveScreenPoints = [];
+
+  /// Active pointer ID for drawing — only one finger draws at a time.
+  /// Second finger is left for InteractiveViewer (pan/zoom).
+  int? _activePointerId;
+
+  /// Number of active pointers touching the screen.
+  int _activePointerCount = 0;
+
   /// Committed strokes per page (in PDF-page coordinate space).
   final Map<int, List<ProStroke>> _pageStrokes = {};
+
+  /// 🚀 PERF: Repaint notifier for annotation overlay — avoids full setState
+  /// during live drawing. Only the CustomPaint widget listening to this
+  /// notifier repaints, not the entire page list.
+  final ValueNotifier<int> _annotationRepaint = ValueNotifier<int>(0);
 
   // ---------------------------------------------------------------------------
   // Vulkan live stroke overlay
@@ -198,6 +215,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     _vulkanOverlay.dispose();
     _zoomAnimController?.dispose();
     _zoomController.dispose();
+    _annotationRepaint.dispose();
     for (final img in _pageImages) {
       img?.dispose();
     }
@@ -320,6 +338,26 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   void _onPointerDown(PointerDownEvent event, int pageIndex, Size pageDisplaySize) {
     if (!_isDrawingMode) return;
 
+    _activePointerCount++;
+
+    // If a second finger touches, cancel the live stroke and let
+    // InteractiveViewer handle the 2-finger pan/zoom gesture.
+    if (_activePointerCount > 1) {
+      if (_livePoints != null) {
+        setState(() {
+          _livePoints = null;
+          _livePageIndex = null;
+          _activePointerId = null;
+        });
+        _liveScreenPoints.clear();
+        if (_vulkanActive) _vulkanOverlay.clear();
+      }
+      return;
+    }
+
+    // Only the first finger draws
+    _activePointerId = event.pointer;
+
     final page = widget.documentModel.pages[pageIndex];
     // Transform screen position to PDF-page coordinates
     final scaleX = page.originalSize.width / pageDisplaySize.width;
@@ -346,10 +384,21 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
         ),
       ];
     });
+
+    // Track screen-space position for Vulkan (global coords)
+    _liveScreenPoints.clear();
+    _liveScreenPoints.add(ProDrawingPoint(
+      position: event.position, // Global screen coords
+      pressure: event.pressure > 0 ? event.pressure : 0.5,
+      tiltX: event.tilt,
+      timestamp: event.timeStamp.inMilliseconds,
+    ));
   }
 
   void _onPointerMove(PointerMoveEvent event, int pageIndex, Size pageDisplaySize) {
     if (!_isDrawingMode) return;
+    // Only track the drawing pointer — ignore 2nd finger moves
+    if (event.pointer != _activePointerId) return;
 
     final page = widget.documentModel.pages[pageIndex];
     final scaleX = page.originalSize.width / pageDisplaySize.width;
@@ -373,25 +422,18 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
         timestamp: event.timeStamp.inMilliseconds,
       ));
 
+      // Track screen-space position for Vulkan
+      _liveScreenPoints.add(ProDrawingPoint(
+        position: event.position, // Global screen coords — no transform needed
+        pressure: event.pressure > 0 ? event.pressure : 0.5,
+        tiltX: event.tilt,
+        timestamp: event.timeStamp.inMilliseconds,
+      ));
+
       // Forward to Vulkan GPU for real-time rendering.
-      // Use global screen coordinates (event.position) since the Vulkan
-      // SurfaceTexture spans the entire screen.
-      if (_vulkanActive && _livePoints!.length >= 2) {
+      if (_vulkanActive && _liveScreenPoints.length >= 2) {
         _vulkanOverlay.updateAndRender(
-          _livePoints!.map((p) {
-            // PDF-page coords → screen coords (global)
-            final sx = p.position.dx / page.originalSize.width * pageDisplaySize.width;
-            final sy = p.position.dy / page.originalSize.height * pageDisplaySize.height;
-            // event.position - event.localPosition = page widget's global offset
-            final pageGlobalOffset = event.position - event.localPosition;
-            return ProDrawingPoint(
-              position: Offset(sx + pageGlobalOffset.dx, sy + pageGlobalOffset.dy),
-              pressure: p.pressure,
-              tiltX: p.tiltX,
-              tiltY: p.tiltY,
-              timestamp: p.timestamp,
-            );
-          }).toList(),
+          _liveScreenPoints,
           _penColor,
           _penWidth,
           brushType: _penType == ProPenType.pencil ? 2
@@ -400,12 +442,18 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
         );
       }
 
-      setState(() {}); // Trigger repaint for annotation overlay
+      // 🚀 PERF: Bump notifier instead of setState — only repaints
+      // the annotation overlay CustomPaint, not the entire widget tree.
+      _annotationRepaint.value++;
     }
   }
 
   void _onPointerUp(PointerUpEvent event, int pageIndex, Size pageDisplaySize) {
+    _activePointerCount = (_activePointerCount - 1).clamp(0, 10);
     if (!_isDrawingMode || _isErasing) return;
+    // Only commit from the drawing pointer
+    if (event.pointer != _activePointerId) return;
+    _activePointerId = null;
 
     if (_livePoints != null && _livePoints!.length >= 2 && _livePageIndex == pageIndex) {
       // Commit stroke
@@ -419,16 +467,19 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
       );
 
       setState(() {
-        _pageStrokes.putIfAbsent(pageIndex, () => []);
-        _pageStrokes[pageIndex]!.add(stroke);
+        // 🐛 FIX: Create a NEW list instead of mutating in-place.
+        final existing = _pageStrokes[pageIndex] ?? const [];
+        _pageStrokes[pageIndex] = [...existing, stroke];
         _livePoints = null;
         _livePageIndex = null;
       });
 
-      // Clear Vulkan live stroke overlay
+      // Clear Vulkan live stroke overlay and screen-space points
+      _liveScreenPoints.clear();
       if (_vulkanActive) _vulkanOverlay.clear();
       HapticFeedback.lightImpact();
     } else {
+      _liveScreenPoints.clear();
       if (_vulkanActive) _vulkanOverlay.clear();
       setState(() {
         _livePoints = null;
@@ -453,9 +504,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
     if (toRemove.isNotEmpty) {
       setState(() {
-        for (final idx in toRemove.reversed) {
-          strokes.removeAt(idx);
-        }
+        // Create new list excluding erased strokes (avoid in-place mutation)
+        final updated = <ProStroke>[
+          for (int i = 0; i < strokes.length; i++)
+            if (!toRemove.contains(i)) strokes[i],
+        ];
+        _pageStrokes[pageIndex] = updated;
       });
       HapticFeedback.selectionClick();
     }
@@ -464,7 +518,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   void _undoLastStroke() {
     final strokes = _pageStrokes[_currentPageIndex];
     if (strokes != null && strokes.isNotEmpty) {
-      setState(() => strokes.removeLast());
+      // Create new list without last stroke (avoid in-place mutation)
+      _pageStrokes[_currentPageIndex] = strokes.sublist(0, strokes.length - 1);
+      setState(() {});
       HapticFeedback.lightImpact();
     }
   }
@@ -543,9 +599,76 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     }
   }
 
+  /// Detect swipe-down-to-dismiss from InteractiveViewer's own pan gestures.
+  ///
+  /// Activates only when the document is at the top (over-scrolled past origin)
+  /// and the user is panning down with one finger (not pinching to zoom).
+  void _onInteractionUpdate(ScaleUpdateDetails details) {
+    if (_currentZoomScale > 1.05 || _isDrawingMode) return;
+
+    // Only single-finger pan (not pinch-to-zoom)
+    if (details.pointerCount > 1) return;
+
+    // Check if document is at/above the top (positive Y = over-scrolled past top)
+    final yTranslation = _zoomController.value.row1.w;
+    if (yTranslation > 0 && details.focalPointDelta.dy > 0) {
+      // Over-scrolled past top AND still pulling down → dismiss gesture
+      setState(() {
+        _isSwiping = true;
+        _swipeDismissOffset = yTranslation * 0.5; // Damped offset for visual feedback
+      });
+    } else if (_isSwiping && yTranslation <= 0) {
+      // Released back into content → cancel dismiss
+      setState(() {
+        _isSwiping = false;
+        _swipeDismissOffset = 0;
+      });
+    }
+  }
+
   /// Called when the pinch gesture ends — snap back or exit.
   void _onInteractionEnd(ScaleEndDetails details) {
     final scale = _zoomController.value.getMaxScaleOnAxis();
+
+    // ── Swipe-down-to-dismiss: check if dismiss threshold reached ──
+    if (_isSwiping) {
+      final velocity = details.velocity.pixelsPerSecond.dy;
+      if (_swipeDismissOffset > 120 || velocity > 800) {
+        HapticFeedback.mediumImpact();
+        widget.onClose?.call(_buildUpdatedModel());
+        Navigator.of(context).pop();
+        return;
+      } else {
+        // Rubber-band snap back
+        _swipeSnapController?.dispose();
+        final startOffset = _swipeDismissOffset;
+        final ctrl = AnimationController(
+          duration: const Duration(milliseconds: 350), vsync: this,
+        );
+        _swipeSnapController = ctrl;
+        final curved = CurvedAnimation(
+          parent: ctrl,
+          curve: const Cubic(0.34, 1.56, 0.64, 1.0),
+        );
+        curved.addListener(() {
+          if (mounted) {
+            setState(() {
+              _swipeDismissOffset = startOffset * (1.0 - curved.value);
+            });
+          }
+        });
+        ctrl.addStatusListener((s) {
+          if (s == AnimationStatus.completed && mounted) {
+            setState(() {
+              _swipeDismissOffset = 0;
+              _isSwiping = false;
+            });
+          }
+        });
+        ctrl.forward();
+        return;
+      }
+    }
 
     // Exit if released at low zoom
     if (scale < 0.75 && !_zoomOutExitTriggered) {
@@ -579,41 +702,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   }
 
   void _onSwipeDragEnd(DragEndDetails d) {
-    if (!_isSwiping) return;
-    final velocity = d.velocity.pixelsPerSecond.dy;
-    if (_swipeDismissOffset.abs() > 120 || velocity.abs() > 800) {
-      HapticFeedback.mediumImpact();
-      widget.onClose?.call(_buildUpdatedModel());
-      Navigator.of(context).pop();
-    } else {
-      // Rubber-band snap back
-      _swipeSnapController?.dispose();
-      final startOffset = _swipeDismissOffset;
-      final ctrl = AnimationController(
-        duration: const Duration(milliseconds: 350), vsync: this,
-      );
-      _swipeSnapController = ctrl;
-      final curved = CurvedAnimation(
-        parent: ctrl,
-        curve: const Cubic(0.34, 1.56, 0.64, 1.0),
-      );
-      curved.addListener(() {
-        if (mounted) {
-          setState(() {
-            _swipeDismissOffset = startOffset * (1.0 - curved.value);
-          });
-        }
-      });
-      ctrl.addStatusListener((s) {
-        if (s == AnimationStatus.completed && mounted) {
-          setState(() {
-            _swipeDismissOffset = 0;
-            _isSwiping = false;
-          });
-        }
-      });
-      ctrl.forward();
-    }
+    // No-op: dismiss logic now handled in _onInteractionEnd
   }
 
   /// Double-tap: toggle between 1x and 2.5x zoom centered on tap.
@@ -751,8 +840,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                                   Expanded(
                                     child: GestureDetector(
                                       onTap: _isDrawingMode ? null : _toggleChrome,
-                                      onVerticalDragUpdate: _isDrawingMode ? null : _onSwipeDragUpdate,
-                                      onVerticalDragEnd: _isDrawingMode ? null : _onSwipeDragEnd,
                                       behavior: HitTestBehavior.translucent,
                                       child: Stack(
                                         children: [
@@ -996,7 +1083,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                 _isDrawingMode = !_isDrawingMode;
                 if (!_isDrawingMode) _isErasing = false;
               });
-              if (_isDrawingMode) _initVulkanIfNeeded();
             },
             icon: Icon(
               _isDrawingMode ? Icons.edit : Icons.edit_outlined,
@@ -1348,9 +1434,15 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
         boundaryMargin: const EdgeInsets.all(double.infinity),
         minScale: 0.3,
         maxScale: 4.0,
+        // panEnabled: false in drawing mode → prevents 1-finger pan from
+        // competing with drawing. InteractiveViewer's _onScaleUpdate returns
+        // early for pointerCount < 2 when panEnabled is false.
+        // scaleEnabled: always true → 2-finger pinch-zoom/pan works even
+        // during annotation.
         panEnabled: !_isDrawingMode,
-        scaleEnabled: !_isDrawingMode,
-        onInteractionEnd: _isDrawingMode ? null : _onInteractionEnd,
+        scaleEnabled: true,
+        onInteractionUpdate: _onInteractionUpdate,
+        onInteractionEnd: _onInteractionEnd,
         child: SizedBox(
           width: screenWidth,
           child: Padding(
@@ -1520,17 +1612,20 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
             // Annotation strokes overlay (committed + live)
             if (strokes.isNotEmpty || (isLivePage && _livePoints != null))
-              CustomPaint(
-                painter: _AnnotationOverlayPainter(
-                  strokes: strokes,
-                  livePoints: isLivePage ? _livePoints : null,
-                  liveColor: _penColor,
-                  liveWidth: _penWidth,
-                  livePenType: _penType,
-                  pageOriginalSize: page.originalSize,
-                  displaySize: pageDisplaySize,
+              RepaintBoundary(
+                child: CustomPaint(
+                  painter: _AnnotationOverlayPainter(
+                    strokes: strokes,
+                    livePoints: isLivePage ? _livePoints : null,
+                    liveColor: _penColor,
+                    liveWidth: _penWidth,
+                    livePenType: _penType,
+                    pageOriginalSize: page.originalSize,
+                    displaySize: pageDisplaySize,
+                    repaintNotifier: isLivePage ? _annotationRepaint : null,
+                  ),
+                  size: pageDisplaySize,
                 ),
-                size: pageDisplaySize,
               ),
 
             // Touch input overlay (drawing mode only)
@@ -1678,7 +1773,8 @@ class _AnnotationOverlayPainter extends CustomPainter {
     required this.livePenType,
     required this.pageOriginalSize,
     required this.displaySize,
-  });
+    ValueNotifier<int>? repaintNotifier,
+  }) : super(repaint: repaintNotifier);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1720,13 +1816,12 @@ class _AnnotationOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_AnnotationOverlayPainter old) {
+    // Notifier-driven repaints handle live strokes.
+    // Only rebuild compare committed strokes and settings.
     return old.strokes.length != strokes.length ||
            old.liveColor != liveColor ||
            old.liveWidth != liveWidth ||
-           old.livePenType != livePenType ||
-           !identical(old.livePoints, livePoints) ||
-           (livePoints != null && old.livePoints != null &&
-            old.livePoints!.length != livePoints!.length);
+           old.livePenType != livePenType;
   }
 }
 

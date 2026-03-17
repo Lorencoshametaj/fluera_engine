@@ -66,6 +66,7 @@ extension on _FlueraCanvasScreenState {
         BackgroundPainter.clearCache();
         DrawingPainter.invalidateAllTiles();
         _backgroundVersionNotifier.value++;
+        _layerController.notifyListeners(); // 🚀 LAYER MERGE: rebuild DrawingPainter
         _autoSaveCanvas();
       },
       onPaperTypeChanged: _changePaperType,
@@ -87,6 +88,7 @@ extension on _FlueraCanvasScreenState {
     DrawingPainter.invalidateAllTiles();
     // 🎨 Trigger background layer rebuild with new paper type
     _backgroundVersionNotifier.value++;
+    _layerController.notifyListeners(); // 🚀 LAYER MERGE: rebuild DrawingPainter
     // Auto-save with new paper type
     _autoSaveCanvas();
   }

@@ -328,6 +328,9 @@ static void gl_stroke_overlay_plugin_init(GlStrokeOverlayPlugin *self) {
   self->texture_id = -1;
 }
 
+// Global plugin pointer for FFI access (set during registration)
+static GlStrokeOverlayPlugin *g_ffi_plugin = nullptr;
+
 void gl_stroke_overlay_plugin_register_with_registrar(
     FlPluginRegistrar *registrar) {
   auto *self = GL_STROKE_OVERLAY_PLUGIN(
@@ -375,9 +378,6 @@ void gl_stroke_overlay_plugin_register_with_registrar(
 #define FLUERA_CMD_UPDATE_AND_RENDER  1.0f
 #define FLUERA_CMD_SET_TRANSFORM     2.0f
 #define FLUERA_CMD_CLEAR             3.0f
-
-// Global plugin pointer for FFI access (set during registration)
-static GlStrokeOverlayPlugin *g_ffi_plugin = nullptr;
 
 extern "C" {
 

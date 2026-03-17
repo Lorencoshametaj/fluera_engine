@@ -18,6 +18,20 @@ extension on _FlueraCanvasScreenState {
 
         if (conn != null) {
           HapticFeedback.heavyImpact(); // Success!
+
+          // 🏷️ Auto-populate label from recognized cluster text
+          final srcText = _clusterTextCache[_connectionDragSourceClusterId!] ?? '';
+          final tgtText = _clusterTextCache[_connectionSnapTargetClusterId!] ?? '';
+          if (srcText.isNotEmpty && tgtText.isNotEmpty) {
+            final truncSrc = srcText.length > 12 ? '${srcText.substring(0, 10)}…' : srcText;
+            final truncTgt = tgtText.length > 12 ? '${tgtText.substring(0, 10)}…' : tgtText;
+            conn.label = '$truncSrc → $truncTgt';
+          } else if (srcText.isNotEmpty) {
+            conn.label = srcText.length > 20 ? '${srcText.substring(0, 18)}…' : srcText;
+          } else if (tgtText.isNotEmpty) {
+            conn.label = tgtText.length > 20 ? '${tgtText.substring(0, 18)}…' : tgtText;
+          }
+
           // Start particle animation if not already running
           if (_knowledgeParticleTicker != null &&
               !_knowledgeParticleTicker!.isActive) {
@@ -25,56 +39,24 @@ extension on _FlueraCanvasScreenState {
           }
           // 💾 Auto-save after creating connection
           _autoSaveCanvas();
-
-          // 🏷️ Show label editor at connection midpoint
-          final srcCluster = _clusterCache.firstWhere(
-            (c) => c.id == _connectionDragSourceClusterId,
-            orElse: () => _clusterCache.first,
-          );
-          final tgtCluster = _clusterCache.firstWhere(
-            (c) => c.id == _connectionSnapTargetClusterId,
-            orElse: () => _clusterCache.first,
-          );
-          final cp = _knowledgeFlowController!.getControlPoint(
-            srcCluster.centroid,
-            tgtCluster.centroid,
-            conn.curveStrength,
-          );
-          final midCanvas = _knowledgeFlowController!.pointOnQuadBezier(
-            srcCluster.centroid,
-            cp,
-            tgtCluster.centroid,
-            0.5,
-          );
-          // Convert canvas → screen
-          final screenPos = _canvasController.canvasToScreen(midCanvas);
-          setState(() {
-            _editingLabelConnectionId = conn.id;
-            _labelOverlayScreenPosition = screenPos;
-          });
+          // Label editor NOT opened automatically.
+          // User taps connection with gesture tool to edit label.
         }
-      } else if (_connectionDragSourceClusterId != null) {
-        // 🔍 No snap target → show cluster preview
-        final srcCluster = _clusterCache
-            .where((c) => c.id == _connectionDragSourceClusterId)
-            .firstOrNull;
-        if (srcCluster != null) {
-          final screenPos = _canvasController.canvasToScreen(srcCluster.centroid);
-          setState(() {
-            _previewingClusterId = srcCluster.id;
-            _previewOverlayScreenPosition = screenPos;
-          });
-        }
+      } else {
+        // No snap target — just clean up silently (drag cancelled).
+        // Cluster preview is only shown on simple long-press (no drag).
       }
 
-      // Reset drag state
-      _isConnectionDragging = false;
-      _connectionDragSourcePoint = null;
-      _connectionDragCurrentPoint = null;
-      _connectionDragSourceClusterId = null;
-      _connectionSnapTargetClusterId = null;
+      // Reset drag state — must use setState to force rebuild
+      // so the KnowledgeFlowPainter gets null drag points and repaints
+      setState(() {
+        _isConnectionDragging = false;
+        _connectionDragSourcePoint = null;
+        _connectionDragCurrentPoint = null;
+        _connectionDragSourceClusterId = null;
+        _connectionSnapTargetClusterId = null;
+      });
       _knowledgeFlowController!.version.value++;
-      _uiRebuildNotifier.value++;
       return;
     }
 
@@ -847,7 +829,7 @@ extension on _FlueraCanvasScreenState {
         if (currentInside.isNotEmpty) insideSegments.add(currentInside);
         if (currentOutside.isNotEmpty) outsideSegments.add(currentOutside);
 
-        // ── Add inside segments to image (outside segments discarded) ──
+        // ── Add inside segments to image ──
         final newDrawingStrokes = [..._imageElements[idx].drawingStrokes];
         for (final seg in insideSegments) {
           if (seg.length < 2) continue;
@@ -876,6 +858,23 @@ extension on _FlueraCanvasScreenState {
         _rebuildImageSpatialIndex();
         _imageRepaintNotifier.value++;
         _broadcastImageUpdate(updated);
+
+        // 🔥 FIX: Add outside segments to regular canvas layer
+        // (previously discarded — strokes going outside the image were lost)
+        for (final seg in outsideSegments) {
+          if (seg.length < 2) continue;
+          final outsideStroke = stroke.copyWith(
+            id: generateUid(),
+            points: seg,
+          );
+          _layerController.addStroke(outsideStroke);
+          _broadcastStrokeAdded(outsideStroke);
+        }
+
+        // 🔥 FIX: Clear live stroke and invalidate tiles immediately
+        // so the split is visible without needing a pan/zoom.
+        _currentStrokeNotifier.clear();
+        DrawingPainter.invalidateAllTiles();
       }
     } else {
       // Regular canvas stroke
@@ -891,6 +890,8 @@ extension on _FlueraCanvasScreenState {
           _webGpuStrokeOverlay.clear();
         } else {
           _vulkanStrokeOverlay.clear();
+          // 🚀 DIRECT OVERLAY: Disable CAMetalLayer bypass on pen-up
+          _vulkanStrokeOverlay.disableDirectOverlay();
         }
       }
       _layerController.addStroke(stroke);

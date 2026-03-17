@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
@@ -48,6 +49,14 @@ class VulkanStrokeOverlayService {
 
   /// 🔮 Input predictor for anti-lag rendering
   final InputPredictor _predictor = InputPredictor();
+
+  /// 🚀 Direct CAMetalLayer overlay (iOS only)
+  bool _directOverlayActive = false;
+
+  /// Whether the direct CAMetalLayer overlay is active (iOS only).
+  /// When true, strokes render directly to the display, bypassing Impeller.
+  /// The widget tree should hide the Texture widget when this is true.
+  bool get isDirectOverlayActive => _directOverlayActive;
 
   /// Flutter texture ID for use with Texture(textureId:) widget.
   int? get textureId => _textureId;
@@ -330,6 +339,49 @@ class VulkanStrokeOverlayService {
 
     // ─── FALLBACK: MethodChannel ─────────────────────────────
     _channel.invokeMethod('clear');
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🚀 DIRECT CAMetalLayer OVERLAY (iOS ONLY)
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Enable direct CAMetalLayer overlay for minimum-latency rendering.
+  /// Call on pen-down. The overlay renders strokes directly to the display,
+  /// bypassing Flutter's TextureRegistry + Impeller compositor.
+  /// [opacity] controls the overlay transparency (1.0 = opaque, <1.0 = highlighter).
+  Future<void> enableDirectOverlay({double opacity = 1.0}) async {
+    if (!_initialized) return;
+    if (!_isIOS) return; // Only available on iOS
+    try {
+      await _channel.invokeMethod('enableDirectOverlay', {
+        'opacity': opacity,
+      });
+      _directOverlayActive = true;
+    } catch (e) {
+      debugPrint('[FlueraVk] enableDirectOverlay failed: $e');
+    }
+  }
+
+  /// Disable direct overlay, falling back to CVPixelBuffer + Texture widget.
+  /// Call on pen-up.
+  Future<void> disableDirectOverlay() async {
+    if (!_initialized) return;
+    if (!_isIOS) return;
+    try {
+      await _channel.invokeMethod('disableDirectOverlay');
+      _directOverlayActive = false;
+    } catch (e) {
+      debugPrint('[FlueraVk] disableDirectOverlay failed: $e');
+    }
+  }
+
+  /// Whether we're running on iOS (CAMetalLayer is iOS-only).
+  static bool get _isIOS {
+    try {
+      return Platform.isIOS;
+    } catch (_) {
+      return false; // Web or other
+    }
   }
 
   /// Resize the render target.

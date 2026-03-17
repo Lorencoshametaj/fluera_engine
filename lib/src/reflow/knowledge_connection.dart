@@ -34,13 +34,33 @@ class KnowledgeConnection {
   /// Number of particles on this connection.
   static const int defaultParticleCount = 5;
 
+  /// 🎨 Mind-map palette — single source of truth for all connection coloring.
+  /// Used by controller (auto-assign), overlay (color picker), and painter.
+  static const List<Color> mindMapPalette = [
+    Color(0xFF64B5F6), // Sky Blue
+    Color(0xFF81C784), // Sage Green
+    Color(0xFFFFB74D), // Warm Orange
+    Color(0xFF9B72E8), // Violet
+    Color(0xFFFF7A8A), // Coral
+    Color(0xFF5CE0A0), // Emerald
+    Color(0xFFE86BCC), // Magenta
+    Color(0xFFFFB347), // Amber
+    Color(0xFF6B8CFF), // Periwinkle
+    Color(0xFFFF6BA6), // Rose
+  ];
+
   /// Particle speed: full path traversal time in seconds.
   static const double particleLoopDuration = 2.5;
 
   /// Timestamp when this connection was created (milliseconds since epoch).
-  /// Used for birth animation effect (1s flash propagation).
+  /// Used for birth animation effect (1.5s draw-in with ease-out).
   /// NOT serialized — set to 0 on load (no animation on reload).
   int createdAtMs;
+
+  /// Timestamp when this connection was marked for deletion (milliseconds since epoch).
+  /// When > 0, the connection is "dying" and will dissolve over 500ms.
+  /// NOT serialized — transient state only.
+  int deletedAtMs;
 
   /// Approximate path length in canvas units.
   /// Set by controller after path computation. Used for speed-proportional particles.
@@ -56,6 +76,7 @@ class KnowledgeConnection {
     this.pathLength = 500.0, // Default path length
     int? createdAt,
   }) : createdAtMs = createdAt ?? DateTime.now().millisecondsSinceEpoch,
+       deletedAtMs = 0,
        particlePositions = _generateInitialParticles();
 
   /// Generate evenly-spaced initial particle positions.

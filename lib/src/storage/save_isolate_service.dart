@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
 import '../core/nodes/pdf_page_node.dart';
+import '../core/nodes/pdf_preview_card_node.dart';
 import '../export/binary_canvas_format.dart';
 
 /// Singleton service managing a long-lived background isolate for binary encoding.
@@ -82,10 +83,11 @@ class SaveIsolateService {
       return blobs;
     }
 
-    // 📄 Strip unsendable objects from PdfDocumentNode/PdfPageNode before
-    // isolate send: ui.Image (GPU-backed) and onMutation closures (reference
+    // 📄 Strip unsendable objects from PDF nodes before isolate send:
+    // ui.Image (GPU-backed) and onMutation closures (reference
     // _FlueraCanvasScreenState). We null them temporarily and restore after.
     final strippedImages = _stripPdfCachedImages(layers);
+    final strippedThumbnails = _stripPdfPreviewCardThumbnails(layers);
     final strippedCallbacks = _stripPdfCallbacks(layers);
 
     // Send layers to the persistent isolate and wait for response
@@ -97,6 +99,7 @@ class SaveIsolateService {
 
     // Restore stripped fields after send
     _restorePdfCachedImages(strippedImages, layers);
+    _restorePdfPreviewCardThumbnails(strippedThumbnails, layers);
     _restorePdfCallbacks(strippedCallbacks, layers);
 
     return result as List<Uint8List>;
@@ -153,6 +156,48 @@ class SaveIsolateService {
             if (img != null && page.cachedImage == null) {
               page.cachedImage = img;
             }
+          }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PdfPreviewCardNode thumbnail stripping (isolate safety)
+  // ---------------------------------------------------------------------------
+
+  /// Temporarily null out all `PdfPreviewCardNode.thumbnailImage` fields so the
+  /// layer tree can safely cross the isolate boundary.
+  static Map<String, ui.Image> _stripPdfPreviewCardThumbnails(
+    List<CanvasLayer> layers,
+  ) {
+    final stripped = <String, ui.Image>{};
+
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfPreviewCardNode && child.thumbnailImage != null) {
+          stripped[child.id] = child.thumbnailImage!;
+          child.thumbnailImage = null;
+        }
+      }
+    }
+
+    return stripped;
+  }
+
+  /// Restore previously stripped PdfPreviewCardNode thumbnails.
+  static void _restorePdfPreviewCardThumbnails(
+    Map<String, ui.Image> stripped,
+    List<CanvasLayer> layers,
+  ) {
+    if (stripped.isEmpty) return;
+
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfPreviewCardNode) {
+          final img = stripped[child.id];
+          if (img != null && child.thumbnailImage == null) {
+            child.thumbnailImage = img;
           }
         }
       }

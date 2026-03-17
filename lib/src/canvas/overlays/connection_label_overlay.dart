@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../reflow/knowledge_connection.dart';
 
 /// 🏷️ CONNECTION LABEL OVERLAY — Premium floating text input for Knowledge Flow.
 ///
@@ -28,6 +29,9 @@ class ConnectionLabelOverlay extends StatefulWidget {
   /// Called when the user wants to delete the connection.
   final VoidCallback? onDelete;
 
+  /// Called when the user picks a new color.
+  final ValueChanged<Color>? onColorChanged;
+
   const ConnectionLabelOverlay({
     super.key,
     this.initialText = '',
@@ -35,6 +39,7 @@ class ConnectionLabelOverlay extends StatefulWidget {
     required this.onSubmit,
     required this.onDismiss,
     this.onDelete,
+    this.onColorChanged,
   });
 
   @override
@@ -49,6 +54,7 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
   late final Animation<double> _fadeAnim;
   late final Animation<double> _scaleAnim;
   bool _submitted = false;
+  late Color _selectedColor;
 
   /// Quick-pick suggested labels
   static const _suggestions = [
@@ -64,6 +70,7 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialText);
+    _selectedColor = widget.accentColor;
     _focusNode = FocusNode();
 
     _animController = AnimationController(
@@ -129,7 +136,7 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final accent = widget.accentColor;
+    final accent = _selectedColor;
 
     return FadeTransition(
       opacity: _fadeAnim,
@@ -341,6 +348,58 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
                   ),
                 ),
               ),
+
+              const SizedBox(height: 6),
+
+              // ── Color picker dots ──
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0x990D0D14),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: KnowledgeConnection.mindMapPalette.map((color) {
+                        final isSelected = _colorEquals(color, _selectedColor);
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() => _selectedColor = color);
+                            widget.onColorChanged?.call(color);
+                            HapticFeedback.selectionClick();
+                          },
+                          child: Container(
+                            width: 18,
+                            height: 18,
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: isSelected
+                                  ? Border.all(color: Colors.white, width: 2)
+                                  : null,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: color.withValues(alpha: 0.4),
+                                  blurRadius: isSelected ? 6 : 3,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -348,3 +407,9 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
     );
   }
 }
+
+/// Compare colors ignoring minor floating-point differences
+bool _colorEquals(Color a, Color b) =>
+    (a.red - b.red).abs() < 2 &&
+    (a.green - b.green).abs() < 2 &&
+    (a.blue - b.blue).abs() < 2;
