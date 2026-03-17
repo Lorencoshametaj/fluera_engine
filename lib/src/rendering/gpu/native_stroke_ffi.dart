@@ -41,6 +41,7 @@ const int _kFountainAngle = 14;
 const int _kFountainStr = 15;
 const int _kFountainRate = 16;
 const int _kFountainTaper = 17;
+const int _kZoomScale = 18;
 const int _kHeaderSize = 20;
 const int _kTransform = 20; // 16 floats [20..35]
 const int _kPoints = 36; // stride 5 starting at [36]
@@ -54,9 +55,44 @@ const double _cmdClear = 3.0;
 const int _kMaxPoints = 1000;
 const int _kBufferSize = _kPoints + (_kMaxPoints * 5); // 5036 floats
 
+// ─── Ring buffer constants (must match ring_buffer.h) ─────────────
+const int _ringHead = 0;
+const int _ringTail = 1;
+const int _ringCapacity = 2;
+const int _ringSequence = 3;
+const int _ringCmd = 4;
+const int _ringColorR = 5;
+const int _ringColorG = 6;
+const int _ringColorB = 7;
+const int _ringColorA = 8;
+const int _ringStrokeW = 9;
+const int _ringTotalPts = 10;
+const int _ringBrushType = 11;
+const int _ringPencilBase = 12;
+const int _ringPencilMax = 13;
+const int _ringPencilMinP = 14;
+const int _ringPencilMaxP = 15;
+const int _ringFountThin = 16;
+const int _ringFountAngle = 17;
+const int _ringFountStr = 18;
+const int _ringFountRate = 19;
+const int _ringFountTaper = 20;
+const int _ringZoomScale = 21;
+const int _ringTransform = 24;
+const int _ringDataStart = 40;
+const int _ringDefaultCapacity = 2000;
+
+// Ring commands
+const int _ringCmdIdle = 0;
+const int _ringCmdRender = 1;
+const int _ringCmdTransform = 2;
+const int _ringCmdClear = 3;
+
 // ─── Native function signature ────────────────────────────────────
 typedef _FlueraStrokeExecuteNative = Void Function(Pointer<Float>);
 typedef _FlueraStrokeExecuteDart = void Function(Pointer<Float>);
+typedef _FlueraRingExecuteNative = Void Function(Pointer<Int32>);
+typedef _FlueraRingExecuteDart = void Function(Pointer<Int32>);
 
 /// 🚀 FFI bridge for hot-path stroke rendering.
 ///
@@ -68,6 +104,13 @@ class NativeStrokeFfi {
   Pointer<Float>? _buffer;
   _FlueraStrokeExecuteDart? _execute;
   bool _initialized = false;
+
+  // 🚀 Ring buffer for incremental delivery
+  Pointer<Int32>? _ringBuffer;
+  _FlueraRingExecuteDart? _ringExecute;
+  bool _ringAvailable = false;
+  int _lastPointsSent = 0; // Track how many points we've already sent
+  int _ringSeqCounter = 0;
 
   /// Whether FFI is initialized and ready.
   bool get isInitialized => _initialized;
@@ -108,6 +151,28 @@ class NativeStrokeFfi {
       _writeIdentityTransform();
 
       _initialized = true;
+
+      // 🚀 Try ring buffer mode (incremental)
+      try {
+        _ringExecute = nativeLib
+            .lookup<NativeFunction<_FlueraRingExecuteNative>>(
+                'fluera_stroke_ring_execute')
+            .asFunction<_FlueraRingExecuteDart>();
+
+        final ringSize = _ringDataStart + (_ringDefaultCapacity * 5);
+        _ringBuffer = calloc<Int32>(ringSize);
+        if (_ringBuffer != nullptr) {
+          _ringBuffer![_ringCapacity] = _ringDefaultCapacity;
+          _ringBuffer![_ringSequence] = 0;
+          _ringBuffer![_ringCmd] = _ringCmdIdle;
+          _ringAvailable = true;
+          debugPrint('[FlueraFFI] 🚀 Ring buffer initialized (${ringSize * 4} bytes)');
+        }
+      } catch (e) {
+        debugPrint('[FlueraFFI] Ring buffer not available, using flat buffer: $e');
+        _ringAvailable = false;
+      }
+
       debugPrint('[FlueraFFI] Initialized (buffer=${_kBufferSize * 4} bytes)');
       return true;
     } catch (e) {
@@ -135,6 +200,7 @@ class NativeStrokeFfi {
     double fountainNibStrength = 0.35,
     double fountainPressureRate = 0.275,
     int fountainTaperEntry = 6,
+    double zoomScale = 1.0,
   }) {
     if (!_initialized || _buffer == null || _execute == null) return;
 
@@ -164,6 +230,7 @@ class NativeStrokeFfi {
     buf[_kFountainStr] = fountainNibStrength;
     buf[_kFountainRate] = fountainPressureRate;
     buf[_kFountainTaper] = fountainTaperEntry.toDouble();
+    buf[_kZoomScale] = zoomScale;
 
     // ── Write points (stride 5) ──────────────────────────────
     for (int i = 0; i < count; i++) {
@@ -178,6 +245,102 @@ class NativeStrokeFfi {
 
     // ── Execute ──────────────────────────────────────────────
     _execute!(buf);
+  }
+
+  /// 🚀 Send ONLY NEW points via ring buffer (incremental).
+  /// Returns true if ring buffer was used, false to fall back to flat.
+  bool updateAndRenderIncremental(
+    List<ProDrawingPoint> points,
+    ui.Color color,
+    double strokeWidth,
+    int totalPoints, {
+    int brushType = 0,
+    double pencilBaseOpacity = 0.4,
+    double pencilMaxOpacity = 0.8,
+    double pencilMinPressure = 0.5,
+    double pencilMaxPressure = 1.2,
+    double fountainThinning = 0.5,
+    double fountainNibAngleDeg = 30.0,
+    double fountainNibStrength = 0.35,
+    double fountainPressureRate = 0.275,
+    int fountainTaperEntry = 6,
+    double zoomScale = 1.0,
+  }) {
+    if (!_ringAvailable || _ringBuffer == null || _ringExecute == null) {
+      return false;
+    }
+
+    final ring = _ringBuffer!;
+    final newStart = _lastPointsSent;
+    final newCount = points.length - newStart;
+    if (newCount <= 0) {
+      // No new points — still trigger render with current data
+      ring[_ringCmd] = _ringCmdRender;
+      _ringExecute!(ring);
+      return true;
+    }
+
+    // Write params to ring header (as float bits stored in int32)
+    _ringSetFloat(ring, _ringColorR, color.r);
+    _ringSetFloat(ring, _ringColorG, color.g);
+    _ringSetFloat(ring, _ringColorB, color.b);
+    _ringSetFloat(ring, _ringColorA, color.a);
+    _ringSetFloat(ring, _ringStrokeW, strokeWidth);
+    _ringSetFloat(ring, _ringTotalPts, totalPoints.toDouble());
+    _ringSetFloat(ring, _ringBrushType, brushType.toDouble());
+    _ringSetFloat(ring, _ringPencilBase, pencilBaseOpacity);
+    _ringSetFloat(ring, _ringPencilMax, pencilMaxOpacity);
+    _ringSetFloat(ring, _ringPencilMinP, pencilMinPressure);
+    _ringSetFloat(ring, _ringPencilMaxP, pencilMaxPressure);
+    _ringSetFloat(ring, _ringFountThin, fountainThinning);
+    _ringSetFloat(ring, _ringFountAngle, fountainNibAngleDeg);
+    _ringSetFloat(ring, _ringFountStr, fountainNibStrength);
+    _ringSetFloat(ring, _ringFountRate, fountainPressureRate);
+    _ringSetFloat(ring, _ringFountTaper, fountainTaperEntry.toDouble());
+    _ringSetFloat(ring, _ringZoomScale, zoomScale);
+
+    // Write only NEW points to ring data
+    final cap = ring[_ringCapacity];
+    var head = ring[_ringHead];
+    final tail = ring[_ringTail];
+    var space = (head >= tail) ? cap - (head - tail) - 1 : tail - head - 1;
+    if (space <= 0) return false; // Ring full, fall back to flat
+
+    final writeCount = newCount > space ? space : newCount;
+    // Access the ring data as floats
+    final dataPtr = ring.cast<Float>().elementAt(_ringDataStart);
+    for (int i = 0; i < writeCount; i++) {
+      final pt = points[newStart + i];
+      final idx = (head + i) % cap;
+      final off = idx * 5;
+      dataPtr[off] = pt.position.dx;
+      dataPtr[off + 1] = pt.position.dy;
+      dataPtr[off + 2] = pt.pressure;
+      dataPtr[off + 3] = pt.tiltX;
+      dataPtr[off + 4] = pt.tiltY;
+    }
+
+    // Update head
+    ring[_ringHead] = (head + writeCount) % cap;
+    _lastPointsSent = newStart + writeCount;
+
+    // Trigger render
+    ring[_ringCmd] = _ringCmdRender;
+    _ringExecute!(ring);
+    return true;
+  }
+
+  /// Reset ring buffer tracking (call when starting a new stroke).
+  void resetRing() {
+    _lastPointsSent = 0;
+    if (_ringAvailable && _ringBuffer != null) {
+      _ringBuffer![_ringHead] = 0;
+      _ringBuffer![_ringTail] = 0;
+      // Write sequence counter to position _ringSequence (constant = 3)
+      // so C++ detects new stroke and clears g_ringAccumPoints
+      _ringSeqCounter++;
+      _ringBuffer![_ringSequence] = _ringSeqCounter;
+    }
   }
 
   /// Set the canvas transform matrix via shared memory.
@@ -237,6 +400,8 @@ class NativeStrokeFfi {
     if (!_initialized || _buffer == null || _execute == null) return;
     _buffer![_kCmd] = _cmdClear;
     _execute!(_buffer!);
+    // Reset ring buffer tracking so next stroke starts fresh
+    resetRing();
   }
 
   /// Dispose the shared buffer.
@@ -245,8 +410,15 @@ class NativeStrokeFfi {
       calloc.free(_buffer!);
       _buffer = null;
     }
+    if (_ringBuffer != null) {
+      calloc.free(_ringBuffer!);
+      _ringBuffer = null;
+    }
     _execute = null;
+    _ringExecute = null;
+    _ringAvailable = false;
     _initialized = false;
+    _lastPointsSent = 0;
   }
 
   void _writeIdentityTransform() {
@@ -258,5 +430,11 @@ class NativeStrokeFfi {
     _buffer![_kTransform + 5] = 1.0;  // m[1][1]
     _buffer![_kTransform + 10] = 1.0; // m[2][2]
     _buffer![_kTransform + 15] = 1.0; // m[3][3]
+  }
+
+  /// Write a double as float bits into an int32 ring buffer slot.
+  void _ringSetFloat(Pointer<Int32> buf, int offset, double value) {
+    final floatPtr = buf.cast<Float>().elementAt(offset);
+    floatPtr.value = value;
   }
 }

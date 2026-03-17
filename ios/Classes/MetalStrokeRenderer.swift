@@ -63,6 +63,7 @@ class MetalStrokeRenderer {
     private var accumulatedVerts: [StrokeVertex] = []
     private var allRawPoints: [Float] = []          // Raw accumulated points (stride 5)
     private var totalAccumulatedPoints: Int = 0
+    private var prevComputePointCount: Int = 0  // 🚀 Incremental compute tracking
     
     // ─── Uniforms ───────────────────────────────────────────────
     private var uniformBuffer: MTLBuffer?
@@ -81,6 +82,21 @@ class MetalStrokeRenderer {
     
     // ─── MSAA ───────────────────────────────────────────────────
     private let msaaSampleCount = 4
+    
+    // ─── 🚀 Async triple-buffered rendering ──────────────────
+    private let inFlightSemaphore = DispatchSemaphore(value: 3)
+    
+    // ─── 🚀 GPU Compute Tessellation ─────────────────────────
+    private var computePipelineState: MTLComputePipelineState?
+    private var computePointsBuffer: MTLBuffer?
+    private var computeParamsBuffer: MTLBuffer?
+    private var computeVertexBuffer: MTLBuffer?   // Output SSBO
+    private var computeCapBuffer: MTLBuffer?
+    private var computeCapCounterBuffer: MTLBuffer?
+    private var computeAvailable: Bool = false
+    private static let subsPerSeg = 8  // Max for buffer allocation
+    private var dynamicSubsPerSeg = 8  // 🚀 Adaptive LOD: 4-16 based on zoom
+    private static let maxComputePoints = 5000
     
     // ═══════════════════════════════════════════════════════════════
     // INIT
@@ -139,6 +155,10 @@ class MetalStrokeRenderer {
         updateUniformBuffer()
         
         accumulatedVerts.reserveCapacity(8192)
+        
+        // 🚀 Try GPU compute tessellation
+        setupComputePipeline()
+        
         isInitialized = true
         
         NSLog("[FlueraMtl] Initialized: %dx%d, MSAA %dx", width, height, msaaSampleCount)
@@ -279,21 +299,16 @@ class MetalStrokeRenderer {
         
         if brushType == 0 {
             // ── FULL RETESSELLATION (ballpoint) ──────────────────────
-            // Accumulate raw points, retessellate entire stroke for smooth
-            // curves. Incremental tessellation caused sawtooth edges.
-            let skipFirst = totalAccumulatedPoints > 0 ? 1 : 0
-            for i in skipFirst..<pointCount {
-                for j in 0..<5 {
-                    allRawPoints.append(points[i * 5 + j])
-                }
-            }
-            totalAccumulatedPoints = allRawPoints.count / 5
+            // Dart overlay sends ALL accumulated points each frame.
+            // Tessellate directly — no internal accumulation
+            // (allRawPoints caused double-accumulation → fan artifact).
+            totalAccumulatedPoints = pointCount
             
             accumulatedVerts.removeAll(keepingCapacity: true)
             prevCount = 0
             
-            if totalAccumulatedPoints >= 2 {
-                tessellateStroke(points: allRawPoints, pointCount: totalAccumulatedPoints,
+            if pointCount >= 2 {
+                tessellateStroke(points: points, pointCount: pointCount,
                                  r: r, g: g, b: b, a: a,
                                  strokeWidth: strokeWidth,
                                  pointStartIndex: 0,
@@ -302,7 +317,79 @@ class MetalStrokeRenderer {
                                  maxPressure: pencilMaxPressure)
             }
         } else {
-            // ── FULL RETESSELLATION (marker/pencil/fountain) ─────────
+            // 🚀 Non-ballpoint: use GPU compute if available
+            let useCompute = computeAvailable && brushType != 0
+            
+            if useCompute, let computePSO = computePipelineState,
+               let pointsBuf = computePointsBuffer,
+               let paramsBuf = computeParamsBuffer,
+               let vertBuf = computeVertexBuffer,
+               let capBuf = computeCapBuffer,
+               let capCounterBuf = computeCapCounterBuffer,
+               let cmdBuffer = commandQueue.makeCommandBuffer() {
+                
+                totalAccumulatedPoints = pointCount
+                
+                let subsPerSeg = dynamicSubsPerSeg  // 🚀 Adaptive LOD
+                
+                // 🚀 Incremental: only tessellate new segments
+                var startSeg = 0
+                if prevComputePointCount >= 2 && pointCount > prevComputePointCount {
+                    startSeg = max(0, prevComputePointCount - 2)
+                }
+                let newSubdivs = (pointCount - 1 - startSeg) * subsPerSeg
+                let totalSubdivs = (pointCount - 1) * subsPerSeg
+                let vertexOffset = startSeg * subsPerSeg
+                
+                // Upload points to GPU buffer
+                let pointBytes = pointCount * 5 * MemoryLayout<Float>.stride
+                points.withUnsafeBufferPointer { buf in
+                    pointsBuf.contents().copyMemory(from: buf.baseAddress!, byteCount: min(pointBytes, pointsBuf.length))
+                }
+                
+                // Fill params
+                var params = ComputeParams()
+                params.colorR = r; params.colorG = g; params.colorB = b; params.colorA = a
+                params.strokeWidth = strokeWidth
+                params.pointCount = Int32(pointCount); params.brushType = Int32(brushType)
+                params.minPressure = pencilMinPressure; params.maxPressure = pencilMaxPressure
+                params.pencilBaseOpacity = pencilBaseOpacity; params.pencilMaxOpacity = pencilMaxOpacity
+                params.subsPerSeg = Int32(subsPerSeg)
+                params.totalSubdivs = Int32(newSubdivs)  // Only new portion!
+                params.startSeg = Int32(startSeg)
+                params.vertexOffset = Int32(vertexOffset)
+                params.fountainThinning = fountainThinning
+                params.fountainNibAngleRad = fountainNibAngleDeg * Float.pi / 180.0
+                params.fountainNibStrength = fountainNibStrength
+                memcpy(paramsBuf.contents(), &params, MemoryLayout<ComputeParams>.stride)
+                
+                // Reset cap counter
+                var zero: Int32 = 0
+                memcpy(capCounterBuf.contents(), &zero, MemoryLayout<Int32>.stride)
+                
+                // Dispatch compute
+                guard let computeEncoder = cmdBuffer.makeComputeCommandEncoder() else { return }
+                computeEncoder.setComputePipelineState(computePSO)
+                computeEncoder.setBuffer(pointsBuf, offset: 0, index: 0)
+                computeEncoder.setBuffer(paramsBuf, offset: 0, index: 1)
+                computeEncoder.setBuffer(vertBuf, offset: 0, index: 2)
+                computeEncoder.setBuffer(capCounterBuf, offset: 0, index: 3)
+                computeEncoder.setBuffer(capBuf, offset: 0, index: 4)
+                
+                let threadgroupSize = computePSO.maxTotalThreadsPerThreadgroup
+                let threadgroups = MTLSize(width: (newSubdivs + threadgroupSize - 1) / threadgroupSize, height: 1, depth: 1)
+                let threadsPerGroup = MTLSize(width: threadgroupSize, height: 1, depth: 1)
+                computeEncoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
+                computeEncoder.endEncoding()
+                
+                prevComputePointCount = pointCount
+                
+                // Render from compute output buffer (ALL accumulated vertices)
+                renderFrameFromComputeBuffer(cmdBuffer: cmdBuffer, vertBuf: vertBuf, vertexCount: totalSubdivs * 6)
+                return
+            }
+            
+            // CPU fallback
             accumulatedVerts.removeAll(keepingCapacity: true)
             totalAccumulatedPoints = pointCount
             prevCount = 0
@@ -357,6 +444,9 @@ class MetalStrokeRenderer {
               let resolveTex = renderTexture,
               let cmdBuffer = commandQueue.makeCommandBuffer() else { return }
         
+        // 🚀 Triple-buffered: wait for a slot
+        inFlightSemaphore.wait()
+        
         // Stats
         statsActive = true
         totalFrames += 1
@@ -369,7 +459,10 @@ class MetalStrokeRenderer {
         rpd.colorAttachments[0].storeAction = .multisampleResolve
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         
-        guard let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) else { return }
+        guard let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) else {
+            inFlightSemaphore.signal()
+            return
+        }
         
         encoder.setRenderPipelineState(pipelineState)
         encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
@@ -377,15 +470,61 @@ class MetalStrokeRenderer {
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
         encoder.endEncoding()
         
-        cmdBuffer.commit()
-        cmdBuffer.waitUntilCompleted()
-        
-        // Record frame time
-        let frameTimeUs = Float((CACurrentMediaTime() - frameStart) * 1_000_000)
-        frameTimes.append(frameTimeUs)
-        if frameTimes.count > MetalStrokeRenderer.statsMaxSamples {
-            frameTimes.removeFirst()
+        // 🚀 Async: signal semaphore + stats in completion handler (no blocking!)
+        cmdBuffer.addCompletedHandler { [weak self] _ in
+            guard let self = self else { return }
+            let frameTimeUs = Float((CACurrentMediaTime() - frameStart) * 1_000_000)
+            self.frameTimes.append(frameTimeUs)
+            if self.frameTimes.count > MetalStrokeRenderer.statsMaxSamples {
+                self.frameTimes.removeFirst()
+            }
+            self.inFlightSemaphore.signal()
         }
+        cmdBuffer.commit()
+    }
+    
+    /// 🚀 Render using compute output buffer directly (no CPU vertex upload)
+    private func renderFrameFromComputeBuffer(cmdBuffer: MTLCommandBuffer, vertBuf: MTLBuffer, vertexCount: Int) {
+        guard let msaaTex = msaaTexture,
+              let resolveTex = renderTexture else { return }
+        
+        // 🚀 Triple-buffered: wait for a slot
+        inFlightSemaphore.wait()
+        
+        // Stats
+        statsActive = true
+        totalFrames += 1
+        let frameStart = CACurrentMediaTime()
+        
+        let rpd = MTLRenderPassDescriptor()
+        rpd.colorAttachments[0].texture = msaaTex
+        rpd.colorAttachments[0].resolveTexture = resolveTex
+        rpd.colorAttachments[0].loadAction = .clear
+        rpd.colorAttachments[0].storeAction = .multisampleResolve
+        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        
+        guard let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) else {
+            inFlightSemaphore.signal()
+            return
+        }
+        
+        encoder.setRenderPipelineState(pipelineState)
+        encoder.setVertexBuffer(vertBuf, offset: 0, index: 0)
+        encoder.setVertexBuffer(uniformBuffer, offset: 0, index: 1)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        encoder.endEncoding()
+        
+        // 🚀 Async: signal semaphore + stats in completion handler
+        cmdBuffer.addCompletedHandler { [weak self] _ in
+            guard let self = self else { return }
+            let frameTimeUs = Float((CACurrentMediaTime() - frameStart) * 1_000_000)
+            self.frameTimes.append(frameTimeUs)
+            if self.frameTimes.count > MetalStrokeRenderer.statsMaxSamples {
+                self.frameTimes.removeFirst()
+            }
+            self.inFlightSemaphore.signal()
+        }
+        cmdBuffer.commit()
     }
     
     // ═══════════════════════════════════════════════════════════════
@@ -417,6 +556,7 @@ class MetalStrokeRenderer {
         accumulatedVerts.removeAll(keepingCapacity: true)
         allRawPoints.removeAll(keepingCapacity: true)
         totalAccumulatedPoints = 0
+        prevComputePointCount = 0
         statsActive = false
         
         // Clear the render target
@@ -443,6 +583,29 @@ class MetalStrokeRenderer {
     // ═══════════════════════════════════════════════════════════════
     // RESIZE
     // ═══════════════════════════════════════════════════════════════
+    
+    /// 🚀 Memory pressure: release non-essential buffers
+    func trimMemory(level: Int = 1) {
+        if level >= 1 {
+            accumulatedVerts.removeAll(keepingCapacity: false)
+            allRawPoints.removeAll(keepingCapacity: false)
+        }
+        if level >= 2 {
+            accumulatedVerts = []
+            allRawPoints = []
+            totalAccumulatedPoints = 0
+            prevComputePointCount = 0
+        }
+    }
+    
+    /// 🚀 Adaptive LOD: set current zoom level for dynamic subdivision count
+    func setZoomLevel(_ zoom: Float) {
+        if zoom < 0.3 { dynamicSubsPerSeg = 4 }
+        else if zoom < 0.6 { dynamicSubsPerSeg = 6 }
+        else if zoom > 4.0 { dynamicSubsPerSeg = 16 }
+        else if zoom > 2.0 { dynamicSubsPerSeg = 12 }
+        else { dynamicSubsPerSeg = 8 }
+    }
     
     func resize(width: Int, height: Int) -> Bool {
         self.width = width
@@ -486,6 +649,7 @@ class MetalStrokeRenderer {
     
     func destroy() {
         isInitialized = false
+        computeAvailable = false
         accumulatedVerts.removeAll()
         renderTexture = nil
         msaaTexture = nil
@@ -493,6 +657,91 @@ class MetalStrokeRenderer {
         pixelBuffer = nil
         vertexBuffer = nil
         uniformBuffer = nil
+        computePipelineState = nil
+        computePointsBuffer = nil
+        computeParamsBuffer = nil
+        computeVertexBuffer = nil
+        computeCapBuffer = nil
+        computeCapCounterBuffer = nil
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🚀 GPU COMPUTE TESSELLATION
+    // ═══════════════════════════════════════════════════════════════
+    
+    /// Params struct matching stroke_compute.metal
+    private struct ComputeParams {
+        var colorR: Float = 0; var colorG: Float = 0
+        var colorB: Float = 0; var colorA: Float = 0
+        var strokeWidth: Float = 0
+        var pointCount: Int32 = 0; var brushType: Int32 = 0
+        var minPressure: Float = 0; var maxPressure: Float = 0
+        var pencilBaseOpacity: Float = 0; var pencilMaxOpacity: Float = 0
+        var subsPerSeg: Int32 = 0; var totalSubdivs: Int32 = 0
+        var fountainThinning: Float = 0; var fountainNibAngleRad: Float = 0
+        var fountainNibStrength: Float = 0
+        var startSeg: Int32 = 0; var vertexOffset: Int32 = 0
+    }
+    
+    private func setupComputePipeline() {
+        guard let library = try? device.makeDefaultLibrary(bundle: Bundle(for: MetalStrokeRenderer.self)),
+              let fn = library.makeFunction(name: "strokeComputeKernel") else {
+            NSLog("[FlueraMtl] Compute shader not found, using CPU tessellation")
+            return
+        }
+        
+        do {
+            computePipelineState = try device.makeComputePipelineState(function: fn)
+        } catch {
+            NSLog("[FlueraMtl] Compute pipeline failed: %@", error.localizedDescription)
+            return
+        }
+        
+        // Allocate buffers
+        let pointsSize = MetalStrokeRenderer.maxComputePoints * 5 * MemoryLayout<Float>.stride
+        computePointsBuffer = device.makeBuffer(length: pointsSize, options: .storageModeShared)
+        computeParamsBuffer = device.makeBuffer(length: MemoryLayout<ComputeParams>.stride, options: .storageModeShared)
+        
+        let maxSegs = MetalStrokeRenderer.maxComputePoints - 1
+        let vertOutSize = maxSegs * MetalStrokeRenderer.subsPerSeg * 6 * 6 * MemoryLayout<Float>.stride
+        computeVertexBuffer = device.makeBuffer(length: vertOutSize, options: .storageModeShared)
+        
+        let capSize = 2 * 16 * 3 * 6 * MemoryLayout<Float>.stride
+        computeCapBuffer = device.makeBuffer(length: capSize, options: .storageModeShared)
+        computeCapCounterBuffer = device.makeBuffer(length: MemoryLayout<Int32>.stride, options: .storageModeShared)
+        
+        computeAvailable = true
+        NSLog("[FlueraMtl] \u{1F680} Compute tessellation pipeline ready")
+        
+        // 🔥 Warm-up: dispatch dummy compute to pre-compile shader pipeline
+        if let cmdBuf = commandQueue.makeCommandBuffer(),
+           let encoder = cmdBuf.makeComputeCommandEncoder(),
+           let pipeline = computePipelineState {
+            // 2 dummy points (x,y,p,tx,ty × 2)
+            let dummyPoints: [Float] = [0,0,1,0,0, 1,1,1,0,0]
+            computePointsBuffer?.contents().copyMemory(
+                from: dummyPoints, byteCount: dummyPoints.count * MemoryLayout<Float>.stride)
+            
+            var params = ComputeParams()
+            params.pointCount = 2; params.brushType = 1; params.strokeWidth = 1
+            params.subsPerSeg = 8; params.totalSubdivs = 8
+            params.colorA = 1
+            computeParamsBuffer?.contents().copyMemory(
+                from: &params, byteCount: MemoryLayout<ComputeParams>.stride)
+            
+            encoder.setComputePipelineState(pipeline)
+            encoder.setBuffer(computePointsBuffer, offset: 0, index: 0)
+            encoder.setBuffer(computeVertexBuffer, offset: 0, index: 1)
+            encoder.setBuffer(computeParamsBuffer, offset: 0, index: 2)
+            encoder.setBuffer(computeCapCounterBuffer, offset: 0, index: 3)
+            encoder.setBuffer(computeCapBuffer, offset: 0, index: 4)
+            encoder.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1),
+                                         threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+            encoder.endEncoding()
+            cmdBuf.commit()
+            cmdBuf.waitUntilCompleted()
+            NSLog("[FlueraMtl] 🔥 Shader warm-up complete")
+        }
     }
     
     /// Get the CVPixelBuffer for Flutter texture sharing

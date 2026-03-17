@@ -149,6 +149,17 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
                     val floatArray = FloatArray(16) { matrix[it].toFloat() }
                     nativeSetTransform(floatArray)
                 }
+                // 🚀 Adaptive LOD: extract zoom level from args
+                val zoom = call.argument<Number>("zoomLevel")?.toFloat()
+                if (zoom != null) {
+                    nativeSetZoomLevel(zoom)
+                }
+                result.success(null)
+            }
+
+            "trimMemory" -> {
+                val level = call.argument<Number>("level")?.toInt() ?: 1
+                nativeTrimMemory(level)
                 result.success(null)
             }
 
@@ -228,4 +239,6 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
     private external fun nativeIsInitialized(): Boolean
     private external fun nativeGetStats(): FloatArray?
     private external fun nativeGetDeviceName(): String?
+    private external fun nativeSetZoomLevel(zoom: Float)
+    private external fun nativeTrimMemory(level: Int)
 }

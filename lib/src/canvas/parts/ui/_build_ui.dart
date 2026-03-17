@@ -483,25 +483,9 @@ extension on _FlueraCanvasScreenState {
               // 🧠 Conscious Architecture: debug overlay (debug builds only)
               // if (kDebugMode) const ConsciousDebugOverlay(),
 
-              // 🏎️ Performance Monitor: frame time overlay (debug + profile)
-              // 🚀 PERF: RepaintBoundary isolates the overlay's 500ms repaint
-              // from the rest of the Stack. Positioned must be OUTSIDE
-              // RepaintBoundary (it requires Stack as parent).
-              if (!kReleaseMode)
-                Positioned(
-                  top: 40,
-                  right: 10,
-                  child: ValueListenableBuilder<bool>(
-                    valueListenable: _isDrawingNotifier,
-                    builder: (_, isDrawing, child) => Offstage(
-                      offstage: isDrawing,
-                      child: child,
-                    ),
-                    child: RepaintBoundary(
-                      child: CanvasPerformanceMonitor.instance.buildDebugOverlay(),
-                    ),
-                  ),
-                ),
+              // 🏎️ Performance Monitor: now managed as a global OverlayEntry
+              // (see CanvasPerformanceMonitor.showGlobalOverlay) so it persists
+              // across Navigator routes (ImageViewer, PDF Reader, LaTeX, etc.).
             ],
           ),
         ),

@@ -1,0 +1,319 @@
+// ═══════════════════════════════════════════════════════════════════
+// stroke_compute.comp — GPU Compute Tessellation for Stroke Rendering
+//
+// Replaces CPU tessellation for: Ballpoint, Marker, Technical, Pencil
+// Fountain pen stays on CPU (deeply sequential pipeline).
+//
+// Single-dispatch design:
+//   Input:  Raw points SSBO (stride 5: x,y,pressure,tiltX,tiltY)
+//   Output: Triangle list SSBO (6 floats per vertex: x,y,r,g,b,a)
+//
+// Each thread processes one subdivision sample within a segment,
+// computing Catmull-Rom interpolation, tangent, perpendicular offset,
+// and outputting 6 vertices (2 triangles = 1 quad).
+//
+// Thread mapping: globalID = segment * SUBS_PER_SEG + subIndex
+// Output:         vertexOffset = globalID * 6
+// ═══════════════════════════════════════════════════════════════════
+
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// ─── Uniforms ─────────────────────────────────────────────────────
+layout(set = 0, binding = 0) uniform Params {
+  float colorR;
+  float colorG;
+  float colorB;
+  float colorA;
+  float strokeWidth;
+  int   pointCount;
+  int   brushType;       // 0=ballpoint, 1=marker, 2=pencil, 3=technical
+  float minPressure;
+  float maxPressure;
+  float pencilBaseOpacity;
+  float pencilMaxOpacity;
+  int   subsPerSeg;      // Subdivisions per segment (default 8)
+  int   totalSubdivs;    // Total threads = (pointCount-1) * subsPerSeg
+  float fountainThinning;
+  float fountainNibAngleRad;
+  float fountainNibStrength;
+  int   startSeg;        // Incremental: first segment to tessellate
+  int   vertexOffset;    // Incremental: output vertex offset
+};
+
+// ─── Input: Raw points (stride 5) ─────────────────────────────────
+layout(set = 0, binding = 1) readonly buffer PointsIn {
+  float points[];
+};
+
+// ─── Output: Vertices (stride 6: x,y,r,g,b,a), 6 per quad ────────
+layout(set = 0, binding = 2) writeonly buffer VerticesOut {
+  float verts[];
+};
+
+// ─── Output: Cap vertices (circles at endpoints) ──────────────────
+layout(set = 0, binding = 3) buffer CapCounter {
+  int capVertexCount;
+};
+
+layout(set = 0, binding = 4) writeonly buffer CapsOut {
+  float caps[];
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────
+
+float getX(int i) { return points[i * 5]; }
+float getY(int i) { return points[i * 5 + 1]; }
+float getP(int i) { return points[i * 5 + 2]; }
+
+// Catmull-Rom interpolation at parameter t within segment [P1,P2]
+// with neighbors P0, P3 for tangent estimation
+vec2 catmullRom(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
+  float t2 = t * t;
+  float t3 = t2 * t;
+  return 0.5 * ((2.0 * p1) +
+                (-p0 + p2) * t +
+                (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
+                (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
+}
+
+// Catmull-Rom tangent (derivative) at parameter t
+vec2 catmullRomTangent(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
+  float t2 = t * t;
+  return 0.5 * ((-p0 + p2) +
+                (4.0 * p0 - 10.0 * p1 + 8.0 * p2 - 2.0 * p3) * t +
+                (-3.0 * p0 + 9.0 * p1 - 9.0 * p2 + 3.0 * p3) * t2);
+}
+
+void writeVertex(int idx, float x, float y, float r, float g, float b, float a) {
+  int base = idx * 6;
+  verts[base]     = x;
+  verts[base + 1] = y;
+  verts[base + 2] = r;
+  verts[base + 3] = g;
+  verts[base + 4] = b;
+  verts[base + 5] = a;
+}
+
+void writeCapVertex(int idx, float x, float y, float r, float g, float b, float a) {
+  int base = idx * 6;
+  caps[base]     = x;
+  caps[base + 1] = y;
+  caps[base + 2] = r;
+  caps[base + 3] = g;
+  caps[base + 4] = b;
+  caps[base + 5] = a;
+}
+
+// ─── Compute half-width based on brush type ───────────────────────
+float computeHalfWidth(int brushType, float strokeWidth, float pressure,
+                       int globalPointIdx, int totalPts,
+                       float minP, float maxP,
+                       float pencilBaseOp, float pencilMaxOp,
+                       vec2 dir, float nibAngleRad, float nibStrength, float thinning) {
+  if (brushType == 0) {
+    float avg = minP + 0.5 * (maxP - minP);
+    return strokeWidth * avg * 0.5;
+  } else if (brushType == 1) {
+    return strokeWidth * 2.5 * 0.5;
+  } else if (brushType == 2) {
+    float hw = strokeWidth * 0.5 * (minP + pressure * (maxP - minP));
+    if (globalPointIdx < 4) {
+      float t = float(globalPointIdx) / 4.0;
+      float ease = t * (2.0 - t);
+      hw *= 0.15 + ease * 0.85;
+    }
+    return hw;
+  } else if (brushType == 4) {
+    // Fountain pen: nib angle modulates width based on stroke direction
+    float baseHW = strokeWidth * 0.5 * (0.4 + pressure * 0.6 * (1.0 - thinning));
+    float dirAngle = atan(dir.y, dir.x);
+    float angleDiff = abs(dirAngle - nibAngleRad);
+    float crossNib = abs(sin(angleDiff));
+    float nibFactor = mix(1.0, crossNib, nibStrength);
+    baseHW *= (0.4 + nibFactor * 0.6);
+    if (globalPointIdx < 6) {
+      float t = float(globalPointIdx) / 6.0;
+      baseHW *= 0.2 + t * 0.8;
+    }
+    return baseHW;
+  } else {
+    return strokeWidth * 0.5;
+  }
+}
+
+// Compute per-vertex alpha
+float computeAlpha(int brushType, float baseAlpha, float pressure,
+                   float pencilBaseOp, float pencilMaxOp) {
+  if (brushType == 2) {
+    // Pencil: pressure-based alpha
+    return baseAlpha * (pencilBaseOp + (pencilMaxOp - pencilBaseOp) * pressure);
+  }
+  return baseAlpha;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════
+
+// 🚀 LDS: Shared memory for Catmull-Rom control points.
+// Max segments per workgroup = 64/4 = 16 (when subsPerSeg=4).
+// Each segment needs 4 control points → up to 19 unique points.
+// Store x, y, pressure for each.
+shared vec3 s_points[20]; // vec3(x, y, pressure), max 20 unique point slots
+
+void main() {
+  int gid = int(gl_GlobalInvocationID.x);
+  if (gid >= totalSubdivs) return;
+
+  int lid = int(gl_LocalInvocationID.x);
+  int localSeg = gid / subsPerSeg;   // Local segment within dispatch
+  int sub = gid % subsPerSeg;         // Which subdivision within segment
+  int seg = localSeg + startSeg;      // Actual segment in point array
+  int N = pointCount;
+
+  if (seg >= N - 1) return;
+
+  // 🚀 LDS: Cooperatively load control points into shared memory.
+  // First thread in workgroup determines the range of segments this
+  // workgroup covers, then each thread loads one point if needed.
+  int wgFirstSeg = (int(gl_WorkGroupID.x) * 64) / subsPerSeg + startSeg;
+  int wgLastSeg = min(wgFirstSeg + (63 / subsPerSeg), N - 2);
+  int firstPt = max(wgFirstSeg - 1, 0);
+  int lastPt = min(wgLastSeg + 2, N - 1);
+  int numPts = lastPt - firstPt + 1;
+
+  // Each thread loads at most one point into shared memory
+  if (lid < numPts && lid < 20) {
+    int pi = firstPt + lid;
+    s_points[lid] = vec3(getX(pi), getY(pi), getP(pi));
+  }
+  barrier();
+
+  // ── Catmull-Rom control points from shared memory ────────
+  int i0 = max(seg - 1, 0) - firstPt;
+  int i1 = seg - firstPt;
+  int i2 = seg + 1 - firstPt;
+  int i3 = min(seg + 2, N - 1) - firstPt;
+
+  vec2 p0 = s_points[i0].xy;
+  vec2 p1 = s_points[i1].xy;
+  vec2 p2 = s_points[i2].xy;
+  vec2 p3 = s_points[i3].xy;
+
+  // ── Current sample position and tangent ──────────────────────
+  float t = float(sub) / float(subsPerSeg);
+  vec2 pos = catmullRom(p0, p1, p2, p3, t);
+  vec2 tan = catmullRomTangent(p0, p1, p2, p3, t);
+  float tanLen = length(tan);
+  if (tanLen < 0.0001) tan = vec2(1.0, 0.0);
+  else tan /= tanLen;
+
+  // ── Next sample position and tangent ─────────────────────────
+  float tNext;
+  vec2 posNext, tanNext;
+  if (sub < subsPerSeg - 1) {
+    tNext = float(sub + 1) / float(subsPerSeg);
+    posNext = catmullRom(p0, p1, p2, p3, tNext);
+    tanNext = catmullRomTangent(p0, p1, p2, p3, tNext);
+  } else {
+    // Last subdivision → next segment's first point
+    if (seg + 1 < N - 1) {
+      int j0 = max(seg, 0);
+      int j1 = seg + 1;
+      int j2 = min(seg + 2, N - 1);
+      int j3 = min(seg + 3, N - 1);
+      posNext = catmullRom(vec2(getX(j0), getY(j0)), vec2(getX(j1), getY(j1)),
+                           vec2(getX(j2), getY(j2)), vec2(getX(j3), getY(j3)), 0.0);
+      tanNext = catmullRomTangent(vec2(getX(j0), getY(j0)), vec2(getX(j1), getY(j1)),
+                                  vec2(getX(j2), getY(j2)), vec2(getX(j3), getY(j3)), 0.0);
+    } else {
+      posNext = p2;
+      tanNext = p2 - p1;
+    }
+  }
+  float tanNextLen = length(tanNext);
+  if (tanNextLen < 0.0001) tanNext = vec2(1.0, 0.0);
+  else tanNext /= tanNextLen;
+
+  // ── Perpendicular normals ────────────────────────────────────
+  vec2 perp     = vec2(-tan.y, tan.x);
+  vec2 perpNext = vec2(-tanNext.y, tanNext.x);
+
+  // ── Width and alpha ──────────────────────────────────────────
+  // Interpolate pressure between segment endpoints (🚀 from LDS)
+  float pressure     = mix(s_points[i1].z, s_points[i2].z, t);
+  float pressureNext = mix(s_points[i1].z, s_points[i2].z, sub < subsPerSeg - 1 ? tNext : 1.0);
+
+  // Approximate global point index for taper calculation
+  int globalIdx     = seg;
+  int globalIdxNext = seg + (sub == subsPerSeg - 1 ? 1 : 0);
+
+  float hw     = computeHalfWidth(brushType, strokeWidth, pressure,
+                                  globalIdx, N, minPressure, maxPressure,
+                                  pencilBaseOpacity, pencilMaxOpacity,
+                                  tan, fountainNibAngleRad, fountainNibStrength, fountainThinning);
+  float hwNext = computeHalfWidth(brushType, strokeWidth, pressureNext,
+                                  globalIdxNext, N, minPressure, maxPressure,
+                                  pencilBaseOpacity, pencilMaxOpacity,
+                                  tanNext, fountainNibAngleRad, fountainNibStrength, fountainThinning);
+
+  float alpha     = computeAlpha(brushType, colorA, pressure, pencilBaseOpacity, pencilMaxOpacity);
+  float alphaNext = computeAlpha(brushType, colorA, pressureNext, pencilBaseOpacity, pencilMaxOpacity);
+
+  // ── Generate quad (2 triangles, 6 vertices) ──────────────────
+  // 🚀 #9: Miter limit — prevent spike artifacts at sharp turns (>60°)
+  float turnDot = dot(tan, tanNext);
+  if (turnDot < 0.5) {
+    // Sharp turn: scale down width at junction to prevent spike
+    float miterScale = smoothstep(0.0, 0.5, turnDot);
+    hwNext *= max(miterScale, 0.3); // Never thinner than 30% at sharp turns
+  }
+
+  vec2 left     = pos     + perp     * hw;
+  vec2 right    = pos     - perp     * hw;
+  vec2 leftN    = posNext + perpNext * hwNext;
+  vec2 rightN   = posNext - perpNext * hwNext;
+
+  int outBase = (gid + vertexOffset) * 6;
+
+  // Triangle 1: left, right, leftNext
+  writeVertex(outBase,     left.x,   left.y,   colorR, colorG, colorB, alpha);
+  writeVertex(outBase + 1, right.x,  right.y,  colorR, colorG, colorB, alpha);
+  writeVertex(outBase + 2, leftN.x,  leftN.y,  colorR, colorG, colorB, alphaNext);
+
+  // Triangle 2: right, leftNext, rightNext
+  writeVertex(outBase + 3, right.x,  right.y,  colorR, colorG, colorB, alpha);
+  writeVertex(outBase + 4, leftN.x,  leftN.y,  colorR, colorG, colorB, alphaNext);
+  writeVertex(outBase + 5, rightN.x, rightN.y, colorR, colorG, colorB, alphaNext);
+
+  // ── Endpoint caps (only thread 0 and last thread) ────────────
+  if (gid == 0 && (brushType == 0 || brushType == 3)) {
+    // Start cap: circle fan — 🚀 Adaptive: scale with LOD
+    int segments = clamp(subsPerSeg, 4, 16);
+    int baseIdx = atomicAdd(capVertexCount, segments * 3);
+    float capR = hw;
+    for (int s = 0; s < segments; s++) {
+      float a0 = 6.28318530718 * float(s) / float(segments);
+      float a1 = 6.28318530718 * float(s + 1) / float(segments);
+      writeCapVertex(baseIdx + s * 3,     pos.x, pos.y, colorR, colorG, colorB, alpha);
+      writeCapVertex(baseIdx + s * 3 + 1, pos.x + capR * cos(a0), pos.y + capR * sin(a0), colorR, colorG, colorB, alpha);
+      writeCapVertex(baseIdx + s * 3 + 2, pos.x + capR * cos(a1), pos.y + capR * sin(a1), colorR, colorG, colorB, alpha);
+    }
+  }
+
+  if (gid == totalSubdivs - 1 && (brushType == 0 || brushType == 3)) {
+    // End cap: circle fan — 🚀 Adaptive: scale with LOD
+    int segments = clamp(subsPerSeg, 4, 16);
+    int baseIdx = atomicAdd(capVertexCount, segments * 3);
+    float capR = hwNext;
+    for (int s = 0; s < segments; s++) {
+      float a0 = 6.28318530718 * float(s) / float(segments);
+      float a1 = 6.28318530718 * float(s + 1) / float(segments);
+      writeCapVertex(baseIdx + s * 3,     posNext.x, posNext.y, colorR, colorG, colorB, alphaNext);
+      writeCapVertex(baseIdx + s * 3 + 1, posNext.x + capR * cos(a0), posNext.y + capR * sin(a0), colorR, colorG, colorB, alphaNext);
+      writeCapVertex(baseIdx + s * 3 + 2, posNext.x + capR * cos(a1), posNext.y + capR * sin(a1), colorR, colorG, colorB, alphaNext);
+    }
+  }
+}

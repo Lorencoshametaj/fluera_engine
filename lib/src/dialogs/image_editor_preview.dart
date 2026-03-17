@@ -53,6 +53,7 @@ class PreviewPainter extends CustomPainter {
   final double grainSize;
   final Rect? cropRect;
   final List<ProStroke> drawingStrokes;
+  final double imageScale;
 
   PreviewPainter({
     required this.image,
@@ -117,6 +118,7 @@ class PreviewPainter extends CustomPainter {
     this.perspectiveY = 0,
     this.cropRect,
     this.drawingStrokes = const [],
+    this.imageScale = 1.0,
   });
 
   @override
@@ -395,30 +397,36 @@ class PreviewPainter extends CustomPainter {
       }
     }
 
-    // Drawing strokes
+    // Drawing strokes (image-local coords: offset from image center in canvas-space)
     if (drawingStrokes.isNotEmpty) {
       canvas.save();
-      canvas.scale(scale);
+      // Strokes are in canvas-space: point.position = offset from center × imageScale.
+      // The fit-scale maps image-pixel coords to screen. So stroke coords need
+      // scale / imageScale to map correctly.
+      final strokeScale = scale / imageScale;
+      canvas.clipRect(dstRect);
 
       for (final stroke in drawingStrokes) {
-        if (stroke.points.isEmpty) continue;
+        if (stroke.points.length < 2) continue;
+        final scaleRatio = imageScale / stroke.referenceScale;
 
         final strokePaint =
             Paint()
               ..color = stroke.color
-              ..strokeWidth = stroke.baseWidth
+              ..strokeWidth = stroke.baseWidth * scaleRatio * strokeScale
               ..strokeCap = StrokeCap.round
               ..strokeJoin = StrokeJoin.round
               ..style = PaintingStyle.stroke;
 
         final path = Path();
-        bool isFirst = true;
-        for (final point in stroke.points) {
-          if (isFirst) {
-            path.moveTo(point.position.dx, point.position.dy);
-            isFirst = false;
+        for (int i = 0; i < stroke.points.length; i++) {
+          final pt = stroke.points[i];
+          final vx = pt.position.dx * scaleRatio * strokeScale;
+          final vy = pt.position.dy * scaleRatio * strokeScale;
+          if (i == 0) {
+            path.moveTo(vx, vy);
           } else {
-            path.lineTo(point.position.dx, point.position.dy);
+            path.lineTo(vx, vy);
           }
         }
         canvas.drawPath(path, strokePaint);

@@ -1030,6 +1030,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                       grainSize: _showOriginal ? 1.0 : _grainSize,
                       cropRect: _showOriginal ? null : _cropRect,
                       drawingStrokes: widget.imageElement.drawingStrokes,
+                      imageScale: widget.imageElement.scale,
                     ),
                     child: const SizedBox.expand(),
                   ),

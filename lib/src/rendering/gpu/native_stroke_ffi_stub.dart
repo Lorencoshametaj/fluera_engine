@@ -30,6 +30,7 @@ class NativeStrokeFfi {
     double fountainNibStrength = 0.35,
     double fountainPressureRate = 0.275,
     int fountainTaperEntry = 6,
+    double zoomScale = 1.0,
   }) {}
 
   void setTransform(
@@ -42,4 +43,25 @@ class NativeStrokeFfi {
   void clear() {}
 
   void dispose() {}
+
+  // 🚀 Ring buffer stubs (no-op on web)
+  bool updateAndRenderIncremental(
+    List<ProDrawingPoint> points,
+    ui.Color color,
+    double strokeWidth,
+    int totalPoints, {
+    int brushType = 0,
+    double pencilBaseOpacity = 0.4,
+    double pencilMaxOpacity = 0.8,
+    double pencilMinPressure = 0.5,
+    double pencilMaxPressure = 1.2,
+    double fountainThinning = 0.5,
+    double fountainNibAngleDeg = 30.0,
+    double fountainNibStrength = 0.35,
+    double fountainPressureRate = 0.275,
+    int fountainTaperEntry = 6,
+    double zoomScale = 1.0,
+  }) => false;
+
+  void resetRing() {}
 }

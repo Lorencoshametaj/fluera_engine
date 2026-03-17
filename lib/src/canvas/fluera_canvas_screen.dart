@@ -1847,6 +1847,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // ⚡ Shrink stub margins under memory pressure
     _imageStubManager.onMemoryPressure(MemoryPressureLevel.critical);
 
+    // 🚀 GPU: Trim native stroke overlay buffers under memory pressure
+    _vulkanStrokeOverlay.onMemoryPressure(MemoryPressureLevel.critical);
+
     if (evicted > 0) {
       ImagePainter.invalidateCache();
       if (mounted) setState(() => _imageVersion++);
@@ -1892,6 +1895,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   @override
   void dispose() {
+    // 🏎️ PERF MONITOR: Remove global overlay before disposing
+    CanvasPerformanceMonitor.instance.removeGlobalOverlay();
     // 🔥 VULKAN: Release native GPU overlay resources
     _vulkanStrokeOverlay.dispose();
     // 🌊 REFLOW: Release animated reflow controller

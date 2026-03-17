@@ -131,6 +131,15 @@ public class MetalStrokeOverlayPlugin: NSObject, FlutterPlugin, FlutterTexture {
                 return
             }
             renderer?.setTransform(matrixList.map { Float($0) })
+            // 🚀 Adaptive LOD: extract zoom level from args
+            if let zoom = args["zoomLevel"] as? Double {
+                renderer?.setZoomLevel(Float(zoom))
+            }
+            result(nil)
+            
+        case "trimMemory":
+            let level = (call.arguments as? [String: Any])?["level"] as? Int ?? 1
+            renderer?.trimMemory(level: level)
             result(nil)
             
         case "clear":

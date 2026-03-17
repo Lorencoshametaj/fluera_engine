@@ -637,6 +637,12 @@ class ImagePainter extends CustomPainter {
       if (imageElement.rotation != 0) {
         canvas.rotate(imageElement.rotation);
       }
+      // ✂️ Clip strokes to image bounds so ink doesn't bleed past the edge
+      final clipW = originalW * imageElement.scale;
+      final clipH = originalH * imageElement.scale;
+      canvas.clipRect(
+        Rect.fromCenter(center: Offset.zero, width: clipW, height: clipH),
+      );
       for (final stroke in imageElement.drawingStrokes) {
         final scaleRatio = imageElement.scale / stroke.referenceScale;
         if (scaleRatio != 1.0) {
@@ -855,6 +861,12 @@ class ImagePainter extends CustomPainter {
       if (imageElement.rotation != 0) {
         canvas.rotate(imageElement.rotation);
       }
+      // ✂️ Clip strokes to image bounds so ink doesn't bleed past the edge
+      final clipW = originalW * imageElement.scale;
+      final clipH = originalH * imageElement.scale;
+      canvas.clipRect(
+        Rect.fromCenter(center: Offset.zero, width: clipW, height: clipH),
+      );
       for (final stroke in imageElement.drawingStrokes) {
         final scaleRatio = imageElement.scale / stroke.referenceScale;
         if (scaleRatio != 1.0) {

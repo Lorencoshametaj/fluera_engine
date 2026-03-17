@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show ValueChanged;
 
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/digital_text_element.dart';
@@ -114,7 +114,7 @@ class HandwritingIndexService {
 
     await _createTables();
     _initialized = true;
-    debugPrint('🔍 [HandwritingIndex] Initialized');
+
   }
 
   /// Create the index tables if they don't exist.
@@ -342,8 +342,7 @@ class HandwritingIndexService {
               now,
             );
           }
-        } catch (e) {
-          debugPrint('🔍 [HandwritingIndex] Failed to index group: $e');
+        } catch (_) {
         }
 
         // 🚀 ANR FIX: Yield to UI thread between recognitions.
@@ -351,8 +350,6 @@ class HandwritingIndexService {
       }
 
       if (indexed > 0) {
-        debugPrint('🔍 [HandwritingIndex] Indexed $indexed strokes '
-            '(${_queue.length} remaining)');
         _vocabCache = null; // Invalidate fuzzy cache
         _indexChangedController.add(null);
       }
@@ -361,8 +358,7 @@ class HandwritingIndexService {
       if (_queue.isNotEmpty) {
         _batchTimer = Timer(const Duration(milliseconds: 200), _processBatch);
       }
-    } catch (e) {
-      debugPrint('🔍 [HandwritingIndex] Batch processing error: $e');
+    } catch (_) {
     } finally {
       _isProcessing = false;
     }
@@ -509,8 +505,7 @@ class HandwritingIndexService {
     if (reText == null || reText.trim().isEmpty) return;
     if (reText.trim() == currentText) return; // No improvement
 
-    debugPrint('🔍 [HandwritingIndex] Re-recognized with neighbors: '
-        '"$currentText" → "${reText.trim()}"');
+
 
     // Update all entries (neighbors + new group) with the improved text
     var mergedBounds = combinedBounds;
@@ -595,8 +590,7 @@ class HandwritingIndexService {
             'indexed_at': now,
           });
         }
-      } catch (e) {
-        debugPrint('🔍 [HandwritingIndex] Reindex failed for ${stroke.id}: $e');
+      } catch (_) {
       }
 
       processed++;
@@ -608,7 +602,7 @@ class HandwritingIndexService {
       }
     }
 
-    debugPrint('🔍 [HandwritingIndex] Reindexed $processed strokes for $canvasId');
+
     _indexChangedController.add(null);
   }
 
@@ -713,8 +707,7 @@ class HandwritingIndexService {
       // 🔍 Post-filter for case-sensitive / whole-word mode
       return _postFilter(deduped, query,
           caseSensitive: caseSensitive, wholeWord: wholeWord);
-    } catch (e) {
-      debugPrint('🔍 [HandwritingIndex] Search error: $e');
+    } catch (_) {
       return const [];
     }
   }
@@ -881,8 +874,7 @@ class HandwritingIndexService {
           score: 2.0, // Lower priority than exact
         );
       }).toList();
-    } catch (e) {
-      debugPrint('🔍 [HandwritingIndex] Levenshtein search error: $e');
+    } catch (_) {
       return [];
     }
   }
@@ -1052,8 +1044,7 @@ class HandwritingIndexService {
       final deduped = _deduplicateResults(results);
       return _postFilter(deduped, query,
           caseSensitive: caseSensitive, wholeWord: wholeWord);
-    } catch (e) {
-      debugPrint('🔍 [HandwritingIndex] Fuzzy search error: $e');
+    } catch (_) {
       return const [];
     }
   }
@@ -1103,8 +1094,7 @@ class HandwritingIndexService {
           .map((r) => r['recognized_text'] as String)
           .where((t) => t.trim().isNotEmpty)
           .toList();
-    } catch (e) {
-      debugPrint('🔍 [HandwritingIndex] Suggestions error: $e');
+    } catch (_) {
       return const [];
     }
   }
@@ -1153,8 +1143,7 @@ class HandwritingIndexService {
         results.addAll(rows.map((r) => r['recognized_text'] as String));
       }
       return results.join(' ');
-    } catch (e) {
-      debugPrint('🔍 [HandwritingIndex] getTextForStrokes error: $e');
+    } catch (_) {
       return '';
     }
   }
@@ -1224,13 +1213,9 @@ class HandwritingIndexService {
         }
       }
       if (removed > 0) {
-        debugPrint(
-          '🔍 [HandwritingIndex] Reconciled: removed $removed orphaned entries',
-        );
         _indexChangedController.add(null);
       }
-    } catch (e) {
-      debugPrint('🔍 [HandwritingIndex] Reconcile error: $e');
+    } catch (_) {
     }
   }
 

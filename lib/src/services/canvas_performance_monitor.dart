@@ -89,6 +89,40 @@ class CanvasPerformanceMonitor {
   /// Call from _onDrawEnd to resume overlay refreshes.
   void notifyDrawingEnded() => _isDrawing = false;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Global Overlay (persists across Navigator routes)
+  // ═══════════════════════════════════════════════════════════════════
+
+  OverlayEntry? _globalOverlayEntry;
+
+  /// Insert the performance overlay into the root Overlay so it stays
+  /// visible across all Navigator routes (ImageViewer, PDF Reader, etc.).
+  ///
+  /// Safe to call multiple times — no-ops if already inserted.
+  void showGlobalOverlay(BuildContext context) {
+    if (_globalOverlayEntry != null) return; // already showing
+    final overlayState = Overlay.of(context, rootOverlay: true);
+    _globalOverlayEntry = OverlayEntry(
+      builder: (_) => Positioned(
+        top: 40,
+        right: 10,
+        child: Material(
+          type: MaterialType.transparency,
+          child: RepaintBoundary(
+            child: buildDebugOverlay(),
+          ),
+        ),
+      ),
+    );
+    overlayState.insert(_globalOverlayEntry!);
+  }
+
+  /// Remove the global overlay entry (e.g. when leaving the canvas).
+  void removeGlobalOverlay() {
+    _globalOverlayEntry?.remove();
+    _globalOverlayEntry = null;
+  }
+
   /// Enable/disable monitoring.
   void setEnabled(bool enabled) {
     _isEnabled = enabled;
@@ -96,6 +130,7 @@ class CanvasPerformanceMonitor {
       _registerTimingsCallback();
     } else {
       _unregisterTimingsCallback();
+      removeGlobalOverlay();
       reset();
     }
   }

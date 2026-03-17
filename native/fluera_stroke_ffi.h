@@ -55,6 +55,7 @@ extern "C" {
 #define FLUERA_FFI_FOUNTAIN_STR  15
 #define FLUERA_FFI_FOUNTAIN_RATE 16
 #define FLUERA_FFI_FOUNTAIN_TAPER 17
+#define FLUERA_FFI_ZOOM_SCALE    18  // Canvas zoom level for LOD
 #define FLUERA_FFI_HEADER_SIZE   20
 #define FLUERA_FFI_TRANSFORM     20  // 16 floats at [20..35]
 #define FLUERA_FFI_POINTS        36  // stride 5 starting at [36]

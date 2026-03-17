@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+
 import '../drawing/models/pro_drawing_point.dart';
 import 'ink_recognition_engine.dart';
 import 'mlkit_ink_engine.dart';
@@ -119,25 +119,17 @@ class DigitalInkService {
     // Check if we have the detected language model downloaded
     final hasModel = await _engine.isModelDownloaded(detected);
     if (!hasModel) {
-      debugPrint(
-        '✍️ [DigitalInk] Auto-detect: "$detected" model not downloaded, '
-        'keeping "${_engine.languageCode}"',
-      );
+
       return (text: text, languageCode: _engine.languageCode);
     }
 
     // Re-recognize with detected language
-    debugPrint(
-      '✍️ [DigitalInk] Auto-detect: switching "${_engine.languageCode}" → "$detected"',
-    );
+
     final prevLang = _engine.languageCode;
     await _engine.switchLanguage(detected);
     final reText = await _engine.recognizeStroke(points);
 
     if (reText != null && reText.trim().isNotEmpty) {
-      debugPrint(
-        '✍️ [DigitalInk] Auto-detect re-recognized: "$text" → "$reText"',
-      );
       return (text: reText, languageCode: detected);
     }
 
@@ -175,9 +167,6 @@ class DigitalInkService {
     final reText = await _engine.recognizeMultiStroke(strokeSets);
 
     if (reText != null && reText.trim().isNotEmpty) {
-      debugPrint(
-        '✍️ [DigitalInk] Auto-detect multi-stroke: "$text" → "$reText"',
-      );
       return (text: reText, languageCode: detected);
     }
 

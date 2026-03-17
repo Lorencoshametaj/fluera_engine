@@ -1,5 +1,5 @@
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_recognition.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import 'ink_recognition_engine.dart';
@@ -54,16 +54,13 @@ class MlKitInkEngine extends InkRecognitionEngine {
 
       final isDownloaded = await _modelManager.isModelDownloaded(languageCode);
       if (!isDownloaded) {
-        debugPrint('✍️ [MlKitInk] Downloading model for "$languageCode"...');
         await _modelManager.downloadModel(languageCode);
-        debugPrint('✍️ [MlKitInk] Model downloaded successfully.');
       }
 
       _recognizer?.close();
       _recognizer = DigitalInkRecognizer(languageCode: languageCode);
       _modelReady = true;
-    } catch (e) {
-      debugPrint('✍️ [MlKitInk] Init failed: $e');
+    } catch (_) {
       _modelReady = false;
     } finally {
       _initializing = false;
@@ -99,14 +96,8 @@ class MlKitInkEngine extends InkRecognitionEngine {
       if (candidates.isEmpty) return null;
 
       final best = candidates.first.text;
-      debugPrint(
-        '✍️ [MlKitInk] Recognized: "$best" '
-        '(${candidates.length} candidates, '
-        '${points.length} points)',
-      );
       return best;
-    } catch (e) {
-      debugPrint('✍️ [MlKitInk] Recognition error: $e');
+    } catch (_) {
       return null;
     }
   }
@@ -142,13 +133,8 @@ class MlKitInkEngine extends InkRecognitionEngine {
       if (candidates.isEmpty) return null;
 
       final best = candidates.first.text;
-      debugPrint(
-        '✍️ [MlKitInk] Multi-stroke recognized: "$best" '
-        '(${mlStrokes.length} strokes, $totalPoints points)',
-      );
       return best;
-    } catch (e) {
-      debugPrint('✍️ [MlKitInk] Multi-stroke recognition error: $e');
+    } catch (_) {
       return null;
     }
   }
@@ -173,8 +159,7 @@ class MlKitInkEngine extends InkRecognitionEngine {
     if (!isAvailable) return false;
     try {
       return await _modelManager.isModelDownloaded(languageCode);
-    } catch (e) {
-      debugPrint('✍️ [MlKitInk] Check model error: $e');
+    } catch (_) {
       return false;
     }
   }
@@ -183,12 +168,9 @@ class MlKitInkEngine extends InkRecognitionEngine {
   Future<bool> downloadLanguage(String languageCode) async {
     if (!isAvailable) return false;
     try {
-      debugPrint('✍️ [MlKitInk] Downloading "$languageCode"...');
       await _modelManager.downloadModel(languageCode);
-      debugPrint('✍️ [MlKitInk] "$languageCode" downloaded.');
       return true;
-    } catch (e) {
-      debugPrint('✍️ [MlKitInk] Download failed for "$languageCode": $e');
+    } catch (_) {
       return false;
     }
   }
@@ -201,8 +183,7 @@ class MlKitInkEngine extends InkRecognitionEngine {
       if (languageCode == _languageCode) {
         _modelReady = false;
       }
-    } catch (e) {
-      debugPrint('✍️ [MlKitInk] Delete model error: $e');
+    } catch (_) {
     }
   }
 

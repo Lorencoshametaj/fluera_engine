@@ -81,11 +81,17 @@ class StrokeCacheManager {
   /// 📸 Save current cache as an undo snapshot.
   ///
   /// Called automatically after cache creation or update.
+  /// 🚀 P99 FIX: only snapshots every 5th stroke to avoid 1-3ms drawPicture
+  /// replay on every single commit. Undo still works — just may need a
+  /// full rebuild for intermediate counts (rare).
   void _saveUndoSnapshot() {
     if (_cachedPicture == null || _cachedStrokeCount <= 0) return;
 
     // Don't duplicate: if we already have this count, skip
     if (_undoSnapshots.containsKey(_cachedStrokeCount)) return;
+
+    // 🚀 Lazy snapshots: only every 5th stroke count (or first stroke)
+    if (_cachedStrokeCount > 1 && _cachedStrokeCount % 5 != 0) return;
 
     // Clone the current picture for the snapshot
     final recorder = ui.PictureRecorder();

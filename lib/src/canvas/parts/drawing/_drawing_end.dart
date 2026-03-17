@@ -847,17 +847,7 @@ extension on _FlueraCanvasScreenState {
         if (currentInside.isNotEmpty) insideSegments.add(currentInside);
         if (currentOutside.isNotEmpty) outsideSegments.add(currentOutside);
 
-        // 🐛 DEBUG: Trace stroke splitting behavior (profile-safe — no toString)
-        final _fp = stroke.points.first.position;
-        final _lp = stroke.points.last.position;
-        debugPrint('[IMAGE CLIP] rect=LTRB(${targetImageRect.left.toStringAsFixed(0)},${targetImageRect.top.toStringAsFixed(0)},${targetImageRect.right.toStringAsFixed(0)},${targetImageRect.bottom.toStringAsFixed(0)}) '
-            'first=(${_fp.dx.toStringAsFixed(0)},${_fp.dy.toStringAsFixed(0)}) '
-            'last=(${_lp.dx.toStringAsFixed(0)},${_lp.dy.toStringAsFixed(0)}) '
-            'total=${stroke.points.length} '
-            'insideSegs=${insideSegments.length}[${insideSegments.map((s) => s.length).join(",")}] '
-            'outsideSegs=${outsideSegments.length}[${outsideSegments.map((s) => s.length).join(",")}]');
-
-        // ── Add inside segments to image ──
+        // ── Add inside segments to image (outside segments discarded) ──
         final newDrawingStrokes = [..._imageElements[idx].drawingStrokes];
         for (final seg in insideSegments) {
           if (seg.length < 2) continue;
@@ -886,26 +876,6 @@ extension on _FlueraCanvasScreenState {
         _rebuildImageSpatialIndex();
         _imageRepaintNotifier.value++;
         _broadcastImageUpdate(updated);
-
-        // ── Add outside segments to regular canvas ──
-        for (final seg in outsideSegments) {
-          if (seg.length < 2) continue;
-          final outsideStroke = stroke.copyWith(
-            id: generateUid(),
-            points: seg,
-          );
-          _layerController.addStroke(outsideStroke);
-          DrawingPainter.invalidateTilesForStroke(outsideStroke);
-          _broadcastStrokeAdded(outsideStroke);
-          if (outsideStroke.points.length >= 5) {
-            HandwritingIndexService.instance.enqueueStroke(
-              _canvasId,
-              outsideStroke.id,
-              outsideStroke.points,
-              outsideStroke.bounds,
-            );
-          }
-        }
       }
     } else {
       // Regular canvas stroke

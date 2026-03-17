@@ -12,12 +12,25 @@
 #include <cstring>
 #include <vector>
 
+#include "simd_math.h"
+
 struct StrokeVertex {
   float x, y;
   float r, g, b, a;
 };
 
 namespace stroke {
+
+// ─── LOD: Zoom-aware sample step for adaptive vertex density ────
+// At scale >= 1.0: 1.5px (full quality, ~8 vertices per segment)
+// At scale  0.5 : 3.0px (half vertices, invisible at this zoom)
+// At scale  0.25: 6.0px (quarter vertices)
+// Cap: 8px max to preserve gross shape at extreme zoom-out.
+inline float lodSampleStep(float zoomScale) {
+  if (zoomScale >= 1.0f) return 1.5f;
+  float step = 1.5f / std::max(zoomScale, 0.1f);
+  return std::min(step, 8.0f);
+}
 
 // Forward declaration (defined below, called by tessellateStroke)
 inline void generateCircle(float cx, float cy, float radius, float r,
@@ -49,18 +62,16 @@ inline void tessellateStroke(const float *points, int pointCount,
 
   // ─── Pass 2: Smooth positions (2-pass bi-directional EMA) ─────
   // Eliminates digitizer noise that causes sawtooth at quad edges.
+  // 🚀 SIMD: interleave X/Y into pairs for vectorized EMA
   if (n >= 4) {
-    const double alpha = 0.25;
+    const float alpha = 0.25f;
+    std::vector<float> xy(n * 2);
+    for (int i = 0; i < n; i++) { xy[i*2] = px[i]; xy[i*2+1] = py[i]; }
     for (int pass = 0; pass < 2; pass++) {
-      for (int i = 1; i < n - 1; i++) {
-        px[i] = px[i - 1] * alpha + px[i] * (1.0 - alpha);
-        py[i] = py[i - 1] * alpha + py[i] * (1.0 - alpha);
-      }
-      for (int i = n - 2; i > 0; i--) {
-        px[i] = px[i + 1] * alpha + px[i] * (1.0 - alpha);
-        py[i] = py[i + 1] * alpha + py[i] * (1.0 - alpha);
-      }
+      simd::emaForward2(xy.data() + 2, n - 2, alpha); // skip first/last
+      simd::emaBackward2(xy.data() + 2, n - 2, alpha);
     }
+    for (int i = 0; i < n; i++) { px[i] = xy[i*2]; py[i] = xy[i*2+1]; }
   }
   // ─── Pass 4: Catmull-Rom dense sampling of smoothed centerline ───
   // Instead of building quads from sparse smoothed points (visible segments
@@ -266,11 +277,11 @@ inline void tessellateMarker(const float *points, int pointCount,
   int denseCount = (int)dense.size();
   if (denseCount < 2) return;
 
-  // ── Step 3: Compute perpendicular offsets on dense spline samples ──
-  // With ~1.5px spacing, the perpendicular direction changes very gradually
-  // between samples → smooth outer border, no saw-tooth.
+  // ── Step 3: 🚀 SIMD perpendicular offsets on dense spline samples ──
   std::vector<Vec2> leftPts(denseCount), rightPts(denseCount);
 
+  // Pre-compute tangent normals
+  std::vector<float> normX(denseCount), normY(denseCount), halfWArr(denseCount, halfW);
   for (int i = 0; i < denseCount; i++) {
     float tx = 0, ty = 0;
     if (i > 0) { tx += dense[i].x - dense[i-1].x; ty += dense[i].y - dense[i-1].y; }
@@ -278,9 +289,33 @@ inline void tessellateMarker(const float *points, int pointCount,
     float tLen = std::sqrt(tx * tx + ty * ty);
     if (tLen < 0.0001f) { tx = 1; ty = 0; tLen = 1; }
     tx /= tLen; ty /= tLen;
-    float perpX = -ty, perpY = tx;
-    leftPts[i] = {dense[i].x + perpX * halfW, dense[i].y + perpY * halfW};
-    rightPts[i] = {dense[i].x - perpX * halfW, dense[i].y - perpY * halfW};
+    normX[i] = -ty; normY[i] = tx; // perpendicular
+  }
+
+  // 🚀 Batch 4-wide perpendicular offsets via SIMD
+  std::vector<float> denseX(denseCount), denseY(denseCount);
+  std::vector<float> lxArr(denseCount), lyArr(denseCount), rxArr(denseCount), ryArr(denseCount);
+  for (int i = 0; i < denseCount; i++) { denseX[i] = dense[i].x; denseY[i] = dense[i].y; }
+
+  int i = 0;
+  for (; i + 3 < denseCount; i += 4) {
+    simd::perpOffset4(denseX.data() + i, denseY.data() + i,
+                      normX.data() + i, normY.data() + i,
+                      halfWArr.data() + i,
+                      lxArr.data() + i, lyArr.data() + i,
+                      rxArr.data() + i, ryArr.data() + i);
+  }
+  // Scalar remainder
+  for (; i < denseCount; i++) {
+    lxArr[i] = denseX[i] + normX[i] * halfW;
+    lyArr[i] = denseY[i] + normY[i] * halfW;
+    rxArr[i] = denseX[i] - normX[i] * halfW;
+    ryArr[i] = denseY[i] - normY[i] * halfW;
+  }
+
+  for (int i = 0; i < denseCount; i++) {
+    leftPts[i] = {lxArr[i], lyArr[i]};
+    rightPts[i] = {rxArr[i], ryArr[i]};
   }
 
   // ── Step 4: Triangle strip ──
@@ -717,15 +752,37 @@ inline void tessellateFountainPen(
     else { tanX[i] = 1; tanY[i] = 0; }
   }
 
-  // ── Outline generation (left/right from tangent normals) ──────
+  // ── 🚀 SIMD Outline generation (left/right from tangent normals) ───
   std::vector<double> leftX(n), leftY(n), rightX(n), rightY(n);
-  for (int i = 0; i < n; i++) {
-    double halfW = widths[i] * 0.5;
-    double nx = -tanY[i], ny = tanX[i];
-    leftX[i] = px[i] + nx * halfW;
-    leftY[i] = py[i] + ny * halfW;
-    rightX[i] = px[i] - nx * halfW;
-    rightY[i] = py[i] - ny * halfW;
+  {
+    // Prepare float arrays for SIMD batch processing
+    std::vector<float> fPx(n), fPy(n), fNx(n), fNy(n), fHw(n);
+    std::vector<float> fLx(n), fLy(n), fRx(n), fRy(n);
+    for (int i = 0; i < n; i++) {
+      fPx[i] = (float)px[i]; fPy[i] = (float)py[i];
+      fNx[i] = (float)(-tanY[i]); fNy[i] = (float)tanX[i];
+      fHw[i] = (float)(widths[i] * 0.5);
+    }
+    // SIMD batch: 4 points at a time
+    int si = 0;
+    for (; si + 3 < n; si += 4) {
+      simd::perpOffset4(fPx.data() + si, fPy.data() + si,
+                        fNx.data() + si, fNy.data() + si,
+                        fHw.data() + si,
+                        fLx.data() + si, fLy.data() + si,
+                        fRx.data() + si, fRy.data() + si);
+    }
+    // Scalar remainder
+    for (; si < n; si++) {
+      fLx[si] = fPx[si] + fNx[si] * fHw[si];
+      fLy[si] = fPy[si] + fNy[si] * fHw[si];
+      fRx[si] = fPx[si] - fNx[si] * fHw[si];
+      fRy[si] = fPy[si] - fNy[si] * fHw[si];
+    }
+    for (int i = 0; i < n; i++) {
+      leftX[i] = fLx[i]; leftY[i] = fLy[i];
+      rightX[i] = fRx[i]; rightY[i] = fRy[i];
+    }
   }
 
   // ── Outline smoothing (bi-directional) ────────────────────────
@@ -751,21 +808,46 @@ inline void tessellateFountainPen(
     }
   }
 
-  // ── Chaikin corner-cutting subdivision (1 iteration) ──────────
+  // ── 🚀 SIMD Chaikin corner-cutting subdivision (1 iteration) ─────
   {
     int outLen = 2 * (n - 1) + 2;
     std::vector<double> cLX(outLen), cLY(outLen), cRX(outLen), cRY(outLen);
     int ci = 0;
     cLX[ci] = leftX[0]; cLY[ci] = leftY[0]; cRX[ci] = rightX[0]; cRY[ci] = rightY[0]; ci++;
-    for (int i = 0; i < n - 1; i++) {
-      cLX[ci] = leftX[i] * 0.75 + leftX[i + 1] * 0.25;
-      cLY[ci] = leftY[i] * 0.75 + leftY[i + 1] * 0.25;
-      cRX[ci] = rightX[i] * 0.75 + rightX[i + 1] * 0.25;
-      cRY[ci] = rightY[i] * 0.75 + rightY[i + 1] * 0.25; ci++;
-      cLX[ci] = leftX[i] * 0.25 + leftX[i + 1] * 0.75;
-      cLY[ci] = leftY[i] * 0.25 + leftY[i + 1] * 0.75;
-      cRX[ci] = rightX[i] * 0.25 + rightX[i + 1] * 0.75;
-      cRY[ci] = rightY[i] * 0.25 + rightY[i + 1] * 0.75; ci++;
+
+    // Prepare float arrays for SIMD Chaikin
+    std::vector<float> flx(n), fly(n), frx(n), fry(n);
+    for (int i = 0; i < n; i++) {
+      flx[i] = (float)leftX[i]; fly[i] = (float)leftY[i];
+      frx[i] = (float)rightX[i]; fry[i] = (float)rightY[i];
+    }
+
+    // SIMD batch: 4 pairs at a time
+    int si = 0;
+    for (; si + 3 < n - 1; si += 4) {
+      float out75lx[4], out25lx[4], out75ly[4], out25ly[4];
+      float out75rx[4], out25rx[4], out75ry[4], out25ry[4];
+      simd::chaikin4(flx.data() + si, flx.data() + si + 1, out75lx, out25lx);
+      simd::chaikin4(fly.data() + si, fly.data() + si + 1, out75ly, out25ly);
+      simd::chaikin4(frx.data() + si, frx.data() + si + 1, out75rx, out25rx);
+      simd::chaikin4(fry.data() + si, fry.data() + si + 1, out75ry, out25ry);
+      for (int j = 0; j < 4; j++) {
+        cLX[ci] = out75lx[j]; cLY[ci] = out75ly[j];
+        cRX[ci] = out75rx[j]; cRY[ci] = out75ry[j]; ci++;
+        cLX[ci] = out25lx[j]; cLY[ci] = out25ly[j];
+        cRX[ci] = out25rx[j]; cRY[ci] = out25ry[j]; ci++;
+      }
+    }
+    // Scalar remainder
+    for (; si < n - 1; si++) {
+      cLX[ci] = leftX[si] * 0.75 + leftX[si + 1] * 0.25;
+      cLY[ci] = leftY[si] * 0.75 + leftY[si + 1] * 0.25;
+      cRX[ci] = rightX[si] * 0.75 + rightX[si + 1] * 0.25;
+      cRY[ci] = rightY[si] * 0.75 + rightY[si + 1] * 0.25; ci++;
+      cLX[ci] = leftX[si] * 0.25 + leftX[si + 1] * 0.75;
+      cLY[ci] = leftY[si] * 0.25 + leftY[si + 1] * 0.75;
+      cRX[ci] = rightX[si] * 0.25 + rightX[si + 1] * 0.75;
+      cRY[ci] = rightY[si] * 0.25 + rightY[si + 1] * 0.75; ci++;
     }
     cLX[ci] = leftX[n - 1]; cLY[ci] = leftY[n - 1];
     cRX[ci] = rightX[n - 1]; cRY[ci] = rightY[n - 1]; ci++;

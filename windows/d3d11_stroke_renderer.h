@@ -18,6 +18,8 @@
 #include <vector>
 
 #include "../shared/stroke_tessellation.h"
+#include "../shared/tessellation_thread.h"
+#include "../shared/vertex_buffer_pool.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -62,6 +64,12 @@ public:
   /// Destroy all resources.
   void destroy();
 
+  /// 🚀 Memory pressure: release non-essential buffers
+  void trimMemory(int level = 1);
+
+  /// 🚀 Adaptive LOD: set current zoom level for dynamic subdivision count
+  void setZoomLevel(float zoom);
+
   bool isInitialized() const { return initialized_; }
 
   /// Get the output texture for Flutter TextureRegistrar.
@@ -104,12 +112,34 @@ private:
   std::vector<float> allPoints_;
   int totalAccumulatedPoints_ = 0;
 
+  // 🚀 Multi-threaded tessellation + pooling
+  TessellationThread<StrokeVertex> tessThread_;
+  VertexBufferPool<StrokeVertex> vertexPool_;
+
   // ─── Performance tracking ─────────────────────────────────────
   std::vector<float> frameTimesUs_;
   uint32_t statsTotalFrames_ = 0;
   bool statsActive_ = false;
   std::chrono::steady_clock::time_point lastFrameTime_;
   bool hasLastFrameTime_ = false;
+
+  // ─── 🚀 GPU Compute Tessellation ──────────────────────────────
+  ComPtr<ID3D11ComputeShader> computeShader_;
+  ComPtr<ID3D11Buffer> computePointsBuf_;
+  ComPtr<ID3D11Buffer> computeParamsBuf_;
+  ComPtr<ID3D11Buffer> computeVertexBuf_;
+  ComPtr<ID3D11Buffer> computeCapBuf_;
+  ComPtr<ID3D11Buffer> computeCapCounterBuf_;
+  ComPtr<ID3D11ShaderResourceView> pointsSRV_;
+  ComPtr<ID3D11UnorderedAccessView> vertexUAV_;
+  ComPtr<ID3D11UnorderedAccessView> capUAV_;
+  ComPtr<ID3D11UnorderedAccessView> capCounterUAV_;
+  bool computeAvailable_ = false;
+  int prevComputePointCount_ = 0;  // 🚀 Incremental compute tracking
+  static constexpr int SUBS_PER_SEG = 8;
+  int dynamicSubsPerSeg_ = 8;  // 🚀 Adaptive LOD: 4-16 based on zoom
+  bool createComputePipeline();
+  void destroyComputeResources();
 
   // ─── Init helpers ─────────────────────────────────────────────
   bool createDevice();

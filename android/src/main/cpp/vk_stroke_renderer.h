@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "../../../../shared/vertex_buffer_pool.h"
+#include "../../../../shared/tessellation_thread.h"
 
 #define VK_TAG "FlueraVk"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, VK_TAG, __VA_ARGS__)
@@ -87,6 +89,12 @@ public:
   /// Cleanup all Vulkan resources.
   void destroy();
 
+  /// 🚀 Release unused memory under pressure.
+  /// Trims vertex pool, shrinks allPoints, clears async buffers.
+  /// level: 0=normal, 1=warning (trim free buffers), 2=critical (aggressive)
+  void trimMemory(int level = 1);
+  void setZoomLevel(float zoom);  // 🚀 Adaptive LOD
+
   bool isInitialized() const { return initialized_; }
 
   /// Get current performance statistics snapshot.
@@ -136,10 +144,53 @@ private:
   VkDeviceMemory vertexMemory_ = VK_NULL_HANDLE;
   static constexpr size_t MAX_VERTICES = 524288; // 512K vertices (~12MB)
   uint32_t vertexCount_ = 0;
-  std::vector<StrokeVertex> accumulatedVerts_; // 🚀 Persistent vertex buffer
+  // 🚀 Vertex buffer pool: pre-reserved CPU vectors, eliminates heap alloc
+  VertexBufferPool<StrokeVertex> vertexPool_{4, 32768};
+  int currentPoolSlot_ = -1; // Currently acquired pool slot
   std::vector<float> allPoints_;              // Raw accumulated points (stride 5)
   void *mappedVertexMemory_ = nullptr;         // 🚀 Persistent mapped pointer
   int totalAccumulatedPoints_ = 0; // 🎨 Global point count for tapering
+
+  // ─── 🚀 Multi-Threaded Tessellation ────────────────────────
+  TessellationThread<StrokeVertex> tessThread_;
+  bool tessThreadStarted_ = false;
+  // Cached copy of points for async tessellation (worker needs stable data)
+  std::vector<float> asyncPointsCopy_;
+
+  // ─── 🚀 GPU Compute Tessellation ──────────────────────────────
+  VkPipeline computePipeline_ = VK_NULL_HANDLE;
+  VkPipelineLayout computePipelineLayout_ = VK_NULL_HANDLE;
+  VkDescriptorSetLayout computeDescSetLayout_ = VK_NULL_HANDLE;
+  VkDescriptorPool computeDescPool_ = VK_NULL_HANDLE;
+  VkDescriptorSet computeDescSet_ = VK_NULL_HANDLE;
+  // Points SSBO: raw input points uploaded from Dart/FFI
+  VkBuffer pointsSSBO_ = VK_NULL_HANDLE;
+  VkDeviceMemory pointsSSBOMemory_ = VK_NULL_HANDLE;
+  void *mappedPointsSSBO_ = nullptr;
+  static constexpr size_t MAX_POINTS_SSBO = 5000 * 5 * sizeof(float);
+  // Params UBO: brush parameters for compute shader
+  VkBuffer computeParamsUBO_ = VK_NULL_HANDLE;
+  VkDeviceMemory computeParamsMemory_ = VK_NULL_HANDLE;
+  void *mappedComputeParams_ = nullptr;
+  // Vertex output SSBO: compute writes tessellated vertices here
+  VkBuffer computeVertexSSBO_ = VK_NULL_HANDLE;
+  VkDeviceMemory computeVertexSSBOMemory_ = VK_NULL_HANDLE;
+  // Cap output SSBO + counter
+  VkBuffer computeCapSSBO_ = VK_NULL_HANDLE;
+  VkDeviceMemory computeCapSSBOMemory_ = VK_NULL_HANDLE;
+  VkBuffer computeCapCounterSSBO_ = VK_NULL_HANDLE;
+  VkDeviceMemory computeCapCounterMemory_ = VK_NULL_HANDLE;
+  void *mappedCapCounter_ = nullptr;
+  bool computeAvailable_ = false;
+  int prevComputePointCount_ = 0;  // 🚀 Incremental compute tracking
+  int dynamicSubsPerSeg_ = 8;  // 🚀 Adaptive LOD: 4-16
+  static constexpr int SUBS_PER_SEG = 8; // Subdivisions per input segment
+
+  // ─── 🚀 Indirect Draw (GPU-driven vertex count) ───────────────
+  VkBuffer indirectDrawBuffer_ = VK_NULL_HANDLE;
+  VkDeviceMemory indirectDrawMemory_ = VK_NULL_HANDLE;
+  void *mappedIndirectDraw_ = nullptr;
+  bool indirectDrawAvailable_ = false;
 
   // ─── State ────────────────────────────────────────────────────
   float transform_[16];
@@ -173,6 +224,15 @@ private:
   void destroySwapchain();
   bool createMsaaResources();
   void destroyMsaaResources();
+
+  // ─── 🚀 Compute pipeline ───────────────────────────────────────
+  bool createComputePipeline();
+  void dispatchCompute(const float *points, int pointCount, int brushType,
+                       float r, float g, float b, float a, float strokeWidth,
+                       float minPressure, float maxPressure,
+                       float pencilBaseOpacity, float pencilMaxOpacity);
+  bool createComputeBuffers();
+  void destroyComputeResources();
 
   // ─── Tessellation ─────────────────────────────────────────────
   /// Tessellate 2D polyline with pressure-aware width + tapering.

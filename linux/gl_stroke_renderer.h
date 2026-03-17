@@ -16,6 +16,21 @@
 #include <vector>
 
 #include "../shared/stroke_tessellation.h"
+#include "../shared/tessellation_thread.h"
+#include "../shared/vertex_buffer_pool.h"
+
+/// Params for GPU compute tessellation (std140 layout, matches GLSL)
+struct GLComputeParams {
+  float colorR, colorG, colorB, colorA;
+  float strokeWidth;
+  int   pointCount;
+  int   brushType;
+  float minPressure, maxPressure;
+  float pencilBaseOpacity, pencilMaxOpacity;
+  int   subsPerSeg;
+  int   totalSubdivs;
+  float fountainThinning, fountainNibAngleRad, fountainNibStrength;
+};
 
 /// Performance statistics snapshot.
 struct GLStrokeStats {
@@ -65,6 +80,12 @@ public:
   /// Destroy GL resources (must be called with a valid GL context).
   void destroy();
 
+  /// 🚀 Memory pressure: release non-essential buffers
+  void trimMemory(int level = 1);
+
+  /// 🚀 Adaptive LOD: set current zoom level for dynamic subdivision count
+  void setZoomLevel(float zoom);
+
   bool isInitialized() const { return initialized_; }
   bool isDirty() const { return dirty_; }
   int getWidth() const { return width_; }
@@ -87,7 +108,9 @@ private:
 
   // ─── Shared state (protected by mutex) ────────────────────────
   mutable std::mutex mutex_;
-  float transform_[16] = {};
+  float transform_[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+  float zoomLevel_ = 1.0f;
+  int dynamicSubsPerSeg_ = 8;  // 🚀 Adaptive LOD: 2-16 based on zoom
   int width_ = 0, height_ = 0;
   int pendingWidth_ = 0, pendingHeight_ = 0;
   bool initialized_ = false;
@@ -101,10 +124,38 @@ private:
   std::vector<float> allPoints_;              // Raw accumulated points (stride 5)
   int totalAccumulatedPoints_ = 0;
 
+  // ─── 🚀 Multi-threaded tessellation + pooling ────────────────
+  TessellationThread<StrokeVertex> tessThread_;
+  VertexBufferPool<StrokeVertex> vertexPool_;
+
   // ─── Performance tracking ─────────────────────────────────────
   std::vector<float> frameTimesUs_;
   uint32_t statsTotalFrames_ = 0;
   bool statsActive_ = false;
+
+  // ─── 🚀 GPU Compute Tessellation ───────────────────────────
+  GLuint computeProgram_ = 0;
+  GLuint computePointsSSBO_ = 0;
+  GLuint computeParamsUBO_ = 0;
+  GLuint computeVertexSSBO_ = 0;
+  GLuint computeCapSSBO_ = 0;
+  GLuint computeCapCounterSSBO_ = 0;
+  bool computeAvailable_ = false;
+  static constexpr int SUBS_PER_SEG = 8;
+  bool createComputePipeline();
+  void destroyComputeResources();
+
+  // Deferred compute state (stored on platform thread, dispatched on raster thread)
+  bool computePending_ = false;
+  GLComputeParams pendingComputeParams_;
+  std::vector<float> pendingComputePoints_;
+  int pendingComputeVertexCount_ = 0;
+  void dispatchCompute();  // called from renderAndGetTexture
+
+  // 🚀 Incremental compute tracking
+  int prevComputePointCount_ = 0;     // Points from last compute dispatch
+  int incrementalStartSeg_ = 0;       // First segment to re-tessellate
+  int totalComputeVertexCount_ = 0;   // Total accumulated compute vertices
 
   // ─── GL init helpers (called on raster thread) ────────────────
   bool ensureGLResources();

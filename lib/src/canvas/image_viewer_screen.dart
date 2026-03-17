@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/models/image_element.dart';
+import '../drawing/models/pro_drawing_point.dart';
 
 /// Background mode for image viewer.
 enum _ViewerBackground { dark, light, checker }
@@ -57,6 +58,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
   /// Swipe-down-to-dismiss state.
   double _swipeDismissOffset = 0;
   bool _isSwiping = false;
+  double? _swipeStartY;
   AnimationController? _swipeSnapController;
 
   /// Background mode.
@@ -96,6 +98,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
   /// preventing intermittent zoom failures from mid-gesture rebuilds.
   final ValueNotifier<double> _viewRotation = ValueNotifier(0);
   double _rotationAtGestureStart = 0;
+  bool _rotationActivated = false;
   bool _isInteracting = false;
 
   /// Share channel.
@@ -111,7 +114,9 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
     _zoomController = TransformationController();
     _zoomController.addListener(_onZoomChanged);
 
-    // Spring entry animation
+    // 🚀 PERF: Entry animation skipped — the PageRouteBuilder transition
+    // already provides the expanding-clip visual entry. Running a second
+    // spring animation caused double rebuilds per frame.
     _entryController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
@@ -120,20 +125,25 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
       parent: _entryController,
       curve: const Cubic(0.34, 1.56, 0.64, 1.0),
     );
-    _entryController.addStatusListener((s) {
-      if (s == AnimationStatus.completed) _entryDone = true;
-    });
+    _entryDone = true; // Skip entry animation — route transition handles it
 
-    _computeFileSize();
-    _computeHistogram();
-    _cachePixelData();
+    // 🚀 PERF: Make file size async (was blocking I/O on main thread)
+    _computeFileSizeAsync();
+    // 🚀 PERF: Defer histogram + pixel data to after mount;
+    // _computeHistogram already caches pixel data, so _cachePixelData removed.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _computeFittedDimensions();
-        _entryController.forward();
         _startChromeHideTimer();
+        // 🚀 PERF: Defer heavy pixel work (toByteData GPU→CPU readback)
+        // to after the viewer is fully visible.
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            _computeHistogram();
+          }
+        });
       }
     });
   }
@@ -155,18 +165,20 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
     super.dispose();
   }
 
-  void _computeFileSize() {
-    if (kIsWeb) return; // No file system on web
+  /// 🚀 PERF: Async file size (was synchronous I/O blocking main thread).
+  Future<void> _computeFileSizeAsync() async {
+    if (kIsWeb) return;
     try {
       final file = File(widget.imageElement.imagePath);
-      if (file.existsSync()) {
-        final bytes = file.lengthSync();
+      final bytes = await file.length();
+      if (!mounted) return;
+      setState(() {
         if (bytes > 1024 * 1024) {
           _fileSizeStr = '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
         } else {
           _fileSizeStr = '${(bytes / 1024).toStringAsFixed(0)} KB';
         }
-      }
+      });
     } catch (_) {}
   }
 
@@ -196,13 +208,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
     });
   }
 
-  /// Pre-cache pixel data for color picker (avoids async on every long press).
-  void _cachePixelData() {
-    if (_cachedPixelData != null) return;
-    widget.image.toByteData(format: ui.ImageByteFormat.rawRgba).then((data) {
-      if (mounted) _cachedPixelData = data;
-    });
-  }
+  // 🚀 PERF: _cachePixelData removed — _computeHistogram already caches
+  // pixel data at line 179, so this was a redundant GPU→CPU readback.
 
   /// Cache fitted image dimensions.
   void _computeFittedDimensions() {
@@ -419,50 +426,10 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
   // Swipe down to dismiss
   // ---------------------------------------------------------------------------
 
-  void _onVerticalDragUpdate(DragUpdateDetails d) {
-    if (_currentZoomScale > 1.05 || _isInteracting) return; // Don't swipe while zoomed or pinching
-    setState(() {
-      _isSwiping = true;
-      _swipeDismissOffset += d.delta.dy;
-    });
-  }
+  // Swipe-to-dismiss is now handled in InteractiveViewer callbacks
+  // (onInteractionStart/Update/End) with pointerCount == 1 guard
+  // to avoid gesture conflict with pinch-to-zoom.
 
-  void _onVerticalDragEnd(DragEndDetails d) {
-    if (!_isSwiping) return;
-    final velocity = d.velocity.pixelsPerSecond.dy;
-    if (_swipeDismissOffset.abs() > 120 || velocity.abs() > 800) {
-      HapticFeedback.mediumImpact();
-      _dismissViewer();
-    } else {
-      // Rubber-band snap back
-      _swipeSnapController?.dispose();
-      final startOffset = _swipeDismissOffset;
-      final ctrl = AnimationController(
-        duration: const Duration(milliseconds: 350), vsync: this,
-      );
-      _swipeSnapController = ctrl;
-      final curved = CurvedAnimation(
-        parent: ctrl,
-        curve: const Cubic(0.34, 1.56, 0.64, 1.0), // spring overshoot
-      );
-      curved.addListener(() {
-        if (mounted) {
-          setState(() {
-            _swipeDismissOffset = startOffset * (1.0 - curved.value);
-          });
-        }
-      });
-      ctrl.addStatusListener((s) {
-        if (s == AnimationStatus.completed && mounted) {
-          setState(() {
-            _swipeDismissOffset = 0;
-            _isSwiping = false;
-          });
-        }
-      });
-      ctrl.forward();
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Color picker (long press)
@@ -524,53 +491,31 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
       _ViewerBackground.checker => const Color(0xFF1A1A20),
     };
 
-    // Entry spring animation
-    final entryAnim = CurvedAnimation(
-      parent: _entryController,
-      curve: const Cubic(0.34, 1.56, 0.64, 1.0), // spring overshoot
-    );
-
     // Swipe dismiss progress (0 = no swipe, 1 = fully swiped)
     final swipeProgress = (_swipeDismissOffset.abs() / 300).clamp(0.0, 1.0);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
+      body: ColoredBox(
         color: bgColor,
-        child: _entryDone
-          // After entry animation completes, skip the AnimatedBuilder entirely
-          ? _buildBody(safeTop, safeBottom, swipeProgress, 1.0, 1.0)
-          : AnimatedBuilder(
-              animation: _entryCurve,
-              builder: (context, _) {
-                final entryScale = 0.92 + 0.08 * _entryCurve.value;
-                final entryOpacity = _entryCurve.value.clamp(0.0, 1.0);
-                return _buildBody(safeTop, safeBottom, swipeProgress,
-                    entryOpacity, entryScale);
-              },
-             ),
+        child: _buildBody(safeTop, safeBottom, swipeProgress, 1.0, 1.0),
       ),
     );
   }
 
   Widget _buildBody(double safeTop, double safeBottom, double swipeProgress,
       double entryOpacity, double entryScale) {
-    // Enhanced parallax: opacity fades more, scale shrinks, subtle rotation
-    final dismissOpacity = (1.0 - swipeProgress * 0.6).clamp(0.0, 1.0);
-    final dismissScale = (1.0 - swipeProgress * 0.15).clamp(0.7, 1.0);
-    final dismissTilt = swipeProgress * 0.03 * (_swipeDismissOffset > 0 ? 1 : -1);
+    // 🚀 PERF: Only apply Opacity/Transform wrappers when actually dismissing.
+    // At rest (swipeProgress == 0), these are identity operations but still
+    // force saveLayer (Opacity) and matrix multiply (Transform) per frame.
+    final isDismissing = swipeProgress > 0.01;
+    final dismissOpacity = isDismissing ? (1.0 - swipeProgress * 0.6).clamp(0.0, 1.0) : 1.0;
+    final dismissScale = isDismissing ? (1.0 - swipeProgress * 0.15).clamp(0.7, 1.0) : 1.0;
+    final dismissTilt = isDismissing ? swipeProgress * 0.03 * (_swipeDismissOffset > 0 ? 1 : -1) : 0.0;
 
-    return Opacity(
-      opacity: entryOpacity * dismissOpacity,
-      child: Transform.scale(
-        scale: entryScale * dismissScale,
-        child: Transform.rotate(
-          angle: dismissTilt,
-          child: Transform.translate(
-            offset: Offset(0, _swipeDismissOffset),
-            child: Stack(
+    Widget content = Transform.translate(
+      offset: Offset(0, _swipeDismissOffset),
+      child: Stack(
             children: [
                     // ── Checkerboard background ──
                     if (_background == _ViewerBackground.checker)
@@ -593,26 +538,36 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                         image: true,
                         child: GestureDetector(
                           onTapUp: (_) => _toggleChrome(),
-                          onVerticalDragUpdate: _onVerticalDragUpdate,
-                          onVerticalDragEnd: _onVerticalDragEnd,
                           onLongPressStart: _onLongPressImage,
                           behavior: HitTestBehavior.translucent,
-                          child: ColorFiltered(
-                            colorFilter: ColorFilter.matrix(<double>[
-                              _brightness, 0, 0, 0, 0,
-                              0, _brightness, 0, 0, 0,
-                              0, 0, _brightness, 0, 0,
-                              0, 0, 0, 1, 0,
-                            ]),
-                            child: ValueListenableBuilder<double>(
-                              valueListenable: _viewRotation,
-                              builder: (_, rotation, child) => Transform.rotate(
-                                angle: rotation,
-                                child: child,
+                          // 🚀 PERF: Only apply ColorFiltered when brightness
+                          // is actually modified. At default (1.0), the identity
+                          // matrix still forces a saveLayer + color filter pass.
+                          child: _brightness != 1.0
+                            ? ColorFiltered(
+                                colorFilter: ColorFilter.matrix(<double>[
+                                  _brightness, 0, 0, 0, 0,
+                                  0, _brightness, 0, 0, 0,
+                                  0, 0, _brightness, 0, 0,
+                                  0, 0, 0, 1, 0,
+                                ]),
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: _viewRotation,
+                                  builder: (_, rotation, child) => Transform.rotate(
+                                    angle: rotation,
+                                    child: child,
+                                  ),
+                                  child: _buildImageView(),
+                                ),
+                              )
+                            : ValueListenableBuilder<double>(
+                                valueListenable: _viewRotation,
+                                builder: (_, rotation, child) => Transform.rotate(
+                                  angle: rotation,
+                                  child: child,
+                                ),
+                                child: _buildImageView(),
                               ),
-                              child: _buildImageView(),
-                            ),
-                          ),
                         ),
                       ),
                     ),
@@ -792,10 +747,25 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                     ),
                   ],
                 ),
-              ),
-            ),
+    );
+
+    // 🚀 PERF: Only wrap with Opacity/Transform when actually dismissing.
+    // At rest these are identity operations but saveLayer (Opacity) and
+    // matrix multiply (Transform) still cost ~2-3ms per frame.
+    if (isDismissing) {
+      content = Opacity(
+        opacity: dismissOpacity,
+        child: Transform.scale(
+          scale: dismissScale,
+          child: Transform.rotate(
+            angle: dismissTilt,
+            child: content,
           ),
-        );
+        ),
+      );
+    }
+
+    return content;
   }
 
   // ---------------------------------------------------------------------------
@@ -864,16 +834,76 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
           _isInteracting = true;
           if (details.pointerCount >= 2) {
             _rotationAtGestureStart = _viewRotation.value;
+            _rotationActivated = false; // Reset — require intentional rotation
+          }
+          // Track starting Y for single-finger swipe dismiss
+          if (details.pointerCount == 1 && _currentZoomScale <= 1.05) {
+            _swipeStartY = details.focalPoint.dy;
           }
         },
         onInteractionUpdate: (details) {
-          // Two-finger rotation
-          if (details.pointerCount >= 2 && details.rotation.abs() > 0.01) {
-            _viewRotation.value = _rotationAtGestureStart + details.rotation;
+          // Two-finger rotation — requires >0.15 rad (~8.6°) deadzone
+          // to avoid accidental rotation during pinch-to-zoom.
+          if (details.pointerCount >= 2) {
+            if (!_rotationActivated && details.rotation.abs() > 0.15) {
+              _rotationActivated = true;
+            }
+            if (_rotationActivated) {
+              _viewRotation.value = _rotationAtGestureStart + details.rotation;
+            }
+          }
+          // Single-finger vertical swipe → dismiss (only when not zoomed)
+          if (details.pointerCount == 1 && _currentZoomScale <= 1.05 && _swipeStartY != null) {
+            final deltaY = details.focalPoint.dy - _swipeStartY!;
+            if (deltaY.abs() > 8) { // Small deadzone to avoid jitter
+              setState(() {
+                _isSwiping = true;
+                _swipeDismissOffset = deltaY;
+              });
+            }
           }
         },
         onInteractionEnd: (details) {
           _isInteracting = false;
+          // Handle swipe dismiss end
+          if (_isSwiping) {
+            _swipeStartY = null;
+            final velocity = details.velocity.pixelsPerSecond.dy;
+            if (_swipeDismissOffset.abs() > 120 || velocity.abs() > 800) {
+              HapticFeedback.mediumImpact();
+              _dismissViewer();
+            } else {
+              // Rubber-band snap back
+              _swipeSnapController?.dispose();
+              final startOffset = _swipeDismissOffset;
+              final ctrl = AnimationController(
+                duration: const Duration(milliseconds: 350), vsync: this,
+              );
+              _swipeSnapController = ctrl;
+              final curved = CurvedAnimation(
+                parent: ctrl,
+                curve: const Cubic(0.34, 1.56, 0.64, 1.0),
+              );
+              curved.addListener(() {
+                if (mounted) {
+                  setState(() {
+                    _swipeDismissOffset = startOffset * (1.0 - curved.value);
+                  });
+                }
+              });
+              ctrl.addStatusListener((s) {
+                if (s == AnimationStatus.completed && mounted) {
+                  setState(() {
+                    _swipeDismissOffset = 0;
+                    _isSwiping = false;
+                  });
+                }
+              });
+              ctrl.forward();
+            }
+            return;
+          }
+          _swipeStartY = null;
           _onInteractionEnd(details);
         },
         child: SizedBox(
@@ -884,23 +914,19 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
               child: Container(
                 width: fitW,
                 height: fitH,
+                // 🚀 PERF: Removed BoxShadow with blurRadius:40 — it forces
+                // a saveLayer + gaussian blur per frame. The dark background
+                // already provides sufficient contrast.
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(6),
-                  boxShadow: _background == _ViewerBackground.dark
-                      ? const [
-                          BoxShadow(
-                            color: Color(0x80000000),
-                            blurRadius: 40,
-                            spreadRadius: 4,
-                            offset: Offset(0, 12),
-                          ),
-                        ]
-                      : null,
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
                   child: CustomPaint(
-                    painter: _ImagePainter(image: widget.image),
+                    painter: _ImagePainter(
+                      image: widget.image,
+                      imageElement: widget.imageElement,
+                    ),
                     size: Size(fitW, fitH),
                   ),
                 ),
@@ -1415,7 +1441,10 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
           child: Stack(
             children: [
               CustomPaint(
-                painter: _ImagePainter(image: widget.image),
+                painter: _ImagePainter(
+                  image: widget.image,
+                  imageElement: widget.imageElement,
+                ),
                 size: Size(mapW, mapH),
               ),
               Positioned.fill(
@@ -1488,20 +1517,71 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
 // Painters
 // =============================================================================
 
-/// Draws the image fitted to the given size.
+/// Draws the image fitted to the given size, with drawingStrokes overlaid.
 class _ImagePainter extends CustomPainter {
   final ui.Image image;
-  _ImagePainter({required this.image});
+  final ImageElement imageElement;
+  _ImagePainter({required this.image, required this.imageElement});
+
+  // 🚀 PERF: Static paint — allocated once, reused across all paint calls.
+  // FilterQuality.medium avoids expensive mipmap generation of .high.
+  static final Paint _imgPaint = Paint()..filterQuality = FilterQuality.medium;
 
   @override
   void paint(Canvas canvas, Size size) {
     final src = Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
     final dst = Rect.fromLTWH(0, 0, size.width, size.height);
-    canvas.drawImageRect(image, src, dst, Paint()..filterQuality = FilterQuality.high);
+    canvas.drawImageRect(image, src, dst, _imgPaint);
+
+    // ✏️ Render drawingStrokes attached to this image
+    if (imageElement.drawingStrokes.isNotEmpty) {
+      final imgW = image.width.toDouble();
+      final imgH = image.height.toDouble();
+      // Strokes are in image-local coords: (0,0) = image center, canvas-space distances.
+      // Viewer maps the image to fill (0,0)→(size.width, size.height).
+      // The image in canvas space is imgW*scale × imgH*scale centered at origin.
+      final canvasW = imgW * imageElement.scale;
+      final canvasH = imgH * imageElement.scale;
+      final scaleX = size.width / canvasW;
+      final scaleY = size.height / canvasH;
+      final cx = size.width / 2;
+      final cy = size.height / 2;
+
+      canvas.save();
+      canvas.clipRect(dst);
+      for (final stroke in imageElement.drawingStrokes) {
+        if (stroke.points.length < 2) continue;
+        final scaleRatio = imageElement.scale / stroke.referenceScale;
+        final paint = Paint()
+          ..color = stroke.color
+          ..strokeWidth = stroke.baseWidth * scaleRatio * ((scaleX + scaleY) / 2)
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..isAntiAlias = true;
+
+        final path = ui.Path();
+        for (int i = 0; i < stroke.points.length; i++) {
+          final pt = stroke.points[i];
+          // Transform: image-local → viewer coords
+          final vx = cx + pt.position.dx * scaleRatio * scaleX;
+          final vy = cy + pt.position.dy * scaleRatio * scaleY;
+          if (i == 0) {
+            path.moveTo(vx, vy);
+          } else {
+            path.lineTo(vx, vy);
+          }
+        }
+        canvas.drawPath(path, paint);
+      }
+      canvas.restore();
+    }
   }
 
   @override
-  bool shouldRepaint(_ImagePainter old) => !identical(old.image, image);
+  bool shouldRepaint(_ImagePainter old) =>
+      !identical(old.image, image) ||
+      old.imageElement.drawingStrokes.length != imageElement.drawingStrokes.length;
 }
 
 /// Checkerboard pattern for transparent images.

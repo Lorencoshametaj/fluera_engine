@@ -19,6 +19,7 @@
 
 
 #include "vk_shaders.h"
+#include "vk_compute_shader.h"
 
 
 
@@ -68,6 +69,20 @@ VkStrokeRenderer::~VkStrokeRenderer() { destroy(); }
 
 // INIT
 
+// Forward declaration — full definition at line ~4909
+struct ComputeParams {
+  float colorR, colorG, colorB, colorA;
+  float strokeWidth;
+  int32_t pointCount;
+  int32_t brushType;
+  float minPressure, maxPressure;
+  float pencilBaseOpacity, pencilMaxOpacity;
+  int32_t subsPerSeg;
+  int32_t totalSubdivs;
+  float fountainThinning, fountainNibAngleRad, fountainNibStrength;
+  int32_t startSeg;
+  int32_t vertexOffset;
+};
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -221,7 +236,10 @@ bool VkStrokeRenderer::init(ANativeWindow *window, int width, int height) {
 
 
   // Pre-allocate vertex accumulation buffer to avoid realloc spikes
-  accumulatedVerts_.reserve(32768);
+  // 🚀 Pool pre-reserves vectors, no manual reserve needed
+
+  // 🚀 Try GPU compute tessellation (non-fatal — falls back to CPU if fails)
+  createComputePipeline();
 
   initialized_ = true;
 
@@ -3267,80 +3285,109 @@ void VkStrokeRenderer::updateAndRender(const float *points, int pointCount,
   if (!initialized_ || pointCount < 2 || !mappedVertexMemory_)
     return;
 
+  // 🚀 Acquire pre-reserved vertex vector from pool (zero alloc hot path)
+  int poolSlot;
+  auto& verts = vertexPool_.acquire(poolSlot);
+
   if (brushType == 0) {
     // ── FULL RETESSELLATION (ballpoint) ──────────────────────────
-    // Accumulate raw points in allPoints_, retessellate entire stroke
-    // each frame. Incremental tessellation caused sawtooth edges on
-    // curves because EMA smoothing + Catmull-Rom only saw each batch.
-    int skipFirst = (totalAccumulatedPoints_ > 0) ? 1 : 0;
-    for (int i = skipFirst; i < pointCount; i++) {
-      for (int j = 0; j < 5; j++)
-        allPoints_.push_back(points[i * 5 + j]);
-    }
-    totalAccumulatedPoints_ = (int)(allPoints_.size() / 5);
+    // Both the ring buffer (g_ringAccumPoints) and the flat FFI/MethodChannel
+    // already send ALL accumulated points for ballpoint.
+    // Tessellate directly from incoming buffer — no internal accumulation
+    // (allPoints_ caused double-accumulation with ring buffer → fan artifact).
+    totalAccumulatedPoints_ = pointCount;
 
-    accumulatedVerts_.clear();
-    if (totalAccumulatedPoints_ >= 2) {
-      tessellateStroke(allPoints_.data(), totalAccumulatedPoints_,
+    if (pointCount >= 2) {
+      tessellateStroke(points, pointCount,
                        r, g, b, a, strokeWidth,
-                       0, totalPoints, accumulatedVerts_,
+                       0, totalPoints, verts,
                        pencilMinPressure, pencilMaxPressure);
     }
 
-    if (accumulatedVerts_.size() > MAX_VERTICES) {
-      accumulatedVerts_.resize(MAX_VERTICES);
+    if (verts.size() > MAX_VERTICES) {
+      verts.resize(MAX_VERTICES);
     }
 
-    vertexCount_ = static_cast<uint32_t>(accumulatedVerts_.size());
+    vertexCount_ = static_cast<uint32_t>(verts.size());
 
     // Upload entire vertex buffer
     if (vertexCount_ > 0) {
       auto *dst = reinterpret_cast<StrokeVertex *>(mappedVertexMemory_);
-      memcpy(dst, accumulatedVerts_.data(),
+      memcpy(dst, verts.data(),
              vertexCount_ * sizeof(StrokeVertex));
     }
   } else {
-    // ── FULL RETESSELLATION (marker/pencil/technical/fountain) ───
-    // These brushes need ALL points for correct smoothing/tangents.
-    accumulatedVerts_.clear();
+    // ── 🚀 ASYNC TESSELLATION (marker/pencil/technical/fountain) ───
+    // These brushes need ALL points — offload to worker thread.
+    // Render thread continues drawing previous frame's geometry.
     totalAccumulatedPoints_ = pointCount;
 
-    if (brushType == 1) {
-      tessellateMarker(points, pointCount, r, g, b, a, strokeWidth,
-                       accumulatedVerts_);
-    } else if (brushType == 3) {
-      tessellateTechnicalPen(points, pointCount, r, g, b, a, strokeWidth,
-                             accumulatedVerts_);
-    } else if (brushType == 4) {
-      float nibAngleRad = fountainNibAngleDeg * (float)M_PI / 180.0f;
-      tessellateFountainPen(points, pointCount, r, g, b, a, strokeWidth,
-                            pointCount, accumulatedVerts_,
-                            fountainThinning, nibAngleRad,
-                            fountainNibStrength, fountainPressureRate,
-                            fountainTaperEntry);
-    } else {
-      // brushType == 2 (pencil)
-      tessellatePencil(points, pointCount, r, g, b, a, strokeWidth,
-                       0, pointCount, accumulatedVerts_,
-                       pencilBaseOpacity, pencilMaxOpacity,
-                       pencilMinPressure, pencilMaxPressure);
+    // Start worker thread on first use
+    if (!tessThreadStarted_) {
+      tessThread_.start();
+      tessThreadStarted_ = true;
     }
 
-    if (accumulatedVerts_.size() > MAX_VERTICES) {
-      accumulatedVerts_.resize(MAX_VERTICES);
-    }
+    // Copy point data for thread safety (worker needs stable data)
+    asyncPointsCopy_.assign(points, points + pointCount * 5);
+    const int pc = pointCount;
+    const float cr = r, cg = g, cb = b, ca = a;
+    const float sw = strokeWidth;
+    const int bt = brushType;
+    const float pbo = pencilBaseOpacity, pmo = pencilMaxOpacity;
+    const float pmp = pencilMinPressure, pmxp = pencilMaxPressure;
+    const float ft = fountainThinning, fna = fountainNibAngleDeg;
+    const float fns = fountainNibStrength, fpr = fountainPressureRate;
+    const int fte = fountainTaperEntry;
 
-    vertexCount_ = static_cast<uint32_t>(accumulatedVerts_.size());
+    // Submit tessellation task to worker thread
+    tessThread_.submit([this, pc, cr, cg, cb, ca, sw, bt,
+                        pbo, pmo, pmp, pmxp, ft, fna, fns, fpr, fte]
+                       (std::vector<StrokeVertex>& out) {
+      const float* pts = asyncPointsCopy_.data();
+      if (bt == 1) {
+        tessellateMarker(pts, pc, cr, cg, cb, ca, sw, out);
+      } else if (bt == 3) {
+        tessellateTechnicalPen(pts, pc, cr, cg, cb, ca, sw, out);
+      } else if (bt == 4) {
+        float nibRad = fna * (float)M_PI / 180.0f;
+        tessellateFountainPen(pts, pc, cr, cg, cb, ca, sw,
+                              pc, out, ft, nibRad, fns, fpr, fte);
+      } else {
+        // brushType == 2 (pencil)
+        tessellatePencil(pts, pc, cr, cg, cb, ca, sw,
+                         0, pc, out, pbo, pmo, pmp, pmxp);
+      }
+    });
 
-    // Upload ENTIRE vertex buffer
-    if (vertexCount_ > 0) {
-      auto *dst = reinterpret_cast<StrokeVertex *>(mappedVertexMemory_);
-      memcpy(dst, accumulatedVerts_.data(),
-             vertexCount_ * sizeof(StrokeVertex));
+    // Check if worker produced new results → swap + upload
+    if (tessThread_.trySwap()) {
+      const auto& front = tessThread_.frontVertices();
+      uint32_t count = tessThread_.frontVertexCount();
+      if (count > MAX_VERTICES) count = MAX_VERTICES;
+      vertexCount_ = count;
+      if (vertexCount_ > 0) {
+        auto *dst = reinterpret_cast<StrokeVertex *>(mappedVertexMemory_);
+        memcpy(dst, front.data(), vertexCount_ * sizeof(StrokeVertex));
+      }
     }
+    // else: render thread draws previous frame's geometry (no stall)
+
+    vertexPool_.release(poolSlot);
+  }
+
+  // 🚀 Release vector back to pool (keeps capacity, resets size)
+  if (brushType == 0) {
+    vertexPool_.release(poolSlot);
   }
 
   statsActive_ = true;
+
+  // Track whether this frame uses GPU compute or CPU tessellation
+  // 🚀 Ballpoint (0) excluded: uses specialised EMA + cap tessellation on CPU
+  // 🎨 Fountain pen (4) excluded: needs per-point nib angle on CPU
+  bool useCompute = computeAvailable_ && computePipeline_ && brushType != 0;
+
 
 
 
@@ -3435,11 +3482,60 @@ void VkStrokeRenderer::updateAndRender(const float *points, int pointCount,
 
   vkBeginCommandBuffer(cmdBuffers_[f], &beginInfo);
 
+  // ─── 🚀 GPU Compute tessellation dispatch (before render pass) ───
+  if (useCompute) {
+    int totalSubdivs = (totalAccumulatedPoints_ - 1) * SUBS_PER_SEG;
 
+    // Upload points to SSBO
+    size_t pointBytes = totalAccumulatedPoints_ * 5 * sizeof(float);
+    if (pointBytes > MAX_POINTS_SSBO) pointBytes = MAX_POINTS_SSBO;
+    if (brushType == 0) {
+      memcpy(mappedPointsSSBO_, allPoints_.data(), pointBytes);
+    } else {
+      memcpy(mappedPointsSSBO_, points, pointBytes);
+    }
 
+    // Upload params
+    ComputeParams params{};
+    params.colorR = r; params.colorG = g; params.colorB = b; params.colorA = a;
+    params.strokeWidth = strokeWidth;
+    params.pointCount = totalAccumulatedPoints_;
+    params.brushType = brushType;
+    params.minPressure = pencilMinPressure;
+    params.maxPressure = pencilMaxPressure;
+    params.pencilBaseOpacity = pencilBaseOpacity;
+    params.pencilMaxOpacity = pencilMaxOpacity;
+    params.subsPerSeg = SUBS_PER_SEG;
+    params.totalSubdivs = totalSubdivs;
+    memcpy(mappedComputeParams_, &params, sizeof(ComputeParams));
 
+    // Reset cap counter
+    *(int32_t*)mappedCapCounter_ = 0;
 
+    // Bind compute pipeline and dispatch
+    vkCmdBindPipeline(cmdBuffers_[f], VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline_);
+    vkCmdBindDescriptorSets(cmdBuffers_[f], VK_PIPELINE_BIND_POINT_COMPUTE,
+                            computePipelineLayout_, 0, 1, &computeDescSet_, 0, nullptr);
+    uint32_t groups = (totalSubdivs + 63) / 64;
+    vkCmdDispatch(cmdBuffers_[f], groups, 1, 1);
 
+    // Memory barrier: compute writes → vertex reads
+    VkMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+    vkCmdPipelineBarrier(cmdBuffers_[f],
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+                         0, 1, &barrier, 0, nullptr, 0, nullptr);
+
+    vertexCount_ = totalSubdivs * 6;
+    // 🚀 #7: Include cap vertices in stats (2 caps × adaptive segments × 3 verts)
+    if (brushType == 0 || brushType == 3) {
+      int capSegs = std::clamp(dynamicSubsPerSeg_, 4, 16);
+      vertexCount_ += 2 * capSegs * 3;
+    }
+  }
 
   VkClearValue clearVals[2]{};
 
@@ -3557,11 +3653,21 @@ void VkStrokeRenderer::updateAndRender(const float *points, int pointCount,
 
 
 
-  vkCmdBindVertexBuffers(cmdBuffers_[f], 0, 1, &vertexBuffer_, &offset);
+  // 🚀 Bind compute output SSBO as vertex buffer when GPU compute is active
+  if (useCompute) {
+    vkCmdBindVertexBuffers(cmdBuffers_[f], 0, 1, &computeVertexSSBO_, &offset);
+  } else {
+    vkCmdBindVertexBuffers(cmdBuffers_[f], 0, 1, &vertexBuffer_, &offset);
+  }
 
 
 
-  vkCmdDraw(cmdBuffers_[f], vertexCount_, 1, 0, 0);
+  // 🚀 Indirect draw: GPU-driven vertex count for compute path
+  if (useCompute && indirectDrawAvailable_) {
+    vkCmdDrawIndirect(cmdBuffers_[f], indirectDrawBuffer_, 0, 1, 0);
+  } else {
+    vkCmdDraw(cmdBuffers_[f], vertexCount_, 1, 0, 0);
+  }
 
 
 
@@ -3737,7 +3843,7 @@ void VkStrokeRenderer::clearFrame() {
 
 
 
-  accumulatedVerts_.clear();
+  vertexPool_.releaseAll();
 
 
 
@@ -3769,9 +3875,12 @@ void VkStrokeRenderer::clearFrame() {
 
 
 
-  vkWaitForFences(device_, 1, &frameFences_[f], VK_TRUE, UINT64_MAX);
-
-
+  // 🚀 P99 FIX: bounded fence wait (was UINT64_MAX — could stall raster thread)
+  VkResult clearFenceResult = vkWaitForFences(device_, 1, &frameFences_[f], VK_TRUE, 5000000); // 5ms
+  if (clearFenceResult == VK_TIMEOUT) {
+    LOGI("VkStrokeRenderer: clearFrame fence timeout, skipping");
+    return;
+  }
 
   vkResetFences(device_, 1, &frameFences_[f]);
 
@@ -4409,9 +4518,59 @@ void VkStrokeRenderer::destroyMsaaResources() {
 
 
 
+// ═══════════════════════════════════════════════════════════════════
+// 🚀 MEMORY PRESSURE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════
+
+void VkStrokeRenderer::trimMemory(int level) {
+  if (level >= 1) {
+    // Warning: trim free pool buffers to initial capacity
+    vertexPool_.trim();
+    LOGI("trimMemory(warning): vertex pool trimmed, %zu bytes reserved",
+         vertexPool_.totalReservedBytes());
+  }
+  if (level >= 2) {
+    // Critical: release ALL pool buffers + shrink vectors
+    vertexPool_.releaseAll();
+    vertexPool_.trim();
+
+    // Shrink allPoints_ to zero (will re-grow on next stroke)
+    allPoints_.clear();
+    allPoints_.shrink_to_fit();
+
+    // Shrink async points copy
+    asyncPointsCopy_.clear();
+    asyncPointsCopy_.shrink_to_fit();
+
+    LOGI("trimMemory(critical): all buffers freed, %zu bytes remaining",
+         vertexPool_.totalReservedBytes());
+  }
+}
+
+// 🚀 Adaptive LOD
+void VkStrokeRenderer::setZoomLevel(float zoom) {
+  int prev = dynamicSubsPerSeg_;
+  if (zoom < 0.3f) dynamicSubsPerSeg_ = 4;
+  else if (zoom < 0.6f) dynamicSubsPerSeg_ = 6;
+  else if (zoom > 4.0f) dynamicSubsPerSeg_ = 16;
+  else if (zoom > 2.0f) dynamicSubsPerSeg_ = 12;
+  else dynamicSubsPerSeg_ = 8;
+  if (dynamicSubsPerSeg_ != prev) {
+    LOGI("[FlueraVk] \xF0\x9F\x94\x8D LOD zoom=%.2f subsPerSeg=%d->%d", zoom, prev, dynamicSubsPerSeg_);
+  }
+}
+
 void VkStrokeRenderer::destroy() {
 
 
+
+  // 🚀 Stop tessellation worker thread first
+  if (tessThreadStarted_) {
+    tessThread_.stop();
+    tessThreadStarted_ = false;
+  }
+
+  destroyComputeResources(); // 🚀 Free compute resources first
 
   if (!instance_)
 
@@ -4773,4 +4932,340 @@ VkStrokeStats VkStrokeRenderer::getStats() const {
 
 
 
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 🚀 GPU COMPUTE TESSELLATION — Implementation
+// ═══════════════════════════════════════════════════════════════════
+
+// ComputeParams defined at top of file (mirrors Params in stroke_compute.comp)
+
+
+static VkBuffer createBuffer(VkDevice device, VkPhysicalDevice physDevice,
+                              VkDeviceSize size, VkBufferUsageFlags usage,
+                              VkMemoryPropertyFlags memProps,
+                              VkDeviceMemory &memory) {
+  VkBuffer buffer;
+  VkBufferCreateInfo ci{};
+  ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  ci.size = size;
+  ci.usage = usage;
+  ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  if (vkCreateBuffer(device, &ci, nullptr, &buffer) != VK_SUCCESS)
+    return VK_NULL_HANDLE;
+
+  VkMemoryRequirements req;
+  vkGetBufferMemoryRequirements(device, buffer, &req);
+
+  VkPhysicalDeviceMemoryProperties memProp;
+  vkGetPhysicalDeviceMemoryProperties(physDevice, &memProp);
+  uint32_t memIdx = UINT32_MAX;
+  for (uint32_t i = 0; i < memProp.memoryTypeCount; i++) {
+    if ((req.memoryTypeBits & (1 << i)) &&
+        (memProp.memoryTypes[i].propertyFlags & memProps) == memProps) {
+      memIdx = i;
+      break;
+    }
+  }
+  if (memIdx == UINT32_MAX) { vkDestroyBuffer(device, buffer, nullptr); return VK_NULL_HANDLE; }
+
+  VkMemoryAllocateInfo ai{};
+  ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  ai.allocationSize = req.size;
+  ai.memoryTypeIndex = memIdx;
+  if (vkAllocateMemory(device, &ai, nullptr, &memory) != VK_SUCCESS) {
+    vkDestroyBuffer(device, buffer, nullptr);
+    return VK_NULL_HANDLE;
+  }
+  vkBindBufferMemory(device, buffer, memory, 0);
+  return buffer;
+}
+
+bool VkStrokeRenderer::createComputeBuffers() {
+  auto hostFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  auto deviceFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+  auto ssboUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+  // Points SSBO (host-visible — written by CPU from FFI buffer)
+  pointsSSBO_ = createBuffer(device_, physDevice_, MAX_POINTS_SSBO,
+                             ssboUsage, hostFlags, pointsSSBOMemory_);
+  if (!pointsSSBO_) return false;
+  vkMapMemory(device_, pointsSSBOMemory_, 0, MAX_POINTS_SSBO, 0, &mappedPointsSSBO_);
+
+  // Params UBO (host-visible)
+  computeParamsUBO_ = createBuffer(device_, physDevice_, sizeof(ComputeParams),
+                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostFlags,
+                                   computeParamsMemory_);
+  if (!computeParamsUBO_) return false;
+  vkMapMemory(device_, computeParamsMemory_, 0, sizeof(ComputeParams), 0, &mappedComputeParams_);
+
+  // Vertex output SSBO (device-local preferred, but host-visible for readback)
+  // Max: 1000 segments × 8 subs × 6 verts × 6 floats = 288000 floats
+  VkDeviceSize vertOutSize = 1000 * SUBS_PER_SEG * 6 * 6 * sizeof(float);
+  computeVertexSSBO_ = createBuffer(device_, physDevice_, vertOutSize,
+                                    ssboUsage | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                    hostFlags, computeVertexSSBOMemory_);
+  if (!computeVertexSSBO_) return false;
+
+  // Cap SSBO (max 2 caps × 12 segments × 3 verts × 6 floats)
+  VkDeviceSize capSize = 2 * 16 * 3 * 6 * sizeof(float);
+  computeCapSSBO_ = createBuffer(device_, physDevice_, capSize,
+                                 ssboUsage | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                 hostFlags, computeCapSSBOMemory_);
+  if (!computeCapSSBO_) return false;
+
+  // Cap counter SSBO (single int, host-visible for reset)
+  computeCapCounterSSBO_ = createBuffer(device_, physDevice_, sizeof(int32_t),
+                                        ssboUsage, hostFlags, computeCapCounterMemory_);
+  if (!computeCapCounterSSBO_) return false;
+  vkMapMemory(device_, computeCapCounterMemory_, 0, sizeof(int32_t), 0, &mappedCapCounter_);
+  *(int32_t*)mappedCapCounter_ = 0;
+
+  return true;
+}
+
+bool VkStrokeRenderer::createComputePipeline() {
+  if (!createComputeBuffers()) {
+    LOGI("[FlueraVk] Compute buffers failed, using CPU tessellation");
+    return false;
+  }
+
+  // ── Descriptor set layout: 5 bindings ──
+  VkDescriptorSetLayoutBinding bindings[5] = {};
+  // 0: Params UBO
+  bindings[0].binding = 0;
+  bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  bindings[0].descriptorCount = 1;
+  bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  // 1: Points SSBO (read)
+  bindings[1].binding = 1;
+  bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  bindings[1].descriptorCount = 1;
+  bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  // 2: Vertices SSBO (write)
+  bindings[2].binding = 2;
+  bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  bindings[2].descriptorCount = 1;
+  bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  // 3: Cap counter SSBO
+  bindings[3].binding = 3;
+  bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  bindings[3].descriptorCount = 1;
+  bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  // 4: Caps SSBO (write)
+  bindings[4].binding = 4;
+  bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  bindings[4].descriptorCount = 1;
+  bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+  VkDescriptorSetLayoutCreateInfo layoutCI{};
+  layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  layoutCI.bindingCount = 5;
+  layoutCI.pBindings = bindings;
+  if (vkCreateDescriptorSetLayout(device_, &layoutCI, nullptr, &computeDescSetLayout_) != VK_SUCCESS)
+    return false;
+
+  // ── Descriptor pool ──
+  VkDescriptorPoolSize poolSizes[2] = {};
+  poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  poolSizes[0].descriptorCount = 1;
+  poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  poolSizes[1].descriptorCount = 4;
+
+  VkDescriptorPoolCreateInfo poolCI{};
+  poolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  poolCI.maxSets = 1;
+  poolCI.poolSizeCount = 2;
+  poolCI.pPoolSizes = poolSizes;
+  if (vkCreateDescriptorPool(device_, &poolCI, nullptr, &computeDescPool_) != VK_SUCCESS)
+    return false;
+
+  // ── Allocate descriptor set ──
+  VkDescriptorSetAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  allocInfo.descriptorPool = computeDescPool_;
+  allocInfo.descriptorSetCount = 1;
+  allocInfo.pSetLayouts = &computeDescSetLayout_;
+  if (vkAllocateDescriptorSets(device_, &allocInfo, &computeDescSet_) != VK_SUCCESS)
+    return false;
+
+  // ── Write descriptor set ──
+  VkDescriptorBufferInfo paramsBI{computeParamsUBO_, 0, sizeof(ComputeParams)};
+  VkDescriptorBufferInfo pointsBI{pointsSSBO_, 0, MAX_POINTS_SSBO};
+  VkDeviceSize vertOutSize = 1000 * SUBS_PER_SEG * 6 * 6 * sizeof(float);
+  VkDescriptorBufferInfo vertsBI{computeVertexSSBO_, 0, vertOutSize};
+  VkDescriptorBufferInfo capCntBI{computeCapCounterSSBO_, 0, sizeof(int32_t)};
+  VkDeviceSize capSize = 2 * 16 * 3 * 6 * sizeof(float);
+  VkDescriptorBufferInfo capsBI{computeCapSSBO_, 0, capSize};
+
+  VkWriteDescriptorSet writes[5] = {};
+  for (int i = 0; i < 5; i++) {
+    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[i].dstSet = computeDescSet_;
+    writes[i].dstBinding = i;
+    writes[i].descriptorCount = 1;
+  }
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  writes[0].pBufferInfo = &paramsBI;
+  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[1].pBufferInfo = &pointsBI;
+  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[2].pBufferInfo = &vertsBI;
+  writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[3].pBufferInfo = &capCntBI;
+  writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[4].pBufferInfo = &capsBI;
+  vkUpdateDescriptorSets(device_, 5, writes, 0, nullptr);
+
+  // ── Pipeline layout ──
+  VkPipelineLayoutCreateInfo plCI{};
+  plCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  plCI.setLayoutCount = 1;
+  plCI.pSetLayouts = &computeDescSetLayout_;
+  if (vkCreatePipelineLayout(device_, &plCI, nullptr, &computePipelineLayout_) != VK_SUCCESS)
+    return false;
+
+  // ── SPIR-V shader module (embedded from vk_compute_shader.h) ──
+  VkShaderModuleCreateInfo smCI{};
+  smCI.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  smCI.codeSize = stroke_compute_spv_size;
+  smCI.pCode = stroke_compute_spv;
+  VkShaderModule compShaderModule;
+  if (vkCreateShaderModule(device_, &smCI, nullptr, &compShaderModule) != VK_SUCCESS) {
+    LOGE("[FlueraVk] Failed to create compute shader module");
+    return false;
+  }
+
+  // ── Compute pipeline ──
+  VkPipelineShaderStageCreateInfo stageCI{};
+  stageCI.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stageCI.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  stageCI.module = compShaderModule;
+  stageCI.pName = "main";
+
+  VkComputePipelineCreateInfo cpCI{};
+  cpCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  cpCI.stage = stageCI;
+  cpCI.layout = computePipelineLayout_;
+  if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &cpCI, nullptr, &computePipeline_) != VK_SUCCESS) {
+    vkDestroyShaderModule(device_, compShaderModule, nullptr);
+    LOGE("[FlueraVk] Failed to create compute pipeline");
+    return false;
+  }
+  vkDestroyShaderModule(device_, compShaderModule, nullptr); // No longer needed
+
+  computeAvailable_ = true;
+  LOGI("[FlueraVk] \xF0\x9F\x9A\x80 Compute tessellation pipeline ready");
+
+  // 🔥 Warm-up: dispatch 1-workgroup dummy compute to pre-compile pipeline
+  {
+    VkCommandBufferAllocateInfo ai{};
+    ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    ai.commandPool = cmdPool_;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+    VkCommandBuffer cmd;
+    if (vkAllocateCommandBuffers(device_, &ai, &cmd) == VK_SUCCESS) {
+      VkCommandBufferBeginInfo bi{};
+      bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+      bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      vkBeginCommandBuffer(cmd, &bi);
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline_);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                               computePipelineLayout_, 0, 1, &computeDescSet_, 0, nullptr);
+      vkCmdDispatch(cmd, 1, 1, 1);
+      vkEndCommandBuffer(cmd);
+      VkSubmitInfo si{};
+      si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+      si.commandBufferCount = 1;
+      si.pCommandBuffers = &cmd;
+      vkQueueSubmit(queue_, 1, &si, VK_NULL_HANDLE);
+      vkQueueWaitIdle(queue_);
+      vkFreeCommandBuffers(device_, cmdPool_, 1, &cmd);
+      LOGI("[FlueraVk] 🔥 Shader warm-up complete");
+    }
+  }
+
+  return true;
+}
+
+void VkStrokeRenderer::dispatchCompute(const float *points, int pointCount,
+                                       int brushType, float r, float g, float b,
+                                       float a, float strokeWidth,
+                                       float minPressure, float maxPressure,
+                                       float pencilBaseOpacity, float pencilMaxOpacity) {
+  if (!computeAvailable_ || !computePipeline_) return;
+
+  // 🚀 Incremental + adaptive LOD
+  int subsPerSeg = dynamicSubsPerSeg_;
+  int startSeg = 0;
+  if (prevComputePointCount_ >= 2 && pointCount > prevComputePointCount_) {
+    startSeg = std::max(0, prevComputePointCount_ - 2);
+  }
+  int newSubdivs = (pointCount - 1 - startSeg) * subsPerSeg;
+  int totalSubdivs = (pointCount - 1) * subsPerSeg;
+  int vertexOffset = startSeg * subsPerSeg;
+
+  // Upload points to SSBO
+  size_t pointBytes = pointCount * 5 * sizeof(float);
+  if (pointBytes > MAX_POINTS_SSBO) pointBytes = MAX_POINTS_SSBO;
+  memcpy(mappedPointsSSBO_, points, pointBytes);
+
+  // Upload params (with incremental fields)
+  ComputeParams params{};
+  params.colorR = r;
+  params.colorG = g;
+  params.colorB = b;
+  params.colorA = a;
+  params.strokeWidth = strokeWidth;
+  params.pointCount = pointCount;
+  params.brushType = brushType;
+  params.minPressure = minPressure;
+  params.maxPressure = maxPressure;
+  params.pencilBaseOpacity = pencilBaseOpacity;
+  params.pencilMaxOpacity = pencilMaxOpacity;
+  params.subsPerSeg = subsPerSeg;
+  params.totalSubdivs = newSubdivs;  // Only new portion!
+  params.startSeg = startSeg;
+  params.vertexOffset = vertexOffset;
+  memcpy(mappedComputeParams_, &params, sizeof(ComputeParams));
+
+  // Reset cap counter
+  *(int32_t*)mappedCapCounter_ = 0;
+
+  // Dispatch: only new subdivisions
+  uint32_t groups = (newSubdivs + 63) / 64;
+
+  prevComputePointCount_ = pointCount;
+
+  // The vertex count is ALL accumulated vertices
+  vertexCount_ = totalSubdivs * 6;
+
+  LOGI("[FlueraVk] Compute dispatch: %d new/%d total subdivs, %d groups, %d verts",
+       newSubdivs, totalSubdivs, groups, vertexCount_);
+}
+
+void VkStrokeRenderer::destroyComputeResources() {
+  if (!device_) return;
+
+  auto destroyBuf = [this](VkBuffer &buf, VkDeviceMemory &mem) {
+    if (buf) { vkDestroyBuffer(device_, buf, nullptr); buf = VK_NULL_HANDLE; }
+    if (mem) { vkFreeMemory(device_, mem, nullptr); mem = VK_NULL_HANDLE; }
+  };
+
+  if (computePipeline_) { vkDestroyPipeline(device_, computePipeline_, nullptr); computePipeline_ = VK_NULL_HANDLE; }
+  if (computePipelineLayout_) { vkDestroyPipelineLayout(device_, computePipelineLayout_, nullptr); computePipelineLayout_ = VK_NULL_HANDLE; }
+  if (computeDescPool_) { vkDestroyDescriptorPool(device_, computeDescPool_, nullptr); computeDescPool_ = VK_NULL_HANDLE; }
+  if (computeDescSetLayout_) { vkDestroyDescriptorSetLayout(device_, computeDescSetLayout_, nullptr); computeDescSetLayout_ = VK_NULL_HANDLE; }
+
+  destroyBuf(pointsSSBO_, pointsSSBOMemory_);
+  destroyBuf(computeParamsUBO_, computeParamsMemory_);
+  destroyBuf(computeVertexSSBO_, computeVertexSSBOMemory_);
+  destroyBuf(computeCapSSBO_, computeCapSSBOMemory_);
+  destroyBuf(computeCapCounterSSBO_, computeCapCounterMemory_);
+
+  mappedPointsSSBO_ = nullptr;
+  mappedComputeParams_ = nullptr;
+  mappedCapCounter_ = nullptr;
+  computeAvailable_ = false;
 }

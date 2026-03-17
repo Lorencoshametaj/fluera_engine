@@ -203,6 +203,30 @@ Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeGetDeviceNa
   return env->NewStringUTF("N/A");
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// nativeSetZoomLevel — 🚀 Adaptive LOD
+// ═══════════════════════════════════════════════════════════════════
+
+JNIEXPORT void JNICALL
+Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeSetZoomLevel(
+    JNIEnv * /* env */, jobject /* this */, jfloat zoom) {
+  if (g_renderer && g_renderer->isInitialized()) {
+    g_renderer->setZoomLevel(zoom);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// nativeTrimMemory — 🚀 Memory pressure management
+// ═══════════════════════════════════════════════════════════════════
+
+JNIEXPORT void JNICALL
+Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeTrimMemory(
+    JNIEnv * /* env */, jobject /* this */, jint level) {
+  if (g_renderer) {
+    g_renderer->trimMemory(level);
+  }
+}
+
 } // extern "C"
 
 // ═══════════════════════════════════════════════════════════════════
@@ -237,6 +261,12 @@ Java_com_flueraengine_fluera_1engine_VulkanStrokeOverlayPlugin_nativeGetDeviceNa
 #define FLUERA_CMD_SET_TRANSFORM     2.0f
 #define FLUERA_CMD_CLEAR             3.0f
 
+// Persistent point accumulator for ring buffer mode
+#include "../../../../shared/ring_buffer.h"
+static std::vector<float> g_ringAccumPoints;
+static int g_ringAccumCount = 0;
+static int g_ringLastSequence = -1;
+
 extern "C" {
 
 __attribute__((visibility("default")))
@@ -247,6 +277,10 @@ void fluera_stroke_execute(float* buf) {
 
   if (cmd == FLUERA_CMD_CLEAR) {
     g_renderer->clearFrame();
+    // Also reset ring buffer accumulator (safety net — resetRing sequence
+    // should handle this, but belt-and-suspenders for edge cases)
+    g_ringAccumPoints.clear();
+    g_ringAccumCount = 0;
     return;
   }
 
@@ -279,6 +313,82 @@ void fluera_stroke_execute(float* buf) {
         buf[FLUERA_FFI_FOUNTAIN_STR],
         buf[FLUERA_FFI_FOUNTAIN_RATE],
         (int)buf[FLUERA_FFI_FOUNTAIN_TAPER]);
+  }
+}
+
+} // extern "C"
+
+// ═══════════════════════════════════════════════════════════════════
+// 🚀 Ring buffer incremental FFI consumer
+// ═══════════════════════════════════════════════════════════════════
+
+extern "C" {
+
+__attribute__((visibility("default")))
+void fluera_stroke_ring_execute(int32_t* buf) {
+  if (!buf || !g_renderer || !g_renderer->isInitialized()) return;
+
+  const int cmd = buf[RING_CMD];
+
+  if (cmd == RING_CMD_CLEAR) {
+    g_renderer->clearFrame();
+    g_ringAccumPoints.clear();
+    g_ringAccumCount = 0;
+    ring_reset(buf);
+    return;
+  }
+
+  if (cmd == RING_CMD_TRANSFORM) {
+    const float* mat = ring_get_transform(buf);
+    g_renderer->setTransform(mat);
+    return;
+  }
+
+  if (cmd == RING_CMD_RENDER) {
+    // Check for new stroke (sequence changed → reset accumulator)
+    int seq = buf[RING_SEQUENCE];
+    if (seq != g_ringLastSequence) {
+      g_ringAccumPoints.clear();
+      g_ringAccumCount = 0;
+      g_ringLastSequence = seq;
+    }
+
+    // Read new points from ring
+    float tempBuf[5 * 200]; // Read up to 200 points at a time
+    int newCount = ring_read_new_points(buf, tempBuf, 200);
+
+    // Append new points to accumulator
+    if (newCount > 0) {
+      g_ringAccumPoints.insert(g_ringAccumPoints.end(),
+                                tempBuf, tempBuf + newCount * 5);
+      g_ringAccumCount += newCount;
+    }
+
+    if (g_ringAccumCount < 2) return;
+
+    // Extract params from ring header
+    const float cr = ring_get_float_param(buf, RING_PARAM_COLOR_R);
+    const float cg = ring_get_float_param(buf, RING_PARAM_COLOR_G);
+    const float cb = ring_get_float_param(buf, RING_PARAM_COLOR_B);
+    const float ca = ring_get_float_param(buf, RING_PARAM_COLOR_A);
+
+    g_renderer->updateAndRender(
+        g_ringAccumPoints.data(), g_ringAccumCount,
+        cr, cg, cb, ca,
+        ring_get_float_param(buf, RING_PARAM_STROKE_W),
+        (int)ring_get_float_param(buf, RING_PARAM_TOTAL_PTS),
+        (int)ring_get_float_param(buf, RING_PARAM_BRUSH_TYPE),
+        ring_get_float_param(buf, RING_PARAM_PENCIL_BASE),
+        ring_get_float_param(buf, RING_PARAM_PENCIL_MAX),
+        ring_get_float_param(buf, RING_PARAM_PENCIL_MINP),
+        ring_get_float_param(buf, RING_PARAM_PENCIL_MAXP),
+        ring_get_float_param(buf, RING_PARAM_FOUNT_THIN),
+        ring_get_float_param(buf, RING_PARAM_FOUNT_ANGLE),
+        ring_get_float_param(buf, RING_PARAM_FOUNT_STR),
+        ring_get_float_param(buf, RING_PARAM_FOUNT_RATE),
+        (int)ring_get_float_param(buf, RING_PARAM_FOUNT_TAPER));
+
+    buf[RING_CMD] = RING_CMD_IDLE;
   }
 }
 

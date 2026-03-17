@@ -599,6 +599,9 @@ extension on _FlueraCanvasScreenState {
           CanvasPerformanceMonitor.instance.attachVulkanService(
             _vulkanStrokeOverlay,
           );
+          // 🌐 Global overlay: persists across Navigator routes
+          // (ImageViewer, PDF Reader, LaTeX Editor, etc.)
+          CanvasPerformanceMonitor.instance.showGlobalOverlay(context);
         }
 
         // 🎨 FORCE REPAINT: The DrawingPainter repaints via two mechanisms:

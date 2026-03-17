@@ -503,14 +503,12 @@ class DrawingPainter extends CustomPainter {
         _renderIndexNodeCount = newCount;
       }
     } else if (newCount == oldCount) {
-      // Version changed but stroke count same (e.g., section/shape added,
-      // node visibility changed). Full rebuild to pick up non-stroke changes.
-      final nodes = <CanvasNode>[];
-      for (final layer in sceneGraph.layers) {
-        if (!layer.isVisible) continue;
-        _collectLeafNodes(layer, nodes);
-      }
-      _renderIndex.rebuild(nodes);
+      // 🚀 P99 FIX #6: version changed but stroke count same (section/shape/
+      // visibility toggle). The R-Tree only indexes SPATIAL positions — if
+      // stroke count is identical, bounds haven't changed. Skip the expensive
+      // O(N log N) full rebuild. Non-stroke nodes (shapes, sections) are
+      // rendered via the scene graph renderer directly, not the R-Tree.
+      // Just bump version to avoid re-entering this branch next frame.
       _renderIndexNodeCount = newCount;
     } else {
       // Fallback: version changed, count changed but not simple add/remove.
@@ -802,12 +800,17 @@ class DrawingPainter extends CustomPainter {
     // 🚀 VECTORIAL CACHE: replay cached strokes + draw only new ones
     // This avoids re-rendering all N strokes via BrushEngine on every paint()
 
-    // 🚀 GESTURE-END: tiles built with cheap LOD need rebuilding at full quality
+    // 🚀 P99 FIX #4: GESTURE-END — mark tiles stale for progressive rebuild
+    // instead of invalidating the stroke cache entirely. The stroke cache
+    // stays as a GPU-scaled fallback (O(1) drawPicture) while tiles rebuild
+    // progressively over multiple frames.
     final isCurrentlyGesturing = controller?.isPanning ?? false;
     if (!isCurrentlyGesturing && _gestureBuiltTiles) {
       _gestureBuiltTiles = false;
       _tileCache.markAllStale(); // Keep as fallback, rebuild at correct LOD
-      _strokeCache.invalidateCache();
+      // 🚀 P99 FIX: DON'T invalidate stroke cache — use it as fallback
+      // while tiles progressively rebuild at correct LOD.
+      // Old: _strokeCache.invalidateCache();
     }
 
     final totalStrokes = _effectiveStrokes.length;
@@ -840,10 +843,10 @@ class DrawingPainter extends CustomPainter {
       _strokeCache.invalidateCache();
     }
 
-    // 🚀 VIEWPORT-BASED CACHE INVALIDATION: if the user has panned/zoomed
-    // outside the area covered by the cached Picture, rebuild it.
-    // 🚀 ZOOM-AWARE: At low zoom, add tolerance so small pans don't
-    // invalidate. At 30% zoom, tolerance = ~1500px canvas units.
+    // 🚀 P99 FIX #2: PROGRESSIVE VIEWPORT REBUILD — instead of nuking the
+    // stroke cache when viewport exits the cached area, keep the cache as
+    // fallback and just mark tiles stale. The tile progressive rebuild will
+    // incrementally render newly-visible strokes over multiple frames.
     if (_strokeCache.isCacheValid(totalStrokes) &&
         _cachedCacheViewport != Rect.zero) {
       final _vpScale = controller?.scale ?? canvasScale;
@@ -854,7 +857,16 @@ class DrawingPainter extends CustomPainter {
           viewport.top >= _cachedCacheViewport.top - tolerance &&
           viewport.right <= _cachedCacheViewport.right + tolerance &&
           viewport.bottom <= _cachedCacheViewport.bottom + tolerance)) {
-        _strokeCache.invalidateCache();
+        // 🚀 P99 FIX: mark tiles stale + invalidate ONLY tiles outside
+        // the old cached viewport. Stroke cache stays as fallback.
+        _tileCache.markAllStale();
+        // Expand the cached viewport to include the new area
+        _cachedCacheViewport = Rect.fromLTRB(
+          viewport.left < _cachedCacheViewport.left ? viewport.left : _cachedCacheViewport.left,
+          viewport.top < _cachedCacheViewport.top ? viewport.top : _cachedCacheViewport.top,
+          viewport.right > _cachedCacheViewport.right ? viewport.right : _cachedCacheViewport.right,
+          viewport.bottom > _cachedCacheViewport.bottom ? viewport.bottom : _cachedCacheViewport.bottom,
+        );
       }
     }
 
@@ -978,7 +990,7 @@ class DrawingPainter extends CustomPainter {
 
       if (missingTiles.isNotEmpty) {
         final sw = Stopwatch()..start();
-        const budgetUs = 8000;
+        const budgetUs = 4000; // 🚀 P99 FIX: halved from 8ms to leave headroom for other raster work
         final effectiveScale = controller?.scale ?? canvasScale;
         _delegateRenderer.currentScale = effectiveScale;
 

@@ -3,7 +3,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../drawing/models/pro_drawing_point.dart';
+import '../../drawing/input/input_predictor.dart';
 import '../../canvas/infinite_canvas_controller.dart';
+import '../optimization/frame_budget_manager.dart';
 import 'native_stroke_ffi_stub.dart'
     if (dart.library.ffi) 'native_stroke_ffi.dart';
 
@@ -27,10 +29,25 @@ class VulkanStrokeOverlayService {
   bool _initialized = false;
   bool? _available;
   int _lastSentCount = 0;
-  int _lastSendTimeMs = 0;
+
+  // 🚀 #10: Monotonic stopwatch for throttle (avoids DateTime.now() GC)
+  static final Stopwatch _throttleWatch = Stopwatch()..start();
+  int _lastSendMs = 0;
+
+  // 🚀 #4: Transform throttle — cache last values to skip no-ops
+  double _lastScale = -1;
+  double _lastOx = double.nan;
+  double _lastOy = double.nan;
+  double _lastRotation = double.nan;
+
+  // 🚀 #6: Ring buffer diagnostics
+  int _ringFallbackCount = 0;
 
   /// 🚀 FFI: Direct shared memory bridge for hot-path calls
   final NativeStrokeFfi _ffi = NativeStrokeFfi();
+
+  /// 🔮 Input predictor for anti-lag rendering
+  final InputPredictor _predictor = InputPredictor();
 
   /// Flutter texture ID for use with Texture(textureId:) widget.
   int? get textureId => _textureId;
@@ -96,37 +113,34 @@ class VulkanStrokeOverlayService {
     double fountainNibStrength = 0.35,
     double fountainPressureRate = 0.275,
     int fountainTaperEntry = 6,
+    double zoomScale = 1.0,
   }) {
     if (!_initialized || points.length < 2) return;
 
+    // 🔮 Predict: add ephemeral points for anti-lag rendering
+    final prediction = _predictor.predict(points);
+    final renderPoints = prediction.allPoints;
+
     // 🚀 Throttle: skip if <16ms since last send (unless forced or first call)
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (!force && _lastSendTimeMs > 0 && (now - _lastSendTimeMs) < 16) {
+    final now = _throttleWatch.elapsedMilliseconds;
+    if (!force && _lastSendMs > 0 && (now - _lastSendMs) < 16) {
       return; // Points accumulate, will be sent in next batch
     }
 
-    // OPT-4: For ballpoint (brushType==0), send only NEW points incrementally.
-    // C++ accumulates internally and only tessellates the delta.
-    // Other brushes need ALL points for correct smoothing/tangents.
-    int newStart;
-    if (brushType == 0 && _lastSentCount > 0) {
-      // 1-point overlap for segment continuity at the boundary
-      newStart = (_lastSentCount - 1).clamp(0, points.length);
-    } else {
-      newStart = 0;
-    }
-    if (newStart >= points.length) return;
+    // C++ tessellates the full incoming point buffer directly (no internal accumulation).
+    // Always send ALL points for correct full-stroke re-tessellation.
+    const int newStart = 0;
     _lastSentCount = points.length;
-    _lastSendTimeMs = now;
+    _lastSendMs = now;
 
     // 🚀 FFI HOT PATH: Zero-copy shared buffer write
     if (_ffi.isInitialized) {
-      _ffi.updateAndRender(
-        points,
-        newStart,
+      // 🚀 Try ring buffer (incremental — only new points)
+      final ringUsed = _ffi.updateAndRenderIncremental(
+        renderPoints,
         color,
         strokeWidth,
-        points.length,
+        renderPoints.length,
         brushType: brushType,
         pencilBaseOpacity: pencilBaseOpacity,
         pencilMaxOpacity: pencilMaxOpacity,
@@ -137,6 +151,38 @@ class VulkanStrokeOverlayService {
         fountainNibStrength: fountainNibStrength,
         fountainPressureRate: fountainPressureRate,
         fountainTaperEntry: fountainTaperEntry,
+        zoomScale: zoomScale,
+      );
+      if (ringUsed) {
+        _ringFallbackCount = 0; // 🚀 #6: Ring succeeded, reset counter
+        return;
+      }
+
+      // 🚀 #6: Ring buffer fallback diagnostics
+      _ringFallbackCount++;
+      if (_ringFallbackCount == 4) {
+        debugPrint('[FlueraVk] ⚠️ Ring buffer fallback 4x consecutive — '
+            'consider increasing ring capacity');
+      }
+
+      // Fallback: flat buffer (all points)
+      _ffi.updateAndRender(
+        renderPoints,
+        newStart,
+        color,
+        strokeWidth,
+        renderPoints.length,
+        brushType: brushType,
+        pencilBaseOpacity: pencilBaseOpacity,
+        pencilMaxOpacity: pencilMaxOpacity,
+        pencilMinPressure: pencilMinPressure,
+        pencilMaxPressure: pencilMaxPressure,
+        fountainThinning: fountainThinning,
+        fountainNibAngleDeg: fountainNibAngleDeg,
+        fountainNibStrength: fountainNibStrength,
+        fountainPressureRate: fountainPressureRate,
+        fountainTaperEntry: fountainTaperEntry,
+        zoomScale: zoomScale,
       );
       return;
     }
@@ -190,21 +236,27 @@ class VulkanStrokeOverlayService {
     final oy = controller.offset.dy;
     final rotation = controller.rotation;
 
+    // 🚀 #4: Skip if transform hasn't changed (< 0.001 epsilon)
+    if ((scale - _lastScale).abs() < 0.001 &&
+        (ox - _lastOx).abs() < 0.5 &&
+        (oy - _lastOy).abs() < 0.5 &&
+        (rotation - _lastRotation).abs() < 0.0001) {
+      return;
+    }
+    _lastScale = scale;
+    _lastOx = ox;
+    _lastOy = oy;
+    _lastRotation = rotation;
+
+    // 🚀 #11: FFI path computes its own matrix — skip Dart matrix construction
+    if (_ffi.isInitialized) {
+      _ffi.setTransform(controller, width, height, dpr);
+      return;
+    }
+
     final double w = width.toDouble();
     final double h = height.toDouble();
 
-    // Canvas coordinates are in logical pixels.
-    // The Vulkan surface is in physical pixels (width/height already scaled).
-    // Flutter transform chain: translate(offset) → rotate(θ) → scale(s)
-    //
-    // Combined matrix: NDC_projection * translate * rotate * scale * dpr
-    //   P = point in canvas space
-    //   Step 1: scale       → P' = P * scale * dpr
-    //   Step 2: rotate      → P'' = R(θ) * P'
-    //   Step 3: translate   → P''' = P'' + offset * dpr
-    //   Step 4: NDC         → ndc = P''' * (2/w, 2/h) - (1, 1)
-    //
-    // As a single 4x4 column-major matrix:
     final effectiveScale = scale * dpr;
     final effectiveOx = ox * dpr;
     final effectiveOy = oy * dpr;
@@ -212,48 +264,22 @@ class VulkanStrokeOverlayService {
     final cosR = _cos(rotation);
     final sinR = _sin(rotation);
 
-    // M = NDC * Translate * Rotate * Scale
-    // NDC maps physical pixels → [-1, 1]:  x' = x * 2/w - 1, y' = y * 2/h - 1
-    //
-    // Row 0: sx*cosR, sx*(-sinR), 0, tx
-    // Row 1: sy*sinR, sy*cosR,    0, ty
-    // Column-major storage for Vulkan:
     final sx = 2.0 * effectiveScale / w;
     final sy = 2.0 * effectiveScale / h;
     final tx = (2.0 * effectiveOx / w) - 1.0;
     final ty = (2.0 * effectiveOy / h) - 1.0;
 
     final matrix = <double>[
-      // Column 0
-      sx * cosR,
-      sy * sinR,
-      0.0,
-      0.0,
-      // Column 1
-      sx * -sinR,
-      sy * cosR,
-      0.0,
-      0.0,
-      // Column 2
-      0.0,
-      0.0,
-      1.0,
-      0.0,
-      // Column 3
-      tx,
-      ty,
-      0.0,
-      1.0,
+      sx * cosR, sy * sinR, 0.0, 0.0,
+      sx * -sinR, sy * cosR, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      tx, ty, 0.0, 1.0,
     ];
 
-    // 🚀 FFI HOT PATH
-    if (_ffi.isInitialized) {
-      _ffi.setTransform(controller, width, height, dpr);
-      return;
-    }
-
-    // ─── FALLBACK: MethodChannel ─────────────────────────────
-    _channel.invokeMethod('setTransform', {'matrix': matrix});
+    _channel.invokeMethod('setTransform', {
+      'matrix': matrix,
+      'zoomLevel': scale,
+    });
   }
 
   // 🚀 PERF: Fast-path for rotation=0 (most common case)
@@ -291,7 +317,10 @@ class VulkanStrokeOverlayService {
   void clear() {
     if (!_initialized) return;
     _lastSentCount = 0;
-    _lastSendTimeMs = 0;
+    _lastSendMs = 0;
+
+    // 🔮 Reset predictor on stroke end (anti-stretch: discard all predictions)
+    _predictor.reset();
 
     // 🚀 FFI HOT PATH
     if (_ffi.isInitialized) {
@@ -316,6 +345,16 @@ class VulkanStrokeOverlayService {
       debugPrint('[FlueraVk] resize failed: $e');
       return false;
     }
+  }
+
+  /// 🚀 Handle memory pressure — trim native render buffers.
+  /// Register this callback with [MemoryPressureHandler.registerCallback].
+  void onMemoryPressure(MemoryPressureLevel level) {
+    if (!_initialized) return;
+    if (level == MemoryPressureLevel.normal) return;
+    final nativeLevel = level == MemoryPressureLevel.critical ? 2 : 1;
+    debugPrint('[FlueraVk] trimMemory(level=$nativeLevel)');
+    _channel.invokeMethod('trimMemory', {'level': nativeLevel});
   }
 
   /// Dispose all resources.
