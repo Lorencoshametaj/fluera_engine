@@ -116,6 +116,15 @@ class SynchronizedRecording {
   /// ☁️ Cloud Storage URL for the JSON strokes file (remote sync)
   final String? strokesStorageUrl;
 
+  /// 📝 Transcribed text from speech-to-text (null if not transcribed).
+  final String? transcriptionText;
+
+  /// 🌐 Language detected/used during transcription (e.g., 'en', 'it').
+  final String? transcriptionLanguage;
+
+  /// 📊 Time-stamped transcription segments (JSON-encoded list).
+  final String? transcriptionSegmentsJson;
+
   const SynchronizedRecording({
     required this.id,
     required this.audioPath,
@@ -128,6 +137,9 @@ class SynchronizedRecording {
     this.strokesPath,
     this.audioStorageUrl,
     this.strokesStorageUrl,
+    this.transcriptionText,
+    this.transcriptionLanguage,
+    this.transcriptionSegmentsJson,
   });
 
   /// Creates an empty recording
@@ -149,6 +161,9 @@ class SynchronizedRecording {
       noteTitle: noteTitle,
       recordingType: recordingType,
       strokesPath: null,
+      transcriptionText: null,
+      transcriptionLanguage: null,
+      transcriptionSegmentsJson: null,
     );
   }
 
@@ -165,6 +180,9 @@ class SynchronizedRecording {
     String? strokesPath,
     String? audioStorageUrl,
     String? strokesStorageUrl,
+    String? transcriptionText,
+    String? transcriptionLanguage,
+    String? transcriptionSegmentsJson,
   }) {
     return SynchronizedRecording(
       id: id ?? this.id,
@@ -178,6 +196,9 @@ class SynchronizedRecording {
       strokesPath: strokesPath ?? this.strokesPath,
       audioStorageUrl: audioStorageUrl ?? this.audioStorageUrl,
       strokesStorageUrl: strokesStorageUrl ?? this.strokesStorageUrl,
+      transcriptionText: transcriptionText ?? this.transcriptionText,
+      transcriptionLanguage: transcriptionLanguage ?? this.transcriptionLanguage,
+      transcriptionSegmentsJson: transcriptionSegmentsJson ?? this.transcriptionSegmentsJson,
     );
   }
 
@@ -186,6 +207,10 @@ class SynchronizedRecording {
 
   /// Checks if the recording has strokes
   bool get hasStrokes => syncedStrokes.isNotEmpty;
+
+  /// Whether this recording has been transcribed.
+  bool get hasTranscription =>
+      transcriptionText != null && transcriptionText!.trim().isNotEmpty;
 
   /// Gets all partial strokes visible at a given time.
   /// [playbackTimeMs] - current playback time in ms
@@ -238,6 +263,9 @@ class SynchronizedRecording {
     if (recordingType != null) 'recordingType': recordingType,
     if (audioStorageUrl != null) 'audioStorageUrl': audioStorageUrl,
     if (strokesStorageUrl != null) 'strokesStorageUrl': strokesStorageUrl,
+    if (transcriptionText != null) 'transcriptionText': transcriptionText,
+    if (transcriptionLanguage != null) 'transcriptionLanguage': transcriptionLanguage,
+    if (transcriptionSegmentsJson != null) 'transcriptionSegmentsJson': transcriptionSegmentsJson,
   };
 
   /// JSON serialization as compressed string
@@ -259,6 +287,9 @@ class SynchronizedRecording {
       recordingType: json['recordingType'] as String?,
       audioStorageUrl: json['audioStorageUrl'] as String?,
       strokesStorageUrl: json['strokesStorageUrl'] as String?,
+      transcriptionText: json['transcriptionText'] as String?,
+      transcriptionLanguage: json['transcriptionLanguage'] as String?,
+      transcriptionSegmentsJson: json['transcriptionSegmentsJson'] as String?,
     );
   }
 

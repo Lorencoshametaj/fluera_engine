@@ -371,6 +371,30 @@ extension on _FlueraCanvasScreenState {
         _knowledgeFlowController != null &&
         _clusterCache.isNotEmpty) {
 
+      // 🎨 CURVE DRAG: Long-press near connection midpoint → adjust curvature
+      final centroids = <String, Offset>{};
+      for (final c in _clusterCache) {
+        centroids[c.id] = c.centroid;
+      }
+      final hitMidpoint = _knowledgeFlowController!.hitTestConnectionMidpoint(
+        canvasPosition,
+        centroids,
+        hitRadius: 30.0 / _canvasController.scale,
+      );
+      if (hitMidpoint != null) {
+        _isCurveDragging = true;
+        _curveDragConnectionId = hitMidpoint.id;
+        // Clear pending label tap — curve drag overrides it
+        _pendingLabelConnectionId = null;
+        _pendingLabelScreenPos = null;
+        // Stop any in-progress drawing so drag doesn't write on canvas
+        _isDrawingNotifier.value = false;
+        HapticFeedback.mediumImpact();
+        _knowledgeFlowController!.version.value++;
+        _uiRebuildNotifier.value++;
+        return;
+      }
+
       // 🎯 DRAG-TO-CONNECT: Long-press on cluster bubble → start connection drag
       // This MUST come first so the user can always drag from a cluster.
       final hitCluster = _knowledgeFlowController!.findNearestCluster(
@@ -411,11 +435,27 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-    // 🎨 Eyedropper fallback: long-press empty canvas → pick color
-    // Matches Procreate's touch-and-hold behavior
-    if (!_effectiveIsPanMode) {
-      HapticFeedback.mediumImpact();
-      _launchEyedropperFromCanvas();
+    // 🎯 Radial Context Menu: long-press empty canvas → show radial menu
+    // Only active when wheel mode is enabled.
+    if (!_useRadialWheel) return;
+    final screenPos = _canvasController.canvasToScreen(canvasPosition);
+    setState(() {
+      _showRadialMenu = true;
+      _radialMenuCenter = screenPos;
+    });
+  }
+
+  /// 🎯 Forward long-press movement to radial menu (if open).
+  void _onLongPressMoveUpdate(Offset screenPos) {
+    if (_showRadialMenu) {
+      _radialMenuKey.currentState?.updateFinger(screenPos);
+    }
+  }
+
+  /// 🎯 Forward long-press end to radial menu (if open).
+  void _onLongPressEnd(Offset screenPos) {
+    if (_showRadialMenu) {
+      _radialMenuKey.currentState?.release();
     }
   }
 

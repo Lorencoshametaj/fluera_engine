@@ -1012,3 +1012,39 @@ class UpdateTextCommand extends Command {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Scratch-Out Commands
+// ---------------------------------------------------------------------------
+
+/// Delete multiple strokes via scratch-out gesture. Undo re-adds them all.
+class ScratchOutCommand extends Command {
+  final List<dynamic> _deletedStrokes; // List<ProStroke>
+  final dynamic _layerController; // FlueraLayerController
+
+  ScratchOutCommand({
+    required List<dynamic> deletedStrokes,
+    required dynamic layerController,
+  })  : _deletedStrokes = List.of(deletedStrokes),
+        _layerController = layerController,
+        super(label: 'Scratch-out (${deletedStrokes.length} strokes)');
+
+  @override
+  void execute() {
+    // Already executed externally — pushed via pushWithoutExecute
+  }
+
+  @override
+  void undo() {
+    for (final stroke in _deletedStrokes) {
+      _layerController.addStroke(stroke);
+    }
+  }
+
+  @override
+  void redo() {
+    for (final stroke in _deletedStrokes) {
+      _layerController.removeStroke(stroke.id as String);
+    }
+  }
+}

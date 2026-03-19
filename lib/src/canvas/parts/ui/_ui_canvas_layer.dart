@@ -32,7 +32,20 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // 🚀 LAYER MERGE: Background is now painted inside DrawingPainter
           // (via inverse transform), eliminating 1 compositing layer.
           // _backgroundLayerHost removed — see DrawingPainter.paint().
-          _drawingLayerHost,
+          // 🧠 SEMANTIC MORPHING: Fade ink when zooming out into semantic view
+          AnimatedBuilder(
+            animation: _canvasController,
+            builder: (context, child) {
+              final morphT = _semanticMorphController?.morphProgress ?? 0.0;
+              // Keep a faint ghost (0.15) to maintain spatial reference
+              final inkOpacity = morphT > 0.01
+                  ? (1.0 - morphT * 0.85).clamp(0.15, 1.0)
+                  : 1.0;
+              if (inkOpacity >= 0.999) return child!;
+              return Opacity(opacity: inkOpacity, child: child);
+            },
+            child: _drawingLayerHost,
+          ),
           _imageLayerHost,
           // 🧠 KNOWLEDGE FLOW: Word underlines + connections + label pills
           // Must be AFTER drawing/image layers so it renders ON TOP of canvas content.
@@ -50,6 +63,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       m.rotateZ(_canvasController.rotation);
                     }
                     m.scale(_canvasController.scale);
+                    // 🧠 SEMANTIC MORPHING: Update morph progress from scale
+                    _semanticMorphController?.updateFromScale(
+                      _canvasController.scale,
+                    );
                     return Transform(
                       transform: m,
                       child: ValueListenableBuilder<int>(
@@ -70,6 +87,24 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                             thumbnails: _thumbnailCache != null
                                 ? {for (final c in _clusterCache) if (_thumbnailCache!.hasThumbnail(c.id)) c.id: _thumbnailCache!.getThumbnail(c.id)!}
                                 : const {},
+                            semanticMorphProgress: _semanticMorphController?.morphProgress ?? 0.0,
+                            semanticController: _semanticMorphController,
+                            spaceSplitLineY: _spaceSplitController.isActive ? _spaceSplitController.splitLineY : null,
+                            spaceSplitSpreadProgress: _spaceSplitController.isActive
+                                ? (_spaceSplitController.spreadDistance / 200.0).clamp(0.0, 1.0)
+                                : 0.0,
+                            spaceSplitGhostDisplacements: _spaceSplitController.isActive
+                                ? _spaceSplitController.ghostDisplacements
+                                : const {},
+                            spaceSplitIsHorizontal: _spaceSplitController.isActive
+                                ? _spaceSplitController.axis == SplitAxis.horizontal
+                                : false,
+                            flightProgress: _canvasController.flightProgress,
+                            flightPhase: _canvasController.flightPhase,
+                            flightSourceClusterId: _canvasController.flightSourceClusterId,
+                            flightTargetClusterId: _canvasController.flightTargetClusterId,
+                            landingPulseProgress: _canvasController.landingPulseProgress,
+                            landingPulseCenter: _canvasController.landingPulseCenter,
                           ),
                           size: Size.infinite,
                         ),
@@ -224,6 +259,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         !isActivelyDrawingFreehand)
                       _buildLocalPlaybackOverlay(context),
 
+                    // 🎤 LIVE SUBTITLE OVERLAY — shown during recording when enabled
+                    if (!isActivelyDrawingFreehand)
+                      _buildLiveSubtitleOverlay(context),
+
                     // 🔲 REMOTE VIEWPORT & PRESENCE OVERLAYS — hidden during drawing
                     if (!isActivelyDrawingFreehand)
                       ..._buildRemoteOverlays(context),
@@ -233,6 +272,21 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
 
                     // 🏗️ ERASER OVERLAYS
                     ..._buildEraserOverlays(context),
+
+
+
+                    // 💥 SCRATCH-OUT PARTICLE DISSOLVE
+                    if (_scratchOutAnimating && _scratchOutParticles.isNotEmpty)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: _ScratchOutParticleWidget(
+                            particles: _scratchOutParticles,
+                            bounds: _scratchOutBounds ?? Rect.zero,
+                            canvasController: _canvasController,
+                            deleteCount: _scratchOutParticles.length,
+                          ),
+                        ),
+                      ),
 
                     // 📏 Ruler & Digital Text overlays
                     ..._buildToolOverlays(context),
@@ -338,14 +392,19 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     if (_isPlayingAudio && !isActivelyDrawingFreehand)
                       _buildAudioMiniPlayer(context),
 
-                    // 🎨 Floating Color Disc — hidden during active stroke
-                    if (_isDrawingNotifier.value && !_effectiveIsEraser &&
+                    // 🎨 Floating Color Disc — always visible in drawing mode
+                    if (!_effectiveIsEraser &&
                         !_effectiveIsPanMode &&
                         !isActivelyDrawingFreehand)
                       FloatingColorDisc(
                         color: _effectiveSelectedColor,
+                        recentColors: _recentColors,
                         onColorChanged: (c) {
                           _toolController.setColor(c);
+                          // Track recent colors (deduped, max 6)
+                          _recentColors.remove(c);
+                          _recentColors.insert(0, c);
+                          if (_recentColors.length > 6) _recentColors.removeLast();
                           setState(() {});
                         },
                         onExpand: () async {
@@ -363,6 +422,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                           }
                         },
                       ),
+
+                    // ↩️ Action Flash Overlay (Undo/Redo HUD feedback)
+                    ActionFlashOverlay(key: _actionFlashKey),
                   ],
                 );
               },
@@ -603,6 +665,26 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       _layerController.discardLastAction();
                     },
             onLongPress: _isMultiPageEditMode ? null : _onLongPress,
+            onLongPressMoveUpdate: _isMultiPageEditMode ? null : _onLongPressMoveUpdate,
+            onLongPressEnd: _isMultiPageEditMode ? null : _onLongPressEnd,
+            onSpaceSplitStart: _onSpaceSplitStart,
+            onSpaceSplitUpdate: _onSpaceSplitUpdate,
+            onSpaceSplitEnd: _onSpaceSplitEnd,
+            // ✌️ MULTI-FINGER TAP: 2-finger tap = Undo, 3-finger tap = Redo
+            onTwoFingerTap: () {
+              if (_layerController.canUndo) {
+                _layerController.undo();
+                HapticFeedback.mediumImpact();
+                _actionFlashKey.currentState?.showUndo();
+              }
+            },
+            onThreeFingerTap: () {
+              if (_layerController.canRedo) {
+                _layerController.redo();
+                HapticFeedback.mediumImpact();
+                _actionFlashKey.currentState?.showRedo();
+              }
+            },
             enableSingleFingerPan:
                 _effectiveIsPanMode ||
                 _isMultiPageEditMode, // 🖐️ Pan with a finger when active OR in multi-page edit
@@ -745,6 +827,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 _isDraggingGraph ||
                 _isResizingGraph ||
                 _isConnectionDragging || // 🧠 Block pan during connection drag
+                _isCurveDragging || // 🎨 Block pan during curve drag
                 _isDraggingGraphSlider ||
                 _imageTool
                     .isHandleRotating, // 🌀 Block only during active manipulation
@@ -811,6 +894,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             onImageScaleStart: _onImageScaleStart,
             onImageTransform: _onImageTransform,
             onImageScaleEnd: _onImageScaleEnd,
+            // 🔲 GESTURAL LASSO: Tap + Drag activates lasso without switching tools
+            onGesturalLassoStart: _onGesturalLassoStart,
+            onGesturalLassoUpdate: _onGesturalLassoUpdate,
+            onGesturalLassoEnd: _onGesturalLassoEnd,
+            onGesturalLassoArmed: () => HapticFeedback.lightImpact(),
             // 🚀 PERF FIX: Content builders OUTSIDE AnimatedBuilder.
             child: ValueListenableBuilder<GeometricShape?>(
               valueListenable: _currentShapeNotifier,
@@ -1193,4 +1281,170 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
       ),
     );
   }
+}
+
+/// 💥 Particle data for scratch-out dissolve effect.
+class _ScratchOutParticle {
+  final Offset position;
+  final Offset velocity;
+  final Color color;
+  final double size;
+
+  const _ScratchOutParticle({
+    required this.position,
+    required this.velocity,
+    required this.color,
+    required this.size,
+  });
+}
+
+/// 🔴 Real-time preview overlay: highlights strokes that would be deleted.
+
+
+/// 💥 Particle dissolve effect — colored particles fly out from deleted area.
+class _ScratchOutParticleWidget extends StatefulWidget {
+  final List<_ScratchOutParticle> particles;
+  final Rect bounds;
+  final InfiniteCanvasController canvasController;
+  final int deleteCount;
+
+  const _ScratchOutParticleWidget({
+    required this.particles,
+    required this.bounds,
+    required this.canvasController,
+    required this.deleteCount,
+  });
+
+  @override
+  State<_ScratchOutParticleWidget> createState() =>
+      _ScratchOutParticleWidgetState();
+}
+
+class _ScratchOutParticleWidgetState extends State<_ScratchOutParticleWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (context, child) {
+        return CustomPaint(
+          painter: _ScratchOutParticlePainter(
+            particles: widget.particles,
+            canvasController: widget.canvasController,
+            progress: _anim.value,
+            deleteCount: widget.deleteCount,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ScratchOutParticlePainter extends CustomPainter {
+  final List<_ScratchOutParticle> particles;
+  final InfiniteCanvasController canvasController;
+  final double progress;
+  final int deleteCount;
+
+  static const double _gravity = 400.0; // px/s² downward
+
+  _ScratchOutParticlePainter({
+    required this.particles,
+    required this.canvasController,
+    required this.progress,
+    required this.deleteCount,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = Curves.easeOut.transform(progress);
+    final opacity = (1.0 - t).clamp(0.0, 1.0);
+    if (opacity <= 0) return;
+
+    final dt = progress * 0.5; // 500ms → 0.5s real time
+
+    // 🚀 PAINT CACHE: Reuse single Paint, change color per particle
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    for (final p in particles) {
+      final screenPos = canvasController.canvasToScreen(p.position);
+      final x = screenPos.dx + p.velocity.dx * dt;
+      final y = screenPos.dy + p.velocity.dy * dt + 0.5 * _gravity * dt * dt;
+      final s = p.size * (1.0 - t * 0.6);
+
+      paint.color = p.color.withValues(alpha: opacity * 0.8);
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(x, y), width: s, height: s),
+          Radius.circular(s * 0.3),
+        ),
+        paint,
+      );
+    }
+
+    // Count badge for large deletions
+    if (deleteCount > 5 && t < 0.7) {
+      final badgeOpacity = (1.0 - t / 0.7).clamp(0.0, 1.0);
+      // Find center of particle cloud
+      if (particles.isNotEmpty) {
+        final centerScreen = canvasController.canvasToScreen(
+          particles.first.position,
+        );
+        final badgePaint = Paint()
+          ..color = Colors.red.withValues(alpha: badgeOpacity * 0.85)
+          ..style = PaintingStyle.fill;
+        final badgeRect = RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(centerScreen.dx, centerScreen.dy - 30),
+            width: 80,
+            height: 28,
+          ),
+          const Radius.circular(14),
+        );
+        canvas.drawRRect(badgeRect, badgePaint);
+
+        // Draw count text
+        final tp = TextPainter(
+          text: TextSpan(
+            text: '🧹 $deleteCount',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: badgeOpacity),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(
+          canvas,
+          Offset(
+            centerScreen.dx - tp.width / 2,
+            centerScreen.dy - 30 - tp.height / 2,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScratchOutParticlePainter old) =>
+      progress != old.progress;
 }

@@ -24,6 +24,11 @@ class AudioRecorderPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private var pausedDuration: TimeInterval = 0
     private var pauseStartTime: Date?
     
+    // 🎤 Live PCM streaming for real-time transcription
+    fileprivate var pcmEventSink: FlutterEventSink?
+    private var audioEngine: AVAudioEngine?
+    private var pcmStreamEnabled = false
+    
     // MARK: - Plugin Registration
     
     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -37,9 +42,15 @@ class AudioRecorderPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             binaryMessenger: registrar.messenger()
         )
         
+        let pcmEventChannel = FlutterEventChannel(
+            name: "flueraengine.audio/recorder_pcm",
+            binaryMessenger: registrar.messenger()
+        )
+        
         let instance = AudioRecorderPlugin()
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
         eventChannel.setStreamHandler(instance)
+        pcmEventChannel.setStreamHandler(PcmStreamHandler(plugin: instance))
     }
     
     deinit {
@@ -78,6 +89,19 @@ class AudioRecorderPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             
         case "applyAudioProcessing":
             handleApplyAudioProcessing(call: call, result: result)
+            
+        case "convertToWav":
+            handleConvertToWav(call: call, result: result)
+            
+        case "enablePcmStream":
+            pcmStreamEnabled = true
+            startPcmTap()
+            result(nil)
+            
+        case "disablePcmStream":
+            pcmStreamEnabled = false
+            stopPcmTap()
+            result(nil)
             
         default:
             result(FlutterMethodNotImplemented)
@@ -677,5 +701,206 @@ class AudioRecorderPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         for i in 0..<count {
             samples[i] *= gain
         }
+    }
+    
+    // MARK: - Audio Format Conversion
+    
+    /// 🔄 Convert an audio file (M4A/AAC) to 16kHz mono WAV for ASR models.
+    ///
+    /// Uses AVAudioFile to read the source and AVAudioConverter to resample
+    /// to the target sample rate. Writes a standard 16-bit PCM WAV file.
+    private func handleConvertToWav(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let inputPath = args["inputPath"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "inputPath is required", details: nil))
+            return
+        }
+        let targetSampleRate = args["sampleRate"] as? Int ?? 16000
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let inputURL = URL(fileURLWithPath: inputPath)
+                let inputFile = try AVAudioFile(forReading: inputURL)
+                
+                // Target format: 16kHz mono Float32 (for intermediate processing)
+                guard let targetFormat = AVAudioFormat(
+                    commonFormat: .pcmFormatFloat32,
+                    sampleRate: Double(targetSampleRate),
+                    channels: 1,
+                    interleaved: false
+                ) else {
+                    throw NSError(domain: "WAV", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create target format"])
+                }
+                
+                let sourceFormat = inputFile.processingFormat
+                let sourceFrameCount = AVAudioFrameCount(inputFile.length)
+                
+                // Read source audio
+                guard let sourceBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: sourceFrameCount) else {
+                    throw NSError(domain: "WAV", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to create source buffer"])
+                }
+                try inputFile.read(into: sourceBuffer)
+                sourceBuffer.frameLength = sourceFrameCount
+                
+                // Resample if needed
+                let outputBuffer: AVAudioPCMBuffer
+                if sourceFormat.sampleRate != Double(targetSampleRate) || sourceFormat.channelCount != 1 {
+                    guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
+                        throw NSError(domain: "WAV", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to create converter"])
+                    }
+                    
+                    let ratio = Double(targetSampleRate) / sourceFormat.sampleRate
+                    let outputFrameCount = AVAudioFrameCount(Double(sourceFrameCount) * ratio)
+                    guard let resampledBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCount) else {
+                        throw NSError(domain: "WAV", code: -4, userInfo: [NSLocalizedDescriptionKey: "Failed to create resample buffer"])
+                    }
+                    
+                    var error: NSError?
+                    converter.convert(to: resampledBuffer, error: &error) { _, outStatus in
+                        outStatus.pointee = .haveData
+                        return sourceBuffer
+                    }
+                    if let error = error {
+                        throw error
+                    }
+                    outputBuffer = resampledBuffer
+                } else {
+                    outputBuffer = sourceBuffer
+                }
+                
+                // Write as 16-bit PCM WAV
+                let baseName = (inputPath as NSString).deletingPathExtension
+                let outputPath = "\(baseName)_16k.wav"
+                let outputURL = URL(fileURLWithPath: outputPath)
+                
+                guard let wavFormat = AVAudioFormat(
+                    commonFormat: .pcmFormatInt16,
+                    sampleRate: Double(targetSampleRate),
+                    channels: 1,
+                    interleaved: true
+                ) else {
+                    throw NSError(domain: "WAV", code: -5, userInfo: [NSLocalizedDescriptionKey: "Failed to create WAV format"])
+                }
+                
+                let outputFile = try AVAudioFile(forWriting: outputURL, settings: wavFormat.settings)
+                
+                // Convert Float32 → Int16 for WAV
+                guard let int16Converter = AVAudioConverter(from: targetFormat, to: wavFormat) else {
+                    throw NSError(domain: "WAV", code: -6, userInfo: [NSLocalizedDescriptionKey: "Failed to create Int16 converter"])
+                }
+                
+                guard let int16Buffer = AVAudioPCMBuffer(pcmFormat: wavFormat, frameCapacity: outputBuffer.frameLength) else {
+                    throw NSError(domain: "WAV", code: -7, userInfo: [NSLocalizedDescriptionKey: "Failed to create Int16 buffer"])
+                }
+                
+                var convError: NSError?
+                int16Converter.convert(to: int16Buffer, error: &convError) { _, outStatus in
+                    outStatus.pointee = .haveData
+                    return outputBuffer
+                }
+                if let convError = convError {
+                    throw convError
+                }
+                
+                try outputFile.write(from: int16Buffer)
+                
+                DispatchQueue.main.async {
+                    result(outputPath)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "CONVERT_ERROR", message: "WAV conversion failed: \(error.localizedDescription)", details: nil))
+                }
+            }
+        }
+    }
+    
+    // MARK: - 🎤 Live PCM Streaming
+    
+    private func startPcmTap() {
+        guard audioEngine == nil else { return }
+        
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let nativeFormat = inputNode.outputFormat(forBus: 0)
+        
+        // Target: 16kHz mono Int16
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: 16000,
+            channels: 1,
+            interleaved: true
+        ) else { return }
+        
+        // 🚀 Create converter once (reused by closure capture)
+        let converter = AVAudioConverter(from: nativeFormat, to: targetFormat)
+        
+        // 🚀 Pre-allocate output buffer (~100ms at 16kHz = 1600 frames)
+        let targetFrameCount = AVAudioFrameCount(16000 * 0.1)
+        let reusableOutputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: targetFrameCount)
+        
+        // Buffer size: ~100ms of audio at native rate
+        let bufferSize = AVAudioFrameCount(nativeFormat.sampleRate * 0.1)
+        
+        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nativeFormat) { [weak self] (buffer, _) in
+            guard let self = self, self.pcmStreamEnabled, let sink = self.pcmEventSink else { return }
+            guard let converter = converter, let outputBuffer = reusableOutputBuffer else { return }
+            
+            // 🚀 Reset frame length (reuse buffer without reallocation)
+            outputBuffer.frameLength = 0
+            
+            var convError: NSError?
+            let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+                outStatus.pointee = .haveData
+                return buffer
+            }
+            
+            converter.convert(to: outputBuffer, error: &convError, withInputFrom: inputBlock)
+            if convError != nil { return }
+            
+            let frameCount = Int(outputBuffer.frameLength)
+            guard frameCount > 0, let int16Ptr = outputBuffer.int16ChannelData else { return }
+            
+            // Convert Int16 samples to ByteArray
+            let byteCount = frameCount * 2
+            let data = Data(bytes: int16Ptr[0], count: byteCount)
+            
+            DispatchQueue.main.async {
+                sink(FlutterStandardTypedData(bytes: data))
+            }
+        }
+        
+        do {
+            try engine.start()
+            audioEngine = engine
+        } catch {
+            NSLog("🎤 PCM tap failed to start: \(error.localizedDescription)")
+        }
+    }
+    
+    private func stopPcmTap() {
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+    }
+}
+
+// MARK: - PCM EventChannel StreamHandler
+
+private class PcmStreamHandler: NSObject, FlutterStreamHandler {
+    weak var plugin: AudioRecorderPlugin?
+    
+    init(plugin: AudioRecorderPlugin) {
+        self.plugin = plugin
+    }
+    
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        plugin?.pcmEventSink = events
+        return nil
+    }
+    
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        plugin?.pcmEventSink = nil
+        return nil
     }
 }

@@ -921,8 +921,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
   /// Enter the full-screen PDF reader for a given preview card.
   ///
-  /// Called on long-press of a [PdfPreviewCardNode]. Opens [PdfReaderScreen]
-  /// as a new route. On pop, refreshes the preview card's thumbnail.
+  /// Uses [transitionsBuilder] with child always in the tree from frame 0.
+  /// The [WormholeDivePainter]'s cross-fade dissolve handles seamless reveal.
   void _enterPdfReader(PdfPreviewCardNode cardNode) {
     final docId = cardNode.documentId;
     final provider = _pdfProviders[docId];
@@ -939,9 +939,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       return;
     }
 
-    HapticFeedback.mediumImpact();
 
-    // Capture card's screen rect for the expanding-clip transition
+    // Capture card's screen rect
     final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
         ?.findRenderObject() as RenderBox?;
     final canvasGlobalOffset =
@@ -949,63 +948,72 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     final worldBounds = cardNode.worldBounds;
     final rawTL = _canvasController.canvasToScreen(worldBounds.topLeft);
     final rawBR = _canvasController.canvasToScreen(worldBounds.bottomRight);
-    final screenTL = rawTL + canvasGlobalOffset;
-    final screenBR = rawBR + canvasGlobalOffset;
-    final cardRect = Rect.fromPoints(screenTL, screenBR);
+    final cardRect = Rect.fromPoints(
+      rawTL + canvasGlobalOffset,
+      rawBR + canvasGlobalOffset,
+    );
     final vp = MediaQuery.sizeOf(context);
     final fullRect = Offset.zero & vp;
-    final thumbnail = cardNode.thumbnailImage;
+    final thumbnail = cardNode.thumbnailImage?.clone();
+
+    // Haptic sequence: light "grab" → delayed medium "dive"
+    HapticFeedback.lightImpact();
+    Future.delayed(const Duration(milliseconds: 135), () {
+      HapticFeedback.mediumImpact();
+    });
+
+    // Warm amber accent for PDF content
+    const pdfAccent = Color(0xFFE8A84C);
 
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: true,
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return PdfReaderScreen(
-            documentModel: cardNode.documentModel,
-            provider: provider,
-            documentId: docId,
-            onClose: (updatedModel) {
-              cardNode.documentModel = updatedModel;
-              _refreshPreviewCardThumbnail(cardNode);
-              if (mounted) setState(() {});
-            },
-          );
-        },
+        transitionDuration: const Duration(milliseconds: 900),
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (context, _, __) => PdfReaderScreen(
+          documentModel: cardNode.documentModel,
+          provider: provider,
+          documentId: docId,
+          onClose: (updatedModel) {
+            cardNode.documentModel = updatedModel;
+            _refreshPreviewCardThumbnail(cardNode);
+            if (mounted) setState(() {});
+          },
+        ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: const Cubic(0.16, 1.0, 0.3, 1.0),
-            reverseCurve: Curves.easeInCubic,
-          );
-
           return AnimatedBuilder(
-            animation: curved,
+            animation: animation,
             builder: (context, _) {
-              final t = curved.value;
-              if (t >= 1.0) return child;
-
-              final painter = CustomPaint(
-                painter: _PdfZoomTransitionPainter(
-                  t: t,
-                  thumbnail: thumbnail,
-                  cardRect: cardRect,
-                  fullRect: fullRect,
-                ),
-                size: Size.infinite,
-              );
-
-              if (t >= 0.95) {
-                return Stack(
-                  children: [child, Positioned.fill(child: painter)],
-                );
+              final t = animation.value;
+              // On reverse (pop), skip painter — cardRect is stale
+              // after canvas repositioning. Instant pop instead.
+              if (animation.status == AnimationStatus.reverse) {
+                return child;
               }
-
-              return painter;
+              return Stack(
+                children: [
+                  child,
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: WormholeDivePainter(
+                            t: t,
+                            thumbnail: thumbnail,
+                            cardRect: cardRect,
+                            fullRect: fullRect,
+                            accentColor: pdfAccent,
+                          ),
+                          size: Size.infinite,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
             },
           );
         },
-        transitionDuration: const Duration(milliseconds: 450),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
     );
   }
@@ -1019,6 +1027,9 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
   void _onPdfZoomCheck() {
     if (!mounted) return;
     if (_pdfZoomEnterCooldown) return;
+    // 🚀 THROTTLE: Skip if called too recently (zoom fires 60fps)
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastZoomCheckTime < 200) return;
     // Only check during active zooming (scale > 1.2)
     if (_canvasController.scale > 1.2) {
       _checkPdfZoomToEnter();
@@ -1072,43 +1083,32 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       }
     }
 
-    // Trigger at >75% coverage: two-phase entry
+    // Trigger at >75% coverage: center and enter
     if (bestCard != null && bestCoverage > 0.75) {
       _pdfZoomEnterCooldown = true;
 
-      // Phase 1: Snap-center the canvas on the card
+      // Snap-center the canvas on the card INSTANTLY.
+      // Using animateOffsetTo + delay is unreliable: the spring may not
+      // finish in time, leaving the canvas mid-animation when the
+      // transition captures coordinates. Use setOffset for an instant snap.
       final worldCenter = bestCard.worldBounds.center;
       final screenCenter = Offset(viewportSize.width / 2, viewportSize.height / 2);
       final targetOffset = Offset(
         screenCenter.dx - worldCenter.dx * scale,
         screenCenter.dy - worldCenter.dy * scale,
       );
-      final currentDist = (_canvasController.offset - targetOffset).distance;
+      _canvasController.stopAnimation();
+      _canvasController.setOffset(targetOffset);
 
-      if (currentDist > 3) {
-        _canvasController.animateOffsetTo(targetOffset);
-        // Wait for snap to settle, then launch cinematic transition
-        Future.delayed(const Duration(milliseconds: 200), () {
-          if (mounted) _enterPdfReaderWithZoomAnimation(bestCard!);
-        });
-      } else {
-        // Already centered — launch immediately
-        _enterPdfReaderWithZoomAnimation(bestCard);
-      }
+      // Launch cinematic transition immediately (canvas is now stable)
+      _enterPdfReaderWithZoomAnimation(bestCard);
     }
   }
 
 
-  /// Open the PDF reader with a cinematic zoom-dive animation.
+  /// Open the PDF reader with a cinematic Wormhole Dive animation.
   ///
-  /// ANIMATION EFFECTS:
-  /// 1. Backdrop gaussian blur + darken
-  /// 2. Radial light burst behind the expanding card
-  /// 3. Page fan parallax with rotation (3D book-opening)
-  /// 4. Evolving drop shadow (lifts off the canvas)
-  /// 5. 3D perspective tilt (card flies toward the viewer)
-  /// 6. Diagonal light sweep across the document surface
-  /// 7. Elastic spring overshoot on content scale
+  /// Uses [transitionsBuilder] with child always in the tree from frame 0.
   void _enterPdfReaderWithZoomAnimation(PdfPreviewCardNode cardNode) {
     final docId = cardNode.documentId;
     final provider = _pdfProviders[docId];
@@ -1116,10 +1116,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     _pdfZoomEnterCooldown = true;
 
+    // 🛑 Stop all canvas animations BEFORE capturing coordinates.
+    _canvasController.stopAnimation();
+
     // Capture card's current screen rect.
-    // canvasToScreen returns coords relative to the canvas WIDGET area,
-    // which sits below the toolbar. The animation overlay (Navigator route)
-    // positions relative to the FULL SCREEN. Add canvas widget's global offset.
     final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
         ?.findRenderObject() as RenderBox?;
     final canvasGlobalOffset =
@@ -1127,82 +1127,75 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     final worldBounds = cardNode.worldBounds;
     final rawTL = _canvasController.canvasToScreen(worldBounds.topLeft);
     final rawBR = _canvasController.canvasToScreen(worldBounds.bottomRight);
-    final screenTL = rawTL + canvasGlobalOffset;
-    final screenBR = rawBR + canvasGlobalOffset;
-    final cardRect = Rect.fromPoints(screenTL, screenBR);
+    final cardRect = Rect.fromPoints(
+      rawTL + canvasGlobalOffset,
+      rawBR + canvasGlobalOffset,
+    );
     final vp = MediaQuery.sizeOf(context);
     final fullRect = Offset.zero & vp;
+    final thumbnail = cardNode.thumbnailImage?.clone();
 
-    // Grab the thumbnail for the transition (may be null)
-    final thumbnail = cardNode.thumbnailImage;
+    // Haptic sequence: light "grab" → delayed medium "dive"
+    HapticFeedback.lightImpact();
+    Future.delayed(const Duration(milliseconds: 135), () {
+      HapticFeedback.mediumImpact();
+    });
+
+    const pdfAccent = Color(0xFFE8A84C);
 
     Navigator.of(context).push(
       PageRouteBuilder(
-        // 🚀 PERF: opaque=true prevents Flutter from painting the entire
-        // canvas behind the route on every frame (~10-15ms saved).
         opaque: true,
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return PdfReaderScreen(
-            documentModel: cardNode.documentModel,
-            provider: provider,
-            documentId: docId,
-            onClose: (updatedModel) {
-              cardNode.documentModel = updatedModel;
-              _refreshPreviewCardThumbnail(cardNode);
-              if (mounted) setState(() {});
-            },
-          );
-        },
+        transitionDuration: const Duration(milliseconds: 900),
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (context, _, __) => PdfReaderScreen(
+          documentModel: cardNode.documentModel,
+          provider: provider,
+          documentId: docId,
+          onClose: (updatedModel) {
+            cardNode.documentModel = updatedModel;
+            _refreshPreviewCardThumbnail(cardNode);
+            if (mounted) setState(() {});
+          },
+        ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: const Cubic(0.16, 1.0, 0.3, 1.0),
-            reverseCurve: Curves.easeInCubic,
-          );
-
-          // 🚀 PERF: Zero-widget transition — single CustomPainter draws
-          // scrim + expanding clipped thumbnail. Matches image viewer style.
           return AnimatedBuilder(
-            animation: curved,
+            animation: animation,
             builder: (context, _) {
-              final t = curved.value;
-              // Show the real PdfReaderScreen once transition is done.
-              if (t >= 1.0) return child;
-
-              final painter = CustomPaint(
-                painter: _PdfZoomTransitionPainter(
-                  t: t,
-                  thumbnail: thumbnail,
-                  cardRect: cardRect,
-                  fullRect: fullRect,
-                ),
-                size: Size.infinite,
-              );
-
-              // 🚀 PERF: Pre-mount PdfReaderScreen at t≥0.95 behind the
-              // painter to spread widget tree creation across ~2-3 frames
-              // instead of a single spike at t=1.0.
-              if (t >= 0.95) {
-                return Stack(
-                  children: [child, Positioned.fill(child: painter)],
-                );
+              final t = animation.value;
+              if (animation.status == AnimationStatus.reverse) {
+                return child;
               }
-
-              return painter;
+              return Stack(
+                children: [
+                  child,
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: WormholeDivePainter(
+                            t: t,
+                            thumbnail: thumbnail,
+                            cardRect: cardRect,
+                            fullRect: fullRect,
+                            accentColor: pdfAccent,
+                          ),
+                          size: Size.infinite,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
             },
           );
         },
-        // 🚀 PERF: Match image viewer timing
-        transitionDuration: const Duration(milliseconds: 450),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
     ).then((_) {
-      // Zoom canvas back below entry threshold to prevent immediate re-entry
       final currentScale = _canvasController.scale;
       if (currentScale > 1.1) {
         _canvasController.setScale(1.0);
       }
-      // Longer cooldown so the user has time to orient before zoom-check resumes
       Future.delayed(const Duration(milliseconds: 800), () {
         if (mounted) _pdfZoomEnterCooldown = false;
       });
@@ -1393,88 +1386,4 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       },
     );
   }
-}
-
-/// 🚀 PERF: Zero-widget transition painter for PDF reader entry.
-/// Matches image viewer's _ZoomTransitionPainter style:
-/// scrim + expanding clipped thumbnail. No widget allocation per frame.
-class _PdfZoomTransitionPainter extends CustomPainter {
-  final double t;
-  final ui.Image? thumbnail;
-  final Rect cardRect;
-  final Rect fullRect;
-
-  // Static paints — allocated once, reused across all frames
-  static final Paint _scrimPaint = Paint()..style = PaintingStyle.fill;
-  static final Paint _bgPaint = Paint()..color = const Color(0xFF1A1A2E);
-  static final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
-
-  _PdfZoomTransitionPainter({
-    required this.t,
-    required this.thumbnail,
-    required this.cardRect,
-    required this.fullRect,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 1. Dark scrim (lerps from transparent to near-opaque)
-    final scrimAlpha = (t * 0.92).clamp(0.0, 0.92);
-    if (scrimAlpha > 0.01) {
-      _scrimPaint.color = Color.fromARGB(
-        (scrimAlpha * 255).round().clamp(0, 255),
-        8, 10, 25,
-      );
-      canvas.drawRect(Offset.zero & size, _scrimPaint);
-    }
-
-    // 2. Expanding clip rect with deceleration
-    final clipT = Curves.easeOutQuint.transform(t);
-    final clipRect = Rect.lerp(cardRect, fullRect, clipT)!;
-    final borderRadius = 16.0 * (1.0 - clipT);
-
-    canvas.save();
-    if (borderRadius > 0.5) {
-      canvas.clipRRect(
-        RRect.fromRectAndRadius(clipRect, Radius.circular(borderRadius)),
-      );
-    } else {
-      canvas.clipRect(clipRect);
-    }
-
-    // 3. Dark background (PDF reader background color)
-    canvas.drawRect(clipRect, _bgPaint);
-
-    // 4. Thumbnail fitted (contain) inside the clip rect
-    if (thumbnail != null) {
-      final imgW = thumbnail!.width.toDouble();
-      final imgH = thumbnail!.height.toDouble();
-      final imgAspect = imgW / imgH;
-      final clipAspect = clipRect.width / clipRect.height;
-
-      double dstW, dstH;
-      if (imgAspect > clipAspect) {
-        dstW = clipRect.width;
-        dstH = clipRect.width / imgAspect;
-      } else {
-        dstH = clipRect.height;
-        dstW = clipRect.height * imgAspect;
-      }
-
-      final dstRect = Rect.fromCenter(
-        center: clipRect.center,
-        width: dstW,
-        height: dstH,
-      );
-      final srcRect = Rect.fromLTWH(0, 0, imgW, imgH);
-
-      _imagePaint.color = const Color(0xFFFFFFFF);
-      canvas.drawImageRect(thumbnail!, srcRect, dstRect, _imagePaint);
-    }
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_PdfZoomTransitionPainter old) => old.t != t;
 }

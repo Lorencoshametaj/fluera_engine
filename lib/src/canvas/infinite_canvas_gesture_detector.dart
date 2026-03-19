@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
@@ -42,6 +43,25 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final VoidCallback?
   onDoubleTapZoom; // 🎯 Called on double-tap zoom to undo the first tap's dot
   final Function(Offset)? onLongPress;
+  /// 🎯 Long-press continuation: move and end events forwarded to radial menu
+  final Function(Offset screenPos)? onLongPressMoveUpdate;
+  final Function(Offset screenPos)? onLongPressEnd;
+
+  // ✂️ SPACE-SPLIT: Two-finger spread gesture callbacks
+  final Function(double splitLinePosition, {bool isHorizontal})? onSpaceSplitStart;
+  final Function(double splitLinePosition, double spreadDistance)? onSpaceSplitUpdate;
+  final VoidCallback? onSpaceSplitEnd;
+
+  // ✌️ MULTI-FINGER TAP: Undo with 2-finger tap, Redo with 3-finger tap
+  final VoidCallback? onTwoFingerTap;
+  final VoidCallback? onThreeFingerTap;
+
+  // 🔲 GESTURAL LASSO: Tap + Drag activates lasso without switching tools
+  final Function(Offset canvasPosition)? onGesturalLassoStart;
+  final Function(Offset canvasPosition)? onGesturalLassoUpdate;
+  final Function(Offset canvasPosition)? onGesturalLassoEnd;
+  final VoidCallback? onGesturalLassoArmed; // #2: Haptic when lasso arms
+
   final bool Function() blockPanZoom; // 🔒 Block pan/zoom when true (evaluated at gesture time)
   final bool
   enableSingleFingerPan; // 🖐️ Enable pan with a finger instead of drawing
@@ -80,6 +100,17 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onDrawCancel,
     this.onDoubleTapZoom,
     this.onLongPress,
+    this.onLongPressMoveUpdate,
+    this.onLongPressEnd,
+    this.onSpaceSplitStart,
+    this.onSpaceSplitUpdate,
+    this.onSpaceSplitEnd,
+    this.onTwoFingerTap,
+    this.onThreeFingerTap,
+    this.onGesturalLassoStart,
+    this.onGesturalLassoUpdate,
+    this.onGesturalLassoEnd,
+    this.onGesturalLassoArmed,
     this.blockPanZoom = _defaultBlockPanZoom,
     this.enableSingleFingerPan = false,
     this.onPanInterceptTest,
@@ -167,6 +198,25 @@ class _InfiniteCanvasGestureDetectorState
   static const double _rotationDeadzone = 0.05; // ~3° in radians
   static const double _maxAngularVelocity = 3.0; // Cap spin speed (rad/s)
 
+  // ✂️ SPACE-SPLIT: Two-finger spread tracking
+  bool _isSpaceSplitting = false;
+  bool _splitIsHorizontal = false; // true = horizontal split (↔), false = vertical (↕)
+  final Map<int, Offset> _pointerPositions = {}; // pointerId → screen position
+  double _splitInitialVerticalDistance = 0.0;
+  double _splitInitialHorizontalDistance = 0.0;
+  double _splitInitialHorizontalCenter = 0.0;
+  double _splitInitialVerticalCenter = 0.0;
+  static const double _splitActivationThreshold = 30.0; // px spread to activate
+  static const double _splitDirectionalityRatio = 3.0; // primary axis must be 3× secondary
+  // ✂️ LONG-PRESS: Hold 2 fingers still for 400ms to arm space-split
+  Timer? _splitLongPressTimer;
+  bool _splitLongPressReady = false;
+
+  // ✌️ MULTI-FINGER TAP: Track max pointer count and start time for quick-tap detection
+  int _maxPointerCountInGesture = 0;
+  int _multiTouchDownTime = 0;
+  bool _multiTouchMoved = false;
+
   // 🌀 IMAGE ROTATION: State tracking for image-specific rotation
   bool _imageRotationUnlocked = false;
   double _imageRotationAccum = 0.0; // Accumulated rotation for image
@@ -180,6 +230,11 @@ class _InfiniteCanvasGestureDetectorState
   Offset _lastSingleTapPosition = Offset.zero;
   bool _pendingFirstTap =
       false; // True while waiting to see if second tap comes
+
+  // 🔲 GESTURAL LASSO: Tap + Drag state
+  bool _isGesturalLassoArmed = false; // True when 2nd tap detected, awaiting movement
+  bool _isGesturalLassoing = false;   // True when actively drawing gestural lasso
+  Offset _gesturalLassoStartPos = Offset.zero; // Screen position at arm time
 
   // ─── 🚀 GESTURE COALESCING ──────────────────────────────────────
   // Batch all draw updates within a single frame into one callback.
@@ -276,10 +331,13 @@ class _InfiniteCanvasGestureDetectorState
           }
         },
         onLongPressMoveUpdate: (details) {
+          // 🎯 RADIAL MENU: Forward local position (matches canvasToScreen coords)
+          if (_pointerCount == 1 && widget.onLongPressMoveUpdate != null) {
+            widget.onLongPressMoveUpdate!(details.localPosition);
+          }
+
           // 🧠 KNOWLEDGE FLOW: Route long-press movement to draw update
           // ONLY at LOD 1/2 (scale < 0.5) for connection drag.
-          // At normal zoom, this must NOT fire — it interferes with
-          // pinch-to-zoom gesture detection.
           if (_pointerCount == 1 &&
               widget.controller.scale < 0.5 &&
               widget.onDrawUpdate != null) {
@@ -290,6 +348,11 @@ class _InfiniteCanvasGestureDetectorState
           }
         },
         onLongPressEnd: (details) {
+          // 🎯 RADIAL MENU: Forward local position release
+          if (_pointerCount <= 1 && widget.onLongPressEnd != null) {
+            widget.onLongPressEnd!(details.localPosition);
+          }
+
           // 🧠 KNOWLEDGE FLOW: Route long-press end to draw end
           // ONLY at LOD 1/2 for connection drag finalization.
           if (_pointerCount <= 1 &&
@@ -366,6 +429,9 @@ class _InfiniteCanvasGestureDetectorState
           event.pointer, event.localPosition);
     }
 
+    // ✂️ SPACE-SPLIT: Track individual pointer positions
+    _pointerPositions[event.pointer] = event.localPosition;
+
     _pointerCount++;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
@@ -387,12 +453,51 @@ class _InfiniteCanvasGestureDetectorState
     // Traccia se c'was multi-touch
     if (_pointerCount >= 2) {
       _wasMultiTouch = true;
+
+      // ✌️ MULTI-FINGER TAP: Track max pointer count
+      if (_pointerCount > _maxPointerCountInGesture) {
+        _maxPointerCountInGesture = _pointerCount;
+      }
+      if (_pointerCount == 2 && _maxPointerCountInGesture <= 2) {
+        _multiTouchDownTime = DateTime.now().millisecondsSinceEpoch;
+        _multiTouchMoved = false;
+      } else if (_pointerCount == 3) {
+        _multiTouchDownTime = DateTime.now().millisecondsSinceEpoch;
+        _multiTouchMoved = false;
+      }
+
+      // ✂️ SPACE-SPLIT: Start long-press timer when 2nd finger arrives
+      if (_pointerCount == 2 && _pointerPositions.length >= 2) {
+        final positions = _pointerPositions.values.toList();
+        _splitInitialVerticalDistance = (positions[0].dy - positions[1].dy).abs();
+        _splitInitialHorizontalDistance = (positions[0].dx - positions[1].dx).abs();
+        _splitInitialHorizontalCenter = (positions[0].dx + positions[1].dx) / 2;
+        _splitInitialVerticalCenter = (positions[0].dy + positions[1].dy) / 2;
+        // Start 400ms long-press timer
+        _splitLongPressReady = false;
+        _splitLongPressTimer?.cancel();
+        _splitLongPressTimer = Timer(const Duration(milliseconds: 400), () {
+          _splitLongPressReady = true;
+          // 🔑 Re-record finger distances NOW (not from 400ms ago)
+          // so spread is measured from the moment split mode arms.
+          if (_pointerPositions.length >= 2) {
+            final pos = _pointerPositions.values.toList();
+            _splitInitialVerticalDistance = (pos[0].dy - pos[1].dy).abs();
+            _splitInitialHorizontalDistance = (pos[0].dx - pos[1].dx).abs();
+            _splitInitialHorizontalCenter = (pos[0].dx + pos[1].dx) / 2;
+            _splitInitialVerticalCenter = (pos[0].dy + pos[1].dy) / 2;
+          }
+          HapticFeedback.lightImpact(); // Confirm: split mode armed
+        });
+      }
     }
 
     // Save la position del primo dito
     if (_pointerCount == 1) {
       _firstPointerPosition = event.localPosition;
       _hasMoved = false;
+      _maxPointerCountInGesture = 1; // ✌️ Reset for new gesture
+      _multiTouchMoved = false;
     } else if (_pointerCount > 1) {
       // If arriva un secondo dito, invalida il tap
       _firstPointerPosition = null;
@@ -442,7 +547,16 @@ class _InfiniteCanvasGestureDetectorState
       _lastTiltX = (tiltMagnitude * math.cos(orientation)).clamp(-1.0, 1.0);
       _lastTiltY = (tiltMagnitude * math.sin(orientation)).clamp(-1.0, 1.0);
 
-      if (!isLikelySecondTap && widget.onDrawStart != null) {
+      // 🔲 GESTURAL LASSO: If this is the second tap of a potential double-tap,
+      // arm gestural lasso instead of starting draw. Movement will decide
+      // whether it becomes a lasso (drag) or a double-tap zoom (no drag).
+      if (isLikelySecondTap && widget.onGesturalLassoStart != null) {
+        _isGesturalLassoArmed = true;
+        _isDrawing = false; // Don't draw — we're waiting to disambiguate
+        _gesturalLassoStartPos = event.localPosition;
+        // #2: Haptic feedback when lasso is armed
+        widget.onGesturalLassoArmed?.call();
+      } else if (!isLikelySecondTap && widget.onDrawStart != null) {
         final canvasPoint = widget.controller.screenToCanvas(
           event.localPosition,
         );
@@ -459,6 +573,75 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onPointerMove(PointerMoveEvent event) {
+    // ✂️ SPACE-SPLIT: Update tracked pointer position
+    if (_pointerPositions.containsKey(event.pointer)) {
+      _pointerPositions[event.pointer] = event.localPosition;
+    }
+
+    // ✂️ SPACE-SPLIT: Detect spread (only after long-press armed it)
+    // Cancel long-press timer if zooming (scale change before 400ms timer fires)
+    if (_pointerCount == 2 && !_splitLongPressReady && !_isSpaceSplitting && _splitLongPressTimer != null) {
+      // Check if fingers moved significantly (= zoom, not hold-still)
+      if (_pointerPositions.length >= 2) {
+        final positions = _pointerPositions.values.toList();
+        final currentDist = (positions[0] - positions[1]).distance;
+        final initialDist = Offset(_splitInitialHorizontalDistance, _splitInitialVerticalDistance).distance;
+        if (initialDist > 0 && (currentDist / initialDist - 1.0).abs() > 0.15) {
+          // Scale changed > 15% before timer fired → this is zoom, not hold
+          _splitLongPressTimer?.cancel();
+          _splitLongPressTimer = null;
+        }
+      }
+    }
+    if (_pointerCount == 2 && _pointerPositions.length >= 2 && !_isDrawing && (_splitLongPressReady || _isSpaceSplitting)) {
+      final positions = _pointerPositions.values.toList();
+      final currentVerticalDist = (positions[0].dy - positions[1].dy).abs();
+      final currentHorizontalDist = (positions[0].dx - positions[1].dx).abs();
+      final verticalSpread = currentVerticalDist - _splitInitialVerticalDistance;
+      final horizontalSpread = currentHorizontalDist - _splitInitialHorizontalDistance;
+
+      if (_isSpaceSplitting) {
+        // Already splitting — update along the locked axis
+        final spread = _splitIsHorizontal ? horizontalSpread : verticalSpread;
+        final canvasSpread = spread / widget.controller.scale;
+        final canvasCenter = widget.controller.screenToCanvas(
+          Offset(_splitInitialHorizontalCenter, _splitInitialVerticalCenter),
+        );
+        final pos = _splitIsHorizontal ? canvasCenter.dx : canvasCenter.dy;
+        widget.onSpaceSplitUpdate?.call(pos, canvasSpread);
+        return;
+      }
+
+      // Detect which axis dominates
+      final absV = verticalSpread.abs();
+      final absH = horizontalSpread.abs();
+
+      if (absV > _splitActivationThreshold &&
+          absV > absH * _splitDirectionalityRatio &&
+          widget.onSpaceSplitStart != null) {
+        // Vertical split (horizontal line)
+        _isSpaceSplitting = true;
+        _splitIsHorizontal = false;
+        final splitLineY = widget.controller.screenToCanvas(
+          Offset(_splitInitialHorizontalCenter, _splitInitialVerticalCenter),
+        ).dy;
+        widget.onSpaceSplitStart?.call(splitLineY, isHorizontal: false);
+        HapticFeedback.lightImpact();
+        return;
+      } else if (absH > _splitActivationThreshold &&
+                 absH > absV * _splitDirectionalityRatio &&
+                 widget.onSpaceSplitStart != null) {
+        // Horizontal split (vertical line)
+        _isSpaceSplitting = true;
+        _splitIsHorizontal = true;
+        final splitLineX = widget.controller.screenToCanvas(
+          Offset(_splitInitialHorizontalCenter, _splitInitialVerticalCenter),
+        ).dx;
+        widget.onSpaceSplitStart?.call(splitLineX, isHorizontal: true);
+        HapticFeedback.lightImpact();
+        return;
+      }
+    }
     // 🖊️ Update pointer for stylus manager
     _stylusManager.updatePointer(event);
 
@@ -486,7 +669,13 @@ class _InfiniteCanvasGestureDetectorState
     }
 
     // Ignora se ci sono 2+ dita (zoom/pan)
-    if (_pointerCount >= 2) return;
+    if (_pointerCount >= 2) {
+      // ✌️ MULTI-FINGER TAP: Track if fingers moved significantly
+      if (!_multiTouchMoved && event.delta.distance > 8) {
+        _multiTouchMoved = true;
+      }
+      return;
+    }
 
     // 🔄 GESTURE CONTINUITY: Don't draw/pan right after multi-touch
     // Extended cooldown prevents accidental strokes when lifting fingers.
@@ -590,6 +779,41 @@ class _InfiniteCanvasGestureDetectorState
           scale: widget.controller.scale,
         );
       }
+      return;
+    }
+
+    // 🔲 GESTURAL LASSO: Handle armed/active state BEFORE normal drawing.
+    // When armed, movement > 8px activates lasso. When active, route to lasso update.
+    if (_pointerCount == 1 && _isGesturalLassoArmed && !_isGesturalLassoing) {
+      final dist = (event.localPosition - _gesturalLassoStartPos).distance;
+      // #5: Adaptive threshold — scale by inverse of zoom so it feels
+      // consistent at any zoom level (8px at 1x, 4px at 2x, 16px at 0.5x)
+      final adaptiveThreshold = 8.0 / widget.controller.scale.clamp(0.25, 4.0);
+      if (dist > adaptiveThreshold) {
+        // Movement detected → activate gestural lasso
+        _isGesturalLassoArmed = false;
+        _isGesturalLassoing = true;
+        _pendingFirstTap = false;
+        _lastSingleTapTime = 0;
+        final canvasPoint = widget.controller.screenToCanvas(
+          _gesturalLassoStartPos,
+        );
+        widget.onGesturalLassoStart!(canvasPoint);
+        // Also send the current point as first update
+        final currentCanvas = widget.controller.screenToCanvas(
+          event.localPosition,
+        );
+        widget.onGesturalLassoUpdate?.call(currentCanvas);
+        _hasMoved = true;
+      }
+      return;
+    }
+    if (_pointerCount == 1 && _isGesturalLassoing) {
+      final canvasPoint = widget.controller.screenToCanvas(
+        event.localPosition,
+      );
+      widget.onGesturalLassoUpdate?.call(canvasPoint);
+      _hasMoved = true;
       return;
     }
 
@@ -765,9 +989,34 @@ class _InfiniteCanvasGestureDetectorState
       HandednessSettings.instance.clearPointerTracking(event.pointer);
     }
 
+    // ✂️ SPACE-SPLIT: Remove tracked pointer
+    _pointerPositions.remove(event.pointer);
+
     _previousPointerCount = _pointerCount;
     _pointerCount--;
     if (_pointerCount < 0) _pointerCount = 0; // 🛡️ SAFETY: Never go negative
+
+    // ✂️ SPACE-SPLIT: End split gesture when pointer lifts
+    if (_isSpaceSplitting && _pointerCount < 2) {
+      _isSpaceSplitting = false;
+      _splitLongPressReady = false;
+      _splitLongPressTimer?.cancel();
+      _splitLongPressTimer = null;
+      widget.onSpaceSplitEnd?.call();
+      HapticFeedback.mediumImpact();
+      // Skip normal pointer-up processing
+      _wasMultiTouch = false;
+      _firstPointerPosition = null;
+      _hasMoved = false;
+      _lastDrawPosition = null;
+      _lastCanvasPosition = null;
+      _lastPressure = 1.0;
+      _isSingleFingerPanning = false;
+      widget.controller.isPanning = false;
+      _panIntercepted = false;
+      _shouldEnableDrawing = true;
+      return;
+    }
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
     // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
@@ -789,9 +1038,11 @@ class _InfiniteCanvasGestureDetectorState
       _gestureTransitioning = false; // Reset stale transition flag
 
       // 🌊 LIQUID: Launch momentum from single-finger pan
-      // 🧠 KNOWLEDGE FLOW: If blockPanZoom is active (connection drag), call
-      // onDrawEnd instead of launching momentum — connection needs finalization.
-      if (_isSingleFingerPanning && widget.blockPanZoom()) {
+      // 🧠 KNOWLEDGE FLOW: If blockPanZoom is active (connection drag started
+      // from long-press), call onDrawEnd to finalize — even if the gesture
+      // wasn't a traditional pan (_isSingleFingerPanning may be false because
+      // connection drag starts from _onLongPress, not from pan gesture).
+      if (widget.blockPanZoom()) {
         _isSingleFingerPanning = false;
         widget.controller.isPanning = false;
         if (widget.onDrawEnd != null) {
@@ -823,7 +1074,28 @@ class _InfiniteCanvasGestureDetectorState
       _panIntercepted = false; // 📄 Reset pan intercept
       _shouldEnableDrawing = true; // 🖊️ Reset stylus drawing flag
 
-      if (_isDrawing && _hasMoved) {
+      // 🔲 GESTURAL LASSO: End active gestural lasso
+      if (_isGesturalLassoing) {
+        _isGesturalLassoing = false;
+        _isGesturalLassoArmed = false;
+        final canvasPoint = widget.controller.screenToCanvas(
+          event.localPosition,
+        );
+        widget.onGesturalLassoEnd?.call(canvasPoint);
+        // Reset state — skip all other pointer-up logic
+        _wasMultiTouch = false;
+        _firstPointerPosition = null;
+        _hasMoved = false;
+        _lastDrawPosition = null;
+        _lastCanvasPosition = null;
+        _lastPressure = 1.0;
+        _isSingleFingerPanning = false;
+        widget.controller.isPanning = false;
+        _panIntercepted = false;
+        _shouldEnableDrawing = true;
+        _pendingFirstTap = false;
+        _lastSingleTapTime = 0;
+      } else if (_isDrawing && _hasMoved) {
         // Drawing with movement — finalize stroke
         _isDrawing = false;
         _wasDrawingGesture = true; // 🎯 FIX: Flag for _onScaleEnd
@@ -844,6 +1116,12 @@ class _InfiniteCanvasGestureDetectorState
         _pendingFirstTap = false;
         _lastSingleTapTime = 0;
       } else if (!_hasMoved && !_wasMultiTouch) {
+        // 🔲 GESTURAL LASSO: If armed but no movement → this is a double-tap
+        if (_isGesturalLassoArmed) {
+          _isGesturalLassoArmed = false;
+          // Fall through to regular double-tap zoom handling below
+        }
+
         // 🎯 Quick tap (no movement, single finger) — double-tap zoom check
         final wasDrawing = _isDrawing;
         _isDrawing = false;
@@ -903,6 +1181,34 @@ class _InfiniteCanvasGestureDetectorState
         _isDrawing = false;
         _pendingFirstTap = false;
         _lastSingleTapTime = 0;
+
+        // ✌️ MULTI-FINGER TAP: Check if this was a quick tap (not a zoom/pan)
+        if (_wasMultiTouch && !_multiTouchMoved && _multiTouchDownTime > 0) {
+          final tapDuration = DateTime.now().millisecondsSinceEpoch - _multiTouchDownTime;
+          if (tapDuration < 300) {
+            if (_maxPointerCountInGesture == 2 && widget.onTwoFingerTap != null) {
+              widget.onTwoFingerTap!();
+              // Skip the normal cleanup path for onDrawEnd to avoid side effects
+              _wasMultiTouch = false;
+              _firstPointerPosition = null;
+              _hasMoved = false;
+              _lastDrawPosition = null;
+              _lastCanvasPosition = null;
+              _lastPressure = 1.0;
+              return; // Done
+            } else if (_maxPointerCountInGesture == 3 && widget.onThreeFingerTap != null) {
+              widget.onThreeFingerTap!();
+              _wasMultiTouch = false;
+              _firstPointerPosition = null;
+              _hasMoved = false;
+              _lastDrawPosition = null;
+              _lastCanvasPosition = null;
+              _lastPressure = 1.0;
+              return; // Done
+            }
+          }
+        }
+
         // 📈 Call onDrawEnd to clean up any active drag state (graph, latex, etc.)
         // that was cancelled by multi-touch but never finalized.
         if (widget.onDrawEnd != null) {
@@ -927,6 +1233,14 @@ class _InfiniteCanvasGestureDetectorState
 
   void _onPointerCancel(PointerCancelEvent event) {
     _flushBatch(); // 🚀 COALESCING: Flush pending points
+
+    // ✂️ SPACE-SPLIT: Remove tracked pointer and cancel split
+    _pointerPositions.remove(event.pointer);
+    if (_isSpaceSplitting) {
+      _isSpaceSplitting = false;
+      // Cancel — don't apply split
+    }
+
     _pointerCount--;
     if (_pointerCount < 0) _pointerCount = 0; // 🛡️ SAFETY: Never go negative
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
@@ -1117,6 +1431,9 @@ class _InfiniteCanvasGestureDetectorState
   void _onScaleUpdate(ScaleUpdateDetails details) {
     // Only process with 2+ fingers
     if (_pointerCount < 2) return;
+
+    // ✂️ SPACE-SPLIT: Skip normal zoom/pan/rotate when splitting or armed
+    if (_isSpaceSplitting || _splitLongPressReady) return;
 
     // 🌀 IMAGE ROTATION: When image rotation is active (evaluated at gesture time),
     // route rotation + scale to the image instead of the canvas.

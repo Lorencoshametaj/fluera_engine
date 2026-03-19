@@ -9,6 +9,8 @@ import '../core/models/pdf_page_model.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../drawing/brushes/brush_engine.dart';
 import '../drawing/models/pro_brush_settings.dart';
+import '../drawing/models/pro_brush_settings_dialog.dart';
+import '../core/models/shape_type.dart';
 import 'package:fluera_engine/src/rendering/gpu/vulkan_stroke_overlay_service.dart';
 
 /// Reading mode for PDF pages.
@@ -83,7 +85,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   // ---------------------------------------------------------------------------
 
   /// Whether annotation mode is active (pen/eraser).
-  bool _isDrawingMode = false;
+  bool _isDrawingMode = true;
 
   /// Whether eraser is active (vs pen).
   bool _isErasing = false;
@@ -91,7 +93,15 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   /// Current pen settings.
   Color _penColor = const Color(0xFF1A1A2E);
   double _penWidth = 2.5;
+  double _penOpacity = 1.0;
   ProPenType _penType = ProPenType.ballpoint;
+  ProBrushSettings _brushSettings = const ProBrushSettings();
+
+  /// Shape drawing mode.
+  ShapeType _selectedShapeType = ShapeType.freehand;
+  Offset? _shapeStartPos;
+  Offset? _shapeEndPos;
+  int? _shapePageIndex;
 
   /// Live stroke in progress (PDF-page coordinates).
   List<ProDrawingPoint>? _livePoints;
@@ -134,6 +144,20 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     Color(0xFF9B59B6), // Purple
     Color(0xFF1ABC9C), // Teal
   ];
+
+  /// Highlight-specific bright colors (shown when highlighter is active).
+  static const _highlightColors = [
+    Color(0xFFFFEB3B), // Yellow
+    Color(0xFF76FF03), // Lime green
+    Color(0xFFFF4081), // Pink
+    Color(0xFF00E5FF), // Cyan
+    Color(0xFFFF9100), // Orange
+    Color(0xFFE040FB), // Magenta
+  ];
+
+  /// Saved pen color/width before switching to highlighter.
+  Color? _savedPenColor;
+  double? _savedPenWidth;
 
   @override
   void initState() {
@@ -343,11 +367,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     // If a second finger touches, cancel the live stroke and let
     // InteractiveViewer handle the 2-finger pan/zoom gesture.
     if (_activePointerCount > 1) {
-      if (_livePoints != null) {
+      if (_livePoints != null || _shapeStartPos != null) {
         setState(() {
           _livePoints = null;
           _livePageIndex = null;
           _activePointerId = null;
+          _shapeStartPos = null;
+          _shapeEndPos = null;
+          _shapePageIndex = null;
         });
         _liveScreenPoints.clear();
         if (_vulkanActive) _vulkanOverlay.clear();
@@ -370,6 +397,16 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
     if (_isErasing) {
       _eraseAtPoint(pageIndex, pos, page.originalSize);
+      return;
+    }
+
+    // Shape drawing mode — record start position
+    if (_selectedShapeType != ShapeType.freehand) {
+      setState(() {
+        _shapeStartPos = pos;
+        _shapeEndPos = pos;
+        _shapePageIndex = pageIndex;
+      });
       return;
     }
 
@@ -414,6 +451,13 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
       return;
     }
 
+    // Shape drawing mode — update end position
+    if (_selectedShapeType != ShapeType.freehand && _shapeStartPos != null) {
+      setState(() => _shapeEndPos = pos);
+      _annotationRepaint.value++;
+      return;
+    }
+
     if (_livePoints != null && _livePageIndex == pageIndex) {
       _livePoints!.add(ProDrawingPoint(
         position: pos,
@@ -455,14 +499,54 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     if (event.pointer != _activePointerId) return;
     _activePointerId = null;
 
+    // Shape commit — generate shape points from start/end
+    if (_selectedShapeType != ShapeType.freehand &&
+        _shapeStartPos != null && _shapeEndPos != null &&
+        _shapePageIndex == pageIndex) {
+      final shapePoints = _generateShapePoints(_shapeStartPos!, _shapeEndPos!, _selectedShapeType);
+      if (shapePoints.length >= 2) {
+        final effectiveColor = _penColor.withValues(alpha: _penOpacity);
+        final page = widget.documentModel.pages[pageIndex];
+        final widthScale = page.originalSize.width / pageDisplaySize.width;
+        final stroke = ProStroke(
+          id: 'pdf_${widget.documentId}_p${pageIndex}_${DateTime.now().millisecondsSinceEpoch}',
+          points: shapePoints,
+          color: effectiveColor,
+          baseWidth: _penWidth * widthScale,
+          penType: _penType,
+          settings: _brushSettings,
+          createdAt: DateTime.now(),
+        );
+        setState(() {
+          final existing = _pageStrokes[pageIndex] ?? const [];
+          _pageStrokes[pageIndex] = [...existing, stroke];
+          _shapeStartPos = null;
+          _shapeEndPos = null;
+          _shapePageIndex = null;
+        });
+        HapticFeedback.lightImpact();
+      } else {
+        setState(() {
+          _shapeStartPos = null;
+          _shapeEndPos = null;
+          _shapePageIndex = null;
+        });
+      }
+      return;
+    }
+
     if (_livePoints != null && _livePoints!.length >= 2 && _livePageIndex == pageIndex) {
-      // Commit stroke
+      // Commit stroke — apply opacity to color alpha
+      final effectiveColor = _penColor.withValues(alpha: _penOpacity);
+      final page = widget.documentModel.pages[pageIndex];
+      final widthScale = page.originalSize.width / pageDisplaySize.width;
       final stroke = ProStroke(
         id: 'pdf_${widget.documentId}_p${pageIndex}_${DateTime.now().millisecondsSinceEpoch}',
         points: List.from(_livePoints!),
-        color: _penColor,
-        baseWidth: _penWidth,
+        color: effectiveColor,
+        baseWidth: _penWidth * widthScale,
         penType: _penType,
+        settings: _brushSettings,
         createdAt: DateTime.now(),
       );
 
@@ -486,6 +570,121 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
         _livePageIndex = null;
       });
     }
+  }
+
+  /// Generate shape points from drag start/end positions.
+  List<ProDrawingPoint> _generateShapePoints(Offset start, Offset end, ShapeType type) {
+    List<Offset> pts;
+    switch (type) {
+      case ShapeType.freehand:
+        return [];
+      case ShapeType.line:
+        pts = [start, end];
+        break;
+      case ShapeType.rectangle:
+        pts = [
+          start,
+          Offset(end.dx, start.dy),
+          end,
+          Offset(start.dx, end.dy),
+          start, // Close
+        ];
+        break;
+      case ShapeType.circle:
+        final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+        final rx = (end.dx - start.dx).abs() / 2;
+        final ry = (end.dy - start.dy).abs() / 2;
+        const segments = 36;
+        pts = List.generate(segments + 1, (i) {
+          final angle = 2 * math.pi * i / segments;
+          return Offset(
+            center.dx + rx * math.cos(angle),
+            center.dy + ry * math.sin(angle),
+          );
+        });
+        break;
+      case ShapeType.triangle:
+        final midX = (start.dx + end.dx) / 2;
+        pts = [
+          Offset(midX, start.dy),
+          Offset(end.dx, end.dy),
+          Offset(start.dx, end.dy),
+          Offset(midX, start.dy), // Close
+        ];
+        break;
+      case ShapeType.arrow:
+        final dx = end.dx - start.dx;
+        final dy = end.dy - start.dy;
+        final len = math.sqrt(dx * dx + dy * dy);
+        if (len < 1) return [];
+        final nx = dx / len;
+        final ny = dy / len;
+        final headLen = len * 0.2;
+        final headW = headLen * 0.6;
+        final arrowBase = Offset(end.dx - nx * headLen, end.dy - ny * headLen);
+        pts = [
+          start,
+          arrowBase,
+          Offset(arrowBase.dx - ny * headW, arrowBase.dy + nx * headW),
+          end,
+          Offset(arrowBase.dx + ny * headW, arrowBase.dy - nx * headW),
+          arrowBase,
+        ];
+        break;
+      case ShapeType.star:
+        final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+        final rx = (end.dx - start.dx).abs() / 2;
+        final ry = (end.dy - start.dy).abs() / 2;
+        pts = [];
+        for (int i = 0; i <= 10; i++) {
+          final angle = math.pi / 2 + (2 * math.pi * i / 10);
+          final r = i.isEven ? 1.0 : 0.4;
+          pts.add(Offset(center.dx + rx * r * math.cos(angle), center.dy - ry * r * math.sin(angle)));
+        }
+        break;
+      case ShapeType.heart:
+        final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+        final w = (end.dx - start.dx).abs() / 2;
+        final h = (end.dy - start.dy).abs() / 2;
+        pts = List.generate(37, (i) {
+          final t = 2 * math.pi * i / 36;
+          return Offset(
+            center.dx + w * 16 * math.pow(math.sin(t), 3) / 16,
+            center.dy - h * (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)) / 16,
+          );
+        });
+        break;
+      case ShapeType.diamond:
+        final cx = (start.dx + end.dx) / 2;
+        final cy = (start.dy + end.dy) / 2;
+        pts = [
+          Offset(cx, start.dy),
+          Offset(end.dx, cy),
+          Offset(cx, end.dy),
+          Offset(start.dx, cy),
+          Offset(cx, start.dy),
+        ];
+        break;
+      case ShapeType.pentagon:
+        final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+        final rx = (end.dx - start.dx).abs() / 2;
+        final ry = (end.dy - start.dy).abs() / 2;
+        pts = List.generate(6, (i) {
+          final angle = -math.pi / 2 + 2 * math.pi * i / 5;
+          return Offset(center.dx + rx * math.cos(angle), center.dy + ry * math.sin(angle));
+        });
+        break;
+      case ShapeType.hexagon:
+        final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+        final rx = (end.dx - start.dx).abs() / 2;
+        final ry = (end.dy - start.dy).abs() / 2;
+        pts = List.generate(7, (i) {
+          final angle = 2 * math.pi * i / 6;
+          return Offset(center.dx + rx * math.cos(angle), center.dy + ry * math.sin(angle));
+        });
+        break;
+    }
+    return pts.map((p) => ProDrawingPoint(position: p, pressure: 0.5)).toList();
   }
 
   void _eraseAtPoint(int pageIndex, Offset pos, Size pageSize) {
@@ -835,7 +1034,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                                   // Animated space for top bar
                                   AnimatedContainer(
                                     duration: const Duration(milliseconds: 250),
-                                    height: _showChrome ? 56 : 0,
+                                    height: _showChrome
+                                        ? (_isDrawingMode ? 98 : 53)
+                                        : 0,
                                   ),
                                   Expanded(
                                     child: GestureDetector(
@@ -905,12 +1106,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                                         ],
                                       ),
                                     ),
-                                  ),
-                                  if (_isDrawingMode) _buildDrawingToolbar(),
-                                  // Animated space for bottom bar
-                                  AnimatedContainer(
-                                    duration: const Duration(milliseconds: 250),
-                                    height: _showChrome ? 51 : 0,
                                   ),
                                 ],
                               ),
@@ -995,22 +1190,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                                   ),
                                 ),
                               ),
-                              // ── Sliding bottom bar ──
-                              Positioned(
-                                bottom: 0,
-                                left: 0,
-                                right: 0,
-                                child: AnimatedSlide(
-                                  duration: const Duration(milliseconds: 250),
-                                  curve: Curves.easeOutCubic,
-                                  offset: _showChrome ? Offset.zero : const Offset(0, 1),
-                                  child: AnimatedOpacity(
-                                    duration: const Duration(milliseconds: 200),
-                                    opacity: _showChrome ? 1.0 : 0.0,
-                                    child: _buildBottomBar(totalPages),
-                                  ),
-                                ),
-                              ),
                             ],
                           ),
                         ),
@@ -1028,133 +1207,141 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
   Widget _buildTopBar(int totalPages) {
     return Container(
-      height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: const BoxDecoration(
         color: Color(0xFF16213E),
         border: Border(bottom: BorderSide(color: Color(0x22FFFFFF))),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            onPressed: () {
-              widget.onClose?.call(_buildUpdatedModel());
-              Navigator.of(context).pop();
-            },
-            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-            tooltip: 'Back to canvas',
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+          // ── Row 1: Navigation ──
+          SizedBox(
+            height: 50,
+            child: Row(
               children: [
-                Text(
-                  widget.documentModel.fileName ?? 'PDF Document',
-                  style: const TextStyle(
-                    color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                IconButton(
+                  onPressed: () {
+                    widget.onClose?.call(_buildUpdatedModel());
+                    Navigator.of(context).pop();
+                  },
+                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 20),
+                  tooltip: 'Back to canvas',
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_pdfFileSizeStr ?? ''}  •  PDF',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45), fontSize: 12,
-                    fontWeight: FontWeight.w500, letterSpacing: 0.3,
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    widget.documentModel.fileName ?? 'PDF Document',
+                    style: const TextStyle(
+                      color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
+                ),
+                // Page indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  margin: const EdgeInsets.only(right: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0x22FFFFFF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_currentPageIndex + 1}/$totalPages',
+                    style: const TextStyle(
+                      color: Colors.white70, fontSize: 11,
+                      fontWeight: FontWeight.w600, letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+                // Undo button
+                IconButton(
+                  onPressed: _undoLastStroke,
+                  icon: const Icon(Icons.undo_rounded, color: Colors.white70, size: 20),
+                  tooltip: 'Undo',
+                  visualDensity: VisualDensity.compact,
+                ),
+                // Drawing mode toggle
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _isDrawingMode = !_isDrawingMode;
+                      if (!_isDrawingMode) _isErasing = false;
+                    });
+                  },
+                  icon: Icon(
+                    _isDrawingMode ? Icons.edit : Icons.edit_outlined,
+                    color: _isDrawingMode ? const Color(0xFF6C63FF) : Colors.white70,
+                    size: 20,
+                  ),
+                  tooltip: _isDrawingMode ? 'Exit drawing' : 'Annotate',
+                  visualDensity: VisualDensity.compact,
+                ),
+                // Reading mode toggle
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _readingMode = _ReadingMode.values[
+                        (_readingMode.index + 1) % _ReadingMode.values.length
+                      ];
+                    });
+                  },
+                  icon: Icon(
+                    _readingMode == _ReadingMode.dark
+                        ? Icons.dark_mode_rounded
+                        : _readingMode == _ReadingMode.sepia
+                            ? Icons.coffee_rounded
+                            : Icons.light_mode_rounded,
+                    color: _readingMode == _ReadingMode.dark
+                        ? const Color(0xFF90CAF9)
+                        : _readingMode == _ReadingMode.sepia
+                            ? const Color(0xFFFFA726)
+                            : Colors.white70,
+                    size: 20,
+                  ),
+                  tooltip: _readingMode == _ReadingMode.light
+                      ? 'Dark mode'
+                      : _readingMode == _ReadingMode.dark
+                          ? 'Sepia mode'
+                          : 'Light mode',
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  onPressed: () => setState(() => _showSidebar = !_showSidebar),
+                  icon: Icon(
+                    _showSidebar ? Icons.view_sidebar : Icons.view_sidebar_outlined,
+                    color: _showSidebar ? const Color(0xFF6C63FF) : Colors.white70,
+                    size: 20,
+                  ),
+                  tooltip: 'Toggle thumbnails',
+                  visualDensity: VisualDensity.compact,
                 ),
               ],
             ),
           ),
-          // Undo button (visible when drawing mode is on)
+          // ── Row 2: Drawing tools (integrated) ──
           if (_isDrawingMode)
-            IconButton(
-              onPressed: _undoLastStroke,
-              icon: const Icon(Icons.undo_rounded, color: Colors.white70),
-              tooltip: 'Undo',
+            _buildDrawingToolbarRow(),
+          // ── Reading progress bar ──
+          SizedBox(
+            height: 3,
+            child: LinearProgressIndicator(
+              value: totalPages > 1 ? _currentPageIndex / (totalPages - 1) : 1.0,
+              backgroundColor: const Color(0x22FFFFFF),
+              valueColor: const AlwaysStoppedAnimation(Color(0xFF6C63FF)),
             ),
-          // Drawing mode toggle
-          IconButton(
-            onPressed: () {
-              setState(() {
-                _isDrawingMode = !_isDrawingMode;
-                if (!_isDrawingMode) _isErasing = false;
-              });
-            },
-            icon: Icon(
-              _isDrawingMode ? Icons.edit : Icons.edit_outlined,
-              color: _isDrawingMode ? const Color(0xFF6C63FF) : Colors.white70,
-            ),
-            tooltip: _isDrawingMode ? 'Exit drawing' : 'Annotate',
-          ),
-          // Reading mode toggle (light → dark → sepia → light)
-          IconButton(
-            onPressed: () {
-              setState(() {
-                _readingMode = _ReadingMode.values[
-                  (_readingMode.index + 1) % _ReadingMode.values.length
-                ];
-              });
-            },
-            icon: Icon(
-              _readingMode == _ReadingMode.dark
-                  ? Icons.dark_mode_rounded
-                  : _readingMode == _ReadingMode.sepia
-                      ? Icons.coffee_rounded
-                      : Icons.light_mode_rounded,
-              color: _readingMode == _ReadingMode.dark
-                  ? const Color(0xFF90CAF9)
-                  : _readingMode == _ReadingMode.sepia
-                      ? const Color(0xFFFFA726)
-                      : Colors.white70,
-            ),
-            tooltip: _readingMode == _ReadingMode.light
-                ? 'Dark mode'
-                : _readingMode == _ReadingMode.dark
-                    ? 'Sepia mode'
-                    : 'Light mode',
-          ),
-          IconButton(
-            onPressed: () => setState(() => _showSidebar = !_showSidebar),
-            icon: Icon(
-              _showSidebar ? Icons.view_sidebar : Icons.view_sidebar_outlined,
-              color: _showSidebar ? const Color(0xFF6C63FF) : Colors.white70,
-            ),
-            tooltip: 'Toggle thumbnails',
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDrawingToolbar() {
+  Widget _buildDrawingToolbarRow() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      decoration: BoxDecoration(
-        // Glassmorphism: semi-transparent dark with blur
-        color: const Color(0xCC0D1B2A),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0x20FFFFFF),
-          width: 0.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF6C63FF).withValues(alpha: 0.08),
-            blurRadius: 24,
-            spreadRadius: 0,
-            offset: const Offset(0, 4),
-          ),
-          const BoxShadow(
-            color: Color(0x40000000),
-            blurRadius: 12,
-            offset: Offset(0, 2),
-          ),
-        ],
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0x15FFFFFF))),
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -1163,8 +1350,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
           // ── Pen / Eraser segment ──
           _premiumToolPill(
             icon: Icons.edit_rounded,
-            isActive: !_isErasing,
-            onTap: () => setState(() => _isErasing = false),
+            isActive: !_isErasing && _selectedShapeType == ShapeType.freehand,
+            onTap: () => setState(() {
+              _isErasing = false;
+              _selectedShapeType = ShapeType.freehand;
+            }),
           ),
           const SizedBox(width: 2),
           _premiumToolPill(
@@ -1175,17 +1365,29 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
           _separator(),
 
-          // ── Pen type chips (segmented) ──
-          _premiumPenChip(ProPenType.ballpoint, '✒️'),
-          _premiumPenChip(ProPenType.fountain, '🖋️'),
+          // ── Pen type chips (segmented) — long-press for brush settings ──
+          _premiumPenChip(ProPenType.fountain, '✒️'),
+          _premiumPenChip(ProPenType.ballpoint, '🖋️'),
           _premiumPenChip(ProPenType.pencil, '✏️'),
           _premiumPenChip(ProPenType.highlighter, '🖍️'),
+          _premiumPenChip(ProPenType.watercolor, '💧'),
+          _premiumPenChip(ProPenType.marker, '🖊️'),
 
           _separator(),
 
-          // ── Color palette ──
-          ...List.generate(_colorPresets.length, (i) {
-            final c = _colorPresets[i];
+          // ── Geometric shapes ──
+          _buildShapeButton(ShapeType.line, Icons.show_chart),
+          _buildShapeButton(ShapeType.rectangle, Icons.crop_square),
+          _buildShapeButton(ShapeType.circle, Icons.circle_outlined),
+          _buildShapeButton(ShapeType.arrow, Icons.arrow_forward),
+
+          _separator(),
+
+          // ── Color palette (highlight colors when highlighter active) ──
+          ...List.generate(
+            _penType == ProPenType.highlighter ? _highlightColors.length : _colorPresets.length,
+            (i) {
+            final c = _penType == ProPenType.highlighter ? _highlightColors[i] : _colorPresets[i];
             final isActive = _penColor.toARGB32() == c.toARGB32();
             return GestureDetector(
               onTap: () => setState(() => _penColor = c),
@@ -1224,11 +1426,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
             width: (_penWidth * 2.5).clamp(6.0, 20.0),
             height: (_penWidth * 2.5).clamp(6.0, 20.0),
             decoration: BoxDecoration(
-              color: _penColor,
+              color: _penColor.withValues(alpha: _penOpacity),
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: _penColor.withValues(alpha: 0.4),
+                  color: _penColor.withValues(alpha: 0.4 * _penOpacity),
                   blurRadius: 6,
                 ),
               ],
@@ -1252,6 +1454,40 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                 max: 8.0,
                 onChanged: (v) => setState(() => _penWidth = v),
               ),
+            ),
+          ),
+
+          _separator(),
+
+          // ── Opacity slider ──
+          Icon(Icons.opacity_rounded, size: 14, color: Colors.white54),
+          SizedBox(
+            width: 64,
+            child: SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                activeTrackColor: const Color(0xFF9B59B6),
+                inactiveTrackColor: const Color(0x20FFFFFF),
+                thumbColor: Colors.white,
+                overlayColor: const Color(0x209B59B6),
+              ),
+              child: Slider(
+                value: _penOpacity,
+                min: 0.1,
+                max: 1.0,
+                divisions: 9,
+                onChanged: (v) => setState(() => _penOpacity = v),
+              ),
+            ),
+          ),
+          Text(
+            '${(_penOpacity * 100).toInt()}%',
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.white54,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -1302,11 +1538,43 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
   Widget _premiumPenChip(ProPenType type, String emoji) {
     final isActive = _penType == type && !_isErasing;
-    return GestureDetector(
+    return Builder(
+      builder: (chipContext) => GestureDetector(
       onTap: () => setState(() {
+        final wasHighlighter = _penType == ProPenType.highlighter;
         _penType = type;
         _isErasing = false;
+        _selectedShapeType = ShapeType.freehand;
+        // Auto-switch to highlight color + width when selecting highlighter
+        if (type == ProPenType.highlighter && !wasHighlighter) {
+          _savedPenColor = _penColor;
+          _savedPenWidth = _penWidth;
+          _penColor = _highlightColors[0]; // Yellow
+          _penWidth = 6.0; // Wide highlight stroke
+        } else if (type != ProPenType.highlighter && wasHighlighter && _savedPenColor != null) {
+          _penColor = _savedPenColor!;
+          _penWidth = _savedPenWidth ?? 2.0;
+          _savedPenColor = null;
+          _savedPenWidth = null;
+        }
       }),
+      onLongPress: () {
+        // 🎛️ Long-press → Show brush settings popup anchored to this chip
+        HapticFeedback.mediumImpact();
+        final box = chipContext.findRenderObject() as RenderBox;
+        final pos = box.localToGlobal(Offset.zero);
+        ProBrushSettingsDialog.show(
+          chipContext,
+          settings: _brushSettings,
+          currentBrush: type,
+          anchorRect: pos & box.size,
+          currentColor: _penColor,
+          currentWidth: _penWidth,
+          onSettingsChanged: (newSettings) {
+            setState(() => _brushSettings = newSettings);
+          },
+        );
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
@@ -1325,6 +1593,48 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
           style: TextStyle(
             fontSize: isActive ? 18 : 15,
           ),
+        ),
+      ),
+    ),
+    );
+  }
+
+  Widget _buildShapeButton(ShapeType type, IconData icon) {
+    final isActive = _selectedShapeType == type;
+    return GestureDetector(
+      onTap: () => setState(() {
+        _selectedShapeType = isActive ? ShapeType.freehand : type;
+        _isErasing = false;
+      }),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(6),
+        margin: const EdgeInsets.symmetric(horizontal: 1),
+        decoration: BoxDecoration(
+          gradient: isActive
+              ? const LinearGradient(
+                  colors: [Color(0xFF6C63FF), Color(0xFF8B5CF6)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: isActive ? null : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isActive
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF6C63FF).withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: isActive ? Colors.white : const Color(0x80FFFFFF),
         ),
       ),
     );
@@ -1594,8 +1904,31 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
         borderRadius: BorderRadius.circular(8),
         child: Stack(
           children: [
-            // PDF page image
-            if (img != null)
+            // PDF page image + Annotation strokes (combined for correct blend modes)
+            if (img != null && (strokes.isNotEmpty || (isLivePage && _livePoints != null) || (isLivePage && _shapeStartPos != null)))
+              RepaintBoundary(
+                child: CustomPaint(
+                  painter: _AnnotationOverlayPainter(
+                    strokes: strokes,
+                    livePoints: isLivePage ? _livePoints : null,
+                    liveColor: _penColor.withValues(alpha: _penOpacity),
+                    liveWidth: _penWidth * (page.originalSize.width / pageDisplaySize.width),
+                    livePenType: _penType,
+                    pageOriginalSize: page.originalSize,
+                    displaySize: pageDisplaySize,
+                    repaintNotifier: isLivePage ? _annotationRepaint : null,
+                    shapeStart: (isLivePage && _shapePageIndex == pageIndex) ? _shapeStartPos : null,
+                    shapeEnd: (isLivePage && _shapePageIndex == pageIndex) ? _shapeEndPos : null,
+                    shapeType: _selectedShapeType,
+                    liveBrushSettings: _brushSettings,
+                    pageImage: img,
+                    isZoomed: isZoomed,
+                  ),
+                  size: pageDisplaySize,
+                ),
+              )
+            // Page only (no annotations) — lightweight painter
+            else if (img != null)
               CustomPaint(
                 painter: _DirectPagePainter(
                   image: img,
@@ -1608,24 +1941,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                 width: screenWidth,
                 height: displayHeight,
                 child: const _PageShimmer(),
-              ),
-
-            // Annotation strokes overlay (committed + live)
-            if (strokes.isNotEmpty || (isLivePage && _livePoints != null))
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: _AnnotationOverlayPainter(
-                    strokes: strokes,
-                    livePoints: isLivePage ? _livePoints : null,
-                    liveColor: _penColor,
-                    liveWidth: _penWidth,
-                    livePenType: _penType,
-                    pageOriginalSize: page.originalSize,
-                    displaySize: pageDisplaySize,
-                    repaintNotifier: isLivePage ? _annotationRepaint : null,
-                  ),
-                  size: pageDisplaySize,
-                ),
               ),
 
             // Touch input overlay (drawing mode only)
@@ -1667,64 +1982,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
     return pageContent;
   }
-
-  Widget _buildBottomBar(int totalPages) {
-    final progress = totalPages > 1
-        ? _currentPageIndex / (totalPages - 1)
-        : 1.0;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Reading progress bar
-        SizedBox(
-          height: 3,
-          child: LinearProgressIndicator(
-            value: progress,
-            backgroundColor: const Color(0x22FFFFFF),
-            valueColor: const AlwaysStoppedAnimation(Color(0xFF6C63FF)),
-          ),
-        ),
-        Container(
-          height: 48,
-          decoration: const BoxDecoration(
-            color: Color(0xFF16213E),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                onPressed: _currentPageIndex > 0
-                    ? () => _scrollToPage(_currentPageIndex - 1) : null,
-                icon: const Icon(Icons.chevron_left_rounded),
-                iconSize: 20, color: Colors.white70, disabledColor: Colors.white24,
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0x22FFFFFF),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  'Page ${_currentPageIndex + 1} of $totalPages',
-                  style: const TextStyle(
-                    color: Colors.white, fontSize: 13,
-                    fontWeight: FontWeight.w500, letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: _currentPageIndex < totalPages - 1
-                    ? () => _scrollToPage(_currentPageIndex + 1) : null,
-                icon: const Icon(Icons.chevron_right_rounded),
-                iconSize: 20, color: Colors.white70, disabledColor: Colors.white24,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 // =============================================================================
@@ -1764,6 +2021,12 @@ class _AnnotationOverlayPainter extends CustomPainter {
   final ProPenType livePenType;
   final Size pageOriginalSize;
   final Size displaySize;
+  final Offset? shapeStart;
+  final Offset? shapeEnd;
+  final ShapeType shapeType;
+  final ProBrushSettings liveBrushSettings;
+  final ui.Image? pageImage;
+  final bool isZoomed;
 
   _AnnotationOverlayPainter({
     required this.strokes,
@@ -1773,11 +2036,28 @@ class _AnnotationOverlayPainter extends CustomPainter {
     required this.livePenType,
     required this.pageOriginalSize,
     required this.displaySize,
+    this.shapeStart,
+    this.shapeEnd,
+    this.shapeType = ShapeType.freehand,
+    this.liveBrushSettings = const ProBrushSettings(),
+    this.pageImage,
+    this.isZoomed = false,
     ValueNotifier<int>? repaintNotifier,
   }) : super(repaint: repaintNotifier);
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Draw the page image first so brush blend modes (multiply, etc.)
+    // composite against actual page pixels rather than transparent.
+    if (pageImage != null) {
+      final src = Rect.fromLTWH(0, 0, pageImage!.width.toDouble(), pageImage!.height.toDouble());
+      final dst = Rect.fromLTWH(0, 0, size.width, size.height);
+      canvas.drawImageRect(
+        pageImage!, src, dst,
+        Paint()..filterQuality = isZoomed ? FilterQuality.medium : FilterQuality.high,
+      );
+    }
+
     // Scale from PDF-page coords to display coords
     final sx = displaySize.width / pageOriginalSize.width;
     final sy = displaySize.height / pageOriginalSize.height;
@@ -1785,7 +2065,8 @@ class _AnnotationOverlayPainter extends CustomPainter {
     canvas.save();
     canvas.scale(sx, sy);
 
-    // Draw committed strokes
+    // Draw committed strokes (native blend modes work correctly
+    // since they composite against the page drawn above)
     for (final stroke in strokes) {
       BrushEngine.renderStroke(
         canvas,
@@ -1806,12 +2087,122 @@ class _AnnotationOverlayPainter extends CustomPainter {
         liveColor,
         liveWidth,
         livePenType,
-        const ProBrushSettings(),
+        liveBrushSettings,
         isLive: true,
       );
     }
 
+    // Draw live shape preview
+    if (shapeStart != null && shapeEnd != null && shapeType != ShapeType.freehand) {
+      _drawShapePreview(canvas, shapeStart!, shapeEnd!, shapeType);
+    }
+
     canvas.restore();
+  }
+
+  void _drawShapePreview(Canvas canvas, Offset start, Offset end, ShapeType type) {
+    final paint = Paint()
+      ..color = liveColor
+      ..strokeWidth = liveWidth
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    switch (type) {
+      case ShapeType.freehand:
+        break;
+      case ShapeType.line:
+        canvas.drawLine(start, end, paint);
+        break;
+      case ShapeType.rectangle:
+        canvas.drawRect(Rect.fromPoints(start, end), paint);
+        break;
+      case ShapeType.circle:
+        canvas.drawOval(Rect.fromPoints(start, end), paint);
+        break;
+      case ShapeType.arrow:
+        // Arrow with head
+        canvas.drawLine(start, end, paint);
+        final dx = end.dx - start.dx;
+        final dy = end.dy - start.dy;
+        final len = math.sqrt(dx * dx + dy * dy);
+        if (len > 1) {
+          final nx = dx / len;
+          final ny = dy / len;
+          final headLen = len * 0.2;
+          final headW = headLen * 0.6;
+          final path = ui.Path()
+            ..moveTo(end.dx - nx * headLen - ny * headW, end.dy - ny * headLen + nx * headW)
+            ..lineTo(end.dx, end.dy)
+            ..lineTo(end.dx - nx * headLen + ny * headW, end.dy - ny * headLen - nx * headW);
+          canvas.drawPath(path, paint);
+        }
+        break;
+      default:
+        // For triangle, star, heart, diamond, pentagon, hexagon — draw as path
+        final path = ui.Path();
+        final center = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+        final rx = (end.dx - start.dx).abs() / 2;
+        final ry = (end.dy - start.dy).abs() / 2;
+        List<Offset> pts;
+        switch (type) {
+          case ShapeType.triangle:
+            pts = [
+              Offset(center.dx, start.dy),
+              Offset(end.dx, end.dy),
+              Offset(start.dx, end.dy),
+              Offset(center.dx, start.dy),
+            ];
+            break;
+          case ShapeType.star:
+            pts = [];
+            for (int i = 0; i <= 10; i++) {
+              final angle = math.pi / 2 + (2 * math.pi * i / 10);
+              final r = i.isEven ? 1.0 : 0.4;
+              pts.add(Offset(center.dx + rx * r * math.cos(angle), center.dy - ry * r * math.sin(angle)));
+            }
+            break;
+          case ShapeType.diamond:
+            pts = [
+              Offset(center.dx, start.dy),
+              Offset(end.dx, center.dy),
+              Offset(center.dx, end.dy),
+              Offset(start.dx, center.dy),
+              Offset(center.dx, start.dy),
+            ];
+            break;
+          case ShapeType.pentagon:
+            pts = List.generate(6, (i) {
+              final angle = -math.pi / 2 + 2 * math.pi * i / 5;
+              return Offset(center.dx + rx * math.cos(angle), center.dy + ry * math.sin(angle));
+            });
+            break;
+          case ShapeType.hexagon:
+            pts = List.generate(7, (i) {
+              final angle = 2 * math.pi * i / 6;
+              return Offset(center.dx + rx * math.cos(angle), center.dy + ry * math.sin(angle));
+            });
+            break;
+          case ShapeType.heart:
+            pts = List.generate(37, (i) {
+              final t = 2 * math.pi * i / 36;
+              return Offset(
+                center.dx + rx * 16 * math.pow(math.sin(t), 3) / 16,
+                center.dy - ry * (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)) / 16,
+              );
+            });
+            break;
+          default:
+            pts = [];
+        }
+        if (pts.length >= 2) {
+          path.moveTo(pts.first.dx, pts.first.dy);
+          for (int i = 1; i < pts.length; i++) {
+            path.lineTo(pts[i].dx, pts[i].dy);
+          }
+          canvas.drawPath(path, paint);
+        }
+    }
   }
 
   @override
@@ -1821,7 +2212,10 @@ class _AnnotationOverlayPainter extends CustomPainter {
     return old.strokes.length != strokes.length ||
            old.liveColor != liveColor ||
            old.liveWidth != liveWidth ||
-           old.livePenType != livePenType;
+           old.livePenType != livePenType ||
+           old.shapeStart != shapeStart ||
+           old.shapeEnd != shapeEnd ||
+           old.shapeType != shapeType;
   }
 }
 

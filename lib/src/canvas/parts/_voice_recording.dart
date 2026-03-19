@@ -30,6 +30,13 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   /// 🎛️ Recording quality configuration (user-configurable).
   static AudioRecordConfig _recordingConfig = AudioRecordConfig.high;
 
+  // 🎤 Live streaming transcription state
+  static bool _liveTranscriptionEnabled = false;
+  static bool _isDownloadingModel = false;
+  static double _downloadProgress = 0.0;
+  static final ValueNotifier<String> _liveTranscriptionText = ValueNotifier<String>('');
+  static StreamSubscription<String>? _liveTranscriptionSub;
+
   /// Returns the configured provider or a built-in default.
   FlueraVoiceRecordingProvider get _voiceRecordingProvider {
     final custom = _config.voiceRecording;
@@ -147,6 +154,123 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   ),
                   const SizedBox(height: 12),
 
+                  // 🎤 Live transcription toggle
+                  StatefulBuilder(
+                    builder: (ctx, setToggleState) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest
+                              .withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.subtitles_rounded,
+                                  size: 20,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _isDownloadingModel
+                                        ? 'Downloading model...'
+                                        : 'Live Subtitles',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                                if (_isDownloadingModel)
+                                  SizedBox(
+                                    width: 20, height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                  )
+                                else
+                                  Switch.adaptive(
+                                    value: _liveTranscriptionEnabled,
+                                    onChanged: (v) async {
+                                      if (v) {
+                                        final modelManager = SherpaModelManager.instance;
+                                        final available = await modelManager.isModelAvailable(
+                                          SherpaModelType.zipformerStreaming,
+                                        );
+                                        if (!available) {
+                                          if (_isDownloadingModel) return;
+                                          _isDownloadingModel = true;
+                                          _downloadProgress = 0.0;
+                                          setToggleState(() {});
+                                          bool success = false;
+                                          try {
+                                            await for (final progress in modelManager.downloadModel(
+                                              SherpaModelType.zipformerStreaming,
+                                            )) {
+                                              _downloadProgress = progress.progress;
+                                              if (progress.status == 'ready') {
+                                                success = true;
+                                              }
+                                              if (progress.hasError) {
+                                                debugPrint('📥 Error: ${progress.error}');
+                                              }
+                                              setToggleState(() {});
+                                            }
+                                          } finally {
+                                            _isDownloadingModel = false;
+                                          }
+                                          if (!success) {
+                                            setToggleState(() {
+                                              _liveTranscriptionEnabled = false;
+                                            });
+                                            if (ctx.mounted) {
+                                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('❌ Download failed'),
+                                                  duration: Duration(seconds: 2),
+                                                ),
+                                              );
+                                            }
+                                            return;
+                                          }
+                                          await StreamingTranscriptionService.prewarmModel();
+                                        }
+                                      }
+                                      setToggleState(() {
+                                        _liveTranscriptionEnabled = v;
+                                      });
+                                    },
+                                  ),
+                              ],
+                            ),
+                            // 📊 Download progress bar
+                            if (_isDownloadingModel)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, bottom: 4),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: LinearProgressIndicator(
+                                    value: _downloadProgress > 0 ? _downloadProgress : null,
+                                    minHeight: 4,
+                                    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
                   // Cancel button
                   TextButton(
                     onPressed: () => Navigator.pop(context),
@@ -237,6 +361,37 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
           }
         });
       }
+
+      // 🎤 Start live streaming transcription if enabled
+      // Model is already downloaded (handled in dialog toggle)
+      if (_liveTranscriptionEnabled && provider is DefaultVoiceRecordingProvider) {
+        _liveTranscriptionText.value = '';
+        try {
+          debugPrint('🎤 Starting streaming service...');
+          final recorderChannel = NativeAudioRecorderChannel.create();
+          await StreamingTranscriptionService.instance.start(
+            recorderChannel: recorderChannel,
+          );
+          debugPrint('🎤 Streaming service started — listening for text');
+          _liveTranscriptionSub = StreamingTranscriptionService.instance
+              .textStream
+              .listen((text) {
+            debugPrint('🎤 Text update: "$text"');
+            _liveTranscriptionText.value = text;
+          });
+        } catch (e) {
+          debugPrint('🎤 Live transcription failed to start: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🎤 Live transcription unavailable: $e'),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          // Non-fatal — recording continues without live transcription
+        }
+      }
     } catch (e) {
       _syncRecordingBuilder = null;
       if (mounted) {
@@ -254,6 +409,17 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   /// ⏹️ Stop audio recording.
   Future<void> _stopAudioRecording() async {
     final provider = _voiceRecordingProvider;
+
+    // 🎤 Stop live streaming transcription
+    String? liveTranscriptionResult;
+    if (StreamingTranscriptionService.instance.isActive) {
+      try {
+        liveTranscriptionResult = await StreamingTranscriptionService.instance.stop();
+      } catch (_) {}
+      _liveTranscriptionSub?.cancel();
+      _liveTranscriptionSub = null;
+      _liveTranscriptionText.value = '';
+    }
 
     try {
       HapticFeedback.mediumImpact();
@@ -374,6 +540,17 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
               recordingName != null &&
               recordingName.isNotEmpty) {
             syncRecording = syncRecording.copyWith(noteTitle: recordingName);
+          }
+
+          // 🎤 Attach live transcription result if available
+          if (liveTranscriptionResult != null &&
+              liveTranscriptionResult.trim().isNotEmpty) {
+            if (syncRecording != null) {
+              syncRecording = syncRecording.copyWith(
+                transcriptionText: liveTranscriptionResult,
+                transcriptionLanguage: 'auto',
+              );
+            }
           }
 
           // 💾 Build the persistable recording (with name + canvasId)
@@ -1624,8 +1801,105 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                                                           ? cs.onTertiaryContainer
                                                           : cs.onSecondaryContainer,
                                                     ),
+                                                    // 🎤 Transcription chip
+                                                    if (synced != null && synced.hasTranscription)
+                                                      GestureDetector(
+                                                        onTap: () => _showTranscriptionViewer(
+                                                          context,
+                                                          synced,
+                                                          setSheetState,
+                                                        ),
+                                                        child: _buildMetadataChip(
+                                                          Icons.text_snippet_rounded,
+                                                          'Transcribed',
+                                                          cs.primaryContainer,
+                                                          cs.onPrimaryContainer,
+                                                        ),
+                                                      ),
+                                                    if (synced != null && !synced.hasTranscription)
+                                                      GestureDetector(
+                                                        onTap: () => _startTranscription(
+                                                          context,
+                                                          synced,
+                                                          setSheetState,
+                                                        ),
+                                                        child: _buildMetadataChip(
+                                                          Icons.record_voice_over_rounded,
+                                                          'Transcribe',
+                                                          cs.surfaceContainerHighest,
+                                                          cs.primary,
+                                                        ),
+                                                      ),
                                                   ],
                                                 ),
+                                                // 📝 Transcription text preview
+                                                if (synced != null &&
+                                                    synced.hasTranscription &&
+                                                    synced.transcriptionText != null &&
+                                                    synced.transcriptionText!.isNotEmpty)
+                                                  GestureDetector(
+                                                    onTap: () => _showTranscriptionViewer(
+                                                      context,
+                                                      synced,
+                                                      setSheetState,
+                                                    ),
+                                                    child: Padding(
+                                                      padding: const EdgeInsets.only(top: 8),
+                                                      child: Container(
+                                                        width: double.infinity,
+                                                        padding: const EdgeInsets.all(10),
+                                                        decoration: BoxDecoration(
+                                                          color: cs.primaryContainer.withValues(alpha: 0.3),
+                                                          borderRadius: BorderRadius.circular(10),
+                                                          border: Border.all(
+                                                            color: cs.primaryContainer,
+                                                            width: 0.5,
+                                                          ),
+                                                        ),
+                                                        child: Column(
+                                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                                          children: [
+                                                            Row(
+                                                              children: [
+                                                                Icon(
+                                                                  Icons.format_quote_rounded,
+                                                                  size: 14,
+                                                                  color: cs.primary,
+                                                                ),
+                                                                const SizedBox(width: 4),
+                                                                Text(
+                                                                  synced.transcriptionLanguage?.toUpperCase() ?? '',
+                                                                  style: TextStyle(
+                                                                    fontSize: 10,
+                                                                    fontWeight: FontWeight.w600,
+                                                                    color: cs.primary,
+                                                                    letterSpacing: 0.5,
+                                                                  ),
+                                                                ),
+                                                                const Spacer(),
+                                                                Icon(
+                                                                  Icons.open_in_new_rounded,
+                                                                  size: 12,
+                                                                  color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                            const SizedBox(height: 4),
+                                                            Text(
+                                                              synced.transcriptionText!,
+                                                              maxLines: 2,
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: tt.bodySmall?.copyWith(
+                                                                color: cs.onSurface.withValues(alpha: 0.8),
+                                                                height: 1.4,
+                                                                fontStyle: FontStyle.italic,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
                                               ],
                                             ),
                                           ),
@@ -1713,6 +1987,603 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // 🎤 TRANSCRIPTION UI
+  // =========================================================================
+
+  /// Start transcription for a recording. Handles model download if needed,
+  /// shows progress, and persists the result.
+  Future<void> _startTranscription(
+    BuildContext dialogContext,
+    SynchronizedRecording recording,
+    void Function(void Function()) setSheetState,
+  ) async {
+    final cs = Theme.of(dialogContext).colorScheme;
+
+    // 1. Check if model is available, download if not
+    final modelType = SherpaModelType.whisperBase;
+    final modelManager = SherpaModelManager.instance;
+    final isAvailable = await modelManager.isModelAvailable(modelType);
+
+    if (!isAvailable) {
+      // Show download dialog
+      final shouldDownload = await showDialog<bool>(
+        context: dialogContext,
+        builder: (ctx) => AlertDialog(
+          icon: Icon(Icons.download_rounded, color: cs.primary, size: 32),
+          title: const Text('Download Speech Model'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'The Whisper Base model (~74 MB) is needed for '
+                'offline transcription. Download now?',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Supports 24 languages including English, Italian, '
+                'Spanish, French, German, and more.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text('Download'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldDownload != true || !mounted) return;
+
+      // Show download progress
+      final downloadCompleted = await showDialog<bool>(
+        context: dialogContext,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return _TranscriptionModelDownloadDialog(
+            modelType: modelType,
+            modelManager: modelManager,
+          );
+        },
+      );
+
+      if (downloadCompleted != true || !mounted) return;
+    }
+
+    // 2. Show language selection
+    final language = await showDialog<String>(
+      context: dialogContext,
+      builder: (ctx) {
+        return AlertDialog(
+          icon: Icon(Icons.translate_rounded, color: cs.primary, size: 32),
+          title: const Text('Transcription Language'),
+          content: SizedBox(
+            width: 300,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome),
+                  title: const Text('Auto-detect'),
+                  subtitle: const Text('Let the model detect the language'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'auto'),
+                ),
+                ListTile(
+                  leading: const Text('🇮🇹', style: TextStyle(fontSize: 24)),
+                  title: const Text('Italiano'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'it'),
+                ),
+                ListTile(
+                  leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
+                  title: const Text('English'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'en'),
+                ),
+                ListTile(
+                  leading: const Text('🇪🇸', style: TextStyle(fontSize: 24)),
+                  title: const Text('Español'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'es'),
+                ),
+                ListTile(
+                  leading: const Text('🇫🇷', style: TextStyle(fontSize: 24)),
+                  title: const Text('Français'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'fr'),
+                ),
+                ListTile(
+                  leading: const Text('🇩🇪', style: TextStyle(fontSize: 24)),
+                  title: const Text('Deutsch'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'de'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (language == null || !mounted) return;
+
+    // 3. Show transcription progress dialog
+    final result = await showDialog<TranscriptionResult>(
+      context: dialogContext,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return _TranscriptionProgressDialog(
+          audioPath: recording.audioPath,
+          language: language,
+          duration: recording.totalDuration,
+        );
+      },
+    );
+
+    if (result == null || result.text.isEmpty || !mounted) {
+      if (result != null && result.text.isEmpty && mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          SnackBar(
+            content: const Text('⚠️ No speech detected in recording'),
+            backgroundColor: cs.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 4. Persist transcription to recording
+    final updatedRecording = recording.copyWith(
+      transcriptionText: result.text,
+      transcriptionLanguage: result.language,
+      transcriptionSegmentsJson: result.toJsonString(),
+    );
+
+    // Update in-memory list
+    final idx = _syncedRecordings.indexWhere((r) => r.id == recording.id);
+    if (idx >= 0) {
+      setState(() {
+        _syncedRecordings[idx] = updatedRecording;
+      });
+    }
+
+    // Persist to SQLite
+    if (RecordingStorageService.instance.isInitialized) {
+      try {
+        await RecordingStorageService.instance.saveRecording(updatedRecording);
+      } catch (_) {}
+    }
+
+    // Refresh the sheet state
+    setSheetState(() {});
+
+    if (mounted) {
+      ScaffoldMessenger.of(this.context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Transcription complete (${result.language.toUpperCase()})'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Show full transcription text viewer with time-stamped segments.
+  Future<void> _showTranscriptionViewer(
+    BuildContext dialogContext,
+    SynchronizedRecording recording,
+    void Function(void Function()) setSheetState,
+  ) async {
+    final cs = Theme.of(dialogContext).colorScheme;
+    final tt = Theme.of(dialogContext).textTheme;
+
+    // Parse segments from JSON if available
+    List<TranscriptionSegment> segments = [];
+    if (recording.transcriptionSegmentsJson != null) {
+      try {
+        final result = TranscriptionResult.fromJsonString(
+          recording.transcriptionSegmentsJson!,
+        );
+        segments = result.segments;
+      } catch (_) {}
+    }
+
+    await showModalBottomSheet(
+      context: dialogContext,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (ctx, scrollController) {
+            return Column(
+              children: [
+                // Drag handle
+                Padding(
+                  padding: const EdgeInsets.only(top: 12, bottom: 4),
+                  child: Container(
+                    width: 32,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 16, 0),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [cs.primary, cs.tertiary],
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.text_snippet_rounded,
+                          color: cs.onPrimary,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Transcription',
+                              style: tt.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            Text(
+                              '${recording.transcriptionLanguage?.toUpperCase() ?? 'AUTO'} • '
+                              '${recording.noteTitle ?? 'Recording'}',
+                              style: tt.bodySmall?.copyWith(
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Copy button
+                      IconButton(
+                        onPressed: () {
+                          Clipboard.setData(
+                            ClipboardData(
+                              text: recording.transcriptionText ?? '',
+                            ),
+                          );
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            SnackBar(
+                              content: const Text('📋 Copied to clipboard'),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.copy_rounded),
+                        tooltip: 'Copy text',
+                        style: IconButton.styleFrom(
+                          foregroundColor: cs.onSurfaceVariant,
+                        ),
+                      ),
+                      // Re-transcribe button
+                      IconButton(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          // Clear existing transcription and re-transcribe
+                          final cleared = recording.copyWith(
+                            transcriptionText: null,
+                            transcriptionLanguage: null,
+                            transcriptionSegmentsJson: null,
+                          );
+                          final idx2 = _syncedRecordings.indexWhere(
+                            (r) => r.id == recording.id,
+                          );
+                          if (idx2 >= 0) {
+                            setState(() {
+                              _syncedRecordings[idx2] = cleared;
+                            });
+                          }
+                          setSheetState(() {});
+                          _startTranscription(
+                            dialogContext,
+                            cleared,
+                            setSheetState,
+                          );
+                        },
+                        icon: const Icon(Icons.refresh_rounded),
+                        tooltip: 'Re-transcribe',
+                        style: IconButton.styleFrom(
+                          foregroundColor: cs.onSurfaceVariant,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded),
+                        style: IconButton.styleFrom(
+                          foregroundColor: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                Divider(height: 20, color: cs.outlineVariant),
+
+                // Transcription content
+                Expanded(
+                  child: segments.isNotEmpty
+                      ? ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                          itemCount: segments.length,
+                          itemBuilder: (ctx, i) {
+                            final seg = segments[i];
+                            final startStr =
+                                '${seg.start.inMinutes}:${(seg.start.inSeconds % 60).toString().padLeft(2, '0')}';
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Timestamp
+                                  Container(
+                                    width: 52,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: cs.primaryContainer.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      startStr,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: cs.primary,
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures()
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  // Text
+                                  Expanded(
+                                    child: Text(
+                                      seg.text,
+                                      style: tt.bodyMedium?.copyWith(
+                                        height: 1.5,
+                                        color: cs.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        )
+                      : SingleChildScrollView(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                          child: SelectableText(
+                            recording.transcriptionText ?? '',
+                            style: tt.bodyLarge?.copyWith(
+                              height: 1.6,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 🎤 Build the live subtitle overlay shown during recording
+  /// when live transcription is enabled.
+  Widget _buildLiveSubtitleOverlay(BuildContext context) {
+    if (!_isRecordingAudio || !_liveTranscriptionEnabled) {
+      return const SizedBox.shrink();
+    }
+
+    final cs = Theme.of(context).colorScheme;
+
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: 24,
+      child: ValueListenableBuilder<String>(
+        valueListenable: _liveTranscriptionText,
+        builder: (ctx, text, _) {
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.15),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              );
+            },
+            child: text.isEmpty
+                ? Container(
+                    key: const ValueKey('listening'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: cs.surface.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: cs.outlineVariant.withValues(alpha: 0.3),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Listening...',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurfaceVariant,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Container(
+                    // Animate on significant text growth (~every 10 chars)
+                    key: ValueKey('text_${text.length ~/ 10}'),
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: cs.surface.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: cs.primary.withValues(alpha: 0.3),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: cs.primary.withValues(alpha: 0.08),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: cs.primary.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.mic_rounded,
+                            size: 16,
+                            color: cs.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            reverse: true,
+                            child: Text(
+                              text,
+                              style: TextStyle(
+                                fontSize: 14,
+                                height: 1.4,
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          );
+        },
       ),
     );
   }
@@ -2963,6 +3834,304 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
           child: Icon(icon, color: cs.onSurface, size: 22),
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// 🎤 TRANSCRIPTION DIALOGS
+// =============================================================================
+
+/// Dialog showing model download progress with animated progress bar.
+class _TranscriptionModelDownloadDialog extends StatefulWidget {
+  final SherpaModelType modelType;
+  final SherpaModelManager modelManager;
+
+  const _TranscriptionModelDownloadDialog({
+    required this.modelType,
+    required this.modelManager,
+  });
+
+  @override
+  State<_TranscriptionModelDownloadDialog> createState() =>
+      _TranscriptionModelDownloadDialogState();
+}
+
+class _TranscriptionModelDownloadDialogState
+    extends State<_TranscriptionModelDownloadDialog> {
+  double _progress = 0;
+  String _status = 'Preparing download...';
+  bool _hasError = false;
+  String? _errorMessage;
+  StreamSubscription? _downloadSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _startDownload();
+  }
+
+  @override
+  void dispose() {
+    _downloadSub?.cancel();
+    super.dispose();
+  }
+
+  void _startDownload() {
+    final stream = widget.modelManager.downloadModel(widget.modelType);
+    _downloadSub = stream.listen(
+      (progress) {
+        if (!mounted) return;
+        setState(() {
+          _progress = progress.progress;
+          if (progress.progress < 0.3) {
+            _status = 'Downloading model...';
+          } else if (progress.progress < 0.9) {
+            _status = 'Downloading... ${(progress.progress * 100).toInt()}%';
+          } else if (progress.progress < 1.0) {
+            _status = 'Extracting model files...';
+          } else {
+            _status = 'Model ready!';
+          }
+        });
+
+        if (progress.isComplete) {
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) Navigator.pop(context, true);
+          });
+        }
+      },
+      onError: (error) {
+        if (!mounted) return;
+        setState(() {
+          _hasError = true;
+          _errorMessage = error.toString();
+        });
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      icon: _hasError
+          ? Icon(Icons.error_outline_rounded, color: cs.error, size: 40)
+          : Icon(Icons.downloading_rounded, color: cs.primary, size: 40),
+      title: Text(_hasError ? 'Download Failed' : 'Downloading Model'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!_hasError) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: _progress,
+                minHeight: 8,
+                backgroundColor: cs.surfaceContainerHighest,
+                valueColor: AlwaysStoppedAnimation(cs.primary),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _status,
+              style: TextStyle(
+                fontSize: 13,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ],
+          if (_hasError) ...[
+            Text(
+              _errorMessage ?? 'Unknown error occurred',
+              style: TextStyle(fontSize: 13, color: cs.error),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () {
+                setState(() {
+                  _hasError = false;
+                  _progress = 0;
+                });
+                _startDownload();
+              },
+              child: const Text('Retry'),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        if (!_hasError)
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+        if (_hasError)
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Close'),
+          ),
+      ],
+    );
+  }
+}
+
+/// Dialog showing transcription progress with animated stages.
+class _TranscriptionProgressDialog extends StatefulWidget {
+  final String audioPath;
+  final String language;
+  final Duration duration;
+
+  const _TranscriptionProgressDialog({
+    required this.audioPath,
+    required this.language,
+    required this.duration,
+  });
+
+  @override
+  State<_TranscriptionProgressDialog> createState() =>
+      _TranscriptionProgressDialogState();
+}
+
+class _TranscriptionProgressDialogState
+    extends State<_TranscriptionProgressDialog> {
+  double _progress = 0;
+  String _status = 'Converting audio...';
+  bool _hasError = false;
+  String? _errorMessage;
+  StreamSubscription<double>? _progressSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTranscription();
+  }
+
+  @override
+  void dispose() {
+    _progressSub?.cancel();
+    super.dispose();
+  }
+
+  void _startTranscription() async {
+    final service = SherpaTranscriptionService.instance;
+
+    // Listen to progress
+    _progressSub = service.progressStream.listen((progress) {
+      if (!mounted) return;
+      setState(() {
+        _progress = progress;
+        if (progress < 0.1) {
+          _status = 'Converting audio...';
+        } else if (progress < 0.2) {
+          _status = 'Preparing model...';
+        } else if (progress < 0.9) {
+          _status = 'Transcribing... ${(progress * 100).toInt()}%';
+        } else {
+          _status = 'Finalizing...';
+        }
+      });
+    });
+
+    try {
+      final result = await service.transcribe(
+        audioPath: widget.audioPath,
+        config: TranscriptionConfig(
+          language: widget.language,
+          modelType: SherpaModelType.whisperBase,
+        ),
+        audioDuration: widget.duration,
+      );
+
+      if (mounted) {
+        Navigator.pop(context, result);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _errorMessage = e.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      icon: _hasError
+          ? Icon(Icons.error_outline_rounded, color: cs.error, size: 40)
+          : AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: _progress >= 0.95
+                  ? Icon(
+                      Icons.check_circle_rounded,
+                      color: Colors.green,
+                      size: 40,
+                      key: const ValueKey('done'),
+                    )
+                  : Icon(
+                      Icons.record_voice_over_rounded,
+                      color: cs.primary,
+                      size: 40,
+                      key: const ValueKey('working'),
+                    ),
+            ),
+      title: Text(_hasError ? 'Transcription Failed' : 'Transcribing...'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!_hasError) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: _progress > 0 ? _progress : null,
+                minHeight: 8,
+                backgroundColor: cs.surfaceContainerHighest,
+                valueColor: AlwaysStoppedAnimation(cs.primary),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _status,
+              style: TextStyle(
+                fontSize: 13,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Language: ${widget.language == 'auto' ? 'Auto-detect' : widget.language.toUpperCase()}',
+              style: TextStyle(
+                fontSize: 11,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+              ),
+            ),
+          ],
+          if (_hasError) ...[
+            Text(
+              _errorMessage ?? 'Unknown error occurred',
+              style: TextStyle(fontSize: 13, color: cs.error),
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        if (_hasError)
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Close'),
+          ),
+      ],
     );
   }
 }

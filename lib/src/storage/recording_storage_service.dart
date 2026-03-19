@@ -72,6 +72,9 @@ class RecordingStorageService {
       'total_duration_ms': recording.totalDuration.inMilliseconds,
       'start_time': recording.startTime.toIso8601String(),
       'strokes_json': strokesJson,
+      'transcription_text': recording.transcriptionText,
+      'transcription_language': recording.transcriptionLanguage,
+      'transcription_segments_json': recording.transcriptionSegmentsJson,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
 
@@ -154,6 +157,10 @@ class RecordingStorageService {
             canvasId: row['canvas_id'] as String?,
             noteTitle: row['note_title'] as String?,
             recordingType: row['recording_type'] as String?,
+            transcriptionText: row['transcription_text'] as String?,
+            transcriptionLanguage: row['transcription_language'] as String?,
+            transcriptionSegmentsJson:
+                row['transcription_segments_json'] as String?,
           ),
         );
       } catch (e) {

@@ -32,6 +32,27 @@ class ConnectionLabelOverlay extends StatefulWidget {
   /// Called when the user picks a new color.
   final ValueChanged<Color>? onColorChanged;
 
+  /// Called when the user cycles to a new connection type.
+  final ValueChanged<ConnectionType>? onTypeChanged;
+
+  /// Called when the user toggles bidirectional mode.
+  final ValueChanged<bool>? onBidirectionalToggled;
+
+  /// Called when the user cycles to a new connection style.
+  final ValueChanged<ConnectionStyle>? onStyleChanged;
+
+  /// Called when the user enters multi-select mode.
+  final VoidCallback? onMultiSelect;
+
+  /// Current connection type (for display).
+  final ConnectionType connectionType;
+
+  /// Current connection style (for display).
+  final ConnectionStyle connectionStyle;
+
+  /// Current bidirectional state (for display).
+  final bool isBidirectional;
+
   const ConnectionLabelOverlay({
     super.key,
     this.initialText = '',
@@ -40,6 +61,13 @@ class ConnectionLabelOverlay extends StatefulWidget {
     required this.onDismiss,
     this.onDelete,
     this.onColorChanged,
+    this.onTypeChanged,
+    this.onBidirectionalToggled,
+    this.onStyleChanged,
+    this.onMultiSelect,
+    this.connectionType = ConnectionType.association,
+    this.connectionStyle = ConnectionStyle.curved,
+    this.isBidirectional = false,
   });
 
   @override
@@ -55,6 +83,9 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
   late final Animation<double> _scaleAnim;
   bool _submitted = false;
   late Color _selectedColor;
+  late ConnectionType _currentType;
+  late ConnectionStyle _currentStyle;
+  late bool _currentBidirectional;
 
   /// Quick-pick suggested labels
   static const _suggestions = [
@@ -71,6 +102,9 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
     super.initState();
     _controller = TextEditingController(text: widget.initialText);
     _selectedColor = widget.accentColor;
+    _currentType = widget.connectionType;
+    _currentStyle = widget.connectionStyle;
+    _currentBidirectional = widget.isBidirectional;
     _focusNode = FocusNode();
 
     _animController = AnimationController(
@@ -351,6 +385,87 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
 
               const SizedBox(height: 6),
 
+              // ── Action buttons: Type + Bidirectional ──
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0x990D0D14),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Type cycling button
+                        _ActionButton(
+                          icon: _typeIcon(_currentType),
+                          label: _typeLabel(_currentType),
+                          color: _currentType == ConnectionType.contradiction
+                              ? Colors.red
+                              : accent,
+                          onTap: () {
+                            final values = ConnectionType.values;
+                            final nextIdx = (values.indexOf(_currentType) + 1) % values.length;
+                            setState(() => _currentType = values[nextIdx]);
+                            widget.onTypeChanged?.call(_currentType);
+                            HapticFeedback.selectionClick();
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        // Bidirectional toggle
+                        _ActionButton(
+                          icon: _currentBidirectional ? Icons.swap_horiz_rounded : Icons.arrow_forward_rounded,
+                          label: _currentBidirectional ? 'Bidirezionale' : 'Unidirezionale',
+                          color: _currentBidirectional ? accent : Colors.white54,
+                          onTap: () {
+                            setState(() => _currentBidirectional = !_currentBidirectional);
+                            widget.onBidirectionalToggled?.call(_currentBidirectional);
+                            HapticFeedback.selectionClick();
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        // 🎨 Style cycling button
+                        _ActionButton(
+                          icon: _styleIcon(_currentStyle),
+                          label: _styleLabel(_currentStyle),
+                          color: accent.withValues(alpha: 0.9),
+                          onTap: () {
+                            final values = ConnectionStyle.values;
+                            final nextIdx = (values.indexOf(_currentStyle) + 1) % values.length;
+                            setState(() => _currentStyle = values[nextIdx]);
+                            widget.onStyleChanged?.call(_currentStyle);
+                            HapticFeedback.selectionClick();
+                          },
+                        ),
+                        // Multi-select toggle
+                        if (widget.onMultiSelect != null) ...[
+                          const SizedBox(width: 8),
+                          _ActionButton(
+                            icon: Icons.checklist_rounded,
+                            label: 'Multi Select',
+                            color: Colors.white70,
+                            onTap: () {
+                              widget.onMultiSelect?.call();
+                              HapticFeedback.selectionClick();
+                              _doSubmit(); // Dismiss overlay
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 6),
+
               // ── Color picker dots ──
               ClipRRect(
                 borderRadius: BorderRadius.circular(14),
@@ -413,3 +528,107 @@ bool _colorEquals(Color a, Color b) =>
     (a.red - b.red).abs() < 2 &&
     (a.green - b.green).abs() < 2 &&
     (a.blue - b.blue).abs() < 2;
+
+/// Icon for each connection type.
+IconData _typeIcon(ConnectionType type) {
+  switch (type) {
+    case ConnectionType.association:
+      return Icons.remove_rounded;
+    case ConnectionType.causality:
+      return Icons.bolt_rounded;
+    case ConnectionType.hierarchy:
+      return Icons.account_tree_rounded;
+    case ConnectionType.contradiction:
+      return Icons.close_rounded;
+  }
+}
+
+/// Icon for each connection style.
+IconData _styleIcon(ConnectionStyle style) {
+  switch (style) {
+    case ConnectionStyle.curved:
+      return Icons.show_chart_rounded;
+    case ConnectionStyle.straight:
+      return Icons.horizontal_rule_rounded;
+    case ConnectionStyle.zigzag:
+      return Icons.ssid_chart_rounded;
+    case ConnectionStyle.dashed:
+      return Icons.more_horiz_rounded;
+  }
+}
+
+/// Label for each connection style.
+String _styleLabel(ConnectionStyle style) {
+  switch (style) {
+    case ConnectionStyle.curved:
+      return 'Curva';
+    case ConnectionStyle.straight:
+      return 'Retta';
+    case ConnectionStyle.zigzag:
+      return 'Zigzag';
+    case ConnectionStyle.dashed:
+      return 'Tratteg.';
+  }
+}
+
+/// Label for each connection type.
+String _typeLabel(ConnectionType type) {
+  switch (type) {
+    case ConnectionType.association:
+      return 'Associazione';
+    case ConnectionType.causality:
+      return 'Causalità';
+    case ConnectionType.hierarchy:
+      return 'Gerarchia';
+    case ConnectionType.contradiction:
+      return 'Contraddizione';
+  }
+}
+
+/// Compact action button used in the connection context menu.
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: color.withValues(alpha: 0.25),
+            width: 0.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: color.withValues(alpha: 0.9),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

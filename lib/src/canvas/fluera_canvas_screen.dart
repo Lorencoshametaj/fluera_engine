@@ -59,15 +59,18 @@ import '../rendering/canvas/image_painter.dart';
 import './toolbar/professional_canvas_toolbar.dart';
 import './overlays/eyedropper_overlay.dart';
 import './overlays/floating_color_disc.dart';
+import './overlays/action_flash_overlay.dart';
 import './overlays/connection_label_overlay.dart';
 import './overlays/cluster_preview_overlay.dart';
 import './overlays/knowledge_map_overlay.dart';
+import './overlays/canvas_radial_menu.dart';
 import './toolbar/pro_color_picker.dart';
 import './infinite_canvas_controller.dart';
 import './infinite_canvas_gesture_detector.dart';
 import '../layers/layer_controller.dart';
 import '../layers/widgets/layer_panel.dart';
 import '../tools/eraser/eraser_tool.dart';
+import '../tools/scratch_out/scratch_out_detector.dart';
 import '../tools/eraser/eraser_hit_tester.dart';
 import '../tools/lasso/lasso_tool.dart';
 import '../tools/lasso/lasso_path_painter.dart';
@@ -155,9 +158,17 @@ import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
 import '../reflow/reflow_controller.dart';
 import '../reflow/animated_reflow_controller.dart';
+import '../reflow/semantic_morph_controller.dart';
 import './smart_guides/smart_guide_engine.dart';
 import './smart_guides/smart_guide_overlay.dart';
 import '../audio/default_voice_recording_provider.dart';
+import '../audio/sherpa_transcription_service.dart';
+import '../audio/sherpa_model_manager.dart';
+import '../audio/transcription_result.dart';
+import '../audio/streaming_transcription_service.dart';
+import '../audio/audio_keyword_extractor.dart';
+import '../reflow/space_split_controller.dart';
+import '../audio/platform_channels/audio_recorder_channel.dart';
 import '../rendering/canvas/image_memory_manager.dart';
 import '../rendering/canvas/image_memory_budget.dart';
 import '../rendering/optimization/image_stub_manager.dart';
@@ -184,6 +195,7 @@ import '../export/pdf_export_writer.dart';
 import '../canvas/overlays/pdf_export_settings_panel.dart';
 import '../canvas/pdf_reader_screen.dart';
 import '../canvas/image_viewer_screen.dart';
+import '../canvas/transitions/wormhole_dive_painter.dart';
 import 'package:file_picker/file_picker.dart';
 import './overlays/variable_manager_panel.dart';
 import './overlays/variable_property_sheet.dart';
@@ -377,6 +389,41 @@ class _StrokeNotifier extends ValueNotifier<List<ProDrawingPoint>> {
   void clear() {
     value = [];
     lastRenderedCount = 0;
+  }
+}
+
+/// 🔄 Cross-session wheel mode preference.
+/// Persists to a tiny file in the app documents directory.
+class _WheelModePref {
+  static bool _enabled = false;
+  static bool _loaded = false;
+
+  static bool get enabled => _enabled;
+  static set enabled(bool v) {
+    _enabled = v;
+    _save();
+  }
+
+  /// Load from disk (fire-and-forget, safe to call multiple times).
+  static Future<void> load() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      final dir = await getSafeDocumentsDirectory();
+      if (dir == null) return;
+      final f = File('${dir.path}/.fluera_wheel_pref');
+      if (await f.exists()) {
+        _enabled = (await f.readAsString()).trim() == '1';
+      }
+    } catch (_) {}
+  }
+
+  static void _save() {
+    getSafeDocumentsDirectory().then((dir) {
+      if (dir == null) return;
+      File('${dir.path}/.fluera_wheel_pref')
+          .writeAsString(_enabled ? '1' : '0');
+    }).catchError((_) {});
   }
 }
 
@@ -730,6 +777,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Auto-scroll during drag
   Timer? _autoScrollTimer;
   final GlobalKey _canvasAreaKey = GlobalKey();
+  final GlobalKey<ActionFlashOverlayState> _actionFlashKey = GlobalKey<ActionFlashOverlayState>();
+  final List<Color> _recentColors = [];
   static const double _edgeScrollThreshold = 60.0; // 🏎️ Edge zone width
   static const double _scrollSpeed = 8.0; // 🏎️ Max scroll speed (px/frame)
   // 🏎️ Active edge scroll state for visual glow indicator
@@ -755,16 +804,42 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Restored in _onDrawCancel if a zoom gesture interrupts the new lasso.
   Set<String>? _lassoSelectionBackup;
 
+  /// 🔲 Whether a gestural lasso (tap + drag) is currently active.
+  bool _isGesturalLassoActive = false;
+
+  /// 🔲 #1: Tool ID before gestural lasso activated (for auto-return).
+  String? _previousToolBeforeGesturalLasso;
+
+  /// 🔲 Whether the current lasso was activated via gestural tap+drag.
+  /// Used as guard because _previousToolBeforeGesturalLasso can be null
+  /// (drawing mode has null activeToolId).
+  bool _wasGesturalLassoActivated = false;
+
+  /// 🔲 #4: Smoothing buffer for gestural lasso path points.
+  final List<Offset> _gesturalLassoSmoothBuffer = [];
+
+  /// 🔲 #10: Velocity tracking for path simplification.
+  Offset _gesturalLassoLastPoint = Offset.zero;
+  int _gesturalLassoLastTime = 0;
+
   // 🌊 REFLOW: Cluster detector, cache, and animated controller
   ClusterDetector? _clusterDetector;
   List<ContentCluster> _clusterCache = [];
   AnimatedReflowController? _animatedReflowController;
+
+  // ✂️ SPACE-SPLIT: Controller for two-finger vertical spread gesture
+  final SpaceSplitController _spaceSplitController = SpaceSplitController();
+  /// ✂️ Snapshot of stroke positions before split — used for undo.
+  Map<String, List<ProDrawingPoint>>? _preSplitStrokeSnapshot;
 
   // 🧠 KNOWLEDGE FLOW: Connection graph + particle animation
   KnowledgeFlowController? _knowledgeFlowController;
   Ticker? _knowledgeParticleTicker;
   bool _particleTickerWasActive = false; // 🔮 Tracks ticker state across app lifecycle
   ClusterThumbnailCache? _thumbnailCache;
+
+  // 🧠 SEMANTIC MORPHING: Zoom-out semantic view controller
+  SemanticMorphController? _semanticMorphController;
 
   // 🧠 KNOWLEDGE FLOW: Connection drag state
   bool _isConnectionDragging = false;
@@ -777,6 +852,21 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   String? _editingLabelConnectionId;
   Offset? _labelOverlayScreenPosition;
 
+  // 🏷️ KNOWLEDGE FLOW: Pending connection tap (deferred to touch-up)
+  String? _pendingLabelConnectionId;
+  Offset? _pendingLabelScreenPos;
+
+  // 👆 KNOWLEDGE FLOW: Double-tap detection for graph highlight
+  int _lastConnectionTapMs = 0;
+  String? _lastConnectionTapId;
+
+  // 🧭 KNOWLEDGE FLOW: Connection navigation index (3-finger swipe)
+  int _connectionNavIndex = -1;
+
+  // 🎨 KNOWLEDGE FLOW: Curve drag state (control point adjustment)
+  bool _isCurveDragging = false;
+  String? _curveDragConnectionId;
+
   // 🔍 KNOWLEDGE FLOW: Cluster preview overlay state
   String? _previewingClusterId;
   Offset? _previewOverlayScreenPosition;
@@ -788,6 +878,62 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   // 🧠 KNOWLEDGE MAP: Fullscreen graph overlay
   bool _showKnowledgeMap = false;
+
+  // 🎯 RADIAL MENU: Context menu on long-press
+  bool _showRadialMenu = false;
+  Offset _radialMenuCenter = Offset.zero;
+  final _radialMenuKey = GlobalKey<CanvasRadialMenuState>();
+
+  /// 🔄 WHEEL MODE: When true, toolbar is hidden and long-press opens radial wheel.
+  /// Persists across widget rebuilds via static holder.
+  bool get _useRadialWheel => _WheelModePref.enabled;
+  set _useRadialWheel(bool v) => _WheelModePref.enabled = v;
+
+  /// 2️⃣ TOAST: confirmation message shown after toggle.
+  String? _wheelModeToast;
+  bool _wheelModeToastVisible = false;
+
+  /// 4️⃣ AUTO-HIDE: pill fades out after inactivity.
+  bool _wheelPillVisible = true;
+  DateTime _wheelPillLastInteraction = DateTime.now();
+
+  void _toggleWheelMode() {
+    setState(() {
+      _useRadialWheel = !_useRadialWheel;
+      if (_showRadialMenu) _showRadialMenu = false;
+
+      _wheelModeToast = _useRadialWheel
+          ? 'Wheel mode — long-press to open'
+          : 'Toolbar mode';
+      _wheelModeToastVisible = true;
+
+      _wheelPillVisible = true;
+      _wheelPillLastInteraction = DateTime.now();
+    });
+    HapticFeedback.mediumImpact();
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _wheelModeToastVisible = false);
+    });
+
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted && DateTime.now().difference(_wheelPillLastInteraction).inSeconds >= 4) {
+        setState(() => _wheelPillVisible = false);
+      }
+    });
+  }
+
+  void _showWheelPill() {
+    setState(() {
+      _wheelPillVisible = true;
+      _wheelPillLastInteraction = DateTime.now();
+    });
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted && DateTime.now().difference(_wheelPillLastInteraction).inSeconds >= 4) {
+        setState(() => _wheelPillVisible = false);
+      }
+    });
+  }
 
   // === PHASE 3 TOOLS ===
   final RulerGuideSystem _rulerGuideSystem = RulerGuideSystem();
@@ -1001,6 +1147,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Cooldown flag to prevent re-triggering zoom-to-enter during animation.
   bool _pdfZoomEnterCooldown = false;
   bool _imageZoomEnterCooldown = false;
+  int _lastImageZoomCheckTime = 0;
 
   /// Timestamp of last zoom-to-enter check (throttle continuous detection).
   int _lastZoomCheckTime = 0;
@@ -1151,6 +1298,18 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _eraserShowDissolve = false;
   bool _eraserMaskPreview = false;
   bool _showEraserTimeline = false;
+
+  // ─── 🧹 SCRATCH-OUT State ─────────────────────────────────────────
+  /// Bounds of the area being scratch-out deleted (for dissolve animation).
+  Rect? _scratchOutBounds;
+  /// Whether the scratch-out dissolve animation is playing.
+  bool _scratchOutAnimating = false;
+  /// Deleted stroke data for particle dissolve effect.
+  List<_ScratchOutParticle> _scratchOutParticles = [];
+  /// Set to true when draw is cancelled (zoom interrupt) — suppresses scratch-out.
+  bool _drawWasCancelled = false;
+  /// Timestamp of last _onDrawCancel — used to skip heavy init during zoom churn.
+  int _lastDrawCancelMs = 0;
 
   // ─── V7 State ──────────────────────────────────────────────────────
   String? _smartSelectionStrokeId;
@@ -1338,6 +1497,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   @override
   void initState() {
     super.initState();
+
+    // 🔄 Load wheel mode preference from disk
+    _WheelModePref.load().then((_) {
+      if (mounted) setState(() {});
+    });
 
     // ── Tool state controller (replaces Riverpod) ──────────────────────────
     _toolController = UnifiedToolController();
@@ -1580,6 +1744,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         _pdfPageDragController.reflowController = _lassoTool.reflowController;
         // 🧠 KNOWLEDGE FLOW: Initialize controller + particle ticker + thumbnails
         _knowledgeFlowController = KnowledgeFlowController();
+        _semanticMorphController = SemanticMorphController();
         _thumbnailCache = ClusterThumbnailCache();
         _knowledgeParticleTicker = createTicker((elapsed) {
           // Tick particles at ~60fps (16ms = 0.016s)

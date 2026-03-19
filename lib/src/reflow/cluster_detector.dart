@@ -23,17 +23,25 @@ import './content_cluster.dart';
 /// For 1000 strokes: ~2ms on modern hardware.
 class ClusterDetector {
   /// Maximum time gap between strokes to consider them part of the
-  /// same cluster (default: 1500ms — covers natural writing speed).
+  /// same cluster (default: 2500ms — covers natural writing speed
+  /// including brief pauses between letters).
   final int temporalThresholdMs;
 
   /// Maximum spatial gap between bounding boxes to consider strokes
   /// part of the same cluster (in canvas pixels at scale 1.0).
-  /// Default: 50px — covers the gap between 'i' dot and body.
+  /// Default: 60px — covers the gap between 'i' dot and body.
   final double spatialThreshold;
 
+  /// Maximum spatial gap for the post-clustering overlap merge pass.
+  /// Clusters whose bounding boxes are within this distance get merged
+  /// regardless of temporal gap. Prevents word splits from slow writing.
+  /// Default: 15px — only merges truly adjacent/overlapping clusters.
+  final double overlapMergeThreshold;
+
   const ClusterDetector({
-    this.temporalThresholdMs = 1500,
-    this.spatialThreshold = 50.0,
+    this.temporalThresholdMs = 2500,
+    this.spatialThreshold = 60.0,
+    this.overlapMergeThreshold = 15.0,
   });
 
   /// Build [ContentCluster]s from all elements on a layer.
@@ -254,7 +262,7 @@ class ClusterDetector {
       groups.putIfAbsent(root, () => []).add(i);
     }
 
-    return groups.values.map((indices) {
+    var clusters = groups.values.map((indices) {
       final clusterStrokes = indices.map((i) => sorted[i]).toList();
       final ids = clusterStrokes.map((s) => s.id).toList();
 
@@ -264,15 +272,59 @@ class ClusterDetector {
         bounds = bounds.expandToInclude(clusterStrokes[i].bounds);
       }
 
-      // Deterministic ID: hash of sorted stroke IDs → stable across rebuilds
-      final sortedIds = List<String>.from(ids)..sort();
-      final deterministicId = 'cluster_stroke_${sortedIds.join("_").hashCode.toRadixString(36)}';
-
       return ContentCluster(
-        id: deterministicId,
+        id: '', // Temporary, will be assigned after merge pass
         strokeIds: ids,
         bounds: bounds,
         centroid: bounds.center,
+      );
+    }).toList();
+
+    // === SPATIAL OVERLAP MERGE PASS ===
+    // Merge clusters whose bounding boxes overlap or are very close,
+    // regardless of temporal gap. Fixes split words from slow writing
+    // (e.g., "Lo" + pause + "renzo" → "Lorenzo").
+    bool merged = true;
+    while (merged) {
+      merged = false;
+      for (int i = 0; i < clusters.length; i++) {
+        for (int j = i + 1; j < clusters.length; j++) {
+          final dist = _boundingBoxDistance(
+            clusters[i].bounds, clusters[j].bounds,
+          );
+          if (dist <= overlapMergeThreshold) {
+            // Merge j into i
+            final mergedIds = [
+              ...clusters[i].strokeIds,
+              ...clusters[j].strokeIds,
+            ];
+            final mergedBounds = clusters[i].bounds.expandToInclude(
+              clusters[j].bounds,
+            );
+            clusters[i] = ContentCluster(
+              id: '',
+              strokeIds: mergedIds,
+              bounds: mergedBounds,
+              centroid: mergedBounds.center,
+            );
+            clusters.removeAt(j);
+            merged = true;
+            break; // Restart inner loop
+          }
+        }
+        if (merged) break; // Restart outer loop
+      }
+    }
+
+    // Assign deterministic IDs after all merges
+    return clusters.map((c) {
+      final sortedIds = List<String>.from(c.strokeIds)..sort();
+      final deterministicId = 'cluster_stroke_${sortedIds.join("_").hashCode.toRadixString(36)}';
+      return ContentCluster(
+        id: deterministicId,
+        strokeIds: c.strokeIds,
+        bounds: c.bounds,
+        centroid: c.centroid,
       );
     }).toList();
   }

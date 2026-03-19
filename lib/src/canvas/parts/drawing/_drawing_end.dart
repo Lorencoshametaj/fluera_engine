@@ -6,14 +6,83 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🎨 KNOWLEDGE FLOW: Finalize curve drag (control point adjustment)
+    if (_isCurveDragging && _knowledgeFlowController != null) {
+      setState(() {
+        _isCurveDragging = false;
+        _curveDragConnectionId = null;
+        _pendingLabelConnectionId = null;
+        _pendingLabelScreenPos = null;
+      });
+      _knowledgeFlowController!.version.value++;
+      _autoSaveCanvas();
+      return;
+    }
+
+    // 🏷️ KNOWLEDGE FLOW: Deferred label editor open (tap, not long-press)
+    // If a connection was hit on touch-down and no curve drag started,
+    // open the label editor now.
+    if (_pendingLabelConnectionId != null && _pendingLabelScreenPos != null) {
+      final pendingId = _pendingLabelConnectionId!;
+      final pendingPos = _pendingLabelScreenPos!;
+      _pendingLabelConnectionId = null;
+      _pendingLabelScreenPos = null;
+
+      // 📋 MULTI-SELECT MODE: If already selecting, toggle this connection
+      if (_knowledgeFlowController != null && _knowledgeFlowController!.isMultiSelecting) {
+        _knowledgeFlowController!.toggleMultiSelect(pendingId);
+        HapticFeedback.selectionClick();
+        return;
+      }
+
+      // 👆 DOUBLE-TAP DETECTION: If same connection tapped within 300ms,
+      // highlight the connected graph instead of opening the label editor.
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (_lastConnectionTapId == pendingId &&
+          (now - _lastConnectionTapMs) < 300 &&
+          _knowledgeFlowController != null) {
+        // 🌐 Double-tap → select, highlight graph, path trace
+        _knowledgeFlowController!.selectConnection(pendingId);
+        _knowledgeFlowController!.startPathTrace(pendingId);
+        HapticFeedback.mediumImpact();
+        _lastConnectionTapId = null;
+        _lastConnectionTapMs = 0;
+        return;
+      }
+
+      // Record this tap for double-tap detection
+      _lastConnectionTapId = pendingId;
+      _lastConnectionTapMs = now;
+
+      setState(() {
+        _editingLabelConnectionId = pendingId;
+        _labelOverlayScreenPosition = pendingPos;
+      });
+      HapticFeedback.selectionClick();
+      return;
+    }
+
+    // 📋 MULTI-SELECT: Tap on empty space → clear multi-selection
+    if (_knowledgeFlowController != null && _knowledgeFlowController!.isMultiSelecting) {
+      _knowledgeFlowController!.clearMultiSelect();
+    }
+
     // 🧠 KNOWLEDGE FLOW: Finalize connection drag
     if (_isConnectionDragging && _knowledgeFlowController != null) {
       if (_connectionSnapTargetClusterId != null &&
           _connectionDragSourceClusterId != null) {
-        // Create the connection!
+        // Create the connection with frozen anchor points!
+        final srcCluster = _clusterCache
+            .where((c) => c.id == _connectionDragSourceClusterId)
+            .firstOrNull;
+        final tgtCluster = _clusterCache
+            .where((c) => c.id == _connectionSnapTargetClusterId)
+            .firstOrNull;
         final conn = _knowledgeFlowController!.addConnection(
           sourceClusterId: _connectionDragSourceClusterId!,
           targetClusterId: _connectionSnapTargetClusterId!,
+          sourceAnchor: srcCluster?.centroid,
+          targetAnchor: tgtCluster?.centroid,
         );
 
         if (conn != null) {
@@ -57,6 +126,7 @@ extension on _FlueraCanvasScreenState {
         _connectionSnapTargetClusterId = null;
       });
       _knowledgeFlowController!.version.value++;
+
       return;
     }
 
@@ -455,6 +525,10 @@ extension on _FlueraCanvasScreenState {
           HapticFeedback.mediumImpact();
         } else {
           HapticFeedback.lightImpact();
+          // #1: Auto-return to previous tool if lasso was activated gesturally
+          if (_wasGesturalLassoActivated) {
+            _autoReturnFromGesturalLasso();
+          }
         }
       }
 
@@ -653,6 +727,127 @@ extension on _FlueraCanvasScreenState {
         DrawingPainter.invalidateAllTiles();
         _showShapeRecognitionToast(result);
         _autoSaveCanvas();
+        return;
+      }
+    }
+
+    // 🧹 SCRATCH-OUT (v2): Detect zigzag scribble → delete strokes underneath
+    // Enhanced: PCA diagonal support, undo, particles, confirmation, sound.
+    // 🔒 GUARD: Skip if draw was cancelled by zoom (finger-up after pinch)
+    if (!_drawWasCancelled &&
+        !_effectiveIsEraser && _effectivePenType != ProPenType.technicalPen) {
+      final scratchResult = ScratchOutDetector.analyze(finalPoints);
+      if (scratchResult.recognized) {
+        // 🔥 Clear native GPU overlay (Vulkan/Metal/WebGPU) FIRST
+        if (_vulkanOverlayActive) {
+          _vulkanTextureOpacity.value = 0.0;
+          if (kIsWeb && _webGpuOverlayActive) {
+            _webGpuStrokeOverlay.clear();
+          } else {
+            _vulkanStrokeOverlay.clear();
+            _vulkanStrokeOverlay.disableDirectOverlay();
+          }
+        }
+
+        // Clear Flutter live stroke
+        _currentStrokeNotifier.clear();
+
+        // Find all strokes in the active layer whose bounds overlap
+        final activeLayer = _layerController.layers.firstWhere(
+          (l) => l.id == _layerController.activeLayerId,
+          orElse: () => _layerController.layers.first,
+        );
+        final strokesToDelete = <ProStroke>[];
+        for (final stroke in activeLayer.strokes) {
+          if (stroke.bounds.overlaps(scratchResult.scratchBounds)) {
+            strokesToDelete.add(stroke);
+          }
+        }
+
+        if (strokesToDelete.isNotEmpty) {
+          final deleteCount = strokesToDelete.length;
+
+          // ↩️ UNDO: Save strokes before deletion for undo support
+          final deletedStrokesCopy = List<ProStroke>.of(strokesToDelete);
+
+          // Batch-delete overlapping strokes
+          _layerController.beginBatch();
+          for (final stroke in strokesToDelete) {
+            _layerController.removeStroke(stroke.id);
+          }
+          _layerController.endBatch();
+
+          // ↩️ Push undo command (deletion already executed)
+          _commandHistory.pushWithoutExecute(ScratchOutCommand(
+            deletedStrokes: deletedStrokesCopy,
+            layerController: _layerController,
+          ));
+
+          // ⚡ CONFIRMATION: Progressive haptics for large deletions
+          if (deleteCount > 5) {
+            HapticFeedback.lightImpact();
+            Future.delayed(const Duration(milliseconds: 50), () {
+              HapticFeedback.mediumImpact();
+              Future.delayed(const Duration(milliseconds: 50), () {
+                HapticFeedback.heavyImpact();
+              });
+            });
+          } else {
+            HapticFeedback.heavyImpact();
+          }
+
+          // 🔊 SOUND: Subtle confirmation click
+          SystemSound.play(SystemSoundType.click);
+
+          // 💥 PARTICLE DISSOLVE: Generate particles (max 80 total)
+          final particles = <_ScratchOutParticle>[];
+          final rng = math.Random();
+          const maxParticles = 80;
+          final perStroke = (maxParticles / deletedStrokesCopy.length)
+              .ceil()
+              .clamp(2, 12);
+          for (final stroke in deletedStrokesCopy) {
+            if (particles.length >= maxParticles) break;
+            final bounds = stroke.bounds;
+            for (int i = 0; i < perStroke; i++) {
+              final x = bounds.left + rng.nextDouble() * bounds.width;
+              final y = bounds.top + rng.nextDouble() * bounds.height;
+              particles.add(_ScratchOutParticle(
+                position: Offset(x, y),
+                velocity: Offset(
+                  (rng.nextDouble() - 0.5) * 200,
+                  -50 - rng.nextDouble() * 150,
+                ),
+                color: stroke.color,
+                size: stroke.baseWidth.clamp(2.0, 6.0),
+              ));
+            }
+          }
+          _scratchOutParticles = particles;
+          _scratchOutBounds = scratchResult.scratchBounds;
+          _scratchOutAnimating = true;
+          _uiRebuildNotifier.value++;
+
+          // Clean up after animation (500ms)
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) {
+              _scratchOutAnimating = false;
+              _scratchOutBounds = null;
+              _scratchOutParticles = [];
+              _uiRebuildNotifier.value++;
+            }
+          });
+
+          // Invalidate tiles + save
+          DrawingPainter.invalidateAllTiles();
+          _reconcilePdfAnnotations();
+          _reconcileSearchIndex();
+          _autoSaveCanvas();
+        } else {
+          // No overlapping strokes — just discard the scratch stroke
+          _currentStrokeNotifier.clear();
+        }
+
         return;
       }
     }

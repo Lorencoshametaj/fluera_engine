@@ -932,6 +932,16 @@ extension on _FlueraCanvasScreenState {
     _backgroundVersionNotifier.value++;
     _layerController.notifyListeners(); // 🚀 LAYER MERGE: rebuild DrawingPainter with loaded paperType
 
+    // 🔗 Restore Knowledge Flow connections from saved data
+    final connectionsJson = data['connections'] as List<dynamic>?;
+    if (connectionsJson != null && connectionsJson.isNotEmpty && _knowledgeFlowController != null) {
+      _knowledgeFlowController!.loadFromJson({'connections': connectionsJson});
+      // Start particle ticker if connections were loaded
+      if (_knowledgeParticleTicker != null && !_knowledgeParticleTicker!.isActive) {
+        _knowledgeParticleTicker!.start();
+      }
+    }
+
     // 🎯 Set active layer AFTER loading layers
     final activeLayerIdFromData = data['activeLayerId'] as String?;
     final settingsData2 = data['settings'] as Map<dynamic, dynamic>?;

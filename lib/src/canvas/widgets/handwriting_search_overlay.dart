@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/models/digital_text_element.dart';
+import '../../reflow/knowledge_flow_controller.dart';
 import '../../services/handwriting_index_service.dart';
 
 // =============================================================================
@@ -31,6 +32,9 @@ class HandwritingSearchOverlay extends StatefulWidget {
   final ValueChanged<List<HandwritingSearchResult>> onResultsChanged;
   final List<DigitalTextElement> textElements;
 
+  /// Knowledge Flow controller for searching connection labels.
+  final KnowledgeFlowController? knowledgeFlowController;
+
   /// Callback for Find & Replace: updates a DigitalTextElement's text.
   final void Function(String elementId, String oldText, String newText)?
       onReplaceText;
@@ -46,6 +50,7 @@ class HandwritingSearchOverlay extends StatefulWidget {
     required this.onDismiss,
     required this.onResultsChanged,
     this.textElements = const [],
+    this.knowledgeFlowController,
     this.onReplaceText,
     this.getViewportRect,
   });
@@ -156,6 +161,9 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
     }
   }
 
+  /// Prefix used to identify connection search results by strokeId.
+  static const _connPrefix = 'conn:';
+
   Future<void> _performSearch() async {
     final query = _controller.text.trim();
     if (query.isEmpty) {
@@ -179,6 +187,34 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
       wholeWord: _wholeWord,
       fuzzy: _fuzzy,
     );
+
+    // 🔗 KNOWLEDGE FLOW: Search connection labels too
+    if (widget.knowledgeFlowController != null) {
+      final connResults = widget.knowledgeFlowController!.searchConnections(query);
+      for (final conn in connResults) {
+        // Build a search result from the connection: use midpoint of
+        // source/target anchors as bounds for navigation.
+        final srcAnchor = conn.sourceAnchor;
+        final tgtAnchor = conn.targetAnchor;
+        final midX = (srcAnchor != null && tgtAnchor != null)
+            ? (srcAnchor.dx + tgtAnchor.dx) / 2
+            : 0.0;
+        final midY = (srcAnchor != null && tgtAnchor != null)
+            ? (srcAnchor.dy + tgtAnchor.dy) / 2
+            : 0.0;
+        results.add(HandwritingSearchResult(
+          strokeId: '$_connPrefix${conn.id}',
+          canvasId: widget.canvasId ?? '',
+          recognizedText: '🔗 ${conn.label ?? conn.id}',
+          bounds: ui.Rect.fromCenter(
+            center: ui.Offset(midX, midY),
+            width: 100,
+            height: 40,
+          ),
+          score: -0.5, // High priority
+        ));
+      }
+    }
 
     if (!mounted) return;
 
@@ -588,12 +624,15 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
   Widget _buildResultsList(bool isDark) {
     final queryText = _controller.text.trim();
 
-    // Split results into handwriting and typed text groups
+    // Split results into handwriting, typed text, and connection groups
     final hwResults = <MapEntry<int, HandwritingSearchResult>>[];
     final txtResults = <MapEntry<int, HandwritingSearchResult>>[];
+    final connResults = <MapEntry<int, HandwritingSearchResult>>[];
     final shown = _results.take(_shownCount).toList();
     for (int i = 0; i < shown.length; i++) {
-      if (shown[i].isTextElement) {
+      if (shown[i].strokeId.startsWith(_connPrefix)) {
+        connResults.add(MapEntry(i, shown[i]));
+      } else if (shown[i].isTextElement) {
         txtResults.add(MapEntry(i, shown[i]));
       } else {
         hwResults.add(MapEntry(i, shown[i]));
@@ -621,15 +660,26 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
             shrinkWrap: true,
             padding: const EdgeInsets.symmetric(vertical: 4),
             children: [
+              // ── Connections section ──
+              if (connResults.isNotEmpty) ...[
+                _buildSectionHeader('🔗 Connections', connResults.length, isDark),
+                ...connResults.map((e) =>
+                    _buildSearchResultItem(e.value, e.key, queryText, isDark)),
+              ],
               // ── Handwriting section ──
               if (hwResults.isNotEmpty) ...[
+                if (connResults.isNotEmpty)
+                  Divider(
+                    height: 1,
+                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06),
+                  ),
                 _buildSectionHeader('✍️ Handwriting', hwResults.length, isDark),
                 ...hwResults.map((e) =>
                     _buildSearchResultItem(e.value, e.key, queryText, isDark)),
               ],
               // ── Typed text section ──
               if (txtResults.isNotEmpty) ...[
-                if (hwResults.isNotEmpty)
+                if (hwResults.isNotEmpty || connResults.isNotEmpty)
                   Divider(
                     height: 1,
                     color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06),

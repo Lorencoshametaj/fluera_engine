@@ -1554,6 +1554,11 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                 .firstOrNull;
             if (cluster == null) return const SizedBox.shrink();
 
+            // 🔦 PATH TRACE: Illuminate connections from this cluster
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _knowledgeFlowController?.startPathTrace(cluster.id);
+            });
+
             // 🖼️ ON-DEMAND THUMBNAIL: Generate if missing
             if (_thumbnailCache != null &&
                 !_thumbnailCache!.hasThumbnail(cluster.id)) {
@@ -1690,6 +1695,15 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
             accentColor: _knowledgeFlowController?.connections
                 .where((c) => c.id == _editingLabelConnectionId)
                 .firstOrNull?.color ?? const Color(0xFF64B5F6),
+            connectionType: _knowledgeFlowController?.connections
+                .where((c) => c.id == _editingLabelConnectionId)
+                .firstOrNull?.connectionType ?? ConnectionType.association,
+            connectionStyle: _knowledgeFlowController?.connections
+                .where((c) => c.id == _editingLabelConnectionId)
+                .firstOrNull?.connectionStyle ?? ConnectionStyle.curved,
+            isBidirectional: _knowledgeFlowController?.connections
+                .where((c) => c.id == _editingLabelConnectionId)
+                .firstOrNull?.isBidirectional ?? false,
             onSubmit: (label) {
               final conn = _knowledgeFlowController?.connections
                   .where((c) => c.id == _editingLabelConnectionId)
@@ -1721,12 +1735,52 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                 _labelOverlayScreenPosition = null;
               });
             },
+            onMultiSelect: () {
+              if (_editingLabelConnectionId != null && _knowledgeFlowController != null) {
+                // Seleziona questa prima connessione per attivare la modalità
+                _knowledgeFlowController!.toggleMultiSelect(_editingLabelConnectionId!);
+              }
+              setState(() {
+                _editingLabelConnectionId = null;
+                _labelOverlayScreenPosition = null;
+              });
+            },
             onColorChanged: (color) {
               final conn = _knowledgeFlowController?.connections
                   .where((c) => c.id == _editingLabelConnectionId)
                   .firstOrNull;
               if (conn != null) {
                 conn.color = color;
+                _knowledgeFlowController!.version.value++;
+                _autoSaveCanvas();
+              }
+            },
+            onTypeChanged: (type) {
+              final conn = _knowledgeFlowController?.connections
+                  .where((c) => c.id == _editingLabelConnectionId)
+                  .firstOrNull;
+              if (conn != null) {
+                conn.connectionType = type;
+                _knowledgeFlowController!.version.value++;
+                _autoSaveCanvas();
+              }
+            },
+            onBidirectionalToggled: (bidir) {
+              final conn = _knowledgeFlowController?.connections
+                  .where((c) => c.id == _editingLabelConnectionId)
+                  .firstOrNull;
+              if (conn != null) {
+                conn.isBidirectional = bidir;
+                _knowledgeFlowController!.version.value++;
+                _autoSaveCanvas();
+              }
+            },
+            onStyleChanged: (style) {
+              final conn = _knowledgeFlowController?.connections
+                  .where((c) => c.id == _editingLabelConnectionId)
+                  .firstOrNull;
+              if (conn != null) {
+                conn.connectionStyle = style;
                 _knowledgeFlowController!.version.value++;
                 _autoSaveCanvas();
               }
@@ -1811,6 +1865,176 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                 viewportSize.height / 2 - cluster.centroid.dy * _canvasController.scale,
               );
               _canvasController.animateOffsetTo(targetOffset);
+            },
+            onConnectionTapped: (sourceId, targetId, curveStrength) {
+              // Find source and target clusters
+              final srcCluster = _clusterCache
+                  .where((c) => c.id == sourceId)
+                  .firstOrNull;
+              final tgtCluster = _clusterCache
+                  .where((c) => c.id == targetId)
+                  .firstOrNull;
+              if (srcCluster == null || tgtCluster == null) return;
+
+              // Dismiss the Knowledge Map overlay
+              setState(() => _showKnowledgeMap = false);
+
+              // 🎬 Trigger cinematic flight or hyper-jump
+              final viewportSize = MediaQuery.of(context).size;
+              CameraActions.flyAlongConnection(
+                _canvasController,
+                srcCluster.bounds,
+                tgtCluster.bounds,
+                viewportSize,
+                curveStrength: curveStrength,
+                sourceClusterId: sourceId,
+                targetClusterId: targetId,
+                onComplete: () {
+                  // 🫧 Landing impact
+                  HapticFeedback.mediumImpact();
+                },
+                onPhaseChanged: (phase) {
+                  switch (phase) {
+                    case 0: // Anticipation
+                      HapticFeedback.lightImpact();
+                      break;
+                    case 1: // Ascent
+                      HapticFeedback.lightImpact();
+                      break;
+                    case 2: // Transit
+                      HapticFeedback.selectionClick();
+                      break;
+                    case 3: // Descent
+                      HapticFeedback.lightImpact();
+                      break;
+                    case 4: // Bounce settle
+                      HapticFeedback.mediumImpact();
+                      break;
+                  }
+                },
+              );
+            },
+          ),
+        ),
+
+      // ── 🎯 Radial Context Menu Overlay ──────────────────────────────────
+      if (_showRadialMenu)
+        Positioned.fill(
+          child: CanvasRadialMenu(
+            key: _radialMenuKey,
+            center: _radialMenuCenter,
+            recentColors: const [],
+            currentBrushIndex: _toolController.penType.index,
+            currentColor: _toolController.color,
+            canUndo: _layerController.canUndo,
+            canRedo: _layerController.canRedo,
+            isPanMode: _effectiveIsPanMode,
+            activeTool: _effectiveIsLasso ? 2
+                : _effectiveIsDigitalText ? 1
+                : _toolController.shapeRecognitionEnabled ? 3
+                : 0,
+            undoCount: 0,
+            hasLastAction: _layerController.canUndo,
+            onResult: (result) {
+              setState(() => _showRadialMenu = false);
+
+              // 7️⃣ Quick-repeat: replay last undo
+              if (result.quickRepeat) {
+                if (_layerController.canUndo) {
+                  _layerController.undo();
+                  HapticFeedback.mediumImpact();
+                }
+                return;
+              }
+
+              if (result.item == null && !result.eyedropper) return;
+
+              if (result.eyedropper) {
+                _launchEyedropperFromCanvas();
+                return;
+              }
+
+              switch (result.item!) {
+                case RadialMenuItem.undo:
+                  if (_layerController.canUndo) {
+                    _layerController.undo();
+                  } else if (_layerController.canRedo) {
+                    _layerController.redo();
+                  }
+                  HapticFeedback.mediumImpact();
+                  break;
+                case RadialMenuItem.knowledgeMap:
+                  if (_knowledgeFlowController != null &&
+                      _clusterCache.length >= 2) {
+                    setState(() => _showKnowledgeMap = true);
+                  }
+                  HapticFeedback.selectionClick();
+                  break;
+                case RadialMenuItem.text:
+                  _toolController.toggleDigitalTextMode();
+                  HapticFeedback.selectionClick();
+                  setState(() {});
+                  break;
+                case RadialMenuItem.shape:
+                  _toolController.toggleShapeRecognition();
+                  HapticFeedback.selectionClick();
+                  setState(() {});
+                  break;
+                case RadialMenuItem.brush:
+                  if (result.brushItem != null) {
+                    final penType = ProPenType.values[result.brushItem!.index.clamp(0, ProPenType.values.length - 1)];
+                    _toolController.setPenType(penType);
+                    _toolController.resetToDrawingMode();
+                    HapticFeedback.selectionClick();
+                    setState(() {});
+                  } else if (result.selectedColor != null) {
+                    // Color swatch selected from Brush sub-ring
+                    _toolController.setColor(result.selectedColor!);
+                    HapticFeedback.selectionClick();
+                    setState(() {});
+                  }
+                  break;
+                case RadialMenuItem.insert:
+                  if (result.insertItem != null) {
+                    switch (result.insertItem!) {
+                      case RadialInsertItem.image:
+                        pickAndAddImage();
+                        break;
+                      case RadialInsertItem.pdf:
+                        pickAndAddPdf();
+                        break;
+                      case RadialInsertItem.latex:
+                        _showLatexEditorSheet();
+                        break;
+                      case RadialInsertItem.audio:
+                        if (_isRecordingAudio) {
+                          _stopAudioRecording();
+                        } else {
+                          _showRecordingChoiceDialog();
+                        }
+                        break;
+                      case RadialInsertItem.recordings:
+                        _showSavedRecordingsDialog();
+                        break;
+                    }
+                  }
+                  break;
+                case RadialMenuItem.tools:
+                  if (result.toolItem != null) {
+                    switch (result.toolItem!) {
+                      case RadialToolItem.lasso:
+                        _toolController.toggleLassoMode();
+                        HapticFeedback.selectionClick();
+                        setState(() {});
+                        break;
+                      case RadialToolItem.ruler:
+                        setState(() => _showRulers = !_showRulers);
+                        HapticFeedback.selectionClick();
+                        break;
+                    }
+                  }
+                  break;
+              }
             },
           ),
         ),

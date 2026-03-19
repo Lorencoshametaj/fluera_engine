@@ -43,7 +43,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 9;
+const int _kSchemaVersion = 11;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -146,6 +146,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         pdf_documents_json TEXT,
         variables_json TEXT,
         scene_nodes_json TEXT,
+        connections_json TEXT,
         snapshot_png   BLOB,
         schema_version INTEGER NOT NULL DEFAULT 1,
         layer_count   INTEGER NOT NULL DEFAULT 0,
@@ -245,6 +246,32 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       // The actual table creation is handled by HandwritingIndexService._createTables()
       // when it initializes with this database. Migration here just bumps version.
     }
+    if (oldVersion < 10) {
+      // 🔗 Knowledge Flow connections persistence.
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN connections_json TEXT',
+        );
+      } catch (_) {
+        // Column may already exist in fresh databases.
+      }
+    }
+    if (oldVersion < 11) {
+      // 📝 Speech-to-text transcription persistence.
+      try {
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN transcription_text TEXT',
+        );
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN transcription_language TEXT',
+        );
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN transcription_segments_json TEXT',
+        );
+      } catch (_) {
+        // Columns may already exist in fresh databases.
+      }
+    }
   }
 
   /// Create the recordings table (shared by _onCreate and _onUpgrade).
@@ -259,6 +286,9 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         total_duration_ms INTEGER NOT NULL,
         start_time        TEXT NOT NULL,
         strokes_json      TEXT,
+        transcription_text TEXT,
+        transcription_language TEXT,
+        transcription_segments_json TEXT,
         created_at        INTEGER NOT NULL,
         FOREIGN KEY (canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
       )
@@ -344,6 +374,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     Map<String, dynamic>? guides,
     Set<String>? dirtyLayerIds,
     String? variablesJson,
+    String? connectionsJson,
   }) async {
     final db = _ensureInitialized();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -466,6 +497,20 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
           await txn.update(
             'canvases',
             {'scene_nodes_json': sceneJson},
+            where: 'canvas_id = ?',
+            whereArgs: [canvasId],
+          );
+        } catch (_) {
+          // Column may not exist if migration hasn't run — safe to ignore.
+        }
+      }
+
+      // 🔗 Save Knowledge Flow connections as JSON sidecar
+      if (connectionsJson != null) {
+        try {
+          await txn.update(
+            'canvases',
+            {'connections_json': connectionsJson},
             where: 'canvas_id = ?',
             whereArgs: [canvasId],
           );
@@ -664,6 +709,24 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
             severity: ErrorSeverity.degraded,
             domain: ErrorDomain.storage,
             source: 'SqliteStorageAdapter.loadCanvas.sceneNodesJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
+    }
+
+    // 🔗 Parse Knowledge Flow connections JSON if present
+    final connectionsStr = meta['connections_json'] as String?;
+    if (connectionsStr != null) {
+      try {
+        result['connections'] = jsonDecode(connectionsStr);
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.connectionsJson',
             original: e,
             stack: stack,
           ),

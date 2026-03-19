@@ -193,6 +193,66 @@ class NativeAudioRecorderChannel {
     }
   }
 
+  /// 🔄 Convert an audio file (M4A/AAC/MP3) to 16kHz mono WAV format.
+  ///
+  /// Used by [SherpaTranscriptionService] to prepare audio for ASR models.
+  /// Native implementation:
+  /// - **iOS**: AVAudioFile → AVAudioPCMBuffer → Linear PCM WAV
+  /// - **Android**: MediaExtractor + MediaCodec → PCM → WAV header
+  ///
+  /// Returns the path to the converted WAV file, or `null` on failure.
+  Future<String?> convertToWav({
+    required String inputPath,
+    int sampleRate = 16000,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<String>('convertToWav', {
+        'inputPath': inputPath,
+        'sampleRate': sampleRate,
+      });
+      return result;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ===========================================================================
+  // 🎤 Live PCM Streaming (for real-time transcription)
+  // ===========================================================================
+
+  static const EventChannel _pcmEventChannel = EventChannel(
+    'flueraengine.audio/recorder_pcm',
+  );
+
+  Stream<dynamic>? _pcmEventStream;
+
+  /// Enable live PCM streaming from the native recorder.
+  /// Must be called AFTER recording has started.
+  /// PCM data is 16kHz mono Int16LE, sent as Uint8List chunks (~100ms each).
+  Future<void> enablePcmStream() async {
+    try {
+      await _channel.invokeMethod('enablePcmStream');
+    } catch (e) {
+      throw Exception('Failed to enable PCM stream: $e');
+    }
+  }
+
+  /// Disable live PCM streaming.
+  Future<void> disablePcmStream() async {
+    try {
+      await _channel.invokeMethod('disablePcmStream');
+    } catch (e) {
+      // Non-fatal
+    }
+  }
+
+  /// Stream of raw PCM audio chunks (16kHz mono Int16LE as Uint8List).
+  /// Listen to this after calling [enablePcmStream].
+  Stream<dynamic> get pcmStream {
+    _pcmEventStream ??= _pcmEventChannel.receiveBroadcastStream();
+    return _pcmEventStream!;
+  }
+
   /// Dispose the recorder channel
   Future<void> dispose() async {
     await _eventSubscription?.cancel();
@@ -207,5 +267,6 @@ class NativeAudioRecorderChannel {
     _eventSubscription?.cancel();
     _eventSubscription = null;
     _eventStream = null;
+    _pcmEventStream = null;
   }
 }

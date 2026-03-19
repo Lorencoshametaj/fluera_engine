@@ -6,6 +6,7 @@ import '../../reflow/content_cluster.dart';
 import '../../reflow/knowledge_connection.dart';
 import '../../reflow/knowledge_flow_controller.dart';
 import '../../reflow/connection_suggestion_engine.dart';
+import '../../reflow/semantic_morph_controller.dart';
 
 /// 🧠 KNOWLEDGE FLOW PAINTER — Premium glassmorphism mind-map visualization.
 ///
@@ -23,9 +24,9 @@ import '../../reflow/connection_suggestion_engine.dart';
 ///   - Arrowhead with matching gradient fill
 ///
 /// LOD LEVELS:
-///   - Level 0 (zoom > 0.5): Ghost lines only (2% opacity)
-///   - Level 1 (zoom 0.15–0.5): Full premium visualization
-///   - Level 2 (zoom < 0.15): Satellite — bold bubbles + thick arrows
+///   - Level 0 (zoom > 0.5): Underlines only — connections hidden
+///   - Level 1 (zoom 0.15–0.5): Full premium + glassmorphic cluster bubbles
+///   - Level 2 (zoom < 0.15): Satellite — luminous dots + importance arrows
 class KnowledgeFlowPainter extends CustomPainter {
   final List<ContentCluster> clusters;
   final KnowledgeFlowController controller;
@@ -52,6 +53,42 @@ class KnowledgeFlowPainter extends CustomPainter {
 
   /// 🔵 Currently selected connection (for highlight effect)
   final String? selectedConnectionId;
+
+  /// 🧠 SEMANTIC MORPHING: morph progress (0.0 = ink, 1.0 = semantic)
+  final double semanticMorphProgress;
+
+  /// 🧠 SEMANTIC MORPHING: controller with titles and stats
+  final SemanticMorphController? semanticController;
+
+  /// ✂️ SPACE-SPLIT: Split line Y position (canvas space). null = no split.
+  final double? spaceSplitLineY;
+
+  /// ✂️ SPACE-SPLIT: Spread progress (0.0 = just started, 1.0 = full spread).
+  final double spaceSplitSpreadProgress;
+
+  /// ✂️ SPACE-SPLIT: Ghost displacements per cluster (for preview rendering).
+  final Map<String, Offset> spaceSplitGhostDisplacements;
+
+  /// ✂️ SPACE-SPLIT: Whether this is a horizontal split (↔) vs vertical (↕).
+  final bool spaceSplitIsHorizontal;
+
+  /// 🎬 CINEMATIC FLIGHT: Flight animation progress (0.0—1.0).
+  final double flightProgress;
+
+  /// 🎬 CINEMATIC FLIGHT: Current phase index (-1 = no flight).
+  final int flightPhase;
+
+  /// 🎯 CINEMATIC FLIGHT: Source cluster ID (for connection-specific glow).
+  final String? flightSourceClusterId;
+
+  /// 🎯 CINEMATIC FLIGHT: Target cluster ID (for connection-specific glow).
+  final String? flightTargetClusterId;
+
+  /// 🎬 LANDING PULSE: Expanding ring progress (0.0—1.0). 0 = inactive.
+  final double landingPulseProgress;
+
+  /// 🎬 LANDING PULSE: Center of the pulse in canvas coordinates.
+  final Offset landingPulseCenter;
 
   // LOD thresholds
   static const double _lodLevel1Min = 0.15;
@@ -94,6 +131,18 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.clusterTexts = const {},
     this.animationTime = 0.0,
     this.selectedConnectionId,
+    this.semanticMorphProgress = 0.0,
+    this.semanticController,
+    this.spaceSplitLineY,
+    this.spaceSplitSpreadProgress = 0.0,
+    this.spaceSplitGhostDisplacements = const {},
+    this.spaceSplitIsHorizontal = false,
+    this.flightProgress = 0.0,
+    this.flightPhase = -1,
+    this.flightSourceClusterId,
+    this.flightTargetClusterId,
+    this.landingPulseProgress = 0.0,
+    this.landingPulseCenter = Offset.zero,
   });
 
   @override
@@ -104,11 +153,16 @@ class KnowledgeFlowPainter extends CustomPainter {
     final lod = _getLodLevel();
     final fade = _computeFade();
 
+    // 🧠 SEMANTIC MORPHING: When morph is active, overlay semantic nodes
+    final morphT = semanticMorphProgress.clamp(0.0, 1.0);
+    final hasMorph = morphT > 0.01 && semanticController != null;
+
     if (lod == 0) {
-      // LOD 0: Still show connections clearly (not just ghost)
-      // so newly created connections are immediately visible
+      // LOD 0: Clean connections visible at zoomed-in level too.
+      // No glow/particles, just underlines + connections + badges.
       _paintWordUnderlines(canvas, fade.clamp(0.3, 1.0));
       _paintConnections(canvas, lod, 1.0);
+      _paintConnectionBadges(canvas, lod, 1.0);
       // 🎯 Drag preview must be visible at ALL zoom levels
       if (dragSourcePoint != null && dragCurrentPoint != null) {
         _paintDragPreview(canvas);
@@ -116,13 +170,40 @@ class KnowledgeFlowPainter extends CustomPainter {
       return;
     }
 
-    // Render order: network glow → underlines → connections → drag preview
+    // Render order: network glow → halos → cluster visuals → underlines → connections → badges → drag
     final lod2Fade = _computeLod2Fade();
     if (lod2Fade > 0.01) {
       _paintNetworkGlow(canvas, fade * lod2Fade);
     }
+
+    // LOD 2: Cluster grouping halos for nearby clusters
+    if (lod == 2) {
+      _paintClusterGroupHalos(canvas, fade);
+    }
+
+    // LOD 2: Luminous cluster dots (satellite view)
+    // 🧠 SEMANTIC MORPHING: Fade out dots as semantic nodes fade in
+    if (lod == 2 && !hasMorph) {
+      _paintClusterDots(canvas, fade);
+    } else if (lod == 2 && hasMorph) {
+      // Crossfade: dots fade out, semantic nodes fade in
+      _paintClusterDots(canvas, fade * (1.0 - morphT));
+    }
+    // LOD 1: Glassmorphic cluster bubbles with recognized text
+    if (lod == 1) {
+      _paintClusterBubbles(canvas, fade);
+    }
+
     _paintWordUnderlines(canvas, fade);
     _paintConnections(canvas, lod, fade);
+
+    // 📍 Connection count badges (LOD 1-2)
+    _paintConnectionBadges(canvas, lod, fade);
+
+    // 🧠 SEMANTIC MORPHING: Paint semantic nodes on top with morph alpha
+    if (hasMorph) {
+      _paintSemanticNodes(canvas, fade * morphT);
+    }
 
     if (dragSourcePoint != null && dragCurrentPoint != null) {
       _paintDragPreview(canvas);
@@ -131,6 +212,20 @@ class KnowledgeFlowPainter extends CustomPainter {
     // 📊 Network stats badge (LOD 2 only)
     if (lod == 2) {
       _paintNetworkStats(canvas);
+    }
+
+    // 🎬 CINEMATIC FLIGHT: Speed-glow + vignette during camera flight
+    if (flightProgress > 0.01 && flightProgress < 0.99) {
+      _paintFlightEffects(canvas, size, fade);
+    }
+
+    // ✂️ SPACE-SPLIT: Draw split line indicator
+    if (spaceSplitLineY != null && spaceSplitSpreadProgress > 0.01) {
+      _paintSplitLine(canvas, size);
+      // Ghost cluster outlines at displaced positions
+      if (spaceSplitGhostDisplacements.isNotEmpty) {
+        _paintGhostClusters(canvas);
+      }
     }
   }
 
@@ -141,7 +236,202 @@ class KnowledgeFlowPainter extends CustomPainter {
   }
 
   // ===========================================================================
-  // PHASE 0: NETWORK GLOW (LOD 2 only — "connected world" effect)
+  // ✂️ SPACE-SPLIT LINE INDICATOR
+  // ===========================================================================
+
+  /// Paints a breathing dashed line with animated directional arrows.
+  /// Supports both horizontal (Y-axis) and vertical (X-axis) split lines.
+  void _paintSplitLine(Canvas canvas, Size size) {
+    final pos = spaceSplitLineY!;
+    final progress = spaceSplitSpreadProgress;
+    final alpha = (progress * 255).clamp(0, 255).toInt();
+    final time = animationTime;
+    final isH = spaceSplitIsHorizontal;
+
+    const extent = 50000.0;
+
+    // ── Breathing pulse: opacity oscillates gently ──
+    final breathe = 0.7 + 0.3 * math.sin(time * 3.0);
+    final breathAlpha = (alpha * breathe).toInt().clamp(0, 255);
+
+    // ── Outer glow (diffuse) ──
+    _p
+      ..color = Color.fromARGB(breathAlpha ~/ 3, 100, 180, 255)
+      ..strokeWidth = 14.0 / canvasScale
+      ..style = PaintingStyle.stroke
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10.0 / canvasScale);
+    if (isH) {
+      canvas.drawLine(Offset(pos, -extent), Offset(pos, extent), _p);
+    } else {
+      canvas.drawLine(Offset(-extent, pos), Offset(extent, pos), _p);
+    }
+
+    // ── Core dashed line ──
+    final dashLen = 24.0 / canvasScale;
+    final gapLen = 12.0 / canvasScale;
+    final lineWidth = 2.5 / canvasScale;
+    _p
+      ..color = Color.fromARGB(breathAlpha, 130, 200, 255)
+      ..strokeWidth = lineWidth
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = null;
+
+    // Draw dashes with animated offset (scrolling effect)
+    final dashOffset = (time * 40.0 / canvasScale) % (dashLen + gapLen);
+    for (double t = -extent - dashOffset; t < extent; t += dashLen + gapLen) {
+      final start = t;
+      final end = math.min(t + dashLen, extent);
+      if (isH) {
+        canvas.drawLine(Offset(pos, start), Offset(pos, end), _p);
+      } else {
+        canvas.drawLine(Offset(start, pos), Offset(end, pos), _p);
+      }
+    }
+
+    // ── Animated directional arrows (drift + pulse) ──
+    final arrowSize = 8.0 / canvasScale;
+    final arrowSpacing = 180.0 / canvasScale;
+    final arrowAlpha = (breathAlpha * 0.7).toInt();
+    // Drift: arrows slowly move in the push direction
+    final drift = math.sin(time * 2.0) * arrowSize * 0.6;
+    // Pulse scale
+    final pulse = 1.0 + 0.15 * math.sin(time * 4.0);
+    final scaledArrow = arrowSize * pulse;
+
+    _p
+      ..color = Color.fromARGB(arrowAlpha, 130, 200, 255)
+      ..style = PaintingStyle.fill
+      ..maskFilter = null;
+
+    for (double a = -extent; a < extent; a += arrowSpacing) {
+      if (isH) {
+        // Arrows pointing RIGHT (+X)
+        final path = Path()
+          ..moveTo(pos + scaledArrow * 0.5 + drift, a - scaledArrow)
+          ..lineTo(pos + scaledArrow * 0.5 + drift, a + scaledArrow)
+          ..lineTo(pos + scaledArrow * 2.5 + drift, a)
+          ..close();
+        canvas.drawPath(path, _p);
+        // Arrows pointing LEFT (-X)
+        final path2 = Path()
+          ..moveTo(pos - scaledArrow * 0.5 - drift, a - scaledArrow)
+          ..lineTo(pos - scaledArrow * 0.5 - drift, a + scaledArrow)
+          ..lineTo(pos - scaledArrow * 2.5 - drift, a)
+          ..close();
+        canvas.drawPath(path2, _p);
+      } else {
+        // Arrows pointing DOWN (+Y)
+        final path = Path()
+          ..moveTo(a - scaledArrow, pos + scaledArrow * 0.5 + drift)
+          ..lineTo(a + scaledArrow, pos + scaledArrow * 0.5 + drift)
+          ..lineTo(a, pos + scaledArrow * 2.5 + drift)
+          ..close();
+        canvas.drawPath(path, _p);
+        // Arrows pointing UP (-Y)
+        final path2 = Path()
+          ..moveTo(a - scaledArrow, pos - scaledArrow * 0.5 - drift)
+          ..lineTo(a + scaledArrow, pos - scaledArrow * 0.5 - drift)
+          ..lineTo(a, pos - scaledArrow * 2.5 - drift)
+          ..close();
+        canvas.drawPath(path2, _p);
+      }
+    }
+  }
+
+  /// ✂️ Paints ghost cluster silhouettes at displaced positions.
+  ///
+  /// Instead of a plain rectangle, draws the individual element bounds
+  /// within each cluster as smaller translucent rects — approximating
+  /// the stroke layout ("silhouette").
+  void _paintGhostClusters(Canvas canvas) {
+    final alpha = (spaceSplitSpreadProgress * 160).clamp(0, 160).toInt();
+    final pulse = 0.85 + 0.15 * math.sin(animationTime * 3.5);
+    final pulseAlpha = (alpha * pulse).toInt().clamp(0, 180);
+
+    for (final cluster in clusters) {
+      final displacement = spaceSplitGhostDisplacements[cluster.id];
+      if (displacement == null || displacement == Offset.zero) continue;
+
+      final ghostBounds = cluster.bounds.shift(displacement);
+      final r = Radius.circular(8.0 / canvasScale);
+
+      // Outer ghost outline (dashed feel via reduced opacity)
+      _p
+        ..color = Color.fromARGB(pulseAlpha, 130, 200, 255)
+        ..strokeWidth = 1.5 / canvasScale
+        ..style = PaintingStyle.stroke
+        ..maskFilter = null;
+      canvas.drawRRect(RRect.fromRectAndRadius(ghostBounds, r), _p);
+
+      // Inner silhouette: subdivide cluster bounds into element-sized rects
+      // Use stroke IDs count to approximate subdivision
+      final elementCount = cluster.strokeIds.length +
+          cluster.shapeIds.length +
+          cluster.imageIds.length;
+      if (elementCount > 1 && elementCount <= 20) {
+        // Approximate: divide bounds into rows of elements
+        final cols = math.min(elementCount, 4);
+        final rows = (elementCount / cols).ceil();
+        final cellW = ghostBounds.width / cols;
+        final cellH = ghostBounds.height / rows;
+        final innerAlpha = (pulseAlpha * 0.3).toInt();
+        _p
+          ..color = Color.fromARGB(innerAlpha, 130, 200, 255)
+          ..strokeWidth = 0.8 / canvasScale
+          ..style = PaintingStyle.stroke;
+        for (int i = 0; i < elementCount && i < cols * rows; i++) {
+          final col = i % cols;
+          final row = i ~/ cols;
+          final cellRect = Rect.fromLTWH(
+            ghostBounds.left + col * cellW + cellW * 0.1,
+            ghostBounds.top + row * cellH + cellH * 0.1,
+            cellW * 0.8,
+            cellH * 0.8,
+          );
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(cellRect, Radius.circular(4.0 / canvasScale)),
+            _p,
+          );
+        }
+      }
+
+      // Ghost fill
+      _p
+        ..color = Color.fromARGB(pulseAlpha ~/ 8, 130, 200, 255)
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(RRect.fromRectAndRadius(ghostBounds, r), _p);
+
+      // Directional arrow inside the ghost showing displacement direction
+      final arrowLen = 12.0 / canvasScale;
+      final cx = ghostBounds.center.dx;
+      final cy = ghostBounds.center.dy;
+      _p
+        ..color = Color.fromARGB(pulseAlpha ~/ 2, 200, 230, 255)
+        ..style = PaintingStyle.fill;
+      if (displacement.dy.abs() > displacement.dx.abs()) {
+        // Vertical arrow
+        final sign = displacement.dy > 0 ? 1.0 : -1.0;
+        final path = Path()
+          ..moveTo(cx - arrowLen * 0.5, cy)
+          ..lineTo(cx + arrowLen * 0.5, cy)
+          ..lineTo(cx, cy + arrowLen * sign)
+          ..close();
+        canvas.drawPath(path, _p);
+      } else {
+        // Horizontal arrow
+        final sign = displacement.dx > 0 ? 1.0 : -1.0;
+        final path = Path()
+          ..moveTo(cx, cy - arrowLen * 0.5)
+          ..lineTo(cx, cy + arrowLen * 0.5)
+          ..lineTo(cx + arrowLen * sign, cy)
+          ..close();
+        canvas.drawPath(path, _p);
+      }
+    }
+  }
+
+  // ===========================================================================
+  // PHASE 0: NETWORK GLOW (LOD 2 only — \"connected world\" effect)
   // ===========================================================================
   //
   // Paints wide, blurred luminous lines between connected nodes.
@@ -434,6 +724,16 @@ class KnowledgeFlowPainter extends CustomPainter {
     }
 
     final connCount = controller.connections.length;
+
+    // 🌐 HUB-NODE SCALING: Count connections per cluster for thickness bonus
+    final clusterConnCount = <String, int>{};
+    for (final conn in controller.connections) {
+      clusterConnCount[conn.sourceClusterId] =
+          (clusterConnCount[conn.sourceClusterId] ?? 0) + 1;
+      clusterConnCount[conn.targetClusterId] =
+          (clusterConnCount[conn.targetClusterId] ?? 0) + 1;
+    }
+
     int connIndex = 0;
     for (final conn in controller.connections) {
       final src = cMap[conn.sourceClusterId];
@@ -442,27 +742,30 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       // 🎯 Smart anchor 4-WAY: pick the closest side (top/bottom/left/right)
       // based on relative position of clusters. Prevents curve crossing text.
-      final dx = (tgt.centroid.dx - src.centroid.dx).abs();
-      final dy = (tgt.centroid.dy - src.centroid.dy).abs();
+      // 📌 Use frozen anchors when available to prevent endpoint shifts
+      final srcCenter = conn.sourceAnchor ?? src.centroid;
+      final tgtCenter = conn.targetAnchor ?? tgt.centroid;
+      final dx = (tgtCenter.dx - srcCenter.dx).abs();
+      final dy = (tgtCenter.dy - srcCenter.dy).abs();
       final Offset srcPt;
       final Offset tgtPt;
       if (dx > dy * 1.5) {
         // Primarily HORIZONTAL separation → use left/right anchors
-        if (tgt.centroid.dx > src.centroid.dx) {
-          srcPt = Offset(src.bounds.right + 4, src.bounds.center.dy);
-          tgtPt = Offset(tgt.bounds.left - 4, tgt.bounds.center.dy);
+        if (tgtCenter.dx > srcCenter.dx) {
+          srcPt = Offset(src.bounds.right + 4, srcCenter.dy);
+          tgtPt = Offset(tgt.bounds.left - 4, tgtCenter.dy);
         } else {
-          srcPt = Offset(src.bounds.left - 4, src.bounds.center.dy);
-          tgtPt = Offset(tgt.bounds.right + 4, tgt.bounds.center.dy);
+          srcPt = Offset(src.bounds.left - 4, srcCenter.dy);
+          tgtPt = Offset(tgt.bounds.right + 4, tgtCenter.dy);
         }
       } else {
         // Primarily VERTICAL separation → use top/bottom anchors
-        if (tgt.centroid.dy < src.centroid.dy) {
-          srcPt = Offset(src.bounds.center.dx, src.bounds.top - 4);
-          tgtPt = Offset(tgt.bounds.center.dx, tgt.bounds.bottom + 4);
+        if (tgtCenter.dy < srcCenter.dy) {
+          srcPt = Offset(srcCenter.dx, src.bounds.top - 4);
+          tgtPt = Offset(tgtCenter.dx, tgt.bounds.bottom + 4);
         } else {
-          srcPt = Offset(src.bounds.center.dx, src.bounds.bottom + 4);
-          tgtPt = Offset(tgt.bounds.center.dx, tgt.bounds.top - 4);
+          srcPt = Offset(srcCenter.dx, src.bounds.bottom + 4);
+          tgtPt = Offset(tgtCenter.dx, tgt.bounds.top - 4);
         }
       }
 
@@ -471,12 +774,18 @@ class KnowledgeFlowPainter extends CustomPainter {
       final idx = pairIndexMap[pairKey] ?? 0;
       pairIndexMap[pairKey] = idx + 1;
       final pairTotal = pairCountMap[pairKey] ?? 1;
-      // Vary curve strength: alternate sign and increase magnitude
+      // 🔀 ENHANCED: Wider spread for 3+ parallel connections (0.4 instead of 0.3)
+      final spreadFactor = pairTotal > 2 ? 0.4 : 0.3;
       final routeOffset = pairTotal > 1
-          ? (idx - (pairTotal - 1) / 2.0) * 0.3
+          ? (idx - (pairTotal - 1) / 2.0) * spreadFactor
           : 0.0;
       final effectiveCurveStrength = conn.curveStrength + routeOffset;
-      final cp = controller.getControlPoint(srcPt, tgtPt, effectiveCurveStrength);
+
+      // 🌊 LIVING CURVE: Subtle sinusoidal oscillation of control point
+      // Each connection gets a unique phase so they don't move in lockstep
+      final livingWave = math.sin(animationTime * 0.6 + connIndex * 1.7) * 0.02;
+      final animatedCurveStrength = effectiveCurveStrength + livingWave;
+      final cp = controller.getControlPoint(srcPt, tgtPt, animatedCurveStrength);
 
       // 🎨 Connection color — assigned from palette at creation, user-changeable
       final connColor = conn.color;
@@ -496,6 +805,9 @@ class KnowledgeFlowPainter extends CustomPainter {
           : 1.0;
       final birthFlash = isBirthAnimating ? (1.0 - linearT) * 0.3 : 0.0;
 
+      // 🔦 PATH TRACE: Sequential illumination flash from cluster tap
+      final traceFlash = controller.getTraceFlash(conn.id, nowMs);
+
       // 💨 DISSOLVE: Fading out dying connections (500ms)
       final isDying = conn.deletedAtMs > 0;
       final dissolveAge = isDying ? (nowMs - conn.deletedAtMs) / 500.0 : 0.0;
@@ -509,12 +821,30 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       // === Smooth gradient curve — vibrant, luminous ===
       final hasLabel = conn.label != null && conn.label!.isNotEmpty;
-      final labelBonus = hasLabel ? 0.5 : 0.0;
+      // 🏋️ LOD 2 IMPORTANCE WEIGHTING: connections with labels are 2x thicker
+      final labelBonus = hasLabel ? (lod == 2 ? 1.5 : 0.5) : 0.0;
       final isSelected = selectedConnectionId == conn.id;
-      final selectBonus = isSelected ? 1.0 : 0.0;
+      final isMultiSelected = controller.selectedConnectionIds.contains(conn.id);
+      final selectBonus = (isSelected || isMultiSelected) ? 1.0 : 0.0;
       final effectiveFade = fade * dissolveFade;
-      final lineW = ((lod == 2 ? 3.0 : 2.5) + labelBonus + selectBonus) * dissolveScale;
-      final lineAlpha = ((lod == 2 ? 0.85 : 0.80) + (hasLabel ? 0.08 : 0.0) + birthFlash + (isSelected ? 0.15 : 0.0)).clamp(0.0, 1.0);
+      // 🌐 HUB SCALING: +0.3 per extra connection (capped at +1.5)
+      final srcConns = clusterConnCount[conn.sourceClusterId] ?? 1;
+      final tgtConns = clusterConnCount[conn.targetClusterId] ?? 1;
+      final hubBonus = ((math.max(srcConns, tgtConns) - 1) * 0.3).clamp(0.0, 1.5);
+
+      // 🔗 TYPE BONUS: causality connections are thicker + brighter
+      final typeBonus = conn.connectionType == ConnectionType.causality ? 1.5 : 0.0;
+      final lineW = ((lod == 2 ? 3.5 : 2.5) + labelBonus + selectBonus + hubBonus + typeBonus) * dissolveScale;
+      final lineAlpha = ((lod == 2 ? 0.90 : 0.80) + (hasLabel ? 0.08 : 0.0) + birthFlash + traceFlash * 0.3 + ((isSelected || isMultiSelected) ? 0.15 : 0.0)).clamp(0.0, 1.0);
+
+      // 🎨 TYPE COLOR: contradiction overrides with red tint
+      final typeColor = conn.connectionType == ConnectionType.contradiction
+          ? Color.lerp(connColor, const Color(0xFFEF5350), 0.6)!
+          : connColor;
+
+      // 🔦 FOCUS MODE: When a connection is selected, dim all unrelated connections
+      final focusDim = ((selectedConnectionId != null || controller.isMultiSelecting) && !isSelected && !isMultiSelected) ? 0.30 : 1.0;
+      final focusedFade = effectiveFade * focusDim;
 
       // Outer glow — visible, atmospheric (boosted for selected)
       // 🌊 BREATHING: selected connection glow pulses gently at 2Hz
@@ -524,12 +854,18 @@ class KnowledgeFlowPainter extends CustomPainter {
       final networkPulse = lod == 2
           ? (math.sin(animationTime * 2.0 + srcPt.dx * 0.001) * 0.5 + 0.5)
           : 0.5;
-      final glowOpacity = (lod == 2 ? (0.25 + networkPulse * 0.10) : 0.20) + birthFlash * 0.3 + (isSelected ? 0.20 : 0.0) + breathingPulse;
+      final glowOpacity = (lod == 2 ? (0.25 + networkPulse * 0.10) : 0.20) + birthFlash * 0.3 + traceFlash * 0.5 + (isSelected ? 0.20 : 0.0) + breathingPulse;
 
-      // Build full bezier path
+      // Build full path (bezier for curved/dashed, straight for straight/zigzag)
+      final isStraightStyle = conn.connectionStyle == ConnectionStyle.straight ||
+          conn.connectionStyle == ConnectionStyle.zigzag;
       _reusePath.reset();
       _reusePath.moveTo(srcPt.dx, srcPt.dy);
-      _reusePath.quadraticBezierTo(cp.dx, cp.dy, tgtPt.dx, tgtPt.dy);
+      if (isStraightStyle) {
+        _reusePath.lineTo(tgtPt.dx, tgtPt.dy);
+      } else {
+        _reusePath.quadraticBezierTo(cp.dx, cp.dy, tgtPt.dx, tgtPt.dy);
+      }
 
       // 🎬 DRAW-IN: During birth, clip path to only show up to birthProgress
       Path drawPath;
@@ -545,13 +881,17 @@ class KnowledgeFlowPainter extends CustomPainter {
       }
 
       // 1) Soft glow — clean, single color
+      // Causality gets stronger glow with energy pulse
+      final causalityPulse = conn.connectionType == ConnectionType.causality
+          ? (math.sin(animationTime * 3.0 + connIndex * 2.0) * 0.5 + 0.5) * 0.2
+          : 0.0;
       _p
         ..style = PaintingStyle.stroke
-        ..strokeWidth = lineW + (lod == 2 ? 8 : 6) + (isSelected ? 4 : 0)
+        ..strokeWidth = lineW + (lod == 2 ? 8 : 6) + (isSelected ? 4 : 0) + (conn.connectionType == ConnectionType.causality ? 4 : 0)
         ..strokeCap = StrokeCap.round
         ..maskFilter = isSelected ? _blurLod2 : (lod == 2 ? _blurLod2 : _blurLod1)
         ..shader = null
-        ..color = connColor.withValues(alpha: glowOpacity * effectiveFade);
+        ..color = typeColor.withValues(alpha: (glowOpacity + causalityPulse) * focusedFade);
       canvas.drawPath(drawPath, _p);
       _p.maskFilter = null;
 
@@ -559,7 +899,19 @@ class KnowledgeFlowPainter extends CustomPainter {
       // Thinnest at endpoints (60%), thickest at center (110%)
       const segments = 16;
       final maxT = isBirthAnimating ? birthProgress : 1.0;
+
+      // 🔗 HIERARCHY: Double parallel lines (offset perpendicular)
+      final isHierarchy = conn.connectionType == ConnectionType.hierarchy;
+      // 🔗 CONTRADICTION: Zigzag offset
+      final isContradiction = conn.connectionType == ConnectionType.contradiction;
+      // 🎨 CONNECTION STYLE
+      final isDashedStyle = conn.connectionStyle == ConnectionStyle.dashed;
+      final isZigzagStyle = conn.connectionStyle == ConnectionStyle.zigzag;
+
       for (int s = 0; s < segments; s++) {
+        // 🎨 DASHED: skip odd segments to create gaps
+        if (isDashedStyle && s.isOdd) continue;
+
         final t0 = (s / segments) * maxT;
         final t1 = ((s + 1) / segments) * maxT;
         final tMid = (t0 + t1) * 0.5;
@@ -567,34 +919,89 @@ class KnowledgeFlowPainter extends CustomPainter {
         final widthFactor = 0.6 + 0.5 * math.sin(tMid * math.pi);
         final segW = lineW * widthFactor;
 
-        final p0 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, t0);
-        final p1 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, t1);
+        Offset p0, p1;
+        if (isStraightStyle) {
+          // Straight: linear interpolation between endpoints
+          p0 = Offset(
+            srcPt.dx + (tgtPt.dx - srcPt.dx) * t0,
+            srcPt.dy + (tgtPt.dy - srcPt.dy) * t0,
+          );
+          p1 = Offset(
+            srcPt.dx + (tgtPt.dx - srcPt.dx) * t1,
+            srcPt.dy + (tgtPt.dy - srcPt.dy) * t1,
+          );
+        } else {
+          p0 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, t0);
+          p1 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, t1);
+        }
 
         // Gradient color at this segment position
         final segColor = Color.lerp(gradStart, gradEnd, tMid)!;
-        // Blend with connColor at center for vibrance
-        final finalColor = Color.lerp(segColor, connColor, (math.sin(tMid * math.pi) * 0.4))!;
+        // Blend with typeColor at center for vibrance
+        final finalColor = Color.lerp(segColor, typeColor, (math.sin(tMid * math.pi) * 0.4))!;
+
+        if (isContradiction) {
+          // Zigzag: offset points perpendicular to the curve
+          final tangent = Offset(p1.dx - p0.dx, p1.dy - p0.dy);
+          final tLen = tangent.distance;
+          if (tLen > 0.01) {
+            final perpOff = Offset(-tangent.dy / tLen, tangent.dx / tLen);
+            final zigzag = math.sin(tMid * math.pi * 6) * lineW * 0.8;
+            p0 = Offset(p0.dx + perpOff.dx * zigzag, p0.dy + perpOff.dy * zigzag);
+            p1 = Offset(p1.dx + perpOff.dx * zigzag, p1.dy + perpOff.dy * zigzag);
+          }
+        } else if (isZigzagStyle && !isContradiction) {
+          // 🎨 ZIGZAG STYLE: stepped perpendicular offsets (8 zigs)
+          final tangent = Offset(p1.dx - p0.dx, p1.dy - p0.dy);
+          final tLen = tangent.distance;
+          if (tLen > 0.01) {
+            final perpOff = Offset(-tangent.dy / tLen, tangent.dx / tLen);
+            final zigzag = math.sin(tMid * math.pi * 8) * lineW * 1.2;
+            p0 = Offset(p0.dx + perpOff.dx * zigzag, p0.dy + perpOff.dy * zigzag);
+            p1 = Offset(p1.dx + perpOff.dx * zigzag, p1.dy + perpOff.dy * zigzag);
+          }
+        }
 
         _p
           ..style = PaintingStyle.stroke
-          ..strokeWidth = segW
-          ..strokeCap = StrokeCap.round
+          ..strokeWidth = isHierarchy ? segW * 0.5 : segW
+          ..strokeCap = isDashedStyle ? StrokeCap.butt : StrokeCap.round
           ..shader = null
-          ..color = finalColor.withValues(alpha: lineAlpha * effectiveFade);
+          ..color = finalColor.withValues(alpha: lineAlpha * focusedFade);
         canvas.drawLine(p0, p1, _p);
+
+        // Hierarchy: draw second parallel line
+        if (isHierarchy) {
+          final tangent = Offset(p1.dx - p0.dx, p1.dy - p0.dy);
+          final tLen = tangent.distance;
+          if (tLen > 0.01) {
+            final perpOff = Offset(-tangent.dy / tLen, tangent.dx / tLen);
+            final offset = lineW * 0.6;
+            canvas.drawLine(
+              Offset(p0.dx + perpOff.dx * offset, p0.dy + perpOff.dy * offset),
+              Offset(p1.dx + perpOff.dx * offset, p1.dy + perpOff.dy * offset),
+              _p,
+            );
+            canvas.drawLine(
+              Offset(p0.dx - perpOff.dx * offset, p0.dy - perpOff.dy * offset),
+              Offset(p1.dx - perpOff.dx * offset, p1.dy - perpOff.dy * offset),
+              _p,
+            );
+          }
+        }
       }
 
       // === Birth flash: propagating glow wavefront ===
       if (isBirthAnimating) {
         final flashPos = controller.pointOnQuadBezier(srcPt, cp, tgtPt, birthProgress);
         final flashSize = 15.0 * (1.0 - birthProgress) + 4.0;
-        _softGlowPaint.color = Colors.white.withValues(alpha: (0.6 * (1.0 - birthProgress)) * effectiveFade);
+        _softGlowPaint.color = Colors.white.withValues(alpha: (0.6 * (1.0 - birthProgress)) * focusedFade);
         canvas.drawCircle(flashPos, flashSize, _softGlowPaint);
       }
 
       // === 🔵 Endpoint dots — small, clean ===
       final dotRadius = lod == 2 ? 3.0 : 2.5;
-      final dotAlpha = (0.55 + birthFlash * 0.3).clamp(0.0, 0.85) * effectiveFade;
+      final dotAlpha = (0.55 + birthFlash * 0.3).clamp(0.0, 0.85) * focusedFade;
       _p
         ..style = PaintingStyle.fill
         ..shader = null
@@ -626,7 +1033,7 @@ class KnowledgeFlowPainter extends CustomPainter {
           );
 
           // Glow behind arrowhead
-          _softGlowPaint.color = connColor.withValues(alpha: 0.25 * effectiveFade);
+          _softGlowPaint.color = typeColor.withValues(alpha: 0.25 * effectiveFade);
           canvas.drawCircle(tgtPt, arrowSize * 0.8, _softGlowPaint);
 
           // Filled arrowhead
@@ -641,8 +1048,47 @@ class KnowledgeFlowPainter extends CustomPainter {
             ..close();
           _p
             ..style = PaintingStyle.fill
-            ..color = connColor.withValues(alpha: lineAlpha * effectiveFade);
+            ..color = typeColor.withValues(alpha: lineAlpha * effectiveFade);
           canvas.drawPath(arrowPath, _p);
+        }
+
+        // ↔️ BIDIRECTIONAL: Mirror arrowhead at source point
+        if (conn.isBidirectional) {
+          final nearStart = controller.pointOnQuadBezier(srcPt, cp, tgtPt, 0.08);
+          final dirB = Offset(srcPt.dx - nearStart.dx, srcPt.dy - nearStart.dy);
+          final lenB = dirB.distance;
+          if (lenB > 0.01) {
+            final normB = Offset(dirB.dx / lenB, dirB.dy / lenB);
+            final perpB = Offset(-normB.dy, normB.dx);
+            final arrowSize = (lod == 2 ? 8.0 : 6.0) * dissolveScale;
+            final arrowWidth = arrowSize * 0.55;
+            final tipB = Offset(srcPt.dx + normB.dx * 2, srcPt.dy + normB.dy * 2);
+            final wing1B = Offset(
+              srcPt.dx - normB.dx * arrowSize + perpB.dx * arrowWidth,
+              srcPt.dy - normB.dy * arrowSize + perpB.dy * arrowWidth,
+            );
+            final wing2B = Offset(
+              srcPt.dx - normB.dx * arrowSize - perpB.dx * arrowWidth,
+              srcPt.dy - normB.dy * arrowSize - perpB.dy * arrowWidth,
+            );
+
+            _softGlowPaint.color = typeColor.withValues(alpha: 0.25 * effectiveFade);
+            canvas.drawCircle(srcPt, arrowSize * 0.8, _softGlowPaint);
+
+            final arrowPathB = Path()
+              ..moveTo(tipB.dx, tipB.dy)
+              ..lineTo(wing1B.dx, wing1B.dy)
+              ..quadraticBezierTo(
+                srcPt.dx - normB.dx * arrowSize * 0.3,
+                srcPt.dy - normB.dy * arrowSize * 0.3,
+                wing2B.dx, wing2B.dy,
+              )
+              ..close();
+            _p
+              ..style = PaintingStyle.fill
+              ..color = typeColor.withValues(alpha: lineAlpha * effectiveFade);
+            canvas.drawPath(arrowPathB, _p);
+          }
         }
       }
 
@@ -654,7 +1100,7 @@ class KnowledgeFlowPainter extends CustomPainter {
         canvas.drawCircle(tgtPt, pulseR, _softGlowPaint);
       }
 
-      // === 🌟 Bidirectional shimmer — flowing energy both ways ===
+      // === 🌟 Shimmers — flowing energy (enhanced for bidirectional) ===
       if (!isBirthAnimating) {
         final shimmerSize = lod == 2 ? 5.0 : 3.5;
         // Forward shimmer
@@ -662,21 +1108,70 @@ class KnowledgeFlowPainter extends CustomPainter {
         final shimmerPos1 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, shimmerT1);
         _softGlowPaint.color = Colors.white.withValues(alpha: 0.45 * effectiveFade);
         canvas.drawCircle(shimmerPos1, shimmerSize * 0.4, _softGlowPaint);
-        _softGlowPaint.color = connColor.withValues(alpha: 0.25 * effectiveFade);
+        _softGlowPaint.color = typeColor.withValues(alpha: 0.25 * effectiveFade);
         canvas.drawCircle(shimmerPos1, shimmerSize, _softGlowPaint);
-        // Reverse shimmer (offset by 0.5, slightly slower)
+        // Reverse shimmer (stronger for bidirectional connections)
+        final reverseAlpha = conn.isBidirectional ? 0.50 : 0.30;
+        final reverseSize = conn.isBidirectional ? 1.0 : 0.9;
         final shimmerT2 = ((1.0 - (animationTime * 0.20 + connIndex * 0.5)) % 1.0).abs();
         final shimmerPos2 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, shimmerT2);
-        _softGlowPaint.color = Colors.white.withValues(alpha: 0.30 * effectiveFade);
+        _softGlowPaint.color = Colors.white.withValues(alpha: reverseAlpha * effectiveFade);
         canvas.drawCircle(shimmerPos2, shimmerSize * 0.35, _softGlowPaint);
-        _softGlowPaint.color = connColor.withValues(alpha: 0.18 * effectiveFade);
-        canvas.drawCircle(shimmerPos2, shimmerSize * 0.9, _softGlowPaint);
+        _softGlowPaint.color = typeColor.withValues(alpha: 0.22 * effectiveFade);
+        canvas.drawCircle(shimmerPos2, shimmerSize * reverseSize, _softGlowPaint);
+        // Bidirectional: third counter-flow particle for richer effect
+        if (conn.isBidirectional) {
+          final shimmerT3 = ((1.0 - (animationTime * 0.30 + connIndex * 0.7)) % 1.0).abs();
+          final shimmerPos3 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, shimmerT3);
+          _softGlowPaint.color = Colors.white.withValues(alpha: 0.35 * effectiveFade);
+          canvas.drawCircle(shimmerPos3, shimmerSize * 0.3, _softGlowPaint);
+        }
       }
 
-      // === 🏷️ Label pill at midpoint ===
+      // === ✕ CONTRADICTION MARKER — Red X at midpoint ===
+      if (conn.connectionType == ConnectionType.contradiction && !isBirthAnimating) {
+        final midPt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, 0.5);
+        final xSize = lineW * 1.5;
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = lineW * 0.6
+          ..strokeCap = StrokeCap.round
+          ..color = const Color(0xFFEF5350).withValues(alpha: 0.85 * effectiveFade);
+        canvas.drawLine(
+          Offset(midPt.dx - xSize, midPt.dy - xSize),
+          Offset(midPt.dx + xSize, midPt.dy + xSize),
+          _p,
+        );
+        canvas.drawLine(
+          Offset(midPt.dx + xSize, midPt.dy - xSize),
+          Offset(midPt.dx - xSize, midPt.dy + xSize),
+          _p,
+        );
+        // Red glow behind X
+        _softGlowPaint.color = const Color(0xFFEF5350).withValues(alpha: 0.25 * effectiveFade);
+        canvas.drawCircle(midPt, xSize * 1.5, _softGlowPaint);
+      }
+
+      // === 🔦 PATH TRACE WAVEFRONT ===
+      if (traceFlash > 0.0) {
+        // Propagating bright flash along the connection
+        final traceT = (1.0 - traceFlash).clamp(0.0, 1.0);
+        final tracePt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, traceT);
+        final traceSize = 12.0 * traceFlash + 4.0;
+        _softGlowPaint.color = Colors.white.withValues(alpha: 0.7 * traceFlash * effectiveFade);
+        canvas.drawCircle(tracePt, traceSize * 0.5, _softGlowPaint);
+        _softGlowPaint.color = typeColor.withValues(alpha: 0.4 * traceFlash * effectiveFade);
+        canvas.drawCircle(tracePt, traceSize, _softGlowPaint);
+      }
+
+      // === 🏷️ Label pill at midpoint (auto-scaled at LOD 2) ===
       if (conn.label != null && conn.label!.isNotEmpty) {
         final midPt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, 0.5);
-        _paintLabelPill(canvas, midPt, conn.label!, connColor, fade);
+        if (lod == 2) {
+          _paintAutoScaledLabelPill(canvas, midPt, conn.label!, typeColor, fade);
+        } else {
+          _paintLabelPill(canvas, midPt, conn.label!, typeColor, fade);
+        }
       }
 
       // === Flowing particles with trail (LOD 2 only — satellite view) ===
@@ -1061,6 +1556,467 @@ class KnowledgeFlowPainter extends CustomPainter {
   }
 
   // ===========================================================================
+  // CLUSTER BUBBLES — Glassmorphic bubbles with text (LOD 1)
+  // ===========================================================================
+
+  void _paintClusterBubbles(Canvas canvas, double fade) {
+    if (clusters.isEmpty) return;
+
+    // ✨ LOD CROSSFADE: Smooth bubble appearance at LOD 0→1 boundary
+    final bubbleFade = fade * _computeLod1Fade();
+
+    // Only show bubbles for clusters that have connections
+    final connectedIds = <String>{};
+    for (final conn in controller.connections) {
+      connectedIds.add(conn.sourceClusterId);
+      connectedIds.add(conn.targetClusterId);
+    }
+    // Also include active drag clusters
+    if (dragSourceClusterId != null) connectedIds.add(dragSourceClusterId!);
+    if (snapTargetClusterId != null) connectedIds.add(snapTargetClusterId!);
+
+    for (final cluster in clusters) {
+      if (!connectedIds.contains(cluster.id)) continue;
+      if (cluster.bounds.isEmpty || cluster.bounds.width < 2) continue;
+
+      final color = _clusterColor(cluster);
+      final bounds = cluster.bounds.inflate(_bubblePadding * 0.5);
+      final rrect = RRect.fromRectAndRadius(
+        bounds, const Radius.circular(_bubbleCornerRadius),
+      );
+
+      // 1. Drop shadow
+      _shadowPaint.color = Colors.black.withValues(alpha: 0.15 * bubbleFade);
+      canvas.drawRRect(rrect.shift(const Offset(1, 2)), _shadowPaint);
+
+      // 2. Glassmorphism fill — gradient from top-left light to bottom-right dark
+      final fillGradient = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          color.withValues(alpha: 0.08 * bubbleFade),
+          color.withValues(alpha: 0.03 * bubbleFade),
+        ],
+      );
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = fillGradient.createShader(bounds)
+        ..maskFilter = null;
+      canvas.drawRRect(rrect, _p);
+      _p.shader = null;
+
+      // 3. Inner highlight — 1px white at top for glass refraction
+      final highlightRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(bounds.left + 4, bounds.top, bounds.width - 8, 1.0),
+        const Radius.circular(0.5),
+      );
+      _p
+        ..style = PaintingStyle.fill
+        ..color = Colors.white.withValues(alpha: 0.12 * bubbleFade);
+      canvas.drawRRect(highlightRect, _p);
+
+      // 4. Luminous border
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..color = color.withValues(alpha: 0.25 * bubbleFade);
+      canvas.drawRRect(rrect, _p);
+
+      // 5. 🖼️ Mini-thumbnail preview inside bubble (if available)
+      final thumb = thumbnails[cluster.id];
+      if (thumb != null) {
+        canvas.save();
+        canvas.clipRRect(rrect);
+        final inner = bounds.deflate(_bubblePadding * 0.3);
+        final thumbAspect = thumb.width / thumb.height;
+        final innerAspect = inner.width / inner.height;
+        Rect dst;
+        if (thumbAspect > innerAspect) {
+          final h = inner.width / thumbAspect;
+          dst = Rect.fromCenter(center: inner.center, width: inner.width, height: h);
+        } else {
+          final w = inner.height * thumbAspect;
+          dst = Rect.fromCenter(center: inner.center, width: w, height: inner.height);
+        }
+        _p
+          ..style = PaintingStyle.fill
+          ..shader = null
+          ..color = Color.fromRGBO(255, 255, 255, 0.45 * bubbleFade)
+          ..filterQuality = FilterQuality.low;
+        canvas.drawImageRect(
+          thumb,
+          Rect.fromLTWH(0, 0, thumb.width.toDouble(), thumb.height.toDouble()),
+          dst,
+          _p,
+        );
+        canvas.restore();
+      }
+
+      // 6. Recognized text label below bubble
+      final text = clusterTexts[cluster.id];
+      if (text != null && text.isNotEmpty) {
+        final displayText = text.length > 20 ? '${text.substring(0, 18)}…' : text;
+        final tp = TextPainter(
+          text: TextSpan(
+            text: displayText,
+            style: TextStyle(
+              color: Color.lerp(color, Colors.white, 0.6)!.withValues(alpha: 0.55 * bubbleFade),
+              fontSize: 8.0,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(
+          canvas,
+          Offset(bounds.center.dx - tp.width / 2, bounds.bottom + 3),
+        );
+      }
+
+      // 7. 🌟 CLUSTER GLOW ON CONNECTION SELECTION — pulse when a connected edge is selected
+      if (selectedConnectionId != null) {
+        final selConn = controller.connections
+            .where((c) => c.id == selectedConnectionId).firstOrNull;
+        if (selConn != null &&
+            (selConn.sourceClusterId == cluster.id || selConn.targetClusterId == cluster.id)) {
+          final selColor = selConn.color;
+          final pulse = (math.sin(animationTime * 3.0) * 0.15 + 0.35) * bubbleFade;
+          _softGlowPaint.color = selColor.withValues(alpha: pulse);
+          canvas.drawRRect(rrect.inflate(4), _softGlowPaint);
+          _softGlowPaint.color = selColor.withValues(alpha: pulse * 0.5);
+          canvas.drawRRect(rrect.inflate(8), _softGlowPaint);
+        }
+      }
+
+      // 8. 🔗 GRAPH HIGHLIGHT — dim glow for 2-hop connected clusters
+      if (selectedConnectionId != null) {
+        final selConn = controller.connections
+            .where((c) => c.id == selectedConnectionId).firstOrNull;
+        if (selConn != null) {
+          final graphIds = controller.getConnectedGraph(
+            selConn.sourceClusterId, maxHops: 2);
+          graphIds.addAll(controller.getConnectedGraph(
+            selConn.targetClusterId, maxHops: 2));
+          if (graphIds.contains(cluster.id) &&
+              selConn.sourceClusterId != cluster.id &&
+              selConn.targetClusterId != cluster.id) {
+            _softGlowPaint.color = color.withValues(alpha: 0.15 * bubbleFade);
+            canvas.drawRRect(rrect.inflate(3), _softGlowPaint);
+          }
+        }
+      }
+
+      // 9. 📊 CONNECTION STATS BADGE — "↗N ↙M" at top-right of bubble
+      final stats = controller.connectionStatsForCluster(cluster.id);
+      if (stats.outgoing + stats.incoming > 0) {
+        final statText = '↗${stats.outgoing} ↙${stats.incoming}';
+        final statTp = TextPainter(
+          text: TextSpan(
+            text: statText,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5 * bubbleFade),
+              fontSize: 6.0,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        // Draw tiny pill background
+        final badgeRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            bounds.right - statTp.width - 6,
+            bounds.top - 4,
+            statTp.width + 4,
+            statTp.height + 2,
+          ),
+          const Radius.circular(4),
+        );
+        _p
+          ..style = PaintingStyle.fill
+          ..color = const Color(0xCC0D0D14);
+        canvas.drawRRect(badgeRect, _p);
+        statTp.paint(
+          canvas,
+          Offset(bounds.right - statTp.width - 4, bounds.top - 3),
+        );
+      }
+    }
+  }
+
+  // ===========================================================================
+  // CLUSTER DOTS — Luminous pulsing dots (LOD 2 satellite view)
+  // ===========================================================================
+
+  void _paintClusterDots(Canvas canvas, double fade) {
+    if (clusters.isEmpty) return;
+
+    // Collect connected clusters and count connections per cluster
+    final connectedIds = <String>{};
+    final connCounts = <String, int>{};
+    for (final conn in controller.connections) {
+      connectedIds.add(conn.sourceClusterId);
+      connectedIds.add(conn.targetClusterId);
+      connCounts[conn.sourceClusterId] = (connCounts[conn.sourceClusterId] ?? 0) + 1;
+      connCounts[conn.targetClusterId] = (connCounts[conn.targetClusterId] ?? 0) + 1;
+    }
+
+    for (final cluster in clusters) {
+      final color = _clusterColor(cluster);
+      final center = cluster.centroid;
+      final isConnected = connectedIds.contains(cluster.id);
+
+      // Base radius proportional to cluster size
+      final baseRadius = _clusterRadius(cluster).clamp(8.0, 25.0);
+
+      // Network pulse: synchronized wave across all clusters every ~5s
+      final wavePulse = math.sin(
+        animationTime * 1.2 + center.dx * 0.002 + center.dy * 0.002,
+      ) * 0.5 + 0.5;
+
+      // Connected clusters pulse brighter
+      final alpha = isConnected
+          ? (0.30 + wavePulse * 0.15) * fade
+          : (0.10 + wavePulse * 0.05) * fade;
+
+      // Outer glow — atmospheric halo
+      _softGlowPaint.color = color.withValues(alpha: alpha * 0.5);
+      canvas.drawCircle(center, baseRadius * 1.8, _softGlowPaint);
+
+      // Inner glow — concentrated light
+      _glowPaint.color = color.withValues(alpha: alpha * 0.8);
+      canvas.drawCircle(center, baseRadius * 0.8, _glowPaint);
+
+      // Core dot — bright center
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = null
+        ..maskFilter = null
+        ..color = color.withValues(alpha: (alpha * 1.5).clamp(0.0, 0.85));
+      canvas.drawCircle(center, baseRadius * 0.35, _p);
+
+      // White sparkle at center of connected dots
+      if (isConnected) {
+        _p.color = Colors.white.withValues(alpha: alpha * 0.6);
+        canvas.drawCircle(center, baseRadius * 0.12, _p);
+      }
+
+      // ✨ HUB STAR BURST: Clusters with 3+ connections get rotating radial rays
+      final clusterConnCount = connCounts[cluster.id] ?? 0;
+      if (clusterConnCount >= 3) {
+        final rayCount = math.min(clusterConnCount * 2, 12);
+        final rayLength = baseRadius * (1.2 + clusterConnCount * 0.15).clamp(1.2, 2.5);
+        // Slow rotation animated
+        final rotationOffset = animationTime * 0.3 + cluster.id.hashCode * 0.1;
+        final rayAlpha = alpha * 0.4;
+
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5)
+          ..color = color.withValues(alpha: rayAlpha);
+
+        for (int r = 0; r < rayCount; r++) {
+          final angle = (r / rayCount) * math.pi * 2 + rotationOffset;
+          final innerR = baseRadius * 0.5;
+          final outerR = rayLength;
+          final p1 = Offset(
+            center.dx + math.cos(angle) * innerR,
+            center.dy + math.sin(angle) * innerR,
+          );
+          final p2 = Offset(
+            center.dx + math.cos(angle) * outerR,
+            center.dy + math.sin(angle) * outerR,
+          );
+          canvas.drawLine(p1, p2, _p);
+        }
+        _p.maskFilter = null;
+      }
+
+      // 🔤 Auto-scaled text label under dot (recognized text)
+      final text = clusterTexts[cluster.id];
+      if (text != null && text.isNotEmpty) {
+        final inverseScale = (1.0 / canvasScale).clamp(2.0, 8.0);
+        canvas.save();
+        canvas.translate(center.dx, center.dy);
+        canvas.scale(inverseScale * 0.3);
+        canvas.translate(-center.dx, -center.dy);
+
+        final displayText = text.length > 15 ? '${text.substring(0, 13)}…' : text;
+        final tp = TextPainter(
+          text: TextSpan(
+            text: displayText,
+            style: TextStyle(
+              color: Color.lerp(color, Colors.white, 0.5)!.withValues(
+                alpha: (isConnected ? 0.70 : 0.40) * fade,
+              ),
+              fontSize: 10.0,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(
+          canvas,
+          Offset(center.dx - tp.width / 2, center.dy + baseRadius * 0.5 + 4),
+        );
+        canvas.restore();
+      }
+    }
+  }
+
+  // ===========================================================================
+  // CLUSTER GROUP HALOS — Shared glow for nearby clusters (LOD 2)
+  // ===========================================================================
+
+  void _paintClusterGroupHalos(Canvas canvas, double fade) {
+    if (clusters.length < 2) return;
+
+    // Find groups of nearby clusters (within 300px) using simple proximity
+    // Cap at 6 halos for performance
+    final used = <int>{};
+    var drawnHalos = 0;
+
+    for (int i = 0; i < clusters.length && drawnHalos < 6; i++) {
+      if (used.contains(i)) continue;
+      final group = <ContentCluster>[clusters[i]];
+      used.add(i);
+
+      for (int j = i + 1; j < clusters.length; j++) {
+        if (used.contains(j)) continue;
+        // Check distance to any cluster already in group
+        for (final member in group) {
+          final dist = (clusters[j].centroid - member.centroid).distance;
+          if (dist < 300) {
+            group.add(clusters[j]);
+            used.add(j);
+            break;
+          }
+        }
+      }
+
+      if (group.length < 2) continue; // No halo for single clusters
+
+      // Compute bounding rect of the group
+      var minX = double.infinity, minY = double.infinity;
+      var maxX = -double.infinity, maxY = -double.infinity;
+      Color blendColor = _clusterColor(group.first);
+      for (final c in group) {
+        final b = c.bounds;
+        if (b.left < minX) minX = b.left;
+        if (b.top < minY) minY = b.top;
+        if (b.right > maxX) maxX = b.right;
+        if (b.bottom > maxY) maxY = b.bottom;
+        blendColor = Color.lerp(blendColor, _clusterColor(c), 0.3)!;
+      }
+
+      final groupRect = Rect.fromLTRB(minX, minY, maxX, maxY).inflate(40);
+      final groupRRect = RRect.fromRectAndRadius(
+        groupRect, Radius.circular(groupRect.shortestSide * 0.3),
+      );
+
+      // Breathing pulse for the halo
+      final pulse = math.sin(animationTime * 0.8 + i * 0.5) * 0.5 + 0.5;
+      final haloAlpha = (0.03 + pulse * 0.02) * fade;
+
+      // Soft fill halo
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = null
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20.0)
+        ..color = blendColor.withValues(alpha: haloAlpha);
+      canvas.drawRRect(groupRRect, _p);
+      _p.maskFilter = null;
+
+      // Subtle border
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5
+        ..color = blendColor.withValues(alpha: haloAlpha * 0.8);
+      canvas.drawRRect(groupRRect, _p);
+
+      drawnHalos++;
+    }
+  }
+
+  // ===========================================================================
+  // CONNECTION COUNT BADGES — Small count indicators on clusters
+  // ===========================================================================
+
+  void _paintConnectionBadges(Canvas canvas, int lod, double fade) {
+    if (controller.connections.isEmpty) return;
+
+    // Count connections per cluster
+    final counts = <String, int>{};
+    for (final conn in controller.connections) {
+      counts[conn.sourceClusterId] = (counts[conn.sourceClusterId] ?? 0) + 1;
+      counts[conn.targetClusterId] = (counts[conn.targetClusterId] ?? 0) + 1;
+    }
+
+    for (final cluster in clusters) {
+      final count = counts[cluster.id];
+      if (count == null || count < 2) continue; // Only show badge for 2+ connections
+
+      final color = _clusterColor(cluster);
+      // Position badge at top-right of cluster bounds
+      final badgeCenter = Offset(
+        cluster.bounds.right + 4,
+        cluster.bounds.top - 4,
+      );
+
+      // At LOD 2, scale badge inversely
+      if (lod == 2) {
+        final inverseScale = (1.0 / canvasScale).clamp(2.0, 8.0);
+        canvas.save();
+        canvas.translate(badgeCenter.dx, badgeCenter.dy);
+        canvas.scale(inverseScale * 0.35);
+        canvas.translate(-badgeCenter.dx, -badgeCenter.dy);
+      }
+
+      final badgeRadius = 7.0;
+
+      // Badge background — frosted circle
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = null
+        ..maskFilter = null
+        ..color = Color.lerp(color, const Color(0xFF0D1117), 0.4)!.withValues(alpha: 0.85 * fade);
+      canvas.drawCircle(badgeCenter, badgeRadius, _p);
+
+      // Badge border
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..color = color.withValues(alpha: 0.50 * fade);
+      canvas.drawCircle(badgeCenter, badgeRadius, _p);
+
+      // Count text
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '$count',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.90 * fade),
+            fontSize: 8.0,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset(badgeCenter.dx - tp.width / 2, badgeCenter.dy - tp.height / 2),
+      );
+
+      if (lod == 2) {
+        canvas.restore();
+      }
+    }
+  }
+
+  // ===========================================================================
   // LABEL PILL — Glassmorphic pill at connection midpoint
   // ===========================================================================
 
@@ -1123,6 +2079,71 @@ class KnowledgeFlowPainter extends CustomPainter {
     final textX = center.dx - totalTextW / 2;
     tp.paint(canvas, Offset(textX, center.dy - tp.height / 2));
     editHint.paint(canvas, Offset(textX + tp.width, center.dy - editHint.height / 2));
+  }
+
+  // ===========================================================================
+  // AUTO-SCALED LABEL PILL — LOD 2: inverse-scaled to stay readable
+  // ===========================================================================
+
+  void _paintAutoScaledLabelPill(Canvas canvas, Offset center, String label, Color color, double fade) {
+    // At LOD 2, everything is tiny. Scale the pill inversely to canvasScale
+    // so it remains readable. Clamp to prevent massive pills at extreme dezoom.
+    final inverseScale = (1.0 / canvasScale).clamp(2.0, 8.0);
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.scale(inverseScale * 0.4); // 0.4 factor to keep pills compact
+    canvas.translate(-center.dx, -center.dy);
+
+    // Reuse the standard label pill renderer
+    final displayLabel = (label.length > 20 ? '${label.substring(0, 18)}…' : label).toUpperCase();
+    final tp = TextPainter(
+      text: TextSpan(
+        text: displayLabel,
+        style: TextStyle(
+          color: Color.lerp(color, Colors.white, 0.7)!.withValues(alpha: 0.90 * fade),
+          fontSize: 11.0,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final pillW = tp.width + 20;
+    final pillH = tp.height + 12;
+    final pillRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: pillW, height: pillH),
+      Radius.circular(pillH / 2),
+    );
+
+    // Shadow
+    _shadowPaint.color = Colors.black.withValues(alpha: 0.40 * fade);
+    canvas.drawRRect(pillRect.shift(const Offset(0.5, 1.5)), _shadowPaint);
+
+    // Frosted fill
+    final fillColor = Color.lerp(color, const Color(0xFF0D1117), 0.50)!;
+    _p
+      ..style = PaintingStyle.fill
+      ..shader = null
+      ..maskFilter = null
+      ..color = fillColor.withValues(alpha: 0.85 * fade);
+    canvas.drawRRect(pillRect, _p);
+
+    // Luminous border
+    _p
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = color.withValues(alpha: 0.50 * fade);
+    canvas.drawRRect(pillRect, _p);
+
+    // Text
+    tp.paint(
+      canvas,
+      Offset(center.dx - tp.width / 2, center.dy - tp.height / 2),
+    );
+
+    canvas.restore();
   }
 
   // ===========================================================================
@@ -1278,6 +2299,17 @@ class KnowledgeFlowPainter extends CustomPainter {
     return 1.0;
   }
 
+  /// ✨ Smooth crossfade for LOD 0→1 transition (bubbles appearance)
+  double _computeLod1Fade() {
+    const fadeZone = 0.08; // Wider zone for smoother bubble fade-in
+    if (canvasScale > _lodLevel1Max) return 0.0;
+    if (canvasScale > _lodLevel1Max - fadeZone) {
+      final t = ((_lodLevel1Max - canvasScale) / fadeZone).clamp(0.0, 1.0);
+      return t * t * (3.0 - 2.0 * t); // smoothstep
+    }
+    return 1.0;
+  }
+
   /// Smooth fade for LOD 1→2 transition
   double _computeLod2Fade() {
     const fadeZone = 0.04;
@@ -1317,6 +2349,574 @@ class KnowledgeFlowPainter extends CustomPainter {
     return const Color(0xFF7EC8E3);
   }
 
+  // ===========================================================================
+  // SEMANTIC NODES — Clean circles with AI titles & stats (morph layer)
+  // ===========================================================================
+
+  void _paintSemanticNodes(Canvas canvas, double fade) {
+    if (clusters.isEmpty || semanticController == null) return;
+    if (fade < 0.01) return;
+
+    // Inverse scale for text readability at extreme zoom-out
+    final inverseScale = (1.0 / canvasScale).clamp(3.0, 16.0);
+
+    // Collect connected clusters and count connections per cluster
+    final connCounts = <String, int>{};
+    for (final conn in controller.connections) {
+      connCounts[conn.sourceClusterId] =
+          (connCounts[conn.sourceClusterId] ?? 0) + 1;
+      connCounts[conn.targetClusterId] =
+          (connCounts[conn.targetClusterId] ?? 0) + 1;
+    }
+
+    for (final cluster in clusters) {
+      final color = _clusterColor(cluster);
+      final center = cluster.centroid;
+      final title = semanticController!.semanticTitles[cluster.id] ?? 'Cluster';
+      final stats = semanticController!.clusterStats[cluster.id];
+      final connCount = connCounts[cluster.id] ?? 0;
+
+      // ── Node radius proportional to element count ──
+      final elementCount = stats?.totalElements ?? 1;
+      final baseNodeRadius = (math.sqrt(elementCount.toDouble()) * 18.0 + 24.0)
+          .clamp(30.0, 120.0);
+
+      // ── Breathing pulse for connected nodes ──
+      final breathPhase = animationTime * 1.0 +
+          center.dx * 0.001 + center.dy * 0.001;
+      final breath = connCount > 0
+          ? (math.sin(breathPhase) * 0.08 + 1.0)
+          : 1.0;
+      final nodeRadius = baseNodeRadius * breath;
+
+      // ── 1. Outer glow — atmospheric halo ──
+      _softGlowPaint.color = color.withValues(alpha: 0.20 * fade);
+      canvas.drawCircle(center, nodeRadius * 1.6, _softGlowPaint);
+
+      // ── 2. Glass fill — radial gradient ──
+      final fillGradient = RadialGradient(
+        center: const Alignment(-0.3, -0.3), // light from top-left
+        radius: 1.0,
+        colors: [
+          color.withValues(alpha: 0.18 * fade),
+          color.withValues(alpha: 0.06 * fade),
+          const Color(0xFF0D1117).withValues(alpha: 0.12 * fade),
+        ],
+        stops: const [0.0, 0.6, 1.0],
+      );
+      final nodeRect = Rect.fromCircle(center: center, radius: nodeRadius);
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = fillGradient.createShader(nodeRect)
+        ..maskFilter = null;
+      canvas.drawCircle(center, nodeRadius, _p);
+      _p.shader = null;
+
+      // ── 3. Inner highlight — glass refraction arc at top ──
+      _reusePath.reset();
+      _reusePath.addArc(
+        Rect.fromCircle(center: center, radius: nodeRadius * 0.92),
+        -math.pi * 0.85,
+        math.pi * 0.7,
+      );
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..strokeCap = StrokeCap.round
+        ..color = Colors.white.withValues(alpha: 0.15 * fade);
+      canvas.drawPath(_reusePath, _p);
+
+      // ── 4. Luminous border ──
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = color.withValues(alpha: 0.45 * fade);
+      canvas.drawCircle(center, nodeRadius, _p);
+
+      // ── 5. Connection glow ring (for highly connected nodes) ──
+      if (connCount >= 2) {
+        final glowPulse = math.sin(animationTime * 2.0 + connCount * 0.5)
+            * 0.5 + 0.5;
+        _softGlowPaint.color = color.withValues(
+          alpha: (0.08 + glowPulse * 0.06) * fade,
+        );
+        canvas.drawCircle(center, nodeRadius + 8, _softGlowPaint);
+      }
+
+      // ── 6. Title text — centered, auto-scaled ──
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.scale(inverseScale * 0.35);
+      canvas.translate(-center.dx, -center.dy);
+
+      final titleStyle = TextStyle(
+        color: Colors.white.withValues(alpha: 0.92 * fade),
+        fontSize: 13.0,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.3,
+        height: 1.2,
+      );
+      final tp = TextPainter(
+        text: TextSpan(text: title, style: titleStyle),
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        ellipsis: '…',
+      );
+      // Constrain width to node diameter (inverse-scaled)
+      final maxTextWidth = nodeRadius * 2.0 / (inverseScale * 0.35) * 0.75;
+      tp.layout(maxWidth: maxTextWidth.clamp(60.0, 300.0));
+      tp.paint(
+        canvas,
+        Offset(center.dx - tp.width / 2, center.dy - tp.height / 2),
+      );
+
+      canvas.restore();
+
+      // ── 7. Stats mini-badges orbiting the node ──
+      if (stats != null && (stats.totalElements > 1 || connCount > 0)) {
+        _paintSemanticStatBadges(
+          canvas, center, nodeRadius, stats, connCount, color, fade,
+          inverseScale,
+        );
+      }
+    }
+  }
+
+  /// Paint small orbiting stat badges around a semantic node.
+  void _paintSemanticStatBadges(
+    Canvas canvas,
+    Offset center,
+    double nodeRadius,
+    ClusterStats stats,
+    int connCount,
+    Color color,
+    double fade,
+    double inverseScale,
+  ) {
+    final badges = <(String, String)>[]; // (icon, value)
+    if (stats.strokeCount > 0) {
+      badges.add(('✏', '${stats.strokeCount}'));
+    }
+    if (stats.shapeCount > 0) {
+      badges.add(('◆', '${stats.shapeCount}'));
+    }
+    if (stats.textCount > 0) {
+      badges.add(('T', '${stats.textCount}'));
+    }
+    if (stats.imageCount > 0) {
+      badges.add(('🖼', '${stats.imageCount}'));
+    }
+    if (connCount > 0) {
+      badges.add(('⟷', '$connCount'));
+    }
+    if (badges.isEmpty) return;
+
+    // Slow orbit animation
+    final orbitOffset = animationTime * 0.15;
+    final orbitRadius = nodeRadius + 18.0;
+    final angleStep = (2 * math.pi) / badges.length;
+
+    for (int i = 0; i < badges.length; i++) {
+      final angle = angleStep * i + orbitOffset - math.pi / 2;
+      final badgeCenter = Offset(
+        center.dx + math.cos(angle) * orbitRadius,
+        center.dy + math.sin(angle) * orbitRadius,
+      );
+
+      canvas.save();
+      canvas.translate(badgeCenter.dx, badgeCenter.dy);
+      canvas.scale(inverseScale * 0.28);
+      canvas.translate(-badgeCenter.dx, -badgeCenter.dy);
+
+      final badgeText = '${badges[i].$1} ${badges[i].$2}';
+      final badgeTp = TextPainter(
+        text: TextSpan(
+          text: badgeText,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.85 * fade),
+            fontSize: 9.0,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final pillW = badgeTp.width + 10;
+      final pillH = badgeTp.height + 6;
+      final pillRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: badgeCenter,
+          width: pillW,
+          height: pillH,
+        ),
+        Radius.circular(pillH / 2),
+      );
+
+      // Frosted pill background
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = null
+        ..maskFilter = null
+        ..color = Color.lerp(color, const Color(0xFF0D1117), 0.6)!
+            .withValues(alpha: 0.80 * fade);
+      canvas.drawRRect(pillRect, _p);
+
+      // Border
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.6
+        ..color = color.withValues(alpha: 0.35 * fade);
+      canvas.drawRRect(pillRect, _p);
+
+      // Text
+      badgeTp.paint(
+        canvas,
+        Offset(
+          badgeCenter.dx - badgeTp.width / 2,
+          badgeCenter.dy - badgeTp.height / 2,
+        ),
+      );
+
+      canvas.restore();
+    }
+  }
+
+  // ===========================================================================
+  // 🎬 CINEMATIC FLIGHT — Enhanced visual effects during camera flights
+  // ===========================================================================
+
+  void _paintFlightEffects(Canvas canvas, Size size, double fade) {
+    final cMap = _buildClusterMap();
+    final t = flightProgress;
+
+    // Global intensity: peaks at midpoint of flight (sine wave)
+    final glowIntensity = math.sin(t * math.pi) * 0.7;
+
+    // ── 1. CONNECTION-SPECIFIC GLOW ──
+    // Only the active connection glows (not all connections)
+    if (glowIntensity > 0.01 &&
+        flightSourceClusterId != null &&
+        flightTargetClusterId != null) {
+      // Find the active connection
+      for (final conn in controller.connections) {
+        final isActive =
+            (conn.sourceClusterId == flightSourceClusterId &&
+             conn.targetClusterId == flightTargetClusterId) ||
+            (conn.sourceClusterId == flightTargetClusterId &&
+             conn.targetClusterId == flightSourceClusterId);
+        if (!isActive) continue;
+
+        final src = cMap[conn.sourceClusterId];
+        final tgt = cMap[conn.targetClusterId];
+        if (src == null || tgt == null) continue;
+
+        final srcPt = src.centroid;
+        final tgtPt = tgt.centroid;
+        final cp = controller.getControlPoint(srcPt, tgtPt, conn.curveStrength);
+        final connColor = conn.color;
+
+        // Outer glow — wide, diffuse
+        final glowPath = Path()
+          ..moveTo(srcPt.dx, srcPt.dy)
+          ..quadraticBezierTo(cp.dx, cp.dy, tgtPt.dx, tgtPt.dy);
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 18.0 + glowIntensity * 12.0
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14.0)
+          ..shader = null
+          ..color = connColor.withValues(alpha: glowIntensity * 0.30 * fade);
+        canvas.drawPath(glowPath, _p);
+
+        // Core glow — brighter, narrower
+        _p
+          ..strokeWidth = 6.0 + glowIntensity * 4.0
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0)
+          ..color = connColor.withValues(alpha: glowIntensity * 0.50 * fade);
+        canvas.drawPath(glowPath, _p);
+        _p.maskFilter = null;
+
+        // ── 2. TRAIL PARTICLES ──
+        // Multiple sparks traveling along the connection in formation
+        const sparkCount = 5;
+        for (int i = 0; i < sparkCount; i++) {
+          final sparkPhase = (t * 1.8 + i * 0.18) % 1.0;
+          final sparkPt = controller.pointOnQuadBezier(
+            srcPt, cp, tgtPt, sparkPhase,
+          );
+
+          // Sine-wave shimmer perpendicular to path
+          final pathDx = tgtPt.dx - srcPt.dx;
+          final pathDy = tgtPt.dy - srcPt.dy;
+          final pathLen = math.sqrt(pathDx * pathDx + pathDy * pathDy);
+          final perpDx = pathLen > 0 ? -pathDy / pathLen : 0.0;
+          final perpDy = pathLen > 0 ? pathDx / pathLen : 0.0;
+          final shimmer = math.sin(sparkPhase * math.pi * 4 + i * 1.2) * 6.0;
+          final shimmerPt = Offset(
+            sparkPt.dx + perpDx * shimmer,
+            sparkPt.dy + perpDy * shimmer,
+          );
+
+          // Spark brightness fades at start/end of path
+          final sparkAlpha = math.sin(sparkPhase * math.pi) * glowIntensity;
+          final sparkRadius = 3.0 + glowIntensity * 3.0 - i * 0.3;
+
+          // Spark core (bright white)
+          _p
+            ..style = PaintingStyle.fill
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0)
+            ..color = Colors.white.withValues(
+              alpha: (sparkAlpha * 0.7 * fade).clamp(0.0, 1.0),
+            );
+          canvas.drawCircle(shimmerPt, sparkRadius.clamp(1.0, 8.0), _p);
+
+          // Spark halo (colored)
+          _p
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0)
+            ..color = connColor.withValues(
+              alpha: (sparkAlpha * 0.4 * fade).clamp(0.0, 1.0),
+            );
+          canvas.drawCircle(shimmerPt, sparkRadius * 2.0, _p);
+          _p.maskFilter = null;
+        }
+
+        // ── Leading spark — brightest point at flight progress ──
+        final leadPt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, t);
+        _p
+          ..style = PaintingStyle.fill
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0)
+          ..color = Colors.white.withValues(
+            alpha: (glowIntensity * 0.85 * fade).clamp(0.0, 1.0),
+          );
+        canvas.drawCircle(leadPt, 5.0 + glowIntensity * 4.0, _p);
+        _p
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16.0)
+          ..color = connColor.withValues(
+            alpha: (glowIntensity * 0.45 * fade).clamp(0.0, 1.0),
+          );
+        canvas.drawCircle(leadPt, 12.0 + glowIntensity * 8.0, _p);
+        _p.maskFilter = null;
+
+        break; // Only process the active connection
+      }
+    }
+
+    // ── 3. DEPTH-OF-FIELD — Darken non-involved clusters ──
+    if (glowIntensity > 0.05 &&
+        flightSourceClusterId != null &&
+        flightTargetClusterId != null) {
+      final dofAlpha = (glowIntensity * 0.35).clamp(0.0, 0.3);
+      for (final cluster in clusters) {
+        if (cluster.id == flightSourceClusterId ||
+            cluster.id == flightTargetClusterId) {
+          continue; // Skip source and target
+        }
+        // Dark overlay on non-involved cluster bounds
+        final bounds = cluster.bounds.inflate(10.0);
+        final dofRRect = RRect.fromRectAndRadius(
+          bounds, const Radius.circular(12.0),
+        );
+        _p
+          ..style = PaintingStyle.fill
+          ..shader = null
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0)
+          ..color = const Color(0xFF0D1117).withValues(
+            alpha: dofAlpha * fade,
+          );
+        canvas.drawRRect(dofRRect, _p);
+        _p.maskFilter = null;
+      }
+    }
+
+    // ── 4. RADIAL VIGNETTE — Darkened edges during hyper-jump ──
+    // Active during ascent/transit phases (0-2) at low zoom
+    if (flightPhase <= 2 && canvasScale < 0.15) {
+      final vignetteAlpha = (0.35 * glowIntensity).clamp(0.0, 0.28);
+      if (vignetteAlpha > 0.01) {
+        final viewportRect = Rect.fromLTWH(0, 0, size.width, size.height);
+        final center = viewportRect.center;
+        final radius = viewportRect.longestSide * 0.65;
+
+        // Use connection color for vignette tint
+        final vignetteColor = (flightSourceClusterId != null)
+            ? controller.connections
+                .where((c) =>
+                    c.sourceClusterId == flightSourceClusterId &&
+                    c.targetClusterId == flightTargetClusterId)
+                .firstOrNull?.color ?? Colors.black
+            : Colors.black;
+        final darkTint = Color.lerp(vignetteColor, Colors.black, 0.85)!;
+
+        _p
+          ..style = PaintingStyle.fill
+          ..shader = RadialGradient(
+            colors: [
+              Colors.transparent,
+              darkTint.withValues(alpha: vignetteAlpha * 0.5),
+              darkTint.withValues(alpha: vignetteAlpha),
+            ],
+            stops: const [0.35, 0.7, 1.0],
+          ).createShader(
+            Rect.fromCircle(center: center, radius: radius),
+          );
+        canvas.drawRect(viewportRect, _p);
+        _p.shader = null;
+      }
+    }
+
+    // ── 5. STAR-FIELD — Streaking dots at satellite zoom (hyper-jump) ──
+    if (canvasScale < 0.12 && glowIntensity > 0.05) {
+      final starCount = 30;
+      final starSeed = (animationTime * 100).toInt();
+      for (int i = 0; i < starCount; i++) {
+        // Deterministic pseudo-random positions using simple hash
+        final hash = (i * 2654435761 + starSeed) & 0xFFFFFFFF;
+        final fx = (hash & 0xFFFF) / 65535.0;
+        final fy = ((hash >> 16) & 0xFFFF) / 65535.0;
+
+        // Stars move outward from center based on flight progress
+        final cx = size.width / 2;
+        final cy = size.height / 2;
+        final starDx = (fx - 0.5) * size.width * 2.0;
+        final starDy = (fy - 0.5) * size.height * 2.0;
+        final expansion = 0.3 + t * 0.7; // Expand outward with progress
+        final sx = cx + starDx * expansion;
+        final sy = cy + starDy * expansion;
+
+        // Only draw stars inside the viewport
+        if (sx < -10 || sx > size.width + 10 || sy < -10 || sy > size.height + 10) {
+          continue;
+        }
+
+        // Streak length proportional to speed
+        final streakLen = glowIntensity * 8.0;
+        final angle = math.atan2(sy - cy, sx - cx);
+        final startX = sx - math.cos(angle) * streakLen;
+        final startY = sy - math.sin(angle) * streakLen;
+
+        final starAlpha = (glowIntensity * 0.4 * fade * (1.0 - (i / starCount) * 0.5))
+            .clamp(0.0, 0.5);
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = null
+          ..shader = null
+          ..color = Colors.white.withValues(alpha: starAlpha);
+        canvas.drawLine(Offset(startX, startY), Offset(sx, sy), _p);
+      }
+    }
+
+    // ── 6. SPEED LINES — Radial streaks during fast transit ──
+    if (flightPhase == 2 && glowIntensity > 0.2) {
+      final lineCount = 16;
+      final cx = size.width / 2;
+      final cy = size.height / 2;
+      final maxLen = size.longestSide * 0.35;
+
+      for (int i = 0; i < lineCount; i++) {
+        final angle = (i / lineCount) * math.pi * 2 + t * 1.5;
+        final innerR = size.shortestSide * 0.25;
+        final outerR = innerR + maxLen * glowIntensity;
+
+        final x1 = cx + math.cos(angle) * innerR;
+        final y1 = cy + math.sin(angle) * innerR;
+        final x2 = cx + math.cos(angle) * outerR;
+        final y2 = cy + math.sin(angle) * outerR;
+
+        final lineAlpha = (glowIntensity * 0.15 * fade).clamp(0.0, 0.2);
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0)
+          ..shader = null
+          ..color = Colors.white.withValues(alpha: lineAlpha);
+        canvas.drawLine(Offset(x1, y1), Offset(x2, y2), _p);
+      }
+      _p.maskFilter = null;
+    }
+
+    // ── 7. LANDING PULSE — Expanding ring at target ──
+    if (landingPulseProgress > 0.0 && landingPulseProgress < 1.0) {
+      final pulseT = landingPulseProgress;
+      final eased = Curves.easeOut.transform(pulseT);
+      final maxRadius = 80.0 + 60.0 * eased;
+      final pulseAlpha = (1.0 - pulseT) * 0.5 * fade;
+
+      // Find the connection color for pulse tint
+      Color pulseColor = const Color(0xFF4FC3F7); // default cyan
+      if (flightSourceClusterId != null && flightTargetClusterId != null) {
+        pulseColor = controller.connections
+            .where((c) =>
+                (c.sourceClusterId == flightSourceClusterId &&
+                 c.targetClusterId == flightTargetClusterId) ||
+                (c.sourceClusterId == flightTargetClusterId &&
+                 c.targetClusterId == flightSourceClusterId))
+            .firstOrNull?.color ?? pulseColor;
+      }
+
+      // Outer ring
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0 - eased * 2.0
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0)
+        ..shader = null
+        ..color = pulseColor.withValues(alpha: pulseAlpha.clamp(0.0, 1.0));
+      canvas.drawCircle(landingPulseCenter, maxRadius, _p);
+
+      // Inner fill (subtle)
+      _p
+        ..style = PaintingStyle.fill
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12.0)
+        ..color = pulseColor.withValues(
+          alpha: (pulseAlpha * 0.15).clamp(0.0, 1.0),
+        );
+      canvas.drawCircle(landingPulseCenter, maxRadius * 0.7, _p);
+      _p.maskFilter = null;
+    }
+
+    // ── 8. CHROMATIC ABERRATION — Color fringe at edges during speed ──
+    if (flightPhase == 2 && glowIntensity > 0.15) {
+      final aberrationAlpha = (glowIntensity * 0.12 * fade).clamp(0.0, 0.15);
+      final stripWidth = 3.0 + glowIntensity * 4.0;
+
+      // Red fringe on leading edge (right side)
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = null
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0)
+        ..color = const Color(0xFFFF4444).withValues(alpha: aberrationAlpha);
+      canvas.drawRect(
+        Rect.fromLTWH(size.width - stripWidth, 0, stripWidth, size.height),
+        _p,
+      );
+
+      // Cyan fringe on trailing edge (left side)
+      _p.color = const Color(0xFF44FFFF).withValues(alpha: aberrationAlpha);
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, stripWidth, size.height),
+        _p,
+      );
+
+      // Top/bottom subtle fringe
+      _p
+        ..color = const Color(0xFF8844FF).withValues(
+          alpha: (aberrationAlpha * 0.5).clamp(0.0, 0.1),
+        );
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, size.width, stripWidth * 0.7),
+        _p,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(0, size.height - stripWidth * 0.7, size.width, stripWidth * 0.7),
+        _p,
+      );
+      _p.maskFilter = null;
+    }
+  }
+
   @override
   bool shouldRepaint(KnowledgeFlowPainter oldDelegate) =>
       clusters != oldDelegate.clusters ||
@@ -1326,5 +2926,9 @@ class KnowledgeFlowPainter extends CustomPainter {
       dragCurrentPoint != oldDelegate.dragCurrentPoint ||
       snapTargetClusterId != oldDelegate.snapTargetClusterId ||
       selectedConnectionId != oldDelegate.selectedConnectionId ||
-      animationTime != oldDelegate.animationTime;
+      animationTime != oldDelegate.animationTime ||
+      semanticMorphProgress != oldDelegate.semanticMorphProgress ||
+      flightProgress != oldDelegate.flightProgress ||
+      flightSourceClusterId != oldDelegate.flightSourceClusterId ||
+      landingPulseProgress != oldDelegate.landingPulseProgress;
 }

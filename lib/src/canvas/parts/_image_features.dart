@@ -401,6 +401,10 @@ extension on _FlueraCanvasScreenState {
   void _onImageZoomCheck() {
     if (!mounted) return;
     if (_imageZoomEnterCooldown) return;
+    // 🚀 THROTTLE: Skip expensive iteration if called too recently (zoom fires 60fps)
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastImageZoomCheckTime < 200) return;
+    _lastImageZoomCheckTime = now;
     if (_canvasController.scale > 0.8) {
       _checkImageZoomToEnter();
     }
@@ -473,20 +477,20 @@ extension on _FlueraCanvasScreenState {
     }
   }
 
-  /// Open the image viewer with a cinematic zoom-dive animation.
+  /// Open the image viewer with a cinematic Wormhole Dive animation.
+  ///
+  /// The canvas stays stationary — [WormholeDivePainter] handles the entire
+  /// visual transition without moving the canvas camera.
   void _enterImageViewerWithZoomAnimation(
     ImageElement imageElement,
     ui.Image image,
   ) {
     _imageZoomEnterCooldown = true;
 
-    // Capture image's current screen rect (position = CENTER)
-    // 🐛 FIX: Use cached ORIGINAL dimensions (same as ImagePainter)
-    // not decoded texture size (which may be a LOD thumbnail).
+    // Capture image's current world rect (position = CENTER)
     final cachedSize = _imageMemoryManager.getImageDimensions(imageElement.imagePath);
     final origW = cachedSize?.width ?? image.width.toDouble();
     final origH = cachedSize?.height ?? image.height.toDouble();
-    // Account for crop
     final crop = imageElement.cropRect;
     final visW = crop != null ? (crop.right - crop.left) * origW : origW;
     final visH = crop != null ? (crop.bottom - crop.top) * origH : origH;
@@ -497,102 +501,86 @@ extension on _FlueraCanvasScreenState {
       width: imgW,
       height: imgH,
     );
-    // canvasToScreen returns coords relative to the canvas WIDGET area,
-    // which sits below the toolbar. The animation overlay (Navigator route)
-    // positions relative to the FULL SCREEN. Add canvas widget's global offset.
+
     final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
         ?.findRenderObject() as RenderBox?;
     final canvasGlobalOffset = canvasRenderBox?.localToGlobal(Offset.zero) ?? Offset.zero;
     final rawTL = _canvasController.canvasToScreen(worldRect.topLeft);
     final rawBR = _canvasController.canvasToScreen(worldRect.bottomRight);
-    final screenTL = rawTL + canvasGlobalOffset;
-    final screenBR = rawBR + canvasGlobalOffset;
-    final cardRect = Rect.fromPoints(screenTL, screenBR);
+    final cardRect = Rect.fromPoints(
+      rawTL + canvasGlobalOffset,
+      rawBR + canvasGlobalOffset,
+    );
     final vp = MediaQuery.sizeOf(context);
     final fullRect = Offset.zero & vp;
 
+    // Haptic sequence: light "grab" → delayed medium "dive"
+    HapticFeedback.lightImpact();
+    Future.delayed(const Duration(milliseconds: 135), () {
+      HapticFeedback.mediumImpact();
+    });
 
+    // Cool blue accent for image content
+    const imageAccent = Color(0xFF5088FF);
 
     Navigator.of(context).push(
       PageRouteBuilder(
-        // 🚀 PERF: opaque=true prevents Flutter from painting the entire
-        // canvas behind the route on every frame (~10-15ms saved).
         opaque: true,
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return ImageViewerScreen(
-            imageElement: imageElement,
-            image: image,
-            onClose: () {
-              if (mounted) setState(() {});
-            },
-            onEdit: (element) {
-              // Open the existing ImageEditorDialog
-              final decodedImage = _loadedImages[element.imagePath];
-              if (decodedImage != null) {
-                Navigator.of(context).pop(); // Close viewer first
-                _openImageEditor(element, decodedImage);
-              }
-            },
-          );
-        },
+        transitionDuration: const Duration(milliseconds: 900),
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (context, _, __) => ImageViewerScreen(
+          imageElement: imageElement,
+          image: image,
+          onClose: () {
+            if (mounted) setState(() {});
+          },
+          onEdit: (element) {
+            final decodedImage = _loadedImages[element.imagePath];
+            if (decodedImage != null) {
+              Navigator.of(context).pop();
+              _openImageEditor(element, decodedImage);
+            }
+          },
+        ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: const Cubic(0.16, 1.0, 0.3, 1.0),
-            reverseCurve: Curves.easeInCubic,
-          );
-
-          // 🚀 PERF: Use AnimatedBuilder with a single CustomPaint child.
-          // Instead of rebuilding Stack → Positioned → ClipRRect → RawImage
-          // on every frame (widget creation + element reconciliation overhead),
-          // a single CustomPainter draws scrim + clipped image directly on
-          // the canvas. Zero widget allocation per frame.
           return AnimatedBuilder(
-            animation: curved,
+            animation: animation,
             builder: (context, _) {
-              final t = curved.value;
-              // Show the real ImageViewerScreen only once transition is done.
-              if (t >= 1.0) return child;
-
-              // 🚀 PERF: Pre-mount ImageViewerScreen at t≥0.95 behind the
-              // painter to spread widget tree creation across ~2-3 frames
-              // instead of a single spike at t=1.0.
-              final painter = CustomPaint(
-                painter: _ZoomTransitionPainter(
-                  t: t,
-                  image: image,
-                  imageElement: imageElement,
-                  cardRect: cardRect,
-                  fullRect: fullRect,
-                ),
-                size: Size.infinite,
-              );
-
-              if (t >= 0.95) {
-                return Stack(
-                  children: [child, Positioned.fill(child: painter)],
-                );
+              final t = animation.value;
+              if (animation.status == AnimationStatus.reverse) {
+                return child;
               }
-
-              return painter;
+              return Stack(
+                children: [
+                  child,
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: WormholeDivePainter(
+                            t: t,
+                            thumbnail: image,
+                            cardRect: cardRect,
+                            fullRect: fullRect,
+                            accentColor: imageAccent,
+                          ),
+                          size: Size.infinite,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
             },
           );
         },
-        // 🚀 PERF: Reduced from 800ms to 450ms — fewer frames = less raster
-        transitionDuration: const Duration(milliseconds: 450),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
     ).then((_) {
-      // Animate back to show the image centered at a safe zoom level.
-      // Must account for canvas widget offset (toolbar/status bar) —
-      // canvasToScreen returns coords relative to canvas widget, not screen.
       final canvasRenderBox = _canvasRepaintBoundaryKey.currentContext
           ?.findRenderObject() as RenderBox?;
       final canvasSize = canvasRenderBox?.size ?? MediaQuery.sizeOf(context);
-      // Center of the canvas widget area (not full screen)
       final canvasCenter = Offset(canvasSize.width / 2, canvasSize.height / 2);
       final imageCenter = imageElement.position;
-      // Scale 0.8× keeps image visible but below the 65% re-trigger threshold
       final targetScale = 0.8;
       final targetOffset = Offset(
         canvasCenter.dx - imageCenter.dx * targetScale,
@@ -601,7 +589,6 @@ extension on _FlueraCanvasScreenState {
       _canvasController.stopAnimation();
       _canvasController.setScale(targetScale);
       _canvasController.setOffset(targetOffset);
-      // Cooldown before re-entry is allowed — 2s to let user pan away
       Future.delayed(const Duration(milliseconds: 2000), () {
         if (mounted) _imageZoomEnterCooldown = false;
       });
@@ -609,128 +596,6 @@ extension on _FlueraCanvasScreenState {
   }
 }
 
-/// 🚀 PERF: Zero-widget transition painter.
-/// Draws the entire zoom-to-enter animation directly on the canvas:
-/// scrim + expanding clipped image. No widget allocation per frame,
-/// no element reconciliation, no saveLayer.
-class _ZoomTransitionPainter extends CustomPainter {
-  final double t;
-  final ui.Image image;
-  final ImageElement imageElement;
-  final Rect cardRect;
-  final Rect fullRect;
-
-  // Static paints — allocated once, reused across all frames
-  static final Paint _scrimPaint = Paint()..style = PaintingStyle.fill;
-  static final Paint _bgPaint = Paint()..color = const Color(0xFF080A19);
-  static final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
-
-  _ZoomTransitionPainter({
-    required this.t,
-    required this.image,
-    required this.imageElement,
-    required this.cardRect,
-    required this.fullRect,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 1. Dark scrim (lerps from transparent to near-opaque)
-    final scrimAlpha = (t * 0.92).clamp(0.0, 0.92);
-    if (scrimAlpha > 0.01) {
-      _scrimPaint.color = Color.fromARGB(
-        (scrimAlpha * 255).round().clamp(0, 255),
-        8, 10, 25,
-      );
-      canvas.drawRect(Offset.zero & size, _scrimPaint);
-    }
-
-    // 2. Expanding clip rect with deceleration
-    final clipT = Curves.easeOutQuint.transform(t);
-    final clipRect = Rect.lerp(cardRect, fullRect, clipT)!;
-    final borderRadius = 16.0 * (1.0 - clipT);
-
-    canvas.save();
-    if (borderRadius > 0.5) {
-      canvas.clipRRect(
-        RRect.fromRectAndRadius(clipRect, Radius.circular(borderRadius)),
-      );
-    } else {
-      canvas.clipRect(clipRect);
-    }
-
-    // 3. Dark background behind image
-    canvas.drawRect(clipRect, _bgPaint);
-
-    // 4. Image fitted (contain) inside the clip rect
-    final imgW = image.width.toDouble();
-    final imgH = image.height.toDouble();
-    final imgAspect = imgW / imgH;
-    final clipAspect = clipRect.width / clipRect.height;
-
-    double dstW, dstH;
-    if (imgAspect > clipAspect) {
-      dstW = clipRect.width;
-      dstH = clipRect.width / imgAspect;
-    } else {
-      dstH = clipRect.height;
-      dstW = clipRect.height * imgAspect;
-    }
-
-    final dstRect = Rect.fromCenter(
-      center: clipRect.center,
-      width: dstW,
-      height: dstH,
-    );
-    final srcRect = Rect.fromLTWH(0, 0, imgW, imgH);
-
-    _imagePaint.color = const Color(0xFFFFFFFF);
-    canvas.drawImageRect(image, srcRect, dstRect, _imagePaint);
-
-    // 5. Render attached drawing strokes
-    if (imageElement.drawingStrokes.isNotEmpty) {
-      final canvasW = imgW * imageElement.scale;
-      final canvasH = imgH * imageElement.scale;
-      final scaleX = dstW / canvasW;
-      final scaleY = dstH / canvasH;
-      final cx = dstRect.center.dx;
-      final cy = dstRect.center.dy;
-
-      canvas.save();
-      canvas.clipRect(dstRect);
-      for (final stroke in imageElement.drawingStrokes) {
-        if (stroke.points.length < 2) continue;
-        final scaleRatio = imageElement.scale / stroke.referenceScale;
-        final paint = Paint()
-          ..color = stroke.color
-          ..strokeWidth = stroke.baseWidth * scaleRatio * ((scaleX + scaleY) / 2)
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
-          ..isAntiAlias = true;
-
-        final path = ui.Path();
-        for (int i = 0; i < stroke.points.length; i++) {
-          final pt = stroke.points[i];
-          final vx = cx + pt.position.dx * scaleRatio * scaleX;
-          final vy = cy + pt.position.dy * scaleRatio * scaleY;
-          if (i == 0) {
-            path.moveTo(vx, vy);
-          } else {
-            path.lineTo(vx, vy);
-          }
-        }
-        canvas.drawPath(path, paint);
-      }
-      canvas.restore();
-    }
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_ZoomTransitionPainter old) => old.t != t;
-}
 
 /// #4: Data class for queued offline uploads.
 class _OfflineUploadEntry {

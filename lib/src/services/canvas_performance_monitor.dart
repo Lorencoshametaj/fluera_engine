@@ -103,9 +103,7 @@ class CanvasPerformanceMonitor {
     if (_globalOverlayEntry != null) return; // already showing
     final overlayState = Overlay.of(context, rootOverlay: true);
     _globalOverlayEntry = OverlayEntry(
-      builder: (_) => Positioned(
-        top: 40,
-        right: 10,
+      builder: (_) => Positioned.fill(
         child: Material(
           type: MaterialType.transparency,
           child: RepaintBoundary(
@@ -397,15 +395,14 @@ class _PerformanceOverlayWidget extends StatefulWidget {
 class _PerformanceOverlayWidgetState extends State<_PerformanceOverlayWidget> {
   Timer? _refreshTimer;
 
+  /// Draggable position (static so it persists across rebuilds)
+  static double _posX = -1; // -1 = uninitialized
+  static double _posY = 40;
+
   @override
   void initState() {
     super.initState();
-    // 🚀 PERF: 1000ms (not 500ms) to minimize collisions with drawing frames.
-    // At 500ms, the timer hit every ~60th drawing frame → 4.5ms spike becomes 9ms.
-    // At 1000ms, collisions are halved. Metrics update slowly anyway.
     _refreshTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
-      // 🚀 PERF: Skip refresh during active drawing — colliding with
-      // drawing frames pushes UI thread to 9ms, busting 120Hz budget.
       if (mounted && !CanvasPerformanceMonitor.instance._isDrawing) {
         setState(() {});
       }
@@ -439,13 +436,34 @@ class _PerformanceOverlayWidgetState extends State<_PerformanceOverlayWidget> {
             ? const Color(0xFFFF9800)
             : const Color(0xFFF44336);
 
-    return GestureDetector(
-        onTap: () {
-          monitor._isCollapsed = !monitor._isCollapsed;
-          setState(() {});
-        },
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
+    // Initialize position to top-right if unset
+    if (_posX < 0) {
+      final size = MediaQuery.of(context).size;
+      _posX = size.width - 210;
+    }
+
+    return Stack(
+      children: [
+        Positioned(
+          left: _posX,
+          top: _posY,
+          child: GestureDetector(
+            onPanUpdate: (details) {
+              setState(() {
+                _posX += details.delta.dx;
+                _posY += details.delta.dy;
+                // Clamp to screen bounds
+                final size = MediaQuery.of(context).size;
+                _posX = _posX.clamp(0, size.width - 120);
+                _posY = _posY.clamp(0, size.height - 60);
+              });
+            },
+            onTap: () {
+              monitor._isCollapsed = !monitor._isCollapsed;
+              setState(() {});
+            },
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           width: monitor._isCollapsed ? 120 : 200,
@@ -749,6 +767,9 @@ class _PerformanceOverlayWidgetState extends State<_PerformanceOverlayWidget> {
             ],
           ),
         ),
+    ),
+    ),
+    ],
     );
   }
 }

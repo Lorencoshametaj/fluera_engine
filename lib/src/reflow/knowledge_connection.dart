@@ -1,5 +1,29 @@
 import 'dart:ui';
 
+/// 🔗 Connection type — visual style and semantic meaning.
+enum ConnectionType {
+  /// Default: solid curved line
+  association,
+  /// Thick line + strong glow + energy pulse (cause → effect)
+  causality,
+  /// Double parallel lines (parent → child)
+  hierarchy,
+  /// Red wavy line with X marker (A contradicts B)
+  contradiction,
+}
+
+/// 🎨 Connection visual style — how the line is drawn.
+enum ConnectionStyle {
+  /// Default smooth Bézier curve
+  curved,
+  /// Straight line from source to target
+  straight,
+  /// Zigzag pattern (stepped path)
+  zigzag,
+  /// Dashed line (weak/uncertain relationship)
+  dashed,
+}
+
 /// 🔗 KNOWLEDGE CONNECTION — A directed link between two content clusters.
 ///
 /// Represents a user-created connection in the Knowledge Flow graph.
@@ -26,6 +50,15 @@ class KnowledgeConnection {
   /// Bézier curve strength: 0.0 = straight line, 1.0 = very curved.
   /// Auto-calculated to avoid overlapping other clusters.
   double curveStrength;
+
+  /// Connection type — determines visual style and semantic meaning.
+  ConnectionType connectionType;
+
+  /// Connection visual style — how the line is drawn.
+  ConnectionStyle connectionStyle;
+
+  /// Whether this connection is bidirectional (arrows on both ends).
+  bool isBidirectional;
 
   /// Particle positions along the path (0.0–1.0).
   /// NOT serialized — regenerated on load.
@@ -66,6 +99,15 @@ class KnowledgeConnection {
   /// Set by controller after path computation. Used for speed-proportional particles.
   double pathLength;
 
+  /// Frozen anchor point at source cluster (captured at creation time).
+  /// Used for rendering instead of live cluster centroid to prevent
+  /// endpoint shifts when new strokes change the cluster.
+  /// May be null for legacy connections (falls back to cluster centroid).
+  Offset? sourceAnchor;
+
+  /// Frozen anchor point at target cluster (captured at creation time).
+  Offset? targetAnchor;
+
   KnowledgeConnection({
     required this.id,
     required this.sourceClusterId,
@@ -73,7 +115,12 @@ class KnowledgeConnection {
     this.label,
     this.color = const Color(0xFF64B5F6), // Material Blue 300
     this.curveStrength = 0.3,
+    this.connectionType = ConnectionType.association,
+    this.connectionStyle = ConnectionStyle.curved,
+    this.isBidirectional = false,
     this.pathLength = 500.0, // Default path length
+    this.sourceAnchor,
+    this.targetAnchor,
     int? createdAt,
   }) : createdAtMs = createdAt ?? DateTime.now().millisecondsSinceEpoch,
        deletedAtMs = 0,
@@ -109,6 +156,11 @@ class KnowledgeConnection {
     if (label != null) 'label': label,
     'color': color.value,
     'curveStrength': curveStrength,
+    'connectionType': connectionType.name,
+    'connectionStyle': connectionStyle.name,
+    'isBidirectional': isBidirectional,
+    if (sourceAnchor != null) 'sourceAnchor': [sourceAnchor!.dx, sourceAnchor!.dy],
+    if (targetAnchor != null) 'targetAnchor': [targetAnchor!.dx, targetAnchor!.dy],
   };
 
   factory KnowledgeConnection.fromJson(Map<String, dynamic> json) {
@@ -119,7 +171,35 @@ class KnowledgeConnection {
       label: json['label'] as String?,
       color: Color(json['color'] as int? ?? 0xFF64B5F6),
       curveStrength: (json['curveStrength'] as num?)?.toDouble() ?? 0.3,
+      connectionType: _parseConnectionType(json['connectionType'] as String?),
+      connectionStyle: _parseConnectionStyle(json['connectionStyle'] as String?),
+      isBidirectional: json['isBidirectional'] as bool? ?? false,
+      sourceAnchor: _parseOffset(json['sourceAnchor']),
+      targetAnchor: _parseOffset(json['targetAnchor']),
       createdAt: 0, // No animation on reload
+    );
+  }
+
+  static Offset? _parseOffset(dynamic json) {
+    if (json is List && json.length >= 2) {
+      return Offset((json[0] as num).toDouble(), (json[1] as num).toDouble());
+    }
+    return null;
+  }
+
+  static ConnectionType _parseConnectionType(String? name) {
+    if (name == null) return ConnectionType.association;
+    return ConnectionType.values.firstWhere(
+      (e) => e.name == name,
+      orElse: () => ConnectionType.association,
+    );
+  }
+
+  static ConnectionStyle _parseConnectionStyle(String? name) {
+    if (name == null) return ConnectionStyle.curved;
+    return ConnectionStyle.values.firstWhere(
+      (e) => e.name == name,
+      orElse: () => ConnectionStyle.curved,
     );
   }
 
@@ -136,3 +216,4 @@ class KnowledgeConnection {
   String toString() =>
       'KnowledgeConnection($id: $sourceClusterId → $targetClusterId)';
 }
+

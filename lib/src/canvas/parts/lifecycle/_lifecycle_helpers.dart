@@ -123,6 +123,28 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
       _knowledgeFlowController!.remapClusterIds(oldClusters, _clusterCache);
     }
 
+    // 🧠 SEMANTIC MORPHING: Update titles and stats from current clusters.
+    if (_semanticMorphController != null && _knowledgeFlowController != null) {
+      _semanticMorphController!.update(
+        clusters: _clusterCache,
+        controller: _knowledgeFlowController!,
+        clusterTexts: _clusterTextCache,
+      );
+
+      // 🔑 AUDIO KEYWORDS: Extract keyword titles from audio transcriptions.
+      // Correlates stroke timestamps with transcription segments to find
+      // what the professor was saying while each cluster was being written.
+      if (_syncedRecordings.isNotEmpty &&
+          _syncedRecordings.any((r) => r.hasTranscription)) {
+        _semanticMorphController!.audioTitles =
+            AudioKeywordExtractor.buildClusterAudioTitles(
+          clusters: _clusterCache,
+          recordings: _syncedRecordings,
+          clusterTexts: _clusterTextCache,
+        );
+      }
+    }
+
     // 🔇 SUGGESTIONS DISABLED: Manual connections only.
     // The suggestion engine, ML Kit cluster-level recognition, and
     // recomputeSuggestions() are disabled to simplify the UX.
@@ -714,4 +736,110 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
   // ⏱️ TIME TRAVEL LIFECYCLE → see _lifecycle_time_travel.dart
   // 🌿 CREATIVE BRANCHING LIFECYCLE → see _lifecycle_branching.dart
   // ============================================================================
+
+  // ============================================================================
+  // ✂️ SPACE-SPLIT GESTURE HANDLERS
+  // ============================================================================
+
+  /// Called when a two-finger spread gesture begins.
+  void _onSpaceSplitStart(double splitLinePosition, {bool isHorizontal = false}) {
+    _spaceSplitController.clusters = _clusterCache;
+    _spaceSplitController.startSplit(
+      splitLinePosition,
+      axis: isHorizontal ? SplitAxis.horizontal : SplitAxis.vertical,
+    );
+
+    // 📸 Snapshot stroke positions for undo
+    _preSplitStrokeSnapshot = {};
+    for (final layer in _layerController.layers) {
+      for (final strokeNode in layer.node.strokeNodes) {
+        _preSplitStrokeSnapshot![strokeNode.stroke.id] =
+            List.unmodifiable(strokeNode.stroke.points);
+      }
+    }
+  }
+
+  /// Called every frame during the two-finger vertical spread.
+  void _onSpaceSplitUpdate(double splitLineY, double spreadDistance) {
+    _spaceSplitController.updateSplit(spreadDistance);
+    // Trigger repaint so the painter can render ghost displacements + split line
+    _canvasController.markNeedsPaint();
+  }
+
+  /// Called when the two-finger vertical spread gesture ends.
+  void _onSpaceSplitEnd() {
+    final result = _spaceSplitController.endSplit();
+    if (result.isEmpty) {
+      _preSplitStrokeSnapshot = null;
+      return;
+    }
+
+    final layerNode = _layerController.activeLayer?.node;
+    if (layerNode == null) {
+      _preSplitStrokeSnapshot = null;
+      return;
+    }
+
+    // 🔄 UNDO: Use paired remove+add deltas per affected stroke.
+    // Before applying: record strokeRemoved (captures pre-move state).
+    // After applying: record strokeAdded (captures post-move state).
+    // On undo: applyInverse reverses both, restoring original positions.
+    final snapshot = _preSplitStrokeSnapshot;
+    _preSplitStrokeSnapshot = null;
+    final activeLayerId = _layerController.activeLayerId ?? '';
+    final deltaTracker = CanvasDeltaTracker.instance;
+
+    if (snapshot != null && snapshot.isNotEmpty) {
+      // Begin batch so entire split = 1 undo step
+      EngineScope.current.undoRedoManager.beginBatch();
+
+      // Record pre-move state for each affected stroke
+      for (final strokeId in result.elementDisplacements.keys) {
+        deltaTracker.recordStrokeRemoved(activeLayerId, strokeId);
+      }
+    }
+
+    // Apply displacements
+    _applyReflowDeltas(result.elementDisplacements);
+
+    if (snapshot != null && snapshot.isNotEmpty) {
+      // Record post-move state for each affected stroke
+      for (final strokeId in result.elementDisplacements.keys) {
+        ProStroke? newStroke;
+        for (final layer in _layerController.layers) {
+          for (final sn in layer.node.strokeNodes) {
+            if (sn.stroke.id == strokeId) {
+              newStroke = sn.stroke;
+              break;
+            }
+          }
+          if (newStroke != null) break;
+        }
+        if (newStroke != null) {
+          deltaTracker.recordStrokeAdded(activeLayerId, newStroke);
+        }
+      }
+      EngineScope.current.undoRedoManager.endBatch();
+    }
+
+    // Update cluster cache bounds
+    for (final entry in result.clusterDisplacements.entries) {
+      final displacement = entry.value;
+      if (displacement == Offset.zero) continue;
+      for (final cluster in _clusterCache) {
+        if (cluster.id == entry.key) {
+          cluster.bounds = cluster.bounds.shift(displacement);
+          cluster.centroid = cluster.centroid + displacement;
+          cluster.resetDisplacement();
+          break;
+        }
+      }
+    }
+
+    // Invalidate tiles and save
+    DrawingPainter.invalidateAllTiles();
+    _layerController.sceneGraph.bumpVersion();
+    _autoSaveCanvas();
+    _canvasController.markNeedsPaint();
+  }
 }

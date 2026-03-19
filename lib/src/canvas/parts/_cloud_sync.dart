@@ -27,6 +27,14 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
     });
   }
 
+  /// 🔗 Build a JSON string for Knowledge Flow connections persistence.
+  String? _buildConnectionsJsonString() {
+    if (_knowledgeFlowController == null) return null;
+    final connections = _knowledgeFlowController!.connections;
+    if (connections.isEmpty) return null;
+    return jsonEncode(connections.map((c) => c.toJson()).toList());
+  }
+
   /// Builds a [FlueraCanvasSaveData] snapshot of the current canvas state.
   FlueraCanvasSaveData _buildSaveData() {
     // 🎛️ Serialize variable state (only if non-empty)
@@ -143,6 +151,7 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
               guides: saveData.guides,
               dirtyLayerIds: dirtyIds.isNotEmpty ? dirtyIds : null,
               variablesJson: _buildVariablesJsonString(saveData),
+              connectionsJson: _buildConnectionsJsonString(),
             );
           } finally {
             // 🗂️ POST-SAVE: Re-stub only strokes that were paged-out (restored above)

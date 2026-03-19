@@ -172,8 +172,14 @@ extension on _FlueraCanvasScreenState {
               // Main content: toolbar + canvas
               Column(
                 children: [
-                  // 🛠️ Professional Toolbar (cached — skipped on parent setState)
-                  _toolbarHost,
+                  // 🛠️ Professional Toolbar (slides away in wheel mode)
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutCubic,
+                    child: _useRadialWheel
+                        ? const SizedBox.shrink()
+                        : _toolbarHost,
+                  ),
 
                   // 🎨 Canvas + Navigation Overlays
                   Expanded(
@@ -271,6 +277,7 @@ extension on _FlueraCanvasScreenState {
                             child: HandwritingSearchOverlay(
                               canvasId: _canvasId,
                               textElements: _digitalTextElements,
+                              knowledgeFlowController: _knowledgeFlowController,
                               getViewportRect: () {
                                 final s = _canvasController.scale;
                                 final o = _canvasController.offset;
@@ -438,6 +445,131 @@ extension on _FlueraCanvasScreenState {
 
               // 👻 Ghost shape suggestion overlay
               _buildGhostSuggestionOverlay(),
+
+              // 🔄 Wheel/Toolbar toggle pill (auto-hides after 4s)
+              Positioned(
+                top: _useRadialWheel ? 16 : null,
+                bottom: _useRadialWheel ? null : 80,
+                right: 16,
+                child: AnimatedOpacity(
+                  opacity: _wheelPillVisible ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOut,
+                  child: IgnorePointer(
+                    ignoring: !_wheelPillVisible,
+                    child: GestureDetector(
+                      onTap: _toggleWheelMode,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 350),
+                        curve: Curves.easeOutCubic,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _useRadialWheel
+                              ? const Color(0xFF1E88E5).withValues(alpha: 0.92)
+                              : Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: _useRadialWheel
+                                ? Colors.white.withValues(alpha: 0.3)
+                                : Colors.white.withValues(alpha: 0.15),
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: (_useRadialWheel
+                                  ? const Color(0xFF1E88E5)
+                                  : Colors.black).withValues(alpha: 0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Animated icon rotation
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(end: _useRadialWheel ? 1.0 : 0.0),
+                              duration: const Duration(milliseconds: 400),
+                              curve: Curves.easeOutBack,
+                              builder: (_, val, child) => Transform.rotate(
+                                angle: val * 3.14159,
+                                child: child,
+                              ),
+                              child: Icon(
+                                _useRadialWheel
+                                    ? Icons.dashboard_rounded
+                                    : Icons.radio_button_unchecked_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _useRadialWheel ? 'Toolbar' : 'Wheel',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // 🔘 Small dot indicator (visible when pill is hidden)
+              if (!_wheelPillVisible)
+                Positioned(
+                  top: _useRadialWheel ? 22 : null,
+                  bottom: _useRadialWheel ? null : 88,
+                  right: 22,
+                  child: GestureDetector(
+                    onTap: _showWheelPill,
+                    child: Container(
+                      width: 10, height: 10,
+                      decoration: BoxDecoration(
+                        color: _useRadialWheel
+                            ? const Color(0xFF1E88E5).withValues(alpha: 0.7)
+                            : Colors.white.withValues(alpha: 0.3),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 2️⃣ Toast confirmation overlay
+              if (_wheelModeToastVisible && _wheelModeToast != null)
+                Positioned(
+                  top: _useRadialWheel ? 60 : null,
+                  bottom: _useRadialWheel ? null : 130,
+                  left: 0, right: 0,
+                  child: Center(
+                    child: AnimatedOpacity(
+                      opacity: _wheelModeToastVisible ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _wheelModeToast!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
 
 

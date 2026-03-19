@@ -6,11 +6,11 @@ import 'lasso_tool.dart';
 // Visual Constants
 // =============================================================================
 
-/// Outer glow stroke width.
-const double _kGlowWidth = 8.0;
+/// Outer neon glow stroke width.
+const double _kGlowWidth = 12.0;
 
 /// Glow blur sigma.
-const double _kGlowBlurSigma = 4.0;
+const double _kGlowBlurSigma = 8.0;
 
 /// Main border stroke width.
 const double _kMainBorderWidth = 2.5;
@@ -116,10 +116,10 @@ class LassoPathPainter extends CustomPainter {
       pathToDraw.lineTo(screenPath[i].dx, screenPath[i].dy);
     }
 
-    // 1. Outer glow
+    // 1. Outer neon glow (electric blue, wide blur)
     final glowPaint =
         Paint()
-          ..color = color.withValues(alpha: 0.15)
+          ..color = const Color(0xFF00D4FF).withValues(alpha: 0.25)
           ..strokeWidth = _kGlowWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
@@ -130,51 +130,60 @@ class LassoPathPainter extends CustomPainter {
           );
     canvas.drawPath(pathToDraw, glowPaint);
 
-    // 2. Semi-transparent fill
+    // 1b. Inner neon glow (brighter, tighter)
+    final innerGlowPaint =
+        Paint()
+          ..color = const Color(0xFF82C8FF).withValues(alpha: 0.35)
+          ..strokeWidth = 5.0
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+    canvas.drawPath(pathToDraw, innerGlowPaint);
+
+    // 2. Semi-transparent holographic fill
     final fillPaint =
         Paint()
-          ..color = color.withValues(alpha: 0.08)
+          ..color = const Color(0xFF00D4FF).withValues(alpha: 0.04)
           ..style = PaintingStyle.fill;
     canvas.drawPath(pathToDraw, fillPaint);
 
-    // 3. Main dashed border
+    // 3. Main neon border (solid, bright)
     final mainPaint =
         Paint()
-          ..color = color.withValues(alpha: 0.8)
+          ..color = const Color(0xFF82C8FF).withValues(alpha: 0.9)
           ..strokeWidth = _kMainBorderWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round;
-    final dashPath = _createDashedPath(
-      pathToDraw,
-      dashLength: _kDashLength,
-      gapLength: _kGapLength,
-    );
-    canvas.drawPath(dashPath, mainPaint);
+    canvas.drawPath(pathToDraw, mainPaint);
 
-    // 4. Inner white highlight for depth
+    // 4. Inner white core for depth
     final innerPaint =
         Paint()
-          ..color = Colors.white.withValues(alpha: 0.4)
+          ..color = Colors.white.withValues(alpha: 0.5)
           ..strokeWidth = _kInnerBorderWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(pathToDraw, innerPaint);
 
-    // 5. Key points along the path (sampled for performance)
-    final pointPaint =
-        Paint()
-          ..color = color
-          ..style = PaintingStyle.fill;
-
+    // 5. Neon energy points along the path
     for (var i = 0; i < screenPath.length; i += _kKeyPointInterval) {
+      // Glow
       canvas.drawCircle(
         screenPath[i],
-        3.5,
-        Paint()..color = Colors.white.withValues(alpha: 0.9),
+        4.5,
+        Paint()
+          ..color = const Color(0xFF00D4FF).withValues(alpha: 0.4)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0),
       );
-      canvas.drawCircle(screenPath[i], 2.0, pointPaint);
+      // Core
+      canvas.drawCircle(
+        screenPath[i],
+        2.0,
+        Paint()..color = const Color(0xFFDDEEFF),
+      );
     }
 
     // 6. Special start and end points

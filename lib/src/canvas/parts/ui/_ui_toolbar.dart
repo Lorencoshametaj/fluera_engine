@@ -24,8 +24,8 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
         final elementCount = activeLayer?.elementCount ?? 0;
 
         // 🔄 Phase 2: Use LayerController undo/redo (delta-based)
-        final canUndo = _layerController.canUndo;
-        final canRedo = _layerController.canRedo;
+        final canUndo = _layerController.canUndo || (_knowledgeFlowController?.canUndo ?? false);
+        final canRedo = _layerController.canRedo || (_knowledgeFlowController?.canRedo ?? false);
 
         return ProfessionalCanvasToolbar(
           selectedPenType: _effectivePenType,
@@ -71,6 +71,12 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                 .updateSettings(preset.settings);
           },
           onUndo: () {
+            // 🧠 KNOWLEDGE FLOW: Undo connection action first if available
+            if (_knowledgeFlowController != null && _knowledgeFlowController!.canUndo) {
+              _knowledgeFlowController!.undo();
+              HapticFeedback.selectionClick();
+              return;
+            }
             // 🎤 FIX: If recording with strokes, track stroke removal
             // to prevent ghost strokes during synced playback.
             final strokesBefore =
@@ -116,7 +122,15 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               }
             }
           },
-          onRedo: () => _layerController.redo(), // 🔄 Phase 2: New redo system
+          onRedo: () {
+            // 🧠 KNOWLEDGE FLOW: Redo connection action first if available
+            if (_knowledgeFlowController != null && _knowledgeFlowController!.canRedo) {
+              _knowledgeFlowController!.redo();
+              HapticFeedback.selectionClick();
+              return;
+            }
+            _layerController.redo(); // 🔄 Phase 2: New redo system
+          },
           onClear: _clear,
           onSettings: _showSettings,
           onPaperTypePressed: _showPaperTypePicker,

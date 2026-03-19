@@ -393,6 +393,15 @@ extension on _FlueraCanvasScreenState {
 
     // If lasso mode is active (but no selection or tapped outside), start new lasso
     if (_effectiveIsLasso) {
+      // #1/#3: If lasso was activated via gestural tap+drag, DON'T start a new
+      // lasso here — that would call clearSelection() and destroy the previous
+      // selection before a second tap+drag can add to it. Just return early.
+      // If this was a single tap (no second tap comes), _onDrawEnd will fire
+      // and auto-return to the previous tool.
+      if (_wasGesturalLassoActivated) {
+        _uiRebuildNotifier.value++;
+        return;
+      }
       // 🔒 Backup selection before starting new lasso — if a zoom gesture
       // interrupts (2nd finger → _onDrawCancel), we restore the selection.
       if (_lassoTool.hasSelection) {
@@ -599,7 +608,9 @@ extension on _FlueraCanvasScreenState {
           }
         }
       }
-      // 🧠 KNOWLEDGE FLOW: Tap connection with gesture tool → edit label
+      // 🧠 KNOWLEDGE FLOW: Tap connection with gesture tool → DEFER to touch-up
+      // Don't open label editor on touch-down — long-press may start curve drag.
+      // Store as pending; _onDrawEnd will open the editor if no drag happened.
       if (_knowledgeFlowController != null && _clusterCache.isNotEmpty) {
         final scale = _canvasController.scale;
         final hitConn = _knowledgeFlowController!.hitTestConnection(
@@ -611,12 +622,10 @@ extension on _FlueraCanvasScreenState {
           );
           if (midCanvas != null) {
             final screenPos = _canvasController.canvasToScreen(midCanvas);
-            setState(() {
-              _editingLabelConnectionId = hitConn.id;
-              _labelOverlayScreenPosition = screenPos;
-            });
-            HapticFeedback.selectionClick();
-            return;
+            _pendingLabelConnectionId = hitConn.id;
+            _pendingLabelScreenPos = screenPos;
+            // Don't return — let canvas pan handle the touch normally.
+            // The pending state is resolved in _onDrawEnd.
           }
         }
       }
@@ -656,6 +665,19 @@ extension on _FlueraCanvasScreenState {
     // 🎯 Reset rendered count to prevent stale values from previous stroke
     // being used for trimming when strokes arrive in the same event batch.
     CurrentStrokePainter.resetForNewStroke();
+    _drawWasCancelled = false;
+
+    // 🚀 ZOOM CHURN FIX: If _onDrawCancel just fired (< 300ms ago),
+    // skip all heavy init (Vulkan overlay, WebGPU, findRenderObject, etc.).
+    // During zoom, the first finger always triggers _onDrawStart, then
+    // the second finger immediately triggers _onDrawCancel. This cycle
+    // repeats on every re-pinch and the heavy init/teardown is the
+    // root cause of zoom jank.
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastDrawCancelMs < 300) {
+      return;
+    }
+
 
     // 🔥 VULKAN: Initialize native overlay on first freehand stroke
     if (!_vulkanOverlayActive) {
@@ -922,6 +944,11 @@ extension on _FlueraCanvasScreenState {
 
     // Erase the in-progress stroke from the notifier (don't save anything)
     _currentStrokeNotifier.clear();
+
+    // 🧹 SCRATCH-OUT: Set cancelled flag to suppress scratch-out on finger-up
+    _drawWasCancelled = true;
+    _lastDrawCancelMs = DateTime.now().millisecondsSinceEpoch;
+
 
     // Reset del drawing handler se ha uno stroke in corso
     if (_drawingHandler.hasStroke) {
@@ -1966,4 +1993,175 @@ extension on _FlueraCanvasScreenState {
           });
     });
   }
+
+  // =========================================================================
+  // 🔲 GESTURAL LASSO: Tap + Drag → temporary lasso selection
+  // =========================================================================
+
+  // NOTE: _isGesturalLassoActive field is declared in fluera_canvas_screen.dart
+
+  /// Called when tap + drag gesture is confirmed (finger moved > threshold after
+  /// second tap). Activates the lasso tool for the duration of the gesture
+  /// WITHOUT switching the active tool in UnifiedToolController.
+  void _onGesturalLassoStart(Offset canvasPosition) {
+    _isGesturalLassoActive = true;
+
+    // #1: Save current tool so we can auto-return after deselect
+    _previousToolBeforeGesturalLasso = _toolController.activeToolId;
+    _wasGesturalLassoActivated = true;
+
+    // #3: Additive selection — backup existing selection IDs.
+    // If the user already has elements selected, the new lasso will ADD
+    // to that selection instead of replacing it.
+    if (_lassoTool.hasSelection) {
+      _lassoSelectionBackup = Set<String>.from(_lassoTool.selectedIds);
+    } else {
+      _lassoSelectionBackup = null;
+    }
+
+    // #3: Start lasso WITHOUT clearing existing selection.
+    // We manually init the path instead of calling startLasso() which clears.
+    _lassoTool.lassoPath.clear();
+    _lassoTool.lassoPath.add(canvasPosition);
+    _lassoTool.lassoPathNotifier.value++;
+
+    // #10: Reset velocity tracking
+    _gesturalLassoLastPoint = canvasPosition;
+    _gesturalLassoLastTime = DateTime.now().millisecondsSinceEpoch;
+
+    HapticFeedback.selectionClick();
+    _uiRebuildNotifier.value++;
+  }
+
+  /// #4: Simple smoothing buffer for gestural lasso path points.
+  /// Averages the last N points to reduce jitter.
+  // NOTE: _gesturalLassoSmoothBuffer is declared in fluera_canvas_screen.dart
+  static const int _gesturalLassoSmoothWindow = 3;
+
+  Offset _smoothLassoPoint(Offset raw) {
+    _gesturalLassoSmoothBuffer.add(raw);
+    if (_gesturalLassoSmoothBuffer.length > _gesturalLassoSmoothWindow) {
+      _gesturalLassoSmoothBuffer.removeAt(0);
+    }
+    double sx = 0, sy = 0;
+    for (final p in _gesturalLassoSmoothBuffer) {
+      sx += p.dx;
+      sy += p.dy;
+    }
+    final n = _gesturalLassoSmoothBuffer.length;
+    return Offset(sx / n, sy / n);
+  }
+
+  // #10: Velocity tracking for path simplification\n  // NOTE: _gesturalLassoLastPoint and _gesturalLassoLastTime are declared\n  // in fluera_canvas_screen.dart
+
+  /// Called on every pointer move while gestural lasso is active.
+  void _onGesturalLassoUpdate(Offset canvasPosition) {
+    if (!_isGesturalLassoActive) return;
+
+    // #10: Velocity-based path simplification
+    // Fast drag → skip close points. Slow drag → keep all.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final dt = (now - _gesturalLassoLastTime).clamp(1, 1000);
+    final dist = (canvasPosition - _gesturalLassoLastPoint).distance;
+    final velocity = dist / dt * 1000; // px/sec
+    if (velocity > 2000 && dist < 3.0) return; // Skip redundant point
+
+    _gesturalLassoLastPoint = canvasPosition;
+    _gesturalLassoLastTime = now;
+
+    // #4: Apply path smoothing
+    final smoothed = _smoothLassoPoint(canvasPosition);
+    _lassoTool.updateLasso(smoothed);
+    // 🚀 PERF: No setState needed — lassoPathNotifier triggers targeted repaint
+  }
+
+  /// Called when the finger lifts, completing the gestural lasso selection.
+  void _onGesturalLassoEnd(Offset canvasPosition) {
+    if (!_isGesturalLassoActive) return;
+    _isGesturalLassoActive = false;
+    _gesturalLassoSmoothBuffer.clear(); // #4: Reset smooth buffer
+
+    final path = _lassoTool.lassoPath;
+
+    // #9: Minimum area safety — ignore micro-drags
+    if (path.length < 5) {
+      _lassoTool.lassoPath.clear();
+      _lassoTool.lassoPathNotifier.value++;
+      _autoReturnFromGesturalLasso();
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
+    // #9: Check bounding box area — too small = accidental
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (final p in path) {
+      if (p.dx < minX) minX = p.dx;
+      if (p.dy < minY) minY = p.dy;
+      if (p.dx > maxX) maxX = p.dx;
+      if (p.dy > maxY) maxY = p.dy;
+    }
+    final area = (maxX - minX) * (maxY - minY);
+    // Scale threshold by zoom: 400px² at 1x
+    final scale = _canvasController.scale;
+    final minArea = 400.0 / (scale * scale);
+    if (area < minArea) {
+      _lassoTool.lassoPath.clear();
+      _lassoTool.lassoPathNotifier.value++;
+      _autoReturnFromGesturalLasso();
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
+    // #11: Cancel on return to start — thin line back and forth
+    final startToEnd = (path.first - path.last).distance;
+    if (startToEnd < 15.0 && area < minArea * 3) {
+      _lassoTool.lassoPath.clear();
+      _lassoTool.lassoPathNotifier.value++;
+      _autoReturnFromGesturalLasso();
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
+    // #3: Enable additive mode if there was a previous selection
+    final hadPreviousSelection = _lassoSelectionBackup != null &&
+        _lassoSelectionBackup!.isNotEmpty;
+    if (hadPreviousSelection) {
+      _lassoTool.additiveMode = true;
+    }
+
+    _lassoTool.completeLasso();
+
+    // #3: Restore additive mode
+    if (hadPreviousSelection) {
+      _lassoTool.additiveMode = false;
+    }
+
+    if (_lassoTool.hasSelection) {
+      HapticFeedback.mediumImpact();
+      _toolController.selectTool('lasso');
+
+      // #8: Toast selection count via ActionFlashOverlay
+      final count = _lassoTool.selectedIds.length;
+      final label = count == 1 ? '1 elemento selezionato' : '$count elementi selezionati';
+      _actionFlashKey.currentState?.showText(label);
+    } else {
+      // #1: No selection found — auto-return to previous tool
+      _autoReturnFromGesturalLasso();
+    }
+    _uiRebuildNotifier.value++;
+  }
+
+  /// #1: Auto-return to the tool that was active before the gestural lasso.
+  /// Called when the user deselects (taps outside) or when no elements are found.
+  void _autoReturnFromGesturalLasso() {
+    final prev = _previousToolBeforeGesturalLasso;
+    _previousToolBeforeGesturalLasso = null;
+    _wasGesturalLassoActivated = false;
+    // Only return if we're currently in lasso mode (from gestural activation)
+    if (_toolController.isLassoMode) {
+      _toolController.selectTool(prev); // null = drawing mode
+    }
+  }
 }
+

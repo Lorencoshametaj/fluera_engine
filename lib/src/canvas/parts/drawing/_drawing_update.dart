@@ -11,6 +11,34 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🎨 KNOWLEDGE FLOW: Update curve drag (control point adjustment)
+    if (_isCurveDragging && _curveDragConnectionId != null && _knowledgeFlowController != null) {
+      final centroids = <String, Offset>{};
+      for (final c in _clusterCache) {
+        centroids[c.id] = c.centroid;
+      }
+      // 📐 Snap drag point to 45° angles for clean curves
+      final conn = _knowledgeFlowController!.connections
+          .where((c) => c.id == _curveDragConnectionId).firstOrNull;
+      var dragPt = canvasPosition;
+      if (conn != null) {
+        final srcPt = centroids[conn.sourceClusterId];
+        final tgtPt = centroids[conn.targetClusterId];
+        if (srcPt != null && tgtPt != null) {
+          final midPt = Offset((srcPt.dx + tgtPt.dx) / 2, (srcPt.dy + tgtPt.dy) / 2);
+          dragPt = KnowledgeFlowController.snapToAngle(canvasPosition, midPt);
+        }
+      }
+      _knowledgeFlowController!.updateCurveStrength(
+        _curveDragConnectionId!,
+        dragPt,
+        centroids,
+      );
+      _knowledgeFlowController!.version.value++;
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
     // 🧠 KNOWLEDGE FLOW: Update connection drag position + snap detection
     if (_isConnectionDragging && _knowledgeFlowController != null) {
       _connectionDragCurrentPoint = canvasPosition;
@@ -1223,6 +1251,7 @@ extension on _FlueraCanvasScreenState {
         );
       }
     }
+
   }
 
   // ==========================================================================

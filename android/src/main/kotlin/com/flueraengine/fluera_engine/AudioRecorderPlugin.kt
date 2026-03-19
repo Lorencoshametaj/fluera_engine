@@ -48,6 +48,7 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
 
     private lateinit var methodChannel: MethodChannel
     private lateinit var eventChannel: EventChannel
+    private lateinit var pcmEventChannel: EventChannel
     private var context: Context? = null
     private var activity: Activity? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
@@ -77,6 +78,11 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
     private var cachedPcmSamples: ShortArray? = null
     private var cachedPcmSampleRate: Int = 48000
 
+    // 🎤 Live PCM streaming for real-time transcription
+    @Volatile private var pcmStreamEnabled = false
+    private var pcmEventSink: EventChannel.EventSink? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     // MARK: - FlutterPlugin Implementation
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -87,11 +93,23 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
 
         eventChannel = EventChannel(binding.binaryMessenger, "flueraengine.audio/recorder_events")
         eventChannel.setStreamHandler(this)
+
+        // 🎤 PCM streaming EventChannel for live transcription
+        pcmEventChannel = EventChannel(binding.binaryMessenger, "flueraengine.audio/recorder_pcm")
+        pcmEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                pcmEventSink = events
+            }
+            override fun onCancel(arguments: Any?) {
+                pcmEventSink = null
+            }
+        })
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        pcmEventChannel.setStreamHandler(null)
         stopUpdateTimer()
         releaseRecorder()
         context = null
@@ -110,6 +128,9 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
             "hasPermission" -> handleHasPermission(result)
             "requestPermission" -> handleRequestPermission(result)
             "applyAudioProcessing" -> handleApplyAudioProcessing(call, result)
+            "convertToWav" -> handleConvertToWav(call, result)
+            "enablePcmStream" -> { pcmStreamEnabled = true; result.success(null) }
+            "disablePcmStream" -> { pcmStreamEnabled = false; result.success(null) }
             else -> result.notImplemented()
         }
     }
@@ -234,6 +255,17 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
                 val byteBuffer = java.nio.ByteBuffer.allocate(bufferSize)
                     .order(java.nio.ByteOrder.LITTLE_ENDIAN)
                 val shortView = byteBuffer.asShortBuffer()
+
+                // 🚀 Pre-allocate PCM streaming buffers (avoid per-chunk GC allocs)
+                val targetRate = 16000
+                val srcRate = recordingSampleRate
+                val ratio = srcRate.toDouble() / targetRate
+                val maxOutLen = ((bufferSize / 2) / ratio).toInt() + 1
+                val pcm16kPool = ShortArray(maxOutLen)
+                val pcmBytesPool = ByteArray(maxOutLen * 2)
+                val pcmByteBufferPool = java.nio.ByteBuffer.wrap(pcmBytesPool)
+                    .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
                 while (isCapturing) {
                     val readCount = recorder.read(buffer, 0, buffer.size)
                     if (readCount > 0 && !isPaused) {
@@ -253,6 +285,37 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
                             i += 16
                         }
                         captureAmplitude = maxSample.toDouble() / 32767.0
+
+                        // 🎤 Live PCM streaming: downsample to 16kHz with LINEAR INTERPOLATION
+                        if (pcmStreamEnabled && pcmEventSink != null) {
+                            val outLen: Int
+                            if (srcRate != targetRate) {
+                                outLen = (readCount / ratio).toInt()
+                                for (j in 0 until outLen) {
+                                    val srcPos = j * ratio
+                                    val srcIdx = srcPos.toInt()
+                                    val frac = srcPos - srcIdx
+                                    if (srcIdx + 1 < readCount) {
+                                        // Linear interpolation between adjacent samples
+                                        val s0 = buffer[srcIdx].toInt()
+                                        val s1 = buffer[srcIdx + 1].toInt()
+                                        pcm16kPool[j] = (s0 + (s1 - s0) * frac).toInt().toShort()
+                                    } else {
+                                        pcm16kPool[j] = buffer[srcIdx.coerceAtMost(readCount - 1)]
+                                    }
+                                }
+                            } else {
+                                outLen = readCount
+                                System.arraycopy(buffer, 0, pcm16kPool, 0, readCount)
+                            }
+                            // Bulk copy Int16 → ByteArray using pooled buffer
+                            pcmByteBufferPool.clear()
+                            pcmByteBufferPool.asShortBuffer().put(pcm16kPool, 0, outLen)
+                            val sendBytes = pcmBytesPool.copyOf(outLen * 2)
+                            mainHandler.post {
+                                pcmEventSink?.success(sendBytes)
+                            }
+                        }
                     }
                 }
             }, "AudioCaptureThread")
@@ -1069,5 +1132,153 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
             muxer.stop()
             muxer.release()
         }
+    }
+
+    // =========================================================================
+    // 🔄 Audio Format Conversion
+    // =========================================================================
+
+    /**
+     * Convert an audio file (M4A/AAC) to 16kHz mono WAV for ASR models.
+     *
+     * Uses MediaExtractor + MediaCodec to decode, then resamples to target
+     * sample rate and writes a standard PCM WAV file.
+     */
+    private fun handleConvertToWav(call: MethodCall, result: MethodChannel.Result) {
+        val inputPath = call.argument<String>("inputPath")
+        val targetSampleRate = call.argument<Int>("sampleRate") ?: 16000
+
+        if (inputPath == null) {
+            result.error("INVALID_ARGS", "inputPath is required", null)
+            return
+        }
+
+        Thread {
+            try {
+                // Step 1: Decode M4A → PCM ShortArray (reuses existing decoder)
+                val pcmSamples = decodeToShortArray(inputPath)
+                if (pcmSamples.isEmpty()) {
+                    Handler(Looper.getMainLooper()).post {
+                        result.error("DECODE_ERROR", "Failed to decode audio file", null)
+                    }
+                    return@Thread
+                }
+
+                // Step 2: Get source sample rate from file
+                val extractor = android.media.MediaExtractor()
+                extractor.setDataSource(inputPath)
+                var sourceSampleRate = 48000
+                for (i in 0 until extractor.trackCount) {
+                    val format = extractor.getTrackFormat(i)
+                    val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
+                    if (mime.startsWith("audio/")) {
+                        sourceSampleRate = format.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                        break
+                    }
+                }
+                extractor.release()
+
+                // Step 3: Resample if needed
+                val outputSamples = if (sourceSampleRate != targetSampleRate) {
+                    resampleLinear(pcmSamples, sourceSampleRate, targetSampleRate)
+                } else {
+                    pcmSamples
+                }
+
+                // Step 4: Write WAV file
+                val baseName = inputPath.substringBeforeLast('.')
+                val outputPath = "${baseName}_16k.wav"
+                writeWavFile(outputSamples, outputPath, targetSampleRate, 1)
+
+                Log.d("AudioRecorder", "🔄 Converted to WAV: ${outputSamples.size} samples @ ${targetSampleRate}Hz")
+
+                Handler(Looper.getMainLooper()).post {
+                    result.success(outputPath)
+                }
+            } catch (e: Exception) {
+                Log.e("AudioRecorder", "❌ WAV conversion failed: ${e.message}")
+                Handler(Looper.getMainLooper()).post {
+                    result.error("CONVERT_ERROR", "WAV conversion failed: ${e.message}", null)
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * Linear interpolation resampling (sufficient for speech).
+     */
+    private fun resampleLinear(input: ShortArray, fromRate: Int, toRate: Int): ShortArray {
+        val ratio = fromRate.toDouble() / toRate.toDouble()
+        val outputLength = (input.size / ratio).toInt()
+        val output = ShortArray(outputLength)
+
+        for (i in 0 until outputLength) {
+            val srcPos = i * ratio
+            val srcIdx = srcPos.toInt()
+            val frac = srcPos - srcIdx
+
+            if (srcIdx + 1 < input.size) {
+                val a = input[srcIdx].toDouble()
+                val b = input[srcIdx + 1].toDouble()
+                output[i] = (a + (b - a) * frac).coerceIn(-32768.0, 32767.0).toInt().toShort()
+            } else if (srcIdx < input.size) {
+                output[i] = input[srcIdx]
+            }
+        }
+
+        return output
+    }
+
+    /**
+     * Write PCM samples to a standard WAV file (16-bit, mono).
+     */
+    private fun writeWavFile(samples: ShortArray, outputPath: String, sampleRate: Int, channels: Int) {
+        val byteRate = sampleRate * channels * 2
+        val dataSize = samples.size * 2
+        val fileSize = 36 + dataSize
+
+        val out = java.io.FileOutputStream(outputPath)
+        val buffer = java.nio.ByteBuffer.allocate(44 + dataSize)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+        // RIFF header
+        buffer.put('R'.code.toByte())
+        buffer.put('I'.code.toByte())
+        buffer.put('F'.code.toByte())
+        buffer.put('F'.code.toByte())
+        buffer.putInt(fileSize)
+        buffer.put('W'.code.toByte())
+        buffer.put('A'.code.toByte())
+        buffer.put('V'.code.toByte())
+        buffer.put('E'.code.toByte())
+
+        // fmt sub-chunk
+        buffer.put('f'.code.toByte())
+        buffer.put('m'.code.toByte())
+        buffer.put('t'.code.toByte())
+        buffer.put(' '.code.toByte())
+        buffer.putInt(16)           // sub-chunk size
+        buffer.putShort(1)          // PCM format
+        buffer.putShort(channels.toShort())
+        buffer.putInt(sampleRate)
+        buffer.putInt(byteRate)
+        buffer.putShort((channels * 2).toShort())  // block align
+        buffer.putShort(16)         // bits per sample
+
+        // data sub-chunk
+        buffer.put('d'.code.toByte())
+        buffer.put('a'.code.toByte())
+        buffer.put('t'.code.toByte())
+        buffer.put('a'.code.toByte())
+        buffer.putInt(dataSize)
+
+        // PCM data
+        for (sample in samples) {
+            buffer.putShort(sample)
+        }
+
+        out.write(buffer.array())
+        out.flush()
+        out.close()
     }
 }
