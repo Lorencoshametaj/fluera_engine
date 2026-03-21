@@ -36,14 +36,14 @@ int _gridSizeForCount(int count) {
   return 8; // 8×8 = 64 cells max
 }
 
-/// Node type → color mapping.
+/// Node type → color mapping (JARVIS HUD cyan palette).
 const Map<ContentNodeType, Color> _nodeColors = {
-  ContentNodeType.stroke: Color(0xCC4A90D9),
-  ContentNodeType.shape: Color(0xCC5CB85C),
-  ContentNodeType.text: Color(0xCCA0A0A0),
-  ContentNodeType.image: Color(0xCCE8A838),
-  ContentNodeType.pdf: Color(0xCCD9534F),
-  ContentNodeType.other: Color(0xCC8E8E93),
+  ContentNodeType.stroke: Color(0xCC60B0E8),  // Cyan blue
+  ContentNodeType.shape: Color(0xCC50D0A0),   // Teal
+  ContentNodeType.text: Color(0xCC82C8FF),    // Neon cyan
+  ContentNodeType.image: Color(0xCCB0A050),   // Amber muted
+  ContentNodeType.pdf: Color(0xCCD06058),      // Warm red (dim)
+  ContentNodeType.other: Color(0xCC5A8CB8),   // Muted cyan
 };
 
 /// Compute the world→minimap mapping parameters.
@@ -132,20 +132,8 @@ class MinimapContentPainter extends CustomPainter {
   final Color canvasBackground;
 
   // ── Pre-allocated paints ─────────────────────────────────────────────────
-  static final Paint _bgPaintLight = Paint()..color = const Color(0xE6F0F0F5);
-  static final Paint _bgPaintDark = Paint()..color = const Color(0xCC1A1A2E);
-
-  static final Paint _borderPaintLight =
-      Paint()
-        ..color = const Color(0x30000000)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
-  static final Paint _borderPaintDark =
-      Paint()
-        ..color = const Color(0x40FFFFFF)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
-
+  // NOTE: Background is now drawn by _MinimapHudFramePainter (dark glass).
+  // This painter only draws content regions on a transparent surface.
   static final Paint _nodePaint = Paint();
 
   static final Paint _strokePathPaint =
@@ -166,20 +154,11 @@ class MinimapContentPainter extends CustomPainter {
     super.repaint,
   });
 
-  bool get _isLightBg => canvasBackground.computeLuminance() > 0.5;
-
   @override
   void paint(Canvas canvas, Size size) {
-    // ── Background ─────────────────────────────────────────────────────────
-    final isLight = _isLightBg;
-    final bgPaint = isLight ? _bgPaintLight : _bgPaintDark;
-    final borderPaint = isLight ? _borderPaintLight : _borderPaintDark;
-
+    // Background drawn by _MinimapHudFramePainter — just clip to panel.
     final bgRect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final bgRRect = RRect.fromRectAndRadius(bgRect, const Radius.circular(8));
-    canvas.drawRRect(bgRRect, bgPaint);
-    canvas.drawRRect(bgRRect, borderPaint);
-
+    final bgRRect = RRect.fromRectAndRadius(bgRect, const Radius.circular(10));
     canvas.clipRRect(bgRRect);
 
     final mapping = _computeMapping(contentBounds, minimapWidth, minimapHeight);
@@ -387,9 +366,10 @@ class MinimapContentPainter extends CustomPainter {
 // VIEWPORT PAINTER
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Painter for the minimap viewport indicator only.
+/// Painter for the minimap viewport indicator — JARVIS HUD style.
 ///
-/// Repaints on every camera change — extremely cheap (single rect + border).
+/// Neon cyan outline with corner indicator dots and faint fill.
+/// Repaints on every camera change — extremely cheap.
 class MinimapViewportPainter extends CustomPainter {
   final Rect contentBounds;
   final Rect viewportInCanvas;
@@ -397,22 +377,22 @@ class MinimapViewportPainter extends CustomPainter {
   final double minimapHeight;
   final Color canvasBackground;
 
-  // ── Pre-allocated paints ─────────────────────────────────────────────────
-  static final Paint _viewportStrokePaintLight =
-      Paint()
-        ..color = const Color(0x88333333)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5;
-  static final Paint _viewportStrokePaintDark =
-      Paint()
-        ..color = const Color(0x55FFFFFF)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5;
+  // ── Minimal HUD paints ────────────────────────────────────────────────────
+  static const _neonCyan = Color(0xFF82C8FF);
 
-  static final Paint _viewportFillPaintLight =
-      Paint()..color = const Color(0x0D000000);
-  static final Paint _viewportFillPaintDark =
-      Paint()..color = const Color(0x0DFFFFFF);
+  static final Paint _viewportStrokePaint =
+      Paint()
+        ..color = _neonCyan.withValues(alpha: 0.5)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+
+  static final Paint _viewportFillPaint =
+      Paint()..color = _neonCyan.withValues(alpha: 0.05);
+
+  static final Paint _cornerDotPaint =
+      Paint()
+        ..color = _neonCyan.withValues(alpha: 0.6)
+        ..style = PaintingStyle.fill;
 
   MinimapViewportPainter({
     required this.contentBounds,
@@ -423,8 +403,6 @@ class MinimapViewportPainter extends CustomPainter {
     super.repaint,
   });
 
-  bool get _isLightBg => canvasBackground.computeLuminance() > 0.5;
-
   @override
   void paint(Canvas canvas, Size size) {
     if (viewportInCanvas.isEmpty || !viewportInCanvas.isFinite) return;
@@ -434,15 +412,9 @@ class MinimapViewportPainter extends CustomPainter {
 
     final (:scale, :offsetX, :offsetY, :expandedBounds) = mapping;
 
-    // Clip to rounded panel bounds (same as content painter).
+    // Clip to rounded panel bounds.
     final bgRect = Rect.fromLTWH(0, 0, size.width, size.height);
-    canvas.clipRRect(RRect.fromRectAndRadius(bgRect, const Radius.circular(8)));
-
-    final isLight = _isLightBg;
-    final strokePaint =
-        isLight ? _viewportStrokePaintLight : _viewportStrokePaintDark;
-    final fillPaint =
-        isLight ? _viewportFillPaintLight : _viewportFillPaintDark;
+    canvas.clipRRect(RRect.fromRectAndRadius(bgRect, const Radius.circular(10)));
 
     final vr = _worldToMinimap(
       viewportInCanvas,
@@ -451,8 +423,19 @@ class MinimapViewportPainter extends CustomPainter {
       offsetY,
       expandedBounds,
     );
-    canvas.drawRect(vr, fillPaint);
-    canvas.drawRect(vr, strokePaint);
+
+    // Faint fill
+    canvas.drawRect(vr, _viewportFillPaint);
+
+    // Thin cyan outline
+    canvas.drawRect(vr, _viewportStrokePaint);
+
+    // Small corner dots
+    const dotR = 1.5;
+    canvas.drawCircle(vr.topLeft, dotR, _cornerDotPaint);
+    canvas.drawCircle(vr.topRight, dotR, _cornerDotPaint);
+    canvas.drawCircle(vr.bottomLeft, dotR, _cornerDotPaint);
+    canvas.drawCircle(vr.bottomRight, dotR, _cornerDotPaint);
   }
 
   @override

@@ -46,21 +46,38 @@ class MlKitInkEngine extends InkRecognitionEngine {
   Future<void> init({String languageCode = 'en'}) async {
     if (!isAvailable) return;
     if (_modelReady && _languageCode == languageCode) return;
-    if (_initializing) return;
+
+    // Wait for any in-progress init to finish (instead of silently returning)
+    int waitMs = 0;
+    while (_initializing && waitMs < 15000) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      waitMs += 200;
+    }
+    // After waiting, check if the other init already handled our language
+    if (_modelReady && _languageCode == languageCode) return;
+    if (_initializing) return; // Still stuck after 15s — give up
+
     _initializing = true;
 
     try {
       _languageCode = languageCode;
 
       final isDownloaded = await _modelManager.isModelDownloaded(languageCode);
+      print('🔤 MlKit model "$languageCode" downloaded: $isDownloaded');
       if (!isDownloaded) {
-        await _modelManager.downloadModel(languageCode);
+        print('🔤 Downloading model "$languageCode"...');
+        // Timeout: Google Play Services may queue forever on mobile data
+        await _modelManager.downloadModel(languageCode, isWifiRequired: false)
+            .timeout(const Duration(seconds: 30));
+        print('🔤 Download complete');
       }
 
       _recognizer?.close();
       _recognizer = DigitalInkRecognizer(languageCode: languageCode);
       _modelReady = true;
-    } catch (_) {
+      print('🔤 ✅ MlKit engine ready (lang=$languageCode)');
+    } catch (e, st) {
+      print('❌ MlKitInkEngine.init($languageCode) FAILED: $e\n$st');
       _modelReady = false;
     } finally {
       _initializing = false;
@@ -168,7 +185,8 @@ class MlKitInkEngine extends InkRecognitionEngine {
   Future<bool> downloadLanguage(String languageCode) async {
     if (!isAvailable) return false;
     try {
-      await _modelManager.downloadModel(languageCode);
+      await _modelManager.downloadModel(languageCode, isWifiRequired: false)
+          .timeout(const Duration(seconds: 30));
       return true;
     } catch (_) {
       return false;

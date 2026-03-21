@@ -3385,8 +3385,8 @@ void VkStrokeRenderer::updateAndRender(const float *points, int pointCount,
 
   // Track whether this frame uses GPU compute or CPU tessellation
   // 🚀 Ballpoint (0) excluded: uses specialised EMA + cap tessellation on CPU
-  // 🎨 Fountain pen (4) excluded: needs per-point nib angle on CPU
-  bool useCompute = computeAvailable_ && computePipeline_ && brushType != 0;
+  // 🎨 Fountain pen (4) excluded: needs per-point nib angle + Chaikin + arc-length on CPU
+  bool useCompute = computeAvailable_ && computePipeline_ && brushType != 0 && brushType != 4;
 
 
 

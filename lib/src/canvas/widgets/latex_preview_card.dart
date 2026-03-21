@@ -212,6 +212,10 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
             if (p.dy < minY) minY = p.dy;
             if (p.dy > maxY) maxY = p.dy;
           }
+        case RectDrawCommand():
+          if (cmd.y < minY) minY = cmd.y;
+          if (cmd.y + cmd.height > maxY) maxY = cmd.y + cmd.height;
+          if (cmd.x + cmd.width > maxX) maxX = cmd.x + cmd.width;
       }
     }
     // Add some padding
@@ -363,6 +367,15 @@ class _LatexPreviewPainter extends CustomPainter {
               ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
               ..strokeWidth = cmd.strokeWidth
               ..strokeCap = StrokeCap.round
+              ..isAntiAlias = true,
+          );
+
+        case RectDrawCommand():
+          canvas.drawRect(
+            Rect.fromLTWH(cmd.x, cmd.y, cmd.width, cmd.height),
+            Paint()
+              ..color = cmd.color
+              ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
               ..isAntiAlias = true,
           );
       }

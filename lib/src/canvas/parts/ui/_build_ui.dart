@@ -249,6 +249,10 @@ extension on _FlueraCanvasScreenState {
                             onLongPress: () {
                               setState(() => _showDotGrid = !_showDotGrid);
                             },
+                            isMinimapVisible: _showMinimap,
+                            onToggleMinimap: () {
+                              setState(() => _showMinimap = !_showMinimap);
+                            },
                           ),
                         ),
 
@@ -364,81 +368,203 @@ extension on _FlueraCanvasScreenState {
                               ),
                             ),
                           ),
+
+                        // 🔍 Echo Search: Query Pen neon glow overlay
+                        if (_isEchoSearchMode && _echoSearchController != null)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: ValueListenableBuilder<int>(
+                                valueListenable: _uiRebuildNotifier,
+                                builder: (context, _, __) {
+                                  return EchoSearchPenOverlay(
+                                    controller: _echoSearchController!,
+                                    canvasOffset: _canvasController.offset,
+                                    canvasScale: _canvasController.scale,
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
                 ],
               ),
 
-              // 🌀 Rotation Angle Indicator (reactive, floating pill)
-              Positioned.fill(
-                child: ListenableBuilder(
-                  listenable: _canvasController,
-                  builder: (context, _) {
-                    final rotation = _canvasController.rotation;
-                    if (rotation == 0.0) return const SizedBox.shrink();
+              // 🌀 Rotation Angle Indicator → now integrated into ZoomLevelIndicator
 
-                    final isSnapped =
-                        _canvasController.checkSnapAngle(rotation) != null;
-                    final pillColor =
-                        isSnapped
-                            ? Colors.blue.withValues(alpha: 0.85)
-                            : Colors.black.withValues(alpha: 0.65);
 
-                    return Stack(
-                      children: [
-                        Positioned(
-                          bottom: 24,
-                          left: 0,
-                          right: 0,
-                          child: Center(
-                            child: IgnorePointer(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: pillColor,
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Transform.rotate(
-                                      angle: rotation,
-                                      child: Icon(
-                                        isSnapped
-                                            ? Icons.check_circle_rounded
-                                            : Icons.navigation_rounded,
-                                        color: Colors.white,
-                                        size: 14,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      _canvasController.rotationDegrees,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+              // 📲 Echo Search: Swipe-down from top edge to activate
+              if (!_isEchoSearchMode)
+                _buildEchoSearchSwipeZone(),
+
+              // 🔍 Echo Search HUD Badge (phase indicator + navigation)
+              if (_isEchoSearchMode) ...[
+                // 🔮 Entry animation (expanding ring)
+                Positioned.fill(
+                  child: _buildEchoSearchEntryAnimation(),
+                ),
+                // HUD badge (RepaintBoundary isolates its repaints)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 12,
+                  right: 16,
+                  child: RepaintBoundary(
+                    child: _buildEchoSearchHudBadge(),
+                  ),
+                ),
+              ],
+
+              // 🎯 Context Menus & Panels (above everything)
+              // Wrapped in ValueListenableBuilder so menus rebuild when
+              // _uiRebuildNotifier fires (e.g. lasso selection completion).
+              ValueListenableBuilder<int>(
+                valueListenable: _uiRebuildNotifier,
+                builder: (context, _, __) => Stack(
+                  children: _buildMenus(context),
                 ),
               ),
 
-              // 🎯 Context Menus & Panels (above everything)
-              ..._buildMenus(context),
+              // 🔮 Atlas Holographic Response Cards — rendered ABOVE menus
+              for (int i = 0; i < _atlasCards.length; i++)
+                AtlasResponseCard(
+                  key: ValueKey('atlas_card_${_atlasCards[i].id}'),
+                  cardId: _atlasCards[i].id,
+                  position: _atlasCards[i].position,
+                  responseText: _atlasCards[i].text,
+                  accentColor: _effectiveSelectedColor,
+                  onBookmark: (text) {
+                    HapticFeedback.mediumImpact();
+                    debugPrint('⭐ Bookmarked: ${text.length > 60 ? '${text.substring(0, 57)}...' : text}');
+                  },
+                  stackIndex: i,
+                  totalCards: _atlasCards.length,
+                  conversationHistory: _atlasCards[i].conversationHistory,
+                  onDismiss: () {
+                    final id = _atlasCards[i].id;
+                    if (mounted) {
+                      setState(() => _atlasCards.removeWhere((c) => c.id == id));
+                    }
+                  },
+                  onDismissAll: () {
+                    if (mounted) {
+                      HapticFeedback.mediumImpact();
+                      setState(() => _atlasCards.clear());
+                    }
+                  },
+                  onGoDeeper: (chain) {
+                    final pos = _atlasCards[i].position;
+                    final id = _atlasCards[i].id;
+                    if (mounted) {
+                      setState(() => _atlasCards.removeWhere((c) => c.id == id));
+                    }
+                    _goDeeper(chain, pos);
+                  },
+                  onFollowUp: (question) {
+                    final ctx = _atlasCards[i].text;
+                    final pos = _atlasCards[i].position;
+                    _followUpFromCard(question, ctx, pos);
+                  },
+                  onSearchWeb: (topic) {
+                    final query = Uri.encodeComponent(topic);
+                    final url = 'https://www.google.com/search?q=$query';
+                    Clipboard.setData(ClipboardData(text: url));
+                    HapticFeedback.lightImpact();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('🔗 ${topic.length > 40 ? '${topic.substring(0, 37)}...' : topic}'),
+                        duration: const Duration(seconds: 3),
+                        behavior: SnackBarBehavior.floating,
+                        action: SnackBarAction(label: 'Apri', textColor: const Color(0xFF00E5FF), onPressed: () {
+                          // Use the same share channel that already exists natively
+                          const MethodChannel('fluera/share').invokeMethod('openUrl', {'url': url});
+                        }),
+                      ));
+                    }
+                  },
+                  onSaveAsNote: (text) {
+                    final id = _atlasCards[i].id;
+                    _saveAtlasResponseAsNote(text);
+                    if (mounted) {
+                      setState(() => _atlasCards.removeWhere((c) => c.id == id));
+                    }
+                  },
+                  onRetry: () {
+                    _analyzeSelection();
+                  },
+                  onExtractLatex: (latexSources) {
+                    if (latexSources.isEmpty) return;
+
+                    // Position: selection center, or center of current viewport
+                    final selBounds = _lassoTool.getSelectionBounds();
+                    final double baseX;
+                    final double baseY;
+                    if (selBounds != null) {
+                      baseX = selBounds.center.dx;
+                      baseY = selBounds.bottom + 40;
+                    } else {
+                      // Use center of visible canvas area
+                      final screenCenter = Offset(
+                        MediaQuery.of(context).size.width / 2,
+                        MediaQuery.of(context).size.height / 2,
+                      );
+                      final canvasCenter = _canvasController.screenToCanvas(screenCenter);
+                      baseX = canvasCenter.dx;
+                      baseY = canvasCenter.dy;
+                    }
+
+                    debugPrint('🧮 Extracting ${latexSources.length} formulas at ($baseX, $baseY)');
+                    for (final src in latexSources) { debugPrint('  → "$src"'); }
+
+                    final rootGroup = _layerController.sceneGraph.rootNode;
+                    for (int f = 0; f < latexSources.length; f++) {
+                      final node = LatexNode(
+                        id: NodeId(generateUid()),
+                        latexSource: latexSources[f],
+                        fontSize: 24.0,
+                        color: const Color(0xFF00E5FF),
+                      );
+                      // Compute layout so the renderer has draw commands (not just placeholder)
+                      try {
+                        final ast = LatexParser.parse(latexSources[f]);
+                        debugPrint('  📐 AST type: ${ast.runtimeType}');
+                        final layout = LatexLayoutEngine.layout(
+                          ast, fontSize: 24.0, color: const Color(0xFF00E5FF),
+                        );
+                        debugPrint('  📐 Layout: ${layout.commands.length} cmds, size=${layout.size}');
+                        node.cachedLayout = layout;
+                      } catch (e, st) {
+                        debugPrint('⚠️ LaTeX parse/layout error: $e\n$st');
+                      }
+                      node.localTransform.setTranslationRaw(
+                        baseX - 60, baseY + f * 80, 0,
+                      );
+                      _commandHistory.execute(
+                        AddLatexNodeCommand(parent: rootGroup, latexNode: node),
+                      );
+                    }
+
+                    _layerController.sceneGraph.bumpVersion();
+                    setState(() {});
+                    _autoSaveCanvas();
+                    HapticFeedback.heavyImpact();
+
+                    // Navigate camera to show the newly created node
+                    final screenSize = MediaQuery.of(context).size;
+                    final targetOffset = Offset(
+                      screenSize.width / 2 - baseX * _canvasController.scale,
+                      screenSize.height / 2 - baseY * _canvasController.scale,
+                    );
+                    _canvasController.animateOffsetTo(targetOffset);
+
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('🧮 ${latexSources.length == 1 ? "Formula estratta!" : "${latexSources.length} formule estratte!"}'),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ));
+                    }
+                  },
+                ),
 
               // 🔷 Shape recognition toast
               _buildShapeRecognitionToast(),

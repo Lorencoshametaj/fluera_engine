@@ -25,6 +25,12 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // 🔍 ECHO SEARCH INTERCEPT: Route strokes to Query Pen instead of canvas
+    if (_echoSearchActive) {
+      _echoSearchOnDrawStart(canvasPosition, pressure);
+      return;
+    }
+
     // 🧹 KNOWLEDGE FLOW OVERLAY CLEANUP: Clear any active preview/label
     // overlays on new touch. Prevents ghost Positioned.fill GestureDetector
     // from blocking canvas input after tool switches or zoom changes.
@@ -399,6 +405,10 @@ extension on _FlueraCanvasScreenState {
       // If this was a single tap (no second tap comes), _onDrawEnd will fire
       // and auto-return to the previous tool.
       if (_wasGesturalLassoActivated) {
+        // Save current selection so _onGesturalLassoEnd can use additive mode
+        if (_lassoTool.hasSelection) {
+          _lassoSelectionBackup = Set<String>.from(_lassoTool.selectedIds);
+        }
         _uiRebuildNotifier.value++;
         return;
       }
@@ -835,6 +845,14 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // 🤏 LASSO DRAG: Cancel selection drag so two-finger gesture can
+    // cleanly transition to pinch-to-transform (rotate/scale).
+    // Without this, _lassoTool.isDragging stays true → blockPanZoom()
+    // blocks the pinch gesture from routing to selection transform.
+    if (_lassoTool.isDragging) {
+      _lassoTool.endDrag(skipReflow: true);
+    }
+
     // 🖼️ IMAGE TOOL: Cancel any image drag/resize/handle-rotation so that
     // the two-finger gesture can cleanly transition to image rotation.
     if (_imageTool.isDragging) {
@@ -932,6 +950,18 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // 🔒 LASSO DRAG CANCEL: If a second finger interrupts an active lasso drag,
+    // cancel the drag and restore strokes to pre-drag positions (undo snapshot).
+    if (_effectiveIsLasso && _lassoTool.isDragging) {
+      _lassoTool.restoreUndo();
+      _lassoTool.endDrag();
+      _stopAutoScroll();
+      DrawingPainter.invalidateAllTiles();
+      _lassoSelectionBackup = null;
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
     // 🔒 Restore lasso selection if a zoom gesture interrupted a new lasso
     if (_effectiveIsLasso && _lassoSelectionBackup != null) {
       _lassoTool.clearLassoPath();
@@ -1019,6 +1049,139 @@ extension on _FlueraCanvasScreenState {
       // after auto-selection during two-finger gesture.
       setState(() {});
     }
+  }
+
+  // ===========================================================================
+  // 🤏 Selection Pinch Transform — two-finger rotate + scale on lasso selection
+  // ===========================================================================
+
+  static const double _snapAngleStep = math.pi / 4; // 45°
+  static const double _snapTolerance = 0.05; // ~3° in radians
+  static const double _minSelectionScale = 0.10; // 10%
+  static const double _maxSelectionScale = 5.0;  // 500%
+
+  void _onSelectionScaleStart() {
+    _isSelectionPinching = true;
+    _selectionPrevRotation = 0.0;
+    _selectionPrevScale = 1.0;
+    _selectionAccumRotation = 0.0;
+    _selectionAccumScale = 1.0;
+    _selectionLastSnapAngle = null;
+    // Save undo snapshot before transform
+    _lassoTool.saveUndoSnapshot();
+    // 📳 Haptic on start
+    HapticFeedback.mediumImpact();
+  }
+
+  void _onSelectionTransform(double rotation, double scaleRatio, Offset focalDelta) {
+    if (!_lassoTool.hasSelection) return;
+
+    // 🌀 Rotation delta (gesture gives cumulative rotation)
+    final rotDelta = rotation - _selectionPrevRotation;
+    _selectionPrevRotation = rotation;
+
+    // Track accumulated rotation for indicator + snap
+    _selectionAccumRotation += rotDelta;
+
+    // 🤏 Scale delta (gesture gives cumulative ratio)
+    var scaleDelta = scaleRatio / _selectionPrevScale;
+    _selectionPrevScale = scaleRatio;
+
+    // 🔒 Scale limits: clamp accumulated scale to 10%–500%
+    final projectedScale = _selectionAccumScale * scaleDelta;
+    if (projectedScale < _minSelectionScale) {
+      scaleDelta = _minSelectionScale / _selectionAccumScale;
+    } else if (projectedScale > _maxSelectionScale) {
+      scaleDelta = _maxSelectionScale / _selectionAccumScale;
+    }
+    _selectionAccumScale *= scaleDelta;
+
+    // 🔄 Snap to 45° increments with haptic
+    double effectiveRotDelta = rotDelta;
+    if (rotDelta.abs() > 0.001) {
+      final nearestSnap = (_selectionAccumRotation / _snapAngleStep).round() * _snapAngleStep;
+      final distToSnap = (_selectionAccumRotation - nearestSnap).abs();
+      if (distToSnap < _snapTolerance) {
+        final snappedAccum = nearestSnap;
+        effectiveRotDelta = rotDelta + (snappedAccum - _selectionAccumRotation);
+        _selectionAccumRotation = snappedAccum;
+        if (_selectionLastSnapAngle == null || (_selectionLastSnapAngle! - nearestSnap).abs() > 0.01) {
+          _selectionLastSnapAngle = nearestSnap;
+          HapticFeedback.lightImpact();
+        }
+      } else {
+        _selectionLastSnapAngle = null;
+      }
+    }
+
+    // 🚀 Combined single-pass rotate + scale (avoids double iteration)
+    _lassoTool.rotateAndScaleSelected(effectiveRotDelta, scaleDelta);
+
+    // 🖐️ Apply drag: convert screen-space focal delta to canvas-space
+    if (focalDelta.distance > 0.1) {
+      final rot = _canvasController.rotation;
+      final scale = _canvasController.scale;
+      final cosR = math.cos(-rot);
+      final sinR = math.sin(-rot);
+      final unrotated = Offset(
+        focalDelta.dx * cosR - focalDelta.dy * sinR,
+        focalDelta.dx * sinR + focalDelta.dy * cosR,
+      );
+      final canvasDelta = unrotated / scale;
+      _lassoTool.moveSelected(canvasDelta);
+    }
+
+    // 🚀 PERF: Only triggerRepaint — skip invalidateAllTiles during active pinch.
+    DrawingPainter.triggerRepaint();
+    _uiRebuildNotifier.value++;
+  }
+
+  void _onSelectionScaleEnd() {
+    _isSelectionPinching = false;
+    _selectionPrevRotation = 0.0;
+    _selectionPrevScale = 1.0;
+    _selectionAccumRotation = 0.0;
+    _selectionAccumScale = 1.0;
+    _selectionLastSnapAngle = null;
+
+    // 📳 Haptic on end
+    HapticFeedback.lightImpact();
+
+    // Persist changes — invalidate active layer stroke cache
+    final activeLayer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+    activeLayer.node.invalidateStrokeCache();
+    DrawingPainter.invalidateAllTiles();
+    DrawingPainter.triggerRepaint();
+    _uiRebuildNotifier.value++;
+    _autoSaveCanvas();
+  }
+
+  /// 🚫 Cancel selection pinch and restore undo snapshot
+  void _cancelSelectionPinch() {
+    if (!_isSelectionPinching) return;
+    _isSelectionPinching = false;
+    _selectionPrevRotation = 0.0;
+    _selectionPrevScale = 1.0;
+    _selectionAccumRotation = 0.0;
+    _selectionAccumScale = 1.0;
+    _selectionLastSnapAngle = null;
+
+    // Restore from undo snapshot
+    _lassoTool.restoreUndo();
+    HapticFeedback.heavyImpact();
+
+    // Repaint with restored state
+    final activeLayer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+    activeLayer.node.invalidateStrokeCache();
+    DrawingPainter.invalidateAllTiles();
+    DrawingPainter.triggerRepaint();
+    _uiRebuildNotifier.value++;
   }
 
   // ===========================================================================
@@ -1950,7 +2113,7 @@ extension on _FlueraCanvasScreenState {
   void _initVulkanOverlayIfNeeded() {
     // 🐧🪟 DESKTOP: Skip native overlay (GL/D3D11) — use Dart CurrentStrokePainter.
     // This ensures live strokes look identical to committed strokes (same
-    // BallpointBrush code path). Native tessellation produces visually different
+    // BrushEngine code path). Native tessellation produces visually different
     // output from Skia's path rendering.
     if (PlatformGuard.isLinux || PlatformGuard.isWindows) return;
 
@@ -2005,6 +2168,13 @@ extension on _FlueraCanvasScreenState {
   /// WITHOUT switching the active tool in UnifiedToolController.
   void _onGesturalLassoStart(Offset canvasPosition) {
     _isGesturalLassoActive = true;
+
+    // Silently remove the dot stroke created by the first tap —
+    // but ONLY if we were in drawing mode (pen/pencil). If the tool
+    // was already 'lasso', the first tap didn't create a dot.
+    if (_toolController.activeToolId != 'lasso') {
+      _layerController.discardLastAction();
+    }
 
     // #1: Save current tool so we can auto-return after deselect
     _previousToolBeforeGesturalLasso = _toolController.activeToolId;
@@ -2141,6 +2311,12 @@ extension on _FlueraCanvasScreenState {
       HapticFeedback.mediumImpact();
       _toolController.selectTool('lasso');
 
+      // #4 (visual): Trigger closing ripple at selection center
+      final bounds = _lassoTool.getSelectionBounds();
+      if (bounds != null) {
+        _lassoRippleCenter = _canvasController.canvasToScreen(bounds.center);
+        _lassoRippleController?.forward(from: 0);
+      }
       // #8: Toast selection count via ActionFlashOverlay
       final count = _lassoTool.selectedIds.length;
       final label = count == 1 ? '1 elemento selezionato' : '$count elementi selezionati';

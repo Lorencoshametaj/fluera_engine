@@ -246,7 +246,7 @@ void D3D11StrokeRenderer::updateAndRender(
     accumulatedVerts_.clear();
     totalAccumulatedPoints_ = pointCount;
 
-    bool useCompute = computeAvailable_ && computeShader_ && brushType != 0;
+    bool useCompute = computeAvailable_ && computeShader_ && brushType != 0 && brushType != 4;
     if (useCompute) {
       int subsPerSeg = dynamicSubsPerSeg_;  // 🚀 Adaptive LOD
       int startSeg = 0;

@@ -11,6 +11,12 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🔍 ECHO SEARCH INTERCEPT: Route stroke updates to Query Pen
+    if (_echoSearchActive) {
+      _echoSearchOnDrawUpdate(canvasPosition, pressure);
+      return;
+    }
+
     // 🎨 KNOWLEDGE FLOW: Update curve drag (control point adjustment)
     if (_isCurveDragging && _curveDragConnectionId != null && _knowledgeFlowController != null) {
       final centroids = <String, Offset>{};

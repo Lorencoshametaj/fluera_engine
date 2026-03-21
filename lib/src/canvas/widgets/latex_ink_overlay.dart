@@ -453,6 +453,15 @@ class _GhostLatexPainter extends CustomPainter {
                 ..strokeWidth = cmd.strokeWidth
                 ..isAntiAlias = true,
             );
+
+          case RectDrawCommand():
+            canvas.drawRect(
+              Rect.fromLTWH(cmd.x, cmd.y, cmd.width, cmd.height),
+              Paint()
+                ..color = cmd.color
+                ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
+                ..isAntiAlias = true,
+            );
         }
       }
 

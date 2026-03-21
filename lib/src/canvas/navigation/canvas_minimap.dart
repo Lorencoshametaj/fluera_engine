@@ -9,37 +9,14 @@ import './minimap_painter.dart';
 import './camera_actions.dart';
 import '../../layers/layer_controller.dart';
 
-/// 🗺️ Interactive minimap widget showing a bird's-eye view of the canvas.
+/// 🗺️ Interactive minimap — Minimal JARVIS HUD style.
 ///
-/// DESIGN PRINCIPLES:
-/// - Semi-transparent glassmorphism panel in the bottom-right corner.
-/// - Dragging inside the minimap pans the canvas in real time.
-/// - Clicking jumps to that location with a spring animation.
-/// - **Double-tap** fits all content into viewport.
-/// - **Auto-hides** during active drawing to reduce visual clutter.
-/// - **Live stroke preview**: shows the current in-progress stroke in real time.
-/// - Fades in/out with [AnimatedOpacity].
-///
-/// ARCHITECTURE (two-layer split):
-/// - **Content layer** ([MinimapContentPainter]) wrapped in its own
-///   [RepaintBoundary] — repaints only when regions/bounds change.
-/// - **Viewport layer** ([MinimapViewportPainter]) repaints on every
-///   controller update (pan/zoom) — lightweight (single rect draw).
-/// - **Live stroke layer** — repaints with current stroke notifier.
-/// - This split ensures panning/zooming doesn't repaint the content.
-///
-/// Usage:
-/// ```dart
-/// CanvasMinimap(
-///   controller: canvasController,
-///   boundsTracker: contentBoundsTracker,
-///   layerController: layerController,
-///   viewportSize: MediaQuery.of(context).size,
-///   visible: _showMinimap,
-///   isDrawing: _isDrawingNotifier,
-///   currentStroke: _currentStrokeNotifier,
-/// )
-/// ```
+/// Dark-glass panel with thin cyan border showing a bird's-eye view.
+/// - Dragging inside pans the canvas
+/// - Click → spring-animate to location
+/// - Double-tap → fit all content
+/// - Auto-hides during drawing
+/// - Live stroke preview
 class CanvasMinimap extends StatefulWidget {
   final InfiniteCanvasController controller;
   final ContentBoundsTracker boundsTracker;
@@ -47,26 +24,28 @@ class CanvasMinimap extends StatefulWidget {
   final Size viewportSize;
   final bool visible;
 
-  /// Canvas background color — used for adaptive panel styling.
+  /// Canvas background color (kept for API compat).
   final Color canvasBackground;
 
-  /// Whether the user is currently drawing. When true, the minimap
-  /// fades to reduced opacity to minimize visual clutter.
+  /// Whether the user is currently drawing.
   final ValueNotifier<bool>? isDrawing;
 
-  /// Live current-stroke notifier for real-time stroke preview on the minimap.
+  /// Live current-stroke notifier for real-time stroke preview.
   final ValueNotifier<List<ProDrawingPoint>>? currentStroke;
 
   /// Current stroke color (for live preview rendering).
   final Color currentStrokeColor;
 
-  /// Remote collaborator cursor positions (for dot indicators on minimap).
-  /// Null if no collaboration engine is active.
+  /// Remote collaborator cursor positions.
   final ValueNotifier<Map<String, Map<String, dynamic>>>? remoteCursors;
 
   /// Minimap dimensions.
   static const double kWidth = 180.0;
   static const double kHeight = 130.0;
+
+  // ── HUD palette ──
+  static const _glassBase = Color(0xBB0A0E1A);
+  static const _neonCyan = Color(0xFF82C8FF);
 
   const CanvasMinimap({
     super.key,
@@ -98,8 +77,7 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
     return Rect.fromPoints(topLeft, bottomRight);
   }
 
-  /// Convert a local minimap position to canvas world coordinates,
-  /// then animate the camera there.
+  /// Convert a local minimap position to canvas world coordinates.
   void _onMinimapInteraction(Offset localPosition) {
     final contentBounds = widget.boundsTracker.bounds.value;
     if (contentBounds.isEmpty) return;
@@ -153,7 +131,7 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
 
   @override
   Widget build(BuildContext context) {
-    // ── Auto-hide during drawing ───────────────────────────────────────────
+    // ── Auto-hide during drawing ──
     Widget minimapContent = _buildMinimapStack();
 
     if (widget.isDrawing != null) {
@@ -201,12 +179,21 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
         _onMinimapInteraction(details.localPosition);
       },
       onDoubleTap: _onDoubleTap,
-      child: SizedBox(
+      child: Container(
         width: CanvasMinimap.kWidth,
         height: CanvasMinimap.kHeight,
+        decoration: BoxDecoration(
+          color: CanvasMinimap._glassBase,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: CanvasMinimap._neonCyan.withValues(alpha: 0.2),
+            width: 0.5,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
-            // ── Layer 1: Content (strokes, shapes, etc.) ────────────────
+            // ── Layer 1: Content (strokes, shapes, etc.) ──
             RepaintBoundary(
               child: ValueListenableBuilder<List<ContentRegion>>(
                 valueListenable: widget.boundsTracker.regions,
@@ -233,9 +220,7 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
               ),
             ),
 
-            // ── Layer 2: Viewport indicator ─────────────────────────────
-            // 🚀 RepaintBoundary: isolate viewport repaints (every pan/zoom
-            // frame) from content layer — prevents cascading repaint.
+            // ── Layer 2: Viewport indicator ──
             RepaintBoundary(
               child: AnimatedBuilder(
                 animation: widget.controller,
@@ -262,9 +247,7 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
               ),
             ),
 
-            // ── Layer 3: Live current-stroke preview ────────────────────
-            // 🚀 RepaintBoundary: isolate live stroke repaints (every
-            // point) from viewport and content layers.
+            // ── Layer 3: Live current-stroke preview ──
             if (widget.currentStroke != null)
               RepaintBoundary(
                 child: ValueListenableBuilder<List<ProDrawingPoint>>(
@@ -295,7 +278,7 @@ class _CanvasMinimapState extends State<CanvasMinimap> {
                 ),
               ),
 
-            // ── Layer 4: Collaborator cursor dots ──────────────────────
+            // ── Layer 4: Collaborator cursor dots ──
             if (widget.remoteCursors != null)
               ValueListenableBuilder<Map<String, Map<String, dynamic>>>(
                 valueListenable: widget.remoteCursors!,

@@ -143,126 +143,52 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
           clusterTexts: _clusterTextCache,
         );
       }
+
+      // 🧠 SEMANTIC TITLES: Schedule OCR + AI title generation when
+      // zoomed out near the semantic morph threshold.
+      final scale = _canvasController.scale;
+      if (scale <= SemanticMorphController.aiPreloadScale) {
+        _scheduleSemanticOcr();
+      }
+
+      // 🌍 GOD VIEW: Compute super-nodes when approaching extreme zoom-out
+      if (scale <= SemanticMorphController.godViewStartScale &&
+          _semanticMorphController != null) {
+        _semanticMorphController!.computeSuperNodes(_clusterCache);
+      }
     }
 
-    // 🔇 SUGGESTIONS DISABLED: Manual connections only.
-    // The suggestion engine, ML Kit cluster-level recognition, and
-    // recomputeSuggestions() are disabled to simplify the UX.
-    // Cluster detection and manual drag-to-connect remain active.
+    // 👻 GHOST CONNECTIONS: Suggestion engine activates during semantic view.
+    // When zoomed out near the semantic morph threshold, compute ghost
+    // connections between related clusters using the 6-signal scoring engine.
+    // OCR text comes from _clusterTextCache (populated by _semantic_titles.dart).
     _suggestionDebounceTimer?.cancel();
-    // ignore: dead_code
-    if (false && _knowledgeFlowController != null && _clusterCache.length >= 2) {
-      _suggestionDebounceTimer = Timer(const Duration(milliseconds: 1500), () async {
+    final scale = _canvasController.scale;
+    if (scale <= SemanticMorphController.aiPreloadScale &&
+        _knowledgeFlowController != null && _clusterCache.length >= 2) {
+      _suggestionDebounceTimer = Timer(const Duration(milliseconds: 1500), () {
         if (!mounted) return;
         final activeLayer = _layerController.layers.firstWhere(
           (l) => l.id == _layerController.activeLayerId,
           orElse: () => _layerController.layers.first,
         );
 
-        // 🔤 CLUSTER-LEVEL RECOGNITION: Recognize all strokes in each cluster
-        // together using recognizeMultiStroke() for dramatically better accuracy.
-        Map<String, String>? clusterTexts;
-        final inkService = DigitalInkService.instance;
-        final ct = <String, String>{};
-
-        // Build stroke lookup from active layer
-        final strokeMap = <String, ProStroke>{};
-        for (final s in activeLayer.strokes) {
-          strokeMap[s.id] = s;
-        }
-
-        // Build digital text lookup
-        final textMap = <String, DigitalTextElement>{};
-        for (final t in _digitalTextElements) {
-          textMap[t.id] = t;
-        }
-
-        // Prune cache: remove clusters that no longer exist
-        final currentIds = _clusterCache.map((c) => c.id).toSet();
-        _clusterTextCache.removeWhere((k, _) => !currentIds.contains(k));
-        _clusterTextCacheKeys.removeWhere((k, _) => !currentIds.contains(k));
-
-        // 🚀 PARALLEL: Recognize all clusters concurrently
-        final futures = <Future<void>>[];
-        for (final cluster in _clusterCache) {
-          if (cluster.strokeIds.isEmpty && cluster.textIds.isEmpty) continue;
-
-          // Cache key = sorted stroke+text IDs (detect changes)
-          final allIds = [...cluster.strokeIds, ...cluster.textIds]..sort();
-          final cacheKey = allIds.join(',');
-          final prevKey = _clusterTextCacheKeys[cluster.id];
-
-          // Cache hit — strokes unchanged
-          if (prevKey == cacheKey && _clusterTextCache.containsKey(cluster.id)) {
-            final cached = _clusterTextCache[cluster.id]!;
-            if (cached.isNotEmpty) ct[cluster.id] = cached;
-            continue;
-          }
-
-          // 🔤 DIGITAL TEXT: Include text elements directly (no ML Kit needed)
-          final textParts = <String>[];
-          for (final tid in cluster.textIds) {
-            final textEl = textMap[tid];
-            if (textEl != null && textEl.text.trim().isNotEmpty) {
-              textParts.add(textEl.text.trim());
-            }
-          }
-
-          // Collect recognizable stroke data (skip stubs with no points)
-          final strokeSets = <List<ProDrawingPoint>>[];
-          for (final sid in cluster.strokeIds) {
-            final stroke = strokeMap[sid];
-            if (stroke != null && !stroke.isStub && stroke.points.length >= 3) {
-              strokeSets.add(stroke.points);
-            }
-          }
-
-          if (strokeSets.isEmpty && textParts.isEmpty) {
-            _clusterTextCacheKeys[cluster.id] = cacheKey;
-            _clusterTextCache[cluster.id] = '';
-            continue;
-          }
-
-          // Schedule recognition (parallel)
-          final clusterId = cluster.id;
-          if (strokeSets.isNotEmpty && inkService.isAvailable) {
-            futures.add(
-              inkService.recognizeMultiStroke(strokeSets).then((recognized) {
-                final parts = [...textParts];
-                if (recognized != null && recognized.isNotEmpty) {
-                  parts.add(recognized);
-                }
-                final combined = parts.join(' ');
-                _clusterTextCacheKeys[clusterId] = cacheKey;
-                _clusterTextCache[clusterId] = combined;
-                if (combined.isNotEmpty) ct[clusterId] = combined;
-              }),
-            );
-          } else if (textParts.isNotEmpty) {
-            // Text-only cluster — no ML Kit needed
-            final combined = textParts.join(' ');
-            _clusterTextCacheKeys[clusterId] = cacheKey;
-            _clusterTextCache[clusterId] = combined;
-            ct[clusterId] = combined;
-          }
-        }
-
-        // Wait for all parallel recognitions
-        if (futures.isNotEmpty) {
-          await Future.wait(futures);
-        }
-
-        if (!mounted) return;
         final prevCount = _knowledgeFlowController!.suggestions.length;
-        clusterTexts = ct.isNotEmpty ? ct : null;
+
+        // Feed OCR text from _clusterTextCache (populated by semantic titles OCR)
+        final clusterTexts = _clusterTextCache.isNotEmpty
+            ? _clusterTextCache
+            : null;
+
         _knowledgeFlowController!.recomputeSuggestions(
           clusters: _clusterCache,
           allStrokes: activeLayer.strokes,
           clusterTexts: clusterTexts,
         );
-        // 🔔 HAPTIC: Subtle pulse when a NEW suggestion appears (pan mode only)
+
+        // 🔔 HAPTIC: Subtle pulse when a NEW ghost connection appears
         final newCount = _knowledgeFlowController!.suggestions.length;
-        if (newCount > 0 && newCount > prevCount && _effectiveIsPanMode) {
+        if (newCount > 0 && newCount > prevCount) {
           HapticFeedback.selectionClick();
         }
       });

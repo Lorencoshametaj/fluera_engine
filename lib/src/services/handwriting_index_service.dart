@@ -1148,6 +1148,35 @@ class HandwritingIndexService {
     }
   }
 
+  /// Get a map of strokeId → recognizedText for a set of stroke IDs.
+  /// Used by Atlas AI to enrich canvas context with handwriting content.
+  /// Note: queries by strokeId only (not canvasId) because stroke IDs are
+  /// globally unique MD5 hashes, and canvasId may change between restarts.
+  Future<Map<String, String>> getTextMapForStrokes(
+    String canvasId,
+    List<String> strokeIds,
+  ) async {
+    if (!_initialized || strokeIds.isEmpty) return const {};
+    try {
+      final map = <String, String>{};
+      for (int i = 0; i < strokeIds.length; i += 50) {
+        final batch = strokeIds.skip(i).take(50).toList();
+        final placeholders = List.filled(batch.length, '?').join(',');
+        final rows = await _db!.rawQuery(
+          'SELECT stroke_id, recognized_text FROM stroke_text_map '
+          'WHERE stroke_id IN ($placeholders)',
+          [...batch],
+        );
+        for (final row in rows) {
+          map[row['stroke_id'] as String] = row['recognized_text'] as String;
+        }
+      }
+      return map;
+    } catch (_) {
+      return const {};
+    }
+  }
+
   // ── Cleanup ───────────────────────────────────────────────────────────────
 
   /// Remove index entries for a deleted stroke.

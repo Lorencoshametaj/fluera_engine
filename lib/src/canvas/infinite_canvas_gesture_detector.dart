@@ -20,6 +20,7 @@ import './overlays/stylus_hover_overlay.dart';
 /// - 🖊️ Stylus Mode: stylus draws, finger pans
 bool _defaultBlockPanZoom() => false;
 bool _defaultShouldRotateImage(Offset _) => false;
+bool _defaultShouldTransformSelection(Offset _) => false;
 
 class InfiniteCanvasGestureDetector extends StatefulWidget {
   final InfiniteCanvasController controller;
@@ -85,6 +86,22 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   /// Returns true when a two-finger gesture is over an image.
   final bool Function(Offset focalPoint) shouldRouteToImageRotation;
 
+  // 🤏 SELECTION TRANSFORM: Two-finger rotate + scale on lasso selection
+  final VoidCallback? onSelectionScaleStart;
+  final Function(double rotationDelta, double scaleDelta, Offset focalPointDelta)? onSelectionTransform;
+  final VoidCallback? onSelectionScaleEnd;
+  /// Evaluated at GESTURE TIME to decide whether two-finger gestures
+  /// should route to selection rotation/scale.
+  final bool Function(Offset focalPoint) shouldRouteToSelectionTransform;
+
+  /// 🚫 Called when 3rd finger arrives during selection pinch → cancel transform
+  final VoidCallback? onSelectionPinchCancel;
+
+  /// 🤏 Called when 2nd finger arrives, to cancel any active lasso drag.
+  /// Needed because lasso drag doesn't set _isDrawing, so _onDrawCancel
+  /// doesn't fire for it.
+  final VoidCallback? onCancelLassoDrag;
+
   // 📈 Graph viewport zoom+pan: called when blockPanZoom blocks canvas zoom.
   // Routes two-finger pinch scale and pan delta to graph viewport.
   final Function(double scale, Offset focalDelta)? onBlockedScale;
@@ -120,6 +137,12 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onImageTransform,
     this.onImageScaleEnd,
     this.shouldRouteToImageRotation = _defaultShouldRotateImage, // default: never route
+    this.onSelectionScaleStart,
+    this.onSelectionTransform,
+    this.onSelectionScaleEnd,
+    this.shouldRouteToSelectionTransform = _defaultShouldTransformSelection,
+    this.onSelectionPinchCancel,
+    this.onCancelLassoDrag,
     this.onBlockedScale,
   });
 
@@ -224,6 +247,12 @@ class _InfiniteCanvasGestureDetectorState
 
   double _imageInitialScale = 1.0; // Scale at gesture start
   Offset _imagePreviousFocalPoint = Offset.zero; // Previous focal point for drag delta
+
+  // 🤏 SELECTION TRANSFORM: State tracking for selection pinch rotate+scale
+  bool _selectionScaleStarted = false;
+  bool _selectionRotationUnlocked = false;
+  double _selectionInitialScale = 1.0;
+  Offset _selectionPreviousFocalPoint = Offset.zero;
 
   // 🎯 DOUBLE-TAP ZOOM: State tracking
   int _lastSingleTapTime = 0;
@@ -490,6 +519,13 @@ class _InfiniteCanvasGestureDetectorState
           HapticFeedback.lightImpact(); // Confirm: split mode armed
         });
       }
+
+      // 🚫 3RD FINGER CANCEL: If selection pinch is active and 3rd finger arrives, cancel
+      if (_pointerCount >= 3 && _selectionScaleStarted) {
+        _selectionScaleStarted = false;
+        _selectionRotationUnlocked = false;
+        widget.onSelectionPinchCancel?.call();
+      }
     }
 
     // Save la position del primo dito
@@ -511,6 +547,14 @@ class _InfiniteCanvasGestureDetectorState
       if (widget.onDrawCancel != null) {
         widget.onDrawCancel!();
       }
+    }
+
+    // 🤏 LASSO DRAG CANCEL: When 2nd finger arrives, cancel any active
+    // lasso drag so pinch-to-transform can take over. Lasso drag doesn't
+    // set _isDrawing, so _onDrawCancel above doesn't handle it.
+    if (_pointerCount == 2) {
+      debugPrint('🔍 _onPointerDown: pointerCount==2, onCancelLassoDrag=${widget.onCancelLassoDrag != null}');
+      widget.onCancelLassoDrag?.call();
     }
 
     // 🚀 FIX: Start drawing IMMEDIATELY on pointer down
@@ -1374,7 +1418,11 @@ class _InfiniteCanvasGestureDetectorState
     // 🔒 Block pan/zoom when an interactive element is being manipulated
     // ⚡ BUT allow through when image rotation is active (evaluated at gesture time) —
     // blockPanZoom includes _imageTool.isRotating, which creates a deadlock.
-    if (widget.blockPanZoom() && !widget.shouldRouteToImageRotation(details.localFocalPoint)) return;
+    final _blockPZ = widget.blockPanZoom();
+    final _routeImg = widget.shouldRouteToImageRotation(details.localFocalPoint);
+    final _routeSel = widget.shouldRouteToSelectionTransform(details.localFocalPoint);
+    debugPrint('🔍 _onScaleStart: blockPanZoom=$_blockPZ routeImg=$_routeImg routeSel=$_routeSel pointers=$_pointerCount');
+    if (_blockPZ && !_routeImg && !_routeSel) return;
     // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
     // (e.g., 2→1 fingers), re-anchor to current state to prevent jumps.
     if (_gestureTransitioning) {
@@ -1434,6 +1482,33 @@ class _InfiniteCanvasGestureDetectorState
 
     // ✂️ SPACE-SPLIT: Skip normal zoom/pan/rotate when splitting or armed
     if (_isSpaceSplitting || _splitLongPressReady) return;
+
+    // 🤏 SELECTION TRANSFORM: Route pinch to selection rotate+scale
+    final shouldTransformSelection = widget.shouldRouteToSelectionTransform(details.localFocalPoint);
+    debugPrint('🔍 _onScaleUpdate: shouldTransformSelection=$shouldTransformSelection onSelectionScaleStart=${widget.onSelectionScaleStart != null} _selectionScaleStarted=$_selectionScaleStarted pointers=$_pointerCount focal=${details.localFocalPoint}');
+    if (shouldTransformSelection && widget.onSelectionScaleStart != null) {
+      if (!_selectionScaleStarted) {
+        _selectionScaleStarted = true;
+        _selectionRotationUnlocked = false;
+        _selectionInitialScale = details.scale;
+        _selectionPreviousFocalPoint = details.localFocalPoint;
+        widget.onSelectionScaleStart?.call();
+      }
+
+      double rotation = 0.0;
+      if (_selectionRotationUnlocked ||
+          details.rotation.abs() > _rotationDeadzone) {
+        _selectionRotationUnlocked = true;
+        rotation = details.rotation;
+      }
+
+      final scaleRatio = details.scale / _selectionInitialScale;
+      final focalDelta = details.localFocalPoint - _selectionPreviousFocalPoint;
+      _selectionPreviousFocalPoint = details.localFocalPoint;
+
+      widget.onSelectionTransform?.call(rotation, scaleRatio, focalDelta);
+      return;
+    }
 
     // 🌀 IMAGE ROTATION: When image rotation is active (evaluated at gesture time),
     // route rotation + scale to the image instead of the canvas.
@@ -1614,6 +1689,15 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
+    // 🤏 SELECTION TRANSFORM: End selection transform FIRST
+    final wasSelectionScaling = _selectionScaleStarted;
+    if (_selectionScaleStarted) {
+      _selectionScaleStarted = false;
+      _selectionRotationUnlocked = false;
+      widget.onSelectionScaleEnd?.call();
+    }
+    if (wasSelectionScaling) return;
+
     // 🌀 IMAGE ROTATION: End image rotation FIRST (before blockPanZoom check,
     // because blockPanZoom includes isRotating → deadlock)
     final wasImageScaling = _imageScaleStarted;

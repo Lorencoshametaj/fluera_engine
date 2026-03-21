@@ -64,6 +64,18 @@ import './overlays/connection_label_overlay.dart';
 import './overlays/cluster_preview_overlay.dart';
 import './overlays/knowledge_map_overlay.dart';
 import './overlays/canvas_radial_menu.dart';
+import './overlays/atlas_prompt_overlay.dart';
+import './overlays/atlas_visual_effects.dart';
+import './overlays/atlas_response_card.dart';
+import '../ai/canvas_state_extractor.dart';
+import '../ai/atlas_action_executor.dart';
+import '../ai/atlas_action.dart';
+import '../ai/ai_provider.dart';
+import '../core/nodes/text_node.dart';
+import '../core/nodes/stroke_node.dart';
+import '../core/nodes/image_node.dart';
+import '../core/scene_graph/canvas_node.dart';
+import '../services/handwriting_index_service.dart';
 import './toolbar/pro_color_picker.dart';
 import './infinite_canvas_controller.dart';
 import './infinite_canvas_gesture_detector.dart';
@@ -80,11 +92,14 @@ import '../tools/image/image_tool.dart';
 import '../tools/ruler/ruler_guide_system.dart';
 import '../tools/flood_fill/flood_fill_tool.dart';
 import '../tools/pen/pen_tool.dart';
+import '../tools/echo_search_controller.dart';
 import '../tools/shape/shape_recognizer.dart';
 import '../platform/hme_latex_recognizer.dart';
 import '../platform/ink_rasterizer.dart';
 import '../platform/latex_recognition_bridge.dart';
 import '../core/latex/ink_stroke_data.dart';
+import '../core/latex/latex_parser.dart';
+import '../core/latex/latex_layout_engine.dart';
 import '../canvas/widgets/latex_preview_card.dart';
 import '../tools/base/tool_context.dart';
 import '../layers/adapters/infinite_canvas_adapter.dart';
@@ -105,6 +120,7 @@ import '../dialogs/ocr_scan_dialog.dart';
 import '../services/handwriting_index_service.dart';
 import '../canvas/widgets/handwriting_search_overlay.dart';
 import '../rendering/canvas/handwriting_search_painter.dart';
+import '../rendering/canvas/echo_search_pen_painter.dart';
 import '../drawing/input/raw_input_processor_120hz.dart';
 import '../history/canvas_delta_tracker.dart';
 import '../history/background_checkpoint_service.dart';
@@ -136,6 +152,7 @@ import '../history/widgets/branch_explorer_sheet.dart';
 import '../tools/base/tool_bridge.dart';
 import '../tools/unified_tool_controller.dart';
 import './toolbar/menus/selection_actions_menu.dart';
+import './overlays/selection_context_halo.dart';
 import './toolbar/menus/image_action_button.dart';
 import './toolbar/image_contextual_toolbar.dart';
 import '../rendering/canvas/canvas_painters.dart';
@@ -337,6 +354,9 @@ part './parts/_responsive_design.dart';
 part './parts/_design_quality.dart';
 part './parts/_conscious_architecture.dart';
 part './parts/_advanced_export.dart';
+part './parts/_atlas_ai.dart';
+part './parts/_echo_search.dart';
+part './parts/_semantic_titles.dart';
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -822,6 +842,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Offset _gesturalLassoLastPoint = Offset.zero;
   int _gesturalLassoLastTime = 0;
 
+  /// 🔲 #4 (visual): Closing ripple position (screen coords) and controller.
+  Offset? _lassoRippleCenter;
+  AnimationController? _lassoRippleController;
+
   // 🌊 REFLOW: Cluster detector, cache, and animated controller
   ClusterDetector? _clusterDetector;
   List<ContentCluster> _clusterCache = [];
@@ -879,10 +903,27 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // 🧠 KNOWLEDGE MAP: Fullscreen graph overlay
   bool _showKnowledgeMap = false;
 
+
   // 🎯 RADIAL MENU: Context menu on long-press
   bool _showRadialMenu = false;
   Offset _radialMenuCenter = Offset.zero;
   final _radialMenuKey = GlobalKey<CanvasRadialMenuState>();
+
+  // 🌌 ATLAS AI: Prompt overlay state
+  bool _showAtlasPrompt = false;
+  bool _atlasIsLoading = false;
+  String? _atlasResponseText;
+  String? _atlasLoadingPhase; // (C) Current loading phase description
+
+
+  // 🌌 ATLAS VFX: Active visual effects
+  final List<_AtlasVfxEntry> _atlasVfxEntries = [];
+
+  // 🔮 ATLAS RESPONSE CARDS: Multiple concurrent holographic cards (4)
+  final List<_AtlasCardEntry> _atlasCards = [];
+
+  // (1) Follow-up context for "Go deeper"
+  String? _atlasFollowUpContext;
 
   /// 🔄 WHEEL MODE: When true, toolbar is hidden and long-press opens radial wheel.
   /// Persists across widget rebuilds via static holder.
@@ -1000,6 +1041,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   List<HandwritingSearchResult> _hwSearchResults = [];
   int _hwSearchActiveIndex = 0;
 
+  /// 🔍 ECHO SEARCH: Jarvis-style spatial search (Query Pen mode)
+  EchoSearchController? _echoSearchController;
+  bool _isEchoSearchMode = false;
+
+
   /// 🎨 Current text selection for rich text styling
   TextSelection? _inlineTextSelection;
 
@@ -1063,6 +1109,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// toolbar/overlay updates. Only rebuilds the overlay subtree, NOT the
   /// entire widget tree (saves ~1-2ms per frame vs full setState).
   final ValueNotifier<int> _uiRebuildNotifier = ValueNotifier<int>(0);
+
+  /// 🤏 Selection pinch transform state (used by _drawing_handlers extension)
+  bool _isSelectionPinching = false;
+  double _selectionPrevRotation = 0.0;
+  double _selectionPrevScale = 1.0;
+  double _selectionAccumRotation = 0.0; // Total rotation in radians (for indicator + snap)
+  double _selectionAccumScale = 1.0; // Cumulative scale factor (for indicator + limits)
+  double? _selectionLastSnapAngle; // Last snapped angle (for haptic dedup)
 
   /// 🌐 R-tree spatial index for O(log n) image viewport culling
   RTree<ImageElement>? _imageSpatialIndex;
@@ -1590,6 +1644,17 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // Initialize lasso tool
     _lassoTool = LassoTool(layerController: _layerController);
 
+    // 🔲 Closing ripple animation (400ms expand + fade)
+    _lassoRippleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _lassoRippleCenter = null;
+          _uiRebuildNotifier.value++;
+        }
+      });
+
     // 🏗️ UNIFIED TOOL SYSTEM
     _unifiedToolController = UnifiedToolController();
     _toolSystemBridge = ToolSystemBridge(
@@ -1684,6 +1749,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
           _knowledgeParticleTicker!.stop();
         }
       }
+
+      // 🧠 SEMANTIC TITLES: Preload OCR + AI titles when approaching morph threshold
+      _checkSemanticTitlePreload(scale);
     };
 
     // 🔑 When gesture/animation fully ends, rebuild the DrawingPainter child
@@ -2079,6 +2147,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _knowledgeParticleTicker?.dispose();
     _knowledgeFlowController?.dispose();
     _thumbnailCache?.dispose();
+    // 🧠 SEMANTIC TITLES: Release timers
+    SemanticTitlesEngine.disposeSemanticTitleTimers();
 
     // 🚀 DISPOSE OPT: Remove listener FIRST to prevent _onLayerChanged
     // from firing during cleanup (cluster rebuilds on partial state).
@@ -2156,6 +2226,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // _layerController.removeListener already called at top of dispose
 
     _eraserPulseController.dispose();
+    _lassoRippleController?.dispose();
     _isDrawingNotifier.dispose();
     _isLoadingNotifier.dispose();
     _undoRedoVersion.dispose();
@@ -2325,3 +2396,4 @@ class _EraserParticle {
     this.size = 3.0,
   });
 }
+

@@ -318,7 +318,7 @@ class MetalStrokeRenderer {
             }
         } else {
             // 🚀 Non-ballpoint: use GPU compute if available
-            let useCompute = computeAvailable && brushType != 0
+            let useCompute = computeAvailable && brushType != 0 && brushType != 4
             
             if useCompute, let computePSO = computePipelineState,
                let pointsBuf = computePointsBuffer,

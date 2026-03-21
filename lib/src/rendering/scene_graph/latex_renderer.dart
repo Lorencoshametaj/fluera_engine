@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../core/nodes/latex_node.dart';
 import '../../core/latex/latex_draw_command.dart';
@@ -14,19 +15,38 @@ import 'latex_chart_renderer.dart';
 /// When no cached layout is available, draws a placeholder.
 class LatexRenderer {
   /// Draw the LaTeX node onto the canvas.
+  ///
+  /// When a `ui.Picture` cache exists on the node, replays it directly
+  /// (zero per-frame allocation). Otherwise renders from draw commands and
+  /// records the result for next time.
   static void drawLatexNode(Canvas canvas, LatexNode node) {
     final commands = node.cachedDrawCommands;
     if (commands != null && commands.isNotEmpty) {
+      // --- Picture cache fast path ----------------------------------------
+      final cached = node.cachedPicture;
+      if (cached != null) {
+        canvas.drawPicture(cached);
+        return;
+      }
+
+      // --- Record into Picture for future re-use --------------------------
+      final recorder = ui.PictureRecorder();
+      final recCanvas = Canvas(recorder);
       for (final cmd in commands) {
         switch (cmd) {
           case GlyphDrawCommand():
-            _drawGlyph(canvas, cmd);
+            _drawGlyph(recCanvas, cmd);
           case LineDrawCommand():
-            _drawLine(canvas, cmd);
+            _drawLine(recCanvas, cmd);
           case PathDrawCommand():
-            _drawPathCmd(canvas, cmd);
+            _drawPathCmd(recCanvas, cmd);
+          case RectDrawCommand():
+            _drawRect(recCanvas, cmd);
         }
       }
+      final picture = recorder.endRecording();
+      node.cachedPicture = picture;
+      canvas.drawPicture(picture);
       return;
     }
 
@@ -41,6 +61,10 @@ class LatexRenderer {
   }
 
   /// Draw a text glyph at its computed position.
+  ///
+  /// Uses subpixel-accurate rendering via `letterSpacing: 0` (forces
+  /// per-glyph positioning) and enables OpenType font features for
+  /// proper kerning and ligatures.
   static void _drawGlyph(Canvas canvas, GlyphDrawCommand cmd) {
     final style = TextStyle(
       fontFamily: (cmd.fontFamily != null && cmd.fontFamily!.isNotEmpty) ? cmd.fontFamily : null,
@@ -48,6 +72,11 @@ class LatexRenderer {
       color: cmd.color,
       fontStyle: cmd.italic ? FontStyle.italic : FontStyle.normal,
       fontWeight: cmd.bold ? FontWeight.bold : FontWeight.normal,
+      letterSpacing: 0, // forces subpixel glyph positioning
+      fontFeatures: const [
+        FontFeature.enable('kern'), // pair kerning
+        FontFeature.enable('liga'), // standard ligatures
+      ],
     );
 
     final painter = TextPainter(
@@ -72,13 +101,41 @@ class LatexRenderer {
   }
 
   /// Draw a path (integral sign, radical symbol, brackets, etc.).
+  ///
+  /// When [PathDrawCommand.smooth] is true, the points are rendered as a
+  /// smooth cubic Bézier spline using Catmull-Rom interpolation, producing
+  /// fluid curves for integrals and radical symbols.
   static void _drawPathCmd(Canvas canvas, PathDrawCommand cmd) {
     if (cmd.points.isEmpty) return;
 
     final path = Path();
     path.moveTo(cmd.points.first.dx, cmd.points.first.dy);
-    for (int i = 1; i < cmd.points.length; i++) {
-      path.lineTo(cmd.points[i].dx, cmd.points[i].dy);
+
+    if (cmd.smooth && cmd.points.length >= 3) {
+      // Catmull-Rom to cubic Bézier conversion.
+      // For n points, generates smooth curves through interior points.
+      final pts = cmd.points;
+      for (int i = 0; i < pts.length - 1; i++) {
+        final p0 = i > 0 ? pts[i - 1] : pts[i];
+        final p1 = pts[i];
+        final p2 = pts[i + 1];
+        final p3 = i + 2 < pts.length ? pts[i + 2] : pts[i + 1];
+
+        // Convert Catmull-Rom segment [p1..p2] to cubic Bézier control points.
+        final cp1 = Offset(
+          p1.dx + (p2.dx - p0.dx) / 6.0,
+          p1.dy + (p2.dy - p0.dy) / 6.0,
+        );
+        final cp2 = Offset(
+          p2.dx - (p3.dx - p1.dx) / 6.0,
+          p2.dy - (p3.dy - p1.dy) / 6.0,
+        );
+        path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p2.dx, p2.dy);
+      }
+    } else {
+      for (int i = 1; i < cmd.points.length; i++) {
+        path.lineTo(cmd.points[i].dx, cmd.points[i].dy);
+      }
     }
     if (cmd.closed) path.close();
 
@@ -427,6 +484,17 @@ class LatexRenderer {
     canvas.drawRRect(
       RRect.fromRectAndRadius(tableRect, const Radius.circular(6)),
       outerPaint,
+    );
+  }
+
+  /// Draw a filled or stroked rectangle.
+  static void _drawRect(Canvas canvas, RectDrawCommand cmd) {
+    canvas.drawRect(
+      Rect.fromLTWH(cmd.x, cmd.y, cmd.width, cmd.height),
+      Paint()
+        ..color = cmd.color
+        ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
+        ..isAntiAlias = true,
     );
   }
 }

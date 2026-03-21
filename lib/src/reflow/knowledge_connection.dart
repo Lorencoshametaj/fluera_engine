@@ -108,6 +108,25 @@ class KnowledgeConnection {
   /// Frozen anchor point at target cluster (captured at creation time).
   Offset? targetAnchor;
 
+  // ===========================================================================
+  // 🎤 AUDIO-INK SYNC — Flow Playback timestamps
+  // ===========================================================================
+
+  /// Timestamp (ms) relative to the active audio recording when this
+  /// connection was created. Used for audio-ink sync: tapping a connection
+  /// seeks to this exact moment in the recording.
+  /// Serialized — persisted alongside canvas data.
+  int? recordingTimestampMs;
+
+  /// ID of the [SynchronizedRecording] this connection was created during.
+  /// null if the connection was created without an active recording.
+  String? recordingId;
+
+  /// Whether this is an AI-generated ghost connection (not yet confirmed).
+  /// Ghost connections render as dashed pulsating lines and can be
+  /// materialized by the user into solid connections.
+  bool isGhost;
+
   KnowledgeConnection({
     required this.id,
     required this.sourceClusterId,
@@ -121,6 +140,9 @@ class KnowledgeConnection {
     this.pathLength = 500.0, // Default path length
     this.sourceAnchor,
     this.targetAnchor,
+    this.recordingTimestampMs,
+    this.recordingId,
+    this.isGhost = false,
     int? createdAt,
   }) : createdAtMs = createdAt ?? DateTime.now().millisecondsSinceEpoch,
        deletedAtMs = 0,
@@ -149,6 +171,13 @@ class KnowledgeConnection {
   // Serialization
   // ===========================================================================
 
+  /// Materialize a ghost connection into a solid (user-confirmed) one.
+  /// Sets [isGhost] to false and resets the birth animation timestamp.
+  void materialize() {
+    isGhost = false;
+    createdAtMs = DateTime.now().millisecondsSinceEpoch;
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'sourceClusterId': sourceClusterId,
@@ -161,6 +190,9 @@ class KnowledgeConnection {
     'isBidirectional': isBidirectional,
     if (sourceAnchor != null) 'sourceAnchor': [sourceAnchor!.dx, sourceAnchor!.dy],
     if (targetAnchor != null) 'targetAnchor': [targetAnchor!.dx, targetAnchor!.dy],
+    if (recordingTimestampMs != null) 'recordingTimestampMs': recordingTimestampMs,
+    if (recordingId != null) 'recordingId': recordingId,
+    if (isGhost) 'isGhost': true,
   };
 
   factory KnowledgeConnection.fromJson(Map<String, dynamic> json) {
@@ -176,6 +208,9 @@ class KnowledgeConnection {
       isBidirectional: json['isBidirectional'] as bool? ?? false,
       sourceAnchor: _parseOffset(json['sourceAnchor']),
       targetAnchor: _parseOffset(json['targetAnchor']),
+      recordingTimestampMs: json['recordingTimestampMs'] as int?,
+      recordingId: json['recordingId'] as String?,
+      isGhost: json['isGhost'] as bool? ?? false,
       createdAt: 0, // No animation on reload
     );
   }

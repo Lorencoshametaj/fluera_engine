@@ -23,7 +23,11 @@ class LatexSymbol extends LatexAstNode {
   /// By convention, single latin letters in math are italic.
   final bool italic;
 
-  const LatexSymbol(this.value, {this.italic = false});
+  /// Whether this symbol should be rendered in bold.
+  /// Set by `\mathbf`, `\boldsymbol`, `\textbf`.
+  final bool bold;
+
+  const LatexSymbol(this.value, {this.italic = false, this.bold = false});
 }
 
 /// A group of consecutive AST nodes (like `{a + b}`).
@@ -38,7 +42,11 @@ class LatexFraction extends LatexAstNode {
   final LatexAstNode numerator;
   final LatexAstNode denominator;
 
-  const LatexFraction(this.numerator, this.denominator);
+  /// When false, the vinculum (horizontal bar) is not drawn.
+  /// Used for `\binom` and similar stacked notation.
+  final bool showBar;
+
+  const LatexFraction(this.numerator, this.denominator, {this.showBar = true});
 }
 
 /// A superscript: `base^{exponent}`
@@ -184,4 +192,122 @@ class LatexErrorNode extends LatexAstNode {
   final String message;
 
   const LatexErrorNode(this.rawText, this.message);
+}
+
+// ---------------------------------------------------------------------------
+// Extended AST Nodes (Batch 4 — new constructs)
+// ---------------------------------------------------------------------------
+
+/// A colored expression: `\color{red}{x+y}`
+class LatexColored extends LatexAstNode {
+  /// Color name (e.g. 'red', 'blue', '#FF0000').
+  final String colorName;
+
+  /// The body to render in that color.
+  final LatexAstNode body;
+
+  const LatexColored(this.colorName, this.body);
+}
+
+/// A boxed expression: `\boxed{E=mc^2}`
+class LatexBoxed extends LatexAstNode {
+  final LatexAstNode body;
+
+  const LatexBoxed(this.body);
+}
+
+/// Under/over annotation: covers `\underbrace`, `\overbrace`,
+/// `\stackrel`, `\overset`, `\underset`.
+class LatexUnderOver extends LatexAstNode {
+  /// The main body expression.
+  final LatexAstNode body;
+
+  /// The annotation (above or below).
+  final LatexAstNode annotation;
+
+  /// Whether the annotation goes above (true) or below (false).
+  final bool above;
+
+  /// Optional brace style: 'brace', 'none', or null.
+  /// 'brace' draws a curly brace between body and annotation.
+  final String? braceStyle;
+
+  const LatexUnderOver(this.body, this.annotation, {
+    required this.above,
+    this.braceStyle,
+  });
+}
+
+/// A cancelled (struck-through) expression: `\cancel{x}`, `\bcancel{x}`
+class LatexCancel extends LatexAstNode {
+  final LatexAstNode body;
+
+  /// Cancel direction: 'forward' (/), 'back' (\), 'cross' (X).
+  final String direction;
+
+  const LatexCancel(this.body, {this.direction = 'forward'});
+}
+
+/// An invisible spacer: `\phantom{x}` — takes the space of x but renders nothing.
+class LatexPhantom extends LatexAstNode {
+  final LatexAstNode body;
+
+  const LatexPhantom(this.body);
+}
+
+/// A cases environment: `\begin{cases} a & b \\ c & d \end{cases}`
+///
+/// Renders as a left brace followed by rows of condition/value pairs.
+class LatexCases extends LatexAstNode {
+  /// Each row is a list of cells (typically 2: expression and condition).
+  final List<List<LatexAstNode>> rows;
+
+  const LatexCases(this.rows);
+}
+
+/// An extensible arrow: `\xrightarrow{text}` or `\xleftarrow[below]{above}`
+class LatexExtensibleArrow extends LatexAstNode {
+  /// Arrow direction: 'right', 'left'.
+  final String direction;
+
+  /// Text above the arrow.
+  final LatexAstNode? above;
+
+  /// Text below the arrow.
+  final LatexAstNode? below;
+
+  const LatexExtensibleArrow(this.direction, {this.above, this.below});
+}
+
+/// Multi-line aligned equations: `\begin{align} a &= b \\ c &= d \end{align}`
+///
+/// Each row is split at `&` into left and right halves.
+/// The `&` marks the alignment point (typically before `=`).
+class LatexAlign extends LatexAstNode {
+  /// Rows of equation pairs. Each row has 1 or 2 cells.
+  final List<List<LatexAstNode>> rows;
+
+  const LatexAlign(this.rows);
+}
+
+/// A colored background box: `\colorbox{yellow}{x+y}`
+class LatexColorBox extends LatexAstNode {
+  /// Background color name.
+  final String colorName;
+
+  /// The body to render with colored background.
+  final LatexAstNode body;
+
+  const LatexColorBox(this.colorName, this.body);
+}
+
+/// A horizontal rule: `\rule{width}{height}`
+class LatexRule extends LatexAstNode {
+  /// Width in em units.
+  final double widthEm;
+
+  /// Height in em units.
+  final double heightEm;
+
+  const LatexRule(this.widthEm, this.heightEm);
 }

@@ -13,6 +13,7 @@ import '../../layers/fluera_layer_controller.dart';
 import '../../reflow/reflow_controller.dart';
 import '../../reflow/content_cluster.dart';
 import '../../systems/selection_manager.dart';
+import '../../rendering/canvas/drawing_painter.dart';
 
 part '_lasso_transforms.dart';
 part '_lasso_clipboard.dart';
@@ -272,6 +273,16 @@ class LassoTool {
     if (!skipReflow) {
       reflowController?.clearGhosts();
     }
+
+    // 🚀 Bake localTransform into raw stroke points so re-selection
+    // and hit-testing find strokes at their new position.
+    // Skip when fling is starting — bake happens at fling end instead.
+    if (!skipReflow) {
+      selectionManager.bakeStrokeTransforms();
+      _getActiveLayerNode().invalidateStrokeCache();
+      // 🚀 FIX: Force R-tree rebuild with new bounds (doesn't invalidate tiles)
+      DrawingPainter.invalidateRenderIndex();
+    }
   }
 
   // ===========================================================================
@@ -475,6 +486,45 @@ class LassoTool {
         node.invalidateTransformCache();
       } else {
         node.scaleFrom(factor, factor, anchor);
+      }
+    }
+    _selectionBounds = null;
+    // 🚀 FIX: Invalidate LayerNode's cached stroke list so it picks up
+    // the new ProStroke objects (copyWith creates new instances).
+    _getActiveLayerNode().invalidateStrokeCache();
+  }
+
+  /// 🚀 Combined rotate + scale in a single pass — avoids double iteration
+  /// and double point allocation during pinch-to-transform.
+  void rotateAndScaleSelected(double radians, double scaleFactor, {Offset? center}) {
+    if (radians.abs() < 0.0001 && (scaleFactor - 1.0).abs() < 0.0001) return;
+    final pivot = center ?? selectionManager.aggregateCenter;
+    final cosA = cos(radians);
+    final sinA = sin(radians);
+    for (final node in selectionManager.selectedNodes) {
+      if (node.isLocked) continue;
+      if (node is StrokeNode) {
+        final transformed = node.stroke.points.map((p) {
+          // Translate to pivot
+          final dx = p.position.dx - pivot.dx;
+          final dy = p.position.dy - pivot.dy;
+          // Rotate
+          final rx = dx * cosA - dy * sinA;
+          final ry = dx * sinA + dy * cosA;
+          // Scale from pivot
+          return p.copyWith(
+            position: Offset(pivot.dx + rx * scaleFactor, pivot.dy + ry * scaleFactor),
+          );
+        }).toList();
+        node.stroke = node.stroke.copyWith(
+          points: transformed,
+          baseWidth: (node.stroke.baseWidth * scaleFactor).clamp(0.5, 200.0),
+        );
+        node.localTransform = Matrix4.identity();
+        node.invalidateTransformCache();
+      } else {
+        if (radians.abs() > 0.0001) node.rotateAround(radians, pivot);
+        if ((scaleFactor - 1.0).abs() > 0.0001) node.scaleFrom(scaleFactor, scaleFactor, pivot);
       }
     }
     _selectionBounds = null;
@@ -684,7 +734,7 @@ class LassoTool {
   }
 
   Rect? getSelectionBounds() {
-    if (_selectionBounds == null) _calculateSelectionBounds();
+    _calculateSelectionBounds();
     return _selectionBounds;
   }
 

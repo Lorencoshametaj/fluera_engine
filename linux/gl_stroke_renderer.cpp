@@ -105,7 +105,7 @@ void GLStrokeRenderer::updateVertices(
 
     int subsPerSeg = dynamicSubsPerSeg_;  // 🚀 Adaptive LOD
 
-    bool useCompute = computeAvailable_ && brushType != 0;
+    bool useCompute = computeAvailable_ && brushType != 0 && brushType != 4;
     if (useCompute) {
       // Store params for deferred compute dispatch (GL context needed)
       pendingComputePoints_.assign(points, points + pointCount * 5);

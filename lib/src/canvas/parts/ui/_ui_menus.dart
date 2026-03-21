@@ -6,230 +6,266 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
   /// Builds menus that sit in the MAIN Stack (outside the canvas area).
   List<Widget> _buildMenus(BuildContext context) {
     return [
-      // Menu Contestuale Selezione — azioni sugli selected elements
-      if (_lassoTool.hasSelection && !_isDrawingNotifier.value)
+      // 🎯 CONTEXT HALO — Minority Report-style selection actions
+      if (_lassoTool.hasSelection && !_isDrawingNotifier.value && !_lassoTool.isDragging)
+        Builder(
+          builder: (context) {
+            final bounds = _lassoTool.getSelectionBounds();
+            if (bounds == null) return const SizedBox.shrink();
+            final screenTL = _canvasController.canvasToScreen(bounds.topLeft);
+            final screenBR = _canvasController.canvasToScreen(bounds.bottomRight);
+            final screenBounds = Rect.fromPoints(screenTL, screenBR);
+            return Positioned.fill(
+              child: SelectionContextHalo(
+                selectionScreenBounds: screenBounds,
+                selectionCount: _lassoTool.selectionCount,
+                hasClipboard: _lassoTool.hasClipboard,
+                snapEnabled: _lassoTool.snapEnabled,
+                onCopy: () {
+                  _lassoTool.copySelected();
+                  HapticFeedback.lightImpact();
+                },
+                onDuplicate: () {
+                  setState(() {
+                    _lassoTool.duplicateSelected();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.mediumImpact();
+                },
+                onPaste: () {
+                  setState(() {
+                    _lassoTool.pasteFromClipboard();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onSelectAll: () {
+                  setState(() {
+                    _lassoTool.selectAll();
+                  });
+                  HapticFeedback.lightImpact();
+                },
+                onBringToFront: () {
+                  setState(() {
+                    _lassoTool.bringToFront();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onSendToBack: () {
+                  setState(() {
+                    _lassoTool.sendToBack();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onGroup: () {
+                  setState(() {
+                    _lassoTool.groupSelected();
+                  });
+                  HapticFeedback.mediumImpact();
+                },
+                onUngroup: () {
+                  setState(() {
+                    _lassoTool.ungroupSelected();
+                  });
+                  HapticFeedback.lightImpact();
+                },
+                onToggleSnap: () {
+                  setState(() {
+                    _lassoTool.toggleSnap();
+                  });
+                  HapticFeedback.lightImpact();
+                },
+                onUndo: () {
+                  setState(() {
+                    _lassoTool.restoreUndo();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.mediumImpact();
+                },
+                onDelete: () {
+                  setState(() {
+                    _lassoTool.deleteSelected();
+                    _lassoTool.clearSelection();
+                    _toolController.toggleLassoMode();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.mediumImpact();
+                },
+                onClearSelection: () {
+                  setState(() {
+                    _lassoTool.clearSelection();
+                    _toolController.toggleLassoMode();
+                  });
+                  HapticFeedback.lightImpact();
+                },
+                onRotate: () {
+                  setState(() {
+                    _lassoTool.rotateSelected();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onFlipHorizontal: () {
+                  setState(() {
+                    _lassoTool.flipHorizontal();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onFlipVertical: () {
+                  setState(() {
+                    _lassoTool.flipVertical();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onConvertToText: () {
+                  // Phase 2: OCR conversion (requires OCRService)
+                  HapticFeedback.mediumImpact();
+                },
+                // Round 3 — Enterprise
+                isSelectionLocked: _lassoTool.isSelectionLocked,
+                multiLayerMode: _lassoTool.multiLayerMode,
+                statsSummary: _lassoTool.selectionStats.summary,
+                onLock: () {
+                  setState(() {
+                    _lassoTool.lockSelected();
+                  });
+                  HapticFeedback.mediumImpact();
+                },
+                onUnlock: () {
+                  setState(() {
+                    _lassoTool.unlockSelected();
+                  });
+                  HapticFeedback.lightImpact();
+                },
+                onAlignLeft: () {
+                  setState(() {
+                    _lassoTool.alignLeft();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onAlignCenterH: () {
+                  setState(() {
+                    _lassoTool.alignCenterH();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onAlignRight: () {
+                  setState(() {
+                    _lassoTool.alignRight();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onAlignTop: () {
+                  setState(() {
+                    _lassoTool.alignTop();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onAlignCenterV: () {
+                  setState(() {
+                    _lassoTool.alignCenterV();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onAlignBottom: () {
+                  setState(() {
+                    _lassoTool.alignBottom();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onDistributeH: () {
+                  setState(() {
+                    _lassoTool.distributeHorizontal();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onDistributeV: () {
+                  setState(() {
+                    _lassoTool.distributeVertical();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                onToggleMultiLayer: () {
+                  setState(() {
+                    _lassoTool.toggleMultiLayerMode();
+                  });
+                  HapticFeedback.lightImpact();
+                },
+                // Phase 3 — Procreate parity
+                onInverse: () {
+                  setState(() {
+                    _lassoTool.invertSelection();
+                  });
+                  HapticFeedback.mediumImpact();
+                },
+                onPasteInPlace: () {
+                  setState(() {
+                    _lassoTool.pasteInPlace();
+                  });
+                  DrawingPainter.invalidateAllTiles();
+                  _autoSaveCanvas();
+                  HapticFeedback.lightImpact();
+                },
+                // ── Atlas AI ──
+                atlasIsLoading: _atlasIsLoading,
+                onAtlas: !_showAtlasPrompt
+                    ? (prompt) => _invokeAtlas(prompt)
+                    : null,
+                onAtlasCustomPrompt: () {
+                  setState(() {
+                    _showAtlasPrompt = true;
+                    _atlasIsLoading = false;
+                    _atlasResponseText = null;
+                  });
+                },
+              ),
+            );
+          },
+        ),
+
+      // 📐 ROTATION ANGLE INDICATOR — shown during selection pinch transform
+      if (_isSelectionPinching)
         Positioned(
-          bottom: 100,
-          left: 20,
-          right: 20,
-          child: SelectionActionsMenu(
-            selectionCount: _lassoTool.selectionCount,
-            hasClipboard: _lassoTool.hasClipboard,
-            snapEnabled: _lassoTool.snapEnabled,
-            onCopy: () {
-              _lassoTool.copySelected();
-              HapticFeedback.lightImpact();
-            },
-            onDuplicate: () {
-              setState(() {
-                _lassoTool.duplicateSelected();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.mediumImpact();
-            },
-            onPaste: () {
-              setState(() {
-                _lassoTool.pasteFromClipboard();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onSelectAll: () {
-              setState(() {
-                _lassoTool.selectAll();
-              });
-              HapticFeedback.lightImpact();
-            },
-            onBringToFront: () {
-              setState(() {
-                _lassoTool.bringToFront();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onSendToBack: () {
-              setState(() {
-                _lassoTool.sendToBack();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onGroup: () {
-              setState(() {
-                _lassoTool.groupSelected();
-              });
-              HapticFeedback.mediumImpact();
-            },
-            onUngroup: () {
-              setState(() {
-                _lassoTool.ungroupSelected();
-              });
-              HapticFeedback.lightImpact();
-            },
-            onToggleSnap: () {
-              setState(() {
-                _lassoTool.toggleSnap();
-              });
-              HapticFeedback.lightImpact();
-            },
-            onUndo: () {
-              setState(() {
-                _lassoTool.restoreUndo();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.mediumImpact();
-            },
-            onDelete: () {
-              setState(() {
-                _lassoTool.deleteSelected();
-                _lassoTool.clearSelection();
-                _toolController.toggleLassoMode();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.mediumImpact();
-            },
-            onClearSelection: () {
-              setState(() {
-                _lassoTool.clearSelection();
-                _toolController.toggleLassoMode();
-              });
-              HapticFeedback.lightImpact();
-            },
-            onRotate: () {
-              setState(() {
-                _lassoTool.rotateSelected();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onFlipHorizontal: () {
-              setState(() {
-                _lassoTool.flipHorizontal();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onFlipVertical: () {
-              setState(() {
-                _lassoTool.flipVertical();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onConvertToText: () {
-              // Phase 2: OCR conversion (requires OCRService)
-              HapticFeedback.mediumImpact();
-            },
-            // Round 3 — Enterprise
-            isSelectionLocked: _lassoTool.isSelectionLocked,
-            multiLayerMode: _lassoTool.multiLayerMode,
-            statsSummary: _lassoTool.selectionStats.summary,
-            onLock: () {
-              setState(() {
-                _lassoTool.lockSelected();
-              });
-              HapticFeedback.mediumImpact();
-            },
-            onUnlock: () {
-              setState(() {
-                _lassoTool.unlockSelected();
-              });
-              HapticFeedback.lightImpact();
-            },
-            onAlignLeft: () {
-              setState(() {
-                _lassoTool.alignLeft();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onAlignCenterH: () {
-              setState(() {
-                _lassoTool.alignCenterH();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onAlignRight: () {
-              setState(() {
-                _lassoTool.alignRight();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onAlignTop: () {
-              setState(() {
-                _lassoTool.alignTop();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onAlignCenterV: () {
-              setState(() {
-                _lassoTool.alignCenterV();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onAlignBottom: () {
-              setState(() {
-                _lassoTool.alignBottom();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onDistributeH: () {
-              setState(() {
-                _lassoTool.distributeHorizontal();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onDistributeV: () {
-              setState(() {
-                _lassoTool.distributeVertical();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
-            onToggleMultiLayer: () {
-              setState(() {
-                _lassoTool.toggleMultiLayerMode();
-              });
-              HapticFeedback.lightImpact();
-            },
-            // Phase 3 — Procreate parity
-            onInverse: () {
-              setState(() {
-                _lassoTool.invertSelection();
-              });
-              HapticFeedback.mediumImpact();
-            },
-            onPasteInPlace: () {
-              setState(() {
-                _lassoTool.pasteInPlace();
-              });
-              DrawingPainter.invalidateAllTiles();
-              _autoSaveCanvas();
-              HapticFeedback.lightImpact();
-            },
+          top: 80,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: IgnorePointer(
+              child: _SelectionRotationBadge(
+                angleDeg: _selectionAccumRotation * 180.0 / math.pi,
+                scalePct: _selectionAccumScale * 100.0,
+                isSnapped: _selectionLastSnapAngle != null,
+              ),
+            ),
           ),
         ),
 
@@ -450,5 +486,96 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
       // PHASE2:             // 🔮 Lasso overlay per recupero dal passato
       // PHASE2:             // 🔮 Overlay posizionamento recupero
     ];
+  }
+}
+
+/// 📐 Compact rotation angle badge — shown during selection pinch transform.
+/// JARVIS-style dark glass pill with monospace degrees display.
+class _SelectionRotationBadge extends StatelessWidget {
+  final double angleDeg;
+  final double scalePct;
+  final bool isSnapped;
+
+  const _SelectionRotationBadge({
+    required this.angleDeg,
+    required this.scalePct,
+    required this.isSnapped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final displayAngle = angleDeg.toStringAsFixed(1);
+    final displayScale = scalePct.toStringAsFixed(0);
+    final showScale = (scalePct - 100.0).abs() > 0.5;
+    final accentColor = isSnapped
+        ? const Color(0xFF00E5FF)
+        : Colors.white70;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xE0101016),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isSnapped
+              ? const Color(0xFF00E5FF).withValues(alpha: 0.6)
+              : Colors.white24,
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.rotate_right_rounded,
+            size: 16,
+            color: accentColor,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '$displayAngle°',
+            style: TextStyle(
+              color: accentColor,
+              fontSize: 14,
+              fontWeight: isSnapped ? FontWeight.bold : FontWeight.w500,
+              fontFamily: 'monospace',
+              letterSpacing: 0.5,
+            ),
+          ),
+          if (showScale) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                '·',
+                style: TextStyle(color: Colors.white38, fontSize: 14),
+              ),
+            ),
+            Icon(
+              Icons.zoom_out_map_rounded,
+              size: 14,
+              color: Colors.white54,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '$displayScale%',
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                fontFamily: 'monospace',
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }

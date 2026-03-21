@@ -399,6 +399,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       FloatingColorDisc(
                         color: _effectiveSelectedColor,
                         recentColors: _recentColors,
+                        strokeSize: _toolController.width,
+                        onStrokeSizeChanged: (s) {
+                          _toolController.setStrokeWidth(s);
+                          setState(() {});
+                        },
                         onColorChanged: (c) {
                           _toolController.setColor(c);
                           // Track recent colors (deduped, max 6)
@@ -829,6 +834,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 _isConnectionDragging || // 🧠 Block pan during connection drag
                 _isCurveDragging || // 🎨 Block pan during curve drag
                 _isDraggingGraphSlider ||
+                _lassoTool.isDragging || // 🔒 Block pan during lasso selection drag
+                _isSelectionPinching || // 🤏 Block pan during selection pinch transform
                 _imageTool
                     .isHandleRotating, // 🌀 Block only during active manipulation
             // 📈 Graph pinch-to-viewport zoom+pan (Desmos-style)
@@ -894,6 +901,30 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             onImageScaleStart: _onImageScaleStart,
             onImageTransform: _onImageTransform,
             onImageScaleEnd: _onImageScaleEnd,
+            // 🤏 SELECTION TRANSFORM: Two-finger rotate + scale on lasso selection
+            shouldRouteToSelectionTransform: (Offset screenFocalPoint) {
+              if (_isSelectionPinching) return true;
+              if (!_lassoTool.hasSelection) {
+                debugPrint('🔍 shouldRouteToSel: no selection');
+                return false;
+              }
+              final canvasPos = _canvasController.screenToCanvas(screenFocalPoint);
+              final inSel = _lassoTool.isPointInSelection(canvasPos);
+              final bounds = _lassoTool.getSelectionBounds();
+              debugPrint('🔍 shouldRouteToSel: screen=$screenFocalPoint canvas=$canvasPos bounds=$bounds inSel=$inSel isDragging=${_lassoTool.isDragging}');
+              return inSel;
+            },
+            onSelectionScaleStart: _onSelectionScaleStart,
+            onSelectionTransform: _onSelectionTransform,
+            onSelectionScaleEnd: _onSelectionScaleEnd,
+            onSelectionPinchCancel: _cancelSelectionPinch,
+            onCancelLassoDrag: () {
+              debugPrint('🔍 onCancelLassoDrag: isDragging=${_lassoTool.isDragging} hasSelection=${_lassoTool.hasSelection}');
+              if (_lassoTool.isDragging) {
+                _lassoTool.endDrag(skipReflow: true);
+                debugPrint('🔍 → lasso drag cancelled');
+              }
+            },
             // 🔲 GESTURAL LASSO: Tap + Drag activates lasso without switching tools
             onGesturalLassoStart: _onGesturalLassoStart,
             onGesturalLassoUpdate: _onGesturalLassoUpdate,

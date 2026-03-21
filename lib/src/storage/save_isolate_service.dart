@@ -23,6 +23,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../core/models/canvas_layer.dart';
+import '../core/models/digital_text_element.dart';
+import '../core/nodes/text_node.dart';
 import '../core/nodes/pdf_document_node.dart';
 import '../core/nodes/pdf_page_node.dart';
 import '../core/nodes/pdf_preview_card_node.dart';
@@ -89,6 +91,8 @@ class SaveIsolateService {
     final strippedImages = _stripPdfCachedImages(layers);
     final strippedThumbnails = _stripPdfPreviewCardThumbnails(layers);
     final strippedCallbacks = _stripPdfCallbacks(layers);
+    // 📝 Strip unsendable TextPainter caches from text nodes
+    _stripTextLayoutCaches(layers);
 
     // Send layers to the persistent isolate and wait for response
     final responsePort = ReceivePort();
@@ -101,6 +105,7 @@ class SaveIsolateService {
     _restorePdfCachedImages(strippedImages, layers);
     _restorePdfPreviewCardThumbnails(strippedThumbnails, layers);
     _restorePdfCallbacks(strippedCallbacks, layers);
+    // Note: text caches are NOT restored — they rebuild lazily on next paint
 
     return result as List<Uint8List>;
   }
@@ -240,6 +245,23 @@ class SaveIsolateService {
           if (cb != null && child.onMutation == null) {
             child.onMutation = cb;
           }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Text layout cache stripping (isolate safety)
+  // ---------------------------------------------------------------------------
+
+  /// Clear cached TextPainter from all DigitalTextElements in the tree.
+  /// TextPainter contains native _Paragraph objects that cannot cross
+  /// isolate boundaries. The cache rebuilds lazily on next paint.
+  static void _stripTextLayoutCaches(List<CanvasLayer> layers) {
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is TextNode) {
+          child.textElement.clearLayoutCache();
         }
       }
     }

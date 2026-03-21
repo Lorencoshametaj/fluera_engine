@@ -43,3 +43,6 @@ app.*.map.json
 # Android Studio will place build artifacts here
 /android/app/libs/
 /android/app/src/main/assets/
+
+# Secrets
+.env

@@ -189,6 +189,22 @@ class LatexEvaluator {
       LatexText() => false,
       LatexSpace() => false,
       LatexErrorNode() => false,
+      LatexColored() => _nodeContainsVar(node.body, varName),
+      LatexBoxed() => _nodeContainsVar(node.body, varName),
+      LatexUnderOver() =>
+        _nodeContainsVar(node.body, varName) ||
+            _nodeContainsVar(node.annotation, varName),
+      LatexCancel() => _nodeContainsVar(node.body, varName),
+      LatexPhantom() => false,
+      LatexCases() => node.rows.any(
+        (r) => r.any((c) => _nodeContainsVar(c, varName)),
+      ),
+      LatexExtensibleArrow() => false,
+      LatexAlign() => node.rows.any(
+        (r) => r.any((c) => _nodeContainsVar(c, varName)),
+      ),
+      LatexColorBox() => _nodeContainsVar(node.body, varName),
+      LatexRule() => false,
     };
   }
 
@@ -246,6 +262,19 @@ class LatexEvaluator {
       LatexAccent() => _evaluateNode(node.base),
       LatexErrorNode() =>
         throw EvaluationException('Errore di parsing: ${node.message}'),
+      LatexColored() => _evaluateNode(node.body),
+      LatexBoxed() => _evaluateNode(node.body),
+      LatexUnderOver() => _evaluateNode(node.body),
+      LatexCancel() => _evaluateNode(node.body),
+      LatexPhantom() => 0.0,
+      LatexCases() =>
+        throw const EvaluationException('Cases non supportate'),
+      LatexExtensibleArrow() =>
+        throw const EvaluationException('Frecce non supportate'),
+      LatexAlign() =>
+        throw const EvaluationException('Align non supportato'),
+      LatexColorBox() => _evaluateNode(node.body),
+      LatexRule() => 0.0,
     };
   }
 

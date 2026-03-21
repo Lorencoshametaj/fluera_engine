@@ -6,6 +6,12 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🔍 ECHO SEARCH INTERCEPT: Commit query stroke
+    if (_echoSearchActive) {
+      _echoSearchOnDrawEnd();
+      return;
+    }
+
     // 🎨 KNOWLEDGE FLOW: Finalize curve drag (control point adjustment)
     if (_isCurveDragging && _knowledgeFlowController != null) {
       setState(() {
@@ -507,6 +513,27 @@ extension on _FlueraCanvasScreenState {
         // 💾 Persist the moved elements
         _autoSaveCanvas();
       } else {
+        // If gestural lasso is active and this was a simple tap (no new lasso
+        // path was started because _onDrawStart returned early), clear the
+        // existing selection and return to the drawing tool.
+        if (_wasGesturalLassoActivated &&
+            _lassoTool.hasSelection &&
+            _lassoTool.lassoPath.isEmpty) {
+          _lassoTool.clearSelection();
+          _autoReturnFromGesturalLasso();
+          HapticFeedback.lightImpact();
+          _uiRebuildNotifier.value++;
+          return;
+        }
+
+        // Enable additive mode if gestural lasso has a previous selection backup
+        final useAdditive = _wasGesturalLassoActivated &&
+            _lassoSelectionBackup != null &&
+            _lassoSelectionBackup!.isNotEmpty;
+        if (useAdditive) {
+          _lassoTool.additiveMode = true;
+        }
+
         // Mode-aware completion
         switch (_lassoTool.selectionMode) {
           case SelectionMode.marquee:
@@ -520,6 +547,11 @@ extension on _FlueraCanvasScreenState {
             break;
         }
 
+        // Restore additive mode
+        if (useAdditive) {
+          _lassoTool.additiveMode = false;
+        }
+
         // Feedback tattile e visivo per selezione completata
         if (_lassoTool.hasSelection) {
           HapticFeedback.mediumImpact();
@@ -527,6 +559,7 @@ extension on _FlueraCanvasScreenState {
           HapticFeedback.lightImpact();
           // #1: Auto-return to previous tool if lasso was activated gesturally
           if (_wasGesturalLassoActivated) {
+            _lassoTool.clearSelection(); // clear any previous selection
             _autoReturnFromGesturalLasso();
           }
         }

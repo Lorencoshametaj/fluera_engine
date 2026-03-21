@@ -1,26 +1,24 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../infinite_canvas_controller.dart';
 import './camera_actions.dart';
 
-/// ⚡ Zoom level indicator with coordinate display and preset zoom levels.
+/// ⚡ Zoom level indicator — Minimal JARVIS HUD style.
 ///
-/// Displays the current zoom percentage (e.g. "100%") and canvas coordinates
-/// (e.g. "X: 1240  Y: -380") in a compact glassmorphism pill.
-/// Tapping opens a popup with preset zoom levels.
-///
-/// DESIGN PRINCIPLES:
-/// - Always visible, minimal footprint.
-/// - Presets: 25%, 50%, 100%, 200%, 400%.
-/// - Animated text transitions when zoom changes.
-/// - Coordinates update in real-time during pan/zoom.
-/// - Adapts colors to canvas background for visibility on any surface.
+/// Dark-glass pill with subtle cyan accent:
+/// - Dark glass base, thin cyan border
+/// - Monospace text for zoom %, coordinates, rotation
+/// - Tap → zoom presets popup
+/// - Long-press → toggle dot grid
+/// - Tap rotation → reset rotation to 0°
 class ZoomLevelIndicator extends StatelessWidget {
   final InfiniteCanvasController controller;
   final Size viewportSize;
 
-  /// Canvas background color — used for adaptive styling.
+  /// Canvas background color (kept for API compat).
   final Color canvasBackground;
 
   /// Called on long press — typically toggles dot grid.
@@ -29,7 +27,19 @@ class ZoomLevelIndicator extends StatelessWidget {
   /// Whether the dot grid is currently active.
   final bool showGridActive;
 
+  /// Called to toggle minimap visibility.
+  final VoidCallback? onToggleMinimap;
+
+  /// Whether the minimap is currently visible.
+  final bool isMinimapVisible;
+
   static const List<double> _presets = [0.25, 0.50, 1.0, 2.0, 4.0];
+
+  // ── HUD palette ──
+  static const _glassBase = Color(0xBB0A0E1A);
+  static const _neonCyan = Color(0xFF82C8FF);
+  static const _primaryText = Color(0xFFB0D4FF);
+  static const _secondaryText = Color(0xFF5A8CB8);
 
   const ZoomLevelIndicator({
     super.key,
@@ -38,9 +48,9 @@ class ZoomLevelIndicator extends StatelessWidget {
     this.canvasBackground = Colors.white,
     this.onLongPress,
     this.showGridActive = true,
+    this.onToggleMinimap,
+    this.isMinimapVisible = true,
   });
-
-  bool get _isLightBg => canvasBackground.computeLuminance() > 0.5;
 
   String _formatZoom(double scale) {
     final pct = (scale * 100).round();
@@ -58,10 +68,6 @@ class ZoomLevelIndicator extends StatelessWidget {
     final RenderBox box = context.findRenderObject() as RenderBox;
     final position = box.localToGlobal(Offset.zero);
 
-    final isLight = _isLightBg;
-    final menuColor =
-        isLight ? const Color(0xF0F5F5FA) : const Color(0xF0222235);
-
     showMenu<double>(
       context: context,
       position: RelativeRect.fromLTRB(
@@ -70,40 +76,42 @@ class ZoomLevelIndicator extends StatelessWidget {
         position.dx + box.size.width,
         position.dy,
       ),
-      color: menuColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      items:
-          _presets.map((preset) {
-            final label = '${(preset * 100).round()}%';
-            final isActive = (controller.scale - preset).abs() < 0.01;
-            final textColor =
-                isActive
-                    ? const Color(0xFF4A90D9)
-                    : isLight
-                    ? Colors.black.withValues(alpha: 0.7)
-                    : Colors.white.withValues(alpha: 0.8);
-            return PopupMenuItem<double>(
-              value: preset,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isActive)
-                    const Icon(Icons.check, size: 16, color: Color(0xFF4A90D9))
-                  else
-                    const SizedBox(width: 16),
-                  const SizedBox(width: 8),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: textColor,
-                      fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
+      color: const Color(0xF00A0E1A),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: _neonCyan.withValues(alpha: 0.2),
+          width: 0.5,
+        ),
+      ),
+      items: _presets.map((preset) {
+        final label = '${(preset * 100).round()}%';
+        final isActive = (controller.scale - preset).abs() < 0.01;
+        final textColor =
+            isActive ? _neonCyan : _primaryText.withValues(alpha: 0.8);
+        return PopupMenuItem<double>(
+          value: preset,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isActive)
+                const Icon(Icons.check, size: 16, color: _neonCyan)
+              else
+                const SizedBox(width: 16),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: textColor,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                ),
               ),
-            );
-          }).toList(),
+            ],
+          ),
+        );
+      }).toList(),
     ).then((value) {
       if (value != null) {
         CameraActions.zoomToLevel(controller, value, viewportSize);
@@ -113,96 +121,180 @@ class ZoomLevelIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLight = _isLightBg;
-    final pillBg = isLight ? const Color(0xCCF0F0F5) : const Color(0xCC1A1A2E);
-    final pillBorder =
-        isLight
-            ? Colors.black.withValues(alpha: 0.12)
-            : Colors.white.withValues(alpha: 0.15);
-    final primaryText =
-        isLight
-            ? Colors.black.withValues(alpha: 0.75)
-            : Colors.white.withValues(alpha: 0.85);
-    final secondaryText =
-        isLight
-            ? Colors.black.withValues(alpha: 0.45)
-            : Colors.white.withValues(alpha: 0.45);
-
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        // Calculate canvas center position
         final centerScreen = Offset(
           viewportSize.width / 2,
           viewportSize.height / 2,
         );
         final canvasPos = controller.screenToCanvas(centerScreen);
+        final zoomText = _formatZoom(controller.scale);
+        final coordText =
+            '${_formatCoord(canvasPos.dx)}, ${_formatCoord(canvasPos.dy)}';
+        final isRotated = controller.rotation.abs() > 0.009; // ~0.5° threshold
+        final isSnapped = isRotated &&
+            controller.checkSnapAngle(controller.rotation) != null;
 
-        return GestureDetector(
-          onTap: () => _showPresets(context),
-          onLongPress: () {
-            HapticFeedback.lightImpact();
-            onLongPress?.call();
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: pillBg,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: pillBorder, width: 0.5),
+        // Responsive: hide elements on narrow screens
+        final w = viewportSize.width;
+        final showCoords = w > 500;
+        final showIcons = w > 380;
+        // Leave room for minimap (180 + 16 right pad + 16 gap)
+        final maxW = (w - 228).clamp(100.0, 500.0);
+
+        // Build the Row children list
+        final children = <Widget>[
+          // ── Zoom % ──
+          Text(
+            zoomText,
+            style: const TextStyle(
+              color: _primaryText,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'monospace',
+              letterSpacing: 0.3,
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Zoom percentage
-                Text(
-                  _formatZoom(controller.scale),
-                  style: TextStyle(
-                    color: primaryText,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: 'monospace',
-                  ),
+          ),
+          // ── Coordinates (hidden on narrow screens) ──
+          if (showCoords) ...[
+            _separator(0.15),
+            Text(
+              coordText,
+              style: const TextStyle(
+                color: _secondaryText,
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                fontFamily: 'monospace',
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+          // ── Grid indicator (hidden on very narrow) ──
+          if (showIcons && onLongPress != null) ...[
+            _separator(0.12),
+            Icon(
+              Icons.grid_4x4_rounded,
+              size: 11,
+              color: showGridActive
+                  ? _neonCyan.withValues(alpha: 0.7)
+                  : _secondaryText.withValues(alpha: 0.4),
+            ),
+          ],
+          // ── Minimap toggle (hidden on very narrow) ──
+          if (showIcons && onToggleMinimap != null) ...[
+            _separator(0.12),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onToggleMinimap!.call();
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Icon(
+                  isMinimapVisible
+                      ? Icons.map_rounded
+                      : Icons.map_outlined,
+                  size: 12,
+                  color: isMinimapVisible
+                      ? _neonCyan.withValues(alpha: 0.7)
+                      : _secondaryText.withValues(alpha: 0.4),
                 ),
-                // Separator
-                Container(
-                  width: 1,
-                  height: 12,
-                  margin: const EdgeInsets.symmetric(horizontal: 6),
-                  color: pillBorder,
-                ),
-                // Coordinates
-                Text(
-                  '${_formatCoord(canvasPos.dx)}, ${_formatCoord(canvasPos.dy)}',
-                  style: TextStyle(
-                    color: secondaryText,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w400,
-                    fontFamily: 'monospace',
+              ),
+            ),
+          ],
+          // ── Rotation indicator (only when rotated) ──
+          if (isRotated) ...[
+            _separator(0.15),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.mediumImpact();
+                controller.resetRotation();
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Transform.rotate(
+                    angle: controller.rotation,
+                    child: Icon(
+                      isSnapped
+                          ? Icons.check_circle_rounded
+                          : Icons.navigation_rounded,
+                      size: 10,
+                      color: isSnapped
+                          ? _neonCyan
+                          : _primaryText.withValues(alpha: 0.8),
+                    ),
                   ),
-                ),
-                // Grid toggle indicator
-                if (onLongPress != null) ...[
-                  Container(
-                    width: 1,
-                    height: 12,
-                    margin: const EdgeInsets.symmetric(horizontal: 6),
-                    color: pillBorder,
-                  ),
-                  Icon(
-                    Icons.grid_4x4_rounded,
-                    size: 12,
-                    color:
-                        showGridActive
-                            ? const Color(0xFF4A90D9)
-                            : secondaryText,
+                  const SizedBox(width: 4),
+                  Text(
+                    controller.rotationDegrees,
+                    style: TextStyle(
+                      color: isSnapped ? _neonCyan : _primaryText,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      fontFamily: 'monospace',
+                      letterSpacing: 0.3,
+                    ),
                   ),
                 ],
-              ],
+              ),
+            ),
+          ],
+        ];
+
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxW),
+          child: GestureDetector(
+            onTap: () => _showPresets(context),
+            onLongPress: () {
+              HapticFeedback.lightImpact();
+              onLongPress?.call();
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: _glassBase,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _neonCyan.withValues(alpha: 0.2),
+                  width: 0.5,
+                ),
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: children,
+                ),
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  /// Thin gradient separator line.
+  static Widget _separator(double alpha) {
+    return Container(
+      width: 1,
+      height: 12,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            _neonCyan.withValues(alpha: 0.0),
+            _neonCyan.withValues(alpha: alpha),
+            _neonCyan.withValues(alpha: 0.0),
+          ],
+        ),
+      ),
     );
   }
 }

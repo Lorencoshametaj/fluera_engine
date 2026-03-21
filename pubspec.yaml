@@ -40,6 +40,8 @@ dependencies:
   flutter_langdetect: ^0.0.2
   sherpa_onnx: ^1.12.29
   archive: ^4.0.9
+  google_generative_ai: ^0.4.7
+  flutter_dotenv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -72,6 +74,11 @@ flutter:
     - shaders/neon_glow.frag
     - shaders/ink_wash.frag
     - shaders/adjustment.frag
+  fonts:
+    - family: STIXTwoMath
+      fonts:
+        - asset: assets/fonts/STIXTwoMath-Regular.otf
+
   assets:
     - assets/textures/
     - assets/textures/images/

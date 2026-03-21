@@ -126,9 +126,12 @@ class VulkanStrokeOverlayService {
   }) {
     if (!_initialized || points.length < 2) return;
 
-    // 🔮 Predict: add ephemeral points for anti-lag rendering
-    final prediction = _predictor.predict(points);
-    final renderPoints = prediction.allPoints;
+    // 🔮 Prediction DISABLED for native renderer: predicted points change
+    // position every frame, and since the C++ tessellator re-tessellates the
+    // ENTIRE stroke using Catmull-Rom splines, fluctuating endpoints cause
+    // the whole stroke geometry to shift = visible trembling.
+    // The C++ tessellator's own EMA smoothing handles latency compensation.
+    final renderPoints = points;
 
     // 🚀 Throttle: skip if <16ms since last send (unless forced or first call)
     final now = _throttleWatch.elapsedMilliseconds;

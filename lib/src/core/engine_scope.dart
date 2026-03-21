@@ -47,6 +47,8 @@ import 'latex/latex_module.dart';
 import '../tools/pdf/pdf_module.dart';
 import '../audio/audio_module.dart';
 import 'enterprise/enterprise_module.dart';
+import '../ai/ai_provider.dart';
+import '../ai/atlas_ai_service.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -116,10 +118,17 @@ class EngineScope {
   /// is automatically registered on [commandHistory].
   final String? journalPath;
 
+  /// Optional Gemini API key for Atlas AI.
+  ///
+  /// When set, [atlasProvider] is initialized with this key.
+  /// Pass this from the app layer (e.g. from `--dart-define` or secure storage).
+  final String? geminiApiKey;
+
   /// Create a new engine scope.
   ///
   /// Pass [journalPath] to enable the crash-recovery write-ahead log.
-  EngineScope({this.journalPath});
+  /// Pass [geminiApiKey] to enable Atlas AI with Gemini.
+  EngineScope({this.journalPath, this.geminiApiKey});
   // ---------------------------------------------------------------------------
   // Scope Stack Management
   // ---------------------------------------------------------------------------
@@ -310,6 +319,9 @@ class EngineScope {
 
   /// 🎨 Style Coherence — L4 Generative: per-document style learning.
   late final StyleCoherenceEngine styleCoherenceEngine = StyleCoherenceEngine();
+
+  /// 🌌 Atlas AI — spatial intelligence provider (Gemini by default).
+  late final AiProvider atlasProvider = GeminiProvider(apiKey: geminiApiKey);
 
   /// 📦 Module Registry — manages all canvas modules (drawing, tabular, etc.).
   late final ModuleRegistry moduleRegistry = ModuleRegistry(

@@ -487,15 +487,19 @@ class _PerformanceOverlayWidgetState extends State<_PerformanceOverlayWidget> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '${m.currentFPS.toStringAsFixed(0)} FPS',
-                    style: TextStyle(
-                      color: fpsColor,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      fontFamily: 'monospace',
+                  Flexible(
+                    child: Text(
+                      '${m.currentFPS.toStringAsFixed(0)} FPS',
+                      style: TextStyle(
+                        color: fpsColor,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        fontFamily: 'monospace',
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  const SizedBox(width: 4),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

@@ -90,6 +90,19 @@ class KnowledgeFlowPainter extends CustomPainter {
   /// 🎬 LANDING PULSE: Center of the pulse in canvas coordinates.
   final Offset landingPulseCenter;
 
+  // ---------------------------------------------------------------------------
+  // 🎤 AUDIO-INK SYNC: Highlight state for Flow Playback
+  // ---------------------------------------------------------------------------
+
+  /// ID of the stroke currently highlighted by audio-ink sync (tap-to-seek).
+  final String? audioHighlightStrokeId;
+
+  /// ID of the connection currently highlighted by audio-ink sync.
+  final String? audioHighlightConnectionId;
+
+  /// Highlight intensity for audio-ink sync (0.0—1.0, decaying).
+  final double audioHighlightIntensity;
+
   // LOD thresholds
   static const double _lodLevel1Min = 0.15;
   static const double _lodLevel1Max = 0.5;
@@ -117,6 +130,11 @@ class KnowledgeFlowPainter extends CustomPainter {
   static const MaskFilter _blurLod1 = MaskFilter.blur(BlurStyle.normal, 3.0);
   static const MaskFilter _blurLod2 = MaskFilter.blur(BlurStyle.normal, 6.0);
 
+  // 🚀 PERF: TextPainter cache for semantic node titles/icons.
+  // Key = clusterId + content hash. Avoids re-layout every frame.
+  // Auto-prunes at 100 entries.
+  static final Map<String, TextPainter> _cachedTitlePainters = {};
+
   KnowledgeFlowPainter({
     required this.clusters,
     required this.controller,
@@ -143,6 +161,9 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.flightTargetClusterId,
     this.landingPulseProgress = 0.0,
     this.landingPulseCenter = Offset.zero,
+    this.audioHighlightStrokeId,
+    this.audioHighlightConnectionId,
+    this.audioHighlightIntensity = 0.0,
   });
 
   @override
@@ -162,6 +183,7 @@ class KnowledgeFlowPainter extends CustomPainter {
       // No glow/particles, just underlines + connections + badges.
       _paintWordUnderlines(canvas, fade.clamp(0.3, 1.0));
       _paintConnections(canvas, lod, 1.0);
+      _paintGhostConnectionsDashed(canvas, 1.0);
       _paintConnectionBadges(canvas, lod, 1.0);
       // 🎯 Drag preview must be visible at ALL zoom levels
       if (dragSourcePoint != null && dragCurrentPoint != null) {
@@ -196,13 +218,32 @@ class KnowledgeFlowPainter extends CustomPainter {
 
     _paintWordUnderlines(canvas, fade);
     _paintConnections(canvas, lod, fade);
+    _paintGhostConnectionsDashed(canvas, fade);
 
     // 📍 Connection count badges (LOD 1-2)
     _paintConnectionBadges(canvas, lod, fade);
 
     // 🧠 SEMANTIC MORPHING: Paint semantic nodes on top with morph alpha
     if (hasMorph) {
-      _paintSemanticNodes(canvas, fade * morphT);
+      // 🌍 GOD VIEW crossfade: semantic nodes fade out as super-nodes appear
+      final godT = semanticController?.godViewProgress ?? 0.0;
+      final semanticFade = fade * morphT * (1.0 - godT);
+
+      if (semanticFade > 0.01) {
+        _paintSemanticNodes(canvas, semanticFade);
+        _paintSuggestions(canvas, lod, semanticFade);
+      }
+
+      // 🌍 GOD VIEW: Paint super-nodes on top
+      if (godT > 0.01) {
+        _paintGodView(canvas, fade * morphT * godT);
+      }
+
+      // 🃏 FLASHCARD PREVIEW: Mini-card on tapped semantic node
+      if (semanticController?.flashcardClusterId != null ||
+          semanticController?.isFlashcardDismissing == true) {
+        _paintFlashcard(canvas, fade * morphT);
+      }
     }
 
     if (dragSourcePoint != null && dragCurrentPoint != null) {
@@ -663,6 +704,170 @@ class KnowledgeFlowPainter extends CustomPainter {
   // PHASE 4: CONNECTIONS — Gradient arrows + particle trails
   // ===========================================================================
 
+  // ---------------------------------------------------------------------------
+  // 👻 GHOST CONNECTIONS — Dashed pulsating spectral lines (Feature 2)
+  // ---------------------------------------------------------------------------
+  //
+  // Ghost connections are AI-generated anticipatory links. They render as:
+  //   - Dashed line with animated scrolling effect
+  //   - Spectral cyan glow that pulses at 1.5Hz
+  //   - Directional particles flowing along the dashes
+  //   - 🎤 Audio-ink highlight: golden glow burst when tapped for seek
+
+  void _paintGhostConnectionsDashed(Canvas canvas, double fade) {
+    final ghostConns = controller.connections.where((c) => c.isGhost);
+    if (ghostConns.isEmpty) return;
+
+    final cMap = _buildClusterMap();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    for (final conn in ghostConns) {
+      final src = cMap[conn.sourceClusterId];
+      final tgt = cMap[conn.targetClusterId];
+      if (src == null || tgt == null) continue;
+
+      // === Anchor points (same logic as solid connections) ===
+      final srcCenter = conn.sourceAnchor ?? src.centroid;
+      final tgtCenter = conn.targetAnchor ?? tgt.centroid;
+      final dx = (tgtCenter.dx - srcCenter.dx).abs();
+      final dy = (tgtCenter.dy - srcCenter.dy).abs();
+      final Offset srcPt;
+      final Offset tgtPt;
+      if (dx > dy * 1.5) {
+        srcPt = tgtCenter.dx > srcCenter.dx
+            ? Offset(src.bounds.right + 4, srcCenter.dy)
+            : Offset(src.bounds.left - 4, srcCenter.dy);
+        tgtPt = tgtCenter.dx > srcCenter.dx
+            ? Offset(tgt.bounds.left - 4, tgtCenter.dy)
+            : Offset(tgt.bounds.right + 4, tgtCenter.dy);
+      } else {
+        srcPt = tgtCenter.dy < srcCenter.dy
+            ? Offset(srcCenter.dx, src.bounds.top - 4)
+            : Offset(srcCenter.dx, src.bounds.bottom + 4);
+        tgtPt = tgtCenter.dy < srcCenter.dy
+            ? Offset(tgtCenter.dx, tgt.bounds.bottom + 4)
+            : Offset(tgtCenter.dx, tgt.bounds.top - 4);
+      }
+
+      final cp = controller.getControlPoint(srcPt, tgtPt, conn.curveStrength);
+
+      // === Ghost birth fade-in (500ms) ===
+      final ghostAge = (nowMs - conn.createdAtMs) / 500.0;
+      final ghostFadeIn = ghostAge.clamp(0.0, 1.0);
+
+      // === Breathing pulse (1.5Hz) — creates the "alive" feel ===
+      final pulse = math.sin(animationTime * 3.0 + conn.id.hashCode * 0.5) *
+              0.5 +
+          0.5;
+      final breathAlpha = (0.25 + pulse * 0.35) * fade * ghostFadeIn;
+
+      // === Audio-ink highlight (golden glow when tapped for seek) ===
+      final isAudioHighlighted = audioHighlightConnectionId == conn.id;
+      final audioGlow = isAudioHighlighted ? audioHighlightIntensity : 0.0;
+
+      // Ghost spectral color — cyan/teal for AI-generated connections
+      const ghostColor = Color(0xFF00E5FF); // Cyan A400
+      final glowColor = isAudioHighlighted
+          ? Color.lerp(ghostColor, const Color(0xFFFFD54F), audioGlow)!
+          : ghostColor;
+
+      // === Outer glow (diffuse spectral haze) ===
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 12.0 + audioGlow * 8.0
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0)
+        ..shader = null
+        ..color = glowColor.withValues(alpha: breathAlpha * 0.3);
+
+      _reusePath.reset();
+      _reusePath.moveTo(srcPt.dx, srcPt.dy);
+      _reusePath.quadraticBezierTo(cp.dx, cp.dy, tgtPt.dx, tgtPt.dy);
+      canvas.drawPath(_reusePath, _p);
+      _p.maskFilter = null;
+
+      // === Animated dashed line (scrolling dash offset) ===
+      final pathMetrics = _reusePath.computeMetrics().firstOrNull;
+      if (pathMetrics == null) continue;
+      final pathLen = pathMetrics.length;
+
+      final dashLen = 16.0;
+      final gapLen = 10.0;
+      final dashCycle = dashLen + gapLen;
+
+      // Scroll speed: dashes flow along the connection
+      final scrollOffset = (animationTime * 40.0) % dashCycle;
+
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5 + audioGlow * 2.0
+        ..strokeCap = StrokeCap.round
+        ..shader = null
+        ..color = glowColor.withValues(alpha: breathAlpha);
+
+      double dist = -scrollOffset;
+      while (dist < pathLen) {
+        final start = dist.clamp(0.0, pathLen);
+        final end = (dist + dashLen).clamp(0.0, pathLen);
+        if (end > start + 0.5) {
+          final dashPath = pathMetrics.extractPath(start, end);
+          canvas.drawPath(dashPath, _p);
+        }
+        dist += dashCycle;
+      }
+
+      // === Flowing spectral particle (a single bright dot traveling along) ===
+      final particleT = (animationTime * 0.4 + conn.id.hashCode * 0.3) % 1.0;
+      final particlePos = controller.pointOnQuadBezier(
+        srcPt, cp, tgtPt, particleT,
+      );
+      _p
+        ..style = PaintingStyle.fill
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0)
+        ..color = glowColor.withValues(alpha: breathAlpha * 1.5);
+      canvas.drawCircle(particlePos, 3.5 + pulse * 1.5, _p);
+      _p.maskFilter = null;
+
+      // === "AI" indicator pill at midpoint ===
+      final midT = 0.5;
+      final midPt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, midT);
+
+      // Pill background
+      final pillRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: midPt, width: 24, height: 14),
+        const Radius.circular(7),
+      );
+      _p
+        ..style = PaintingStyle.fill
+        ..color = glowColor.withValues(alpha: breathAlpha * 0.5);
+      canvas.drawRRect(pillRect, _p);
+
+      // "AI" text
+      final cacheKey = '__ghost_ai_pill';
+      var tp = _cachedTitlePainters[cacheKey];
+      if (tp == null) {
+        tp = TextPainter(
+          text: const TextSpan(
+            text: 'AI',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        _cachedTitlePainters[cacheKey] = tp;
+      }
+      tp.paint(
+        canvas,
+        Offset(midPt.dx - tp.width / 2, midPt.dy - tp.height / 2),
+      );
+    }
+  }
+
+
   void _paintGhostConnections(Canvas canvas) {
     if (controller.connections.isEmpty) return;
 
@@ -736,6 +941,8 @@ class KnowledgeFlowPainter extends CustomPainter {
 
     int connIndex = 0;
     for (final conn in controller.connections) {
+      // 👻 Skip ghost connections — rendered separately by _paintGhostConnectionsDashed
+      if (conn.isGhost) { connIndex++; continue; }
       final src = cMap[conn.sourceClusterId];
       final tgt = cMap[conn.targetClusterId];
       if (src == null || tgt == null) continue;
@@ -1277,6 +1484,13 @@ class KnowledgeFlowPainter extends CustomPainter {
     final glowedClusterIds = <String>{}; // Glow dedup
     final labelMidpoints = <Offset>[]; // Label overlap avoidance
 
+    // ✨ STAGGERED REVEAL: Find the earliest surfacedAt as the reference
+    int earliestMs = nowMs;
+    for (final s in suggestions) {
+      if (s.surfacedAtMs < earliestMs) earliestMs = s.surfacedAtMs;
+    }
+
+    int revealIndex = 0;
     for (final active in suggestions) {
       if (rendered >= maxVisible) break;
 
@@ -1291,6 +1505,17 @@ class KnowledgeFlowPainter extends CustomPainter {
         continue;
       }
 
+      // ✨ STAGGERED: Override surfacedAt so each ghost appears 400ms apart
+      const staggerDelayMs = 400;
+      final staggeredSurfacedAt = earliestMs + (revealIndex * staggerDelayMs);
+      if (nowMs < staggeredSurfacedAt) {
+        revealIndex++;
+        continue; // This ghost hasn't "arrived" yet
+      }
+      // Temporarily adjust timing for this ghost's entrance animation
+      final originalSurfacedAt = active.surfacedAtMs;
+      active.surfacedAtMs = staggeredSurfacedAt;
+
       final isPrimary = rendered == 0;
       final opacityMul = isPrimary ? 1.0 : 0.5;
 
@@ -1299,9 +1524,13 @@ class KnowledgeFlowPainter extends CustomPainter {
         glowedClusterIds, labelMidpoints,
       );
 
+      // Restore original surfacedAt (don't mutate permanently)
+      active.surfacedAtMs = originalSurfacedAt;
+
       usedClusterIds.add(active.sourceClusterId);
       usedClusterIds.add(active.targetClusterId);
       rendered++;
+      revealIndex++;
     }
   }
 
@@ -1346,15 +1575,33 @@ class KnowledgeFlowPainter extends CustomPainter {
       _clusterColor(src), _clusterColor(tgt), 0.5,
     ) ?? _clusterColor(src);
 
+    // 📊 SCORE-BASED WEIGHT: Stronger suggestions appear more prominent
+    final score = active.score.clamp(0.0, 1.0);
+    final scoreWeight = 0.4 + score * 0.6; // 0.4–1.0 multiplier
+
     // Breathing pulsation
     final breath = math.sin(animationTime * 1.2) * 0.5 + 0.5;
+
+    // 🧲 MAGNETIC PULSE: Ghost pulses when finger is near midpoint
+    double magneticBoost = 1.0;
+    if (dragCurrentPoint != null) {
+      final fingerDist = (dragCurrentPoint! - midPt).distance;
+      if (fingerDist < 80.0) {
+        // Proximity factor: 1.0 at midpoint, 0.0 at 80px
+        final proximity = (1.0 - fingerDist / 80.0).clamp(0.0, 1.0);
+        // Pulse amplitude increases with proximity
+        final magneticPulse = math.sin(animationTime * 4.0) * 0.3 + 0.7;
+        magneticBoost = 1.0 + proximity * 0.6 * magneticPulse;
+      }
+    }
 
     // LOD 0 visibility boost
     final visBoost = lod == 0 ? 4.0 : 1.0;
 
     // === 🌟 CLUSTER HIGHLIGHT GLOW (deduped — each cluster glows only once) ===
     if (opacityMul >= 1.0) {
-      final glowAlpha = (0.08 + breath * 0.06) * fade * decayFactor * entranceFade;
+      final glowAlpha = (0.08 + breath * 0.06) * fade * decayFactor
+          * entranceFade * scoreWeight;
       final glowRadius = lod == 0 ? 25.0 : 15.0;
       _p
         ..style = PaintingStyle.stroke
@@ -1385,22 +1632,46 @@ class KnowledgeFlowPainter extends CustomPainter {
     final cp = Offset(midPt.dx + perpX, midPt.dy + perpY);
 
     final arcAlpha = ((0.03 + breath * 0.02) * fade * decayFactor * visBoost
-        * entranceFade * opacityMul).clamp(0.0, 0.35);
+        * entranceFade * opacityMul * scoreWeight * magneticBoost)
+        .clamp(0.0, 0.45);
 
     final srcColor = _clusterColor(src);
     final tgtColor = _clusterColor(tgt);
 
-    // Draw arc as gradient segments (source color → target color)
-    final arcSteps = 24;
+    // 📊 SCORE-BASED STROKE WIDTH: 0.5px (weak) → 2.5px (strong)
+    final baseStroke = lod == 0
+        ? (0.8 + score * 1.7) * magneticBoost
+        : (0.4 + score * 1.0) * magneticBoost;
+
+    // ⚡ ADAPTIVE ARC STEPS: fewer segments for low-score ghosts
+    final arcSteps = score > 0.6 ? 24 : (score > 0.4 ? 16 : 12);
     final maxStep = entranceT < 1.0
         ? (arcSteps * entranceEase.clamp(0.0, 1.0)).round()
         : arcSteps;
     _p
       ..style = PaintingStyle.stroke
-      ..strokeWidth = lod == 0 ? 1.5 : 0.8
+      ..strokeWidth = baseStroke
       ..strokeCap = StrokeCap.round
       ..shader = null
       ..maskFilter = null;
+
+    // 📊 High-score PRIMARY ghosts get a soft blur glow underneath
+    // ⚡ OPT: Skip glow pass for secondary ghosts (opacityMul < 1.0)
+    if (score > 0.65 && opacityMul >= 1.0) {
+      _p.maskFilter = MaskFilter.blur(BlurStyle.normal, 2.0 + score * 2.0);
+      for (int i = 0; i < maxStep; i++) {
+        final t0 = i / arcSteps;
+        final t1 = (i + 1) / arcSteps;
+        final segColor = Color.lerp(srcColor, tgtColor, (t0 + t1) / 2)!;
+        _p.color = segColor.withValues(alpha: arcAlpha * 0.4);
+        final p0 = _quadBezierPt(srcPt, cp, tgtPt, t0);
+        final p1 = _quadBezierPt(srcPt, cp, tgtPt, t1);
+        canvas.drawLine(p0, p1, _p);
+      }
+      _p.maskFilter = null;
+    }
+
+    // Main arc segments
     for (int i = 0; i < maxStep; i++) {
       final t0 = i / arcSteps;
       final t1 = (i + 1) / arcSteps;
@@ -1430,12 +1701,12 @@ class KnowledgeFlowPainter extends CustomPainter {
       }
     }
 
-    // === '+' dot at midpoint (scales with entrance) ===
-    final score = active.score.clamp(0.0, 1.0);
-    final baseRadius = (6.0 + score * 3.0) * (lod == 0 ? 1.8 : 1.0);
+    // === '+' dot at midpoint (scales with entrance + magnetic pulse) ===
+    final baseRadius = (6.0 + score * 3.0) * (lod == 0 ? 1.8 : 1.0)
+        * magneticBoost;
     final dotRadius = baseRadius * entranceEase;
     final dotAlpha = ((0.15 + breath * 0.08) * fade * decayFactor * visBoost
-        * entranceFade * opacityMul).clamp(0.0, 0.7);
+        * entranceFade * opacityMul * magneticBoost).clamp(0.0, 0.85);
 
     if (dotRadius < 0.5) return;
 
@@ -2321,11 +2592,20 @@ class KnowledgeFlowPainter extends CustomPainter {
     return 1.0;
   }
 
+  // 🚀 PERF: Per-frame cluster map cache. Rebuilt only when clusters change.
+  static List<ContentCluster>? _lastClusters;
+  static Map<String, ContentCluster> _cachedClusterMap = {};
+
   Map<String, ContentCluster> _buildClusterMap() {
+    if (identical(clusters, _lastClusters) && _cachedClusterMap.isNotEmpty) {
+      return _cachedClusterMap;
+    }
     final m = <String, ContentCluster>{};
     for (final c in clusters) {
       m[c.id] = c;
     }
+    _lastClusters = clusters;
+    _cachedClusterMap = m;
     return m;
   }
 
@@ -2347,6 +2627,605 @@ class KnowledgeFlowPainter extends CustomPainter {
     if (hasImages) return const Color(0xFFE8A84C); // Amber gold
 
     return const Color(0xFF7EC8E3);
+  }
+
+  // ===========================================================================
+  // ===========================================================================
+  // ===========================================================================
+  // 🃏 FLASHCARD PREVIEW — Mini-card on semantic node tap
+  // ===========================================================================
+
+  // 🚀 PERF: Cached related suggestions for flashcard (avoid per-frame filter)
+  static String? _fcCachedClusterId;
+  static List<SuggestedConnection> _fcCachedRelated = [];
+  // 🚀 PERF: animationTime → ms offset for animation timing
+  static double _fcAnimBaseTime = 0.0;
+  static int _fcAnimBaseMs = 0;
+
+  void _paintFlashcard(Canvas canvas, double fade) {
+    if (semanticController == null) return;
+
+    // Determine which cluster to render (active or dismissing)
+    final isDismissing = semanticController!.isFlashcardDismissing &&
+        semanticController!.flashcardClusterId == null;
+    final clusterId = isDismissing
+        ? semanticController!.dismissingClusterId
+        : semanticController!.flashcardClusterId;
+    if (clusterId == null) return;
+
+    final cMap = _buildClusterMap();
+    final cluster = cMap[clusterId];
+    if (cluster == null) {
+      if (!isDismissing) semanticController!.dismissFlashcard();
+      semanticController!.clearDismissing();
+      return;
+    }
+
+    // 🚀 PERF: Derive ms from animationTime (avoid DateTime.now syscall)
+    // Calibrate once, then use animationTime delta
+    if (_fcAnimBaseMs == 0) {
+      _fcAnimBaseMs = DateTime.now().millisecondsSinceEpoch;
+      _fcAnimBaseTime = animationTime;
+    }
+    final nowMs = _fcAnimBaseMs +
+        ((animationTime - _fcAnimBaseTime) * 1000).round();
+
+    // 🎬 Entrance / Exit animation
+    double animEase;
+    if (isDismissing) {
+      final exitSec = (nowMs - semanticController!.flashcardDismissTime) / 1000.0;
+      final exitT = (exitSec / 0.3).clamp(0.0, 1.0);
+      animEase = 1.0 - (exitT * exitT * (3.0 - 2.0 * exitT));
+      if (animEase < 0.01) {
+        semanticController!.clearDismissing();
+        return;
+      }
+    } else {
+      final ageSec = (nowMs - semanticController!.flashcardShowTime) / 1000.0;
+      final entranceT = (ageSec / 0.4).clamp(0.0, 1.0);
+      animEase = entranceT < 1.0
+          ? entranceT * entranceT * (3.0 - 2.0 * entranceT)
+          : 1.0;
+      if (animEase < 0.01) return;
+    }
+
+    final alpha = fade * animEase;
+    final inverseScale = (1.0 / canvasScale).clamp(3.0, 16.0);
+    final center = cluster.centroid;
+    final importance = semanticController!.clusterImportance[clusterId] ?? 0.5;
+    final importanceScale = 0.7 + importance * 0.6;
+    final nodeRadius = (20.0 + cluster.elementCount.clamp(0, 50) * 0.8) * importanceScale;
+    final accentColor = _clusterColor(cluster);
+
+    const cardW = 200.0;
+    const cardPad = 12.0;
+
+    // ── PRE-COMPUTE content to determine dynamic height ──
+    final title = semanticController!.aiTitles[clusterId] ??
+        semanticController!.semanticTitles[clusterId] ?? 'Cluster';
+
+    double contentH = cardPad; // top padding
+
+    // Title
+    contentH += 18; // title line height
+
+    // Stats bar
+    final stats = semanticController!.clusterStats[clusterId];
+    if (stats != null && stats.totalElements > 0) {
+      contentH += 22; // stats row
+    }
+
+    // Keywords
+    final text = clusterTexts[clusterId] ?? '';
+    final keywords = text.isNotEmpty
+        ? SemanticMorphController.extractLocalKeywords(text) : null;
+    if (keywords != null) {
+      contentH += 20; // keyword row
+    }
+
+    // 🚀 PERF: Pre-filtered suggestion cache
+    if (_fcCachedClusterId != clusterId) {
+      _fcCachedClusterId = clusterId;
+      _fcCachedRelated = controller.suggestions.where((s) =>
+          !s.dismissed &&
+          (s.sourceClusterId == clusterId || s.targetClusterId == clusterId))
+          .take(2).toList();
+    }
+    final related = _fcCachedRelated;
+    contentH += related.length * 16; // ghost rows
+
+    // Hint + bottom padding
+    contentH += 22 + cardPad;
+
+    final cardH = contentH.clamp(80.0, 250.0);
+
+    // Position card to the right of the node
+    final cardX = center.dx + nodeRadius + 15;
+    final cardY = center.dy - cardH * 0.3;
+
+    // ── 0. 🔗 CONNECTOR LINE: node → card ──
+    final connStart = Offset(
+      center.dx + nodeRadius,
+      center.dy,
+    );
+    final connEnd = Offset(cardX, cardY + cardH * 0.3);
+    final connCp = Offset(
+      (connStart.dx + connEnd.dx) / 2,
+      connStart.dy - 10,
+    );
+    _p
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round
+      ..color = accentColor.withValues(alpha: 0.30 * alpha)
+      ..maskFilter = null;
+    const connSteps = 10;
+    for (int i = 0; i < connSteps; i++) {
+      final t0 = i / connSteps;
+      final t1 = (i + 1) / connSteps;
+      _p.color = accentColor.withValues(
+        alpha: (0.15 + t0 * 0.20) * alpha,
+      );
+      canvas.drawLine(
+        _quadBezierPt(connStart, connCp, connEnd, t0),
+        _quadBezierPt(connStart, connCp, connEnd, t1),
+        _p,
+      );
+    }
+
+    // ── CARD BODY ──
+    canvas.save();
+    canvas.translate(cardX, cardY);
+    canvas.scale(inverseScale * 0.4 * animEase);
+
+    final cardRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, cardW, cardH),
+      const Radius.circular(12),
+    );
+
+    // ── 1. Frosted background ──
+    _p
+      ..style = PaintingStyle.fill
+      ..color = Color.fromARGB((0xDD * alpha).round(), 0x1A, 0x1A, 0x2E)
+      ..shader = null
+      ..maskFilter = null;
+    canvas.drawRRect(cardRect, _p);
+
+    // ── 2. Accent border ──
+    _p
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..color = accentColor.withValues(alpha: 0.60 * alpha);
+    canvas.drawRRect(cardRect, _p);
+
+    // ── 3. Top edge glow ──
+    _p
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = Colors.white.withValues(alpha: 0.12 * alpha);
+    canvas.drawLine(
+      const Offset(16, 1), Offset(cardW - 16, 1), _p,
+    );
+
+    // ── 4. Title (cached) ──
+    double curY = cardPad;
+    final titleKey = '${clusterId}_fc_$title';
+    var titleTp = _cachedTitlePainters[titleKey];
+    if (titleTp == null) {
+      titleTp = TextPainter(
+        text: TextSpan(
+          text: title,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.95),
+            fontSize: 14.0,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.3,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: cardW - cardPad * 2);
+      _cachedTitlePainters[titleKey] = titleTp;
+    }
+    titleTp.paint(canvas, Offset(cardPad, curY));
+    curY += titleTp.height + 8;
+
+    // ── 5. Content type dots + stats ──
+    if (stats != null && stats.totalElements > 0) {
+      final items = <MapEntry<Color, String>>[];
+      if (stats.strokeCount > 0) {
+        items.add(MapEntry(const Color(0xFF5C9CE6), '${stats.strokeCount} tratti'));
+      }
+      if (stats.textCount > 0) {
+        items.add(MapEntry(const Color(0xFFA87FDB), '${stats.textCount} testi'));
+      }
+      if (stats.shapeCount > 0) {
+        items.add(MapEntry(const Color(0xFF6BCB7F), '${stats.shapeCount} forme'));
+      }
+      if (stats.imageCount > 0) {
+        items.add(MapEntry(const Color(0xFFE8A84C), '${stats.imageCount} img'));
+      }
+
+      double dotX = cardPad;
+      for (final item in items) {
+        _p
+          ..style = PaintingStyle.fill
+          ..color = item.key.withValues(alpha: 0.80 * alpha);
+        canvas.drawCircle(Offset(dotX + 4, curY + 5), 3.5, _p);
+
+        final statKey = '${clusterId}_fcs_${item.value}';
+        var statTp = _cachedTitlePainters[statKey];
+        if (statTp == null) {
+          statTp = TextPainter(
+            text: TextSpan(
+              text: item.value,
+              style: const TextStyle(
+                color: Color(0x8CFFFFFF),
+                fontSize: 9.0,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          _cachedTitlePainters[statKey] = statTp;
+        }
+        statTp.paint(canvas, Offset(dotX + 10, curY));
+        dotX += statTp.width + 18;
+      }
+      curY += 18;
+    }
+
+    // ── 6. Keywords ──
+    if (keywords != null) {
+      final kwKey = '${clusterId}_fckw_$keywords';
+      var kwTp = _cachedTitlePainters[kwKey];
+      if (kwTp == null) {
+        kwTp = TextPainter(
+          text: TextSpan(
+            text: '🔑 $keywords',
+            style: TextStyle(
+              color: accentColor.withValues(alpha: 0.70),
+              fontSize: 10.0,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        )..layout(maxWidth: cardW - cardPad * 2);
+        _cachedTitlePainters[kwKey] = kwTp;
+      }
+      kwTp.paint(canvas, Offset(cardPad, curY));
+      curY += kwTp.height + 6;
+    }
+
+    // ── 7. Connected ghost suggestions ──
+    for (final ghost in related) {
+      final otherId = ghost.sourceClusterId == clusterId
+          ? ghost.targetClusterId
+          : ghost.sourceClusterId;
+      final otherTitle = semanticController!.aiTitles[otherId] ??
+          semanticController!.semanticTitles[otherId] ?? '…';
+      final ghostLabel = '👻 ${ghost.reason} → $otherTitle';
+      final ghostKey = '${clusterId}_fcg_$ghostLabel';
+      var ghostTp = _cachedTitlePainters[ghostKey];
+      if (ghostTp == null) {
+        ghostTp = TextPainter(
+          text: TextSpan(
+            text: ghostLabel,
+            style: const TextStyle(
+              color: Color(0x66FFFFFF),
+              fontSize: 9.0,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        )..layout(maxWidth: cardW - cardPad * 2);
+        _cachedTitlePainters[ghostKey] = ghostTp;
+      }
+      ghostTp.paint(canvas, Offset(cardPad, curY));
+      curY += ghostTp.height + 3;
+    }
+
+    // ── 8. "Zoom in" hint ──
+    final hintKey = '${clusterId}_fch';
+    var hintTp = _cachedTitlePainters[hintKey];
+    if (hintTp == null) {
+      hintTp = TextPainter(
+        text: TextSpan(
+          text: 'Zoom in →',
+          style: TextStyle(
+            color: accentColor.withValues(alpha: 0.45),
+            fontSize: 9.0,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      _cachedTitlePainters[hintKey] = hintTp;
+    }
+    hintTp.paint(canvas,
+        Offset(cardW - cardPad - hintTp.width, cardH - cardPad - hintTp.height));
+
+    canvas.restore();
+  }
+
+  // ===========================================================================
+  // 🌍 GOD VIEW — Thematic super-nodes at extreme zoom-out
+  // ===========================================================================
+
+  void _paintGodView(Canvas canvas, double fade) {
+    if (semanticController == null) return;
+    final superNodes = semanticController!.superNodes;
+    if (superNodes.isEmpty) return;
+    if (fade < 0.01) return;
+
+    final inverseScale = (1.0 / canvasScale).clamp(3.0, 32.0);
+    final cMap = _buildClusterMap();
+
+    for (final sn in superNodes) {
+      final center = sn.centroid;
+
+      // Radius proportional to total elements + member count
+      final baseR = 35.0 + sn.totalElements.clamp(0, 100) * 0.5 +
+          sn.memberCount * 8.0;
+      final nodeRadius = baseR;
+
+      // Blend color from member clusters
+      Color blendColor = const Color(0xFF7EC8E3);
+      int colorCount = 0;
+      double r = 0, g = 0, b = 0;
+      for (final mid in sn.memberClusterIds) {
+        final cluster = cMap[mid];
+        if (cluster != null) {
+          final cc = _clusterColor(cluster);
+          r += cc.r;
+          g += cc.g;
+          b += cc.b;
+          colorCount++;
+        }
+      }
+      if (colorCount > 0) {
+        blendColor = Color.from(
+            alpha: 1.0,
+            red: r / colorCount, green: g / colorCount,
+            blue: b / colorCount);
+      }
+
+      // Breathing pulse
+      final breath = math.sin(animationTime * 0.8 +
+          center.dx * 0.001) * 0.5 + 0.5;
+
+      // ── 1. Outer glow ──
+      _softGlowPaint.color = blendColor.withValues(
+        alpha: (0.12 + breath * 0.06) * fade,
+      );
+      canvas.drawCircle(center, nodeRadius + 15, _softGlowPaint);
+
+      // ── 2. Fill ──
+      final nodeRect = Rect.fromCircle(center: center, radius: nodeRadius);
+      final gradient = RadialGradient(
+        colors: [
+          blendColor.withValues(alpha: 0.20 * fade),
+          blendColor.withValues(alpha: 0.08 * fade),
+        ],
+      );
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = gradient.createShader(nodeRect)
+        ..maskFilter = null;
+      canvas.drawCircle(center, nodeRadius, _p);
+      _p.shader = null;
+
+      // ── 3. Border ──
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = blendColor.withValues(alpha: 0.50 * fade);
+      canvas.drawCircle(center, nodeRadius, _p);
+
+      // ── 4. 🎨 MEMBER COMPOSITION RING ──
+      // Each segment colored by its member cluster type
+      if (sn.memberCount > 1) {
+        final memberPulse = math.sin(animationTime * 1.5) * 0.5 + 0.5;
+        final ringRadius = nodeRadius + 8 + memberPulse * 3;
+        final sweepPerMember = 2 * math.pi / sn.memberClusterIds.length;
+        final gapAngle = 0.08; // Small gap between segments
+
+        for (int mi = 0; mi < sn.memberClusterIds.length; mi++) {
+          final memberId = sn.memberClusterIds[mi];
+          final memberCluster = cMap[memberId];
+          final memberColor = memberCluster != null
+              ? _clusterColor(memberCluster)
+              : blendColor;
+          final startAngle = -math.pi / 2 + mi * sweepPerMember + gapAngle / 2;
+          final actualSweep = sweepPerMember - gapAngle;
+
+          _reusePath.reset();
+          _reusePath.addArc(
+            Rect.fromCircle(center: center, radius: ringRadius),
+            startAngle, actualSweep,
+          );
+          _p
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3.0
+            ..strokeCap = StrokeCap.round
+            ..color = memberColor.withValues(
+              alpha: (0.35 + memberPulse * 0.15) * fade,
+            );
+          canvas.drawPath(_reusePath, _p);
+        }
+      }
+
+      // ── 4.5 ✨ SHIMMER LOADING for pending AI themes ──
+      final isPending = semanticController!.pendingGodViewAi.contains(sn.id);
+      if (isPending) {
+        final shimmerPhase = (animationTime * 1.5 +
+            center.dx * 0.002) % (2.0 * math.pi);
+        final shimmerX = math.cos(shimmerPhase) * nodeRadius * 0.8;
+        final shimmerGradient = LinearGradient(
+          begin: Alignment(-1.0 + shimmerX / nodeRadius, -0.5),
+          end: Alignment(1.0 + shimmerX / nodeRadius, 0.5),
+          colors: [
+            Colors.transparent,
+            Colors.white.withValues(alpha: 0.06 * fade),
+            Colors.white.withValues(alpha: 0.15 * fade),
+            Colors.white.withValues(alpha: 0.06 * fade),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+        );
+        _p
+          ..style = PaintingStyle.fill
+          ..shader = shimmerGradient.createShader(nodeRect);
+        canvas.drawCircle(center, nodeRadius, _p);
+        _p.shader = null;
+      }
+
+      // ── 5. Theme title ──
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.scale(inverseScale * 0.5);
+      canvas.translate(-center.dx, -center.dy);
+
+      final themeName = semanticController!.superNodeThemes[sn.id];
+      final title = themeName ??
+          (sn.memberCount > 1
+              ? '${sn.memberCount} gruppi'
+              : semanticController!.semanticTitles[sn.memberClusterIds.first]
+                  ?? 'Cluster');
+
+      final titleCacheKey = '${sn.id}_god_$title';
+      var tp = _cachedTitlePainters[titleCacheKey];
+      if (tp == null) {
+        tp = TextPainter(
+          text: TextSpan(
+            text: title,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.90 * fade),
+              fontSize: 14.0,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        );
+        tp.layout(maxWidth: nodeRadius * 2.0 / (inverseScale * 0.5) * 0.8);
+        _cachedTitlePainters[titleCacheKey] = tp;
+        if (_cachedTitlePainters.length > 120) {
+          final keys = _cachedTitlePainters.keys.toList();
+          for (int i = 0; i < 40; i++) {
+            _cachedTitlePainters.remove(keys[i]);
+          }
+        }
+      }
+      tp.paint(canvas,
+          Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+
+      // ── 6. Stats subtitle ──
+      final subtitle = '${sn.memberCount} cluster • ${sn.totalElements} elem';
+      final subCacheKey = '${sn.id}_godsub_$subtitle';
+      var subTp = _cachedTitlePainters[subCacheKey];
+      if (subTp == null) {
+        subTp = TextPainter(
+          text: TextSpan(
+            text: subtitle,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.45 * fade),
+              fontSize: 9.0,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        );
+        subTp.layout();
+        _cachedTitlePainters[subCacheKey] = subTp;
+      }
+      subTp.paint(canvas,
+          Offset(center.dx - subTp.width / 2,
+              center.dy + (tp.height / 2) + 4));
+
+      canvas.restore();
+    }
+
+    // ── 7. 🔗 GRAVITY LINES between super-nodes with shared connections ──
+    if (superNodes.length > 1) {
+      // 🚀 PERF: Use pre-computed membership map from controller
+      final memberToSuperNode = semanticController!.memberToSuperNodeIndex;
+
+      // Check existing connections for cross-super-node links
+      final drawnPairs = <String>{};
+      for (final conn in controller.connections) {
+        final snA = memberToSuperNode[conn.sourceClusterId];
+        final snB = memberToSuperNode[conn.targetClusterId];
+        if (snA == null || snB == null || snA == snB) continue;
+
+        final pairKey = snA < snB ? '$snA|$snB' : '$snB|$snA';
+        if (!drawnPairs.add(pairKey)) continue; // Already drawn
+
+        final a = superNodes[snA];
+        final b = superNodes[snB];
+        final midPt = Offset(
+          (a.centroid.dx + b.centroid.dx) / 2,
+          (a.centroid.dy + b.centroid.dy) / 2,
+        );
+        final dx = b.centroid.dx - a.centroid.dx;
+        final dy = b.centroid.dy - a.centroid.dy;
+        final perpX = -dy * 0.08;
+        final perpY = dx * 0.08;
+        final cp = Offset(midPt.dx + perpX, midPt.dy + perpY);
+
+        // Gradient arc
+        const _defaultGodColor = Color(0xFF7EC8E3);
+        final colorA = cMap[a.memberClusterIds.first] != null
+            ? _clusterColor(cMap[a.memberClusterIds.first]!)
+            : _defaultGodColor;
+        final colorB = cMap[b.memberClusterIds.first] != null
+            ? _clusterColor(cMap[b.memberClusterIds.first]!)
+            : _defaultGodColor;
+
+        final gravBreath = math.sin(animationTime * 0.6) * 0.5 + 0.5;
+        final gravAlpha = ((0.06 + gravBreath * 0.04) * fade).clamp(0.0, 0.25);
+
+        // Soft glow pass
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4.0
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
+        const gravSteps = 16;
+        for (int i = 0; i < gravSteps; i++) {
+          final t0 = i / gravSteps;
+          final t1 = (i + 1) / gravSteps;
+          _p.color = Color.lerp(colorA, colorB, (t0 + t1) / 2)!
+              .withValues(alpha: gravAlpha * 0.4);
+          canvas.drawLine(
+            _quadBezierPt(a.centroid, cp, b.centroid, t0),
+            _quadBezierPt(a.centroid, cp, b.centroid, t1),
+            _p,
+          );
+        }
+        _p.maskFilter = null;
+
+        // Main arc
+        _p.strokeWidth = 2.0;
+        for (int i = 0; i < gravSteps; i++) {
+          final t0 = i / gravSteps;
+          final t1 = (i + 1) / gravSteps;
+          _p.color = Color.lerp(colorA, colorB, (t0 + t1) / 2)!
+              .withValues(alpha: gravAlpha);
+          canvas.drawLine(
+            _quadBezierPt(a.centroid, cp, b.centroid, t0),
+            _quadBezierPt(a.centroid, cp, b.centroid, t1),
+            _p,
+          );
+        }
+      }
+    }
   }
 
   // ===========================================================================
@@ -2372,14 +3251,17 @@ class KnowledgeFlowPainter extends CustomPainter {
     for (final cluster in clusters) {
       final color = _clusterColor(cluster);
       final center = cluster.centroid;
-      final title = semanticController!.semanticTitles[cluster.id] ?? 'Cluster';
       final stats = semanticController!.clusterStats[cluster.id];
       final connCount = connCounts[cluster.id] ?? 0;
 
-      // ── Node radius proportional to element count ──
+      // ── Node radius proportional to element count × importance ──
       final elementCount = stats?.totalElements ?? 1;
-      final baseNodeRadius = (math.sqrt(elementCount.toDouble()) * 18.0 + 24.0)
-          .clamp(30.0, 120.0);
+      final importance = semanticController!.getSmoothedImportance(cluster.id);
+      final importanceScale = 0.7 + importance * 0.6; // 0.7x–1.3x
+      final baseNodeRadius = ((math.sqrt(elementCount.toDouble()) * 18.0 + 24.0)
+          .clamp(30.0, 120.0)) * importanceScale;
+      final isTopNode = importance >= semanticController!.importanceTopThreshold
+          && clusters.length > 2;
 
       // ── Breathing pulse for connected nodes ──
       final breathPhase = animationTime * 1.0 +
@@ -2389,13 +3271,15 @@ class KnowledgeFlowPainter extends CustomPainter {
           : 1.0;
       final nodeRadius = baseNodeRadius * breath;
 
-      // ── 1. Outer glow — atmospheric halo ──
-      _softGlowPaint.color = color.withValues(alpha: 0.20 * fade);
-      canvas.drawCircle(center, nodeRadius * 1.6, _softGlowPaint);
+      // ── 1. Outer glow — importance scales halo ──
+      final glowMultiplier = 1.4 + importance * 0.6; // 1.4x—2.0x
+      final glowAlpha = (0.15 + importance * 0.20) * fade; // 0.15—0.35
+      _softGlowPaint.color = color.withValues(alpha: glowAlpha);
+      canvas.drawCircle(center, nodeRadius * glowMultiplier, _softGlowPaint);
 
       // ── 2. Glass fill — radial gradient ──
       final fillGradient = RadialGradient(
-        center: const Alignment(-0.3, -0.3), // light from top-left
+        center: const Alignment(-0.3, -0.3),
         radius: 1.0,
         colors: [
           color.withValues(alpha: 0.18 * fade),
@@ -2426,11 +3310,12 @@ class KnowledgeFlowPainter extends CustomPainter {
         ..color = Colors.white.withValues(alpha: 0.15 * fade);
       canvas.drawPath(_reusePath, _p);
 
-      // ── 4. Luminous border ──
+      // ── 4. Luminous border — thickness scales with importance ──
+      final borderWidth = 1.0 + importance * 2.0; // 1.0—3.0
       _p
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = color.withValues(alpha: 0.45 * fade);
+        ..strokeWidth = borderWidth
+        ..color = color.withValues(alpha: (0.35 + importance * 0.20) * fade);
       canvas.drawCircle(center, nodeRadius, _p);
 
       // ── 5. Connection glow ring (for highly connected nodes) ──
@@ -2443,32 +3328,138 @@ class KnowledgeFlowPainter extends CustomPainter {
         canvas.drawCircle(center, nodeRadius + 8, _softGlowPaint);
       }
 
-      // ── 6. Title text — centered, auto-scaled ──
+      // ── 5.5 Shimmer loading effect for pending AI title nodes ──
+      final isPending = semanticController!.pendingAiRequests.contains(cluster.id);
+      if (isPending) {
+        // Animated shimmer sweep across the node
+        final shimmerPhase = (animationTime * 1.5 +
+            center.dx * 0.002) % (2.0 * math.pi);
+        final shimmerX = math.cos(shimmerPhase) * nodeRadius * 0.8;
+
+        final shimmerGradient = LinearGradient(
+          begin: Alignment(-1.0 + shimmerX / nodeRadius, -0.5),
+          end: Alignment(1.0 + shimmerX / nodeRadius, 0.5),
+          colors: [
+            Colors.transparent,
+            Colors.white.withValues(alpha: 0.08 * fade),
+            Colors.white.withValues(alpha: 0.18 * fade),
+            Colors.white.withValues(alpha: 0.08 * fade),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+        );
+        _p
+          ..style = PaintingStyle.fill
+          ..shader = shimmerGradient.createShader(nodeRect);
+        canvas.drawCircle(center, nodeRadius, _p);
+        _p.shader = null;
+      }
+
+      // ── 6. Title text — centered, auto-scaled, with AI crossfade ──
       canvas.save();
       canvas.translate(center.dx, center.dy);
       canvas.scale(inverseScale * 0.35);
       canvas.translate(-center.dx, -center.dy);
 
+      // Constrain width to node diameter (inverse-scaled)
+      final maxTextWidth = nodeRadius * 2.0 / (inverseScale * 0.35) * 0.75;
+      final constrainedWidth = maxTextWidth.clamp(60.0, 300.0);
+
+      // 🏷️ Content type icon — cached TextPainter
+      final icon = semanticController!.contentIcon(cluster.id);
+      final iconAlpha = (0.70 * fade);
+      final iconCacheKey = '${cluster.id}_icon_$icon';
+      var iconTp = _cachedTitlePainters[iconCacheKey];
+      if (iconTp == null) {
+        iconTp = TextPainter(
+          text: TextSpan(text: icon, style: TextStyle(
+            fontSize: 11.0, height: 1.0,
+            color: Colors.white.withValues(alpha: iconAlpha),
+          )),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        );
+        iconTp.layout();
+        _cachedTitlePainters[iconCacheKey] = iconTp;
+      }
+      iconTp.paint(
+        canvas,
+        Offset(center.dx - iconTp.width / 2, center.dy - iconTp.height - 8),
+      );
+
+      // ── ⭐ Star badge for top-20% importance nodes ──
+      if (isTopNode) {
+        // 🚀 PERF: Reuse _softGlowPaint (already has blur) instead of modifying _p
+        _softGlowPaint.color = const Color(0xFFFFD700).withValues(alpha: 0.15 * fade);
+        canvas.drawCircle(
+          Offset(center.dx + nodeRadius * 0.7, center.dy - nodeRadius * 0.7),
+          8.0, _softGlowPaint,
+        );
+
+        // Star icon (cached)
+        const starKey = '__star_badge__';
+        var starTp = _cachedTitlePainters[starKey];
+        if (starTp == null) {
+          starTp = TextPainter(
+            text: const TextSpan(
+              text: '⭐',
+              style: TextStyle(fontSize: 10.0),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          _cachedTitlePainters[starKey] = starTp;
+        }
+        starTp.paint(canvas, Offset(
+          center.dx + nodeRadius * 0.7 - starTp.width / 2,
+          center.dy - nodeRadius * 0.7 - starTp.height / 2,
+        ));
+      }
+      final (displayTitle, titleOpacity) =
+          semanticController!.getCrossfadeTitle(cluster.id);
+      final previousTitle = semanticController!.previousTitles[cluster.id];
+
+      // Paint PREVIOUS title (fading out) if mid-transition
+      if (previousTitle != null && titleOpacity < 1.0) {
+        final prevStyle = TextStyle(
+          color: Colors.white.withValues(alpha: 0.92 * fade * (1.0 - titleOpacity)),
+          fontSize: 13.0,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
+          height: 1.2,
+        );
+        final prevTp = TextPainter(
+          text: TextSpan(text: previousTitle, style: prevStyle),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          ellipsis: '…',
+        );
+        prevTp.layout(maxWidth: constrainedWidth);
+        prevTp.paint(
+          canvas,
+          Offset(center.dx - prevTp.width / 2, center.dy - prevTp.height / 2 + 4),
+        );
+      }
+
+      // Paint CURRENT title (fading in, or fully visible)
       final titleStyle = TextStyle(
-        color: Colors.white.withValues(alpha: 0.92 * fade),
+        color: Colors.white.withValues(alpha: 0.92 * fade * titleOpacity),
         fontSize: 13.0,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.3,
         height: 1.2,
       );
       final tp = TextPainter(
-        text: TextSpan(text: title, style: titleStyle),
+        text: TextSpan(text: displayTitle, style: titleStyle),
         textDirection: TextDirection.ltr,
         textAlign: TextAlign.center,
         maxLines: 2,
         ellipsis: '…',
       );
-      // Constrain width to node diameter (inverse-scaled)
-      final maxTextWidth = nodeRadius * 2.0 / (inverseScale * 0.35) * 0.75;
-      tp.layout(maxWidth: maxTextWidth.clamp(60.0, 300.0));
+      tp.layout(maxWidth: constrainedWidth);
       tp.paint(
         canvas,
-        Offset(center.dx - tp.width / 2, center.dy - tp.height / 2),
+        Offset(center.dx - tp.width / 2, center.dy - tp.height / 2 + 4),
       );
 
       canvas.restore();

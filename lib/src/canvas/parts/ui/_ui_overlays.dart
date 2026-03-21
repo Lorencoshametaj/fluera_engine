@@ -16,7 +16,7 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
     return [
       // Lasso Path Overlay — DENTRO l'area canvas
       // 🚀 PERF: ValueListenableBuilder isolates repaint to just this widget
-      if (_effectiveIsLasso)
+      if (_effectiveIsLasso || _isGesturalLassoActive)
         Positioned.fill(
           child: IgnorePointer(
             child: ValueListenableBuilder<int>(
@@ -31,9 +31,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                     color: Colors.blue,
                     canvasController: _canvasController,
                     selectionMode: _lassoTool.selectionMode,
-                    marqueeRect: _lassoTool.selectionMode == SelectionMode.marquee
-                        ? _lassoTool.marqueeRect
-                        : _lassoTool.selectionMode == SelectionMode.ellipse
+                    marqueeRect:
+                        _lassoTool.selectionMode == SelectionMode.marquee
+                            ? _lassoTool.marqueeRect
+                            : _lassoTool.selectionMode == SelectionMode.ellipse
                             ? _lassoTool.ellipseRect
                             : null,
                     repaint: _lassoTool.lassoPathNotifier,
@@ -45,20 +46,46 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
           ),
         ),
 
-      // Selection Overlay — DENTRO l'area canvas (non more nello Stack principale)
-      if (_lassoTool.hasSelection)
+      // 🔲 Closing ripple — expanding gradient circle on lasso completion
+      if (_lassoRippleCenter != null && _lassoRippleController != null)
         Positioned.fill(
           child: IgnorePointer(
-            child: LassoSelectionOverlay(
-              selectedIds: _lassoTool.selectedIds,
-              layerController: _layerController,
-              canvasController: _canvasController,
-              isDragging: _lassoTool.isDragging,
-              featherRadius: _lassoTool.featherRadius,
-              dragNotifier: _lassoTool.dragNotifier,
+            child: AnimatedBuilder(
+              animation: _lassoRippleController!,
+              builder: (context, _) {
+                final t = _lassoRippleController!.value;
+                final center = _lassoRippleCenter;
+                if (center == null || t >= 1.0) return const SizedBox.shrink();
+                final radius = 20.0 + t * 60.0;
+                final opacity = (1.0 - t) * 0.5;
+                return CustomPaint(
+                  painter: _LassoRipplePainter(
+                    center: center,
+                    radius: radius,
+                    opacity: opacity,
+                  ),
+                  size: Size.infinite,
+                );
+              },
             ),
           ),
         ),
+
+      // Selection Overlay — DENTRO l'area canvas (non more nello Stack principale)
+      Positioned.fill(
+        child: IgnorePointer(
+          child: LassoSelectionOverlay(
+            key: const ValueKey('lasso_selection_overlay'),
+            selectedIds: _lassoTool.selectedIds,
+            layerController: _layerController,
+            canvasController: _canvasController,
+            isDragging: _lassoTool.isDragging,
+            featherRadius: _lassoTool.featherRadius,
+            selectionBounds: _lassoTool.getSelectionBounds(),
+            dragNotifier: _lassoTool.dragNotifier,
+          ),
+        ),
+      ),
 
       // 🔲 Phase 3B: Selection Transform Handles
       if (_lassoTool.hasSelection)
@@ -331,8 +358,12 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                 final node = _selectedGraphNode!;
                 final pos = node.localTransform.getTranslation();
                 final bounds = node.localBounds.translate(pos.x, pos.y);
-                final screenTL = _canvasController.canvasToScreen(bounds.topLeft);
-                final screenBR = _canvasController.canvasToScreen(bounds.bottomRight);
+                final screenTL = _canvasController.canvasToScreen(
+                  bounds.topLeft,
+                );
+                final screenBR = _canvasController.canvasToScreen(
+                  bounds.bottomRight,
+                );
                 final screenRect = Rect.fromPoints(screenTL, screenBR);
                 const handleSize = 10.0;
                 final corners = [
@@ -352,10 +383,14 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                       child: Container(
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: const Color(0xFF4285F4).withValues(alpha: 0.8),
+                            color: const Color(
+                              0xFF4285F4,
+                            ).withValues(alpha: 0.8),
                             width: 2,
                           ),
-                          color: const Color(0xFF4285F4).withValues(alpha: 0.04),
+                          color: const Color(
+                            0xFF4285F4,
+                          ).withValues(alpha: 0.04),
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
@@ -402,7 +437,9 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               final pos = node.localTransform.getTranslation();
               final bounds = node.localBounds.translate(pos.x, pos.y);
               final screenTL = _canvasController.canvasToScreen(bounds.topLeft);
-              final screenBR = _canvasController.canvasToScreen(bounds.bottomRight);
+              final screenBR = _canvasController.canvasToScreen(
+                bounds.bottomRight,
+              );
               final screenRect = Rect.fromPoints(screenTL, screenBR);
               final isDark = Theme.of(context).brightness == Brightness.dark;
               final btnY = screenRect.top - 20;
@@ -423,10 +460,18 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                           color: Color(0xFF4285F4),
                           shape: BoxShape.circle,
                           boxShadow: [
-                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                            BoxShadow(
+                              color: Color(0x40000000),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
                           ],
                         ),
-                        child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                        child: const Icon(
+                          Icons.edit,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -458,10 +503,18 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                           color: Color(0xFFE53935),
                           shape: BoxShape.circle,
                           boxShadow: [
-                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                            BoxShadow(
+                              color: Color(0x40000000),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
                           ],
                         ),
-                        child: const Icon(Icons.delete_outline, color: Colors.white, size: 14),
+                        child: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -474,7 +527,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                       onPointerDown: (_) {
                         final graphNode = _selectedGraphNode;
                         if (graphNode == null) return;
-                        final clone = graphNode.cloneInternal() as FunctionGraphNode;
+                        final clone =
+                            graphNode.cloneInternal() as FunctionGraphNode;
                         final t = clone.localTransform;
                         final p = t.getTranslation();
                         t.setTranslationRaw(p.x + 30, p.y + 30, 0);
@@ -491,13 +545,24 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         width: 28,
                         height: 28,
                         decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF37474F) : const Color(0xFF78909C),
+                          color:
+                              isDark
+                                  ? const Color(0xFF37474F)
+                                  : const Color(0xFF78909C),
                           shape: BoxShape.circle,
                           boxShadow: const [
-                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                            BoxShadow(
+                              color: Color(0x40000000),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
                           ],
                         ),
-                        child: const Icon(Icons.copy, color: Colors.white, size: 14),
+                        child: const Icon(
+                          Icons.copy,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -507,20 +572,31 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                     top: btnY,
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
-                      onPointerDown: (event) => _showGraphContextMenu(
-                        node, event.position,
-                      ),
+                      onPointerDown:
+                          (event) =>
+                              _showGraphContextMenu(node, event.position),
                       child: Container(
                         width: 28,
                         height: 28,
                         decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF263238) : const Color(0xFF90A4AE),
+                          color:
+                              isDark
+                                  ? const Color(0xFF263238)
+                                  : const Color(0xFF90A4AE),
                           shape: BoxShape.circle,
                           boxShadow: const [
-                            BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 2)),
+                            BoxShadow(
+                              color: Color(0x40000000),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
                           ],
                         ),
-                        child: const Icon(Icons.more_vert, color: Colors.white, size: 14),
+                        child: const Icon(
+                          Icons.more_vert,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -533,70 +609,175 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                       onPointerDown: (_) {},
                       child: GestureDetector(
                         onTap: () {
-                          final xMinC = TextEditingController(text: node.xMin.toStringAsFixed(1));
-                          final xMaxC = TextEditingController(text: node.xMax.toStringAsFixed(1));
-                          final yMinC = TextEditingController(text: node.yMin.toStringAsFixed(1));
-                          final yMaxC = TextEditingController(text: node.yMax.toStringAsFixed(1));
+                          final xMinC = TextEditingController(
+                            text: node.xMin.toStringAsFixed(1),
+                          );
+                          final xMaxC = TextEditingController(
+                            text: node.xMax.toStringAsFixed(1),
+                          );
+                          final yMinC = TextEditingController(
+                            text: node.yMin.toStringAsFixed(1),
+                          );
+                          final yMaxC = TextEditingController(
+                            text: node.yMax.toStringAsFixed(1),
+                          );
                           showDialog(
                             context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('Coordinate Viewport', style: TextStyle(fontSize: 16)),
-                              content: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Row(
+                            builder:
+                                (ctx) => AlertDialog(
+                                  title: const Text(
+                                    'Coordinate Viewport',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const SizedBox(width: 24, child: Text('x', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'serif', fontStyle: FontStyle.italic))),
-                                      Expanded(child: TextField(controller: xMinC, decoration: const InputDecoration(labelText: 'Min', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
-                                      const SizedBox(width: 12),
-                                      Expanded(child: TextField(controller: xMaxC, decoration: const InputDecoration(labelText: 'Max', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
+                                      Row(
+                                        children: [
+                                          const SizedBox(
+                                            width: 24,
+                                            child: Text(
+                                              'x',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontFamily: 'serif',
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: TextField(
+                                              controller: xMinC,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Min',
+                                                isDense: true,
+                                              ),
+                                              keyboardType:
+                                                  const TextInputType.numberWithOptions(
+                                                    signed: true,
+                                                    decimal: true,
+                                                  ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: TextField(
+                                              controller: xMaxC,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Max',
+                                                isDense: true,
+                                              ),
+                                              keyboardType:
+                                                  const TextInputType.numberWithOptions(
+                                                    signed: true,
+                                                    decimal: true,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          const SizedBox(
+                                            width: 24,
+                                            child: Text(
+                                              'y',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontFamily: 'serif',
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: TextField(
+                                              controller: yMinC,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Min',
+                                                isDense: true,
+                                              ),
+                                              keyboardType:
+                                                  const TextInputType.numberWithOptions(
+                                                    signed: true,
+                                                    decimal: true,
+                                                  ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: TextField(
+                                              controller: yMaxC,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Max',
+                                                isDense: true,
+                                              ),
+                                              keyboardType:
+                                                  const TextInputType.numberWithOptions(
+                                                    signed: true,
+                                                    decimal: true,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ],
                                   ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      const SizedBox(width: 24, child: Text('y', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'serif', fontStyle: FontStyle.italic))),
-                                      Expanded(child: TextField(controller: yMinC, decoration: const InputDecoration(labelText: 'Min', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
-                                      const SizedBox(width: 12),
-                                      Expanded(child: TextField(controller: yMaxC, decoration: const InputDecoration(labelText: 'Max', isDense: true), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true))),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')),
-                                FilledButton(
-                                  onPressed: () {
-                                    final x0 = double.tryParse(xMinC.text);
-                                    final x1 = double.tryParse(xMaxC.text);
-                                    final y0 = double.tryParse(yMinC.text);
-                                    final y1 = double.tryParse(yMaxC.text);
-                                    if (x0 != null && x1 != null && y0 != null && y1 != null && x0 < x1 && y0 < y1) {
-                                      node.xMin = x0; node.xMax = x1;
-                                      node.yMin = y0; node.yMax = y1;
-                                      node.invalidateCache();
-                                      _layerController.sceneGraph.bumpVersion();
-                                      DrawingPainter.invalidateAllTiles();
-                                      DrawingPainter.triggerRepaint();
-                                      _uiRebuildNotifier.value++;
-                                      _autoSaveCanvas();
-                                    }
-                                    Navigator.pop(ctx);
-                                  },
-                                  child: const Text('OK'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: const Text('Annulla'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () {
+                                        final x0 = double.tryParse(xMinC.text);
+                                        final x1 = double.tryParse(xMaxC.text);
+                                        final y0 = double.tryParse(yMinC.text);
+                                        final y1 = double.tryParse(yMaxC.text);
+                                        if (x0 != null &&
+                                            x1 != null &&
+                                            y0 != null &&
+                                            y1 != null &&
+                                            x0 < x1 &&
+                                            y0 < y1) {
+                                          node.xMin = x0;
+                                          node.xMax = x1;
+                                          node.yMin = y0;
+                                          node.yMax = y1;
+                                          node.invalidateCache();
+                                          _layerController.sceneGraph
+                                              .bumpVersion();
+                                          DrawingPainter.invalidateAllTiles();
+                                          DrawingPainter.triggerRepaint();
+                                          _uiRebuildNotifier.value++;
+                                          _autoSaveCanvas();
+                                        }
+                                        Navigator.pop(ctx);
+                                      },
+                                      child: const Text('OK'),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
                           );
                           HapticFeedback.selectionClick();
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
-                            color: isDark ? const Color(0xDD1E1E2E) : const Color(0xDDFFFFFF),
+                            color:
+                                isDark
+                                    ? const Color(0xDD1E1E2E)
+                                    : const Color(0xDDFFFFFF),
                             borderRadius: BorderRadius.circular(6),
                             boxShadow: const [
-                              BoxShadow(color: Color(0x20000000), blurRadius: 4, offset: Offset(0, 1)),
+                              BoxShadow(
+                                color: Color(0x20000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
                             ],
                           ),
                           child: Row(
@@ -609,11 +790,21 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontFamily: 'monospace',
-                                  color: isDark ? const Color(0x99FFFFFF) : const Color(0x99000000),
+                                  color:
+                                      isDark
+                                          ? const Color(0x99FFFFFF)
+                                          : const Color(0x99000000),
                                 ),
                               ),
                               const SizedBox(width: 4),
-                              Icon(Icons.edit, size: 10, color: isDark ? const Color(0x66FFFFFF) : const Color(0x66000000)),
+                              Icon(
+                                Icons.edit,
+                                size: 10,
+                                color:
+                                    isDark
+                                        ? const Color(0x66FFFFFF)
+                                        : const Color(0x66000000),
+                              ),
                             ],
                           ),
                         ),
@@ -622,12 +813,18 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                   ),
                   // 🔍 T2: Zoom +/- buttons
                   Positioned(
-                    right: screenRect.right > MediaQuery.of(context).size.width - 60
-                        ? null
-                        : MediaQuery.of(context).size.width - screenRect.right - 4,
-                    left: screenRect.right > MediaQuery.of(context).size.width - 60
-                        ? screenRect.left - 40
-                        : null,
+                    right:
+                        screenRect.right >
+                                MediaQuery.of(context).size.width - 60
+                            ? null
+                            : MediaQuery.of(context).size.width -
+                                screenRect.right -
+                                4,
+                    left:
+                        screenRect.right >
+                                MediaQuery.of(context).size.width - 60
+                            ? screenRect.left - 40
+                            : null,
                     top: screenRect.top + (screenRect.height - 90) / 2,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -640,8 +837,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             final cy = (node.yMin + node.yMax) / 2;
                             final rw = (node.xMax - node.xMin) * 0.4;
                             final rh = (node.yMax - node.yMin) * 0.4;
-                            node.xMin = cx - rw; node.xMax = cx + rw;
-                            node.yMin = cy - rh; node.yMax = cy + rh;
+                            node.xMin = cx - rw;
+                            node.xMax = cx + rw;
+                            node.yMin = cy - rh;
+                            node.yMax = cy + rh;
                             node.invalidateCache();
                             _layerController.sceneGraph.bumpVersion();
                             DrawingPainter.invalidateAllTiles();
@@ -651,13 +850,28 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             HapticFeedback.selectionClick();
                           },
                           child: Container(
-                            width: 32, height: 32,
+                            width: 32,
+                            height: 32,
                             decoration: BoxDecoration(
-                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                              color:
+                                  isDark
+                                      ? const Color(0xEE1E1E2E)
+                                      : const Color(0xEEFFFFFF),
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(8),
+                              ),
+                              border: Border.all(
+                                color:
+                                    isDark
+                                        ? const Color(0x33FFFFFF)
+                                        : const Color(0x22000000),
+                              ),
                             ),
-                            child: Icon(Icons.add, size: 18, color: isDark ? Colors.white70 : Colors.black54),
+                            child: Icon(
+                              Icons.add,
+                              size: 18,
+                              color: isDark ? Colors.white70 : Colors.black54,
+                            ),
                           ),
                         ),
                         // Zoom out
@@ -668,8 +882,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             final cy = (node.yMin + node.yMax) / 2;
                             final rw = (node.xMax - node.xMin) * 0.6;
                             final rh = (node.yMax - node.yMin) * 0.6;
-                            node.xMin = cx - rw; node.xMax = cx + rw;
-                            node.yMin = cy - rh; node.yMax = cy + rh;
+                            node.xMin = cx - rw;
+                            node.xMax = cx + rw;
+                            node.yMin = cy - rh;
+                            node.yMax = cy + rh;
                             node.invalidateCache();
                             _layerController.sceneGraph.bumpVersion();
                             DrawingPainter.invalidateAllTiles();
@@ -679,12 +895,25 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             HapticFeedback.selectionClick();
                           },
                           child: Container(
-                            width: 32, height: 32,
+                            width: 32,
+                            height: 32,
                             decoration: BoxDecoration(
-                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
-                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                              color:
+                                  isDark
+                                      ? const Color(0xEE1E1E2E)
+                                      : const Color(0xEEFFFFFF),
+                              border: Border.all(
+                                color:
+                                    isDark
+                                        ? const Color(0x33FFFFFF)
+                                        : const Color(0x22000000),
+                              ),
                             ),
-                            child: Icon(Icons.remove, size: 18, color: isDark ? Colors.white70 : Colors.black54),
+                            child: Icon(
+                              Icons.remove,
+                              size: 18,
+                              color: isDark ? Colors.white70 : Colors.black54,
+                            ),
                           ),
                         ),
                         // Auto-fit viewport: compute optimal yMin/yMax from sampled data
@@ -694,7 +923,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             node.ensureSampled();
                             final pts = node.cachedPoints;
                             if (pts.isEmpty) return;
-                            double minY = double.infinity, maxY = double.negativeInfinity;
+                            double minY = double.infinity,
+                                maxY = double.negativeInfinity;
                             for (final pt in pts) {
                               if (pt.dy.isFinite && pt.dy.abs() < 1e8) {
                                 if (pt.dy < minY) minY = pt.dy;
@@ -715,7 +945,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                               node.yMin = minY - padding;
                               node.yMax = maxY + padding;
                             } else {
-                              node.yMin = -6; node.yMax = 6;
+                              node.yMin = -6;
+                              node.yMax = 6;
                             }
                             node.invalidateCache();
                             _layerController.sceneGraph.bumpVersion();
@@ -726,20 +957,35 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             HapticFeedback.selectionClick();
                           },
                           child: Container(
-                            width: 32, height: 32,
+                            width: 32,
+                            height: 32,
                             decoration: BoxDecoration(
-                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
-                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                              color:
+                                  isDark
+                                      ? const Color(0xEE1E1E2E)
+                                      : const Color(0xEEFFFFFF),
+                              border: Border.all(
+                                color:
+                                    isDark
+                                        ? const Color(0x33FFFFFF)
+                                        : const Color(0x22000000),
+                              ),
                             ),
-                            child: Icon(Icons.fit_screen, size: 16, color: isDark ? Colors.white70 : Colors.black54),
+                            child: Icon(
+                              Icons.fit_screen,
+                              size: 16,
+                              color: isDark ? Colors.white70 : Colors.black54,
+                            ),
                           ),
                         ),
                         // Reset zoom
                         Listener(
                           behavior: HitTestBehavior.opaque,
                           onPointerDown: (_) {
-                            node.xMin = -10; node.xMax = 10;
-                            node.yMin = -6; node.yMax = 6;
+                            node.xMin = -10;
+                            node.xMax = 10;
+                            node.yMin = -6;
+                            node.yMax = 6;
                             node.invalidateCache();
                             _layerController.sceneGraph.bumpVersion();
                             DrawingPainter.invalidateAllTiles();
@@ -749,13 +995,28 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             HapticFeedback.selectionClick();
                           },
                           child: Container(
-                            width: 32, height: 32,
+                            width: 32,
+                            height: 32,
                             decoration: BoxDecoration(
-                              color: isDark ? const Color(0xEE1E1E2E) : const Color(0xEEFFFFFF),
-                              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(8)),
-                              border: Border.all(color: isDark ? const Color(0x33FFFFFF) : const Color(0x22000000)),
+                              color:
+                                  isDark
+                                      ? const Color(0xEE1E1E2E)
+                                      : const Color(0xEEFFFFFF),
+                              borderRadius: const BorderRadius.vertical(
+                                bottom: Radius.circular(8),
+                              ),
+                              border: Border.all(
+                                color:
+                                    isDark
+                                        ? const Color(0x33FFFFFF)
+                                        : const Color(0x22000000),
+                              ),
                             ),
-                            child: Icon(Icons.center_focus_strong, size: 16, color: isDark ? Colors.white70 : Colors.black54),
+                            child: Icon(
+                              Icons.center_focus_strong,
+                              size: 16,
+                              color: isDark ? Colors.white70 : Colors.black54,
+                            ),
                           ),
                         ),
                       ],
@@ -777,38 +1038,74 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               final params = node.detectedParams;
               final pos = node.localTransform.getTranslation();
               final bounds = node.localBounds.translate(pos.x, pos.y);
-              final screenBL = _canvasController.canvasToScreen(bounds.bottomLeft);
-              final screenBR = _canvasController.canvasToScreen(bounds.bottomRight);
+              final screenBL = _canvasController.canvasToScreen(
+                bounds.bottomLeft,
+              );
+              final screenBR = _canvasController.canvasToScreen(
+                bounds.bottomRight,
+              );
               final isDark = Theme.of(context).brightness == Brightness.dark;
-              final sliderWidth = (screenBR.dx - screenBL.dx).clamp(180.0, 340.0);
+              final sliderWidth = (screenBR.dx - screenBL.dx).clamp(
+                180.0,
+                340.0,
+              );
               final accentColor = node.curveColor;
 
               // Formula string
-              final kStr = node.coeffK == 1.0 ? '' : '${node.coeffK.toStringAsFixed(1)}·';
-              final dStr = node.offsetD == 0.0 ? '' : (node.offsetD > 0 ? ' + ${node.offsetD.toStringAsFixed(1)}' : ' − ${(-node.offsetD).toStringAsFixed(1)}');
+              final kStr =
+                  node.coeffK == 1.0
+                      ? ''
+                      : '${node.coeffK.toStringAsFixed(1)}·';
+              final dStr =
+                  node.offsetD == 0.0
+                      ? ''
+                      : (node.offsetD > 0
+                          ? ' + ${node.offsetD.toStringAsFixed(1)}'
+                          : ' − ${(-node.offsetD).toStringAsFixed(1)}');
               final formulaStr = '${kStr}f(x)$dStr';
 
-              Widget buildSliderRow(String label, Color color, double value, double min, double max, ValueChanged<double> onChanged) {
+              Widget buildSliderRow(
+                String label,
+                Color color,
+                double value,
+                double min,
+                double max,
+                ValueChanged<double> onChanged,
+              ) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 0),
                   child: Row(
                     children: [
                       SizedBox(
                         width: 16,
-                        child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, fontFamily: 'serif', fontStyle: FontStyle.italic, color: color)),
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            fontFamily: 'serif',
+                            fontStyle: FontStyle.italic,
+                            color: color,
+                          ),
+                        ),
                       ),
                       Expanded(
                         child: SliderTheme(
                           data: SliderThemeData(
                             trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                            thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 6,
+                            ),
+                            overlayShape: const RoundSliderOverlayShape(
+                              overlayRadius: 12,
+                            ),
                             activeTrackColor: color,
                             inactiveTrackColor: color.withValues(alpha: 0.2),
                             thumbColor: color,
                           ),
                           child: Slider(
-                            min: min, max: max,
+                            min: min,
+                            max: max,
                             value: value.clamp(min, max),
                             onChanged: onChanged,
                             onChangeEnd: (_) => _autoSaveCanvas(),
@@ -820,7 +1117,11 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         child: Text(
                           value.toStringAsFixed(1),
                           textAlign: TextAlign.end,
-                          style: TextStyle(fontSize: 10, fontFamily: 'monospace', color: isDark ? Colors.white54 : Colors.black45),
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontFamily: 'monospace',
+                            color: isDark ? Colors.white54 : Colors.black45,
+                          ),
                         ),
                       ),
                     ],
@@ -837,17 +1138,40 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                     // 🔒 Absorb pointer events
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
-                      onPointerDown: (_) { _isDraggingGraphSlider = true; },
+                      onPointerDown: (_) {
+                        _isDraggingGraphSlider = true;
+                      },
                       onPointerMove: (_) {},
-                      onPointerUp: (_) { _isDraggingGraphSlider = false; },
-                      onPointerCancel: (_) { _isDraggingGraphSlider = false; },
+                      onPointerUp: (_) {
+                        _isDraggingGraphSlider = false;
+                      },
+                      onPointerCancel: (_) {
+                        _isDraggingGraphSlider = false;
+                      },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: isDark ? const Color(0xF01E1E2E) : const Color(0xF0FFFFFF),
+                          color:
+                              isDark
+                                  ? const Color(0xF01E1E2E)
+                                  : const Color(0xF0FFFFFF),
                           borderRadius: BorderRadius.circular(10),
-                          boxShadow: const [BoxShadow(color: Color(0x30000000), blurRadius: 6, offset: Offset(0, 2))],
-                          border: Border.all(color: isDark ? const Color(0x22FFFFFF) : const Color(0x18000000)),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x30000000),
+                              blurRadius: 6,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                          border: Border.all(
+                            color:
+                                isDark
+                                    ? const Color(0x22FFFFFF)
+                                    : const Color(0x18000000),
+                          ),
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -857,42 +1181,79 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             Padding(
                               padding: const EdgeInsets.only(bottom: 2),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: accentColor.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
                                   formulaStr.isEmpty ? 'f(x)' : formulaStr,
-                                  style: TextStyle(fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: accentColor),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.w600,
+                                    color: accentColor,
+                                  ),
                                 ),
                               ),
                             ),
                             // k slider (coefficient)
-                            buildSliderRow('k', accentColor, node.coeffK, -5.0, 5.0, (v) {
-                              node.coeffK = double.parse(v.toStringAsFixed(2));
-                              node.invalidateCache();
-                              _layerController.sceneGraph.bumpVersion();
-                              DrawingPainter.triggerRepaint();
-                              _uiRebuildNotifier.value++;
-                            }),
-                            // d slider (vertical offset)
-                            buildSliderRow('d', isDark ? Colors.tealAccent : Colors.teal, node.offsetD, -10.0, 10.0, (v) {
-                              node.offsetD = double.parse(v.toStringAsFixed(2));
-                              node.invalidateCache();
-                              _layerController.sceneGraph.bumpVersion();
-                              DrawingPainter.triggerRepaint();
-                              _uiRebuildNotifier.value++;
-                            }),
-                            // Detected parameter sliders
-                            for (final p in params)
-                              buildSliderRow(p, isDark ? Colors.amberAccent : Colors.amber.shade800, node.parameters[p] ?? 1.0, -10.0, 10.0, (v) {
-                                node.parameters[p] = double.parse(v.toStringAsFixed(2));
+                            buildSliderRow(
+                              'k',
+                              accentColor,
+                              node.coeffK,
+                              -5.0,
+                              5.0,
+                              (v) {
+                                node.coeffK = double.parse(
+                                  v.toStringAsFixed(2),
+                                );
                                 node.invalidateCache();
                                 _layerController.sceneGraph.bumpVersion();
                                 DrawingPainter.triggerRepaint();
                                 _uiRebuildNotifier.value++;
-                              }),
+                              },
+                            ),
+                            // d slider (vertical offset)
+                            buildSliderRow(
+                              'd',
+                              isDark ? Colors.tealAccent : Colors.teal,
+                              node.offsetD,
+                              -10.0,
+                              10.0,
+                              (v) {
+                                node.offsetD = double.parse(
+                                  v.toStringAsFixed(2),
+                                );
+                                node.invalidateCache();
+                                _layerController.sceneGraph.bumpVersion();
+                                DrawingPainter.triggerRepaint();
+                                _uiRebuildNotifier.value++;
+                              },
+                            ),
+                            // Detected parameter sliders
+                            for (final p in params)
+                              buildSliderRow(
+                                p,
+                                isDark
+                                    ? Colors.amberAccent
+                                    : Colors.amber.shade800,
+                                node.parameters[p] ?? 1.0,
+                                -10.0,
+                                10.0,
+                                (v) {
+                                  node.parameters[p] = double.parse(
+                                    v.toStringAsFixed(2),
+                                  );
+                                  node.invalidateCache();
+                                  _layerController.sceneGraph.bumpVersion();
+                                  DrawingPainter.triggerRepaint();
+                                  _uiRebuildNotifier.value++;
+                                },
+                              ),
                           ],
                         ),
                       ),
@@ -1297,10 +1658,11 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
     // 🎨 Outline effect: render text twice — outline behind, fill in front
     if (textElement.outlineColor != null && textElement.outlineWidth > 0) {
       final outlineStyle = baseStyle.copyWith(
-        foreground: Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = textElement.outlineWidth * _canvasController.scale
-          ..color = textElement.outlineColor!,
+        foreground:
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = textElement.outlineWidth * _canvasController.scale
+              ..color = textElement.outlineColor!,
         shadows: null, // outline doesn't need shadow
       );
       textWidget = Stack(
@@ -1385,7 +1747,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                   ..._digitalTextElements.map((textElement) {
                     // Durante drag/resize, salta l'selected element
                     if (_digitalTextTool.hasSelection &&
-                        _digitalTextTool.selectedElement!.id == textElement.id) {
+                        _digitalTextTool.selectedElement!.id ==
+                            textElement.id) {
                       return const SizedBox.shrink();
                     }
                     // Skip element being inline-edited (rendered by InlineTextOverlay)
@@ -1460,10 +1823,14 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             child: Container(
                               decoration: BoxDecoration(
                                 border: Border.all(
-                                  color: Colors.deepPurple.withValues(alpha: 0.3),
+                                  color: Colors.deepPurple.withValues(
+                                    alpha: 0.3,
+                                  ),
                                   width: 2.0,
                                 ),
-                                color: Colors.deepPurple.withValues(alpha: 0.05),
+                                color: Colors.deepPurple.withValues(
+                                  alpha: 0.05,
+                                ),
                               ),
                             ),
                           ),
@@ -1502,26 +1869,27 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         ];
 
                         return Stack(
-                          children: handles.map((handlePos) {
-                            return Positioned(
-                              left: handlePos.dx - 8,
-                              top: handlePos.dy - 8,
-                              child: IgnorePointer(
-                                child: Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: BoxDecoration(
-                                    color: Colors.deepPurple,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 2.0,
+                          children:
+                              handles.map((handlePos) {
+                                return Positioned(
+                                  left: handlePos.dx - 8,
+                                  top: handlePos.dy - 8,
+                                  child: IgnorePointer(
+                                    child: Container(
+                                      width: 16,
+                                      height: 16,
+                                      decoration: BoxDecoration(
+                                        color: Colors.deepPurple,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2.0,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
+                                );
+                              }).toList(),
                         );
                       },
                     ),
@@ -1549,9 +1917,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
         ),
         Builder(
           builder: (context) {
-            final cluster = _clusterCache
-                .where((c) => c.id == _previewingClusterId)
-                .firstOrNull;
+            final cluster =
+                _clusterCache
+                    .where((c) => c.id == _previewingClusterId)
+                    .firstOrNull;
             if (cluster == null) return const SizedBox.shrink();
 
             // 🔦 PATH TRACE: Illuminate connections from this cluster
@@ -1570,11 +1939,11 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                   if (s.isNotEmpty) clusterStrokes.add(s.first);
                 }
                 if (clusterStrokes.isNotEmpty) {
-                  _thumbnailCache!.generateThumbnail(
-                    cluster, clusterStrokes,
-                  ).then((_) {
-                    if (mounted) setState(() {});
-                  });
+                  _thumbnailCache!
+                      .generateThumbnail(cluster, clusterStrokes)
+                      .then((_) {
+                        if (mounted) setState(() {});
+                      });
                 }
               }
             }
@@ -1584,8 +1953,11 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
             final hasShapes = cluster.shapeIds.isNotEmpty;
             final hasText = cluster.textIds.isNotEmpty;
             final hasImages = cluster.imageIds.isNotEmpty;
-            final types = (hasStrokes ? 1 : 0) + (hasShapes ? 1 : 0) +
-                          (hasText ? 1 : 0) + (hasImages ? 1 : 0);
+            final types =
+                (hasStrokes ? 1 : 0) +
+                (hasShapes ? 1 : 0) +
+                (hasText ? 1 : 0) +
+                (hasImages ? 1 : 0);
             Color accent;
             if (types > 1) {
               accent = const Color(0xFF7EC8E3);
@@ -1619,19 +1991,29 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
 
             return Positioned(
               left: (_previewOverlayScreenPosition!.dx - 100).clamp(
-                  8.0, MediaQuery.of(context).size.width - 220),
+                8.0,
+                MediaQuery.of(context).size.width - 220,
+              ),
               top: (_previewOverlayScreenPosition!.dy - 180).clamp(
-                  8.0, MediaQuery.of(context).size.height - 220),
+                8.0,
+                MediaQuery.of(context).size.height - 220,
+              ),
               child: ClusterPreviewOverlay(
-                thumbnail: _thumbnailCache?.hasThumbnail(cluster.id) == true
-                    ? _thumbnailCache!.getThumbnail(cluster.id)
-                    : null,
+                thumbnail:
+                    _thumbnailCache?.hasThumbnail(cluster.id) == true
+                        ? _thumbnailCache!.getThumbnail(cluster.id)
+                        : null,
                 label: label,
                 elementCount: cluster.elementCount,
-                connectionCount: _knowledgeFlowController?.connections
-                    .where((c) => c.sourceClusterId == cluster.id ||
-                                  c.targetClusterId == cluster.id)
-                    .length ?? 0,
+                connectionCount:
+                    _knowledgeFlowController?.connections
+                        .where(
+                          (c) =>
+                              c.sourceClusterId == cluster.id ||
+                              c.targetClusterId == cluster.id,
+                        )
+                        .length ??
+                    0,
                 accentColor: accent,
                 onDismiss: () {
                   setState(() {
@@ -1643,9 +2025,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                   // Animate zoom to cluster bounds
                   final bounds = cluster.bounds.inflate(40);
                   final viewportSize = MediaQuery.of(context).size;
-                  final targetScale = (viewportSize.width / bounds.width)
-                      .clamp(0.5, 2.0)
-                      .toDouble();
+                  final targetScale =
+                      (viewportSize.width / bounds.width)
+                          .clamp(0.5, 2.0)
+                          .toDouble();
                   final center = bounds.center;
                   final targetOffset = Offset(
                     viewportSize.width / 2 - center.dx * targetScale,
@@ -1657,8 +2040,7 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                     viewportSize.height / 2,
                   );
                   _canvasController.animateOffsetTo(targetOffset);
-                  _canvasController.animateZoomTo(
-                      targetScale, screenCenter);
+                  _canvasController.animateZoomTo(targetScale, screenCenter);
                   setState(() {
                     _previewingClusterId = null;
                     _previewOverlayScreenPosition = null;
@@ -1686,28 +2068,50 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
           ),
         ),
         Positioned(
-          left: (_labelOverlayScreenPosition!.dx - 110).clamp(8.0, MediaQuery.of(context).size.width - 240),
-          top: (_labelOverlayScreenPosition!.dy - 20).clamp(8.0, MediaQuery.of(context).size.height - 60),
+          left: (_labelOverlayScreenPosition!.dx - 110).clamp(
+            8.0,
+            MediaQuery.of(context).size.width - 240,
+          ),
+          top: (_labelOverlayScreenPosition!.dy - 20).clamp(
+            8.0,
+            MediaQuery.of(context).size.height - 60,
+          ),
           child: ConnectionLabelOverlay(
-            initialText: _knowledgeFlowController?.connections
-                .where((c) => c.id == _editingLabelConnectionId)
-                .firstOrNull?.label ?? '',
-            accentColor: _knowledgeFlowController?.connections
-                .where((c) => c.id == _editingLabelConnectionId)
-                .firstOrNull?.color ?? const Color(0xFF64B5F6),
-            connectionType: _knowledgeFlowController?.connections
-                .where((c) => c.id == _editingLabelConnectionId)
-                .firstOrNull?.connectionType ?? ConnectionType.association,
-            connectionStyle: _knowledgeFlowController?.connections
-                .where((c) => c.id == _editingLabelConnectionId)
-                .firstOrNull?.connectionStyle ?? ConnectionStyle.curved,
-            isBidirectional: _knowledgeFlowController?.connections
-                .where((c) => c.id == _editingLabelConnectionId)
-                .firstOrNull?.isBidirectional ?? false,
+            initialText:
+                _knowledgeFlowController?.connections
+                    .where((c) => c.id == _editingLabelConnectionId)
+                    .firstOrNull
+                    ?.label ??
+                '',
+            accentColor:
+                _knowledgeFlowController?.connections
+                    .where((c) => c.id == _editingLabelConnectionId)
+                    .firstOrNull
+                    ?.color ??
+                const Color(0xFF64B5F6),
+            connectionType:
+                _knowledgeFlowController?.connections
+                    .where((c) => c.id == _editingLabelConnectionId)
+                    .firstOrNull
+                    ?.connectionType ??
+                ConnectionType.association,
+            connectionStyle:
+                _knowledgeFlowController?.connections
+                    .where((c) => c.id == _editingLabelConnectionId)
+                    .firstOrNull
+                    ?.connectionStyle ??
+                ConnectionStyle.curved,
+            isBidirectional:
+                _knowledgeFlowController?.connections
+                    .where((c) => c.id == _editingLabelConnectionId)
+                    .firstOrNull
+                    ?.isBidirectional ??
+                false,
             onSubmit: (label) {
-              final conn = _knowledgeFlowController?.connections
-                  .where((c) => c.id == _editingLabelConnectionId)
-                  .firstOrNull;
+              final conn =
+                  _knowledgeFlowController?.connections
+                      .where((c) => c.id == _editingLabelConnectionId)
+                      .firstOrNull;
               if (conn != null) {
                 conn.label = label;
                 _knowledgeFlowController!.version.value++;
@@ -1727,7 +2131,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
             onDelete: () {
               if (_editingLabelConnectionId != null) {
                 _knowledgeFlowController?.removeConnection(
-                    _editingLabelConnectionId!);
+                  _editingLabelConnectionId!,
+                );
                 _autoSaveCanvas();
               }
               setState(() {
@@ -1736,9 +2141,12 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               });
             },
             onMultiSelect: () {
-              if (_editingLabelConnectionId != null && _knowledgeFlowController != null) {
+              if (_editingLabelConnectionId != null &&
+                  _knowledgeFlowController != null) {
                 // Seleziona questa prima connessione per attivare la modalità
-                _knowledgeFlowController!.toggleMultiSelect(_editingLabelConnectionId!);
+                _knowledgeFlowController!.toggleMultiSelect(
+                  _editingLabelConnectionId!,
+                );
               }
               setState(() {
                 _editingLabelConnectionId = null;
@@ -1746,9 +2154,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               });
             },
             onColorChanged: (color) {
-              final conn = _knowledgeFlowController?.connections
-                  .where((c) => c.id == _editingLabelConnectionId)
-                  .firstOrNull;
+              final conn =
+                  _knowledgeFlowController?.connections
+                      .where((c) => c.id == _editingLabelConnectionId)
+                      .firstOrNull;
               if (conn != null) {
                 conn.color = color;
                 _knowledgeFlowController!.version.value++;
@@ -1756,9 +2165,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               }
             },
             onTypeChanged: (type) {
-              final conn = _knowledgeFlowController?.connections
-                  .where((c) => c.id == _editingLabelConnectionId)
-                  .firstOrNull;
+              final conn =
+                  _knowledgeFlowController?.connections
+                      .where((c) => c.id == _editingLabelConnectionId)
+                      .firstOrNull;
               if (conn != null) {
                 conn.connectionType = type;
                 _knowledgeFlowController!.version.value++;
@@ -1766,9 +2176,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               }
             },
             onBidirectionalToggled: (bidir) {
-              final conn = _knowledgeFlowController?.connections
-                  .where((c) => c.id == _editingLabelConnectionId)
-                  .firstOrNull;
+              final conn =
+                  _knowledgeFlowController?.connections
+                      .where((c) => c.id == _editingLabelConnectionId)
+                      .firstOrNull;
               if (conn != null) {
                 conn.isBidirectional = bidir;
                 _knowledgeFlowController!.version.value++;
@@ -1776,9 +2187,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               }
             },
             onStyleChanged: (style) {
-              final conn = _knowledgeFlowController?.connections
-                  .where((c) => c.id == _editingLabelConnectionId)
-                  .firstOrNull;
+              final conn =
+                  _knowledgeFlowController?.connections
+                      .where((c) => c.id == _editingLabelConnectionId)
+                      .firstOrNull;
               if (conn != null) {
                 conn.connectionStyle = style;
                 _knowledgeFlowController!.version.value++;
@@ -1790,23 +2202,27 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
       ],
 
       // ── 💡 Suggestion Preview Card Overlay ──────────────────────────────
-      if (_previewSuggestion != null &&
-          _previewSuggestionPosition != null) ...[
+      if (_previewSuggestion != null && _previewSuggestionPosition != null) ...[
         // Tap-outside to dismiss
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() {
-              _previewSuggestion = null;
-              _previewSuggestionPosition = null;
-            }),
+            onTap:
+                () => setState(() {
+                  _previewSuggestion = null;
+                  _previewSuggestionPosition = null;
+                }),
           ),
         ),
         Positioned(
-          left: (_previewSuggestionPosition!.dx - 130)
-              .clamp(12.0, MediaQuery.of(context).size.width - 280),
-          top: (_previewSuggestionPosition!.dy - 100)
-              .clamp(12.0, MediaQuery.of(context).size.height - 120),
+          left: (_previewSuggestionPosition!.dx - 130).clamp(
+            12.0,
+            MediaQuery.of(context).size.width - 280,
+          ),
+          top: (_previewSuggestionPosition!.dy - 100).clamp(
+            12.0,
+            MediaQuery.of(context).size.height - 120,
+          ),
           child: _buildSuggestionPreviewCard(context),
         ),
       ],
@@ -1849,8 +2265,7 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
         ),
 
       // ── 🧠 Knowledge Map fullscreen overlay ──────────────────────────────
-      if (_showKnowledgeMap &&
-          _knowledgeFlowController != null)
+      if (_showKnowledgeMap && _knowledgeFlowController != null)
         Positioned.fill(
           child: KnowledgeMapOverlay(
             controller: _knowledgeFlowController!,
@@ -1861,19 +2276,19 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
               // Animate canvas to center on the selected cluster
               final viewportSize = MediaQuery.of(context).size;
               final targetOffset = Offset(
-                viewportSize.width / 2 - cluster.centroid.dx * _canvasController.scale,
-                viewportSize.height / 2 - cluster.centroid.dy * _canvasController.scale,
+                viewportSize.width / 2 -
+                    cluster.centroid.dx * _canvasController.scale,
+                viewportSize.height / 2 -
+                    cluster.centroid.dy * _canvasController.scale,
               );
               _canvasController.animateOffsetTo(targetOffset);
             },
             onConnectionTapped: (sourceId, targetId, curveStrength) {
               // Find source and target clusters
-              final srcCluster = _clusterCache
-                  .where((c) => c.id == sourceId)
-                  .firstOrNull;
-              final tgtCluster = _clusterCache
-                  .where((c) => c.id == targetId)
-                  .firstOrNull;
+              final srcCluster =
+                  _clusterCache.where((c) => c.id == sourceId).firstOrNull;
+              final tgtCluster =
+                  _clusterCache.where((c) => c.id == targetId).firstOrNull;
               if (srcCluster == null || tgtCluster == null) return;
 
               // Dismiss the Knowledge Map overlay
@@ -1929,10 +2344,14 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
             canUndo: _layerController.canUndo,
             canRedo: _layerController.canRedo,
             isPanMode: _effectiveIsPanMode,
-            activeTool: _effectiveIsLasso ? 2
-                : _effectiveIsDigitalText ? 1
-                : _toolController.shapeRecognitionEnabled ? 3
-                : 0,
+            activeTool:
+                _effectiveIsLasso
+                    ? 2
+                    : _effectiveIsDigitalText
+                    ? 1
+                    : _toolController.shapeRecognitionEnabled
+                    ? 3
+                    : 0,
             undoCount: 0,
             hasLastAction: _layerController.canUndo,
             onResult: (result) {
@@ -1982,7 +2401,11 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                   break;
                 case RadialMenuItem.brush:
                   if (result.brushItem != null) {
-                    final penType = ProPenType.values[result.brushItem!.index.clamp(0, ProPenType.values.length - 1)];
+                    final penType =
+                        ProPenType.values[result.brushItem!.index.clamp(
+                          0,
+                          ProPenType.values.length - 1,
+                        )];
                     _toolController.setPenType(penType);
                     _toolController.resetToDrawingMode();
                     HapticFeedback.selectionClick();
@@ -2031,13 +2454,101 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         setState(() => _showRulers = !_showRulers);
                         HapticFeedback.selectionClick();
                         break;
+                      case RadialToolItem.search:
+                        _activateEchoSearch();
+                        HapticFeedback.mediumImpact();
+                        break;
                     }
                   }
+                  break;
+                case RadialMenuItem.atlas:
+                  // 🌌 Atlas AI: Show prompt overlay
+                  HapticFeedback.mediumImpact();
+                  setState(() {
+                    _showAtlasPrompt = true;
+                    _atlasIsLoading = false;
+                    _atlasResponseText = null;
+                  });
                   break;
               }
             },
           ),
         ),
+
+      // ── 🌌 Atlas Prompt Overlay ──────────────────────────────────────────
+      if (_showAtlasPrompt)
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 80,
+          child: Center(
+            child: AtlasPromptOverlay(
+              hasSelection: _lassoTool.hasSelection,
+              selectedNodeCount: _lassoTool.selectionCount,
+              isLoading: _atlasIsLoading,
+              loadingPhase: _atlasLoadingPhase,
+              responseText: _atlasResponseText,
+              selectedNodeTypes: _lassoTool.hasSelection
+                  ? _lassoTool.selectionManager.selectedNodes
+                      .map((n) {
+                        if (n is StrokeNode) return 'stroke';
+                        if (n is TextNode) return 'text';
+                        if (n is LatexNode) return 'latex';
+                        if (n is PdfPageNode) return 'pdf';
+                        final typeName = n.runtimeType.toString();
+                        if (typeName == 'ImageNode') return 'image';
+                        if (typeName == 'ShapeNode') return 'shape';
+                        return 'other';
+                      })
+                      .toSet()
+                  : const <String>{},
+              onDismiss: () {
+                setState(() {
+                  _showAtlasPrompt = false;
+                  _atlasIsLoading = false;
+                  _atlasResponseText = null;
+                  _atlasLoadingPhase = null;
+                });
+              },
+              onSubmit: (prompt) => _invokeAtlas(prompt),
+            ),
+          ),
+        ),
+
+
+      // ── 🌌 Atlas Scan Pulse (during loading) ────────────────────────────
+      if (_atlasIsLoading && _lassoTool.hasSelection)
+        Builder(
+          builder: (context) {
+            final bounds = _lassoTool.getSelectionBounds();
+            if (bounds == null) return const SizedBox.shrink();
+            // Convert selection bounds to screen coords
+            final tl = _canvasController.canvasToScreen(bounds.topLeft);
+            final br = _canvasController.canvasToScreen(bounds.bottomRight);
+            final screenBounds = Rect.fromPoints(tl, br);
+            return AtlasScanPulseOverlay(
+              selectionBounds: screenBounds,
+              isActive: _atlasIsLoading,
+            );
+          },
+        ),
+
+      // ── 🌌 Atlas Materialization VFX ────────────────────────────────────
+      for (final vfx in _atlasVfxEntries)
+        if (vfx.type == _AtlasVfxType.materialize)
+          AtlasMaterializeEffect(
+            key: vfx.key,
+            position: vfx.position,
+            onComplete: () {
+              if (mounted) {
+                setState(() {
+                  _atlasVfxEntries.removeWhere((e) => e.key == vfx.key);
+                });
+              }
+            },
+          ),
+
+      // 🔮 Atlas cards moved to _buildAtlasCards() — rendered above menus in _build_ui.dart
 
       // ── 📝 Inline Text Editing Overlay ──────────────────────────────────
       if (_isInlineEditing && _inlineEditingElement != null) ...[
@@ -2114,9 +2625,10 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                       hasBackground: _inlineTextBackgroundColor != null,
                       onBackgroundChanged: (enabled) {
                         setState(() {
-                          _inlineTextBackgroundColor = enabled
-                              ? Colors.yellow.withValues(alpha: 0.3)
-                              : null;
+                          _inlineTextBackgroundColor =
+                              enabled
+                                  ? Colors.yellow.withValues(alpha: 0.3)
+                                  : null;
                         });
                       },
                       onBackgroundColorChanged: (color) {
@@ -2175,9 +2687,11 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                           }
                         });
                       },
-                      hasGlow: _inlineTextShadow != null &&
+                      hasGlow:
+                          _inlineTextShadow != null &&
                           _inlineTextShadow!.blurRadius >= 10 &&
-                          _inlineTextShadow!.color != Colors.black.withValues(alpha: 0.3),
+                          _inlineTextShadow!.color !=
+                              Colors.black.withValues(alpha: 0.3),
                       onGlowChanged: (enabled) {
                         setState(() {
                           if (enabled) {
@@ -2340,7 +2854,7 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
             },
           ),
         ),
-      ],  // close spread for inline editing overlay
+      ], // close spread for inline editing overlay
     ];
   }
 
@@ -2360,10 +2874,14 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
     if (reason.contains('color') || reason.contains('colori')) {
       chipIcon = '🎨';
       chipColor = const Color(0xFF9C27B0);
-    } else if (reason.contains('near') || reason.contains('vicin') || reason.contains('proxim')) {
+    } else if (reason.contains('near') ||
+        reason.contains('vicin') ||
+        reason.contains('proxim')) {
       chipIcon = '📍';
       chipColor = const Color(0xFFFF9800);
-    } else if (reason.contains('keyword') || reason.contains('word') || reason.contains('parol')) {
+    } else if (reason.contains('keyword') ||
+        reason.contains('word') ||
+        reason.contains('parol')) {
       chipIcon = '🔤';
       chipColor = const Color(0xFF4CAF50);
     } else if (reason.contains('size') || reason.contains('dimens')) {
@@ -2431,7 +2949,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         ),
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('↔',
+                          child: Text(
+                            '↔',
                             style: TextStyle(
                               color: Color(0xFF64B5F6),
                               fontSize: 16,
@@ -2459,7 +2978,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4,
+                        horizontal: 10,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
                         color: chipColor.withValues(alpha: 0.2),
@@ -2502,7 +3022,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                 color: Colors.white.withValues(alpha: 0.06),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Text('✗  Skip',
+                              child: const Text(
+                                '✗  Skip',
                                 style: TextStyle(
                                   color: Color(0xFFEF9A9A),
                                   fontSize: 13,
@@ -2521,7 +3042,9 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                               HapticFeedback.mediumImpact();
                               final conn = _knowledgeFlowController
                                   ?.acceptSuggestion(suggestion);
-                              debugPrint('🔗 [Suggestion] acceptSuggestion → $conn');
+                              debugPrint(
+                                '🔗 [Suggestion] acceptSuggestion → $conn',
+                              );
                               setState(() {
                                 _previewSuggestion = null;
                                 _previewSuggestionPosition = null;
@@ -2536,18 +3059,19 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                 if (src != null && tgt != null) {
                                   final cp = _knowledgeFlowController!
                                       .getControlPoint(
-                                    src.centroid,
-                                    tgt.centroid,
-                                    conn.curveStrength,
-                                  );
+                                        src.centroid,
+                                        tgt.centroid,
+                                        conn.curveStrength,
+                                      );
                                   final midCanvas = _knowledgeFlowController!
                                       .pointOnQuadBezier(
-                                    src.centroid, cp, tgt.centroid, 0.5,
-                                  );
-                                  final screenPos =
-                                      _canvasController.canvasToScreen(
-                                    midCanvas,
-                                  );
+                                        src.centroid,
+                                        cp,
+                                        tgt.centroid,
+                                        0.5,
+                                      );
+                                  final screenPos = _canvasController
+                                      .canvasToScreen(midCanvas);
                                   setState(() {
                                     _editingLabelConnectionId = conn.id;
                                     _labelOverlayScreenPosition = screenPos;
@@ -2566,12 +3090,14 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                             fontWeight: FontWeight.w500,
                                           ),
                                         ),
-                                        backgroundColor:
-                                            const Color(0xDD1A1A2E),
+                                        backgroundColor: const Color(
+                                          0xDD1A1A2E,
+                                        ),
                                         behavior: SnackBarBehavior.floating,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                         ),
                                         duration: const Duration(seconds: 3),
                                         action: SnackBarAction(
@@ -2595,15 +3121,18 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF64B5F6)
-                                    .withValues(alpha: 0.2),
+                                color: const Color(
+                                  0xFF64B5F6,
+                                ).withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: const Color(0xFF64B5F6)
-                                      .withValues(alpha: 0.3),
+                                  color: const Color(
+                                    0xFF64B5F6,
+                                  ).withValues(alpha: 0.3),
                                 ),
                               ),
-                              child: const Text('✓  Connect',
+                              child: const Text(
+                                '✓  Connect',
                                 style: TextStyle(
                                   color: Color(0xFF64B5F6),
                                   fontSize: 13,
@@ -2873,9 +3402,8 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
 
   @override
   Widget build(BuildContext context) {
-    final bg = widget.isDark
-        ? const Color(0xDD1A1A2E)
-        : const Color(0xDDFFFFFF);
+    final bg =
+        widget.isDark ? const Color(0xDD1A1A2E) : const Color(0xDDFFFFFF);
     final accent = const Color(0xFF4A90D9);
 
     return Column(
@@ -2892,9 +3420,10 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
                 color: bg,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: widget.isDark
-                      ? Colors.white.withValues(alpha: 0.12)
-                      : Colors.black.withValues(alpha: 0.08),
+                  color:
+                      widget.isDark
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : Colors.black.withValues(alpha: 0.08),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -2931,15 +3460,17 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
                     width: 1,
                     height: 22,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
-                    color: widget.isDark
-                        ? Colors.white.withValues(alpha: 0.15)
-                        : Colors.black.withValues(alpha: 0.1),
+                    color:
+                        widget.isDark
+                            ? Colors.white.withValues(alpha: 0.15)
+                            : Colors.black.withValues(alpha: 0.1),
                   ),
 
                   // Feather toggle
                   _buildIconButton(
                     icon: Icons.blur_on_rounded,
-                    tooltip: 'Feather: ${widget.featherRadius.toStringAsFixed(0)}',
+                    tooltip:
+                        'Feather: ${widget.featherRadius.toStringAsFixed(0)}',
                     isActive: _showFeather,
                     color: Colors.purple,
                     onTap: () {
@@ -2957,70 +3488,76 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
         AnimatedSize(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
-          child: _showFeather
-              ? Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: BackdropFilter(
-                      filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: Container(
-                        width: 220,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: bg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.purple.withValues(alpha: 0.3),
+          child:
+              _showFeather
+                  ? Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                        child: Container(
+                          width: 220,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.blur_on, size: 14,
-                                color: Colors.purple.shade300),
-                            Expanded(
-                              child: SliderTheme(
-                                data: SliderThemeData(
-                                  trackHeight: 3,
-                                  thumbShape: const RoundSliderThumbShape(
-                                    enabledThumbRadius: 6,
+                          decoration: BoxDecoration(
+                            color: bg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.purple.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.blur_on,
+                                size: 14,
+                                color: Colors.purple.shade300,
+                              ),
+                              Expanded(
+                                child: SliderTheme(
+                                  data: SliderThemeData(
+                                    trackHeight: 3,
+                                    thumbShape: const RoundSliderThumbShape(
+                                      enabledThumbRadius: 6,
+                                    ),
+                                    activeTrackColor: Colors.purple.shade400,
+                                    inactiveTrackColor: Colors.purple
+                                        .withValues(alpha: 0.2),
+                                    thumbColor: Colors.purple.shade300,
                                   ),
-                                  activeTrackColor: Colors.purple.shade400,
-                                  inactiveTrackColor:
-                                      Colors.purple.withValues(alpha: 0.2),
-                                  thumbColor: Colors.purple.shade300,
-                                ),
-                                child: Slider(
-                                  min: 0,
-                                  max: 20,
-                                  value: widget.featherRadius.clamp(0, 20),
-                                  onChanged: widget.onFeatherChanged,
+                                  child: Slider(
+                                    min: 0,
+                                    max: 20,
+                                    value: widget.featherRadius.clamp(0, 20),
+                                    onChanged: widget.onFeatherChanged,
+                                  ),
                                 ),
                               ),
-                            ),
-                            SizedBox(
-                              width: 28,
-                              child: Text(
-                                widget.featherRadius.toStringAsFixed(0),
-                                textAlign: TextAlign.end,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontFamily: 'monospace',
-                                  color: widget.isDark
-                                      ? Colors.white54
-                                      : Colors.black45,
+                              SizedBox(
+                                width: 28,
+                                child: Text(
+                                  widget.featherRadius.toStringAsFixed(0),
+                                  textAlign: TextAlign.end,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontFamily: 'monospace',
+                                    color:
+                                        widget.isDark
+                                            ? Colors.white54
+                                            : Colors.black45,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                )
-              : const SizedBox.shrink(),
+                  )
+                  : const SizedBox.shrink(),
         ),
       ],
     );
@@ -3039,28 +3576,23 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isActive
-              ? accent.withValues(alpha: 0.2)
-              : Colors.transparent,
+          color: isActive ? accent.withValues(alpha: 0.2) : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 16,
-              color: isActive ? accent : Colors.grey,
-            ),
+            Icon(icon, size: 16, color: isActive ? accent : Colors.grey),
             const SizedBox(width: 4),
             Text(
               label,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                color: isActive
-                    ? accent
-                    : (widget.isDark ? Colors.white60 : Colors.black54),
+                color:
+                    isActive
+                        ? accent
+                        : (widget.isDark ? Colors.white60 : Colors.black54),
               ),
             ),
           ],
@@ -3084,18 +3616,64 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: isActive
-                ? color.withValues(alpha: 0.2)
-                : Colors.transparent,
+            color: isActive ? color.withValues(alpha: 0.2) : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: isActive ? color : Colors.grey,
-          ),
+          child: Icon(icon, size: 16, color: isActive ? color : Colors.grey),
         ),
       ),
     );
   }
+}
+
+/// Paints an expanding, fading ripple circle at a given center.
+/// Used for the gestural lasso closing animation.
+class _LassoRipplePainter extends CustomPainter {
+  final Offset center;
+  final double radius;
+  final double opacity;
+
+  _LassoRipplePainter({
+    required this.center,
+    required this.radius,
+    required this.opacity,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Outer ring glow
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = const Color(0xFF818CF8).withValues(alpha: opacity * 0.3)
+        ..strokeWidth = 3.0
+        ..style = PaintingStyle.stroke
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.15),
+    );
+    // Inner ring
+    canvas.drawCircle(
+      center,
+      radius * 0.6,
+      Paint()
+        ..color = const Color(0xFF22D3EE).withValues(alpha: opacity * 0.2)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.1),
+    );
+    // Core flash
+    canvas.drawCircle(
+      center,
+      radius * 0.2,
+      Paint()
+        ..color = Colors.white.withValues(alpha: opacity * 0.4)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.1),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_LassoRipplePainter oldDelegate) =>
+      center != oldDelegate.center ||
+      radius != oldDelegate.radius ||
+      opacity != oldDelegate.opacity;
 }

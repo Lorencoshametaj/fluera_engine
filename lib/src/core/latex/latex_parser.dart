@@ -133,11 +133,16 @@ class LatexParser {
       case 'frac':
         return _parseFraction();
 
-      // Binomial coefficient — parse like frac, wrap as binom sentinel
+      // Binomial coefficient — stacked without bar, wrapped in parens
       case 'binom':
-        final frac = _parseFraction();
-        // Wrap in LatexDelimited with '⟮' sentinel to signal binom to evaluator
-        return LatexDelimited('⟮', '⟯', frac);
+      case 'tbinom':
+      case 'dbinom':
+        final num = _parseRequiredArg();
+        final den = _parseRequiredArg();
+        return LatexDelimited(
+          '(', ')',
+          LatexFraction(num, den, showBar: false),
+        );
 
       // Square roots
       case 'sqrt':
@@ -175,6 +180,14 @@ class LatexParser {
       case 'mathit':
       case 'textit':
         return _parseFontCommand(italic: true);
+      case 'mathsf':
+      case 'textsf':
+        return _parseTextCommand(); // sans-serif handled as text
+      case 'mathtt':
+      case 'texttt':
+        return _parseTextCommand(); // monospace handled as text
+      case 'mathscr':
+        return _parseMathcal(); // script ≈ calligraphic
       case 'mathbb':
         return _parseMathbb();
       case 'mathcal':
@@ -186,6 +199,8 @@ class LatexParser {
       case 'bar':
       case 'overline':
         return _parseAccent('bar');
+      case 'underline':
+        return _parseAccent('underline');
       case 'vec':
         return _parseAccent('vec');
       case 'dot':
@@ -198,6 +213,14 @@ class LatexParser {
         return _parseAccent('widehat');
       case 'widetilde':
         return _parseAccent('widetilde');
+      case 'acute':
+        return _parseAccent('acute');
+      case 'grave':
+        return _parseAccent('grave');
+      case 'breve':
+        return _parseAccent('breve');
+      case 'check':
+        return _parseAccent('check');
 
       // Greek letters
       case 'alpha':
@@ -374,6 +397,141 @@ class LatexParser {
       case 'begin':
         return _parseEnvironment();
 
+      // ── New constructs ──
+
+      // Color
+      case 'color':
+        return _parseColor();
+
+      // Boxed
+      case 'boxed':
+        return LatexBoxed(_parseRequiredArg());
+
+      // Cancel / strikethrough
+      case 'cancel':
+        return LatexCancel(_parseRequiredArg(), direction: 'forward');
+      case 'bcancel':
+        return LatexCancel(_parseRequiredArg(), direction: 'back');
+      case 'xcancel':
+        return LatexCancel(_parseRequiredArg(), direction: 'cross');
+
+      // Under/overbrace
+      case 'underbrace':
+        return _parseUnderOverBrace(above: false);
+      case 'overbrace':
+        return _parseUnderOverBrace(above: true);
+
+      // Overset / underset / stackrel
+      case 'overset':
+        final anno = _parseRequiredArg();
+        final body = _parseRequiredArg();
+        return LatexUnderOver(body, anno, above: true);
+      case 'underset':
+        final anno = _parseRequiredArg();
+        final body = _parseRequiredArg();
+        return LatexUnderOver(body, anno, above: false);
+      case 'stackrel':
+        final anno = _parseRequiredArg();
+        final body = _parseRequiredArg();
+        return LatexUnderOver(body, anno, above: true);
+
+      // Phantom
+      case 'phantom':
+      case 'hphantom':
+      case 'vphantom':
+        return LatexPhantom(_parseRequiredArg());
+
+      // Negation
+      case 'not':
+        // \not= → ≠, \not\in → ∉, etc.
+        return _parseNot();
+
+      // Display/text style — currently treated as no-op passthrough
+      case 'displaystyle':
+      case 'textstyle':
+      case 'scriptstyle':
+      case 'scriptscriptstyle':
+        return _parseRequiredArg();
+
+      // Fraktur font
+      case 'mathfrak':
+        return _parseMathfrak();
+
+      // Substack
+      case 'substack':
+        return _parseSubstack();
+
+      // Extensible arrows
+      case 'xrightarrow':
+        return _parseExtensibleArrow('right');
+      case 'xleftarrow':
+        return _parseExtensibleArrow('left');
+      case 'xleftrightarrow':
+        return _parseExtensibleArrow('both');
+
+      // Extra symbols
+      case 'dagger':
+        return const LatexSymbol('†');
+      case 'ddagger':
+        return const LatexSymbol('‡');
+
+      // Colorbox
+      case 'colorbox':
+        return _parseColorBox();
+
+      // Rule
+      case 'rule':
+        return _parseRule();
+
+      // Custom operator name
+      case 'operatorname':
+        final name = _parseBracedText();
+        return LatexText(name);
+
+      // Horizontal line in matrices (treated as thin separator)
+      case 'hline':
+        return const LatexSpace(0.0);
+
+      // Modulo notation
+      case 'pmod':
+        final arg = _parseRequiredArg();
+        return LatexGroup([
+          const LatexSpace(0.25),
+          const LatexSymbol('('),
+          const LatexText('mod'),
+          const LatexSpace(0.15),
+          arg,
+          const LatexSymbol(')'),
+        ]);
+      case 'bmod':
+        return const LatexGroup([
+          LatexSpace(0.25),
+          LatexText('mod'),
+          LatexSpace(0.25),
+        ]);
+      case 'pod':
+        final arg = _parseRequiredArg();
+        return LatexGroup([
+          const LatexSpace(0.25),
+          const LatexSymbol('('),
+          arg,
+          const LatexSymbol(')'),
+        ]);
+
+      // Extra big operators
+      case 'coprod':
+        return const LatexBigOperator('∐');
+      case 'bigcup':
+        return const LatexBigOperator('⋃');
+      case 'bigcap':
+        return const LatexBigOperator('⋂');
+      case 'bigoplus':
+        return const LatexBigOperator('⨁');
+      case 'bigotimes':
+        return const LatexBigOperator('⨂');
+      case 'bigsqcup':
+        return const LatexBigOperator('⨆');
+
       // Misc
       case 'ldots':
       case 'dots':
@@ -515,11 +673,20 @@ class LatexParser {
   /// Parse a font command like `\mathbf{x}` or `\mathit{y}`
   LatexAstNode _parseFontCommand({bool bold = false, bool italic = false}) {
     final arg = _parseRequiredArg();
-    // Wrap the content — for simple symbols, apply the bold/italic flag
+    // Wrap the content — apply the bold/italic flag
     if (arg is LatexSymbol) {
-      return LatexSymbol(arg.value, italic: italic);
+      return LatexSymbol(arg.value, italic: italic || arg.italic, bold: bold);
     }
-    // For complex content, return as-is (bold not supported in AST yet)
+    // For groups, recursively apply bold/italic to all symbol children
+    if (arg is LatexGroup && bold) {
+      final mapped = arg.children.map((child) {
+        if (child is LatexSymbol) {
+          return LatexSymbol(child.value, italic: italic || child.italic, bold: true);
+        }
+        return child;
+      }).toList();
+      return LatexGroup(mapped);
+    }
     return arg;
   }
 
@@ -707,6 +874,16 @@ class LatexParser {
       return _parseMatrix(envName, matrixStyle);
     }
 
+    // Cases environment.
+    if (envName == 'cases') {
+      return _parseCases(envName);
+    }
+
+    // Align / gather environments.
+    if (envName == 'align' || envName == 'align*' || envName == 'gather' || envName == 'gather*') {
+      return _parseAlign(envName);
+    }
+
     // Unknown environment — skip to \end{env}
     final endMarker = '\\end{$envName}';
     final endIdx = _source.indexOf(endMarker, _pos);
@@ -758,6 +935,275 @@ class LatexParser {
     }
 
     return LatexMatrix(rows, style: style);
+  }
+
+  /// Parse `\color{name}{body}`.
+  LatexAstNode _parseColor() {
+    _skipWhitespace();
+    final colorName = _parseBracedText();
+    final body = _parseRequiredArg();
+    return LatexColored(colorName, body);
+  }
+
+  /// Parse `\underbrace{body}_{annotation}` or `\overbrace{body}^{annotation}`.
+  LatexAstNode _parseUnderOverBrace({required bool above}) {
+    final body = _parseRequiredArg();
+    // Check for subscript/superscript annotation
+    _skipWhitespace();
+    LatexAstNode annotation = const LatexGroup([]);
+    if (_pos < _source.length) {
+      if (!above && _source[_pos] == '_') {
+        _pos++;
+        annotation = _parseRequiredArg();
+      } else if (above && _source[_pos] == '^') {
+        _pos++;
+        annotation = _parseRequiredArg();
+      }
+    }
+    return LatexUnderOver(body, annotation, above: above, braceStyle: 'brace');
+  }
+
+  /// Parse `\not` followed by a symbol → negated Unicode.
+  LatexAstNode _parseNot() {
+    _skipWhitespace();
+    if (_pos >= _source.length) {
+      return const LatexSymbol('̸'); // combining slash
+    }
+
+    // Map next character or command to negated version
+    if (_source[_pos] == '\\') {
+      _pos++;
+      final cmd = _readCommandName();
+      return switch (cmd) {
+        'in' => const LatexSymbol('∉'),
+        'subset' => const LatexSymbol('⊄'),
+        'supset' => const LatexSymbol('⊅'),
+        'exists' => const LatexSymbol('∄'),
+        'equiv' => const LatexSymbol('≢'),
+        _ => LatexSymbol('̸'), // fallback combining slash
+      };
+    }
+
+    final c = _source[_pos];
+    _pos++;
+    return switch (c) {
+      '=' => const LatexSymbol('≠'),
+      '<' => const LatexSymbol('≮'),
+      '>' => const LatexSymbol('≯'),
+      _ => LatexSymbol('$c̸'), // char + combining slash
+    };
+  }
+
+  /// Parse `\mathfrak{A}` → fraktur Unicode.
+  LatexAstNode _parseMathfrak() {
+    _skipWhitespace();
+    if (_pos >= _source.length) {
+      return const LatexErrorNode('\\mathfrak', 'Expected argument');
+    }
+    String letter;
+    if (_source[_pos] == '{') {
+      _pos++;
+      letter = '';
+      if (_pos < _source.length && _source[_pos] != '}') {
+        letter = _source[_pos];
+        _pos++;
+      }
+      if (_pos < _source.length && _source[_pos] == '}') _pos++;
+    } else {
+      letter = _source[_pos];
+      _pos++;
+    }
+
+    // Map uppercase to Mathematical Fraktur (U+1D504–U+1D537)
+    final code = letter.codeUnitAt(0);
+    if (code >= 65 && code <= 90) {
+      // Some fraktur letters have special Unicode mappings
+      const special = {'C': 'ℭ', 'H': 'ℌ', 'I': 'ℑ', 'R': 'ℜ', 'Z': 'ℨ'};
+      if (special.containsKey(letter)) return LatexSymbol(special[letter]!);
+      return LatexSymbol(String.fromCharCode(0x1D504 + (code - 65)));
+    }
+    if (code >= 97 && code <= 122) {
+      return LatexSymbol(String.fromCharCode(0x1D51E + (code - 97)));
+    }
+    return LatexSymbol(letter);
+  }
+
+  /// Parse `\substack{a \\ b \\ c}` → stacked group.
+  LatexAstNode _parseSubstack() {
+    _skipWhitespace();
+    if (_pos >= _source.length || _source[_pos] != '{') {
+      return const LatexErrorNode('\\substack', 'Expected {');
+    }
+    _pos++; // skip {
+
+    final rows = <List<LatexAstNode>>[];
+    var currentRow = <LatexAstNode>[];
+
+    int depth = 1;
+    while (_pos < _source.length && depth > 0) {
+      if (_source[_pos] == '{') depth++;
+      if (_source[_pos] == '}') {
+        depth--;
+        if (depth == 0) { _pos++; break; }
+      }
+      // Row separator \\
+      if (_pos < _source.length - 1 &&
+          _source[_pos] == '\\' && _source[_pos + 1] == '\\') {
+        _pos += 2;
+        currentRow.add(_parseExpression());
+        rows.add(currentRow);
+        currentRow = [];
+        continue;
+      }
+      currentRow.add(_parseExpression());
+    }
+    if (currentRow.isNotEmpty) rows.add(currentRow);
+
+    // Render as a simple matrix without delimiters.
+    return LatexMatrix(rows);
+  }
+
+  /// Parse `\xrightarrow[below]{above}` or `\xleftarrow{above}`.
+  LatexAstNode _parseExtensibleArrow(String direction) {
+    _skipWhitespace();
+    LatexAstNode? below;
+    LatexAstNode? above;
+
+    // Optional [below]
+    if (_pos < _source.length && _source[_pos] == '[') {
+      _pos++; // skip [
+      final buf = StringBuffer();
+      while (_pos < _source.length && _source[_pos] != ']') {
+        buf.write(_source[_pos]);
+        _pos++;
+      }
+      if (_pos < _source.length) _pos++; // skip ]
+      below = LatexParser.parse(buf.toString());
+    }
+
+    // Required {above}
+    _skipWhitespace();
+    if (_pos < _source.length && _source[_pos] == '{') {
+      above = _parseRequiredArg();
+    }
+
+    return LatexExtensibleArrow(direction, above: above, below: below);
+  }
+
+  /// Parse `\begin{cases}...\end{cases}` — like matrix but with left brace.
+  LatexAstNode _parseCases(String envName) {
+    final rows = <List<LatexAstNode>>[];
+    var currentRow = <LatexAstNode>[];
+    final endMarker = '\\end{$envName}';
+
+    while (_pos < _source.length) {
+      // Check for \end{cases}
+      if (_source.length >= _pos + endMarker.length &&
+          _source.substring(_pos, _pos + endMarker.length) == endMarker) {
+        _pos += endMarker.length;
+        break;
+      }
+
+      // Row separator \\
+      if (_pos < _source.length - 1 &&
+          _source[_pos] == '\\' && _source[_pos + 1] == '\\') {
+        _pos += 2;
+        currentRow.add(_parseExpression());
+        rows.add(currentRow);
+        currentRow = [];
+        continue;
+      }
+
+      // Column separator &
+      if (_source[_pos] == '&') {
+        _pos++;
+        currentRow.add(_parseExpression());
+        continue;
+      }
+
+      currentRow.add(_parseExpression());
+    }
+
+    if (currentRow.isNotEmpty) rows.add(currentRow);
+    return LatexCases(rows);
+  }
+
+  /// Parse `\colorbox{color}{body}`.
+  LatexAstNode _parseColorBox() {
+    _skipWhitespace();
+    final colorName = _parseBracedText();
+    final body = _parseRequiredArg();
+    return LatexColorBox(colorName, body);
+  }
+
+  /// Parse `\rule{width}{height}` — dimensions as TeX strings.
+  LatexAstNode _parseRule() {
+    _skipWhitespace();
+    final widthStr = _parseBracedText();
+    final heightStr = _parseBracedText();
+    // Parse simple dimension strings like '1em', '2pt', '0.5cm'
+    final w = _parseDimension(widthStr);
+    final h = _parseDimension(heightStr);
+    return LatexRule(w, h);
+  }
+
+  /// Parse a simple TeX dimension string to em units.
+  double _parseDimension(String dim) {
+    final trimmed = dim.trim();
+    if (trimmed.endsWith('em')) {
+      return double.tryParse(trimmed.substring(0, trimmed.length - 2).trim()) ?? 1.0;
+    }
+    if (trimmed.endsWith('pt')) {
+      final pt = double.tryParse(trimmed.substring(0, trimmed.length - 2).trim()) ?? 10;
+      return pt / 10; // rough pt→em
+    }
+    if (trimmed.endsWith('cm')) {
+      final cm = double.tryParse(trimmed.substring(0, trimmed.length - 2).trim()) ?? 1;
+      return cm * 2.84; // rough cm→em
+    }
+    if (trimmed.endsWith('mm')) {
+      final mm = double.tryParse(trimmed.substring(0, trimmed.length - 2).trim()) ?? 10;
+      return mm * 0.284; // rough mm→em
+    }
+    // Plain number — treat as em.
+    return double.tryParse(trimmed) ?? 1.0;
+  }
+
+  /// Parse `\begin{align}...\end{align}` — rows with & alignment.
+  LatexAstNode _parseAlign(String envName) {
+    final rows = <List<LatexAstNode>>[];
+    var currentRow = <LatexAstNode>[];
+    final endMarker = '\\end{$envName}';
+
+    while (_pos < _source.length) {
+      if (_source.length >= _pos + endMarker.length &&
+          _source.substring(_pos, _pos + endMarker.length) == endMarker) {
+        _pos += endMarker.length;
+        break;
+      }
+
+      // Row separator \\
+      if (_pos < _source.length - 1 &&
+          _source[_pos] == '\\' && _source[_pos + 1] == '\\') {
+        _pos += 2;
+        currentRow.add(_parseExpression());
+        rows.add(currentRow);
+        currentRow = [];
+        continue;
+      }
+
+      // Column separator &
+      if (_source[_pos] == '&') {
+        _pos++;
+        currentRow.add(_parseExpression());
+        continue;
+      }
+
+      currentRow.add(_parseExpression());
+    }
+
+    if (currentRow.isNotEmpty) rows.add(currentRow);
+    return LatexAlign(rows);
   }
 
   // ---------------------------------------------------------------------------

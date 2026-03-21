@@ -63,7 +63,7 @@ class LassoPathPainter extends CustomPainter {
 
   LassoPathPainter({
     required this.path,
-    this.color = Colors.blue,
+    this.color = const Color(0xFF818CF8),
     required this.canvasController,
     this.selectionMode = SelectionMode.lasso,
     this.marqueeRect,
@@ -86,7 +86,6 @@ class LassoPathPainter extends CustomPainter {
     if (path.length < 2) return;
 
     // 🚀 PERF: Convert to screen coords with decimation.
-    // Skip points that are < 2px apart in screen space to reduce path complexity.
     final screenPath = <Offset>[];
     Offset last = canvasController.canvasToScreen(path.first);
     screenPath.add(last);
@@ -101,7 +100,6 @@ class LassoPathPainter extends CustomPainter {
       }
     }
 
-    // Always include the very last point for accurate end position
     final lastScreen = canvasController.canvasToScreen(path.last);
     if (screenPath.last != lastScreen) {
       screenPath.add(lastScreen);
@@ -109,95 +107,196 @@ class LassoPathPainter extends CustomPainter {
 
     if (screenPath.length < 2) return;
 
-    // Build the path from decimated screen coordinates
-    final pathToDraw = Path();
-    pathToDraw.moveTo(screenPath.first.dx, screenPath.first.dy);
-    for (var i = 1; i < screenPath.length; i++) {
-      pathToDraw.lineTo(screenPath[i].dx, screenPath[i].dy);
+    // Build smooth path via Catmull-Rom spline for organic feel
+    final smoothPath = Path();
+    smoothPath.moveTo(screenPath.first.dx, screenPath.first.dy);
+    if (screenPath.length <= 3) {
+      for (var i = 1; i < screenPath.length; i++) {
+        smoothPath.lineTo(screenPath[i].dx, screenPath[i].dy);
+      }
+    } else {
+      // Catmull-Rom → cubic bezier conversion for buttery smooth curves
+      for (int i = 0; i < screenPath.length - 1; i++) {
+        final p0 = i > 0 ? screenPath[i - 1] : screenPath[i];
+        final p1 = screenPath[i];
+        final p2 = screenPath[i + 1];
+        final p3 = i + 2 < screenPath.length ? screenPath[i + 2] : p2;
+
+        final cp1x = p1.dx + (p2.dx - p0.dx) / 6;
+        final cp1y = p1.dy + (p2.dy - p0.dy) / 6;
+        final cp2x = p2.dx - (p3.dx - p1.dx) / 6;
+        final cp2y = p2.dy - (p3.dy - p1.dy) / 6;
+
+        smoothPath.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+      }
     }
 
-    // 1. Outer neon glow (electric blue, wide blur)
-    final glowPaint =
-        Paint()
-          ..color = const Color(0xFF00D4FF).withValues(alpha: 0.25)
-          ..strokeWidth = _kGlowWidth
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
-          ..maskFilter = const MaskFilter.blur(
-            BlurStyle.normal,
-            _kGlowBlurSigma,
-          );
-    canvas.drawPath(pathToDraw, glowPaint);
+    // Compute bounding rect for gradient
+    final pathBounds = smoothPath.getBounds();
 
-    // 1b. Inner neon glow (brighter, tighter)
-    final innerGlowPaint =
-        Paint()
-          ..color = const Color(0xFF82C8FF).withValues(alpha: 0.35)
-          ..strokeWidth = 5.0
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
-    canvas.drawPath(pathToDraw, innerGlowPaint);
+    // ── 1. Frosted glass fill ──────────────────────────────────────────────
+    final fillPath = Path.from(smoothPath)..close();
+    canvas.drawPath(
+      fillPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF6366F1).withValues(alpha: 0.06),
+            const Color(0xFF06B6D4).withValues(alpha: 0.08),
+            const Color(0xFFA855F7).withValues(alpha: 0.05),
+          ],
+        ).createShader(pathBounds)
+        ..style = PaintingStyle.fill,
+    );
 
-    // 2. Semi-transparent holographic fill
-    final fillPaint =
-        Paint()
-          ..color = const Color(0xFF00D4FF).withValues(alpha: 0.04)
-          ..style = PaintingStyle.fill;
-    canvas.drawPath(pathToDraw, fillPaint);
+    // ── 2. Ambient glow — SINGLE path draw (cheap) ──────────────────────────
+    canvas.drawPath(
+      smoothPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF6366F1).withValues(alpha: 0.18),
+            const Color(0xFF06B6D4).withValues(alpha: 0.22),
+            const Color(0xFFEC4899).withValues(alpha: 0.18),
+          ],
+        ).createShader(pathBounds)
+        ..strokeWidth = 8.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0),
+    );
 
-    // 3. Main neon border (solid, bright)
-    final mainPaint =
-        Paint()
-          ..color = const Color(0xFF82C8FF).withValues(alpha: 0.9)
-          ..strokeWidth = _kMainBorderWidth
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(pathToDraw, mainPaint);
+    // ── 3. Main stroke — per-segment with velocity width + trail fade ──────
+    // 🚀 PERF: Downsample to max 60 segments to cap draw calls
+    final segCount = screenPath.length - 1;
+    const maxSegs = 60;
+    final step = segCount > maxSegs ? segCount / maxSegs : 1.0;
 
-    // 4. Inner white core for depth
-    final innerPaint =
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.5)
-          ..strokeWidth = _kInnerBorderWidth
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(pathToDraw, innerPaint);
+    const gradientColors = [
+      Color(0xFF818CF8), Color(0xFF22D3EE),
+      Color(0xFFC084FC), Color(0xFFF472B6),
+    ];
 
-    // 5. Neon energy points along the path
-    for (var i = 0; i < screenPath.length; i += _kKeyPointInterval) {
-      // Glow
+    for (double fi = 0; fi < segCount; fi += step) {
+      final i = fi.floor().clamp(0, segCount - 1);
+      final t = segCount > 1 ? i / (segCount - 1) : 0.0;
+
+      // Trail fade: 30% → 100%
+      final fadeAlpha = 0.30 + 0.70 * t;
+
+      // Velocity width
+      final dist = (screenPath[i + 1] - screenPath[i]).distance.clamp(1.0, 40.0);
+      final strokeW = 1.2 + (1.0 - (dist - 1.0) / 39.0) * 2.8;
+
+      // Color interpolation
+      final ct = t * (gradientColors.length - 1);
+      final ci = ct.floor().clamp(0, gradientColors.length - 2);
+      final segColor = Color.lerp(gradientColors[ci], gradientColors[ci + 1], ct - ci)!;
+
+      canvas.drawLine(
+        screenPath[i], screenPath[i + 1],
+        Paint()
+          ..color = segColor.withValues(alpha: fadeAlpha * 0.9)
+          ..strokeWidth = strokeW
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    // ── 4. Inner white highlight — SINGLE path draw (cheap) ─────────────────
+    canvas.drawPath(
+      smoothPath,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.30)
+        ..strokeWidth = 0.8
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // ── 3. Start point — subtle frosted dot ─────────────────────────────────
+    if (screenPath.isNotEmpty) {
       canvas.drawCircle(
-        screenPath[i],
-        4.5,
+        screenPath.first,
+        6.0,
         Paint()
-          ..color = const Color(0xFF00D4FF).withValues(alpha: 0.4)
+          ..color = const Color(0xFF818CF8).withValues(alpha: 0.3)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0),
+      );
+      canvas.drawCircle(
+        screenPath.first,
+        3.5,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.9)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawCircle(
+        screenPath.first,
+        2.0,
+        Paint()..color = const Color(0xFF818CF8),
+      );
+    }
+
+    // ── 4. Glow cursor at finger (end point) ────────────────────────────────
+    if (screenPath.length > 2) {
+      final cursor = screenPath.last;
+      // Outer aura
+      canvas.drawCircle(
+        cursor,
+        12.0,
+        Paint()
+          ..color = const Color(0xFFF472B6).withValues(alpha: 0.15)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0),
+      );
+      // Mid ring
+      canvas.drawCircle(
+        cursor,
+        5.0,
+        Paint()
+          ..color = const Color(0xFFF472B6).withValues(alpha: 0.35)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0),
       );
-      // Core
+      // White core
       canvas.drawCircle(
-        screenPath[i],
-        2.0,
-        Paint()..color = const Color(0xFFDDEEFF),
+        cursor,
+        2.5,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.95)
+          ..style = PaintingStyle.fill,
       );
     }
 
-    // 6. Special start and end points
-    if (screenPath.isNotEmpty) {
-      _drawSpecialPoint(canvas, screenPath.first, color, isStart: true);
-      if (screenPath.length > 3) {
-        final distance = (screenPath.last - screenPath.first).distance;
-        _drawSpecialPoint(
-          canvas,
-          screenPath.last,
-          color,
-          isStart: false,
-          isClosing: distance < _kCloseThreshold,
+    // ── 5. Closing indicator — magnetic snap ────────────────────────────────
+    if (screenPath.length > 5) {
+      final distance = (screenPath.last - screenPath.first).distance;
+      if (distance < _kCloseThreshold) {
+        final t = (1.0 - distance / _kCloseThreshold).clamp(0.0, 1.0);
+        canvas.drawCircle(
+          screenPath.first,
+          6.0 + t * 8.0,
+          Paint()
+            ..color = const Color(0xFF34D399).withValues(alpha: 0.15 + t * 0.35)
+            ..strokeWidth = 2.0 + t * 1.0
+            ..style = PaintingStyle.stroke
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.0 + t * 3.0),
         );
+        if (t > 0.3) {
+          final closingPath = Path()
+            ..moveTo(screenPath.last.dx, screenPath.last.dy)
+            ..lineTo(screenPath.first.dx, screenPath.first.dy);
+          canvas.drawPath(
+            closingPath,
+            Paint()
+              ..color = const Color(0xFF34D399).withValues(alpha: t * 0.5)
+              ..strokeWidth = 1.5
+              ..style = PaintingStyle.stroke
+              ..strokeCap = StrokeCap.round,
+          );
+        }
       }
     }
   }
@@ -291,40 +390,81 @@ class LassoPathPainter extends CustomPainter {
     final screenTL = canvasController.canvasToScreen(rect.topLeft);
     final screenBR = canvasController.canvasToScreen(rect.bottomRight);
     final screenRect = Rect.fromPoints(screenTL, screenBR);
+    final rrect = RRect.fromRectAndRadius(screenRect, const Radius.circular(4));
 
-    // Glow
-    canvas.drawRect(
-      screenRect,
+    // Frosted fill
+    canvas.drawRRect(
+      rrect,
       Paint()
-        ..color = color.withValues(alpha: 0.15)
-        ..strokeWidth = _kGlowWidth
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _kGlowBlurSigma),
-    );
-
-    // Fill
-    canvas.drawRect(
-      screenRect,
-      Paint()
-        ..color = color.withValues(alpha: 0.08)
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF6366F1).withValues(alpha: 0.06),
+            const Color(0xFF06B6D4).withValues(alpha: 0.08),
+          ],
+        ).createShader(screenRect)
         ..style = PaintingStyle.fill,
     );
 
-    // Dashed border
-    final rectPath = Path()..addRect(screenRect);
-    final dashPath = _createDashedPath(rectPath, dashLength: _kDashLength, gapLength: _kGapLength);
-    canvas.drawPath(
-      dashPath,
+    // Ambient glow
+    canvas.drawRRect(
+      rrect,
       Paint()
-        ..color = color.withValues(alpha: 0.8)
-        ..strokeWidth = _kMainBorderWidth
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF818CF8).withValues(alpha: 0.18),
+            const Color(0xFF22D3EE).withValues(alpha: 0.22),
+          ],
+        ).createShader(screenRect)
+        ..strokeWidth = 8.0
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0),
+    );
+
+    // Gradient border
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: const [
+            Color(0xFF818CF8),
+            Color(0xFF22D3EE),
+            Color(0xFFC084FC),
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ).createShader(screenRect)
+        ..strokeWidth = 2.0
         ..style = PaintingStyle.stroke,
     );
 
-    // Corner handles
+    // White inner highlight
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.30)
+        ..strokeWidth = 0.8
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Corner handles — frosted glass rounded squares
     for (final corner in [screenRect.topLeft, screenRect.topRight, screenRect.bottomLeft, screenRect.bottomRight]) {
-      canvas.drawCircle(corner, 4.0, Paint()..color = Colors.white);
-      canvas.drawCircle(corner, 2.5, Paint()..color = color);
+      final hr = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: corner, width: 10, height: 10),
+        const Radius.circular(3),
+      );
+      canvas.drawRRect(hr.inflate(1), Paint()
+        ..color = Colors.black.withValues(alpha: 0.12)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0));
+      canvas.drawRRect(hr, Paint()..color = Colors.white);
+      canvas.drawRRect(hr, Paint()
+        ..color = const Color(0xFF818CF8)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke);
     }
   }
 
@@ -337,45 +477,66 @@ class LassoPathPainter extends CustomPainter {
     final screenBR = canvasController.canvasToScreen(rect.bottomRight);
     final screenRect = Rect.fromPoints(screenTL, screenBR);
 
-    // Glow
+    // Frosted fill
     canvas.drawOval(
       screenRect,
       Paint()
-        ..color = color.withValues(alpha: 0.15)
-        ..strokeWidth = _kGlowWidth
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _kGlowBlurSigma),
-    );
-
-    // Fill
-    canvas.drawOval(
-      screenRect,
-      Paint()
-        ..color = color.withValues(alpha: 0.08)
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF6366F1).withValues(alpha: 0.06),
+            const Color(0xFF06B6D4).withValues(alpha: 0.08),
+          ],
+        ).createShader(screenRect)
         ..style = PaintingStyle.fill,
     );
 
-    // Dashed border
-    final ovalPath = Path()..addOval(screenRect);
-    final dashPath = _createDashedPath(ovalPath, dashLength: _kDashLength, gapLength: _kGapLength);
-    canvas.drawPath(
-      dashPath,
-      Paint()
-        ..color = color.withValues(alpha: 0.8)
-        ..strokeWidth = _kMainBorderWidth
-        ..style = PaintingStyle.stroke,
-    );
-
-    // Inner highlight
+    // Ambient glow
     canvas.drawOval(
       screenRect,
       Paint()
-        ..color = Colors.white.withValues(alpha: 0.4)
-        ..strokeWidth = _kInnerBorderWidth
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF818CF8).withValues(alpha: 0.18),
+            const Color(0xFF22D3EE).withValues(alpha: 0.22),
+          ],
+        ).createShader(screenRect)
+        ..strokeWidth = 8.0
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0),
+    );
+
+    // Gradient border
+    canvas.drawOval(
+      screenRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: const [
+            Color(0xFF818CF8),
+            Color(0xFF22D3EE),
+            Color(0xFFC084FC),
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ).createShader(screenRect)
+        ..strokeWidth = 2.0
         ..style = PaintingStyle.stroke,
     );
 
-    // Axis handles (top, right, bottom, left)
+    // White inner highlight
+    canvas.drawOval(
+      screenRect,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.30)
+        ..strokeWidth = 0.8
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Axis handles — frosted glass rounded squares
     final cx = screenRect.center.dx;
     final cy = screenRect.center.dy;
     final handles = [
@@ -385,8 +546,18 @@ class LassoPathPainter extends CustomPainter {
       Offset(screenRect.left, cy),
     ];
     for (final h in handles) {
-      canvas.drawCircle(h, 4.0, Paint()..color = Colors.white);
-      canvas.drawCircle(h, 2.5, Paint()..color = color);
+      final hr = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: h, width: 10, height: 10),
+        const Radius.circular(3),
+      );
+      canvas.drawRRect(hr.inflate(1), Paint()
+        ..color = Colors.black.withValues(alpha: 0.12)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0));
+      canvas.drawRRect(hr, Paint()..color = Colors.white);
+      canvas.drawRRect(hr, Paint()
+        ..color = const Color(0xFF818CF8)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke);
     }
   }
 

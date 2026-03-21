@@ -407,6 +407,15 @@ class DigitalTextElement {
     )..layout(maxWidth: maxWidth != null ? maxWidth! * scale : double.infinity);
   }
 
+  /// 🧹 Clears the cached [TextPainter] so this element can safely cross
+  /// an isolate boundary (TextPainter contains unsendable native objects).
+  /// The cache will be lazily recreated on next access.
+  void clearLayoutCache() {
+    _cachedPainter?.dispose();
+    _cachedPainter = null;
+    _cachedBounds = null;
+  }
+
   /// 🚀 Cached TextPainter — reused by [DigitalTextPainter.paint] to avoid
   /// per-frame allocation. Lazily created on first access.
   TextPainter get layoutPainter {

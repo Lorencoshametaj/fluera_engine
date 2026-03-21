@@ -70,7 +70,7 @@ class SelectionHandlesOverlay extends StatelessWidget {
     this.onRotateEnd,
     this.handleSize = 10.0,
     this.fillColor = Colors.white,
-    this.borderColor = Colors.blue,
+    this.borderColor = const Color(0xFF818CF8),
     this.showRotationHandle = true,
   });
 

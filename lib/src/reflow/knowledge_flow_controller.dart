@@ -43,6 +43,10 @@ class KnowledgeFlowController {
   /// Dismissed suggestion pair keys (persisted across recomputations).
   final Set<String> _dismissedPairKeys = {};
 
+  /// 🚀 PERF: Cache hash of last cluster configuration to skip O(n²)
+  /// recomputation when clusters haven't changed.
+  String _lastSuggestionHash = '';
+
   /// Unmodifiable view of active (non-dismissed) suggestions.
   List<SuggestedConnection> get suggestions =>
       _suggestions.where((s) => !s.dismissed).toList();
@@ -54,6 +58,15 @@ class KnowledgeFlowController {
     required List<ProStroke> allStrokes,
     Map<String, String>? clusterTexts,
   }) {
+    // 🚀 PERF: Skip recomputation if clusters haven't changed
+    final ids = clusters.map((c) => '${c.id}:${c.elementCount}').toList()
+      ..sort();
+    final hash = ids.join('|');
+    if (hash == _lastSuggestionHash && _suggestions.isNotEmpty) {
+      return; // Clusters unchanged — skip expensive O(n²) scoring
+    }
+    _lastSuggestionHash = hash;
+
     // 🎯 ADAPTIVE: Fewer suggestions when canvas is already busy
     final existingCount = _connections.length;
     final adaptiveMax = existingCount <= 3 ? 3
@@ -160,6 +173,10 @@ class KnowledgeFlowController {
   /// Returns the created connection, or null if:
   /// - Source == target (self-loop)
   /// - Connection already exists between these clusters
+  ///
+  /// If [recordingTimestampMs] and [recordingId] are provided, the connection
+  /// will be linked to that specific moment in the audio recording, enabling
+  /// Flow Playback: tapping the connection seeks to that audio position.
   KnowledgeConnection? addConnection({
     required String sourceClusterId,
     required String targetClusterId,
@@ -167,6 +184,9 @@ class KnowledgeFlowController {
     Color? color,
     Offset? sourceAnchor,
     Offset? targetAnchor,
+    int? recordingTimestampMs,
+    String? recordingId,
+    bool isGhost = false,
   }) {
     // No self-loops
     if (sourceClusterId == targetClusterId) {
@@ -174,18 +194,21 @@ class KnowledgeFlowController {
       return null;
     }
 
-    // No duplicate connections
-    final exists = _connections.any(
-      (c) =>
-          (c.sourceClusterId == sourceClusterId &&
-              c.targetClusterId == targetClusterId) ||
-          (c.sourceClusterId == targetClusterId &&
-              c.targetClusterId == sourceClusterId),
-    );
-    if (exists) {
-      debugPrint('🔗 [addConnection] BLOCKED: duplicate '
-          '($sourceClusterId ↔ $targetClusterId)');
-      return null;
+    // No duplicate connections (ghosts can coexist with pending ghosts)
+    if (!isGhost) {
+      final exists = _connections.any(
+        (c) =>
+            !c.isGhost &&
+            ((c.sourceClusterId == sourceClusterId &&
+                c.targetClusterId == targetClusterId) ||
+            (c.sourceClusterId == targetClusterId &&
+                c.targetClusterId == sourceClusterId)),
+      );
+      if (exists) {
+        debugPrint('🔗 [addConnection] BLOCKED: duplicate '
+            '($sourceClusterId ↔ $targetClusterId)');
+        return null;
+      }
     }
 
     final connection = KnowledgeConnection(
@@ -197,6 +220,9 @@ class KnowledgeFlowController {
           _connections.length % KnowledgeConnection.mindMapPalette.length],
       sourceAnchor: sourceAnchor,
       targetAnchor: targetAnchor,
+      recordingTimestampMs: recordingTimestampMs,
+      recordingId: recordingId,
+      isGhost: isGhost,
     );
 
     _connections.add(connection);

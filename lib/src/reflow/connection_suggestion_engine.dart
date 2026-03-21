@@ -20,7 +20,9 @@ class SuggestedConnection {
   final double score;
 
   /// Human-readable reason for the suggestion.
-  final String reason;
+  /// Mutable — AI ghost labels can replace generic reasons (e.g.,
+  /// "Nearby notes" → "Legge fondamentale").
+  String reason;
 
   /// Shared keywords between source and target (for semantic suggestions).
   /// Used to auto-populate connection labels on accept.

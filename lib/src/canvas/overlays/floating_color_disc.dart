@@ -22,6 +22,8 @@ class FloatingColorDisc extends StatefulWidget {
   final VoidCallback? onExpand;
   final Offset initialPosition;
   final List<Color> recentColors;
+  final double strokeSize;
+  final ValueChanged<double>? onStrokeSizeChanged;
 
   const FloatingColorDisc({
     super.key,
@@ -30,6 +32,8 @@ class FloatingColorDisc extends StatefulWidget {
     this.onExpand,
     this.initialPosition = const Offset(20, 140),
     this.recentColors = const [],
+    this.strokeSize = 2.0,
+    this.onStrokeSizeChanged,
   });
 
   @override
@@ -51,9 +55,13 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
   bool _isDragging = false;
   bool _isHueGesture = false;
   bool _isSatGesture = false;   // Vertical swipe = saturation
-  bool _gestureDecided = false; // Has direction been determined?
+  bool _isSizeGesture = false;  // Horizontal swipe = stroke size
+  bool _gestureDecided = false;
   Offset _gestureStartLocal = Offset.zero;
   Offset? _lastDragGlobal;
+
+  // Live stroke size during gesture
+  double _liveStrokeSize = 2.0;
 
   // Pulse on color change (from hue gesture)
   double _changePulse = 0.0;
@@ -114,8 +122,8 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
       dirty = true;
     }
 
-    // Hue ring fade in/out (also active during saturation gesture)
-    final targetRing = (_isHueGesture || _isSatGesture) ? 1.0 : 0.0;
+    // Hue ring fade in/out (also active during saturation/size gesture)
+    final targetRing = (_isHueGesture || _isSatGesture || _isSizeGesture) ? 1.0 : 0.0;
     if ((_hueRingT - targetRing).abs() > 0.01) {
       _hueRingT += (targetRing - _hueRingT) * math.min(1.0, dt * 8);
       dirty = true;
@@ -202,6 +210,8 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
               currentSaturation: _hsv.saturation,
               recentColors: widget.recentColors,
               isSaturationMode: _isSatGesture,
+              isSizeMode: _isSizeGesture,
+              strokeSize: _isSizeGesture ? _liveStrokeSize : widget.strokeSize,
               particles: _particles,
               particleT: _particleT,
             ),
@@ -213,9 +223,11 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
 
   void _onGestureStart(DragStartDetails d) {
     _hsv = HSVColor.fromColor(widget.color);
+    _liveStrokeSize = widget.strokeSize;
     _gestureDecided = false;
     _isHueGesture = false;
     _isSatGesture = false;
+    _isSizeGesture = false;
     _gestureStartLocal = d.localPosition;
     HapticFeedback.selectionClick();
   }
@@ -224,17 +236,22 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
     // Phase 1: determine gesture direction from first ~15px
     if (!_gestureDecided) {
       final delta = d.localPosition - _gestureStartLocal;
-      if (delta.distance < 15) return; // Wait for enough movement
+      if (delta.distance < 15) return;
 
       final absX = delta.dx.abs();
       final absY = delta.dy.abs();
       if (absY > absX * 1.5) {
-        // Predominantly vertical → saturation mode
+        // Predominantly vertical → saturation
         _isSatGesture = true;
         _gestureDecided = true;
         HapticFeedback.selectionClick();
+      } else if (absX > absY * 1.5) {
+        // Predominantly horizontal → stroke size
+        _isSizeGesture = true;
+        _gestureDecided = true;
+        HapticFeedback.selectionClick();
       } else {
-        // Angular/horizontal → hue mode
+        // Angular → hue mode
         _isHueGesture = true;
         _gestureDecided = true;
       }
@@ -246,6 +263,8 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
       _updateColorFromPosition(d.localPosition);
     } else if (_isSatGesture) {
       _updateSaturationFromDelta(d.delta);
+    } else if (_isSizeGesture) {
+      _updateSizeFromDelta(d.delta);
     }
   }
 
@@ -307,14 +326,28 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
       widget.onColorChanged(_hsv.toColor());
       _changePulse = 0.8;
       HapticFeedback.mediumImpact();
-
-      // Spawn particle burst!
       _spawnParticles(_hsv.toColor());
-
-      _isHueGesture = false;
-      _isSatGesture = false;
-      _gestureDecided = false;
+    } else if (_isSizeGesture) {
+      widget.onStrokeSizeChanged?.call(_liveStrokeSize);
+      _changePulse = 0.5;
+      HapticFeedback.mediumImpact();
     }
+    _isHueGesture = false;
+    _isSatGesture = false;
+    _isSizeGesture = false;
+    _gestureDecided = false;
+  }
+
+  void _updateSizeFromDelta(Offset delta) {
+    // Drag right = bigger, drag left = smaller
+    final newSize = (_liveStrokeSize + delta.dx * 0.15).clamp(0.5, 30.0);
+    final prevBucket = (_liveStrokeSize * 2).floor();
+    _liveStrokeSize = newSize;
+    final newBucket = (newSize * 2).floor();
+    if (prevBucket != newBucket) {
+      HapticFeedback.selectionClick();
+    }
+    setState(() {});
   }
 
   void _spawnParticles(Color color) {
@@ -352,6 +385,8 @@ class _HudReadoutPainter extends CustomPainter {
   final double currentSaturation;
   final List<Color> recentColors;
   final bool isSaturationMode;
+  final bool isSizeMode;
+  final double strokeSize;
   final List<_DiscParticle> particles;
   final double particleT;
 
@@ -367,9 +402,16 @@ class _HudReadoutPainter extends CustomPainter {
     required this.currentSaturation,
     required this.recentColors,
     required this.isSaturationMode,
+    required this.isSizeMode,
+    required this.strokeSize,
     required this.particles,
     required this.particleT,
   });
+
+  static final List<Color> _hueColors = List.generate(
+    13,
+    (i) => HSVColor.fromAHSV(1, (i * 30.0) % 360, 1, 1).toColor(),
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -381,10 +423,7 @@ class _HudReadoutPainter extends CustomPainter {
       final ringR = radius + 18 + hueRingT * 30; // Larger ring
       final ringWidth = 10.0 * hueRingT; // Thicker
       final hueRect = Rect.fromCircle(center: center, radius: ringR);
-      final hueGradient = SweepGradient(
-        colors: List.generate(13, (i) =>
-            HSVColor.fromAHSV(1, (i * 30.0) % 360, 1, 1).toColor()),
-      );
+      final hueGradient = SweepGradient(colors: _hueColors);
 
       // Ring glow (stronger)
       p..shader = hueGradient.createShader(hueRect)
@@ -473,6 +512,17 @@ class _HudReadoutPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
         ..strokeWidth = 1.5;
       canvas.drawCircle(center, radius + 8 + (1 - changePulse) * 15, p);
+    }
+
+    // ── 3b. IDLE STROKE SIZE RING ── (always visible when not gesturing)
+    if (hueRingT < 0.5 && strokeSize > 0.5) {
+      final idleAlpha = (1.0 - hueRingT * 2).clamp(0.0, 1.0) * 0.35;
+      final sizeR = radius + 2 + (strokeSize / 30.0).clamp(0.0, 1.0) * 10;
+      p..color = color.withValues(alpha: idleAlpha)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = (strokeSize * 0.15).clamp(0.5, 2.5)
+        ..maskFilter = null;
+      canvas.drawCircle(center, sizeR, p);
     }
 
     // ── 4. GLASS BASE ──
@@ -664,16 +714,96 @@ class _HudReadoutPainter extends CustomPainter {
         final px = center.dx + math.cos(particle.angle) * dist;
         final py = center.dy + math.sin(particle.angle) * dist;
         final s = particle.size * (1.0 - particleT * 0.5);
-        // Glow
         p..color = particle.color.withValues(alpha: fade * 0.5)
           ..style = PaintingStyle.fill
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 2);
         canvas.drawCircle(Offset(px, py), s * 1.5, p);
-        // Core
         p..color = particle.color.withValues(alpha: fade)
           ..maskFilter = null;
         canvas.drawCircle(Offset(px, py), s, p);
       }
+    }
+
+    // ── 14. STROKE SIZE BAR (during horizontal swipe) ──
+    if (isSizeMode && hueRingT > 0.1) {
+      final sAlpha = hueRingT.clamp(0.0, 1.0);
+      final barW = radius * 3.5;
+      final barY = center.dy + radius + 20;
+      final left = center.dx - barW / 2;
+
+      // Dark background pill (visible on any canvas color)
+      final barRect = Rect.fromLTWH(left - 4, barY - 8, barW + 8, 16);
+      p..color = const Color(0xDD101020)
+        ..style = PaintingStyle.fill
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(barRect, const Radius.circular(8)), p);
+      p.maskFilter = null;
+
+      // Cyan accent rim
+      p..color = const Color(0xFF82C8FF).withValues(alpha: 0.5 * sAlpha)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(barRect, const Radius.circular(8)), p);
+
+      // Track gradient (thin→thick visual)
+      final trackRect = Rect.fromLTWH(left, barY - 2, barW, 4);
+      p..shader = LinearGradient(
+        colors: [
+          const Color(0xFF82C8FF).withValues(alpha: 0.2 * sAlpha),
+          const Color(0xFF82C8FF).withValues(alpha: 0.5 * sAlpha),
+        ],
+      ).createShader(trackRect)
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(trackRect, const Radius.circular(2)), p);
+      p.shader = null;
+
+      // Size indicator position (0.5..30 mapped to bar)
+      final sizeT = ((strokeSize - 0.5) / 29.5).clamp(0.0, 1.0);
+      final dotX = left + barW * sizeT;
+
+      // Preview circle (actual stroke size, with glow)
+      final previewR = (strokeSize / 2).clamp(1.5, 12.0);
+      p..color = color.withValues(alpha: sAlpha * 0.4)
+        ..style = PaintingStyle.fill
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, previewR * 1.5);
+      canvas.drawCircle(Offset(dotX, barY), previewR * 1.2, p);
+      p..color = color.withValues(alpha: sAlpha)
+        ..maskFilter = null;
+      canvas.drawCircle(Offset(dotX, barY), previewR * 0.7, p);
+
+      // Cyan indicator ring
+      p..color = const Color(0xFF82C8FF).withValues(alpha: sAlpha)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5;
+      canvas.drawCircle(Offset(dotX, barY), previewR * 0.7 + 2, p);
+
+      // Min/max size reference dots
+      p..color = const Color(0xFF82C8FF).withValues(alpha: 0.4 * sAlpha)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(left + 3, barY), 1.5, p);
+      canvas.drawCircle(Offset(left + barW - 3, barY), 4.5, p);
+
+      // Px label text
+      final label = strokeSize < 10
+          ? '${strokeSize.toStringAsFixed(1)} px'
+          : '${strokeSize.toStringAsFixed(0)} px';
+      final tp = TextPainter(
+        text: TextSpan(
+          text: label,
+          style: TextStyle(
+            color: const Color(0xFF82C8FF).withValues(alpha: sAlpha),
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            fontFamily: 'monospace',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(center.dx - tp.width / 2, barY + 10));
     }
   }
 
@@ -684,6 +814,8 @@ class _HudReadoutPainter extends CustomPainter {
       old.currentValue != currentValue ||
       old.currentSaturation != currentSaturation ||
       old.isSaturationMode != isSaturationMode ||
+      old.isSizeMode != isSizeMode ||
+      old.strokeSize != strokeSize ||
       old.particleT != particleT ||
       (old.glowPhase * 10).floor() != (glowPhase * 10).floor();
 }

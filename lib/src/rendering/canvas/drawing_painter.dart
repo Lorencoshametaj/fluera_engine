@@ -46,8 +46,10 @@ import '../../tools/pdf/pdf_search_controller.dart';
 import '../../export/pdf_annotation_exporter.dart';
 import '../../core/nodes/tabular_node.dart';
 import '../../core/nodes/function_graph_node.dart';
+import '../../core/nodes/latex_node.dart';
 import '../scene_graph/tabular_renderer.dart';
 import '../scene_graph/function_graph_renderer.dart';
+import '../scene_graph/latex_renderer.dart';
 import '../optimization/dirty_region_tracker.dart'; // 🎨 Phase 3: Incremental rendering
 import '../optimization/tile_cache_manager.dart'; // 🧩 Tile caching
 import '../optimization/stroke_paging_manager.dart'; // 🗂️ Stroke paging to disk
@@ -132,6 +134,10 @@ class DrawingPainter extends CustomPainter {
   /// while silently rebuilding tiles at the new LOD in the background.
   /// When all tiles are done, cross-fade to new rendering. Zero frame skip.
   static bool _lodProgressiveMode = false;
+
+  /// 🚀 SELECTION: force direct SceneGraphRenderer (no tile/stroke cache)
+  /// during selection transforms. Set by SelectionTransformOverlay.
+  static bool forceDirectRender = false;
   static ui.Picture? _lodSnapshotPicture;
   static double _lodCrossFadeProgress = 0.0; // 0.0 = snapshot, 1.0 = new cache
   static final ValueNotifier<int> _lodRepaintNotifier = ValueNotifier<int>(0);
@@ -215,6 +221,16 @@ class DrawingPainter extends CustomPainter {
   static final si.SpatialIndex _renderIndex = si.SpatialIndex();
   static int _renderIndexVersion = -1;
   static int _renderIndexNodeCount = 0;
+
+  /// 🚀 Force R-tree spatial index rebuild on next paint.
+  ///
+  /// Call after baking transforms into stroke points — the node bounds
+  /// changed but tiles are still valid (just indexed at wrong positions).
+  /// Unlike bumpVersion(), this does NOT invalidate tiles or stroke cache.
+  static void invalidateRenderIndex() {
+    _renderIndexVersion = -1;
+    _renderIndexNodeCount = 0;
+  }
   static List<ProStroke>? _lastMaterializedStrokes;
 
   /// 📊 Total stroke count (including stubs) for R-Tree sync.
@@ -713,6 +729,9 @@ class DrawingPainter extends CustomPainter {
     // 📊 Draw Tabular (spreadsheet) nodes
     _paintTabularNodes(canvas, pdfViewport);
 
+    // 🧮 Draw LaTeX expression nodes (outside tile cache — always visible)
+    _paintLatexNodes(canvas, pdfViewport);
+
     // 📈 Draw Function Graph nodes (outside tile cache — always visible)
     _paintFunctionGraphNodes(canvas, pdfViewport);
 
@@ -1192,6 +1211,7 @@ class DrawingPainter extends CustomPainter {
     // Can't use tile cache during eraser preview or dirty-clipped mode
     if (hasEraserPreviewActive ||
         isDirtyClipped ||
+        forceDirectRender ||
         _effectiveStrokes.length < 5) {
       // Fallback: direct render without caching
       final cacheViewport = viewport.inflate(viewport.longestSide * 1.5);
@@ -1921,6 +1941,49 @@ class DrawingPainter extends CustomPainter {
     }
   }
 
+  /// 🧮 Paint all LatexNode instances found in the scene graph.
+  ///
+  /// Follows the same pattern as [_paintTabularNodes]: traverses visible layers
+  /// and rootNode children, applies localTransform, and delegates to
+  /// [LatexRenderer.drawLatexNode].
+  void _paintLatexNodes(Canvas canvas, Rect viewport) {
+    for (final layer in sceneGraph.layers) {
+      if (!layer.isVisible) continue;
+      _collectAndPaintLatexNodes(canvas, layer, viewport);
+    }
+    // Also check rootNode children (nodes added directly to root)
+    for (final child in sceneGraph.rootNode.children) {
+      if (child.isVisible) {
+        _collectAndPaintLatexNodes(canvas, child, viewport);
+      }
+    }
+  }
+
+  /// Recursively find and paint LatexNodes in a subtree.
+  void _collectAndPaintLatexNodes(
+    Canvas canvas,
+    CanvasNode node,
+    Rect viewport,
+  ) {
+    if (node is LatexNode) {
+      // Viewport culling
+      final worldBounds = node.worldBounds;
+      if (!viewport.overlaps(worldBounds)) return;
+
+      canvas.save();
+      final tx = node.localTransform.getTranslation();
+      canvas.translate(tx.x, tx.y);
+      LatexRenderer.drawLatexNode(canvas, node);
+      canvas.restore();
+    } else if (node is GroupNode) {
+      for (final child in node.children) {
+        if (child.isVisible) {
+          _collectAndPaintLatexNodes(canvas, child, viewport);
+        }
+      }
+    }
+  }
+
   /// 📄 Paint all [PdfPreviewCardNode]s in the scene graph.
   ///
   /// Walks all visible layers, finds PdfPreviewCardNodes, and delegates
@@ -2606,6 +2669,12 @@ class DrawingPainter extends CustomPainter {
   static void invalidateAllTiles() {
     _tileCache.invalidateAll();
     invalidateLayerCaches();
+    // Also invalidate the vectorial stroke cache — needed when
+    // selection moves change localTransform without adding/removing strokes.
+    if (EngineScope.hasScope) {
+      EngineScope.current.renderCacheScope.strokeCache.invalidateCache();
+    }
+    _fallbackStrokeCache.invalidateCache();
   }
 
   /// Trigger a repaint of the DrawingPainter (increments the repaint notifier).

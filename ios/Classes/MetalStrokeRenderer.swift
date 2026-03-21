@@ -323,7 +323,8 @@ class MetalStrokeRenderer {
             }
         } else {
             // 🚀 Non-ballpoint: use GPU compute if available
-            let useCompute = computeAvailable && brushType != 0
+            // 🎨 Fountain pen (4) excluded: needs Chaikin + arc-length + curvature-adaptive on CPU
+            let useCompute = computeAvailable && brushType != 0 && brushType != 4
             
             if useCompute, let computePSO = computePipelineState,
                let pointsBuf = computePointsBuffer,
