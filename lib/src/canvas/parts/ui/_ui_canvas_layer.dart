@@ -67,6 +67,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     _semanticMorphController?.updateFromScale(
                       _canvasController.scale,
                     );
+                    // 🃏 AUTO-DISMISS flashcard when leaving semantic view
+                    // (user zoomed back in above morphStartScale)
+                    if (_semanticMorphController != null &&
+                        !_semanticMorphController!.isActive &&
+                        _semanticMorphController!.flashcardClusterId != null) {
+                      _semanticMorphController!.flashcardClusterId = null;
+                    }
                     return Transform(
                       transform: m,
                       child: ValueListenableBuilder<int>(
@@ -105,6 +112,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                             flightTargetClusterId: _canvasController.flightTargetClusterId,
                             landingPulseProgress: _canvasController.landingPulseProgress,
                             landingPulseCenter: _canvasController.landingPulseCenter,
+                            proactiveGaps: _proactiveGapsCache,
+                            proactiveScan: _proactiveScanCache,
+                            reviewSchedule: _reviewSchedule,
                           ),
                           size: Size.infinite,
                         ),
@@ -112,6 +122,24 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     );
                   },
                 ),
+            ),
+          // 🌟 RADIAL EXPANSION: Ghost bubbles + charging pulse
+          // Renders AFTER knowledge flow so bubbles appear on top of connections.
+          if (_radialExpansionController != null &&
+              _radialExpansionController!.phase != RadialExpansionPhase.idle)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _canvasController,
+                builder: (context, _) => CustomPaint(
+                  painter: RadialExpansionPainter(
+                    controller: _radialExpansionController!,
+                    canvasOffset: _canvasController.offset,
+                    canvasScale: _canvasController.scale,
+                    animationTime: DateTime.now().millisecondsSinceEpoch % 10000 / 1000.0,
+                  ),
+                  size: Size.infinite,
+                ),
+              ),
             ),
           _gestureLayerHost,
           // 🔥 VULKAN: Native GPU stroke overlay
@@ -526,6 +554,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         adaptiveConfig: _renderingConfig,
                         layers: _layerController.layers,
                         eraserPreviewIds: _eraserPreviewIds,
+                        scratchOutPreviewIds: _scratchOutPreviewIds,
+                        scratchOutDissolveMap: _scratchOutDissolveMap,
                         controller:
                             _canvasController, // 🚀 viewport-level mode (for culling)
                         pdfPainters: _pdfPainters,
@@ -905,13 +935,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             shouldRouteToSelectionTransform: (Offset screenFocalPoint) {
               if (_isSelectionPinching) return true;
               if (!_lassoTool.hasSelection) {
-                debugPrint('🔍 shouldRouteToSel: no selection');
                 return false;
               }
               final canvasPos = _canvasController.screenToCanvas(screenFocalPoint);
               final inSel = _lassoTool.isPointInSelection(canvasPos);
-              final bounds = _lassoTool.getSelectionBounds();
-              debugPrint('🔍 shouldRouteToSel: screen=$screenFocalPoint canvas=$canvasPos bounds=$bounds inSel=$inSel isDragging=${_lassoTool.isDragging}');
               return inSel;
             },
             onSelectionScaleStart: _onSelectionScaleStart,
@@ -919,11 +946,38 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             onSelectionScaleEnd: _onSelectionScaleEnd,
             onSelectionPinchCancel: _cancelSelectionPinch,
             onCancelLassoDrag: () {
-              debugPrint('🔍 onCancelLassoDrag: isDragging=${_lassoTool.isDragging} hasSelection=${_lassoTool.hasSelection}');
               if (_lassoTool.isDragging) {
                 _lassoTool.endDrag(skipReflow: true);
-                debugPrint('🔍 → lasso drag cancelled');
               }
+            },
+            // 🧠 SEMANTIC TAP: Tap on semantic nodes → flashcard preview
+            onSingleTap: (screenPoint) {
+              // 🧠 SEMANTIC VIEW: handle flashcard/node taps FIRST.
+              // Must be checked before radial expansion so that tapping
+              // "Zoom in →" on a flashcard isn't swallowed by a radial bubble.
+
+              if (_semanticMorphController != null &&
+                  _semanticMorphController!.isActive) {
+                if (_handleSemanticNodeTap(screenPoint)) return true;
+                final canvasPoint = _canvasController.screenToCanvas(screenPoint);
+                if (_handleGhostConnectionTap(canvasPoint)) return true;
+                if (_handleGravityLineTap(screenPoint)) return true;
+                return false; // Let canvas handle it — don't touch radial in semantic mode
+              }
+
+              // 🌟 RADIAL EXPANSION: intercept bubble taps in pan mode
+              // (only when NOT in semantic view)
+              final canvasPointForRadial = _canvasController.screenToCanvas(screenPoint);
+              if (_handleRadialExpansionDrawStart(canvasPointForRadial)) {
+                // CRITICAL: onSingleTap never triggers _onDrawEnd.
+                // If a bubble was hit we must finalize immediately here.
+                if (_radialDraggedBubbleId != null) {
+                  finalizeRadialBubbleDrag();
+                }
+                return true;
+              }
+
+              return false;
             },
             // 🔲 GESTURAL LASSO: Tap + Drag activates lasso without switching tools
             onGesturalLassoStart: _onGesturalLassoStart,

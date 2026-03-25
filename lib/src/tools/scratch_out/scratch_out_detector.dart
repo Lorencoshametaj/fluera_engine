@@ -241,18 +241,18 @@ class ScratchOutAccumulator {
 class ScratchOutDetector {
   ScratchOutDetector._();
 
-  // ── Thresholds (v3 — tightened to avoid false triggers on zoom) ──
-  static const int minReversals = 6;
-  static const int minReversalsPartial = 4;
-  static const int minPointCount = 25;
-  static const int maxDurationMs = 1500;
-  static const double minElongation = 3.0;
-  static const double minSegmentLength = 15.0;
-  static const double minConfidence = 0.5;
+  // ── Thresholds (v4 — relaxed for easier activation) ──
+  static const int minReversals = 4;
+  static const int minReversalsPartial = 3;
+  static const int minPointCount = 15;
+  static const int maxDurationMs = 2000;
+  static const double minElongation = 2.0;
+  static const double minSegmentLength = 10.0;
+  static const double minConfidence = 0.4;
   /// Minimum bounding box area (px²) — rejects tiny/tight gestures.
-  static const double minBboxArea = 2000.0;
+  static const double minBboxArea = 1000.0;
   /// Minimum perpendicular amplitude (px) — rejects jitter-level oscillation.
-  static const double minAmplitude = 20.0;
+  static const double minAmplitude = 12.0;
 
   /// Full analysis: recognize scratch-out gesture.
   static ScratchOutResult analyze(List<ProDrawingPoint> points) {

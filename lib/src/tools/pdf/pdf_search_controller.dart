@@ -745,6 +745,20 @@ class PdfSearchController extends ChangeNotifier {
 
   /// Ensures [rects] are in normalized 0.0–1.0 coordinates with Y=0 at top.
   ///
+  /// Public wrapper for standalone usage (e.g. PdfReaderScreen text selection).
+  static List<PdfTextRect> normalizeRectsPublic(
+    List<PdfTextRect> rects,
+    double extractorWidth,
+    double extractorHeight, {
+    bool isYFlipped = false,
+    double originX = 0,
+    double originY = 0,
+  }) =>
+      _normalizeRects(rects, extractorWidth, extractorHeight,
+          isYFlipped: isYFlipped, originX: originX, originY: originY);
+
+  /// Ensures [rects] are in normalized 0.0–1.0 coordinates with Y=0 at top.
+  ///
   /// 1. Detects if rects are already normalized (values ≤ 1.5).
   /// 2. If not normalized, divides by the extractor's page dimensions.
   /// 3. Uses the extractor's [isYFlipped] flag (from CTM d-component):

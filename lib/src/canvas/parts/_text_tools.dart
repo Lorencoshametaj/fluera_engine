@@ -101,6 +101,9 @@ extension on _FlueraCanvasScreenState {
   /// 📝 Start inline text creation at a canvas position.
   /// Creates an empty text element and opens the inline editor overlay.
   void _startInlineTextCreation(Offset canvasPosition) {
+    // 🔍 ZOOM GUARD: Don't create text when zoomed out ≤50%
+    if (_canvasController.scale <= 0.5) return;
+
     // 🔒 Cooldown: prevent spurious re-creation when keyboard dismissal
     // fires _onDrawStart immediately after _finishInlineText.
     if (_inlineTextFinishedAt != null &&
@@ -149,6 +152,9 @@ extension on _FlueraCanvasScreenState {
 
   /// 📝 Start inline editing of an existing text element.
   void _startInlineTextEdit(DigitalTextElement element) {
+    // 🔍 ZOOM GUARD: Don't edit text when zoomed out ≤50%
+    if (_canvasController.scale <= 0.5) return;
+
     if (_isInlineEditing) {
       _cancelInlineText();
     }
@@ -410,6 +416,11 @@ extension on _FlueraCanvasScreenState {
         _connectionDragCurrentPoint = canvasPosition;
         _connectionSnapTargetClusterId = null;
 
+        // 🌟 RADIAL EXPANSION: Start charge animation simultaneously.
+        // If the user drags to another cluster → create connection (existing flow).
+        // If the user releases with short drag → _releaseRadialCharge() fires → AI explosion.
+        _startRadialCharge(hitCluster);
+
         // Start particle ticker if needed
         if (_knowledgeParticleTicker != null &&
             !_knowledgeParticleTicker!.isActive) {
@@ -425,14 +436,17 @@ extension on _FlueraCanvasScreenState {
 
     // Check if pressed on a text element → inline editing
     // (only reached if NOT in KF pan mode, or KF found no matching cluster)
-    final hitElement = _digitalTextTool.hitTest(
-      canvasPosition,
-      _digitalTextElements,
-    );
+    // 🔍 ZOOM GUARD: Don't open text editor when zoomed out ≤50%
+    if (_canvasController.scale > 0.5) {
+      final hitElement = _digitalTextTool.hitTest(
+        canvasPosition,
+        _digitalTextElements,
+      );
 
-    if (hitElement != null) {
-      _startInlineTextEdit(hitElement);
-      return;
+      if (hitElement != null) {
+        _startInlineTextEdit(hitElement);
+        return;
+      }
     }
 
     // 🎯 Radial Context Menu: long-press empty canvas → show radial menu

@@ -516,9 +516,11 @@ export 'src/platform/native_display_plugin.dart';
 export 'src/platform/display_capabilities_detector.dart';
 export 'src/platform/display_link_service.dart';
 export 'src/platform/native_vibration.dart';
+export 'src/platform/native_notifications.dart';
 export 'src/platform/native_stylus_input.dart';
 export 'src/platform/native_performance_monitor.dart' hide PerformanceMetrics;
 export 'src/platform/native_pdf_provider.dart';
+
 
 // ────────────────────────── L10N ──────────────────────────
 export 'src/l10n/fluera_localizations.dart';

@@ -91,7 +91,8 @@ enum RadialInsertItem {
 enum RadialToolItem {
   lasso('Lasso', Icons.content_cut_rounded),
   ruler('Ruler', Icons.straighten_rounded),
-  search('Search', Icons.search_rounded);
+  search('Search', Icons.search_rounded),
+  export('Export', Icons.ios_share_rounded);
 
   const RadialToolItem(this.label, this.icon);
   final String label;

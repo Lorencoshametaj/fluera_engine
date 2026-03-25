@@ -305,6 +305,21 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
     String clusterText,
   ) async {
     try {
+      // 🚀 SHORT TEXT BYPASS: ≤ 3 words → use directly, no AI needed
+      final words = clusterText.trim().split(RegExp(r'\s+'));
+      if (words.length <= 3 && clusterText.trim().length <= 30) {
+        final direct = words.map((w) {
+          if (w.isEmpty) return w;
+          return w[0].toUpperCase() + w.substring(1);
+        }).join(' ');
+        if (mounted) {
+          _semanticMorphController!.recordAiTitle(
+            clusterId, direct, clusterText,
+          );
+        }
+        return;
+      }
+
       // Truncate long text to save tokens
       final truncated = clusterText.length > 200
           ? '${clusterText.substring(0, 200)}...'
@@ -369,11 +384,46 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
       }
     }
 
+    // 🧹 Strip common AI embellishments
+    // Remove "L'essenza di...", "Il cuore di...", etc.
+    title = title.replaceAll(
+      RegExp(r"^(L'essenza|Il cuore|Lo spirito|La magia|L'anima|Il fascino|La bellezza)\s+(di|del|della|dell')\s*", caseSensitive: false),
+      '',
+    );
+    // Remove trailing parenthetical notes
+    title = title.replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '');
+    // Remove leading articles for conciseness
+    title = title.replaceAll(
+      RegExp(r"^(Il|La|Lo|Le|Gli|I|L'|Un|Una)\s+", caseSensitive: false),
+      '',
+    );
+    // Remove em-dashes and after ("Roma — città eterna" → "Roma")
+    title = title.replaceAll(RegExp(r'\s*[—–]\s*.*$'), '');
+    // Remove leading/trailing emoji
+    title = title.replaceAll(RegExp(r'^[\p{Emoji}\s]+', unicode: true), '');
+    title = title.replaceAll(RegExp(r'[\p{Emoji}\s]+$', unicode: true), '');
+    title = title.trim();
+
     if (title.isEmpty) return null;
 
-    // Truncate to 25 chars
-    if (title.length > 25) {
-      title = '${title.substring(0, 23)}…';
+    // 🚫 SENTENCE FILTER: reject full sentences disguised as titles.
+    // AI sometimes outputs "Ho estratto il concetto di..." or
+    // "Questo testo parla di..." instead of a keyword title.
+    // When this happens, return null → fallback to OCR-based title.
+    final sentenceStarters = RegExp(
+      r'^(Ho |Questo |Questi |Il concetto |La risposta |In questo |Si tratta |'
+      r'I have |This |The concept |It |Here |Ecco |Posso )',
+      caseSensitive: false,
+    );
+    if (sentenceStarters.hasMatch(title)) return null;
+    // Also reject if title contains a verb conjugation pattern (likely a sentence)
+    if (title.contains('...') || title.contains('è ') || title.endsWith('?')) {
+      return null;
+    }
+
+    // Truncate to 30 chars
+    if (title.length > 30) {
+      title = '${title.substring(0, 28)}…';
     }
 
     return title;
@@ -383,20 +433,25 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
   String _buildSemanticTitlePrompt(String clusterText) {
     return '''IGNORE tutte le regole precedenti sui canvas action.
 
-Sei un titolatore. Devi generare UN SOLO TITOLO tematico di massimo 25 caratteri per questi appunti.
+Sei un sistema di etichettatura. Genera UN SOLO TITOLO per questi appunti.
 
-REGOLE:
-- MAX 25 caratteri (CRITICO)
-- Titolo tematico, NON un riassunto
-- Stile: titolo di un capitolo di libro
-- Lingua: stessa degli appunti
-- NESSUN JSON, NESSUNA spiegazione — rispondi SOLO con il titolo
+REGOLE ASSOLUTE:
+- MAX 30 caratteri
+- PRESERVA formule se presenti (F=ma, E=mc², ∫f(x)dx)
+- Usa il NOME COMPLETO del concetto, non una sola parola generica
+- Se c'è una sola parola, restituiscila capitalizzata
+- Lingua: IDENTICA a quella degli appunti
+- Rispondi SOLO con il titolo, nient'altro
 
 ESEMPI:
-- Appunti: "mitocondri ATP fosforilazione ossidativa catena di trasporto" → "Respirazione Cellulare"
-- Appunti: "force = mass * acceleration newton" → "Dinamica Newtoniana"
-- Appunti: "SELECT FROM WHERE JOIN SQL database" → "Query SQL"
-- Appunti: "integral derivative limit" → "Calcolo Infinitesimale"
+- "roma" → "Roma"
+- "seconda legge newton f=ma" → "2ª Legge Newton F=ma"
+- "mitocondri ATP fosforilazione" → "Fosforilazione ATP"
+- "integral derivative limit" → "Calculus"
+- "SELECT FROM WHERE JOIN" → "Query SQL"
+- "equazione di drake" → "Equazione di Drake"
+- "termodinamica entropia" → "Entropia"
+- "dna replicazione" → "Replicazione DNA"
 
 APPUNTI:
 $clusterText
@@ -410,13 +465,13 @@ TITOLO:''';
     final sb = StringBuffer();
     sb.writeln('IGNORE tutte le regole precedenti sui canvas action.');
     sb.writeln();
-    sb.writeln('Sei un titolatore. Devi generare UN TITOLO tematico per OGNUNO dei seguenti ${clusterTexts.length} gruppi di appunti.');
+    sb.writeln('Sei un sistema di etichettatura. Genera UN TITOLO per OGNUNO dei seguenti ${clusterTexts.length} gruppi di appunti.');
     sb.writeln();
-    sb.writeln('REGOLE:');
-    sb.writeln('- MAX 25 caratteri per titolo (CRITICO)');
-    sb.writeln('- Titolo tematico, NON un riassunto');
-    sb.writeln('- Stile: titolo di un capitolo di libro');
-    sb.writeln('- Lingua: stessa degli appunti');
+    sb.writeln('REGOLE ASSOLUTE:');
+    sb.writeln('- MAX 30 caratteri per titolo');
+    sb.writeln('- PRESERVA formule se presenti (F=ma, E=mc², ∫f(x)dx)');
+    sb.writeln('- Usa il NOME COMPLETO del concetto, non una sola parola generica');
+    sb.writeln('- Lingua: IDENTICA a quella degli appunti');
     sb.writeln('- Rispondi con JSON: {"titoli": {"1": "Titolo1", "2": "Titolo2", ...}}');
     sb.writeln();
     sb.writeln('APPUNTI:');
@@ -493,9 +548,6 @@ TITOLO:''';
   // 🃏 FLASHCARD PREVIEW — Tap on semantic node
   // ===========================================================================
 
-  /// Handle tap in semantic view: hit-test semantic nodes and toggle flashcard.
-  /// [screenPoint] — the tap position in screen coordinates.
-  /// Returns true if a semantic node was hit.
   bool _handleSemanticNodeTap(Offset screenPoint) {
     if (_semanticMorphController == null || !_semanticMorphController!.isActive) {
       return false;
@@ -505,30 +557,85 @@ TITOLO:''';
     final canvasPoint = _canvasController.screenToCanvas(screenPoint);
     final scale = _canvasController.scale;
 
+    // ── 0. Flashcard OPEN → dismiss or zoom-in ──
+    // When a flashcard is open:
+    //   • tap ON the card/node (≤120px) → zoom in
+    //   • tap ANYWHERE else → dismiss the flashcard
+    final fcId = _semanticMorphController!.flashcardClusterId;
+    if (fcId != null) {
+      final fcCluster = _clusterCache.where((c) => c.id == fcId).firstOrNull;
+      if (fcCluster != null) {
+        final nodeScreenCenter = _canvasController.canvasToScreen(fcCluster.centroid);
+        final dist = (screenPoint - nodeScreenCenter).distance;
+
+        if (dist < 120) {
+          // Tap ON the flashcard → zoom in
+          _handleFlashcardZoomIn(fcId);
+          _canvasController.markNeedsPaint();
+          setState(() {});
+          return true;
+        }
+      }
+      // Tap OUTSIDE the flashcard → dismiss
+      _semanticMorphController!.dismissFlashcard();
+      _canvasController.markNeedsPaint();
+      setState(() {});
+      _scheduleFlashcardRepaints();
+      return true;
+    }
+
+
+    // ── 1. Hit-test node circles ──
     final hitId = _semanticMorphController!.hitTestSemanticNode(
       canvasPoint, _clusterCache, scale,
+      clusterTexts: _clusterTextCache,
     );
 
     if (hitId != null) {
       if (_semanticMorphController!.flashcardClusterId == hitId) {
-        // Tap same node → dismiss
-        _semanticMorphController!.dismissFlashcard();
+        // Tap same node with flashcard open → zoom in!
+        _handleFlashcardZoomIn(hitId);
       } else {
         // Show flashcard for this node
         _semanticMorphController!.showFlashcard(hitId);
         HapticFeedback.lightImpact();
       }
       _canvasController.markNeedsPaint();
+      setState(() {});
+      _scheduleFlashcardRepaints();
       return true;
     } else {
       // Tap on empty space → dismiss any open flashcard
       if (_semanticMorphController!.flashcardClusterId != null) {
         _semanticMorphController!.dismissFlashcard();
         _canvasController.markNeedsPaint();
+        setState(() {});
+        _scheduleFlashcardRepaints();
         return true;
       }
     }
     return false;
+  }
+
+  /// Schedule continuous repaints to drive flashcard entrance/exit animation.
+  /// Runs at 60fps for up to 8 seconds — covers the entire time the flashcard
+  /// is visible. Re-calling this resets the counter, so it's always fresh.
+  static Timer? _flashcardRepaintTimer;
+  void _scheduleFlashcardRepaints() {
+    _flashcardRepaintTimer?.cancel();
+    int ticks = 0;
+    _flashcardRepaintTimer = Timer.periodic(
+      const Duration(milliseconds: 16), // ~60fps
+      (timer) {
+        ticks++;
+        if (!mounted || ticks > 500) { // ~8 seconds max
+          timer.cancel();
+          _flashcardRepaintTimer = null;
+          return;
+        }
+        _canvasController.markNeedsPaint();
+      },
+    );
   }
 
   // ===========================================================================
@@ -538,26 +645,54 @@ TITOLO:''';
   /// Zoom into a specific cluster from the flashcard "Zoom in →" action.
   /// Dismisses the flashcard and exits semantic morph to show actual content.
   void _handleFlashcardZoomIn(String clusterId) {
+    debugPrint('🚀 _handleFlashcardZoomIn called for $clusterId');
     final cluster = _clusterCache.firstWhere(
       (c) => c.id == clusterId, orElse: () => _clusterCache.first,
     );
-    if (cluster.id != clusterId) return;
+    if (cluster.id != clusterId) {
+      debugPrint('❌ cluster not found in cache!');
+      return;
+    }
 
     final viewportSize = MediaQuery.of(context).size;
+    final currentScale = _canvasController.scale;
+    final currentOffset = _canvasController.offset;
 
-    // Dismiss flashcard first (with exit animation)
+    // The painter draws nodes at raw cluster.centroid (not displaced).
+    final cb = cluster.bounds;
+    final center = cb.isEmpty ? cluster.centroid : cb.center;
+
+    // Verify: convert canvas center → screen to confirm it matches tapped node
+    final centerScreenX = center.dx * currentScale + currentOffset.dx;
+    final centerScreenY = center.dy * currentScale + currentOffset.dy;
+    debugPrint('📐 bounds=$cb center=$center → screen=(${centerScreenX.toStringAsFixed(1)}, ${centerScreenY.toStringAsFixed(1)}) at scale=${currentScale.toStringAsFixed(3)}');
+
+    // Inflate bounds by 40% for comfortable context.
+    // Clamp so resulting scale stays in [0.15 .. 1.5]:
+    final paddedW = (cb.isEmpty ? 400.0 : cb.width) * 1.4;
+    final paddedH = (cb.isEmpty ? 300.0 : cb.height) * 1.4;
+    final minW = viewportSize.width / 1.5;
+    final maxW = viewportSize.width / 0.15;
+    final minH = viewportSize.height / 1.5;
+    final maxH = viewportSize.height / 0.15;
+
+    final windowW = paddedW.clamp(minW, maxW);
+    final windowH = paddedH.clamp(minH, maxH);
+
+    final zoomRect = Rect.fromCenter(center: center, width: windowW, height: windowH);
+    debugPrint('🎯 zoomRect=$zoomRect window=${windowW.toStringAsFixed(0)}×${windowH.toStringAsFixed(0)}');
+
+    // Dismiss flashcard and start exit animation
     _semanticMorphController?.dismissFlashcard();
-    _canvasController.markNeedsPaint();
-
-    // Zoom to cluster bounds with padding
-    final paddedBounds = cluster.bounds.inflate(
-      cluster.bounds.longestSide * 0.3,
-    );
-    CameraActions.zoomToRect(
-      _canvasController, paddedBounds, viewportSize,
-    );
-
+    _scheduleFlashcardRepaints();
     HapticFeedback.mediumImpact();
+
+    // 🚀 Launch immediately — tap is detected on PointerDown, no gesture
+    // cleanup events will follow that could cancel us. The old 120ms delay
+    // was needed for PointerUp taps but causes a race with the user's 2nd
+    // finger (pinch) that starts before the delay expires and fights the zoom.
+    debugPrint('🎬 launching CameraActions.zoomToRect: $zoomRect');
+    CameraActions.zoomToRect(_canvasController, zoomRect, viewportSize);
   }
 
   /// Handle tap on a gravity line in God View — triggers cinematic flight

@@ -292,6 +292,12 @@ class DrawingPainter extends CustomPainter {
   // 🎯 Eraser preview: stroke IDs currently under the eraser cursor
   final Set<String> eraserPreviewIds;
 
+  // 🧹 Scratch-out preview: stroke IDs highlighted for deletion (red tint)
+  final Set<String> scratchOutPreviewIds;
+
+  // 🧹 Scratch-out dissolve: strokeId → opacity (1.0 → 0.0 during animation)
+  final Map<String, double> scratchOutDissolveMap;
+
   // 🚀 Viewport-level controller: when set, painter applies transform itself
   // and repaints every pan/zoom frame (O(1) via cache hit)
   final InfiniteCanvasController? controller;
@@ -334,6 +340,14 @@ class DrawingPainter extends CustomPainter {
   /// Set by the drag controller at drag start, cleared at drag end.
   static bool isDraggingPdf = false;
 
+  /// 🎤 AUDIO-INK HIGHLIGHT: ID of stroke to highlight (golden glow).
+  /// Set by AudioInkGestureHandler when the user long-presses a stroke
+  /// during seek mode. Renders on top of the tile cache (no invalidation).
+  static String? audioHighlightStrokeId;
+
+  /// 🎤 AUDIO-INK HIGHLIGHT: Glow intensity (0.0–1.0, auto-decaying).
+  static double audioHighlightIntensity = 0.0;
+
   /// Rectangles of the pages being dragged — drawn as lightweight
   /// placeholders during drag. Set per frame by the drag update handler.
   static List<Rect> draggedPageRects = const [];
@@ -367,6 +381,8 @@ class DrawingPainter extends CustomPainter {
     this.adaptiveConfig, // 🎯 120Hz support
     this.layers, // 🎨 Per-layer blend mode
     this.eraserPreviewIds = const {}, // 🎯 Eraser preview
+    this.scratchOutPreviewIds = const {}, // 🧹 Scratch-out preview
+    this.scratchOutDissolveMap = const {}, // 🧹 Scratch-out dissolve
     this.controller, // 🚀 Viewport-level mode
     required this.sceneGraph, // 🌲 Scene graph source (sole source of truth)
     this.pdfPainters = const {}, // 📄 PDF page painters
@@ -750,6 +766,22 @@ class DrawingPainter extends CustomPainter {
     _lastPaintDurationUs = _sw.elapsedMicroseconds;
     CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
 
+    // 🧹 SCRATCH-OUT PREVIEW: Draw red tint overlay on strokes about to be deleted.
+    if (scratchOutPreviewIds.isNotEmpty) {
+      _drawScratchOutPreviews(canvas);
+    }
+
+    // 🧹 SCRATCH-OUT DISSOLVE: Draw fading strokes during deletion animation.
+    if (scratchOutDissolveMap.isNotEmpty) {
+      _drawScratchOutDissolve(canvas);
+    }
+
+    // 🎤 AUDIO-INK HIGHLIGHT: Draw golden glow overlay on the highlighted stroke.
+    // This renders AFTER the tile cache (no invalidation cost).
+    if (audioHighlightStrokeId != null && audioHighlightIntensity > 0.01) {
+      _paintAudioHighlightOverlay(canvas, viewport, effectiveScale);
+    }
+
     // 🔬 DIAGNOSTIC: print breakdown on frames > 5ms
     final totalUs = _sw.elapsedMicroseconds;
     // (Diagnostic removed — enable when needed)
@@ -759,6 +791,73 @@ class DrawingPainter extends CustomPainter {
     //   final totalMs = (totalUs / 1000).toStringAsFixed(1);
     //   print('🔬 PAINT ${totalMs}ms → strokes:${strokeMs}ms pdf:${pdfMs}ms');
     // }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🎤 AUDIO-INK HIGHLIGHT OVERLAY
+  // ---------------------------------------------------------------------------
+
+  /// Draw a golden glow around the stroke that the user tapped for audio seek.
+  ///
+  /// Renders AFTER the tile cache so there's zero cache invalidation cost.
+  /// Uses the static [audioHighlightStrokeId] and [audioHighlightIntensity].
+  static final Paint _audioHighlightGlowPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
+  static final Paint _audioHighlightCorePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round;
+
+  // 🚀 PERF: Map<String, int> for O(1) stroke index lookup (vs O(n) scan).
+  // Rebuilt lazily when scene graph version changes.
+  static Map<String, int>? _strokeIndexMap;
+  static int _strokeIndexMapVersion = -1;
+
+  void _paintAudioHighlightOverlay(
+    Canvas canvas, Rect viewport, double effectiveScale,
+  ) {
+    final targetId = audioHighlightStrokeId;
+    if (targetId == null) return;
+
+    final strokes = _effectiveStrokes;
+
+    // 🚀 PERF: Rebuild index map only on scene graph change
+    if (_strokeIndexMapVersion != sceneGraph.version || _strokeIndexMap == null) {
+      _strokeIndexMap = <String, int>{};
+      for (int i = 0; i < strokes.length; i++) {
+        _strokeIndexMap![strokes[i].id] = i;
+      }
+      _strokeIndexMapVersion = sceneGraph.version;
+    }
+
+    // 🚀 PERF: O(1) lookup instead of O(n) scan
+    final idx = _strokeIndexMap![targetId];
+    if (idx == null || idx >= strokes.length) return;
+    final target = strokes[idx];
+    if (target.points.length < 2) return;
+
+    // Skip if entirely outside viewport
+    if (!viewport.overlaps(target.bounds.inflate(20))) return;
+
+    final intensity = audioHighlightIntensity.clamp(0.0, 1.0);
+    final goldenColor = Color.fromRGBO(255, 213, 79, intensity); // Amber 300
+
+    // 🚀 PERF: Use ProStroke.cachedPath for 1 drawPath call instead of
+    // N drawLine calls. The Catmull-Rom path is already computed and cached.
+    final path = target.cachedPath;
+
+    // Layer 1: Wide diffuse glow
+    _audioHighlightGlowPaint
+      ..color = goldenColor.withValues(alpha: intensity * 0.4)
+      ..strokeWidth = target.baseWidth + 12.0;
+    canvas.drawPath(path, _audioHighlightGlowPaint);
+
+    // Layer 2: Bright core glow
+    _audioHighlightCorePaint
+      ..color = goldenColor.withValues(alpha: intensity * 0.7)
+      ..strokeWidth = target.baseWidth + 4.0;
+    canvas.drawPath(path, _audioHighlightCorePaint);
   }
 
   // ---------------------------------------------------------------------------
@@ -1268,9 +1367,11 @@ class DrawingPainter extends CustomPainter {
     // 🚀 Set scale for LOD decisions in BrushEngine fast path
     final effectiveScale = controller?.scale ?? canvasScale;
     _delegateRenderer.currentScale = effectiveScale;
-    // 🚀 GESTURE-AWARE LOD: during active pan/zoom, force cheapest rendering.
+    // 🚀 GESTURE-AWARE LOD: during active pan/zoom at LOW zoom, force cheapest
+    // rendering. At normal zoom (≥0.5) the user can see the degraded tiles,
+    // so render at full quality even during gestures.
     final isGesturing = controller?.isPanning ?? false;
-    final renderScale = isGesturing ? 0.1 : effectiveScale;
+    final renderScale = (isGesturing && effectiveScale < 0.5) ? 0.1 : effectiveScale;
 
     int normalTilesRebuilt = 0;
     for (final tileKey in missingTiles) {
@@ -1719,6 +1820,46 @@ class DrawingPainter extends CustomPainter {
       canvas.saveLayer(bounds, _debugLayerPaint);
       _renderStroke(canvas, stroke);
       canvas.drawRect(bounds, _debugBoundsPaint);
+      canvas.restore();
+    }
+  }
+
+  /// 🧹 SCRATCH-OUT PREVIEW: Draw red-tinted strokes that will be deleted.
+  ///
+  /// Renders affected strokes with a red color-filter overlay (50% opacity)
+  /// on top of the cached canvas. Similar pattern to eraser previews.
+  static final Paint _scratchPreviewPaint = Paint()
+    ..colorFilter = const ColorFilter.mode(
+      Color(0x80FF3B30), // iOS red, 50% opacity
+      BlendMode.srcATop,
+    );
+
+  void _drawScratchOutPreviews(Canvas canvas) {
+    if (scratchOutPreviewIds.isEmpty) return;
+    for (final stroke in _effectiveStrokes) {
+      if (!scratchOutPreviewIds.contains(stroke.id)) continue;
+      final bounds = stroke.bounds.inflate(stroke.baseWidth * 2);
+      // Draw stroke normally, then overlay red tint
+      canvas.saveLayer(bounds, _scratchPreviewPaint);
+      _renderStroke(canvas, stroke);
+      canvas.restore();
+    }
+  }
+
+  /// 🧹 SCRATCH-OUT DISSOLVE: Draw fading strokes during deletion animation.
+  ///
+  /// Each stroke in the dissolve map is rendered with its mapped opacity
+  /// (1.0 → 0.0 over 300ms). Uses saveLayer for proper opacity compositing.
+  void _drawScratchOutDissolve(Canvas canvas) {
+    if (scratchOutDissolveMap.isEmpty) return;
+    for (final stroke in _effectiveStrokes) {
+      final opacity = scratchOutDissolveMap[stroke.id];
+      if (opacity == null) continue;
+      final bounds = stroke.bounds.inflate(stroke.baseWidth * 2);
+      final dissolvePaint = Paint()
+        ..color = Color.fromARGB((opacity * 255).round(), 255, 255, 255);
+      canvas.saveLayer(bounds, dissolvePaint);
+      _renderStroke(canvas, stroke);
       canvas.restore();
     }
   }
@@ -2533,7 +2674,14 @@ class DrawingPainter extends CustomPainter {
     // 🚀 HOT PATH: during active drawing, committed strokes don't change.
     // Only CurrentStrokePainter needs to repaint. Suppress ALL DrawingPainter
     // repaints to save 6-10ms of tile rebuild per frame.
-    if (isActivelyDrawing) return false;
+    // 🐛 FIX: Allow repaint when scene graph version changed — a stroke was
+    // just committed. Without this, rapidly switching to pan after drawing
+    // causes the committed stroke to be invisible (the first pan finger sets
+    // isActivelyDrawing=true before paint runs → raster cache misses stroke).
+    if (isActivelyDrawing &&
+        oldDelegate._sceneGraphVersion == _sceneGraphVersion) {
+      return false;
+    }
 
     // 🚀 GESTURE SUPPRESSION: during active pan/zoom, the Transform widget
     // handles visuals via GPU compositing (zero cost). Defer tile rebuilds
@@ -2595,6 +2743,8 @@ class DrawingPainter extends CustomPainter {
         oldDelegate.currentShape != currentShape ||
         oldDelegate.layers != layers ||
         oldDelegate.eraserPreviewIds != eraserPreviewIds ||
+        oldDelegate.scratchOutPreviewIds != scratchOutPreviewIds ||
+        oldDelegate.scratchOutDissolveMap != scratchOutDissolveMap ||
         oldDelegate.pdfLayoutVersion != pdfLayoutVersion ||
         // 🚀 LAYER MERGE: background now drawn inside this painter
         oldDelegate.paperType != paperType ||

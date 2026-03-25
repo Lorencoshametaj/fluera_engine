@@ -57,6 +57,11 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final VoidCallback? onTwoFingerTap;
   final VoidCallback? onThreeFingerTap;
 
+  /// 🧠 SEMANTIC TAP: Called on single-finger quick taps (no movement).
+  /// If returns true, tap was consumed (e.g. by semantic node flashcard).
+  /// screenPoint is in screen coordinates.
+  final bool Function(Offset screenPoint)? onSingleTap;
+
   // 🔲 GESTURAL LASSO: Tap + Drag activates lasso without switching tools
   final Function(Offset canvasPosition)? onGesturalLassoStart;
   final Function(Offset canvasPosition)? onGesturalLassoUpdate;
@@ -124,6 +129,7 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onSpaceSplitEnd,
     this.onTwoFingerTap,
     this.onThreeFingerTap,
+    this.onSingleTap,
     this.onGesturalLassoStart,
     this.onGesturalLassoUpdate,
     this.onGesturalLassoEnd,
@@ -208,6 +214,7 @@ class _InfiniteCanvasGestureDetectorState
   // 🔄 GESTURE CONTINUITY: Smooth transition when pointer count changes
   bool _gestureTransitioning = false;
   int _previousPointerCount = 0;
+  bool _semanticTapConsumed = false; // 🧠 Set when semantic node consumed the tap
 
   // 🌀 ROTATION: State tracking
   double _initialRotation = 0.0;
@@ -534,6 +541,19 @@ class _InfiniteCanvasGestureDetectorState
       _hasMoved = false;
       _maxPointerCountInGesture = 1; // ✌️ Reset for new gesture
       _multiTouchMoved = false;
+      _semanticTapConsumed = false; // Reset semantic tap flag
+
+      // 🧠 SEMANTIC TAP: Intercept BEFORE any drawing/gesture logic.
+      // When the semantic view is active, taps on nodes should show flashcard
+      // or trigger zoom-in. This must happen here because _onPointerUp's
+      // single-tap branch is unreliable (gestural lasso arms, double-tap,
+      // micro-movement sets _hasMoved, etc.).
+      if (widget.onSingleTap != null &&
+          widget.onSingleTap!(event.localPosition)) {
+        _semanticTapConsumed = true;
+        // Don't start any drawing or gesture — tap was consumed
+        return;
+      }
     } else if (_pointerCount > 1) {
       // If arriva un secondo dito, invalida il tap
       _firstPointerPosition = null;
@@ -553,7 +573,6 @@ class _InfiniteCanvasGestureDetectorState
     // lasso drag so pinch-to-transform can take over. Lasso drag doesn't
     // set _isDrawing, so _onDrawCancel above doesn't handle it.
     if (_pointerCount == 2) {
-      debugPrint('🔍 _onPointerDown: pointerCount==2, onCancelLassoDrag=${widget.onCancelLassoDrag != null}');
       widget.onCancelLassoDrag?.call();
     }
 
@@ -572,6 +591,14 @@ class _InfiniteCanvasGestureDetectorState
       }
     }
     if (_pointerCount == 1 && _shouldEnableDrawing && shouldDraw) {
+      // 🔍 OVERVIEW GUARD: Block ALL drawing when zoomed out ≤50%.
+      // At this scale the user is in navigation/overview mode.
+      // Must be checked HERE (not just in _onDrawStart) because
+      // _isDrawing = true is set below and _onPointerMove would
+      // forward draw updates even if _onDrawStart returns early.
+      if (widget.controller.scale <= 0.5) {
+        return;
+      }
       // 🎯 DOUBLE-TAP CHECK: If this could be the second tap of a double-tap,
       // suppress drawing to avoid the temporary dot flash.
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -1074,6 +1101,25 @@ class _InfiniteCanvasGestureDetectorState
 
     // Only se siamo all'ultimo dito e stiamo disegnando
     if (_pointerCount == 0) {
+      // 🧠 SEMANTIC TAP: If the tap was consumed at pointer-down, skip all cleanup
+      if (_semanticTapConsumed) {
+        _semanticTapConsumed = false;
+        _wasMultiTouch = false;
+        _firstPointerPosition = null;
+        _hasMoved = false;
+        _lastDrawPosition = null;
+        _lastCanvasPosition = null;
+        _lastPressure = 1.0;
+        _isSingleFingerPanning = false;
+        widget.controller.isPanning = false;
+        _panIntercepted = false;
+        _shouldEnableDrawing = true;
+        // Don't arm double-tap detection for semantic taps
+        _pendingFirstTap = false;
+        _lastSingleTapTime = 0;
+        return;
+      }
+
       // 🐛 FIX: Do NOT reset _wasMultiTouch here — the conditional checks
       // below depend on it to distinguish single-tap from multi-touch cleanup.
       // Resetting it before the checks caused multi-touch gestures (pan) to
@@ -1204,19 +1250,34 @@ class _InfiniteCanvasGestureDetectorState
           // Discard the first tap's dot silently (if drawing mode created one)
           widget.onDoubleTapZoom?.call();
         } else {
-          // First tap — record timing for double-tap detection
-          _pendingFirstTap = true;
-          _lastSingleTapTime = now;
-          _lastSingleTapPosition = event.localPosition;
+          // 🧠 SEMANTIC TAP: Check if semantic node consumed this tap.
+          // SKIP if _semanticTapConsumed: the PointerDown already handled it
+          // (e.g. opened flashcard or triggered zoom-in). Re-calling here would
+          // immediately zoom on the same finger-up that opened the card.
+          if (!_semanticTapConsumed &&
+              widget.onSingleTap != null &&
+              widget.onSingleTap!(event.localPosition)) {
+            // Tap was consumed (e.g. flashcard preview) — cancel any dot
+            if (wasDrawing) {
+              widget.onDrawCancel?.call();
+            }
+            _pendingFirstTap = false;
+            _lastSingleTapTime = 0;
+          } else {
+            // First tap — record timing for double-tap detection
+            _pendingFirstTap = true;
+            _lastSingleTapTime = now;
+            _lastSingleTapPosition = event.localPosition;
 
-          // In drawing mode, finalize the dot
-          if (wasDrawing) {
-            _wasDrawingGesture = true; // 🎯 FIX: Flag for _onScaleEnd
-            if (widget.onDrawEnd != null) {
-              final canvasPoint = widget.controller.screenToCanvas(
-                event.localPosition,
-              );
-              widget.onDrawEnd!(canvasPoint);
+            // In drawing mode, finalize the dot
+            if (wasDrawing) {
+              _wasDrawingGesture = true; // 🎯 FIX: Flag for _onScaleEnd
+              if (widget.onDrawEnd != null) {
+                final canvasPoint = widget.controller.screenToCanvas(
+                  event.localPosition,
+                );
+                widget.onDrawEnd!(canvasPoint);
+              }
             }
           }
         }
@@ -1421,7 +1482,7 @@ class _InfiniteCanvasGestureDetectorState
     final _blockPZ = widget.blockPanZoom();
     final _routeImg = widget.shouldRouteToImageRotation(details.localFocalPoint);
     final _routeSel = widget.shouldRouteToSelectionTransform(details.localFocalPoint);
-    debugPrint('🔍 _onScaleStart: blockPanZoom=$_blockPZ routeImg=$_routeImg routeSel=$_routeSel pointers=$_pointerCount');
+
     if (_blockPZ && !_routeImg && !_routeSel) return;
     // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
     // (e.g., 2→1 fingers), re-anchor to current state to prevent jumps.
@@ -1480,12 +1541,21 @@ class _InfiniteCanvasGestureDetectorState
     // Only process with 2+ fingers
     if (_pointerCount < 2) return;
 
+    // ✌️ MULTI-FINGER TAP: Any pan or zoom movement disqualifies as tap.
+    // _onPointerMove only tracks per-frame delta (which can be tiny on
+    // high-refresh devices). The real movement happens here in _onScaleUpdate.
+    if (!_multiTouchMoved) {
+      final panned = (details.localFocalPoint - _initialFocalPoint).distance > 8;
+      final scaled = (details.scale - 1.0).abs() > 0.02;
+      if (panned || scaled) _multiTouchMoved = true;
+    }
+
     // ✂️ SPACE-SPLIT: Skip normal zoom/pan/rotate when splitting or armed
     if (_isSpaceSplitting || _splitLongPressReady) return;
 
     // 🤏 SELECTION TRANSFORM: Route pinch to selection rotate+scale
     final shouldTransformSelection = widget.shouldRouteToSelectionTransform(details.localFocalPoint);
-    debugPrint('🔍 _onScaleUpdate: shouldTransformSelection=$shouldTransformSelection onSelectionScaleStart=${widget.onSelectionScaleStart != null} _selectionScaleStarted=$_selectionScaleStarted pointers=$_pointerCount focal=${details.localFocalPoint}');
+
     if (shouldTransformSelection && widget.onSelectionScaleStart != null) {
       if (!_selectionScaleStarted) {
         _selectionScaleStarted = true;

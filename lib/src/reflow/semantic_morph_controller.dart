@@ -206,18 +206,23 @@ class SemanticMorphController {
   String? hitTestSemanticNode(
     Offset canvasPoint,
     List<ContentCluster> clusters,
-    double canvasScale,
-  ) {
+    double canvasScale, {
+    Map<String, String> clusterTexts = const {},
+  }) {
     if (!isActive) return null;
 
     final inverseScale = (1.0 / canvasScale).clamp(3.0, 16.0);
 
     for (final cluster in clusters) {
+      // 🔕 Same filter as _paintSemanticNodes: skip tiny clusters without AI title
+      final hasAiTitle = clusterTexts[cluster.id]?.isNotEmpty == true;
+      if (cluster.strokeIds.length < 20 && !hasAiTitle) continue;
+
       final center = cluster.centroid;
-      // Node radius matches _paintSemanticNodes computation × importance
+      // Node radius matches _paintSemanticNodes computation × importance × inverseScale
       final importance = clusterImportance[cluster.id] ?? 0.5;
       final importanceScale = 0.7 + importance * 0.6;
-      final baseR = (20.0 + cluster.elementCount.clamp(0, 50) * 0.8) * importanceScale;
+      final baseR = (20.0 + cluster.elementCount.clamp(0, 50) * 0.8) * importanceScale * inverseScale;
       // 20% larger for easier tap
       final hitRadius = baseR * 1.2;
 
@@ -565,6 +570,16 @@ class SemanticMorphController {
     }
   }
 
+  /// 🧠 Get a copy of the AI title text hashes (for persistence).
+  Map<String, String> getAiTitleHashes() => Map.unmodifiable(_aiTitleTextHashes);
+
+  /// 🧠 Restore AI titles and content hashes from persisted storage.
+  /// Called during canvas load to avoid regenerating titles.
+  void restoreAiTitles(Map<String, String> titles, Map<String, String> hashes) {
+    aiTitles.addAll(titles);
+    _aiTitleTextHashes.addAll(hashes);
+  }
+
   /// ✨ Get the interpolated title for crossfade animation.
   /// Returns (displayTitle, opacity) where opacity is 0.0-1.0
   /// representing how visible the current title is.
@@ -758,10 +773,13 @@ class SemanticMorphController {
   /// 5. Take top 2-3 keywords, capitalize
   ///
   /// Returns null if no significant keywords found.
+  static final RegExp _kwNonWordRe = RegExp(r'[^\w\s\u00C0-\u024F]');
+  static final RegExp _kwWhitespaceRe = RegExp(r'\s+');
+
   static String? extractLocalKeywords(String text) {
     final words = text
-        .replaceAll(RegExp(r'[^\w\sàèéìòùáéíóú]'), ' ')
-        .split(RegExp(r'\s+'))
+        .replaceAll(_kwNonWordRe, ' ')
+        .split(_kwWhitespaceRe)
         .where((w) => w.length >= 3)
         .where((w) => !_stopWords.contains(w.toLowerCase()))
         .toList();

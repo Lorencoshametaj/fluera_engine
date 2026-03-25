@@ -11,6 +11,12 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🌟 RADIAL EXPANSION: Elastic drag for drag-to-confirm gesture
+    if (_radialDraggedBubbleId != null) {
+      updateRadialBubbleDrag(canvasPosition);
+      return;
+    }
+
     // 🔍 ECHO SEARCH INTERCEPT: Route stroke updates to Query Pen
     if (_echoSearchActive) {
       _echoSearchOnDrawUpdate(canvasPosition, pressure);
@@ -1174,6 +1180,62 @@ extension on _FlueraCanvasScreenState {
         tiltY: tiltY,
         orientation: 0.0,
       );
+    }
+
+    // 🧹 SCRATCH-OUT v5: Feed point to accumulator for real-time detection.
+    // Runs only for freehand strokes (not eraser, not technical pen).
+    if (!_effectiveIsEraser && _effectivePenType != ProPenType.technicalPen) {
+      final pts = _currentStrokeNotifier.value;
+      if (pts.isNotEmpty) {
+        _scratchOutAccumulator.addPoint(pts.last);
+
+        // Debounced partial analysis (every 50ms)
+        if (_scratchOutAccumulator.pointCount >= 15 &&
+            _scratchOutAccumulator.shouldCheck()) {
+          final partial = _scratchOutAccumulator.analyzePartial();
+          if (partial.recognized) {
+            // Find overlapping strokes for preview highlight
+            final activeLayer = _layerController.layers.firstWhere(
+              (l) => l.id == _layerController.activeLayerId,
+              orElse: () => _layerController.layers.first,
+            );
+            final newPreviewIds = <String>{};
+            for (final stroke in activeLayer.strokes) {
+              if (stroke.bounds.overlaps(partial.scratchBounds)) {
+                newPreviewIds.add(stroke.id);
+              }
+            }
+
+            // Update preview only if changed
+            if (newPreviewIds.length != _scratchOutPreviewIds.length ||
+                !newPreviewIds.containsAll(_scratchOutPreviewIds)) {
+              _scratchOutPreviewIds = newPreviewIds;
+              DrawingPainter.invalidateAllTiles();
+              _layerController.notifyListeners();
+            }
+
+            // 🔊 Progressive haptic feedback
+            if (!_scratchOutPreviewArmed && newPreviewIds.isNotEmpty) {
+              _scratchOutPreviewArmed = true;
+              HapticFeedback.lightImpact();
+              _scratchOutLastReversalCount = partial.reversalCount;
+            } else if (partial.reversalCount > _scratchOutLastReversalCount + 1) {
+              _scratchOutLastReversalCount = partial.reversalCount;
+              if (partial.reversalCount >= 5) {
+                HapticFeedback.mediumImpact();
+              } else {
+                HapticFeedback.selectionClick();
+              }
+            }
+          } else if (_scratchOutPreviewIds.isNotEmpty) {
+            // No longer recognized — clear preview
+            _scratchOutPreviewIds = const {};
+            _scratchOutPreviewArmed = false;
+            DrawingPainter.invalidateAllTiles();
+            _layerController.notifyListeners();
+          }
+        }
+      }
     }
 
     // 🔥 VULKAN: Forward points to native GPU renderer (parallel to Flutter path)

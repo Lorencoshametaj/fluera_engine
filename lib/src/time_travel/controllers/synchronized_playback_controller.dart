@@ -94,6 +94,30 @@ class SynchronizedPlaybackController extends ChangeNotifier {
           ? (positionMs / _duration.inMilliseconds).clamp(0.0, 1.0)
           : 0.0;
 
+  /// Current playback speed multiplier (0.5x–3.0x).
+  double get playbackSpeed => _speed;
+
+  /// Set playback speed multiplier.
+  ///
+  /// The stopwatch-based timing already accounts for [_speed] in [positionMs],
+  /// so this just updates the multiplier. Audio player speed must be set
+  /// separately by the caller.
+  void setPlaybackSpeed(double speed) {
+    final clamped = speed.clamp(0.5, 3.0);
+    if (clamped == _speed) return;
+
+    // Preserve current position before changing speed
+    final currentPos = Duration(milliseconds: positionMs);
+    _pausedPosition = currentPos;
+    _stopwatch.reset();
+    if (_state == SyncedPlaybackState.playing) {
+      _stopwatch.start();
+    }
+
+    _speed = clamped;
+    debugPrint('🏎️ [SyncPlayback] Speed set to ${_speed}x');
+  }
+
   /// Registrazione caricata
   SynchronizedRecording? get recording => _recording;
 

@@ -11,6 +11,17 @@ extension on _FlueraCanvasScreenState {
     // 🎚️ SLIDER GUARD: If touching the parameter slider panel, skip canvas processing entirely
     if (_isDraggingGraphSlider) return;
 
+    // 🧠 SEMANTIC VIEW GUARD: Block drawing when zoomed out to semantic nodes.
+    // Taps in semantic view are handled by onSingleTap → _handleSemanticNodeTap.
+    if (_semanticMorphController != null && _semanticMorphController!.isActive) {
+      return;
+    }
+
+    // 🔍 OVERVIEW GUARD: Block drawing when zoomed out below 50%.
+    // At this scale strokes would be tiny and unreadable; the user is in
+    // overview/navigation mode, not writing mode.
+    if (_canvasController.scale <= 0.5) return;
+
     // 🔒 INLINE EDITING GUARD: If the user taps the canvas while inline text
     // editing is active, finish/cancel the current edit and return.
     // This handles: (1) Back button dismissing keyboard without Flutter unfocus,
@@ -40,6 +51,10 @@ extension on _FlueraCanvasScreenState {
       _editingLabelConnectionId = null;
       _labelOverlayScreenPosition = null;
     }
+
+    // 🌟 RADIAL EXPANSION: Intercept draw-start during bubble presentation
+    // Start bubble drag (Minority Report drag-to-confirm) or dismiss on empty tap
+    if (_handleRadialExpansionDrawStart(canvasPosition)) return;
 
     // 🔒 VIEWER GUARD: Prevent all editing on shared canvas if viewer
     if (_checkViewerGuard()) return;
@@ -676,6 +691,12 @@ extension on _FlueraCanvasScreenState {
     // being used for trimming when strokes arrive in the same event batch.
     CurrentStrokePainter.resetForNewStroke();
     _drawWasCancelled = false;
+
+    // 🧹 SCRATCH-OUT v5: Reset accumulator for real-time detection
+    _scratchOutAccumulator.reset();
+    _scratchOutPreviewIds = const {};
+    _scratchOutPreviewArmed = false;
+    _scratchOutLastReversalCount = 0;
 
     // 🚀 ZOOM CHURN FIX: If _onDrawCancel just fired (< 300ms ago),
     // skip all heavy init (Vulkan overlay, WebGPU, findRenderObject, etc.).

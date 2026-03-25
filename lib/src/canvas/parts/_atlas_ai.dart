@@ -24,6 +24,31 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
     return map[code] ?? 'English';
   }
 
+  /// Returns a language instruction written in the NATIVE language itself.
+  /// e.g. for Italian: "RISPONDI SOLO IN ITALIANO." (not the English "RESPOND ONLY IN Italian")
+  /// This is far more effective because the AI reads the instruction in the target language context.
+  String get _nativeLangInstruction {
+    final code = ui.PlatformDispatcher.instance.locale.languageCode;
+    const map = {
+      'it': 'RISPONDI ESCLUSIVAMENTE IN ITALIANO. Non usare l\'inglese.',
+      'es': 'RESPONDE EXCLUSIVAMENTE EN ESPAÑOL. No uses el inglés.',
+      'fr': 'RÉPONDS EXCLUSIVEMENT EN FRANÇAIS. N\'utilise pas l\'anglais.',
+      'de': 'ANTWORTE AUSSCHLIESSLICH AUF DEUTSCH. Verwende kein Englisch.',
+      'pt': 'RESPONDA EXCLUSIVAMENTE EM PORTUGUÊS. Não use o inglês.',
+      'ja': '必ず日本語で回答してください。英語を使用しないでください。',
+      'ko': '반드시 한국어로만 답변하세요. 영어를 사용하지 마세요.',
+      'zh': '请仅用中文回答。不要使用英语。',
+      'nl': 'ANTWOORD UITSLUITEND IN HET NEDERLANDS. Gebruik geen Engels.',
+      'ar': 'أجب باللغة العربية فقط. لا تستخدم الإنجليزية.',
+      'ru': 'ОТВЕЧАЙ ИСКЛЮЧИТЕЛЬНО НА РУССКОМ. Не используй английский.',
+      'pl': 'ODPOWIADAJ WYŁĄCZNIE PO POLSKU. Nie używaj angielskiego.',
+      'tr': 'YALNIZCA TÜRKÇE YANIT VER. İngilizce kullanma.',
+      'sv': 'SVARA UTESLUTANDE PÅ SVENSKA. Använd inte engelska.',
+      'en': '', // English device — no enforcement needed
+    };
+    return map[code] ?? '';
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Entry point — routes to client-side handlers or Gemini
   // ─────────────────────────────────────────────────────────────────────────
@@ -44,6 +69,21 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
       }
       if (prompt == '_ANALYZE_') {
         await _analyzeSelection();
+        return;
+      }
+      if (prompt == '_EXAM_') {
+        await _startExamSession();
+        return;
+      }
+      // Keyword detection: exam commands in any language
+      final normalizedPrompt = prompt.trim().toLowerCase();
+      if (normalizedPrompt.contains('interrogami') ||
+          normalizedPrompt.contains('esaminami') ||
+          normalizedPrompt.contains('quiz') ||
+          normalizedPrompt.contains('test me') ||
+          normalizedPrompt.contains('interrogate me') ||
+          normalizedPrompt.contains('exam mode')) {
+        await _startExamSession();
         return;
       }
 
@@ -577,6 +617,29 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
     });
   }
 
+  /// 💡 Add a proactive gap card with embedded gap chips for node creation.
+  void _addProactiveCard(
+    String id,
+    String text,
+    Offset position,
+    List<String> gapChips,
+    String sourceClusterId,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      _atlasIsLoading = false;
+      _showAtlasPrompt = false;
+      _atlasResponseText = null;
+      _atlasCards.add(_AtlasCardEntry(
+        id: id,
+        text: text,
+        position: position,
+        gapChips: gapChips,
+        sourceClusterId: sourceClusterId,
+      ));
+    });
+  }
+
   /// (4) Update text of an existing card by ID.
   void _updateCardText(String id, String text) {
     if (!mounted) return;
@@ -664,7 +727,15 @@ Do NOT repeat previous scans verbatim — BUILD upon them with NEW depth.''';
 
   /// (2) Follow-up from a suggestion chip — sends the chip text as a focused question.
   Future<void> _followUpFromCard(String question, String context, Offset position) async {
+    // 📊 Session summary intercept
+    if (question.toLowerCase().contains('riepilogo') ||
+        question.toLowerCase().contains('summary') ||
+        question.startsWith('📊')) {
+      _showSessionSummary();
+      return;
+    }
     final cardId = 'followup_${DateTime.now().microsecondsSinceEpoch}';
+
 
     try {
       final provider = EngineScope.current.atlasProvider;
@@ -836,7 +907,103 @@ You MUST respond ENTIRELY in ${_deviceLanguageName}. Do NOT switch to another la
     _canvasController.markNeedsPaint();
     _layerController.notifyListeners();
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🎓 EXAM MODE — Entry point
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Start the Atlas Exam Mode session.
+  ///
+  /// 1. Ensures cluster OCR text is ready (reuses [_clusterTextCache])
+  /// 2. Builds [ExamScopeEntry] list from AI titles + OCR text
+  /// 3. Mounts [ExamOverlay] as a fullscreen Overlay entry
+  Future<void> _startExamSession() async {
+    if (_clusterCache.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('📝 Scrivi degli appunti prima di iniziare l\'esame!'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1A1A2E),
+          duration: const Duration(seconds: 3),
+        ));
+      }
+      return;
+    }
+
+    // Ensure OCR text is available for all clusters
+    // _clusterTextCache is populated by _recognizeClusterTextsForSemanticTitles
+    await _recognizeClusterTextsForSemanticTitles();
+
+    // Build scope entries: clusterId → display title + ocr text
+    final Map<String, String> availableTitles = {};
+    final Map<String, String> clusterTexts = {};
+
+    for (final cluster in _clusterCache) {
+      final text = _clusterTextCache[cluster.id] ?? '';
+      if (text.trim().isEmpty) continue; // Skip empty clusters
+
+      // Use AI-generated semantic title if available, else first words of OCR text
+      final aiTitle = _semanticMorphController?.aiTitles[cluster.id];
+      final displayTitle = aiTitle != null && aiTitle.trim().isNotEmpty
+          ? aiTitle
+          : text.split(' ').take(4).join(' ');
+
+      availableTitles[cluster.id] = displayTitle;
+      clusterTexts[cluster.id] = text;
+    }
+
+    if (availableTitles.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('🔍 Nessun testo riconoscibile. Aggiungi testo scritto o digitale!'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1A1A2E),
+          duration: const Duration(seconds: 3),
+        ));
+      }
+      return;
+    }
+
+    final provider = EngineScope.current.atlasProvider;
+    if (!provider.isInitialized) await provider.initialize();
+
+    final examController = ExamSessionController(
+      provider: provider,
+      language: _deviceLanguageName,
+    );
+
+    // Mount overlay
+    if (!mounted) return;
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(builder: (_) => ExamOverlay(
+      availableClusters: availableTitles,
+      clusterTexts: clusterTexts,
+      controller: examController,
+      onClose: () {
+        entry.remove();
+        examController.dispose();
+      },
+      onComplete: (mastered, reviewMap) {
+        // Update spaced repetition state
+        for (final concept in mastered) {
+          _sessionMastered.add(concept);
+          final existing = _reviewSchedule[concept] ?? SrsCardData.newCard();
+          _reviewSchedule[concept] = FsrsScheduler.review(existing, quality: 2, confidence: 5);
+        }
+        for (final e in reviewMap.entries) {
+          final existing = _reviewSchedule[e.key] ?? SrsCardData.newCard();
+          // Map Duration to quality: <=1d = fail, <=3d = partial, 7d+ = correct
+          final quality = e.value.inDays <= 1 ? 0 : (e.value.inDays <= 3 ? 1 : 2);
+          _reviewSchedule[e.key] = FsrsScheduler.review(existing, quality: quality);
+        }
+        if (mounted) setState(() {});
+      },
+    ));
+    overlay.insert(entry);
+  }
 }
+
 
 // =============================================================================
 // Atlas helper types
@@ -851,13 +1018,38 @@ class _AtlasCardEntry {
   /// (7) Full conversation chain for multi-turn "Go deeper".
   final List<String> conversationHistory;
 
+  /// 💡 Gap concepts from proactive analysis (shows as violet chips).
+  final List<String> gapChips;
+
+  /// 💡 Cluster ID that produced the gap analysis (for node placement).
+  final String? sourceClusterId;
+
+  /// 🌟 Self-rating captured from user (-1=non lo so, 0=ho dubbi, 1=lo so già).
+  int? selfRating;
+
+  /// ✏️ When non-null, card shows active-recall verify mode for this concept.
+  final String? verifyQuestion;
+
+  /// 🔄 When true, the card shows the self-rating row (used by Ripasso 24h).
+  final bool showSelfRating;
+
+  /// 🧠 Initial mode for adaptive recall ('spiega' or 'esempio').
+  final String verifyInitialMode;
+
   _AtlasCardEntry({
     required this.id,
     required this.text,
     required this.position,
     this.conversationHistory = const [],
+    this.gapChips = const [],
+    this.sourceClusterId,
+    this.selfRating,
+    this.verifyQuestion,
+    this.showSelfRating = false,
+    this.verifyInitialMode = 'spiega',
   });
 }
+
 
 /// 🌌 Atlas visual effect types.
 enum _AtlasVfxType { materialize, laser }

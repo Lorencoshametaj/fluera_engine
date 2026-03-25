@@ -1,5 +1,30 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.flueraengine.fluera_engine">
+
+    <!-- Existing permissions -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Notifications (runtime permission on Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Scheduling & reboot recovery -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <application>
+        <!-- BroadcastReceiver for notification taps, action buttons and scheduled delivery -->
+        <receiver
+            android:name=".FlueraNotificationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.flueraengine.NOTIFICATION_TAP" />
+                <action android:name="com.flueraengine.NOTIFICATION_ACTION" />
+                <action android:name="com.flueraengine.DELIVER_SCHEDULED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+
 </manifest>

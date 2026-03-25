@@ -9,11 +9,18 @@ import 'package:flutter/foundation.dart' show compute, kIsWeb, kReleaseMode;
 import 'package:flutter/scheduler.dart' show Ticker;
 import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
+import './ai/proactive_analysis_model.dart'; // 💡 Proactive knowledge gap data models
+import './ai/exam_session_controller.dart';   // 🎓 Exam Mode session controller
+import './ai/fsrs_scheduler.dart';             // 🧠 FSRS adaptive spaced repetition
+import './overlays/exam_overlay.dart';         // 🎓 Exam Mode fullscreen overlay
+import './widgets/proactive_cluster_dot.dart'; // 💡 Animated gap indicator dot
+import '../platform/native_notifications.dart'; // 🔔 Native notifications for SR reminders
 
 import 'package:flutter/services.dart';
 import 'package:flutter/semantics.dart';
 import '../utils/safe_path_provider.dart';
 import '../utils/platform_guard.dart';
+import '../utils/key_value_store.dart';
 import '../audio/native_audio_models.dart';
 import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
@@ -70,6 +77,8 @@ import './overlays/atlas_response_card.dart';
 import '../ai/canvas_state_extractor.dart';
 import '../ai/atlas_action_executor.dart';
 import '../ai/atlas_action.dart';
+import '../ai/radial_expansion_controller.dart';
+import '../rendering/canvas/radial_expansion_painter.dart';
 import '../ai/ai_provider.dart';
 import '../core/nodes/text_node.dart';
 import '../core/nodes/stroke_node.dart';
@@ -117,7 +126,6 @@ import '../services/digital_ink_service.dart';
 import '../services/text_recognition_service.dart';
 import '../dialogs/handwriting_confirmation_dialog.dart';
 import '../dialogs/ocr_scan_dialog.dart';
-import '../services/handwriting_index_service.dart';
 import '../canvas/widgets/handwriting_search_overlay.dart';
 import '../rendering/canvas/handwriting_search_painter.dart';
 import '../rendering/canvas/echo_search_pen_painter.dart';
@@ -225,7 +233,6 @@ import '../history/command_history.dart';
 import '../systems/variable_commands.dart';
 import '../core/nodes/latex_node.dart';
 import '../core/nodes/function_graph_node.dart';
-import '../core/scene_graph/canvas_node.dart';
 import '../core/scene_graph/canvas_node_factory.dart';
 import '../core/scene_graph/node_id.dart';
 import './widgets/latex_editor_sheet.dart';
@@ -357,6 +364,8 @@ part './parts/_advanced_export.dart';
 part './parts/_atlas_ai.dart';
 part './parts/_echo_search.dart';
 part './parts/_semantic_titles.dart';
+part './parts/_radial_expansion.dart';
+part './parts/_proactive_analysis.dart'; // 💡 Proactive knowledge gap analysis
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -903,6 +912,52 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // 🧠 KNOWLEDGE MAP: Fullscreen graph overlay
   bool _showKnowledgeMap = false;
 
+  // 🌟 RADIAL EXPANSION: Generative mind-mapping controller + tick timer
+  RadialExpansionController? _radialExpansionController;
+  Timer? _radialExpansionTimer;
+
+  // 🌟 RADIAL EXPANSION: Gesture tracking (Minority Report flow)
+  ContentCluster? _radialExpansionLongPressCluster; // cluster hit by long-press
+  String? _radialDraggedBubbleId;                  // bubble currently being dragged
+  Offset? _radialDragStartCanvas;                  // canvas pos when drag started
+  double _radialExpansionHapticThreshold = 0.0;    // haptic escalation tracking
+
+  // 💡 PROACTIVE KNOWLEDGE GAP: Background analysis state
+  final Map<String, ProactiveAnalysisEntry> _proactiveCache = {};
+  Timer? _proactiveDebounceTimer;                  // 2s debounce after drawing stops
+  final Set<String> _proactiveRunning = {};         // per-cluster analysis lock
+  String? _activeExplainCardId;                    // current chip-explain card (single at a time)
+
+  // 🚀 PERF: Cached maps rebuilt only when _proactiveCache mutates (not every paint frame)
+  Map<String, List<String>> _proactiveGapsCache = const {};
+  Map<String, String> _proactiveScanCache = const {};
+
+  /// Rebuild the cached proactive maps. Call after any _proactiveCache mutation.
+  void _rebuildProactiveMaps() {
+    _proactiveGapsCache = {
+      for (final e in _proactiveCache.entries)
+        if (e.value.gaps.isNotEmpty) e.key: e.value.gaps,
+    };
+    _proactiveScanCache = {
+      for (final e in _proactiveCache.entries)
+        if (e.value.scanText.isNotEmpty) e.key: e.value.scanText,
+    };
+  }
+
+  // 📊 SESSION TRACKING
+  final List<String> _sessionExplored = [];         // concepts explored this session
+  final Set<String> _sessionMastered = {};          // concepts rated "lo so già"
+  final Map<String, SrsCardData> _reviewSchedule = {}; // FSRS spaced repetition: concept → card data
+  final Map<String, String> _conceptFailHistory = {}; // concept → last failed mode ('spiega'|'esempio')
+  final Set<String> _hiddenClusters = {};             // clusters hidden for retrieval practice
+  final Map<String, Map<String, dynamic>> _calibrationLog = {}; // metacognitive calibration
+  StreamSubscription<FNotificationTapEvent>? _notifSub; // notification tap handler
+  Timer? _srNotifDebounce; // debounce for SR notification scheduling
+
+  // ➡️ NEXT DOT HINT — transient arrow pointing to next ready dot after card dismiss
+  Offset? _nextDotHintTarget;
+  Timer? _nextDotHintTimer;
+
 
   // 🎯 RADIAL MENU: Context menu on long-press
   bool _showRadialMenu = false;
@@ -1365,6 +1420,22 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Timestamp of last _onDrawCancel — used to skip heavy init during zoom churn.
   int _lastDrawCancelMs = 0;
 
+  // ─── 🧹 SCRATCH-OUT v5: Real-time preview + dissolve ──────────────
+  /// Incremental scratch-out detector (O(1) per point).
+  final ScratchOutAccumulator _scratchOutAccumulator = ScratchOutAccumulator();
+  /// Stroke IDs currently highlighted as "will be deleted" (red tint preview).
+  Set<String> _scratchOutPreviewIds = const {};
+  /// Whether real-time scratch-out preview has been armed (first haptic fired).
+  bool _scratchOutPreviewArmed = false;
+  /// Last reversal count for progressive haptic dedup.
+  int _scratchOutLastReversalCount = 0;
+  /// Strokes dissolving: strokeId → remaining opacity (1.0 → 0.0 over 300ms).
+  Map<String, double> _scratchOutDissolveMap = const {};
+  /// Dissolve animation ticker (drives opacity decrease).
+  Ticker? _scratchOutDissolveTicker;
+  /// Dissolve start timestamp for animation progress.
+  int _scratchOutDissolveStartMs = 0;
+
   // ─── V7 State ──────────────────────────────────────────────────────
   String? _smartSelectionStrokeId;
   bool _showUndoGhostReplay = false;
@@ -1556,6 +1627,16 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _WheelModePref.load().then((_) {
       if (mounted) setState(() {});
     });
+
+    // 📅 Load spaced repetition schedule from disk
+    _loadSpacedRepetition().then((_) {
+      _checkDueForReview();
+      _checkRipasso24h(); // 🔄 24h Ebbinghaus trigger
+    });
+    _loadSeenClusters(); // 👁️ Restore dismissed dots
+
+    // 🔔 Listen for notification taps (SR review reminders)
+    _setupNotificationTapHandler();
 
     // ── Tool state controller (replaces Riverpod) ──────────────────────────
     _toolController = UnifiedToolController();
@@ -1812,6 +1893,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         _pdfPageDragController.reflowController = _lassoTool.reflowController;
         // 🧠 KNOWLEDGE FLOW: Initialize controller + particle ticker + thumbnails
         _knowledgeFlowController = KnowledgeFlowController();
+        _radialExpansionController = RadialExpansionController();
         _semanticMorphController = SemanticMorphController();
         _thumbnailCache = ClusterThumbnailCache();
         _knowledgeParticleTicker = createTicker((elapsed) {
@@ -2140,6 +2222,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     CanvasPerformanceMonitor.instance.removeGlobalOverlay();
     // 🔥 VULKAN: Release native GPU overlay resources
     _vulkanStrokeOverlay.dispose();
+    // 🧹 SCRATCH-OUT: Release dissolve animation ticker
+    _scratchOutDissolveTicker?.stop();
+    _scratchOutDissolveTicker?.dispose();
     // 🌊 REFLOW: Release animated reflow controller
     _animatedReflowController?.dispose();
     // 🧠 KNOWLEDGE FLOW: Release controller + ticker + thumbnails
@@ -2156,6 +2241,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
     // 🧠 CONSCIOUS ARCHITECTURE: Stop idle timer.
     _disposeConsciousArchitecture();
+
+    // 🔔 SR NOTIFICATIONS: Cancel listener + debounce timer
+    _disposeNotificationHandler();
+    _srNotifDebounce?.cancel();
 
     // 🧭 Navigation
     _contentBoundsTracker.dispose();
@@ -2291,6 +2380,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     VoiceRecordingExtension._playbackCompletedSubs[hashCode]?.cancel();
     VoiceRecordingExtension._playbackCompletedSubs.remove(hashCode);
     _disposeDefaultVoiceRecordingProvider();
+
+    // 🌟 Radial expansion cleanup
+    _disposeRadialExpansion();
 
     super.dispose();
   }

@@ -14,6 +14,7 @@ import './camera_actions.dart';
 /// - Tap → zoom presets popup
 /// - Long-press → toggle dot grid
 /// - Tap rotation → reset rotation to 0°
+/// - Tap lock icon → toggle rotation lock
 class ZoomLevelIndicator extends StatelessWidget {
   final InfiniteCanvasController controller;
   final Size viewportSize;
@@ -33,6 +34,9 @@ class ZoomLevelIndicator extends StatelessWidget {
   /// Whether the minimap is currently visible.
   final bool isMinimapVisible;
 
+  /// Called to toggle rotation lock. If null, the button is hidden.
+  final VoidCallback? onToggleRotationLock;
+
   static const List<double> _presets = [0.25, 0.50, 1.0, 2.0, 4.0];
 
   // ── HUD palette ──
@@ -50,6 +54,7 @@ class ZoomLevelIndicator extends StatelessWidget {
     this.showGridActive = true,
     this.onToggleMinimap,
     this.isMinimapVisible = true,
+    this.onToggleRotationLock,
   });
 
   String _formatZoom(double scale) {
@@ -135,6 +140,7 @@ class ZoomLevelIndicator extends StatelessWidget {
         final isRotated = controller.rotation.abs() > 0.009; // ~0.5° threshold
         final isSnapped = isRotated &&
             controller.checkSnapAngle(controller.rotation) != null;
+        final isRotationLocked = controller.rotationLocked;
 
         // Responsive: hide elements on narrow screens
         final w = viewportSize.width;
@@ -199,6 +205,29 @@ class ZoomLevelIndicator extends StatelessWidget {
                   size: 12,
                   color: isMinimapVisible
                       ? _neonCyan.withValues(alpha: 0.7)
+                      : _secondaryText.withValues(alpha: 0.4),
+                ),
+              ),
+            ),
+          ],
+          // ── Rotation lock toggle (hidden on very narrow) ──
+          if (showIcons && onToggleRotationLock != null) ...[
+            _separator(0.12),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onToggleRotationLock!.call();
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Icon(
+                  isRotationLocked
+                      ? Icons.screen_rotation_alt_rounded
+                      : Icons.screen_rotation_rounded,
+                  size: 12,
+                  color: isRotationLocked
+                      ? _neonCyan.withValues(alpha: 0.9)
                       : _secondaryText.withValues(alpha: 0.4),
                 ),
               ),

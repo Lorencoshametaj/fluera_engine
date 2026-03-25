@@ -20,5 +20,6 @@ public class FlueraEnginePlugin: NSObject, FlutterPlugin {
         PdfRendererPlugin.register(with: registrar)
         PrintPlugin.register(with: registrar)
         MetalStrokeOverlayPlugin.register(with: registrar)
+        NotificationPlugin.register(with: registrar)
     }
 }

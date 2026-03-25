@@ -165,6 +165,7 @@ extension on _FlueraCanvasScreenState {
         return KeyEventResult.ignored;
       },
       child: Scaffold(
+        resizeToAvoidBottomInset: false, // Prevents canvas UI (minimap, etc) from jumping when keyboard opens
         backgroundColor: Colors.white,
         body: SafeArea(
           child: Stack(
@@ -252,6 +253,11 @@ extension on _FlueraCanvasScreenState {
                             isMinimapVisible: _showMinimap,
                             onToggleMinimap: () {
                               setState(() => _showMinimap = !_showMinimap);
+                            },
+                            onToggleRotationLock: () {
+                              HapticFeedback.selectionClick();
+                              _canvasController.rotationLocked =
+                                  !_canvasController.rotationLocked;
                             },
                           ),
                         ),
@@ -432,6 +438,123 @@ extension on _FlueraCanvasScreenState {
                   position: _atlasCards[i].position,
                   responseText: _atlasCards[i].text,
                   accentColor: _effectiveSelectedColor,
+                  // 🌟 Self-rating (proactive cards only)
+                  showSelfRating: _atlasCards[i].sourceClusterId != null ||
+                      _atlasCards[i].showSelfRating,
+                  masteredConcepts: _sessionMastered,
+                  onSessionSummary: _atlasCards[i].sourceClusterId != null
+                      ? _showSessionSummary
+                      : null,
+                  // ✏️ Active recall — Verifica chip trigger
+                  onVerify: _atlasCards[i].sourceClusterId != null
+                      ? () {
+                          final card = _atlasCards[i];
+                          final srcId = card.sourceClusterId!;
+                          // Pick first un-mastered gap concept
+                          final concept = card.gapChips
+                              .where((g) => !_sessionMastered.contains(g))
+                              .firstOrNull ?? card.gapChips.firstOrNull;
+                          if (concept != null) _openVerifyCard(concept, srcId);
+                        }
+                      : null,
+                  // ✏️ Verify mode: verifyQuestion + evaluation callback
+                  verifyQuestion: _atlasCards[i].verifyQuestion,
+                  verifyCandidates: _atlasCards[i].verifyQuestion == null
+                      ? () {
+                          // Sort by SR urgency: soonest next-review = most failed = first
+                          final farFuture = DateTime.now().add(const Duration(days: 365));
+                          final unsorted = _atlasCards[i].gapChips
+                              .where((g) => !_sessionMastered.contains(g))
+                              .toList();
+                          unsorted.sort((a, b) {
+                            final da = _reviewSchedule[a]?.nextReview ?? farFuture;
+                            final db = _reviewSchedule[b]?.nextReview ?? farFuture;
+                            return da.compareTo(db); // nearest review = highest priority
+                          });
+                          return unsorted;
+                        }()
+                      : null,
+                  onVerifySubmit: (_atlasCards[i].verifyQuestion != null ||
+                      _atlasCards[i].gapChips.isNotEmpty)
+                      ? (concept, answer, mode) => _onVerifyAnswer(
+                            _atlasCards[i].id, concept, answer, mode)
+                      : null,
+                  onVerifyReset: () {
+                    setState(() {
+                      final c = _atlasCards.where((c) => c.id == _atlasCards[i].id).firstOrNull;
+                      if (c != null) c.text = '';
+                    });
+                  },
+
+                  onSelfRate: (rating) {
+                    final card = _atlasCards[i];
+                    if (rating == 1) {
+                      // 🟢 Lo so già → dismiss, mark mastered + schedule 7d review
+                      final gaps = card.gapChips;
+                      for (final g in gaps) {
+                        _sessionMastered.add(g);
+                        final existing = _reviewSchedule[g] ?? SrsCardData.newCard();
+                        _reviewSchedule[g] = FsrsScheduler.review(existing, quality: 2, confidence: 5);
+                      }
+                      _saveSpacedRepetition(); // persist to disk
+                      setState(() => _atlasCards.removeWhere((c) => c.id == card.id));
+                    } else {
+                      // 🔴🟡 Keep card, store rating for chip behavior
+                      setState(() => card.selfRating = rating);
+                    }
+                  },
+                  // 💡 Gap chips for proactive cards
+                  gapChips: _atlasCards[i].gapChips.isNotEmpty
+                      ? _atlasCards[i].gapChips
+                      : null,
+                  onGapChipTap: _atlasCards[i].sourceClusterId != null
+                      ? (concept) {
+                          final srcId = _atlasCards[i].sourceClusterId!;
+                          _sessionExplored.add(concept);
+                          // FSRS: use adaptive scheduler for gap chip taps
+                          final existing = _reviewSchedule[concept];
+                          if (existing == null) {
+                            // First visit: create new card
+                            _reviewSchedule[concept] = FsrsScheduler.review(
+                              SrsCardData.newCard(), quality: 1,
+                            );
+                          } else if (existing.isDue) {
+                            // Revisit when due: review with partial quality
+                            _reviewSchedule[concept] = FsrsScheduler.review(
+                              existing, quality: 1,
+                            );
+                          }
+                          _saveSpacedRepetition(); // persist to disk
+                          // Always give direct explanation — no Socratic mode
+                          _createNodeFromGap(concept, srcId);
+                        }
+                      : null,
+                  onCornell: _atlasCards[i].sourceClusterId != null
+                      ? (concept) => _generateCornellQuestion(
+                            concept, _atlasCards[i].sourceClusterId!)
+                      : null,
+                  onPreLettura: _atlasCards[i].sourceClusterId != null
+                      ? () => _generatePreLettura(_atlasCards[i].sourceClusterId!)
+                      : null,
+                  onNavigateCluster: _atlasCards[i].sourceClusterId != null
+                      ? () {
+                          _navigateToCluster(_atlasCards[i].sourceClusterId!);
+                        }
+                      : null,
+                  onClusterHide: _atlasCards[i].sourceClusterId != null
+                      ? () => _clusterHide(_atlasCards[i].sourceClusterId!)
+                      : null,
+                  onFeynman: _atlasCards[i].sourceClusterId != null
+                      ? (concept) => _feynmanMode(
+                            concept, _atlasCards[i].sourceClusterId!)
+                      : null,
+                  verifyInitialMode: _atlasCards[i].verifyInitialMode,
+                  onStemExercise: _atlasCards[i].sourceClusterId != null
+                      ? () => _generateStemExercise(_atlasCards[i].sourceClusterId!)
+                      : null,
+                  onDashboard: () => _showStudyDashboard(),
+                  onInterleave: () => _openInterleavedVerify(),
+                  onExport: () => _exportStudyData(),
                   onBookmark: (text) {
                     HapticFeedback.mediumImpact();
                     debugPrint('⭐ Bookmarked: ${text.length > 60 ? '${text.substring(0, 57)}...' : text}');
@@ -441,7 +564,42 @@ extension on _FlueraCanvasScreenState {
                   conversationHistory: _atlasCards[i].conversationHistory,
                   onDismiss: () {
                     final id = _atlasCards[i].id;
+                    final srcId = _atlasCards[i].sourceClusterId;
                     if (mounted) {
+                      // 🌟 Auto-hide: keep status as 'seen' so dot disappears
+                      if (srcId != null) {
+                        // dot won't show because filter only renders ready/pending
+                        _saveSeenClusters(); // persist to disk
+                        // ➡️ Hint: point to the nearest OTHER ready dot
+                        final screenCenter = Offset(
+                          MediaQuery.of(context).size.width / 2,
+                          MediaQuery.of(context).size.height / 2,
+                        );
+                        final otherReady = _proactiveCache.entries
+                            .where((e) =>
+                                e.key != srcId &&
+                                e.value.status == ProactiveStatus.ready)
+                            .map((e) {
+                              final c = _clusterCache
+                                  .where((c) => c.id == e.key)
+                                  .firstOrNull;
+                              return c == null
+                                  ? null
+                                  : _canvasController.canvasToScreen(c.centroid);
+                            })
+                            .whereType<Offset>()
+                            .toList();
+                        if (otherReady.isNotEmpty) {
+                          otherReady.sort((a, b) =>
+                              (a - screenCenter).distanceSquared.compareTo(
+                                  (b - screenCenter).distanceSquared));
+                          _nextDotHintTimer?.cancel();
+                          setState(() => _nextDotHintTarget = otherReady.first);
+                          _nextDotHintTimer = Timer(const Duration(seconds: 3), () {
+                            if (mounted) setState(() => _nextDotHintTarget = null);
+                          });
+                        }
+                      }
                       setState(() => _atlasCards.removeWhere((c) => c.id == id));
                     }
                   },
@@ -569,8 +727,136 @@ extension on _FlueraCanvasScreenState {
               // 🔷 Shape recognition toast
               _buildShapeRecognitionToast(),
 
+              // 💡 PROACTIVE GAP DOTS — appear near clusters when AI has analyzed them
+              // Driven by _uiRebuildNotifier so they update when analysis completes.
+              ..._proactiveCache.entries
+                  .where((e) =>
+                      e.value.status == ProactiveStatus.ready ||
+                      e.value.status == ProactiveStatus.pending)
+                  .map((e) {
+                    // Find matching cluster for screen position
+                    final cluster = _clusterCache
+                        .where((c) => c.id == e.key)
+                        .firstOrNull;
+                    if (cluster == null) return const SizedBox.shrink();
+                    final screenPos = _canvasController
+                        .canvasToScreen(cluster.centroid);
+                    return AnimatedBuilder(
+                      animation: _canvasController,
+                      builder: (_, __) {
+                        final pos = _canvasController
+                            .canvasToScreen(cluster.centroid);
+                        final gapCount = e.value.gaps.length;
+                        final allMastered = gapCount > 0 &&
+                            e.value.gaps.every(
+                                (g) => _sessionMastered.contains(g));
+                        return ProactiveClusterDot(
+                          key: ValueKey('dot_${e.key}'),
+                          screenPosition: pos,
+                          entry: e.value,
+                          gapCount: gapCount,
+                          allMastered: allMastered,
+                          onTap: () => _showProactiveCard(cluster),
+                        );
+                      },
+                    );
+                  })
+                  .toList(),
+
+
+              // 🙈 HIDDEN CLUSTER OVERLAY — frosted glass over clusters in _hiddenClusters
+              ..._hiddenClusters.map((clusterId) {
+                final cluster = _clusterCache
+                    .where((c) => c.id == clusterId)
+                    .firstOrNull;
+                if (cluster == null) return const SizedBox.shrink();
+                return AnimatedBuilder(
+                  animation: _canvasController,
+                  builder: (_, __) {
+                    final pos = _canvasController
+                        .canvasToScreen(cluster.centroid);
+                    final scale = _canvasController.scale;
+                    final size = 120.0 * scale.clamp(0.3, 2.0);
+                    return Positioned(
+                      left: pos.dx - size / 2,
+                      top: pos.dy - size / 2,
+                      child: GestureDetector(
+                        onTap: () {
+                          HapticFeedback.mediumImpact();
+                          _revealCluster(clusterId);
+                        },
+                        child: Container(
+                          width: size,
+                          height: size,
+                          decoration: BoxDecoration(
+                            // Opaque overlay — much cheaper than BackdropFilter
+                            color: const Color(0xFF1A1A2E),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: const Color(0xFFF48FB1).withValues(alpha: 0.5),
+                              width: 1.5,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x66000000),
+                                blurRadius: 20,
+                                spreadRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('🙈', style: TextStyle(fontSize: 28)),
+                                SizedBox(height: 4),
+                                Text('Tap per rivelare',
+                                  style: TextStyle(
+                                    color: Color(0xFFF48FB1),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              }).toList(),
+
               // 👻 Ghost shape suggestion overlay
               _buildGhostSuggestionOverlay(),
+
+              // ➡️ Next-dot hint — pulsing arrow toward nearest ready dot (3s auto-dismiss)
+              if (_nextDotHintTarget != null)
+                Positioned(
+                  left: _nextDotHintTarget!.dx - 16,
+                  top: _nextDotHintTarget!.dy - 36,
+                  child: IgnorePointer(
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0.0, end: 1.0),
+                      duration: const Duration(milliseconds: 300),
+                      builder: (_, v, __) => Opacity(
+                        opacity: v * 0.85,
+                        child: const Text(
+                          '↓',
+                          style: TextStyle(
+                            fontSize: 22,
+                            color: Color(0xFF00E5FF),
+                            shadows: [Shadow(
+                              color: Color(0xFF00E5FF),
+                              blurRadius: 12,
+                            )],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
 
               // 🔄 Wheel/Toolbar toggle pill (auto-hides after 4s)
               Positioned(

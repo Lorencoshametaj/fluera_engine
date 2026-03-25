@@ -35,6 +35,19 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
     return jsonEncode(connections.map((c) => c.toJson()).toList());
   }
 
+  /// 🧠 Build a JSON string for semantic AI titles persistence.
+  /// Saves both the AI title and the content hash (for invalidation).
+  String? _buildSemanticTitlesJsonString() {
+    if (_semanticMorphController == null) return null;
+    final titles = _semanticMorphController!.aiTitles;
+    if (titles.isEmpty) return null;
+    final hashes = _semanticMorphController!.getAiTitleHashes();
+    return jsonEncode(<String, dynamic>{
+      'titles': titles,
+      'hashes': hashes,
+    });
+  }
+
   /// Builds a [FlueraCanvasSaveData] snapshot of the current canvas state.
   FlueraCanvasSaveData _buildSaveData() {
     // 🎛️ Serialize variable state (only if non-empty)
@@ -152,6 +165,7 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
               dirtyLayerIds: dirtyIds.isNotEmpty ? dirtyIds : null,
               variablesJson: _buildVariablesJsonString(saveData),
               connectionsJson: _buildConnectionsJsonString(),
+              semanticTitlesJson: _buildSemanticTitlesJsonString(),
             );
           } finally {
             // 🗂️ POST-SAVE: Re-stub only strokes that were paged-out (restored above)

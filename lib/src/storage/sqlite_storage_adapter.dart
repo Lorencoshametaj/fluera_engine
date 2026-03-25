@@ -43,7 +43,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 11;
+const int _kSchemaVersion = 12;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -147,6 +147,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         variables_json TEXT,
         scene_nodes_json TEXT,
         connections_json TEXT,
+        semantic_titles_json TEXT,
         snapshot_png   BLOB,
         schema_version INTEGER NOT NULL DEFAULT 1,
         layer_count   INTEGER NOT NULL DEFAULT 0,
@@ -272,6 +273,16 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         // Columns may already exist in fresh databases.
       }
     }
+    if (oldVersion < 12) {
+      // 🧠 Semantic AI titles persistence.
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN semantic_titles_json TEXT',
+        );
+      } catch (_) {
+        // Column may already exist in fresh databases.
+      }
+    }
   }
 
   /// Create the recordings table (shared by _onCreate and _onUpgrade).
@@ -375,6 +386,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     Set<String>? dirtyLayerIds,
     String? variablesJson,
     String? connectionsJson,
+    String? semanticTitlesJson,
   }) async {
     final db = _ensureInitialized();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -511,6 +523,20 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
           await txn.update(
             'canvases',
             {'connections_json': connectionsJson},
+            where: 'canvas_id = ?',
+            whereArgs: [canvasId],
+          );
+        } catch (_) {
+          // Column may not exist if migration hasn't run — safe to ignore.
+        }
+      }
+
+      // 🧠 Save semantic AI titles as JSON sidecar
+      if (semanticTitlesJson != null) {
+        try {
+          await txn.update(
+            'canvases',
+            {'semantic_titles_json': semanticTitlesJson},
             where: 'canvas_id = ?',
             whereArgs: [canvasId],
           );
@@ -727,6 +753,24 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
             severity: ErrorSeverity.degraded,
             domain: ErrorDomain.storage,
             source: 'SqliteStorageAdapter.loadCanvas.connectionsJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
+    }
+
+    // 🧠 Parse semantic AI titles JSON if present
+    final semanticTitlesStr = meta['semantic_titles_json'] as String?;
+    if (semanticTitlesStr != null) {
+      try {
+        result['semanticTitles'] = jsonDecode(semanticTitlesStr);
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.semanticTitlesJson',
             original: e,
             stack: stack,
           ),

@@ -35,13 +35,13 @@ class ClusterDetector {
   /// Maximum spatial gap for the post-clustering overlap merge pass.
   /// Clusters whose bounding boxes are within this distance get merged
   /// regardless of temporal gap. Prevents word splits from slow writing.
-  /// Default: 15px — only merges truly adjacent/overlapping clusters.
+  /// Default: 80px — merges words on the same line into one concept cluster.
   final double overlapMergeThreshold;
 
   const ClusterDetector({
     this.temporalThresholdMs = 2500,
     this.spatialThreshold = 60.0,
-    this.overlapMergeThreshold = 15.0,
+    this.overlapMergeThreshold = 80.0,
   });
 
   /// Build [ContentCluster]s from all elements on a layer.

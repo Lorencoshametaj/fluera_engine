@@ -37,6 +37,73 @@ class AtlasResponseCard extends StatefulWidget {
   /// Called when user taps "Extract formula" — passes ALL LaTeX sources.
   final ValueChanged<List<String>>? onExtractLatex;
 
+  // ─── Proactive analysis additions ───────────────────────────────────────
+
+  /// 💡 Gap concepts from proactive analysis.
+  final List<String>? gapChips;
+
+  /// 💡 Called when user taps a gap chip.
+  final ValueChanged<String>? onGapChipTap;
+
+  /// 🌟 Show self-rating row (proactive cards only).
+  final bool showSelfRating;
+
+  /// 🌟 Called with rating: -1=non lo so, 0=ho dubbi, 1=lo so già.
+  final ValueChanged<int>? onSelfRate;
+
+  /// 🎓 Already-mastered concepts (hidden from chips).
+  final Set<String> masteredConcepts;
+
+  /// 📊 Session summary chip callback.
+  final VoidCallback? onSessionSummary;
+
+  // ─── Active Recall (R&K 2006) ────────────────────────────────────────────
+
+  /// ✏️ Verify mode: concept to recall (null = show picker).
+  final String? verifyQuestion;
+
+  /// ✏️ Un-mastered concepts to pick from in verify picker.
+  final List<String>? verifyCandidates;
+
+  /// ✏️ Called with (concept, answer, mode) to trigger Atlas evaluation.
+  final Future<void> Function(String concept, String answer, String mode)? onVerifySubmit;
+
+  /// ✏️ Called when user taps Riprova — parent clears card text.
+  final VoidCallback? onVerifyReset;
+
+  /// ✏️ Verifica chip tap — opens verify picker card.
+  final VoidCallback? onVerify;
+
+  /// 💬 Cornell chip tap — generates a Cornell question for the first gap concept.
+  final ValueChanged<String>? onCornell;
+
+  /// ❓ Pre-lettura chip tap — generates Carpenter (2011) priming questions.
+  final VoidCallback? onPreLettura;
+
+  /// 🗺️ Vai al cluster chip tap — animates canvas to the source cluster.
+  final VoidCallback? onNavigateCluster;
+
+  /// 🙈 Cluster Hide chip tap — hides cluster for retrieval practice.
+  final VoidCallback? onClusterHide;
+
+  /// 🧑‍🏫 Feynman chip tap — opens Feynman explanation mode.
+  final ValueChanged<String>? onFeynman;
+
+  /// 🧠 Initial verify mode from adaptive selection ('spiega' or 'esempio').
+  final String verifyInitialMode;
+
+  /// 🧪 STEM exercise chip tap — generates a practice problem from cluster content.
+  final VoidCallback? onStemExercise;
+
+  /// 📊 Dashboard chip tap — shows study statistics.
+  final VoidCallback? onDashboard;
+
+  /// 🔀 Interleave chip tap — opens cross-cluster interleaved verify.
+  final VoidCallback? onInterleave;
+
+  /// 📋 Export chip tap — exports study data as JSON.
+  final VoidCallback? onExport;
+
   const AtlasResponseCard({
     super.key,
     required this.cardId,
@@ -55,6 +122,27 @@ class AtlasResponseCard extends StatefulWidget {
     this.onExtractLatex,
     this.accentColor,
     this.onBookmark,
+    this.gapChips,
+    this.onGapChipTap,
+    this.showSelfRating = false,
+    this.onSelfRate,
+    this.masteredConcepts = const {},
+    this.onSessionSummary,
+    this.verifyQuestion,
+    this.verifyCandidates,
+    this.onVerifySubmit,
+    this.onVerifyReset,
+    this.onVerify,
+    this.onCornell,
+    this.onPreLettura,
+    this.onNavigateCluster,
+    this.onClusterHide,
+    this.onFeynman,
+    this.verifyInitialMode = 'spiega',
+    this.onStemExercise,
+    this.onDashboard,
+    this.onInterleave,
+    this.onExport,
   });
 
   @override
@@ -125,11 +213,12 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
 
   // (1) Error detection
   bool get _isErrorResponse =>
-      _displayedText.startsWith('⚠️') ||
+      (widget.verifyCandidates == null || widget.verifyCandidates!.isEmpty) && // Verify eval responses use ⚠️/❌ legitimately
+      (_displayedText.startsWith('⚠️') ||
       _displayedText.startsWith('❌') ||
       _displayedText.startsWith('🌐') ||
       _displayedText.startsWith('🤖') ||
-      _displayedText.startsWith('⏱️');
+      _displayedText.startsWith('⏱️'));
 
   /// Extract all LaTeX formulas from text ($...$ or $$...$$).
   static final _latexPattern = RegExp(r'\$\$(.+?)\$\$|\$(.+?)\$');
@@ -421,6 +510,20 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
     return _cachedChips!;
   }
 
+  // ─── ✏️ Verify state ────────────────────────────────────────────────────
+  int? _selectedRating;
+  String? _expandedCategory = '📝'; // Only Studia open by default
+  final Set<String> _verifiedInSession = {}; // Track tested concepts for progress
+  bool _showAllGapChips = false;
+  final Set<String> _usedGapChips = {};
+
+  final TextEditingController _verifyController = TextEditingController();
+  bool _verifySubmitting = false;
+  bool _verifyDone = false;
+  String? _selectedConcept;
+  late String _verifyMode = widget.verifyInitialMode;
+  String _verifyResult = '';
+
   @override
   void dispose() {
     _autoDismissTimer?.cancel();
@@ -434,6 +537,7 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
     _beamController.dispose();
     _glowTextController.dispose();
     _slideOutController.dispose();
+    _verifyController.dispose();
     super.dispose();
   }
 
@@ -657,7 +761,17 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
                 if (_streamingDone && _isErrorResponse && widget.onRetry != null)
                   Flexible(fit: FlexFit.loose, child: _buildRetryButton()),
 
-                if (_streamingDone && _activeText.isNotEmpty && !_isErrorResponse && _historyIndex < 0)
+                // ✏️ Verify mode — replaces rating + gap chips
+                if (widget.verifyQuestion != null || widget.verifyCandidates != null)
+                  Flexible(fit: FlexFit.loose, child: _buildVerifyInput()),
+
+                // 💡 Gap chips — shown in proactive mode, hidden in verify mode
+                if (widget.gapChips != null && widget.gapChips!.isNotEmpty &&
+                    widget.verifyQuestion == null && widget.verifyCandidates == null)
+                  Flexible(fit: FlexFit.loose, child: _buildGapChips()),
+
+                if (_streamingDone && _activeText.isNotEmpty && !_isErrorResponse && _historyIndex < 0
+                    && !widget.showSelfRating)
                   Flexible(fit: FlexFit.loose, child: _buildFollowUpChips()),
 
                 if (_streamingDone && _activeText.isNotEmpty)
@@ -885,7 +999,355 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
 
   // ─── Follow-up chips ──────────────────────────────────────────────────
 
+  // ─── 💡 GAP CHIPS ────────────────────────────────────────────────────────
+
+  Widget _buildGapChips() {
+    final gaps = widget.gapChips ?? [];
+    final unmastered = gaps.where((g) => !widget.masteredConcepts.contains(g)).toList();
+    if (unmastered.isEmpty) return const SizedBox.shrink();
+
+    const chipColor = Color(0xFF00B0FF);
+    final visible = _showAllGapChips ? unmastered : unmastered.take(3).toList();
+    final extra = unmastered.length - visible.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+          child: Wrap(
+            spacing: 6, runSpacing: 6,
+            children: [
+              ...visible.map((g) => GestureDetector(
+                onTap: () { HapticFeedback.selectionClick(); widget.onGapChipTap?.call(g); },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: chipColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: chipColor.withValues(alpha: 0.35), width: 1)),
+                  child: Text(
+                    g.length > 20 ? g.substring(0, 18) + '…' : g,
+                    style: const TextStyle(color: chipColor, fontSize: 11)),
+                ),
+              )),
+              if (extra > 0)
+                GestureDetector(
+                  onTap: () { HapticFeedback.selectionClick(); setState(() => _showAllGapChips = true); },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: chipColor.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: chipColor.withValues(alpha: 0.2), width: 1)),
+                    child: Text('+' + extra.toString(),
+                      style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // 📊 Riepilogo chip
+        // ── Action chips (student-friendly verbs) ──
+        if (widget.showSelfRating) ...[
+          // ╭─ 📝 STUDIA ─────────────────────────────────────────
+          _chipCategoryHeader('📝', 'Studia', const Color(0xFFFFD54F)),
+          if (_expandedCategory == '📝') ...[
+            if (widget.onVerify != null)
+              _actionChip('✏️ Mettiti alla prova', const Color(0xFFFFD54F), const Color(0xFFFF8F00), () => widget.onVerify?.call()),
+            if (widget.onCornell != null && unmastered.isNotEmpty)
+              _actionChip('💬 Domanda chiave', const Color(0xFFCE93D8), const Color(0xFF311B92), () => widget.onCornell?.call(unmastered.first)),
+            if (widget.onFeynman != null && unmastered.isNotEmpty)
+              _actionChip('🗣️ Spiegalo tu', const Color(0xFF80CBC4), const Color(0xFF00695C), () => widget.onFeynman?.call(unmastered.first)),
+            if (widget.onStemExercise != null)
+              _actionChip('🧮 Esercizio pratico', const Color(0xFFFFCC80), const Color(0xFFE65100), () => widget.onStemExercise?.call()),
+            if (widget.onPreLettura != null)
+              _actionChip('🔮 Anticipa', const Color(0xFF90CAF9), const Color(0xFF1565C0), () => widget.onPreLettura?.call()),
+          ],
+
+          // ╭─ 🧭 ESPLORA ─────────────────────────────────────
+          _chipCategoryHeader('🧭', 'Esplora', const Color(0xFF90A4AE)),
+          if (_expandedCategory == '🧭') ...[
+            if (widget.onNavigateCluster != null)
+              _actionChip('📍 Vai al punto', const Color(0xFF90A4AE), const Color(0xFF37474F), () => widget.onNavigateCluster?.call()),
+            if (widget.onClusterHide != null)
+              _actionChip('🙈 Nascondi e ricorda', const Color(0xFFF48FB1), const Color(0xFF880E4F), () => widget.onClusterHide?.call()),
+            if (widget.onInterleave != null)
+              _actionChip('🔀 Mescola concetti', const Color(0xFFAB47BC), const Color(0xFF4A148C), () => widget.onInterleave?.call()),
+          ],
+
+          // ╭─ 📊 PROGRESSI ────────────────────────────────────────────
+          _chipCategoryHeader('📊', 'Progressi', const Color(0xFF42A5F5)),
+          if (_expandedCategory == '📊') ...[
+            if (widget.onDashboard != null)
+              _actionChip('📊 I miei progressi', const Color(0xFF42A5F5), const Color(0xFF0D47A1), () => widget.onDashboard?.call()),
+            if (widget.onSessionSummary != null)
+              _actionChip('📋 Riepilogo sessione', const Color(0xFF9FA8DA), const Color(0xFF1A237E), () => widget.onSessionSummary?.call()),
+            if (widget.onExport != null)
+              _actionChip('💾 Esporta', const Color(0xFF66BB6A), const Color(0xFF1B5E20), () => widget.onExport?.call()),
+          ],
+        ],
+      ],
+    );
+  }
+  // ─── Chip category helpers ──────────────────────────────────────────────
+
+  Widget _chipCategoryHeader(String icon, String label, Color color) {
+    final isOpen = _expandedCategory == icon;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _expandedCategory = isOpen ? null : icon);
+        },
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('$icon $label',
+            style: TextStyle(color: color.withValues(alpha: isOpen ? 0.9 : 0.5),
+              fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+          const SizedBox(width: 4),
+          Text(isOpen ? '▾' : '▸',
+            style: TextStyle(color: color.withValues(alpha: 0.4), fontSize: 10)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _actionChip(String label, Color textColor, Color bgColor, VoidCallback? onTap) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 1, 12, 1),
+      child: GestureDetector(
+        onTap: () { HapticFeedback.mediumImpact(); onTap?.call(); },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          decoration: BoxDecoration(
+            color: bgColor.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: textColor.withValues(alpha: 0.4), width: 1)),
+          child: Text(label,
+            style: TextStyle(color: textColor, fontSize: 11, fontWeight: FontWeight.w600)),
+        ),
+      ),
+    );
+  }
+
+  // ─── ✏️ ACTIVE RECALL VERIFY INPUT (R&K 2006) ───────────────────────────
+
+  Widget _buildVerifyInput() {
+    final concept = _selectedConcept ?? widget.verifyQuestion;
+    final candidates = widget.verifyCandidates ??
+        (widget.verifyQuestion != null ? [widget.verifyQuestion!] : <String>[]);
+    if (candidates.isEmpty) return const SizedBox.shrink();
+
+    const vc = Color(0xFFFFD54F);
+    const ec = Color(0xFF80DEEA);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+
+          // ── PHASE A: concept picker ──────────────────────────────────────
+          if (concept == null) ...[
+            const Text('✏️ QUALE CONCETTO VUOI TESTARE?',
+              style: TextStyle(color: vc, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1.1)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6, runSpacing: 6,
+              children: candidates.map((c) => GestureDetector(
+                onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedConcept = c); },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: vc.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: vc.withValues(alpha: 0.4), width: 1)),
+                  child: Text(c.length > 26 ? c.substring(0, 24) + '…' : c,
+                    style: const TextStyle(color: vc, fontSize: 11, fontWeight: FontWeight.w600)),
+                ),
+              )).toList(),
+            ),
+          ],
+
+          // ── PHASES B + C + D: concept selected ──────────────────────────
+          if (concept != null) ...[
+            // Concept heading
+            Text('💭 $concept',
+              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 10),
+
+            // ── PHASE D: result badge (only for ✅ mastery) ──────────────
+            if (_verifyDone && _verifyResult == '✅')
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.3, end: 1.0),
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.elasticOut,
+                  builder: (_, v, child) => Transform.scale(scale: v, child: child),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _vBadgeColor(_verifyResult).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _vBadgeColor(_verifyResult).withValues(alpha: 0.5), width: 1.5)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(_verifyResult, style: const TextStyle(fontSize: 20)),
+                      const SizedBox(width: 8),
+                      Text(_vBadgeLabel(_verifyResult),
+                        style: TextStyle(color: _vBadgeColor(_verifyResult),
+                          fontSize: 13, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ),
+              ),
+
+            // ── PHASE B: 3 confidence chips (zero keyboard) ───────────────
+            if (!_verifyDone && !_verifySubmitting)
+              Column(mainAxisSize: MainAxisSize.min, children: [
+                _confidenceChip('🟢 So spiegarlo', 1, const Color(0xFF69F0AE), concept),
+                const SizedBox(height: 6),
+                _confidenceChip('🟡 Ho dubbi', 0, const Color(0xFFFFD54F), concept),
+                const SizedBox(height: 6),
+                _confidenceChip('🔴 Non ricordo', -1, const Color(0xFFEF5350), concept),
+              ]),
+
+            // ── Submitting indicator ───────────────────────────────────────
+            if (_verifySubmitting)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  SizedBox(width: 12, height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.5,
+                      color: vc.withValues(alpha: 0.7))),
+                  const SizedBox(width: 8),
+                  Text('Un momento…',
+                    style: TextStyle(color: vc.withValues(alpha: 0.6),
+                      fontSize: 12, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+
+
+            // ── PHASE E: Prossimo concetto (Zeigarnik → auto-advance) ───
+            if (_verifyDone)
+              Builder(builder: (_) {
+                if (!_verifiedInSession.contains(concept)) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _verifiedInSession.add(concept));
+                  });
+                }
+                final candidates = widget.verifyCandidates ?? [];
+                final nextConcept = candidates
+                    .where((c) => c != concept && !_verifiedInSession.contains(c))
+                    .firstOrNull;
+                final tested = _verifiedInSession.length;
+                final total = candidates.length;
+                if (nextConcept == null) {
+                  if (total > 1) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text('🎉 $tested/$total completati!',
+                        style: const TextStyle(color: Color(0xFF69F0AE), fontSize: 12, fontWeight: FontWeight.w600)),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        _selectedConcept = nextConcept;
+                        _verifyDone = false; _verifySubmitting = false;
+                        _verifyResult = '';
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E5FF).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.4), width: 1)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text('$tested/$total',
+                          style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 10, fontWeight: FontWeight.w800)),
+                        const SizedBox(width: 8),
+                        Text('Prossimo → ${nextConcept.length > 20 ? '${nextConcept.substring(0, 18)}…' : nextConcept}',
+                          style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.w600)),
+                      ]),
+                    ),
+                  ),
+                );
+              }),
+          ], // concept != null
+        ],
+      ),
+      ),
+    );
+  }
+
+  Widget _confidenceChip(String label, int level, Color color, String concept) {
+    return GestureDetector(
+      onTap: () async {
+        HapticFeedback.mediumImpact();
+        if (level == 1) {
+          // 🟢 So spiegarlo → trust the student, skip Atlas eval entirely
+          setState(() {
+            _verifyDone = true;
+            _verifyResult = '✅';
+          });
+          // Mark mastered + SR via callback (fire-and-forget)
+          widget.onVerifySubmit?.call(concept, 'So spiegarlo', 'confidence_1');
+        } else {
+          // 🟡 Ho dubbi / 🔴 Non ricordo → Atlas explains the concept
+          final answers = {0: 'Ho dubbi', -1: 'Non ricordo'};
+          setState(() => _verifySubmitting = true);
+          await widget.onVerifySubmit?.call(concept, answers[level]!, 'confidence_$level');
+          if (mounted) {
+            setState(() {
+              _verifySubmitting = false;
+              _verifyDone = true;
+              _verifyResult = level == 0 ? '🧠' : '📚'; // No badge shown (only ✅ shows)
+            });
+          }
+        }
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.4), width: 1)),
+        child: Text(label,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+
+  Color _vBadgeColor(String e) => switch (e) {
+    '✅' => const Color(0xFF69F0AE),
+    '🧠' => const Color(0xFF80DEEA),   // growth: teal = awareness
+    '📚' => const Color(0xFF90CAF9),   // growth: blue = learning
+    '⚠️' => const Color(0xFFFFD54F),
+    _ => const Color(0xFFFF5252),
+  };
+
+  String _vBadgeLabel(String e) => switch (e) {
+    '✅' => 'Ottimo!',
+    _ => '', // 🧠/📚: la spiegazione è il valore, il badge è rumore
+  };
+
+  // ─── Follow-up chips ─────────────────────────────────────────────────────
+
   Widget _buildFollowUpChips() {
+
     final suggestions = _getFollowUpSuggestions();
     if (suggestions.isEmpty) return const SizedBox.shrink();
     return Padding(

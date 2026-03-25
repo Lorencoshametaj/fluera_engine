@@ -27,6 +27,7 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
     private var sharePlugin: SharePlugin? = null
     private var printPlugin: PrintPlugin? = null
     private var vulkanStrokePlugin: VulkanStrokeOverlayPlugin? = null
+    private var notificationPlugin: NotificationPlugin? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         // Register predicted touch plugin
@@ -72,6 +73,10 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
         // Register Vulkan stroke overlay plugin (GPU live stroke renderer)
         vulkanStrokePlugin = VulkanStrokeOverlayPlugin()
         vulkanStrokePlugin?.onAttachedToEngine(binding)
+
+        // Register notification plugin
+        notificationPlugin = NotificationPlugin()
+        notificationPlugin?.onAttachedToEngine(binding)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -107,12 +112,16 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
 
         vulkanStrokePlugin?.onDetachedFromEngine(binding)
         vulkanStrokePlugin = null
+
+        notificationPlugin?.onDetachedFromEngine(binding)
+        notificationPlugin = null
     }
 
     // ─── ActivityAware — forward to plugins needing Activity ──────────
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         printPlugin?.onAttachedToActivity(binding)
         audioRecorderPlugin?.onAttachedToActivity(binding)
+        notificationPlugin?.onAttachedToActivity(binding)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -123,10 +132,12 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         printPlugin?.onReattachedToActivityForConfigChanges(binding)
         audioRecorderPlugin?.onReattachedToActivityForConfigChanges(binding)
+        notificationPlugin?.onReattachedToActivityForConfigChanges(binding)
     }
 
     override fun onDetachedFromActivity() {
         printPlugin?.onDetachedFromActivity()
         audioRecorderPlugin?.onDetachedFromActivity()
+        notificationPlugin?.onDetachedFromActivity()
     }
 }

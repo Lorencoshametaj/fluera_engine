@@ -580,7 +580,9 @@ extension on _FlueraCanvasScreenState {
     } catch (e, st) {
       debugPrint('❌ _loadCanvasData EXCEPTION: $e\n$st');
     } finally {
-      // 🔄 Reveal canvas: setState triggers AnimatedOpacity fade-out
+      // 🔄 Reveal canvas with WARM-UP: keep the loading overlay visible
+      // while the first expensive paint frames run (R-tree build, stroke
+      // cache warmup, tile rendering). The overlay hides the frame drops.
       if (mounted) {
         // 🎨 Invalidate layer caches (layer compositing state may have changed).
         // NOTE: Do NOT invalidate strokeCache here — the version-based
@@ -588,10 +590,6 @@ extension on _FlueraCanvasScreenState {
         // Explicit invalidation would destroy the warm cache just built
         // by bumpVersion() → paint(), causing a 120ms+ full rebuild.
         DrawingPainter.invalidateLayerCaches();
-
-        setState(() {
-          _isLoading = false;
-        });
 
         // 🏎️ Auto-enable performance overlay in debug + profile builds
         if (!kReleaseMode) {
@@ -604,32 +602,37 @@ extension on _FlueraCanvasScreenState {
           CanvasPerformanceMonitor.instance.showGlobalOverlay(context);
         }
 
-        // 🎨 FORCE REPAINT: The DrawingPainter repaints via two mechanisms:
-        // 1. ListenableBuilder(listenable: _layerController) → widget rebuild
-        // 2. super(repaint: controller) → direct repaint signal
-        //
-        // After loading, mechanism (1) may fire while the overlay is still
-        // opaque, and the rendering system may optimize away the paint.
-        // We use BOTH mechanisms with a delay to guarantee the painter
-        // renders with the loaded data after the overlay fades out.
+        // 🔥 WARM-UP PHASE: Force the first paint cycle BEHIND the opaque
+        // loading overlay. This executes the expensive cold-start work
+        // (R-tree build, RenderPlan compilation, stroke cache warmup)
+        // before the user can see the canvas. Without this, those 25ms+
+        // frames are visible as jank during the overlay fade-out.
+        _layerController.sceneGraph.bumpVersion();
+        setState(() {}); // Rebuild widget tree with loaded data
+        _canvasController.markNeedsPaint(); // Direct repaint signal
+
+        // Wait 3 frames for cold caches to warm up behind the overlay.
+        // Frame 1: R-tree build + RenderPlan compilation
+        // Frame 2: Stroke cache warmup + tile rendering
+        // Frame 3: Steady-state paint (should be <5ms)
+        await _yieldFrame();
+        if (!mounted) { _isLoading = false; return; }
+        await _yieldFrame();
+        if (!mounted) { _isLoading = false; return; }
+        await _yieldFrame();
+        if (!mounted) { _isLoading = false; return; }
+
+        // ✅ Caches are warm — now dismiss the loading overlay.
+        // The 350ms AnimatedOpacity fade-out starts from this point,
+        // and subsequent paint frames will be <5ms.
+        setState(() {
+          _isLoading = false;
+        });
+
+        // 🏎️ PERF: Flush cold-start frames from the P99 rolling window.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          // Bump scene graph version to invalidate any stale caches
-          _layerController.sceneGraph.bumpVersion();
-          // Force widget rebuild (creates new DrawingPainter with fresh data)
-          setState(() {});
-          // Direct repaint signal to the DrawingPainter via its repaint listenable
-          _canvasController.markNeedsPaint();
-
-          // 🏎️ PERF: Flush cold-start frames from the P99 rolling window.
-          // The first 1-2 paint frames after load are always expensive
-          // (cache warmup, RenderPlan compilation, R-tree build). Without
-          // this reset, those ~25ms frames inflate P99 for 2 full seconds
-          // (120-sample window / 60fps) despite steady-state being <5ms.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            CanvasPerformanceMonitor.instance.reset();
-          });
+          CanvasPerformanceMonitor.instance.reset();
         });
       } else {
         _isLoading = false;
@@ -939,6 +942,18 @@ extension on _FlueraCanvasScreenState {
       // Start particle ticker if connections were loaded
       if (_knowledgeParticleTicker != null && !_knowledgeParticleTicker!.isActive) {
         _knowledgeParticleTicker!.start();
+      }
+    }
+
+    // 🧠 Restore semantic AI titles from saved data
+    final semanticTitlesData = data['semanticTitles'] as Map<String, dynamic>?;
+    if (semanticTitlesData != null && _semanticMorphController != null) {
+      final titlesRaw = semanticTitlesData['titles'] as Map<String, dynamic>?;
+      final hashesRaw = semanticTitlesData['hashes'] as Map<String, dynamic>?;
+      if (titlesRaw != null) {
+        final titles = titlesRaw.map((k, v) => MapEntry(k, v.toString()));
+        final hashes = hashesRaw?.map((k, v) => MapEntry(k, v.toString())) ?? {};
+        _semanticMorphController!.restoreAiTitles(titles, hashes);
       }
     }
 

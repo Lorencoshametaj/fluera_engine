@@ -6,6 +6,12 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🌟 RADIAL EXPANSION: Finalize bubble drag-to-confirm gesture
+    if (_radialDraggedBubbleId != null) {
+      finalizeRadialBubbleDrag();
+      return;
+    }
+
     // 🔍 ECHO SEARCH INTERCEPT: Commit query stroke
     if (_echoSearchActive) {
       _echoSearchOnDrawEnd();
@@ -118,8 +124,22 @@ extension on _FlueraCanvasScreenState {
           // User taps connection with gesture tool to edit label.
         }
       } else {
-        // No snap target — just clean up silently (drag cancelled).
-        // Cluster preview is only shown on simple long-press (no drag).
+        // No snap target — decide between radial expansion and cancellation.
+        // Short drag (< 70 canvas px) = intentional radial expansion release.
+        // Long drag = user tried to connect to empty space → cancel charge.
+        final dragPt = _connectionDragCurrentPoint ?? canvasPosition;
+        final dragDist = (_connectionDragSourcePoint != null)
+            ? (dragPt - _connectionDragSourcePoint!).distance
+            : double.infinity;
+        final shortDragThreshold = 70.0 / _canvasController.scale;
+
+        if (dragDist < shortDragThreshold) {
+          // 🌟 SHORT DRAG: trigger AI radial expansion
+          _releaseRadialCharge();
+        } else {
+          // Long drag to nowhere → cancel, don't trigger AI
+          _radialExpansionController?.cancelCharge();
+        }
       }
 
       // Reset drag state — must use setState to force rebuild
@@ -140,6 +160,7 @@ extension on _FlueraCanvasScreenState {
     _isDrawingNotifier.value = false;
     CanvasPerformanceMonitor.instance.notifyDrawingEnded(); // 🚀 Resume overlay
     _pushConsciousContext(); // 🧠 Notify intelligence subsystems
+    _scheduleProactiveAnalysis(); // 💡 Debounced knowledge gap analysis
 
     // 📌 PIN DRAG END: Finalize pin position
     if (_draggingPinId != null) {
@@ -764,12 +785,20 @@ extension on _FlueraCanvasScreenState {
       }
     }
 
-    // 🧹 SCRATCH-OUT (v2): Detect zigzag scribble → delete strokes underneath
-    // Enhanced: PCA diagonal support, undo, particles, confirmation, sound.
+    // 🧹 SCRATCH-OUT (v5): Detect zigzag scribble → delete strokes underneath
+    // Enhanced: PCA diagonal support, precise path deletion, dissolve animation,
+    // progressive haptics, undo, particles, confirmation, sound.
     // 🔒 GUARD: Skip if draw was cancelled by zoom (finger-up after pinch)
     if (!_drawWasCancelled &&
         !_effectiveIsEraser && _effectivePenType != ProPenType.technicalPen) {
       final scratchResult = ScratchOutDetector.analyze(finalPoints);
+
+      // 🧹 v5: Clear preview regardless of recognition
+      if (_scratchOutPreviewIds.isNotEmpty) {
+        _scratchOutPreviewIds = const {};
+        _scratchOutPreviewArmed = false;
+      }
+
       if (scratchResult.recognized) {
         // 🔥 Clear native GPU overlay (Vulkan/Metal/WebGPU) FIRST
         if (_vulkanOverlayActive) {
@@ -785,32 +814,90 @@ extension on _FlueraCanvasScreenState {
         // Clear Flutter live stroke
         _currentStrokeNotifier.clear();
 
-        // Find all strokes in the active layer whose bounds overlap
-        final activeLayer = _layerController.layers.firstWhere(
-          (l) => l.id == _layerController.activeLayerId,
-          orElse: () => _layerController.layers.first,
-        );
+        // 🎯 v6: PRECISE PATH-BASED DELETION + MULTI-LAYER + ADAPTIVE ZOOM
+        // Proximity threshold scales with zoom: tighter at high zoom,
+        // more forgiving at low zoom. Multi-layer: scan ALL visible layers.
         final strokesToDelete = <ProStroke>[];
-        for (final stroke in activeLayer.strokes) {
-          if (stroke.bounds.overlaps(scratchResult.scratchBounds)) {
-            strokesToDelete.add(stroke);
+        final scratchBounds = scratchResult.scratchBounds;
+        final proximityThreshold = (30.0 / _canvasController.scale)
+            .clamp(15.0, 80.0); // adaptive to zoom
+
+        for (final layer in _layerController.layers) {
+          if (!layer.visible) continue;
+          for (final stroke in layer.strokes) {
+            // Quick reject: bounding box must overlap first
+            if (!stroke.bounds.overlaps(scratchBounds)) continue;
+
+            // Fine check: does any scratch segment pass near any stroke segment?
+            bool isNear = false;
+            final strokePts = stroke.points;
+            outer:
+            for (int si = 1; si < finalPoints.length; si += 3) {
+              final sp = finalPoints[si].position;
+              for (int ti = 0; ti < strokePts.length; ti += 3) {
+                final tp = strokePts[ti].position;
+                if ((sp - tp).distance < proximityThreshold) {
+                  isNear = true;
+                  break outer;
+                }
+              }
+            }
+            if (isNear) strokesToDelete.add(stroke);
           }
         }
 
         if (strokesToDelete.isNotEmpty) {
           final deleteCount = strokesToDelete.length;
-
-          // ↩️ UNDO: Save strokes before deletion for undo support
           final deletedStrokesCopy = List<ProStroke>.of(strokesToDelete);
 
-          // Batch-delete overlapping strokes
-          _layerController.beginBatch();
-          for (final stroke in strokesToDelete) {
-            _layerController.removeStroke(stroke.id);
+          // 🌊 v5: DISSOLVE ANIMATION — fade strokes out over 300ms
+          // Build initial dissolve map (all at full opacity)
+          final dissolveMap = <String, double>{};
+          for (final s in deletedStrokesCopy) {
+            dissolveMap[s.id] = 1.0;
           }
-          _layerController.endBatch();
+          _scratchOutDissolveMap = Map.unmodifiable(dissolveMap);
+          _scratchOutDissolveStartMs = DateTime.now().millisecondsSinceEpoch;
 
-          // ↩️ Push undo command (deletion already executed)
+          // Start dissolve ticker
+          _scratchOutDissolveTicker?.dispose();
+          _scratchOutDissolveTicker = createTicker((elapsed) {
+            final progress = (elapsed.inMilliseconds / 300.0).clamp(0.0, 1.0);
+            final opacity = 1.0 - progress;
+
+            if (progress >= 1.0) {
+              // Animation complete — actually delete strokes
+              _scratchOutDissolveTicker?.stop();
+              _scratchOutDissolveTicker?.dispose();
+              _scratchOutDissolveTicker = null;
+              _scratchOutDissolveMap = const {};
+
+              // Batch-delete strokes
+              _layerController.beginBatch();
+              for (final stroke in deletedStrokesCopy) {
+                _layerController.removeStroke(stroke.id);
+              }
+              _layerController.endBatch();
+
+              // Invalidate tiles + save
+              DrawingPainter.invalidateAllTiles();
+              _reconcilePdfAnnotations();
+              _reconcileSearchIndex();
+              _autoSaveCanvas();
+              _layerController.notifyListeners();
+            } else {
+              // Update dissolve opacity for all strokes
+              final updated = <String, double>{};
+              for (final s in deletedStrokesCopy) {
+                updated[s.id] = opacity;
+              }
+              _scratchOutDissolveMap = Map.unmodifiable(updated);
+              _layerController.notifyListeners();
+            }
+          });
+          _scratchOutDissolveTicker!.start();
+
+          // ↩️ Push undo command (deletion will execute after dissolve)
           _commandHistory.pushWithoutExecute(ScratchOutCommand(
             deletedStrokes: deletedStrokesCopy,
             layerController: _layerController,
@@ -861,7 +948,7 @@ extension on _FlueraCanvasScreenState {
           _scratchOutAnimating = true;
           _uiRebuildNotifier.value++;
 
-          // Clean up after animation (500ms)
+          // Clean up particle animation (500ms)
           Future.delayed(const Duration(milliseconds: 500), () {
             if (mounted) {
               _scratchOutAnimating = false;
@@ -870,12 +957,6 @@ extension on _FlueraCanvasScreenState {
               _uiRebuildNotifier.value++;
             }
           });
-
-          // Invalidate tiles + save
-          DrawingPainter.invalidateAllTiles();
-          _reconcilePdfAnnotations();
-          _reconcileSearchIndex();
-          _autoSaveCanvas();
         } else {
           // No overlapping strokes — just discard the scratch stroke
           _currentStrokeNotifier.clear();
@@ -1123,7 +1204,7 @@ extension on _FlueraCanvasScreenState {
         }
       }
       _layerController.addStroke(stroke);
-      DrawingPainter.invalidateTilesForStroke(stroke);
+      DrawingPainter.triggerRepaint();
       _broadcastStrokeAdded(stroke);
 
       // 🔍 Auto-index stroke for handwriting search

@@ -31,6 +31,9 @@ enum CinematicState {
   completed,
 }
 
+/// Available playback speeds.
+const List<double> kCinematicSpeeds = [0.5, 1.0, 1.5, 2.0, 3.0];
+
 /// 🎬 A step in the cinematic playback sequence.
 ///
 /// Each step represents one cluster's strokes being drawn, followed
@@ -150,6 +153,38 @@ class CinematicPlaybackController extends ChangeNotifier {
   /// Dwell time (seconds) after a cluster finishes drawing before moving on.
   static const double _dwellTime = 0.5;
 
+  /// 🚀 PERF: Adaptive Bézier sample count based on connection distance.
+  /// Short connections (<300px): 3 samples (fast)
+  /// Medium: 5 samples (balanced)
+  /// Long connections (>800px): 8 samples (smooth)
+  int _adaptiveBezierSamples(double distance) {
+    if (distance < 300) return 3;
+    if (distance > 800) return 8;
+    return 5;
+  }
+
+  /// Current playback speed multiplier.
+  double _playbackSpeed = 1.0;
+  double get playbackSpeed => _playbackSpeed;
+
+  /// Elapsed playback time in ms (accounting for speed).
+  int get elapsedTimeMs {
+    if (_steps.isEmpty || _currentStepIndex >= _steps.length) return 0;
+    int elapsed = 0;
+    for (int i = 0; i < _currentStepIndex; i++) {
+      elapsed += _steps[i].endMs - _steps[i].startMs;
+    }
+    final step = _steps[_currentStepIndex];
+    elapsed += ((step.endMs - step.startMs) * _stepProgress).toInt();
+    return elapsed;
+  }
+
+  /// Total recording time in ms.
+  int get totalTimeMs {
+    if (_steps.isEmpty) return 0;
+    return _steps.last.endMs - _steps.first.startMs;
+  }
+
   CinematicPlaybackController({
     required SynchronizedPlaybackController syncPlayback,
     required InfiniteCanvasController cameraController,
@@ -258,8 +293,91 @@ class CinematicPlaybackController extends ChangeNotifier {
     _steps = [];
     _currentStepIndex = 0;
     _stepProgress = 0.0;
+    _playbackSpeed = 1.0;
     _state = CinematicState.idle;
     notifyListeners();
+  }
+
+  // ===========================================================================
+  // NAVIGATION (SKIP FORWARD / BACKWARD)
+  // ===========================================================================
+
+  /// Skip to the next cluster (fast-forward).
+  ///
+  /// Immediately stops the current drawing/transition and jumps to
+  /// the next cluster's camera position + audio start.
+  Future<void> skipToNextCluster() async {
+    if (!isActive && _state != CinematicState.paused) return;
+    if (_currentStepIndex >= _steps.length - 1) {
+      _complete();
+      return;
+    }
+
+    _drawingMonitor?.cancel();
+    _cameraController.stopAnimation();
+
+    _currentStepIndex++;
+    _stepProgress = 0.0;
+
+    final step = _steps[_currentStepIndex];
+    await _syncPlayback.seek(Duration(milliseconds: step.startMs));
+
+    _state = CinematicState.panningToCluster;
+    notifyListeners();
+    _panToCurrentCluster(thenDraw: true);
+
+    debugPrint('⏩ [CinematicPlayback] Skip to step $_currentStepIndex');
+  }
+
+  /// Skip to the previous cluster (rewind).
+  ///
+  /// If more than 2s into the current cluster, restarts the current one.
+  /// Otherwise, goes back to the previous cluster.
+  Future<void> skipToPreviousCluster() async {
+    if (!isActive && _state != CinematicState.paused) return;
+
+    _drawingMonitor?.cancel();
+    _cameraController.stopAnimation();
+
+    // If >2 seconds into current step, restart it
+    final step = _steps[_currentStepIndex];
+    final currentMs = _syncPlayback.positionMs;
+    if (currentMs - step.startMs > 2000 || _currentStepIndex == 0) {
+      // Restart current step
+      _stepProgress = 0.0;
+    } else {
+      // Go back one step
+      _currentStepIndex--;
+      _stepProgress = 0.0;
+    }
+
+    final targetStep = _steps[_currentStepIndex];
+    await _syncPlayback.seek(Duration(milliseconds: targetStep.startMs));
+
+    _state = CinematicState.panningToCluster;
+    notifyListeners();
+    _panToCurrentCluster(thenDraw: true);
+
+    debugPrint('⏪ [CinematicPlayback] Back to step $_currentStepIndex');
+  }
+
+  // ===========================================================================
+  // SPEED CONTROL
+  // ===========================================================================
+
+  /// Set playback speed (0.5x–3.0x).
+  void setSpeed(double speed) {
+    _playbackSpeed = speed.clamp(0.5, 3.0);
+    _syncPlayback.setPlaybackSpeed(_playbackSpeed);
+    notifyListeners();
+    debugPrint('⏯️ [CinematicPlayback] Speed: ${_playbackSpeed}x');
+  }
+
+  /// Cycle through preset speeds: 1x → 1.5x → 2x → 3x → 0.5x → 1x
+  void cycleSpeed() {
+    final idx = kCinematicSpeeds.indexOf(_playbackSpeed);
+    final next = (idx + 1) % kCinematicSpeeds.length;
+    setSpeed(kCinematicSpeeds[next]);
   }
 
   // ===========================================================================
@@ -268,40 +386,40 @@ class CinematicPlaybackController extends ChangeNotifier {
 
   /// Build the ordered list of cinematic steps.
   ///
-  /// Strategy:
-  /// 1. For each cluster, compute the earliest and latest stroke timestamp
-  /// 2. Sort clusters by earliest timestamp (chronological order)
-  /// 3. Find connections between consecutive clusters in the sorted order
+  /// 🚀 PERF: O(n+m) complexity via reverse lookup map:
+  ///   1. Build strokeId → clusterId map from clusters O(n)
+  ///   2. Scan synced strokes once to compute time ranges O(m)
+  ///   3. Sort + link connections O(c log c + k)
   List<_CinematicStep> _buildSteps(
     List<ContentCluster> clusters,
     List<KnowledgeConnection> connections,
     SynchronizedRecording recording,
   ) {
-    // Map cluster ID → stroke time range
-    final clusterTimeRanges = <String, (int, int)>{};
-    final clusterStrokeIds = <String, Set<String>>{};
-
+    // 🚀 PERF: Reverse lookup: strokeId → clusterId (O(n) build)
+    final strokeToCluster = <String, String>{};
     for (final cluster in clusters) {
-      clusterStrokeIds[cluster.id] = {...cluster.strokeIds};
+      for (final strokeId in cluster.strokeIds) {
+        strokeToCluster[strokeId] = cluster.id;
+      }
     }
 
+    // 🚀 PERF: Single pass over synced strokes (O(m))
+    final clusterTimeRanges = <String, (int, int)>{};
     for (final synced in recording.syncedStrokes) {
-      for (final entry in clusterStrokeIds.entries) {
-        if (entry.value.contains(synced.stroke.id)) {
-          final existing = clusterTimeRanges[entry.key];
-          if (existing == null) {
-            clusterTimeRanges[entry.key] = (
-              synced.relativeStartMs,
-              synced.relativeEndMs,
-            );
-          } else {
-            clusterTimeRanges[entry.key] = (
-              math.min(existing.$1, synced.relativeStartMs),
-              math.max(existing.$2, synced.relativeEndMs),
-            );
-          }
-          break;
-        }
+      final clusterId = strokeToCluster[synced.stroke.id];
+      if (clusterId == null) continue;
+
+      final existing = clusterTimeRanges[clusterId];
+      if (existing == null) {
+        clusterTimeRanges[clusterId] = (
+          synced.relativeStartMs,
+          synced.relativeEndMs,
+        );
+      } else {
+        clusterTimeRanges[clusterId] = (
+          math.min(existing.$1, synced.relativeStartMs),
+          math.max(existing.$2, synced.relativeEndMs),
+        );
       }
     }
 
@@ -462,47 +580,78 @@ class CinematicPlaybackController extends ChangeNotifier {
       _state = CinematicState.followingConnection;
       notifyListeners();
 
-      // Build a 3-phase flight: zoom out → pan along connection → zoom in
+      // === BÉZIER CAMERA PATH FOLLOWING ===
+      // Instead of a simple zoom-out/zoom-in, the camera traces
+      // the actual connection Bézier curve with multiple keyframes.
+
+      final conn = step.connectionToNext!;
       final currentBounds = _paddedBounds(step.cluster.bounds);
       final nextBounds = _paddedBounds(step.nextCluster!.bounds);
 
-      // Midpoint between the two clusters (the connection's visual center)
-      final midpoint = Offset(
-        (step.cluster.centroid.dx + step.nextCluster!.centroid.dx) / 2,
-        (step.cluster.centroid.dy + step.nextCluster!.centroid.dy) / 2,
+      // Source and target points for the Bézier
+      final srcPt = step.cluster.centroid;
+      final tgtPt = step.nextCluster!.centroid;
+      final controlPt = _bezierControlPoint(
+        srcPt, tgtPt, conn.curveStrength,
       );
 
-      // Zoom out scale: enough to see both clusters
+      // Combined rect: needed for the intermediate zoom level
       final combinedRect = currentBounds.expandToInclude(nextBounds);
       final transitScale = _computeFitScale(
-        combinedRect.inflate(combinedRect.shortestSide * 0.2),
+        combinedRect.inflate(combinedRect.shortestSide * 0.15),
       );
-      final transitOffset = _computeCenterOffset(
-        combinedRect.inflate(combinedRect.shortestSide * 0.2),
+
+      // 🚀 PERF: Adaptive Bézier samples based on distance
+      final connectionDistance = (srcPt - tgtPt).distance;
+      final sampleCount = _adaptiveBezierSamples(connectionDistance);
+
+      // Build multi-keyframe path along the Bézier curve
+      final keyframes = <CameraKeyframe>[];
+
+      // Phase 1: Zoom out slightly
+      final midPoint = _pointOnBezier(srcPt, controlPt, tgtPt, 0.5);
+      final midOffset = _computeCenterOffset(
+        Rect.fromCenter(center: midPoint, width: combinedRect.width, height: combinedRect.height),
         transitScale,
       );
+      keyframes.add(CameraKeyframe(
+        targetOffset: midOffset,
+        targetScale: transitScale,
+        durationSeconds: _transitionDuration * 0.3 / _playbackSpeed,
+        curve: Curves.easeInCubic,
+      ));
 
-      // Final target: frame the next cluster
+      // Phase 2..N-1: Follow Bézier curve at intermediate zoom
+      final intermediateCount = sampleCount - 2;
+      if (intermediateCount > 0) {
+        for (int i = 1; i <= intermediateCount; i++) {
+          final t = i / (intermediateCount + 1);
+          final pt = _pointOnBezier(srcPt, controlPt, tgtPt, t);
+          final sampleOffset = _computeCenterOffset(
+            Rect.fromCenter(center: pt, width: combinedRect.width, height: combinedRect.height),
+            transitScale,
+          );
+          keyframes.add(CameraKeyframe(
+            targetOffset: sampleOffset,
+            targetScale: transitScale,
+            durationSeconds: _transitionDuration * 0.4 / intermediateCount / _playbackSpeed,
+            curve: Curves.linear,
+          ));
+        }
+      }
+
+      // Phase 5: Zoom into next cluster
       final nextScale = _computeFitScale(nextBounds);
       final nextOffset = _computeCenterOffset(nextBounds, nextScale);
+      keyframes.add(CameraKeyframe(
+        targetOffset: nextOffset,
+        targetScale: nextScale,
+        durationSeconds: _transitionDuration * 0.3 / _playbackSpeed,
+        curve: Curves.easeOutCubic,
+      ));
 
       _cameraController.animateMultiPhase(
-        keyframes: [
-          // Phase 1: Zoom out to see both clusters
-          CameraKeyframe(
-            targetOffset: transitOffset,
-            targetScale: transitScale,
-            durationSeconds: _transitionDuration * 0.4,
-            curve: Curves.easeInCubic,
-          ),
-          // Phase 2: Zoom in to next cluster
-          CameraKeyframe(
-            targetOffset: nextOffset,
-            targetScale: nextScale,
-            durationSeconds: _transitionDuration * 0.6,
-            curve: Curves.easeOutCubic,
-          ),
-        ],
+        keyframes: keyframes,
         sourceClusterId: step.cluster.id,
         targetClusterId: step.nextCluster!.id,
         onComplete: () {
@@ -562,6 +711,29 @@ class CinematicPlaybackController extends ChangeNotifier {
     return Offset(
       _viewportSize.width / 2 - targetRect.center.dx * scale,
       _viewportSize.height / 2 - targetRect.center.dy * scale,
+    );
+  }
+
+  /// Compute Bézier control point for a connection.
+  Offset _bezierControlPoint(Offset src, Offset tgt, double curveStrength) {
+    final mid = Offset(
+      (src.dx + tgt.dx) / 2,
+      (src.dy + tgt.dy) / 2,
+    );
+    // Perpendicular offset
+    final dx = tgt.dx - src.dx;
+    final dy = tgt.dy - src.dy;
+    final perpX = -dy * curveStrength;
+    final perpY = dx * curveStrength;
+    return Offset(mid.dx + perpX, mid.dy + perpY);
+  }
+
+  /// Point on a quadratic Bézier at parameter t.
+  Offset _pointOnBezier(Offset p0, Offset p1, Offset p2, double t) {
+    final u = 1.0 - t;
+    return Offset(
+      u * u * p0.dx + 2 * u * t * p1.dx + t * t * p2.dx,
+      u * u * p0.dy + 2 * u * t * p1.dy + t * t * p2.dy,
     );
   }
 

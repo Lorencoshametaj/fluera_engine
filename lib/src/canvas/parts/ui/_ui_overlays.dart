@@ -2458,17 +2458,56 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         _activateEchoSearch();
                         HapticFeedback.mediumImpact();
                         break;
+                      case RadialToolItem.export:
+                        _enterExportMode();
+                        HapticFeedback.mediumImpact();
+                        break;
                     }
                   }
                   break;
                 case RadialMenuItem.atlas:
-                  // 🌌 Atlas AI: Show prompt overlay
+                  // 🌌 Atlas AI: Show quick action choice
                   HapticFeedback.mediumImpact();
-                  setState(() {
-                    _showAtlasPrompt = true;
-                    _atlasIsLoading = false;
-                    _atlasResponseText = null;
-                  });
+                  showModalBottomSheet(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    barrierColor: Colors.black.withValues(alpha: 0.4),
+                    builder: (_) => Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0D0D1A),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.12)),
+                      ),
+                      child: SafeArea(
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          const SizedBox(height: 8),
+                          Container(width: 36, height: 4,
+                            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(2))),
+                          const SizedBox(height: 20),
+                          ListTile(
+                            leading: const Text('⚡', style: TextStyle(fontSize: 22)),
+                            title: const Text('Chiedi ad Atlas', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                            subtitle: Text('Prompt libero o analisi selezione', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+                            onTap: () {
+                              Navigator.pop(context);
+                              setState(() { _showAtlasPrompt = true; _atlasIsLoading = false; _atlasResponseText = null; });
+                            },
+                          ),
+                          ListTile(
+                            leading: const Text('🎓', style: TextStyle(fontSize: 22)),
+                            title: const Text('Interrogami', style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.w600)),
+                            subtitle: Text('Esame interattivo sui tuoi appunti', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _startExamSession();
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                        ]),
+                      ),
+                    ),
+                  );
                   break;
               }
             },

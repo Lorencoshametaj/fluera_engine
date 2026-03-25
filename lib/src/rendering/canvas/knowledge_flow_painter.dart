@@ -7,6 +7,7 @@ import '../../reflow/knowledge_connection.dart';
 import '../../reflow/knowledge_flow_controller.dart';
 import '../../reflow/connection_suggestion_engine.dart';
 import '../../reflow/semantic_morph_controller.dart';
+import '../../canvas/ai/fsrs_scheduler.dart';
 
 /// 🧠 KNOWLEDGE FLOW PAINTER — Premium glassmorphism mind-map visualization.
 ///
@@ -103,6 +104,19 @@ class KnowledgeFlowPainter extends CustomPainter {
   /// Highlight intensity for audio-ink sync (0.0—1.0, decaying).
   final double audioHighlightIntensity;
 
+  // ---------------------------------------------------------------------------
+  // 🃏 FLASHCARD ENHANCEMENTS
+  // ---------------------------------------------------------------------------
+
+  /// 💡 Proactive knowledge gaps per cluster (clusterId → list of gap concepts).
+  final Map<String, List<String>> proactiveGaps;
+
+  /// 💡 Proactive scan text per cluster (clusterId → AI-generated description).
+  final Map<String, String> proactiveScan;
+
+  /// 📅 Spaced repetition schedule (concept → FSRS card data).
+  final Map<String, SrsCardData> reviewSchedule;
+
   // LOD thresholds
   static const double _lodLevel1Min = 0.15;
   static const double _lodLevel1Max = 0.5;
@@ -164,6 +178,9 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.audioHighlightStrokeId,
     this.audioHighlightConnectionId,
     this.audioHighlightIntensity = 0.0,
+    this.proactiveGaps = const {},
+    this.proactiveScan = const {},
+    this.reviewSchedule = const {},
   });
 
   @override
@@ -2638,6 +2655,9 @@ class KnowledgeFlowPainter extends CustomPainter {
   // 🚀 PERF: Cached related suggestions for flashcard (avoid per-frame filter)
   static String? _fcCachedClusterId;
   static List<SuggestedConnection> _fcCachedRelated = [];
+  static String? _fcCachedKeywordsClusterId;
+  static String? _fcCachedKeywordsText;
+  static String? _fcCachedKeywords;
   // 🚀 PERF: animationTime → ms offset for animation timing
   static double _fcAnimBaseTime = 0.0;
   static int _fcAnimBaseMs = 0;
@@ -2694,7 +2714,7 @@ class KnowledgeFlowPainter extends CustomPainter {
     final center = cluster.centroid;
     final importance = semanticController!.clusterImportance[clusterId] ?? 0.5;
     final importanceScale = 0.7 + importance * 0.6;
-    final nodeRadius = (20.0 + cluster.elementCount.clamp(0, 50) * 0.8) * importanceScale;
+    final nodeRadius = (20.0 + cluster.elementCount.clamp(0, 50) * 0.8) * importanceScale * inverseScale;
     final accentColor = _clusterColor(cluster);
 
     const cardW = 200.0;
@@ -2715,10 +2735,19 @@ class KnowledgeFlowPainter extends CustomPainter {
       contentH += 22; // stats row
     }
 
-    // Keywords
+    // Keywords (cached per cluster to avoid RegExp work every frame)
     final text = clusterTexts[clusterId] ?? '';
-    final keywords = text.isNotEmpty
-        ? SemanticMorphController.extractLocalKeywords(text) : null;
+    String? keywords;
+    if (text.isNotEmpty) {
+      if (_fcCachedKeywordsClusterId == clusterId && _fcCachedKeywordsText == text) {
+        keywords = _fcCachedKeywords;
+      } else {
+        keywords = SemanticMorphController.extractLocalKeywords(text);
+        _fcCachedKeywordsClusterId = clusterId;
+        _fcCachedKeywordsText = text;
+        _fcCachedKeywords = keywords;
+      }
+    }
     if (keywords != null) {
       contentH += 20; // keyword row
     }
@@ -2734,24 +2763,69 @@ class KnowledgeFlowPainter extends CustomPainter {
     final related = _fcCachedRelated;
     contentH += related.length * 16; // ghost rows
 
+    // 💡 PROACTIVE SCAN: AI description line
+    final scanText = proactiveScan[clusterId];
+    if (scanText != null && scanText.isNotEmpty) {
+      contentH += 30; // 2 lines of scan text
+    }
+
+    // 💡 PROACTIVE GAPS: knowledge gap chips
+    final gaps = proactiveGaps[clusterId];
+    if (gaps != null && gaps.isNotEmpty) {
+      contentH += 20; // gap chips row
+    }
+
+    // 📝 OCR PREVIEW: first 2 lines of recognized text
+    final ocrText = clusterTexts[clusterId] ?? '';
+    final hasOcrPreview = ocrText.trim().length > 5;
+    if (hasOcrPreview) {
+      contentH += 24; // preview lines
+    }
+
+    // 📅 SR PROGRESS BAR
+    final gapsForSr = gaps ?? <String>[];
+    int masteredCount = 0;
+    for (final g in gapsForSr) {
+      final nextReview = reviewSchedule[g];
+      if (nextReview != null && nextReview.nextReview.millisecondsSinceEpoch > nowMs) {
+        masteredCount++;
+      }
+    }
+    final hasSrBar = gapsForSr.isNotEmpty;
+    if (hasSrBar) contentH += 14;
+
     // Hint + bottom padding
     contentH += 22 + cardPad;
 
-    final cardH = contentH.clamp(80.0, 250.0);
+    final cardH = contentH.clamp(80.0, 330.0);
 
-    // Position card to the right of the node
-    final cardX = center.dx + nodeRadius + 15;
-    final cardY = center.dy - cardH * 0.3;
+    // ── SMART ORIENTATION: place card left or right of node ──
+    // Convert node center to approximate screen X to decide placement.
+    // The card is always ~200px wide on screen (scaled by 1/canvasScale).
+    // If the node is in the right half of a ~400px viewport, place card left.
+    final approxScreenX = center.dx * canvasScale;
+    final placeLeft = approxScreenX > 200; // heuristic: right-ish → card goes left
+
+    final double cardX;
+    final double cardY = center.dy - cardH * 0.3;
+    if (placeLeft) {
+      // Card to the LEFT of the node
+      cardX = center.dx - nodeRadius - 15 - cardW * (1.0 / canvasScale);
+    } else {
+      // Card to the RIGHT of the node (default)
+      cardX = center.dx + nodeRadius + 15;
+    }
 
     // ── 0. 🔗 CONNECTOR LINE: node → card ──
-    final connStart = Offset(
-      center.dx + nodeRadius,
-      center.dy,
-    );
-    final connEnd = Offset(cardX, cardY + cardH * 0.3);
+    final connNodeSide = placeLeft
+        ? Offset(center.dx - nodeRadius, center.dy)
+        : Offset(center.dx + nodeRadius, center.dy);
+    final connCardSide = placeLeft
+        ? Offset(cardX + cardW * (1.0 / canvasScale), cardY + cardH * 0.3)
+        : Offset(cardX, cardY + cardH * 0.3);
     final connCp = Offset(
-      (connStart.dx + connEnd.dx) / 2,
-      connStart.dy - 10,
+      (connNodeSide.dx + connCardSide.dx) / 2,
+      connNodeSide.dy - 10,
     );
     _p
       ..style = PaintingStyle.stroke
@@ -2767,8 +2841,8 @@ class KnowledgeFlowPainter extends CustomPainter {
         alpha: (0.15 + t0 * 0.20) * alpha,
       );
       canvas.drawLine(
-        _quadBezierPt(connStart, connCp, connEnd, t0),
-        _quadBezierPt(connStart, connCp, connEnd, t1),
+        _quadBezierPt(connNodeSide, connCp, connCardSide, t0),
+        _quadBezierPt(connNodeSide, connCp, connCardSide, t1),
         _p,
       );
     }
@@ -2776,7 +2850,9 @@ class KnowledgeFlowPainter extends CustomPainter {
     // ── CARD BODY ──
     canvas.save();
     canvas.translate(cardX, cardY);
-    canvas.scale(inverseScale * 0.4 * animEase);
+    // Scale so the card is ~200px wide on screen regardless of zoom
+    final cardScale = (1.0 / canvasScale) * animEase;
+    canvas.scale(cardScale);
 
     final cardRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, cardW, cardH),
@@ -2829,7 +2905,32 @@ class KnowledgeFlowPainter extends CustomPainter {
       _cachedTitlePainters[titleKey] = titleTp;
     }
     titleTp.paint(canvas, Offset(cardPad, curY));
-    curY += titleTp.height + 8;
+    curY += titleTp.height + 4;
+
+    // ── 4b. 💡 PROACTIVE SCAN TEXT — AI description ──
+    if (scanText != null && scanText.isNotEmpty) {
+      final scanKey = '${clusterId}_fcscan_${scanText.hashCode}';
+      var scanTp = _cachedTitlePainters[scanKey];
+      if (scanTp == null) {
+        scanTp = TextPainter(
+          text: TextSpan(
+            text: scanText,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.55),
+              fontSize: 9.0,
+              height: 1.3,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 2,
+          ellipsis: '…',
+        )..layout(maxWidth: cardW - cardPad * 2);
+        _cachedTitlePainters[scanKey] = scanTp;
+      }
+      scanTp.paint(canvas, Offset(cardPad, curY));
+      curY += scanTp.height + 6;
+    }
 
     // ── 5. Content type dots + stats ──
     if (stats != null && stats.totalElements > 0) {
@@ -2899,6 +3000,77 @@ class KnowledgeFlowPainter extends CustomPainter {
       curY += kwTp.height + 6;
     }
 
+    // ── 6b. 💡 PROACTIVE GAPS — knowledge gap chips ──
+    if (gaps != null && gaps.isNotEmpty) {
+      double chipX = cardPad;
+      const chipH = 14.0;
+      const chipPad = 6.0;
+      for (final gap in gaps.take(3)) {
+        final gapKey = '${clusterId}_fcgap_$gap';
+        var gapTp = _cachedTitlePainters[gapKey];
+        if (gapTp == null) {
+          gapTp = TextPainter(
+            text: TextSpan(
+              text: gap,
+              style: const TextStyle(
+                color: Color(0xE600E5FF), // cyan
+                fontSize: 8.0,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          _cachedTitlePainters[gapKey] = gapTp;
+        }
+        final chipW = gapTp.width + chipPad * 2;
+        if (chipX + chipW > cardW - cardPad) break; // overflow
+
+        // Chip background
+        final chipRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(chipX, curY, chipW, chipH),
+          const Radius.circular(7),
+        );
+        _p
+          ..style = PaintingStyle.fill
+          ..color = const Color(0xFF00E5FF).withValues(alpha: 0.10 * alpha);
+        canvas.drawRRect(chipRect, _p);
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8
+          ..color = const Color(0xFF00E5FF).withValues(alpha: 0.30 * alpha);
+        canvas.drawRRect(chipRect, _p);
+
+        gapTp.paint(canvas, Offset(chipX + chipPad, curY + 2));
+        chipX += chipW + 4;
+      }
+      curY += chipH + 6;
+    }
+
+    // ── 6c. 📝 OCR PREVIEW — first lines of recognized text ──
+    if (hasOcrPreview) {
+      final previewText = ocrText.trim().replaceAll('\n', ' ');
+      final prevKey = '${clusterId}_fcocr_${previewText.hashCode}';
+      var prevTp = _cachedTitlePainters[prevKey];
+      if (prevTp == null) {
+        prevTp = TextPainter(
+          text: TextSpan(
+            text: '📝 $previewText',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.35),
+              fontSize: 8.5,
+              height: 1.2,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 2,
+          ellipsis: '…',
+        )..layout(maxWidth: cardW - cardPad * 2);
+        _cachedTitlePainters[prevKey] = prevTp;
+      }
+      prevTp.paint(canvas, Offset(cardPad, curY));
+      curY += prevTp.height + 4;
+    }
+
     // ── 7. Connected ghost suggestions ──
     for (final ghost in related) {
       final otherId = ghost.sourceClusterId == clusterId
@@ -2929,13 +3101,71 @@ class KnowledgeFlowPainter extends CustomPainter {
       curY += ghostTp.height + 3;
     }
 
+    // ── 7b. 📅 SR PROGRESS BAR — mastery indicator ──
+    if (hasSrBar) {
+      final barW = cardW - cardPad * 2;
+      const barH = 5.0;
+      final barY = curY + 2;
+      // Background
+      _p
+        ..style = PaintingStyle.fill
+        ..color = Colors.white.withValues(alpha: 0.08 * alpha)
+        ..maskFilter = null
+        ..shader = null;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(cardPad, barY, barW, barH),
+          const Radius.circular(2.5),
+        ),
+        _p,
+      );
+      // Fill
+      final progress = gapsForSr.isEmpty
+          ? 0.0
+          : (masteredCount / gapsForSr.length).clamp(0.0, 1.0);
+      if (progress > 0) {
+        final fillColor = progress > 0.7
+            ? const Color(0xFF4CAF50) // green
+            : progress > 0.3
+                ? const Color(0xFFFFC107) // amber
+                : const Color(0xFFFF5722); // deep orange
+        _p.color = fillColor.withValues(alpha: 0.60 * alpha);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(cardPad, barY, barW * progress, barH),
+            const Radius.circular(2.5),
+          ),
+          _p,
+        );
+      }
+      // Label
+      final srLabel = '$masteredCount/${gapsForSr.length} reviewed';
+      final srKey = '${clusterId}_fcsr_$srLabel';
+      var srTp = _cachedTitlePainters[srKey];
+      if (srTp == null) {
+        srTp = TextPainter(
+          text: TextSpan(
+            text: '📅 $srLabel',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.35),
+              fontSize: 7.5,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        _cachedTitlePainters[srKey] = srTp;
+      }
+      srTp.paint(canvas, Offset(cardPad, barY + barH + 1));
+      curY += 14;
+    }
+
     // ── 8. "Zoom in" hint ──
     final hintKey = '${clusterId}_fch';
     var hintTp = _cachedTitlePainters[hintKey];
     if (hintTp == null) {
       hintTp = TextPainter(
         text: TextSpan(
-          text: 'Zoom in →',
+          text: '⟲ Tap → Zoom in',
           style: TextStyle(
             color: accentColor.withValues(alpha: 0.45),
             fontSize: 9.0,
@@ -2951,6 +3181,7 @@ class KnowledgeFlowPainter extends CustomPainter {
 
     canvas.restore();
   }
+
 
   // ===========================================================================
   // 🌍 GOD VIEW — Thematic super-nodes at extreme zoom-out
@@ -3249,17 +3480,22 @@ class KnowledgeFlowPainter extends CustomPainter {
     }
 
     for (final cluster in clusters) {
+      // 🔕 FILTER: Skip clusters with fewer than 20 strokes that lack an AI title.
+      // Small clusters without a title are noise in the semantic overview.
+      final hasAiTitle = clusterTexts[cluster.id]?.isNotEmpty == true;
+      if (cluster.strokeIds.length < 20 && !hasAiTitle) continue;
+
       final color = _clusterColor(cluster);
       final center = cluster.centroid;
       final stats = semanticController!.clusterStats[cluster.id];
       final connCount = connCounts[cluster.id] ?? 0;
 
-      // ── Node radius proportional to element count × importance ──
+      // ── Node radius proportional to element count × importance × inverseScale ──
       final elementCount = stats?.totalElements ?? 1;
       final importance = semanticController!.getSmoothedImportance(cluster.id);
       final importanceScale = 0.7 + importance * 0.6; // 0.7x–1.3x
       final baseNodeRadius = ((math.sqrt(elementCount.toDouble()) * 18.0 + 24.0)
-          .clamp(30.0, 120.0)) * importanceScale;
+          .clamp(30.0, 120.0)) * importanceScale * inverseScale;
       final isTopNode = importance >= semanticController!.importanceTopThreshold
           && clusters.length > 2;
 
@@ -3270,6 +3506,28 @@ class KnowledgeFlowPainter extends CustomPainter {
           ? (math.sin(breathPhase) * 0.08 + 1.0)
           : 1.0;
       final nodeRadius = baseNodeRadius * breath;
+
+      // ── 0.5. Cluster ownership boundary — tinted area over the strokes ──
+      final bounds = cluster.bounds;
+      if (!bounds.isEmpty && bounds.isFinite) {
+        final inflated = bounds.inflate(12.0 * inverseScale);
+        final ownerRect = RRect.fromRectAndRadius(
+          inflated, Radius.circular(8.0 * inverseScale),
+        );
+        // Subtle fill — cluster color at very low alpha
+        _p
+          ..style = PaintingStyle.fill
+          ..shader = null
+          ..maskFilter = null
+          ..color = color.withValues(alpha: 0.06 * fade);
+        canvas.drawRRect(ownerRect, _p);
+        // Dashed border — slightly more visible
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5 * inverseScale
+          ..color = color.withValues(alpha: 0.20 * fade);
+        canvas.drawRRect(ownerRect, _p);
+      }
 
       // ── 1. Outer glow — importance scales halo ──
       final glowMultiplier = 1.4 + importance * 0.6; // 1.4x—2.0x
@@ -3328,6 +3586,27 @@ class KnowledgeFlowPainter extends CustomPainter {
         canvas.drawCircle(center, nodeRadius + 8, _softGlowPaint);
       }
 
+      // ── 5.2 🃏 Flashcard selection ring — animated pulsing glow ──
+      final isFlashcardTarget =
+          semanticController!.flashcardClusterId == cluster.id;
+      if (isFlashcardTarget) {
+        final pulse = math.sin(animationTime * 3.0) * 0.3 + 0.7;
+        // Outer glow halo
+        _softGlowPaint.color = const Color(0xFF00E5FF).withValues(
+          alpha: 0.20 * pulse * fade,
+        );
+        canvas.drawCircle(center, nodeRadius * 1.6, _softGlowPaint);
+        // Inner ring
+        _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = const Color(0xFF00E5FF).withValues(
+            alpha: 0.50 * pulse * fade,
+          );
+        canvas.drawCircle(center, nodeRadius + 6, _p);
+      }
+
+
       // ── 5.5 Shimmer loading effect for pending AI title nodes ──
       final isPending = semanticController!.pendingAiRequests.contains(cluster.id);
       if (isPending) {
@@ -3358,12 +3637,16 @@ class KnowledgeFlowPainter extends CustomPainter {
       // ── 6. Title text — centered, auto-scaled, with AI crossfade ──
       canvas.save();
       canvas.translate(center.dx, center.dy);
-      canvas.scale(inverseScale * 0.35);
+      canvas.scale(inverseScale * 0.70);
       canvas.translate(-center.dx, -center.dy);
 
       // Constrain width to node diameter (inverse-scaled)
-      final maxTextWidth = nodeRadius * 2.0 / (inverseScale * 0.35) * 0.75;
+      final maxTextWidth = nodeRadius * 2.0 / (inverseScale * 0.70) * 0.75;
       final constrainedWidth = maxTextWidth.clamp(60.0, 300.0);
+
+      // 🎨 Compute dark text color from cluster accent (readable on white)
+      final hsl = HSLColor.fromColor(color);
+      final darkTextColor = hsl.withLightness(0.15).toColor();
 
       // 🏷️ Content type icon — cached TextPainter
       final icon = semanticController!.contentIcon(cluster.id);
@@ -3374,7 +3657,7 @@ class KnowledgeFlowPainter extends CustomPainter {
         iconTp = TextPainter(
           text: TextSpan(text: icon, style: TextStyle(
             fontSize: 11.0, height: 1.0,
-            color: Colors.white.withValues(alpha: iconAlpha),
+            color: darkTextColor.withValues(alpha: iconAlpha),
           )),
           textDirection: TextDirection.ltr,
           textAlign: TextAlign.center,
@@ -3421,7 +3704,7 @@ class KnowledgeFlowPainter extends CustomPainter {
       // Paint PREVIOUS title (fading out) if mid-transition
       if (previousTitle != null && titleOpacity < 1.0) {
         final prevStyle = TextStyle(
-          color: Colors.white.withValues(alpha: 0.92 * fade * (1.0 - titleOpacity)),
+          color: darkTextColor.withValues(alpha: 0.92 * fade * (1.0 - titleOpacity)),
           fontSize: 13.0,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.3,
@@ -3443,7 +3726,7 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       // Paint CURRENT title (fading in, or fully visible)
       final titleStyle = TextStyle(
-        color: Colors.white.withValues(alpha: 0.92 * fade * titleOpacity),
+        color: darkTextColor.withValues(alpha: 0.92 * fade * titleOpacity),
         fontSize: 13.0,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.3,
@@ -3505,7 +3788,7 @@ class KnowledgeFlowPainter extends CustomPainter {
 
     // Slow orbit animation
     final orbitOffset = animationTime * 0.15;
-    final orbitRadius = nodeRadius + 18.0;
+    final orbitRadius = nodeRadius + 24.0 * inverseScale;
     final angleStep = (2 * math.pi) / badges.length;
 
     for (int i = 0; i < badges.length; i++) {
@@ -3517,16 +3800,20 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       canvas.save();
       canvas.translate(badgeCenter.dx, badgeCenter.dy);
-      canvas.scale(inverseScale * 0.28);
+      canvas.scale(inverseScale * 0.55);
       canvas.translate(-badgeCenter.dx, -badgeCenter.dy);
+
+      // Dark text for white canvas
+      final badgeHsl = HSLColor.fromColor(color);
+      final badgeDark = badgeHsl.withLightness(0.20).toColor();
 
       final badgeText = '${badges[i].$1} ${badges[i].$2}';
       final badgeTp = TextPainter(
         text: TextSpan(
           text: badgeText,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.85 * fade),
-            fontSize: 9.0,
+            color: badgeDark.withValues(alpha: 0.90 * fade),
+            fontSize: 11.0,
             fontWeight: FontWeight.w600,
           ),
         ),
