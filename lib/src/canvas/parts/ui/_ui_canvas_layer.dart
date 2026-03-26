@@ -518,7 +518,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   // After zoom settles (300ms), trigger DrawingPainter rebuild
                   // which starts progressive tile-by-tile LOD rendering.
                   final s = _canvasController.scale;
-                  final tier = s < 0.2 ? 2 : (s < 0.5 ? 1 : 0);
+                  final tier = s < 0.25 ? 2 : (s < 0.5 ? 1 : 0);
                   if (tier != _lastWidgetLodTier) {
                     _lastWidgetLodTier = tier;
                     _lodDebounceTimer?.cancel();
@@ -975,6 +975,20 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   finalizeRadialBubbleDrag();
                 }
                 return true;
+              }
+
+              // ✍️ SMART INK: tap on stroke → show recognized text popup
+              if (_effectiveIsPanMode) {
+                final canvasPos = _canvasController.screenToCanvas(screenPoint);
+                final hit = _hitTestStroke(canvasPos);
+                if (hit != null) {
+                  showSmartInk(
+                    screenAnchor: screenPoint,
+                    stroke: hit.stroke,
+                    canvasId: _canvasId,
+                  );
+                  return true;
+                }
               }
 
               return false;

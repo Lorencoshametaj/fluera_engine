@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 
 import './ai_provider.dart';
 import './atlas_action.dart';
@@ -171,9 +172,9 @@ class RadialExpansionController {
       if (!provider.isInitialized) await provider.initialize();
 
       final prompt = _buildSubTopicPrompt(_sourceText, _nearbyContext, deviceLanguage);
-      print('🌌 RadialExpansion sending prompt for "$_sourceText" (context: ${_nearbyContext.isNotEmpty})');
+      debugPrint('🌌 RadialExpansion sending prompt for "$_sourceText" (context: ${_nearbyContext.isNotEmpty})');
       final response = await provider.askAtlas(prompt, []);
-      print('🌌 RadialExpansion response: ${response.actions.length} actions');
+      debugPrint('🌌 RadialExpansion response: ${response.actions.length} actions');
 
       final labels = <String>[];
       for (final action in response.actions) {
@@ -186,7 +187,7 @@ class RadialExpansionController {
         labels.addAll(_parseSubTopics(response.explanation ?? ''));
       }
 
-      print('🌟 RadialExpansion: parsed labels=$labels');
+      debugPrint('🌟 RadialExpansion: parsed labels=$labels');
 
       if (labels.isEmpty || _disposed) {
         _setPhase(RadialExpansionPhase.idle);
@@ -198,7 +199,7 @@ class RadialExpansionController {
       _setPhase(RadialExpansionPhase.presenting);
       return labels;
     } catch (e, st) {
-      print('❌ RadialExpansion generate error: $e\n$st');
+      debugPrint('❌ RadialExpansion generate error: $e\n$st');
       _setPhase(RadialExpansionPhase.idle);
       return [];
     }

@@ -89,18 +89,18 @@ extension _PageGridDragHandlers on _InteractivePageGridOverlayState {
     _autoPanTimer = null;
   }
 
-  // ==================== PAGE DRAG HANDLERS ====================
+  // ==================== PAGE SCALE HANDLERS (drag + zoom) ====================
 
-  void onPageDragStart(int index, DragStartDetails details) {
+  void onPageScaleStart(int index, ScaleStartDetails details) {
     _draggingPageIndex = index;
-    _dragStartPosition = details.globalPosition;
+    _dragStartPosition = details.focalPoint;
     _initialPageBounds = widget.config.individualPageBounds[index];
     _isDraggingPage = true;
 
     // Convert to local coordinates for auto-pan
     final RenderBox? box = context.findRenderObject() as RenderBox?;
     if (box != null) {
-      _lastDragPosition = box.globalToLocal(details.globalPosition);
+      _lastDragPosition = box.globalToLocal(details.focalPoint);
     }
 
     // Select the page if not already selected
@@ -112,7 +112,25 @@ extension _PageGridDragHandlers on _InteractivePageGridOverlayState {
     startAutoPan();
   }
 
-  void onPageDragUpdate(DragUpdateDetails details) {
+  void onPageScaleUpdate(ScaleUpdateDetails details) {
+    // 🤏 2+ fingers → forward zoom to canvas, cancel drag
+    if (details.pointerCount >= 2) {
+      if (_isDraggingPage) {
+        // Cancel active drag and initialize per-frame scale tracking
+        stopAutoPan();
+        _isDraggingPage = false;
+        _lastForwardedScale = details.scale;
+        setState(() => _activeSnapLines = []);
+      }
+      if (widget.onScaleCanvas != null) {
+        final frameRatio = details.scale / _lastForwardedScale;
+        _lastForwardedScale = details.scale;
+        widget.onScaleCanvas!(details.localFocalPoint, frameRatio);
+      }
+      return;
+    }
+
+    // 👆 1 finger → page drag
     if (!_isDraggingPage ||
         _draggingPageIndex == null ||
         _initialPageBounds == null ||
@@ -123,10 +141,10 @@ extension _PageGridDragHandlers on _InteractivePageGridOverlayState {
     // Update position for auto-pan
     final RenderBox? box = context.findRenderObject() as RenderBox?;
     if (box != null) {
-      _lastDragPosition = box.globalToLocal(details.globalPosition);
+      _lastDragPosition = box.globalToLocal(details.focalPoint);
     }
 
-    final delta = details.globalPosition - _dragStartPosition!;
+    final delta = details.focalPoint - _dragStartPosition!;
     final canvasDelta = delta / widget.canvasScale;
 
     var newBounds = _initialPageBounds!.translate(
@@ -157,7 +175,7 @@ extension _PageGridDragHandlers on _InteractivePageGridOverlayState {
     widget.onConfigChanged(newConfig);
   }
 
-  void onPageDragEnd(DragEndDetails details) {
+  void onPageScaleEnd(ScaleEndDetails details) {
     stopAutoPan();
     _isDraggingPage = false;
     _draggingPageIndex = null;

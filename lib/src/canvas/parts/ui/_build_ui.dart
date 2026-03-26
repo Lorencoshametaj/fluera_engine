@@ -391,6 +391,35 @@ extension on _FlueraCanvasScreenState {
                               ),
                             ),
                           ),
+
+                        // 📤 Multi-Page Export Overlay
+                        if (_isMultiPageEditMode)
+                          Positioned.fill(
+                            child: AnimatedBuilder(
+                              animation: _canvasController,
+                              builder: (context, _) {
+                                return InteractivePageGridOverlay(
+                                  config: _multiPageConfig,
+                                  canvasScale: _canvasController.scale,
+                                  canvasOffset: _canvasController.offset,
+                                  onConfigChanged: _onMultiPageConfigChanged,
+                                  onPanCanvas: _onMultiPageAutoPan,
+                                  onScaleCanvas: (focalPoint, frameRatio) {
+                                    final currentScale = _canvasController.scale;
+                                    final newScale = (currentScale * frameRatio).clamp(0.05, 5.0);
+                                    // Zoom around focal point — as the focal point
+                                    // moves with the fingers, this naturally pans too.
+                                    final focalCanvas = (focalPoint - _canvasController.offset) / currentScale;
+                                    final newOffset = focalPoint - focalCanvas * newScale;
+                                    _canvasController.updateTransform(
+                                      offset: newOffset,
+                                      scale: newScale,
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -398,6 +427,17 @@ extension on _FlueraCanvasScreenState {
               ),
 
               // 🌀 Rotation Angle Indicator → now integrated into ZoomLevelIndicator
+
+              // 📤 Multi-Page Export Bottom Bar
+              if (_isMultiPageEditMode)
+                Positioned(
+                  bottom: 24,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: _buildMultiPageExportBottomBar(context),
+                  ),
+                ),
 
 
               // 📲 Echo Search: Swipe-down from top edge to activate
@@ -420,6 +460,15 @@ extension on _FlueraCanvasScreenState {
                 ),
               ],
 
+              // ✍️ Smart Ink Overlay — tap-to-reveal recognized handwriting
+              ValueListenableBuilder<int>(
+                valueListenable: _uiRebuildNotifier,
+                builder: (context, _, __) {
+                  final smartInk = buildSmartInkOverlay(context);
+                  if (smartInk == null) return const SizedBox.shrink();
+                  return smartInk;
+                },
+              ),
               // 🎯 Context Menus & Panels (above everything)
               // Wrapped in ValueListenableBuilder so menus rebuild when
               // _uiRebuildNotifier fires (e.g. lasso selection completion).
@@ -1078,5 +1127,249 @@ extension on _FlueraCanvasScreenState {
       }
     }
     return null;
+  }
+
+  /// 📐 Helper: builds a styled PopupMenuItem for the Quick Format Picker.
+  PopupMenuItem<ExportPageFormat> _formatMenuItem(
+    ExportPageFormat format, String title, String subtitle,
+  ) {
+    final isSelected = _multiPageConfig.pageFormat == format;
+    return PopupMenuItem<ExportPageFormat>(
+      value: format,
+      child: Row(
+        children: [
+          Icon(
+            isSelected ? Icons.check_circle : Icons.circle_outlined,
+            color: isSelected ? const Color(0xFF007AFF) : Colors.white54,
+            size: 18,
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(title, style: TextStyle(
+                color: Colors.white, 
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              )),
+              Text(subtitle, style: const TextStyle(
+                color: Colors.white54, fontSize: 11,
+              )),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 📤 Multi-Page Export Toolbar / Confirmation Bar
+  ///
+  /// This floating bar provides actions to commit or cancel the multi-page
+  /// selections made via the [InteractivePageGridOverlay].
+  Widget _buildMultiPageExportBottomBar(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(32),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.15),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width - 32,
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 🔍 Cluster Navigation (only when multiple clusters detected)
+                  if (_exportClusters.length > 1) ...[
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left, color: Colors.white, size: 18),
+                      tooltip: 'Cluster Prec.',
+                      onPressed: _prevExportCluster,
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                    ),
+                    GestureDetector(
+                      onTap: _frameAllClusters,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _currentClusterIndex >= 0
+                              ? const Color(0xFF007AFF).withValues(alpha: 0.3)
+                              : Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _currentClusterIndex >= 0
+                              ? '${_currentClusterIndex + 1}/${_exportClusters.length}'
+                              : 'All',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right, color: Colors.white, size: 18),
+                      tooltip: 'Cluster Succ.',
+                      onPressed: _nextExportCluster,
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                    ),
+                    const SizedBox(width: 2),
+                    Container(width: 1, height: 20, color: Colors.white24),
+                    const SizedBox(width: 2),
+                  ],
+                  IconButton(
+                    icon: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+                    tooltip: 'Add Page',
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      _addMultiPagePage();
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove_rounded, color: Colors.white, size: 20),
+                    tooltip: 'Remove Page',
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      _removeMultiPagePage();
+                    },
+                  ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onLongPress: () {
+                  HapticFeedback.mediumImpact();
+                  final RenderBox button = context.findRenderObject() as RenderBox;
+                  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+                  final position = button.localToGlobal(
+                    Offset(button.size.width / 2, 0),
+                    ancestor: overlay,
+                  );
+                  showMenu<ExportPageFormat>(
+                    context: context,
+                    position: RelativeRect.fromLTRB(
+                      position.dx - 80,
+                      position.dy - 320,
+                      position.dx + 80,
+                      position.dy,
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    color: Colors.grey[900],
+                    items: [
+                      _formatMenuItem(ExportPageFormat.a4Portrait, 'A4 Portrait', '210×297mm'),
+                      _formatMenuItem(ExportPageFormat.a4Landscape, 'A4 Landscape', '297×210mm'),
+                      _formatMenuItem(ExportPageFormat.a3Portrait, 'A3 Portrait', '297×420mm'),
+                      _formatMenuItem(ExportPageFormat.letterPortrait, 'Letter', '8.5×11in'),
+                      _formatMenuItem(ExportPageFormat.letterLandscape, 'Letter Land.', '11×8.5in'),
+                    ],
+                  ).then((format) {
+                    if (format != null && mounted) {
+                      _onMultiPageFormatChanged(format);
+                      HapticFeedback.selectionClick();
+                      // Re-frame with the new format
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _autoFrameMultiPage();
+                      });
+                    }
+                  });
+                },
+                child: IconButton(
+                  icon: Icon(
+                     _multiPageConfig.mode == MultiPageMode.uniform 
+                        ? Icons.grid_view_rounded 
+                        : Icons.crop_free_rounded, 
+                     color: Colors.white,
+                  ),
+                  tooltip: 'Tap: Griglia/Libera • Long: Formato',
+                  onPressed: _toggleMultiPageMode,
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                   _exportConfig.background == ExportBackground.transparent 
+                      ? Icons.layers_clear 
+                      : Icons.layers, 
+                   color: Colors.white,
+                ),
+                tooltip: 'Sfondo (Trasparente/Template)',
+                onPressed: _toggleExportBackground,
+              ),
+              IconButton(
+                icon: const Icon(Icons.auto_awesome, color: Colors.amberAccent),
+                tooltip: 'Auto-Frame Content',
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  _autoFrameMultiPage();
+                },
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 1,
+                height: 24,
+                color: Colors.white24,
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  _exitMultiPageEditMode(saveChanges: false);
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  _confirmMultiPageEdit();
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF007AFF), // iOS Blue
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                ),
+                icon: const Icon(Icons.ios_share_rounded, size: 18),
+                label: Text(
+                  'Export ${_multiPageConfig.pageCount} Pages',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+          ),
+        ),
+      ),
+    );
   }
 }

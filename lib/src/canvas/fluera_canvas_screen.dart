@@ -71,6 +71,7 @@ import './overlays/connection_label_overlay.dart';
 import './overlays/cluster_preview_overlay.dart';
 import './overlays/knowledge_map_overlay.dart';
 import './overlays/canvas_radial_menu.dart';
+import './overlays/interactive_page_grid_overlay.dart';
 import './overlays/atlas_prompt_overlay.dart';
 import './overlays/atlas_visual_effects.dart';
 import './overlays/atlas_response_card.dart';
@@ -115,6 +116,7 @@ import '../layers/adapters/infinite_canvas_adapter.dart';
 
 import '../tools/ruler/ruler_interactive_overlay.dart';
 import './overlays/selection_transform_overlay.dart';
+import './overlays/smart_ink_overlay.dart';
 import './overlays/inline_text_overlay.dart';
 import './overlays/inline_text_toolbar.dart';
 import '../dialogs/digital_text_input_dialog.dart';
@@ -366,6 +368,7 @@ part './parts/_echo_search.dart';
 part './parts/_semantic_titles.dart';
 part './parts/_radial_expansion.dart';
 part './parts/_proactive_analysis.dart'; // 💡 Proactive knowledge gap analysis
+part './parts/_smart_ink.dart'; // ✍️ Smart Ink — tap-to-reveal handwriting
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -1526,6 +1529,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   bool _isMultiPageEditMode = false;
   MultiPageConfig _multiPageConfig = const MultiPageConfig();
+  List<ContentCluster> _exportClusters = const [];
+  int _currentClusterIndex = -1; // -1 = "frame all" mode
 
   // ============================================================================
   // ⏱️ TIME TRAVEL STATE

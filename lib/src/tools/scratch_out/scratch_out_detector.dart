@@ -52,6 +52,8 @@ class ScratchOutResult {
 /// final result = ScratchOutDetector.analyze(allPoints);
 /// ```
 class ScratchOutAccumulator {
+  // Speed tracking (for partial speed check)
+  int _lastTs = 0;
   // Running sums for PCA (O(1) update)
   double _sumX = 0, _sumY = 0;
   double _sumXX = 0, _sumXY = 0, _sumYY = 0;
@@ -90,6 +92,7 @@ class ScratchOutAccumulator {
     _maxX = _maxY = double.negativeInfinity;
     _pointCount = 0;
     _firstTs = 0;
+    _lastTs = 0;
     _reversals = 0;
     _lastDirection = 0;
     _accumDistance = 0.0;
@@ -122,6 +125,7 @@ class ScratchOutAccumulator {
 
     // Track first timestamp
     if (_pointCount == 0) _firstTs = p.timestamp;
+    _lastTs = p.timestamp;
 
     _pointCount++;
     _pcaDirty = true;
@@ -168,6 +172,17 @@ class ScratchOutAccumulator {
     final bboxW = _maxX - _minX;
     final bboxH = _maxY - _minY;
     if (bboxW < 10.0 || bboxH < 10.0) return ScratchOutResult.notRecognized;
+
+    // Speed check: reject slow drawing (normal handwriting)
+    if (_firstTs > 0 && _lastTs > _firstTs && _totalPathLength > 0) {
+      final durationMs = (_lastTs - _firstTs).toDouble();
+      if (durationMs > 0) {
+        final speed = _totalPathLength / durationMs; // px/ms
+        if (speed < ScratchOutDetector.minSpeed) {
+          return ScratchOutResult.notRecognized;
+        }
+      }
+    }
 
     // Recompute PCA direction if dirty (every ~20 points, amortized O(1))
     if (_pcaDirty && _pointCount - _pcaComputedAt >= 20) {
@@ -241,18 +256,21 @@ class ScratchOutAccumulator {
 class ScratchOutDetector {
   ScratchOutDetector._();
 
-  // ── Thresholds (v4 — relaxed for easier activation) ──
-  static const int minReversals = 4;
-  static const int minReversalsPartial = 3;
+  // ── Thresholds (v5 — tightened to reduce false positives) ──
+  static const int minReversals = 6;
+  static const int minReversalsPartial = 4;
   static const int minPointCount = 15;
   static const int maxDurationMs = 2000;
   static const double minElongation = 2.0;
-  static const double minSegmentLength = 10.0;
-  static const double minConfidence = 0.4;
+  static const double minSegmentLength = 15.0;
+  static const double minConfidence = 0.55;
   /// Minimum bounding box area (px²) — rejects tiny/tight gestures.
-  static const double minBboxArea = 1000.0;
+  static const double minBboxArea = 2000.0;
   /// Minimum perpendicular amplitude (px) — rejects jitter-level oscillation.
-  static const double minAmplitude = 12.0;
+  static const double minAmplitude = 20.0;
+  /// Minimum drawing speed (px/ms) — rejects slow handwriting.
+  /// Scratch-out is typically >2 px/ms; normal writing is ~0.5–1.5 px/ms.
+  static const double minSpeed = 1.5;
 
   /// Full analysis: recognize scratch-out gesture.
   static ScratchOutResult analyze(List<ProDrawingPoint> points) {
@@ -367,6 +385,20 @@ class ScratchOutDetector {
 
     final requiredReversals = partial ? minReversalsPartial : minReversals;
     if (reversals < requiredReversals) return ScratchOutResult.notRecognized;
+
+    // ── Speed check ──
+    // Reject slow drawing (normal handwriting, not a scratch-out).
+    if (!partial) {
+      final firstTs = points.first.timestamp;
+      final lastTs = points.last.timestamp;
+      if (firstTs > 0 && lastTs > firstTs && totalPathLength > 0) {
+        final durationMs = (lastTs - firstTs).toDouble();
+        if (durationMs > 0) {
+          final speed = totalPathLength / durationMs; // px/ms
+          if (speed < minSpeed) return ScratchOutResult.notRecognized;
+        }
+      }
+    }
 
     // ── Perpendicular amplitude check ──
     // Ensure the oscillation spans at least minAmplitude px on the perp axis.

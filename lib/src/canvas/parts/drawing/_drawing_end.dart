@@ -74,6 +74,23 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // ✍️ SMART INK: Deferred stroke tap resolution
+    // If a stroke was hit on touch-down and this was a tap (not a drag),
+    // show the Smart Ink overlay now.
+    if (FlueraSmartInkExtension._pendingSmartInkStroke != null &&
+        FlueraSmartInkExtension._pendingSmartInkScreenPos != null) {
+      final stroke = FlueraSmartInkExtension._pendingSmartInkStroke!;
+      final screenPos = FlueraSmartInkExtension._pendingSmartInkScreenPos!;
+      clearPendingSmartInk();
+
+      showSmartInk(
+        screenAnchor: screenPos,
+        stroke: stroke,
+        canvasId: _canvasId,
+      );
+      return;
+    }
+
     // 📋 MULTI-SELECT: Tap on empty space → clear multi-selection
     if (_knowledgeFlowController != null && _knowledgeFlowController!.isMultiSelecting) {
       _knowledgeFlowController!.clearMultiSelect();
@@ -823,7 +840,7 @@ extension on _FlueraCanvasScreenState {
             .clamp(15.0, 80.0); // adaptive to zoom
 
         for (final layer in _layerController.layers) {
-          if (!layer.visible) continue;
+          if (!layer.isVisible) continue;
           for (final stroke in layer.strokes) {
             // Quick reject: bounding box must overlap first
             if (!stroke.bounds.overlaps(scratchBounds)) continue;
@@ -1209,11 +1226,14 @@ extension on _FlueraCanvasScreenState {
 
       // 🔍 Auto-index stroke for handwriting search
       if (stroke.points.length >= 5) {
+        // ✨ Pass canvas viewport size for ML Kit case disambiguation
+        final viewportSize = MediaQuery.sizeOf(context);
         HandwritingIndexService.instance.enqueueStroke(
           _canvasId,
           stroke.id,
           stroke.points,
           stroke.bounds,
+          writingArea: viewportSize,
         );
       }
     }

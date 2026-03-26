@@ -654,6 +654,16 @@ extension on _FlueraCanvasScreenState {
           }
         }
       }
+      // ✍️ SMART INK: Tap stroke with gesture tool → DEFER to touch-up
+      // Don't open overlay on touch-down — might be a pan gesture.
+      // Store as pending; _onDrawEnd will open the overlay if no drag happened.
+      final strokeHit = _hitTestStroke(canvasPosition);
+      if (strokeHit != null) {
+        FlueraSmartInkExtension._pendingSmartInkStroke = strokeHit.stroke;
+        FlueraSmartInkExtension._pendingSmartInkScreenPos =
+            _canvasController.canvasToScreen(canvasPosition);
+        // Don't return — let canvas pan handle the touch normally.
+      }
       return; // Pan mode, no page hit — let canvas pan handle it
     }
 
@@ -893,6 +903,9 @@ extension on _FlueraCanvasScreenState {
 
     // ✂️ Clear PDF clip rect on cancel
     _activePdfClipRect = null;
+
+    // ✍️ SMART INK: Clear deferred tap on multi-touch interrupt
+    clearPendingSmartInk();
 
     // 📊 TabularNode: Cancel any drag/resize so pinch-to-zoom works
     if (_tabularTool.isDragging) {

@@ -56,12 +56,14 @@ class _IndexEntry {
   final String strokeId;
   final List<ProDrawingPoint> points;
   final ui.Rect bounds;
+  final ui.Size? writingArea;
 
   _IndexEntry({
     required this.canvasId,
     required this.strokeId,
     required this.points,
     required this.bounds,
+    this.writingArea,
   });
 }
 
@@ -195,12 +197,16 @@ class HandwritingIndexService {
   ///
   /// The stroke will be processed after [_batchDebounce] to allow batching.
   /// Safe to call on every stroke commit — the debounce prevents thrashing.
+  ///
+  /// [writingArea] is the canvas viewport size (helps ML Kit distinguish
+  /// uppercase from lowercase, e.g. 'o' vs 'O').
   void enqueueStroke(
     String canvasId,
     String strokeId,
     List<ProDrawingPoint> points,
-    ui.Rect bounds,
-  ) {
+    ui.Rect bounds, {
+    ui.Size? writingArea,
+  }) {
     if (!_initialized || points.length < 5) return;
 
     // 🔍 Fix 1: Skip if already queued (e.g. undo → redo)
@@ -211,6 +217,7 @@ class HandwritingIndexService {
       strokeId: strokeId,
       points: points,
       bounds: bounds,
+      writingArea: writingArea,
     ));
 
     // Reset debounce timer
@@ -283,10 +290,25 @@ class HandwritingIndexService {
         try {
           String? text;
           String langCode = inkService.languageCode;
+
+          // ✨ Build recognition context for accuracy boost:
+          // - writingArea: canvas dimensions for case disambiguation
+          // - preContext: last ~20 chars recognized on this canvas
+          final writingArea = group.first.writingArea;
+          final preContext = await _getPreContext(
+            db, group.first.canvasId,
+          );
+          final context = InkRecognitionContext(
+            writingArea: writingArea,
+            preContext: preContext,
+          );
+
           if (group.length == 1) {
             // Single stroke — try auto-detect recognition
-            final result =
-                await inkService.recognizeWithAutoDetect(group.first.points);
+            final result = await inkService.recognizeWithAutoDetect(
+              group.first.points,
+              context: context,
+            );
             if (result != null) {
               text = result.text;
               langCode = result.languageCode;
@@ -295,7 +317,10 @@ class HandwritingIndexService {
             // Multi-stroke — use combined recognition with auto-detect
             final strokeSets = group.map((e) => e.points).toList();
             final result =
-                await inkService.recognizeMultiStrokeWithAutoDetect(strokeSets);
+                await inkService.recognizeMultiStrokeWithAutoDetect(
+              strokeSets,
+              context: context,
+            );
             if (result != null) {
               text = result.text;
               langCode = result.languageCode;
@@ -364,57 +389,159 @@ class HandwritingIndexService {
     }
   }
 
+  // ── Pre-context for accuracy boost ────────────────────────────────────────
+
+  /// Get the last ~20 characters recognized on [canvasId] as pre-context.
+  ///
+  /// Feeds ML Kit's language model so it can predict the next word better.
+  /// Example: if pre-context is "Il teorema di", ML Kit is more likely
+  /// to recognize the next handwritten word as "Pitagora" than "Ritagora".
+  Future<String?> _getPreContext(Database db, String canvasId) async {
+    try {
+      final rows = await db.rawQuery('''
+        SELECT recognized_text FROM stroke_text_map
+        WHERE canvas_id = ?
+        ORDER BY indexed_at DESC
+        LIMIT 3
+      ''', [canvasId]);
+
+      if (rows.isEmpty) return null;
+
+      // Concatenate last 3 recognized texts (most recent last)
+      final texts = rows.reversed
+          .map((r) => (r['recognized_text'] as String).trim())
+          .where((t) => t.isNotEmpty)
+          .join(' ');
+
+      if (texts.isEmpty) return null;
+
+      // ML Kit recommends ~20 characters of pre-context
+      return texts.length > 20 ? texts.substring(texts.length - 20) : texts;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── Multi-stroke grouping ─────────────────────────────────────────────────
 
-  /// Groups nearby strokes for multi-stroke character recognition.
+  /// Groups strokes for recognition using baseline-aware line segmentation.
   ///
-  /// Characters like 't' (vertical + cross), 'i' (body + dot), or
-  /// 'ñ' (body + tilde) need multiple strokes recognized together.
-  /// Groups strokes from the same canvas whose inflated bounds overlap.
+  /// Two-pass approach for dramatically better recognition:
+  ///
+  /// **Pass 1 — Line segmentation**: Compute each stroke's baseline
+  /// (median Y of all points) and group strokes with similar baselines
+  /// into text lines. This means "hello world" written on one line is
+  /// recognized as a phrase, not individual letters.
+  ///
+  /// **Pass 2 — Multi-stroke merging**: Within each line, merge strokes
+  /// whose inflated bounds overlap (for characters like 't', 'i', 'ñ'
+  /// that require multiple strokes).
+  ///
+  /// Strokes within each group are sorted left-to-right for natural
+  /// reading order, which feeds ML Kit a properly sequenced input.
   List<List<_IndexEntry>> _groupNearbyStrokes(List<_IndexEntry> entries) {
     if (entries.length <= 1) {
       return entries.map((e) => [e]).toList();
     }
 
-    // Proximity threshold: strokes within this distance are grouped
-    const double proximityPx = 60.0;
+    // ── Pass 1: Line segmentation by baseline ────────────────────────────
 
-    // Union-find approach: for each pair, if same canvas and bounds
-    // (inflated by proximityPx) overlap, merge into same group.
-    final parent = List<int>.generate(entries.length, (i) => i);
+    // Compute baseline (median Y) for each stroke
+    final baselines = <double>[];
+    for (final entry in entries) {
+      final ys = entry.points.map((p) => p.position.dy).toList()..sort();
+      // Median Y — more robust than mean against outlier points
+      baselines.add(ys[ys.length ~/ 2]);
+    }
 
-    int find(int i) {
-      while (parent[i] != i) {
-        parent[i] = parent[parent[i]]; // path compression
-        i = parent[i];
+    // Line height threshold: adaptive to stroke heights
+    // Use the median stroke height as reference, with a minimum of 30px
+    final strokeHeights = entries.map((e) => e.bounds.height).toList()..sort();
+    final medianHeight = strokeHeights[strokeHeights.length ~/ 2];
+    final lineThreshold = (medianHeight * 0.6).clamp(20.0, 80.0);
+
+    // Group by baseline similarity (same canvas only)
+    // Sort entries by baseline for efficient line detection
+    final indexed = List.generate(entries.length, (i) => i);
+    indexed.sort((a, b) => baselines[a].compareTo(baselines[b]));
+
+    final lines = <List<int>>[]; // Each line is a list of entry indices
+    var currentLine = <int>[indexed.first];
+    var lineBaseline = baselines[indexed.first];
+
+    for (int k = 1; k < indexed.length; k++) {
+      final i = indexed[k];
+      // Same line? Must be same canvas and similar baseline
+      if (entries[i].canvasId == entries[currentLine.first].canvasId &&
+          (baselines[i] - lineBaseline).abs() <= lineThreshold) {
+        currentLine.add(i);
+        // Update rolling average baseline
+        lineBaseline = currentLine
+                .map((j) => baselines[j])
+                .reduce((a, b) => a + b) /
+            currentLine.length;
+      } else {
+        lines.add(currentLine);
+        currentLine = [i];
+        lineBaseline = baselines[i];
       }
-      return i;
     }
+    lines.add(currentLine);
 
-    void union(int a, int b) {
-      final ra = find(a);
-      final rb = find(b);
-      if (ra != rb) parent[ra] = rb;
-    }
+    // ── Pass 2: Multi-stroke character merging within each line ──────────
 
-    for (int i = 0; i < entries.length; i++) {
-      for (int j = i + 1; j < entries.length; j++) {
-        if (entries[i].canvasId != entries[j].canvasId) continue;
-        final a = entries[i].bounds.inflate(proximityPx);
-        final b = entries[j].bounds.inflate(proximityPx);
-        if (a.overlaps(b)) {
-          union(i, j);
+    final result = <List<_IndexEntry>>[];
+
+    for (final line in lines) {
+      if (line.length == 1) {
+        result.add([entries[line.first]]);
+        continue;
+      }
+
+      // Within a line, use proximity-based union-find for multi-stroke chars
+      const double proximityPx = 60.0;
+      final parent = List<int>.generate(line.length, (i) => i);
+
+      int find(int i) {
+        while (parent[i] != i) {
+          parent[i] = parent[parent[i]];
+          i = parent[i];
+        }
+        return i;
+      }
+
+      void union(int a, int b) {
+        final ra = find(a);
+        final rb = find(b);
+        if (ra != rb) parent[ra] = rb;
+      }
+
+      for (int i = 0; i < line.length; i++) {
+        for (int j = i + 1; j < line.length; j++) {
+          final a = entries[line[i]].bounds.inflate(proximityPx);
+          final b = entries[line[j]].bounds.inflate(proximityPx);
+          if (a.overlaps(b)) {
+            union(i, j);
+          }
         }
       }
+
+      // Collect sub-groups within this line
+      final subGroups = <int, List<int>>{};
+      for (int i = 0; i < line.length; i++) {
+        final root = find(i);
+        (subGroups[root] ??= []).add(line[i]);
+      }
+
+      for (final group in subGroups.values) {
+        // Sort left-to-right by stroke X center for natural reading order
+        group.sort((a, b) =>
+            entries[a].bounds.center.dx.compareTo(entries[b].bounds.center.dx));
+        result.add(group.map((i) => entries[i]).toList());
+      }
     }
 
-    // Collect groups
-    final groups = <int, List<_IndexEntry>>{};
-    for (int i = 0; i < entries.length; i++) {
-      final root = find(i);
-      (groups[root] ??= []).add(entries[i]);
-    }
-    return groups.values.toList();
+    return result;
   }
 
   // ── Neighbor re-recognition ─────────────────────────────────────────────
@@ -1175,6 +1302,17 @@ class HandwritingIndexService {
     } catch (_) {
       return const {};
     }
+  }
+  // ── Pre-context (public API) ─────────────────────────────────────────────
+
+  /// Get the last ~20 characters recognized on [canvasId] as pre-context.
+  ///
+  /// Feeds ML Kit's language model so it can predict the next word better.
+  /// Example: if pre-context is "Il teorema di", ML Kit is more likely
+  /// to recognize "Pitagora" than "Ritagora".
+  Future<String?> getPreContext(String canvasId) async {
+    if (!_initialized) return null;
+    return _getPreContext(_db!, canvasId);
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────

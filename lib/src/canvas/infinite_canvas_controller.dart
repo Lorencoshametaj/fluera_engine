@@ -1,5 +1,8 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import '../utils/key_value_store.dart';
@@ -324,16 +327,28 @@ class InfiniteCanvasController extends ChangeNotifier {
     // This prevents rapid toggling at the boundary.
     final int tier;
     if (_lastLodTier == 2) {
-      // Currently in sections-only mode → need to zoom IN past 0.22 to exit
-      tier = _scale < 0.22 ? 2 : (_scale < 0.5 ? 1 : 0);
+      // Currently in sections-only mode → need to zoom IN past 0.30 to exit
+      tier = _scale < 0.30 ? 2 : (_scale < 0.5 ? 1 : 0);
     } else if (_lastLodTier == 0) {
       // Currently in full quality → need to zoom OUT past 0.45 to exit
-      tier = _scale < 0.18 ? 2 : (_scale < 0.45 ? 1 : 0);
+      tier = _scale < 0.25 ? 2 : (_scale < 0.45 ? 1 : 0);
     } else {
       // Tier 1 (batched) → standard thresholds
-      tier = _scale < 0.18 ? 2 : (_scale < 0.5 ? 1 : 0);
+      tier = _scale < 0.25 ? 2 : (_scale < 0.5 ? 1 : 0);
     }
     if (tier != _lastLodTier) {
+      // 📳 GRADUATED HAPTIC: different feedback for direction & magnitude
+      final tierDelta = (tier - _lastLodTier).abs();
+      if (tierDelta >= 2) {
+        // Jump 2 tiers (e.g. 0→2): medium impact — noticeable shift
+        HapticFeedback.mediumImpact();
+      } else if (tier > _lastLodTier) {
+        // Zooming OUT (quality decreasing): light tap
+        HapticFeedback.lightImpact();
+      } else {
+        // Zooming IN (quality increasing): subtle click
+        HapticFeedback.selectionClick();
+      }
       _lastLodTier = tier;
       onLodTierChanged?.call();
     }
@@ -1318,6 +1333,57 @@ class InfiniteCanvasController extends ChangeNotifier {
     final dampedUndershoot =
         cappedUndershoot / (1.0 + cappedUndershoot * config.elasticResistance);
     return (_minScale * (1.0 - dampedUndershoot)).clamp(minElastic, _minScale);
+  }
+
+  // ============================================================================
+  // 🔍 ADAPTIVE ZOOM PRESETS
+  // ============================================================================
+
+  /// 🔍 Animate to frame all content in the viewport.
+  ///
+  /// Computes the minimum scale and offset needed to make [contentBounds]
+  /// fully visible, then animates smoothly via spring physics.
+  /// [padding] adds screen-space margin around the content.
+  void fitContent(
+    Rect contentBounds,
+    Size viewportSize, {
+    double padding = 40.0,
+  }) {
+    if (contentBounds.isEmpty || viewportSize.isEmpty) return;
+    fitRect(contentBounds, viewportSize, padding: padding);
+  }
+
+  /// 🔍 Animate to frame a specific rect (e.g. lasso selection, PDF page).
+  ///
+  /// Calculates contain-fit scale + centered offset, then uses
+  /// [animateToTransform] for smooth spring animation.
+  void fitRect(
+    Rect targetRect,
+    Size viewportSize, {
+    double padding = 60.0,
+  }) {
+    if (targetRect.isEmpty || viewportSize.isEmpty) return;
+
+    final availW = viewportSize.width - padding * 2;
+    final availH = viewportSize.height - padding * 2;
+    if (availW <= 0 || availH <= 0) return;
+
+    // Contain fit: scale so the entire rect is visible
+    final scaleX = availW / targetRect.width;
+    final scaleY = availH / targetRect.height;
+    final targetScale = math.min(scaleX, scaleY).clamp(_minScale, _maxScale);
+
+    // Center the rect in the viewport
+    final targetOffset = Offset(
+      viewportSize.width / 2 - targetRect.center.dx * targetScale,
+      viewportSize.height / 2 - targetRect.center.dy * targetScale,
+    );
+
+    animateToTransform(
+      targetOffset: targetOffset,
+      targetScale: targetScale,
+      focalPoint: viewportSize.center(Offset.zero),
+    );
   }
 
   // ============================================================================

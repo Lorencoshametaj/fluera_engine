@@ -733,7 +733,12 @@ class DrawingPainter extends CustomPainter {
     // 🚀 Inflate viewport to pre-render off-screen pages. With the Transform
     // architecture, paint() doesn't re-run on pan/zoom — the Transform
     // widget reveals cached raster. Pages must already be in the cache.
-    final pdfViewport = viewport.inflate(viewport.longestSide * 2.0);
+    // 🚀 ZOOM-AWARE INFLATION: reduce pre-render area at low zoom
+    // to avoid processing 100+ PDF pages that are far off-screen.
+    final pdfInflationFactor = effectiveScale < 0.3
+        ? 0.5   // low zoom: minimal pre-render
+        : 2.0;  // normal zoom: aggressive pre-render for smooth pan
+    final pdfViewport = viewport.inflate(viewport.longestSide * pdfInflationFactor);
     _paintPdfDocuments(canvas, pdfViewport);
     _lastRenderedPdfViewport = pdfViewport;
 
@@ -1050,13 +1055,13 @@ class DrawingPainter extends CustomPainter {
     final int currentTier;
     if (_cachedLodTier == 0) {
       // Currently full quality — go to tier 1 only at 0.45 (not 0.5)
-      currentTier = currentScale < 0.18 ? 2 : (currentScale < 0.45 ? 1 : 0);
+      currentTier = currentScale < 0.25 ? 2 : (currentScale < 0.45 ? 1 : 0);
     } else if (_cachedLodTier == 1) {
-      // Currently simplified — go to tier 0 at 0.55, tier 2 at 0.18
-      currentTier = currentScale < 0.18 ? 2 : (currentScale >= 0.55 ? 0 : 1);
+      // Currently simplified — go to tier 0 at 0.55, tier 2 at 0.25
+      currentTier = currentScale < 0.25 ? 2 : (currentScale >= 0.55 ? 0 : 1);
     } else {
-      // Currently thumbnails — go to tier 1 at 0.22, tier 0 at 0.55
-      currentTier = currentScale >= 0.55 ? 0 : (currentScale >= 0.22 ? 1 : 2);
+      // Currently thumbnails — go to tier 1 at 0.30, tier 0 at 0.55
+      currentTier = currentScale >= 0.55 ? 0 : (currentScale >= 0.30 ? 1 : 2);
     }
 
     // 🛡️ EDGE CASE: cancel progressive mode if scene changed (stroke added/removed)
@@ -1100,8 +1105,9 @@ class DrawingPainter extends CustomPainter {
         _cachedSceneVersion = sceneGraph.version;
         _lodPendingTier = -1;
         _lodGraceFrames = 0;
-        // 3. Enter progressive mode
+        // 3. Enter progressive mode + reset cross-fade
         _lodProgressiveMode = true;
+        _lodCrossFadeProgress = 0.0;
       } else {
         // 🚀 Grace period: reuse OLD cached Picture (O(1) drawPicture).
         // The old LOD is at wrong detail level but Flutter's transform
@@ -1141,15 +1147,35 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 🚀 PROGRESSIVE LOD: rebuild tiles at new LOD progressively.
-    // Uses stale tiles (old LOD) as fallback — new tiles appear as they're built.
+    // Uses cross-fade: old snapshot fades out while new tiles fade in.
     if (_lodProgressiveMode) {
-      // 🚀 Dispose snapshot — stale tiles provide the visual fallback now
-      if (_lodSnapshotPicture != null) {
+      // 🎬 CROSS-FADE: draw old snapshot with decreasing opacity
+      if (_lodSnapshotPicture != null && _lodCrossFadeProgress < 1.0) {
+        // 🎬 Smoothstep easing: perceptually linear fade (fast start, smooth end)
+        final t = _lodCrossFadeProgress;
+        final eased = t * t * (3.0 - 2.0 * t);
+        final snapshotOpacity = (1.0 - eased).clamp(0.0, 1.0);
+        canvas.saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, snapshotOpacity));
+        canvas.drawPicture(_lodSnapshotPicture!);
+        canvas.restore();
+      }
+      // 🎬 SMOOTH CROSS-FADE: ~250ms transition (30 frames @120Hz)
+      _lodCrossFadeProgress = (_lodCrossFadeProgress + 0.05).clamp(0.0, 1.0);
+      // Dispose snapshot when fully faded out
+      if (_lodCrossFadeProgress >= 1.0 && _lodSnapshotPicture != null) {
         _lodSnapshotPicture!.dispose();
         _lodSnapshotPicture = null;
       }
 
       _ensureRenderIndex();
+
+      // 🎬 FADE-IN new tiles: match cross-fade progress for 2-way blend
+      final bool fadeInActive = _lodCrossFadeProgress < 1.0;
+      if (fadeInActive) {
+        final t = _lodCrossFadeProgress;
+        final tileOpacity = t * t * (3.0 - 2.0 * t);
+        canvas.saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, tileOpacity));
+      }
 
       // 🚀 Draw cached + stale tiles, collect missing for rebuild
       final missingTiles = _tileCache.drawAndCollectMissing(canvas, viewport);
@@ -1160,8 +1186,10 @@ class DrawingPainter extends CustomPainter {
 
       if (missingTiles.isNotEmpty) {
         final sw = Stopwatch()..start();
-        const budgetUs = 4000; // 🚀 P99 FIX: halved from 8ms to leave headroom for other raster work
+        // 🚀 ZOOM-AWARE BUDGET: at low zoom, more tiles are visible but each
+        // contains fewer strokes. Reduce budget to leave headroom for PDF/image work.
         final effectiveScale = controller?.scale ?? canvasScale;
+        final budgetUs = effectiveScale < 0.3 ? 2000 : 4000;
         _delegateRenderer.currentScale = effectiveScale;
 
         for (final tileKey in missingTiles) {
@@ -1211,6 +1239,35 @@ class DrawingPainter extends CustomPainter {
               _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
               recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
             }
+            // 🏷️ CLUSTER LABEL: stroke count per tile at extreme zoom-out
+            final strokeCount = visibleNodes.whereType<StrokeNode>().length;
+            if (strokeCount >= 3) {
+              final labelSize = 12.0 / effectiveScale;
+              final center = tileBounds.center;
+              // Background pill
+              final pillRect = RRect.fromRectAndRadius(
+                Rect.fromCenter(center: center, width: labelSize * 3, height: labelSize * 1.6),
+                Radius.circular(labelSize * 0.4),
+              );
+              _lodThumbFillPaint.color = const Color(0x80000000);
+              recCanvas.drawRRect(pillRect, _lodThumbFillPaint);
+              // Count text
+              final builder = ui.ParagraphBuilder(
+                ui.ParagraphStyle(
+                  textAlign: TextAlign.center,
+                  fontSize: labelSize * 0.8,
+                  maxLines: 1,
+                ),
+              );
+              builder.pushStyle(ui.TextStyle(color: const Color(0xDDFFFFFF)));
+              builder.addText('$strokeCount');
+              final paragraph = builder.build();
+              paragraph.layout(ui.ParagraphConstraints(width: labelSize * 3));
+              recCanvas.drawParagraph(
+                paragraph,
+                Offset(center.dx - labelSize * 1.5, center.dy - paragraph.height / 2),
+              );
+            }
           } else if (effectiveScale < 0.5) {
             for (final node in visibleNodes) {
               if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
@@ -1253,6 +1310,11 @@ class DrawingPainter extends CustomPainter {
         // No missing tiles — complete
         _lodProgressiveMode = false;
         _tileCache.markValid(totalStrokes, sceneGraph.version);
+      }
+
+      // 🎬 Close fade-in saveLayer if active
+      if (fadeInActive) {
+        canvas.restore();
       }
 
       _drawEraserPreviews(canvas);
@@ -1439,6 +1501,35 @@ class DrawingPainter extends CustomPainter {
           recCanvas.drawPath(entry.value, _lodThumbFillPaint);
           _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
           recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
+        }
+        // 🏷️ CLUSTER LABEL: stroke count per tile at extreme zoom-out
+        final strokeCount = visibleNodes.whereType<StrokeNode>().length;
+        if (strokeCount >= 3) {
+          final labelSize = 12.0 / effectiveScale;
+          final center = tileBounds.center;
+          // Background pill
+          final pillRect = RRect.fromRectAndRadius(
+            Rect.fromCenter(center: center, width: labelSize * 3, height: labelSize * 1.6),
+            Radius.circular(labelSize * 0.4),
+          );
+          _lodThumbFillPaint.color = const Color(0x80000000);
+          recCanvas.drawRRect(pillRect, _lodThumbFillPaint);
+          // Count text
+          final builder = ui.ParagraphBuilder(
+            ui.ParagraphStyle(
+              textAlign: TextAlign.center,
+              fontSize: labelSize * 0.8,
+              maxLines: 1,
+            ),
+          );
+          builder.pushStyle(ui.TextStyle(color: const Color(0xDDFFFFFF)));
+          builder.addText('$strokeCount');
+          final paragraph = builder.build();
+          paragraph.layout(ui.ParagraphConstraints(width: labelSize * 3));
+          recCanvas.drawParagraph(
+            paragraph,
+            Offset(center.dx - labelSize * 1.5, center.dy - paragraph.height / 2),
+          );
         }
       } else if (renderScale < 0.5) {
         // 🎨 TIER 2: Color-batched simplified polylines

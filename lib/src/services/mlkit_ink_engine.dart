@@ -84,76 +84,142 @@ class MlKitInkEngine extends InkRecognitionEngine {
     }
   }
 
-  // ── Recognition ────────────────────────────────────────────────────────────
+  // ── Internal Helpers ──────────────────────────────────────────────────────
 
-  @override
-  Future<String?> recognizeStroke(List<ProDrawingPoint> points) async {
-    if (!_modelReady || _recognizer == null) {
-      await init(languageCode: _languageCode);
-      if (!_modelReady || _recognizer == null) return null;
+  /// Build ML Kit Ink object from drawing points (single stroke).
+  Ink _buildInk(List<ProDrawingPoint> points) {
+    final inkPoints = <StrokePoint>[];
+    for (final p in points) {
+      inkPoints.add(
+        StrokePoint(x: p.position.dx, y: p.position.dy, t: p.timestamp),
+      );
     }
+    final stroke = Stroke()..points = inkPoints;
+    return Ink()..strokes = [stroke];
+  }
 
-    if (points.length < 5) return null;
-
-    try {
+  /// Build ML Kit Ink object from multiple strokes.
+  Ink _buildMultiStrokeInk(List<List<ProDrawingPoint>> strokeSets) {
+    final mlStrokes = <Stroke>[];
+    for (final points in strokeSets) {
       final inkPoints = <StrokePoint>[];
       for (final p in points) {
         inkPoints.add(
           StrokePoint(x: p.position.dx, y: p.position.dy, t: p.timestamp),
         );
       }
+      mlStrokes.add(Stroke()..points = inkPoints);
+    }
+    return Ink()..strokes = mlStrokes;
+  }
 
-      final stroke = Stroke();
-      stroke.points = inkPoints;
-
-      final ink = Ink();
-      ink.strokes = [stroke];
-
-      final candidates = await _recognizer!.recognize(ink);
-      if (candidates.isEmpty) return null;
-
-      final best = candidates.first.text;
-      return best;
-    } catch (_) {
+  /// Build ML Kit DigitalInkRecognitionContext from our InkRecognitionContext.
+  ///
+  /// This is the key accuracy booster:
+  /// - WritingArea: helps distinguish 'o' vs 'O', 'c' vs 'C', etc.
+  /// - preContext: feeds the language model for better word predictions
+  DigitalInkRecognitionContext? _buildMlKitContext(
+      InkRecognitionContext context) {
+    if (context.writingArea == null && context.preContext == null) {
       return null;
     }
+
+    WritingArea? writingArea;
+    if (context.writingArea != null) {
+      writingArea = WritingArea(
+        width: context.writingArea!.width,
+        height: context.writingArea!.height,
+      );
+    }
+
+    return DigitalInkRecognitionContext(
+      preContext: context.preContext ?? '',
+      writingArea: writingArea,
+    );
+  }
+
+  /// Run ML Kit recognition and return all candidates.
+  Future<List<RecognitionCandidate>> _recognize(
+    Ink ink, {
+    InkRecognitionContext context = InkRecognitionContext.empty,
+  }) async {
+    if (!_modelReady || _recognizer == null) {
+      await init(languageCode: _languageCode);
+      if (!_modelReady || _recognizer == null) return const [];
+    }
+
+    try {
+      final mlContext = _buildMlKitContext(context);
+      if (mlContext != null) {
+        return await _recognizer!.recognize(ink, context: mlContext);
+      } else {
+        return await _recognizer!.recognize(ink);
+      }
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  // ── Recognition ────────────────────────────────────────────────────────────
+
+  @override
+  Future<String?> recognizeStroke(
+    List<ProDrawingPoint> points, {
+    InkRecognitionContext context = InkRecognitionContext.empty,
+  }) async {
+    if (points.length < 5) return null;
+    final candidates = await _recognize(_buildInk(points), context: context);
+    if (candidates.isEmpty) return null;
+    return candidates.first.text;
   }
 
   @override
   Future<String?> recognizeMultiStroke(
-    List<List<ProDrawingPoint>> strokeSets,
-  ) async {
-    if (!_modelReady || _recognizer == null) {
-      await init(languageCode: _languageCode);
-      if (!_modelReady || _recognizer == null) return null;
-    }
-
+    List<List<ProDrawingPoint>> strokeSets, {
+    InkRecognitionContext context = InkRecognitionContext.empty,
+  }) async {
     final totalPoints = strokeSets.fold<int>(0, (sum, s) => sum + s.length);
     if (totalPoints < 5) return null;
+    final candidates = await _recognize(
+      _buildMultiStrokeInk(strokeSets),
+      context: context,
+    );
+    if (candidates.isEmpty) return null;
+    return candidates.first.text;
+  }
 
-    try {
-      final mlStrokes = <Stroke>[];
-      for (final points in strokeSets) {
-        final inkPoints = <StrokePoint>[];
-        for (final p in points) {
-          inkPoints.add(
-            StrokePoint(x: p.position.dx, y: p.position.dy, t: p.timestamp),
-          );
-        }
-        mlStrokes.add(Stroke()..points = inkPoints);
-      }
+  @override
+  Future<List<InkCandidate>> recognizeStrokeCandidates(
+    List<ProDrawingPoint> points, {
+    InkRecognitionContext context = InkRecognitionContext.empty,
+    int maxCandidates = 5,
+  }) async {
+    if (points.length < 5) return const [];
+    final candidates = await _recognize(_buildInk(points), context: context);
+    return candidates
+        .take(maxCandidates)
+        .indexed
+        .map((e) => InkCandidate(text: e.$2.text, score: e.$1.toDouble()))
+        .toList();
+  }
 
-      final ink = Ink();
-      ink.strokes = mlStrokes;
-      final candidates = await _recognizer!.recognize(ink);
-
-      if (candidates.isEmpty) return null;
-
-      final best = candidates.first.text;
-      return best;
-    } catch (_) {
-      return null;
-    }
+  @override
+  Future<List<InkCandidate>> recognizeMultiStrokeCandidates(
+    List<List<ProDrawingPoint>> strokeSets, {
+    InkRecognitionContext context = InkRecognitionContext.empty,
+    int maxCandidates = 5,
+  }) async {
+    final totalPoints = strokeSets.fold<int>(0, (sum, s) => sum + s.length);
+    if (totalPoints < 5) return const [];
+    final candidates = await _recognize(
+      _buildMultiStrokeInk(strokeSets),
+      context: context,
+    );
+    return candidates
+        .take(maxCandidates)
+        .indexed
+        .map((e) => InkCandidate(text: e.$2.text, score: e.$1.toDouble()))
+        .toList();
   }
 
   // ── Language Management ────────────────────────────────────────────────────
@@ -226,3 +292,4 @@ class MlKitInkEngine extends InkRecognitionEngine {
     _modelReady = false;
   }
 }
+

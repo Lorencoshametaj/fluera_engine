@@ -312,7 +312,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
               overlayColor: _cyan.withValues(alpha: 0.1),
             ),
             child: Slider(
-              min: 5, max: 15, divisions: 2,
+              min: 5, max: 15, divisions: 10,
               value: _questionCount.toDouble(),
               onChanged: (v) => setState(() => _questionCount = v.round()),
             ),

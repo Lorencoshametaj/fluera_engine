@@ -8,11 +8,13 @@ void main() {
   group('ScratchOutDetector', () {
     /// Helper: Generate a horizontal zigzag pattern.
     /// Creates points that zigzag up and down along the x axis.
+    /// Uses fast timestamps (5ms intervals) to exceed speed threshold.
     List<ProDrawingPoint> _makeHorizontalZigzag({
       int zigzags = 6,
       double width = 200.0,
       double height = 40.0,
       int pointsPerSeg = 8,
+      int msPerPoint = 5,
     }) {
       final points = <ProDrawingPoint>[];
       final totalSegs = zigzags * 2;
@@ -34,7 +36,7 @@ void main() {
           final prev = points.last.position;
           for (int i = 1; i <= pointsPerSeg; i++) {
             final t = i / pointsPerSeg;
-            ts += 10;
+            ts += msPerPoint;
             points.add(ProDrawingPoint(
               position: Offset(
                 prev.dx + (x - prev.dx) * t,
@@ -55,6 +57,7 @@ void main() {
       double width = 40.0,
       double height = 200.0,
       int pointsPerSeg = 8,
+      int msPerPoint = 5,
     }) {
       final points = <ProDrawingPoint>[];
       final totalSegs = zigzags * 2;
@@ -75,7 +78,7 @@ void main() {
           final prev = points.last.position;
           for (int i = 1; i <= pointsPerSeg; i++) {
             final t = i / pointsPerSeg;
-            ts += 10;
+            ts += msPerPoint;
             points.add(ProDrawingPoint(
               position: Offset(
                 prev.dx + (x - prev.dx) * t,
@@ -138,7 +141,7 @@ void main() {
       final result = ScratchOutDetector.analyze(points);
 
       expect(result.recognized, isTrue);
-      expect(result.reversalCount, greaterThanOrEqualTo(4));
+      expect(result.reversalCount, greaterThanOrEqualTo(6));
       expect(result.confidence, greaterThan(0.0));
       expect(result.scratchBounds, isNot(Rect.zero));
     });
@@ -148,7 +151,7 @@ void main() {
       final result = ScratchOutDetector.analyze(points);
 
       expect(result.recognized, isTrue);
-      expect(result.reversalCount, greaterThanOrEqualTo(4));
+      expect(result.reversalCount, greaterThanOrEqualTo(6));
     });
 
     test('rejects straight line (no reversals)', () {
@@ -167,7 +170,7 @@ void main() {
     });
 
     test('rejects too few reversals (2 zigzags only)', () {
-      // 2 zigzags = 3 reversals < minimum 4
+      // 2 zigzags = 3 reversals < minimum 6
       final points = _makeHorizontalZigzag(zigzags: 2, pointsPerSeg: 10);
       final result = ScratchOutDetector.analyze(points);
 
@@ -189,8 +192,8 @@ void main() {
       expect(result.recognized, isFalse);
     });
 
-    test('rejects slow gesture (> 1.5s)', () {
-      // Make a zigzag but with 2000ms duration
+    test('rejects slow gesture (> 2s)', () {
+      // Make a zigzag but with 3000ms duration (> maxDurationMs)
       final points = _makeHorizontalZigzag(zigzags: 6);
       // Override timestamps to be very spread out
       final slowPoints = <ProDrawingPoint>[];
@@ -198,8 +201,8 @@ void main() {
         slowPoints.add(ProDrawingPoint(
           position: points[i].position,
           pressure: points[i].pressure,
-          // Spread over 2 seconds
-          timestamp: 1000 + (i * 2000 ~/ points.length),
+          // Spread over 3 seconds (> maxDurationMs = 2000)
+          timestamp: 1000 + (i * 3000 ~/ points.length),
         ));
       }
       final result = ScratchOutDetector.analyze(slowPoints);
@@ -257,7 +260,7 @@ void main() {
           final prev = points.last.position;
           for (int i = 1; i <= 8; i++) {
             final t = i / 8.0;
-            ts += 10;
+            ts += 5; // Fast timestamps to exceed speed threshold
             points.add(ProDrawingPoint(
               position: Offset(
                 prev.dx + (x - prev.dx) * t,
@@ -272,7 +275,7 @@ void main() {
 
       final result = ScratchOutDetector.analyze(points);
       expect(result.recognized, isTrue);
-      expect(result.reversalCount, greaterThanOrEqualTo(4));
+      expect(result.reversalCount, greaterThanOrEqualTo(6));
     });
 
     test('analyzePartial accepts with lower thresholds', () {
@@ -285,7 +288,7 @@ void main() {
       // Partial should be more lenient
       final partialResult = ScratchOutDetector.analyzePartial(points);
       
-      // Partial should recognize (≥4 reversals partial, no confidence gate)
+      // Partial should recognize (>=4 reversals partial, no confidence gate)
       expect(partialResult.recognized, isTrue);
       expect(partialResult.reversalCount, greaterThanOrEqualTo(4));
     });

@@ -251,7 +251,7 @@ class ImagePainter extends CustomPainter {
     // 🚀 3-TIER LOD: at very low zoom, draw images as colored rectangles
     // (consistent with stroke Tier 1 behavior — saves image decode + filter cost)
     final canvasScale = controller?.scale ?? 1.0;
-    if (canvasScale < 0.2) {
+    if (canvasScale < 0.25) {
       for (final img in visibleImages) {
         final image = loadedImages[img.imagePath];
         final w = image?.width.toDouble() ?? 200.0;

@@ -155,7 +155,7 @@ class _HandwritingScratchpadState extends State<HandwritingScratchpad> with Tick
         }
       }
     } catch (e) {
-      debugPrint('Error recognizing ink: \$e');
+      debugPrint('Error recognizing ink: $e');
     } finally {
       if (mounted) setState(() => _isRecognizing = false);
     }
