@@ -3,12 +3,20 @@ import 'dart:ui' as ui;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/models/image_element.dart';
+import '../../core/models/text_overlay.dart';
+import '../../core/models/color_adjustments.dart';
+import '../../core/models/gradient_filter.dart';
+import '../../core/models/perspective_settings.dart';
+import '../image_adjustment_engine.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../tools/image/image_tool.dart';
 import '../../drawing/brushes/brushes.dart';
+import '../../drawing/brushes/brush_engine.dart';
 import '../../canvas/infinite_canvas_controller.dart';
 import '../optimization/spatial_index.dart';
 import 'image_memory_manager.dart';
+import '../native/image/native_image_processor.dart';
+import '../native/image/image_filter_params.dart';
 
 // =============================================================================
 // 🖼️ ENTERPRISE IMAGE PAINTER — Viewport-level image renderer
@@ -41,10 +49,8 @@ class ImagePainter extends CustomPainter {
   final ImageElement? selectedImage;
   final ImageTool imageTool;
 
-  // 🎨 Editing mode
-  final ImageElement? imageInEditMode;
-  final List<ProStroke> imageEditingStrokes;
-  final ProStroke? currentEditingStroke;
+  // 🖊️ Canvas-space strokes: rendered on top of overlapping images (PDF-like z-order)
+  final List<ProStroke> canvasStrokes;
 
   // 🔄 Loading animation value (0.0 - 1.0 for pulse effect)
   final double loadingPulse;
@@ -63,6 +69,9 @@ class ImagePainter extends CustomPainter {
 
   // 🧠 LRU memory manager for access tracking
   final ImageMemoryManager? memoryManager;
+
+  // 🖼️ Micro-thumbnails for stubbed images (64px, ~16KB each)
+  final Map<String, ui.Image> microThumbnails;
 
   // 🖼️ Per-image Picture cache (static, persists across frames)
   static final Map<String, _ImageCacheEntry> _perImageCache = {};
@@ -150,46 +159,54 @@ class ImagePainter extends CustomPainter {
   // 🎨 Reusable color matrix buffer (avoids List<double> allocation per frame)
   static final Float64List _colorMatrixBuffer = Float64List(20);
 
+  // 🚀 PERF: Pre-allocated Paint objects for hot path (zero GC pressure)
+  static final Paint _lodThumbFillPaint =
+      Paint()
+        ..color = const Color(0x206B8E6B)
+        ..style = PaintingStyle.fill;
+  static final Paint _lodThumbBorderPaint =
+      Paint()
+        ..color = const Color(0x406B8E6B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+  static final Paint _imageRenderPaint = Paint(); // filterQuality set per-use
+  static final Paint _badgePillPaint = Paint()..color = const Color(0xDD1565C0);
+  static final Paint _vignettePaint = Paint(); // shader set per-use
+
   ImagePainter({
     required this.images,
     required this.loadedImages,
     required this.selectedImage,
     required this.imageTool,
-    this.imageInEditMode,
-    this.imageEditingStrokes = const [],
-    this.currentEditingStroke,
+    this.canvasStrokes = const [],
+
     this.loadingPulse = 0.0,
     this.controller,
     this.imageVersion = 0,
     this.devicePixelRatio = 1.0,
     this.spatialIndex,
     this.memoryManager,
+    this.microThumbnails = const {},
     ValueNotifier<int>? imageRepaintNotifier,
   }) : super(
-         repaint:
-             controller != null && imageRepaintNotifier != null
-                 ? Listenable.merge([controller, imageRepaintNotifier])
-                 : (controller ?? imageRepaintNotifier),
+         // 🚀 PERF: Do NOT listen to controller here.
+         // Pan/zoom is handled by the parent Transform widget (GPU compositing).
+         // Only repaint when images themselves change (via imageRepaintNotifier).
+         repaint: imageRepaintNotifier,
        );
 
   @override
   void paint(Canvas canvas, Size size) {
     if (images.isEmpty) return;
 
-    // 🚀 Viewport-level: apply canvas transform internally
-    final hasController = controller != null;
-    if (hasController) {
-      canvas.save();
-      canvas.translate(controller!.offset.dx, controller!.offset.dy);
-      canvas.scale(controller!.scale);
-      if (controller!.rotation != 0.0) {
-        canvas.rotate(controller!.rotation);
-      }
-    }
+    // 🚀 NOTE: Canvas transform (translate/scale/rotate) is now applied
+    // by the parent Transform widget in the widget tree. ImagePainter
+    // renders in CANVAS COORDINATES directly. This avoids re-rasterization
+    // on every pan/zoom frame — the GPU composites the cached layer.
 
     // 🎯 Calculate viewport rect in canvas coordinates for culling
     Rect? viewportRect;
-    if (hasController) {
+    if (controller != null) {
       final scale = controller!.scale;
       final offset = controller!.offset;
       // Base viewport (no extra margin — R-tree queryVisible adds its own)
@@ -231,9 +248,30 @@ class ImagePainter extends CustomPainter {
       );
     }
 
-    // 🎨 Global dynamic flags (editing mode affects all images)
-    final globalDynamic =
-        imageInEditMode != null || currentEditingStroke != null;
+    // 🚀 3-TIER LOD: at very low zoom, draw images as colored rectangles
+    // (consistent with stroke Tier 1 behavior — saves image decode + filter cost)
+    final canvasScale = controller?.scale ?? 1.0;
+    if (canvasScale < 0.25) {
+      for (final img in visibleImages) {
+        final image = loadedImages[img.imagePath];
+        final w = image?.width.toDouble() ?? 200.0;
+        final h = image?.height.toDouble() ?? 150.0;
+        final rect = Rect.fromCenter(
+          center: img.position,
+          width: w * img.scale,
+          height: h * img.scale,
+        );
+        if (rect.longestSide * canvasScale < 3.0) continue; // too small
+        final r = (rect.shortestSide * 0.04).clamp(2.0, 12.0);
+        final rrect = RRect.fromRectAndRadius(rect, Radius.circular(r));
+        canvas.drawRRect(rrect, _lodThumbFillPaint);
+        canvas.drawRRect(rrect, _lodThumbBorderPaint);
+      }
+      return;
+    }
+
+    // 🎨 Global dynamic flags
+    const globalDynamic = false;
 
     // 🖼️ Per-image rendering with cache
     for (final imageElement in visibleImages) {
@@ -248,9 +286,13 @@ class ImagePainter extends CustomPainter {
       }
 
       // 🚀 Per-image dynamic check
+      // ⚡ Check BOTH the build-time selectedImage AND the live imageTool.selectedImage.
+      // When auto-selection happens during a gesture (shouldRouteToImageRotation),
+      // the widget isn't rebuilt, so selectedImage is null. But imageTool has the
+      // up-to-date selection.
       final isThisImageActive =
           selectedImage?.id == imageElement.id ||
-          imageInEditMode?.id == imageElement.id;
+          imageTool.selectedImage?.id == imageElement.id;
       final isDragging = isThisImageActive && imageTool.isDragging;
       final isResizing = isThisImageActive && imageTool.isResizing;
       final isRotating = isThisImageActive && imageTool.isRotating;
@@ -297,7 +339,7 @@ class ImagePainter extends CustomPainter {
         canvas.restore();
 
         // Selection overlay (handles need to track position)
-        if (selectedImage?.id == liveImage.id && imageInEditMode == null) {
+        if (selectedImage?.id == liveImage.id || imageTool.selectedImage?.id == liveImage.id) {
           _drawSelection(canvas, liveImage, image);
         }
         continue;
@@ -324,7 +366,7 @@ class ImagePainter extends CustomPainter {
       if (isRotating) {
         final liveImage = imageTool.selectedImage!;
         _renderSingleImage(canvas, liveImage, image);
-        if (selectedImage?.id == liveImage.id && imageInEditMode == null) {
+        if (selectedImage?.id == liveImage.id || imageTool.selectedImage?.id == liveImage.id) {
           _drawSelection(canvas, liveImage, image);
         }
         continue;
@@ -367,16 +409,13 @@ class ImagePainter extends CustomPainter {
         _dragContentCache.remove(imageElement.id);
       }
     }
-
-    // 🚀 Viewport-level: restore canvas transform
-    if (hasController) {
-      canvas.restore();
-    }
   }
 
   /// 🧠 Compute a lightweight hash for per-image cache invalidation.
   /// Only invalidates when image properties actually change.
-  /// Includes canvas scale for LOD-aware invalidation (improvement 1).
+  /// 🚀 NOTE: canvas scale is NOT included — ImagePainter is inside
+  /// RepaintBoundary + Transform, so GPU compositing handles zoom.
+  /// LOD (FilterQuality) is applied at render time, not cached.
   int _computeImageHash(ImageElement e) {
     // Combine position, scale, rotation, opacity, flip, crop, strokes count
     var h = e.position.dx.hashCode;
@@ -391,8 +430,6 @@ class ImagePainter extends CustomPainter {
     h = h * 31 + e.flipVertical.hashCode;
     h = h * 31 + (e.cropRect?.hashCode ?? 0);
     h = h * 31 + e.drawingStrokes.length;
-    // 🔍 LOD: include canvas zoom so FilterQuality changes on zoom
-    h = h * 31 + (controller?.scale.hashCode ?? 0);
     return h;
   }
 
@@ -402,17 +439,21 @@ class ImagePainter extends CustomPainter {
     var h = e.scale.hashCode;
     h = h * 31 + e.rotation.hashCode;
     h = h * 31 + e.opacity.hashCode;
-    h = h * 31 + e.brightness.hashCode;
-    h = h * 31 + e.contrast.hashCode;
-    h = h * 31 + e.saturation.hashCode;
-    h = h * 31 + e.vignette.hashCode;
-    h = h * 31 + e.hueShift.hashCode;
-    h = h * 31 + e.temperature.hashCode;
+    h =
+        h * 31 +
+        (e.brightness.hashCode ^
+            e.contrast.hashCode ^
+            e.saturation.hashCode ^
+            e.hueShift.hashCode ^
+            e.temperature.hashCode ^
+            e.highlights.hashCode ^
+            e.shadows.hashCode ^
+            e.fade.hashCode ^
+            e.vignette.hashCode);
     h = h * 31 + e.flipHorizontal.hashCode;
     h = h * 31 + e.flipVertical.hashCode;
     h = h * 31 + (e.cropRect?.hashCode ?? 0);
     h = h * 31 + e.drawingStrokes.length;
-    h = h * 31 + (controller?.scale.hashCode ?? 0);
     return h;
   }
 
@@ -484,8 +525,16 @@ class ImagePainter extends CustomPainter {
     }
 
     // Calculate dimensions (considering crop)
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
+    // 🐛 FIX: Use cached ORIGINAL dimensions for dstRect so visual size
+    //    stays consistent across LOD swaps (thumbnail → full-res).
+    //    srcRect always covers the entire decoded texture.
+    final decodedW = image.width.toDouble();
+    final decodedH = image.height.toDouble();
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final originalW = cachedSize?.width ?? decodedW;
+    final originalH = cachedSize?.height ?? decodedH;
 
     Rect srcRect;
     Rect dstRect;
@@ -493,30 +542,34 @@ class ImagePainter extends CustomPainter {
     if (imageElement.cropRect != null) {
       final crop = imageElement.cropRect!;
       srcRect = Rect.fromLTRB(
-        crop.left * imageWidth,
-        crop.top * imageHeight,
-        crop.right * imageWidth,
-        crop.bottom * imageHeight,
+        crop.left * decodedW,
+        crop.top * decodedH,
+        crop.right * decodedW,
+        crop.bottom * decodedH,
       );
+      // Use original proportions for dst so size doesn't jump
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: srcRect.width,
-        height: srcRect.height,
+        width: crop.right * originalW - crop.left * originalW,
+        height: crop.bottom * originalH - crop.top * originalH,
       );
     } else {
-      srcRect = Rect.fromLTWH(0, 0, imageWidth, imageHeight);
+      srcRect = Rect.fromLTWH(0, 0, decodedW, decodedH);
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: imageWidth,
-        height: imageHeight,
+        width: originalW,
+        height: originalH,
       );
     }
 
-    // 🎨 Create paint with LOD-adaptive FilterQuality
-    final paint =
-        Paint()
-          ..filterQuality =
-              filterQualityOverride ?? _calculateLOD(imageElement, image);
+    // 🎨 Create paint with LOD-adaptive FilterQuality (reuse static paint)
+    _imageRenderPaint
+      ..filterQuality =
+          filterQualityOverride ?? _calculateLOD(imageElement, image)
+      ..color = const Color(0xFFFFFFFF)
+      ..colorFilter = null
+      ..shader = null;
+    final paint = _imageRenderPaint;
 
     // Apply opacity (Bug 2 fix: removed BlendMode.dstIn which made images invisible)
     if (imageElement.opacity < 1.0) {
@@ -524,12 +577,21 @@ class ImagePainter extends CustomPainter {
     }
 
     // Apply color filter if there are modifications
-    if (imageElement.brightness != 0 ||
-        imageElement.contrast != 0 ||
-        imageElement.saturation != 0 ||
-        imageElement.hueShift != 0 ||
-        imageElement.temperature != 0) {
-      paint.colorFilter = ColorFilter.matrix(_getColorMatrix(imageElement));
+    if (ImageAdjustmentEngine.needsColorMatrix(
+      imageElement.colorAdjustments,
+      imageElement.toneCurve,
+      imageElement.lutIndex,
+    )) {
+      paint.colorFilter = ColorFilter.matrix(
+        ImageAdjustmentEngine.computeColorMatrix(
+          imageElement.colorAdjustments,
+          toneCurve: imageElement.toneCurve,
+          lutIndex: imageElement.lutIndex,
+        ),
+      );
+
+      // 🎯 GPU fast-path: dispatch to native pipeline for real-time adjustments
+      _dispatchGpuFilters(imageElement);
     }
 
     // Draw the image
@@ -537,36 +599,117 @@ class ImagePainter extends CustomPainter {
 
     // Draw vignette overlay if active
     if (imageElement.vignette > 0) {
-      _drawVignette(canvas, dstRect, imageElement.vignette);
+      _drawVignette(
+        canvas,
+        dstRect,
+        imageElement.vignette,
+        Color(imageElement.vignetteColor),
+      );
     }
 
-    // 🎨 Always draw saved strokes on the image
-    if (imageElement.drawingStrokes.isNotEmpty) {
-      for (final stroke in imageElement.drawingStrokes) {
-        _drawStroke(canvas, stroke, imageElement.scale);
-      }
+    // 🔍 GPU blur/sharpen post-processing
+    if (imageElement.blurRadius > 0) {
+      _dispatchGpuBlur(imageElement);
+    }
+    if (imageElement.sharpenAmount > 0) {
+      _dispatchGpuSharpen(imageElement);
+    }
+    if (imageElement.edgeDetectStrength > 0) {
+      _dispatchGpuEdgeDetect(imageElement);
+    }
+    if (imageElement.lutIndex > 0) {
+      _dispatchGpuLut(imageElement);
     }
 
-    // 🎨 If this image is in editing mode, draw temporary strokes
-    if (imageInEditMode?.id == imageElement.id) {
-      for (final stroke in imageEditingStrokes) {
-        _drawStroke(canvas, stroke, imageElement.scale);
-      }
-      if (currentEditingStroke != null) {
-        _drawStroke(canvas, currentEditingStroke!, imageElement.scale);
-      }
-    }
-
-    // Restore state
+    // Restore state (end of image transform: translate → rotate → scale)
     canvas.restore();
 
-    // 🎨 Editing overlay (absolute coordinates)
-    if (imageInEditMode?.id == imageElement.id) {
-      _drawEditingOverlayBorder(canvas, imageElement, image);
+    // 🎨 Draw image-attached strokes in translate + rotate space (NO scale).
+    // 🐛 FIX: Strokes are stored in un-translated, un-rotated canvas space
+    //    (NOT un-scaled) to preserve inter-point distances for velocity-based
+    //    brushes (fountain pen, etc.). Rendering applies only translate + rotate.
+    // 🖼️ Scale ratio: strokes scale proportionally when image is resized.
+    //    At draw time, referenceScale == imageElement.scale → ratio = 1.0.
+    //    After resize, ratio ≠ 1.0 → strokes scale with the image.
+    if (imageElement.drawingStrokes.isNotEmpty) {
+      canvas.save();
+      canvas.translate(imageElement.position.dx, imageElement.position.dy);
+      if (imageElement.rotation != 0) {
+        canvas.rotate(imageElement.rotation);
+      }
+      // ✂️ Clip strokes to image bounds so ink doesn't bleed past the edge
+      final clipW = originalW * imageElement.scale;
+      final clipH = originalH * imageElement.scale;
+      canvas.clipRect(
+        Rect.fromCenter(center: Offset.zero, width: clipW, height: clipH),
+      );
+      for (final stroke in imageElement.drawingStrokes) {
+        final scaleRatio = imageElement.scale / stroke.referenceScale;
+        if (scaleRatio != 1.0) {
+          canvas.save();
+          canvas.scale(scaleRatio);
+        }
+        _drawStroke(canvas, stroke, 1.0);
+        if (scaleRatio != 1.0) {
+          canvas.restore();
+        }
+      }
+      canvas.restore();
     }
 
-    // Selection border (only if NOT editing)
-    if (selectedImage?.id == imageElement.id && imageInEditMode == null) {
+    // 📝 Render text overlays on the image
+    if (imageElement.textOverlays.isNotEmpty) {
+      final w = image.width.toDouble() * imageElement.scale;
+      final h = image.height.toDouble() * imageElement.scale;
+      for (final t in imageElement.textOverlays) {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: t.text,
+            style: TextStyle(
+              fontSize: t.fontSize,
+              color: Color(t.color).withValues(alpha: t.opacity),
+              fontFamily: t.fontFamily,
+              fontWeight: t.bold ? FontWeight.bold : FontWeight.normal,
+              fontStyle: t.italic ? FontStyle.italic : FontStyle.normal,
+              shadows:
+                  t.shadowColor != 0
+                      ? [
+                        Shadow(
+                          color: Color(t.shadowColor),
+                          blurRadius: 4,
+                          offset: const Offset(1, 1),
+                        ),
+                      ]
+                      : null,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        tp.layout();
+        final tx = imageElement.position.dx + t.x * w - w / 2 - tp.width / 2;
+        final ty = imageElement.position.dy + t.y * h - h / 2 - tp.height / 2;
+        if (t.rotation != 0) {
+          canvas.save();
+          canvas.translate(tx + tp.width / 2, ty + tp.height / 2);
+          canvas.rotate(t.rotation);
+          tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+          canvas.restore();
+        } else {
+          tp.paint(canvas, Offset(tx, ty));
+        }
+        tp.dispose();
+      }
+    }
+
+    // 🐛 FIX Bug 1: REMOVED canvas-space stroke overlay.
+    // Previously this block iterated ALL canvasStrokes and drew any stroke
+    // whose first point was inside imageRect ON TOP of the image. This caused
+    // pre-existing canvas strokes to falsely appear on top when the image was
+    // moved to their location. Image-attached strokes are already stored in
+    // imageElement.drawingStrokes and rendered above.
+
+    // Selection border
+    if (selectedImage?.id == imageElement.id) {
       _drawSelection(canvas, imageElement, image);
     }
   }
@@ -599,9 +742,19 @@ class ImagePainter extends CustomPainter {
       canvas.scale(imageElement.scale);
     }
 
+    // Perspective correction (keystone)
+    // Perspective correction (via shared engine)
+    ImageAdjustmentEngine.applyPerspective(canvas, imageElement.perspective);
+
     // Calculate dimensions (considering crop)
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
+    // 🐛 FIX: Use cached ORIGINAL dimensions for dstRect (same as primary path)
+    final decodedW = image.width.toDouble();
+    final decodedH = image.height.toDouble();
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final originalW = cachedSize?.width ?? decodedW;
+    final originalH = cachedSize?.height ?? decodedH;
 
     Rect srcRect;
     Rect dstRect;
@@ -609,53 +762,124 @@ class ImagePainter extends CustomPainter {
     if (imageElement.cropRect != null) {
       final crop = imageElement.cropRect!;
       srcRect = Rect.fromLTRB(
-        crop.left * imageWidth,
-        crop.top * imageHeight,
-        crop.right * imageWidth,
-        crop.bottom * imageHeight,
+        crop.left * decodedW,
+        crop.top * decodedH,
+        crop.right * decodedW,
+        crop.bottom * decodedH,
       );
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: srcRect.width,
-        height: srcRect.height,
+        width: crop.right * originalW - crop.left * originalW,
+        height: crop.bottom * originalH - crop.top * originalH,
       );
     } else {
-      srcRect = Rect.fromLTWH(0, 0, imageWidth, imageHeight);
+      srcRect = Rect.fromLTWH(0, 0, decodedW, decodedH);
       dstRect = Rect.fromCenter(
         center: Offset.zero,
-        width: imageWidth,
-        height: imageHeight,
+        width: originalW,
+        height: originalH,
       );
     }
 
-    // Paint with LOD
-    final paint = Paint()..filterQuality = _calculateLOD(imageElement, image);
+    // Paint with LOD (reuse static paint)
+    _imageRenderPaint
+      ..filterQuality = _calculateLOD(imageElement, image)
+      ..color = const Color(0xFFFFFFFF)
+      ..colorFilter = null
+      ..shader = null;
+    final paint = _imageRenderPaint;
 
     if (imageElement.opacity < 1.0) {
       paint.color = Color.fromRGBO(255, 255, 255, imageElement.opacity);
     }
 
-    if (imageElement.brightness != 0 ||
-        imageElement.contrast != 0 ||
-        imageElement.saturation != 0 ||
-        imageElement.hueShift != 0 ||
-        imageElement.temperature != 0) {
-      paint.colorFilter = ColorFilter.matrix(_getColorMatrix(imageElement));
+    if (ImageAdjustmentEngine.needsColorMatrix(
+      imageElement.colorAdjustments,
+      imageElement.toneCurve,
+      imageElement.lutIndex,
+    )) {
+      paint.colorFilter = ColorFilter.matrix(
+        ImageAdjustmentEngine.computeColorMatrix(
+          imageElement.colorAdjustments,
+          toneCurve: imageElement.toneCurve,
+          lutIndex: imageElement.lutIndex,
+        ),
+      );
+      _dispatchGpuFilters(imageElement);
     }
 
     canvas.drawImageRect(image, srcRect, dstRect, paint);
 
     if (imageElement.vignette > 0) {
-      _drawVignette(canvas, dstRect, imageElement.vignette);
+      _drawVignette(
+        canvas,
+        dstRect,
+        imageElement.vignette,
+        Color(imageElement.vignetteColor),
+      );
     }
 
-    if (imageElement.drawingStrokes.isNotEmpty) {
-      for (final stroke in imageElement.drawingStrokes) {
-        _drawStroke(canvas, stroke, imageElement.scale);
-      }
+    // Gradient filter overlay (via shared engine)
+    ImageAdjustmentEngine.drawGradientOverlay(
+      canvas,
+      dstRect,
+      imageElement.gradientFilter,
+    );
+
+    // Noise reduction (via shared engine)
+    ImageAdjustmentEngine.drawNoiseReduction(
+      canvas,
+      image,
+      srcRect,
+      dstRect,
+      imageElement.noiseReduction,
+    );
+
+    if (imageElement.blurRadius > 0) {
+      _dispatchGpuBlur(imageElement);
+    }
+    if (imageElement.sharpenAmount > 0) {
+      _dispatchGpuSharpen(imageElement);
+    }
+    if (imageElement.edgeDetectStrength > 0) {
+      _dispatchGpuEdgeDetect(imageElement);
+    }
+    if (imageElement.lutIndex > 0) {
+      _dispatchGpuLut(imageElement);
     }
 
+    // Restore image transform (translate → rotate → scale)
     canvas.restore();
+
+    // 🐛 FIX: Render strokes in translate + rotate space (NO scale)
+    //    to match the un-scaled coordinate conversion.
+    if (imageElement.drawingStrokes.isNotEmpty) {
+      canvas.save();
+      // Note: _renderImageContent is called with translate already removed
+      // (content is rendered relative to origin, then replayed with translate).
+      // So we only need rotate here.
+      if (imageElement.rotation != 0) {
+        canvas.rotate(imageElement.rotation);
+      }
+      // ✂️ Clip strokes to image bounds so ink doesn't bleed past the edge
+      final clipW = originalW * imageElement.scale;
+      final clipH = originalH * imageElement.scale;
+      canvas.clipRect(
+        Rect.fromCenter(center: Offset.zero, width: clipW, height: clipH),
+      );
+      for (final stroke in imageElement.drawingStrokes) {
+        final scaleRatio = imageElement.scale / stroke.referenceScale;
+        if (scaleRatio != 1.0) {
+          canvas.save();
+          canvas.scale(scaleRatio);
+        }
+        _drawStroke(canvas, stroke, 1.0);
+        if (scaleRatio != 1.0) {
+          canvas.restore();
+        }
+      }
+      canvas.restore();
+    }
   }
 
   // ===========================================================================
@@ -687,119 +911,73 @@ class ImagePainter extends CustomPainter {
     return FilterQuality.high;
   }
 
-  // ===========================================================================
-  // 🎨 Color Matrix
-  // ===========================================================================
-
-  List<double> _getColorMatrix(ImageElement element) {
-    final b = element.brightness * 255;
-    final c = element.contrast + 1.0;
-    final t = (1.0 - c) / 2.0 * 255;
-    final s = element.saturation + 1.0;
-    const lumR = 0.3086;
-    const lumG = 0.6094;
-    const lumB = 0.0820;
-    final sr = (1.0 - s) * lumR;
-    final sg = (1.0 - s) * lumG;
-    final sb = (1.0 - s) * lumB;
-
-    // Base saturation + brightness + contrast matrix
-    double r0 = (sr + s) * c, r1 = sg * c, r2 = sb * c, r4 = b + t;
-    double g0 = sr * c, g1 = (sg + s) * c, g2 = sb * c, g4 = b + t;
-    double b0 = sr * c, b1 = sg * c, b2 = (sb + s) * c, b4 = b + t;
-
-    // Temperature tint (warm = +red +green -blue, cool = -red +blue)
-    if (element.temperature != 0) {
-      final temp = element.temperature * 30; // ±30 per channel
-      r4 += temp;
-      g4 += temp * 0.4;
-      b4 -= temp;
-    }
-
-    // Hue rotation via Rodrigues' formula in RGB space
-    if (element.hueShift != 0) {
-      final angle = element.hueShift * 3.14159265;
-      final cosA = _cos(angle);
-      final sinA = _sin(angle);
-      const k = 1.0 / 3.0;
-      final sqrt = 0.57735; // 1/sqrt(3)
-
-      final m00 = cosA + (1 - cosA) * k;
-      final m01 = k * (1 - cosA) - sqrt * sinA;
-      final m02 = k * (1 - cosA) + sqrt * sinA;
-      final m10 = k * (1 - cosA) + sqrt * sinA;
-      final m11 = cosA + (1 - cosA) * k;
-      final m12 = k * (1 - cosA) - sqrt * sinA;
-      final m20 = k * (1 - cosA) - sqrt * sinA;
-      final m21 = k * (1 - cosA) + sqrt * sinA;
-      final m22 = cosA + (1 - cosA) * k;
-
-      // Multiply: hue matrix × current matrix
-      final nr0 = m00 * r0 + m01 * g0 + m02 * b0;
-      final nr1 = m00 * r1 + m01 * g1 + m02 * b1;
-      final nr2 = m00 * r2 + m01 * g2 + m02 * b2;
-      final ng0 = m10 * r0 + m11 * g0 + m12 * b0;
-      final ng1 = m10 * r1 + m11 * g1 + m12 * b1;
-      final ng2 = m10 * r2 + m11 * g2 + m12 * b2;
-      final nb0 = m20 * r0 + m21 * g0 + m22 * b0;
-      final nb1 = m20 * r1 + m21 * g1 + m22 * b1;
-      final nb2 = m20 * r2 + m21 * g2 + m22 * b2;
-
-      r0 = nr0;
-      r1 = nr1;
-      r2 = nr2;
-      g0 = ng0;
-      g1 = ng1;
-      g2 = ng2;
-      b0 = nb0;
-      b1 = nb1;
-      b2 = nb2;
-    }
-
-    // Fill static buffer in-place (no allocation)
-    _colorMatrixBuffer[0] = r0;
-    _colorMatrixBuffer[1] = r1;
-    _colorMatrixBuffer[2] = r2;
-    _colorMatrixBuffer[3] = 0;
-    _colorMatrixBuffer[4] = r4;
-    _colorMatrixBuffer[5] = g0;
-    _colorMatrixBuffer[6] = g1;
-    _colorMatrixBuffer[7] = g2;
-    _colorMatrixBuffer[8] = 0;
-    _colorMatrixBuffer[9] = g4;
-    _colorMatrixBuffer[10] = b0;
-    _colorMatrixBuffer[11] = b1;
-    _colorMatrixBuffer[12] = b2;
-    _colorMatrixBuffer[13] = 0;
-    _colorMatrixBuffer[14] = b4;
-    _colorMatrixBuffer[15] = 0;
-    _colorMatrixBuffer[16] = 0;
-    _colorMatrixBuffer[17] = 0;
-    _colorMatrixBuffer[18] = 1;
-    _colorMatrixBuffer[19] = 0;
-
-    return _colorMatrixBuffer;
-  }
-
   /// Draw vignette as a radial gradient overlay.
-  void _drawVignette(Canvas canvas, Rect rect, double strength) {
-    final center = rect.center;
-    final radius = rect.longestSide / 2;
+  void _drawVignette(
+    Canvas canvas,
+    Rect rect,
+    double strength, [
+    Color color = const Color(0xFF000000),
+  ]) {
     final gradient = RadialGradient(
       center: Alignment.center,
       radius: 0.85,
       colors: [
         Colors.transparent,
-        Colors.black.withValues(alpha: 0.35 * strength),
-        Colors.black.withValues(alpha: 0.7 * strength),
+        color.withValues(alpha: 0.35 * strength),
+        color.withValues(alpha: 0.7 * strength),
       ],
       stops: const [0.3, 0.75, 1.0],
     );
-    final paint = Paint()..shader = gradient.createShader(rect);
-    canvas.drawRect(rect, paint);
+    _vignettePaint.shader = gradient.createShader(rect);
+    canvas.drawRect(rect, _vignettePaint);
   }
 
-  // Fast inline trig for hot path (avoid dart:math import overhead)
+  // ─── GPU Dispatch (fire-and-forget from paint) ────────────────────────
+
+  /// Dispatch color grading filter params to native GPU pipeline.
+  /// Fire-and-forget: schedules GPU work asynchronously, CPU fallback
+  /// (ColorFilter.matrix) is already applied above for immediate display.
+  void _dispatchGpuFilters(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    final params = ImageFilterParams.fromImageElement(element);
+    // Fire-and-forget — GPU will re-render the texture asynchronously
+    processor.applyFilters(element.id, params);
+  }
+
+  /// Dispatch Gaussian blur to native GPU pipeline.
+  void _dispatchGpuBlur(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applyBlur(element.id, element.blurRadius);
+  }
+
+  /// Dispatch unsharp mask (sharpen) to native GPU pipeline.
+  void _dispatchGpuSharpen(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applySharpen(element.id, element.sharpenAmount);
+  }
+
+  /// Dispatch Sobel edge detection to native GPU pipeline.
+  void _dispatchGpuEdgeDetect(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applyEdgeDetect(element.id, element.edgeDetectStrength);
+  }
+
+  /// Dispatch LUT color grading to native GPU pipeline.
+  void _dispatchGpuLut(ImageElement element) {
+    final processor = NativeImageProcessor.instance;
+    if (!processor.isAvailable) return;
+
+    processor.applyLut(element.id, element.lutIndex);
+  }
+
   static double _cos(double x) {
     // Taylor approximation - good enough for color matrix
     x = x % 6.28318530718;
@@ -825,8 +1003,28 @@ class ImagePainter extends CustomPainter {
     canvas.translate(imageElement.position.dx, imageElement.position.dy);
     canvas.rotate(imageElement.rotation);
 
-    final scaledWidth = image.width.toDouble() * imageElement.scale;
-    final scaledHeight = image.height.toDouble() * imageElement.scale;
+    // 🐛 FIX: Use cached original dimensions so selection matches visual size
+    //    (image is rendered at originalW×originalH, not decodedW×decodedH).
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final imageWidth = cachedSize?.width ?? image.width.toDouble();
+    final imageHeight = cachedSize?.height ?? image.height.toDouble();
+
+    // 🔧 Use cropped dimensions when cropRect is set
+    final visibleWidth =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.right - imageElement.cropRect!.left) *
+                imageWidth
+            : imageWidth;
+    final visibleHeight =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.bottom - imageElement.cropRect!.top) *
+                imageHeight
+            : imageHeight;
+
+    final scaledWidth = visibleWidth * imageElement.scale;
+    final scaledHeight = visibleHeight * imageElement.scale;
 
     final rect = Rect.fromCenter(
       center: Offset.zero,
@@ -894,7 +1092,7 @@ class ImagePainter extends CustomPainter {
         const Radius.circular(12),
       );
 
-      canvas.drawRRect(badgeRect, Paint()..color = const Color(0xDD1565C0));
+      canvas.drawRRect(badgeRect, _badgePillPaint);
       tp.paint(canvas, Offset(-tp.width / 2, rect.top - 28 - tp.height / 2));
       tp.dispose();
     }
@@ -911,8 +1109,23 @@ class ImagePainter extends CustomPainter {
     canvas.translate(imageElement.position.dx, imageElement.position.dy);
     canvas.rotate(imageElement.rotation);
 
-    final scaledWidth = image.width.toDouble() * imageElement.scale;
-    final scaledHeight = image.height.toDouble() * imageElement.scale;
+    final imageWidth = image.width.toDouble();
+    final imageHeight = image.height.toDouble();
+
+    // 🔧 Use cropped dimensions when cropRect is set
+    final visibleWidth =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.right - imageElement.cropRect!.left) *
+                imageWidth
+            : imageWidth;
+    final visibleHeight =
+        imageElement.cropRect != null
+            ? (imageElement.cropRect!.bottom - imageElement.cropRect!.top) *
+                imageHeight
+            : imageHeight;
+
+    final scaledWidth = visibleWidth * imageElement.scale;
+    final scaledHeight = visibleHeight * imageElement.scale;
 
     final rect = Rect.fromCenter(
       center: Offset.zero,
@@ -939,56 +1152,50 @@ class ImagePainter extends CustomPainter {
   void _drawStroke(Canvas canvas, ProStroke stroke, [double scale = 1.0]) {
     if (stroke.points.isEmpty) return;
 
-    final scaledBaseWidth = stroke.baseWidth / scale;
+    // 🎨 Use unified BrushEngine for consistent rendering with
+    // DrawingPainter and CurrentStrokePainter — eliminates visual
+    // mismatch between live and finalized strokes on images.
+    // 🐛 FIX: Pass isLive: true so rendering matches CurrentStrokePainter
+    //    (same saveLayer bounds, same point decimation, same texture path).
+    //    Without this, finalized strokes use different quality settings
+    //    that produce a visible "shrink" on pointer-up.
+    BrushEngine.renderStroke(
+      canvas,
+      stroke.points,
+      stroke.color,
+      stroke.baseWidth / scale,
+      stroke.penType,
+      stroke.settings,
+      isLive: true,
+    );
+  }
 
-    switch (stroke.penType) {
-      case ProPenType.ballpoint:
-        BallpointBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.fountain:
-        FountainPenBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.pencil:
-        PencilBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.highlighter:
-        HighlighterBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
-      case ProPenType.watercolor:
-      case ProPenType.marker:
-      case ProPenType.charcoal:
-      case ProPenType.oilPaint:
-      case ProPenType.sprayPaint:
-      case ProPenType.neonGlow:
-      case ProPenType.inkWash:
-        BallpointBrush.drawStroke(
-          canvas,
-          stroke.points,
-          stroke.color,
-          scaledBaseWidth,
-        );
-        break;
+  /// 🖊️ Compute axis-aligned bounding box of image in canvas space.
+  Rect _getImageCanvasBounds(ImageElement imageElement, ui.Image image) {
+    final crop = imageElement.cropRect;
+    final double w, h;
+    if (crop != null) {
+      w = (crop.right - crop.left) * image.width;
+      h = (crop.bottom - crop.top) * image.height;
+    } else {
+      w = image.width.toDouble();
+      h = image.height.toDouble();
     }
+    final halfW = w * imageElement.scale / 2;
+    final halfH = h * imageElement.scale / 2;
+    return Rect.fromCenter(
+      center: imageElement.position,
+      width: halfW * 2,
+      height: halfH * 2,
+    );
+  }
+
+  /// 🖊️ Check if a stroke STARTED inside the image (intent-based).
+  /// Only strokes that begin on the image appear on top — strokes drawn
+  /// on blank canvas that happen to pass near the image stay below.
+  bool _strokeStartedOnImage(ProStroke stroke, Rect imageRect) {
+    if (stroke.points.isEmpty) return false;
+    return imageRect.contains(stroke.points.first.position);
   }
 
   // ===========================================================================
@@ -1006,8 +1213,19 @@ class ImagePainter extends CustomPainter {
       canvas.scale(imageElement.scale);
     }
 
-    const placeholderWidth = 200.0;
-    const placeholderHeight = 150.0;
+    // 🖼️ Try micro-thumbnail for stubbed images (Improvement 2)
+    final microThumb = microThumbnails[imageElement.id];
+    if (microThumb != null) {
+      _drawMicroThumbnail(canvas, imageElement, microThumb);
+      return;
+    }
+
+    // ✅ No micro-thumbnail — show generic placeholder
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final placeholderWidth = cachedSize?.width ?? 200.0;
+    final placeholderHeight = cachedSize?.height ?? 150.0;
     final rect = Rect.fromCenter(
       center: Offset.zero,
       width: placeholderWidth,
@@ -1062,6 +1280,63 @@ class ImagePainter extends CustomPainter {
     canvas.restore();
   }
 
+  /// 🖼️ Draw a blurred micro-thumbnail for stubbed images.
+  ///
+  /// Instead of a generic "Downloading..." spinner, stubbed images show
+  /// a tiny (64px) thumbnail scaled up with bilinear filtering.
+  /// This keeps the canvas feeling populated — like Google Maps low-res tiles.
+  void _drawMicroThumbnail(
+    Canvas canvas,
+    ImageElement imageElement,
+    ui.Image thumbnail,
+  ) {
+    // Get target size from cached dimensions (or use thumbnail size × 4)
+    final cachedSize = memoryManager?.getImageDimensions(
+      imageElement.imagePath,
+    );
+    final targetW = cachedSize?.width ?? thumbnail.width * 4.0;
+    final targetH = cachedSize?.height ?? thumbnail.height * 4.0;
+
+    final destRect = Rect.fromCenter(
+      center: Offset.zero,
+      width: targetW,
+      height: targetH,
+    );
+    final srcRect = Rect.fromLTWH(
+      0,
+      0,
+      thumbnail.width.toDouble(),
+      thumbnail.height.toDouble(),
+    );
+
+    // Draw thumbnail with low-quality filter (intentionally blurry — it's a preview)
+    final paint =
+        Paint()
+          ..filterQuality = FilterQuality.low
+          ..color = const Color(0xDDFFFFFF); // slightly faded
+
+    // Clip to rounded rect
+    final rrect = RRect.fromRectAndRadius(destRect, const Radius.circular(8));
+    canvas.save();
+    canvas.clipRRect(rrect);
+
+    // Draw the scaled-up micro thumbnail
+    canvas.drawImageRect(thumbnail, srcRect, destRect, paint);
+
+    // Subtle dark overlay to signal "loading"
+    canvas.drawRect(destRect, Paint()..color = const Color(0x20000000));
+
+    canvas.restore();
+
+    // Subtle border
+    _placeholderBorderPaint.color = const Color(0x30FFFFFF);
+    canvas.drawRRect(rrect, _placeholderBorderPaint);
+
+    // Note: canvas.restore() for position/rotation/scale is done by the caller
+    // (_drawLoadingPlaceholder's save/restore wraps both paths)
+    canvas.restore(); // Match the save() from _drawLoadingPlaceholder
+  }
+
   // ===========================================================================
   // ⚡ Cache Management
   // ===========================================================================
@@ -1101,18 +1376,13 @@ class ImagePainter extends CustomPainter {
     // Always repaint during interactive operations
     if (imageTool.isDragging || imageTool.isResizing) return true;
 
-    // Always repaint in editing mode
-    if (imageInEditMode != null || oldDelegate.imageInEditMode != null) {
-      return true;
-    }
-
     // Version counter: single integer comparison replaces expensive list checks
     if (imageVersion != oldDelegate.imageVersion) return true;
 
     // 🚀 Improvement 5: identity check detects new image loads (same count, different map)
     return selectedImage != oldDelegate.selectedImage ||
         !identical(loadedImages, oldDelegate.loadedImages) ||
-        currentEditingStroke != oldDelegate.currentEditingStroke ||
+        !identical(canvasStrokes, oldDelegate.canvasStrokes) ||
         loadingPulse != oldDelegate.loadingPulse;
   }
 }

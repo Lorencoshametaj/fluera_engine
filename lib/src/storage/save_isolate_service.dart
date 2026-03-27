@@ -20,9 +20,14 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import '../core/models/canvas_layer.dart';
+import '../core/models/digital_text_element.dart';
+import '../core/nodes/text_node.dart';
 import '../core/nodes/pdf_document_node.dart';
 import '../core/nodes/pdf_page_node.dart';
+import '../core/nodes/pdf_preview_card_node.dart';
 import '../export/binary_canvas_format.dart';
 
 /// Singleton service managing a long-lived background isolate for binary encoding.
@@ -39,7 +44,9 @@ class SaveIsolateService {
 
   /// Initialize the persistent isolate. Safe to call multiple times — no-op
   /// if already initialized or currently initializing.
+  /// On web, this is a no-op (isolates are not available).
   Future<void> initialize() async {
+    if (kIsWeb) return; // Isolates not available on web
     if (_sendPort != null || _isInitializing) return;
     _isInitializing = true;
 
@@ -58,7 +65,7 @@ class SaveIsolateService {
       _sendPort = await completer.future;
       receivePort.close();
     } catch (_) {
-      // If spawn fails (e.g., web platform), fall back to Isolate.run
+      // If spawn fails (e.g., web platform), fall back to synchronous encoding
     } finally {
       _isInitializing = false;
     }
@@ -67,23 +74,25 @@ class SaveIsolateService {
   /// Encode layers to binary BLOBs using the persistent isolate.
   ///
   /// Returns one [Uint8List] per layer. If the persistent isolate isn't ready,
-  /// falls back to [Isolate.run] (same result, just with spawn overhead).
+  /// falls back to synchronous encoding on the main thread.
   Future<List<Uint8List>> encodeLayers(List<CanvasLayer> layers) async {
     if (_sendPort == null) {
-      // Fallback: no persistent isolate, use one-shot
-      return Isolate.run(() {
-        final blobs = <Uint8List>[];
-        for (final layer in layers) {
-          blobs.add(BinaryCanvasFormat.encode([layer]));
-        }
-        return blobs;
-      });
+      // Fallback: synchronous encoding (web or uninitialized isolate)
+      final blobs = <Uint8List>[];
+      for (final layer in layers) {
+        blobs.add(BinaryCanvasFormat.encode([layer]));
+      }
+      return blobs;
     }
 
-    // 📄 Strip GPU-backed ui.Image from PdfPageNodes before isolate send.
-    // ui.Image is not sendable across isolates. We null them temporarily
-    // and restore after the send — PdfPagePainter will re-render them.
+    // 📄 Strip unsendable objects from PDF nodes before isolate send:
+    // ui.Image (GPU-backed) and onMutation closures (reference
+    // _FlueraCanvasScreenState). We null them temporarily and restore after.
     final strippedImages = _stripPdfCachedImages(layers);
+    final strippedThumbnails = _stripPdfPreviewCardThumbnails(layers);
+    final strippedCallbacks = _stripPdfCallbacks(layers);
+    // 📝 Strip unsendable TextPainter caches from text nodes
+    _stripTextLayoutCaches(layers);
 
     // Send layers to the persistent isolate and wait for response
     final responsePort = ReceivePort();
@@ -92,8 +101,11 @@ class SaveIsolateService {
     final result = await responsePort.first;
     responsePort.close();
 
-    // Restore cached images after send
+    // Restore stripped fields after send
     _restorePdfCachedImages(strippedImages, layers);
+    _restorePdfPreviewCardThumbnails(strippedThumbnails, layers);
+    _restorePdfCallbacks(strippedCallbacks, layers);
+    // Note: text caches are NOT restored — they rebuild lazily on next paint
 
     return result as List<Uint8List>;
   }
@@ -150,6 +162,106 @@ class SaveIsolateService {
               page.cachedImage = img;
             }
           }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PdfPreviewCardNode thumbnail stripping (isolate safety)
+  // ---------------------------------------------------------------------------
+
+  /// Temporarily null out all `PdfPreviewCardNode.thumbnailImage` fields so the
+  /// layer tree can safely cross the isolate boundary.
+  static Map<String, ui.Image> _stripPdfPreviewCardThumbnails(
+    List<CanvasLayer> layers,
+  ) {
+    final stripped = <String, ui.Image>{};
+
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfPreviewCardNode && child.thumbnailImage != null) {
+          stripped[child.id] = child.thumbnailImage!;
+          child.thumbnailImage = null;
+        }
+      }
+    }
+
+    return stripped;
+  }
+
+  /// Restore previously stripped PdfPreviewCardNode thumbnails.
+  static void _restorePdfPreviewCardThumbnails(
+    Map<String, ui.Image> stripped,
+    List<CanvasLayer> layers,
+  ) {
+    if (stripped.isEmpty) return;
+
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfPreviewCardNode) {
+          final img = stripped[child.id];
+          if (img != null && child.thumbnailImage == null) {
+            child.thumbnailImage = img;
+          }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PDF callback stripping (isolate safety)
+  // ---------------------------------------------------------------------------
+
+  /// Temporarily null out all `PdfDocumentNode.onMutation` closures so the
+  /// layer tree can safely cross the isolate boundary.
+  static Map<String, void Function(String, Map<String, dynamic>)?>
+  _stripPdfCallbacks(List<CanvasLayer> layers) {
+    final stripped = <String, void Function(String, Map<String, dynamic>)?>{};
+
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode && child.onMutation != null) {
+          stripped[child.id] = child.onMutation;
+          child.onMutation = null;
+        }
+      }
+    }
+
+    return stripped;
+  }
+
+  /// Restore previously stripped onMutation callbacks.
+  static void _restorePdfCallbacks(
+    Map<String, void Function(String, Map<String, dynamic>)?> stripped,
+    List<CanvasLayer> layers,
+  ) {
+    if (stripped.isEmpty) return;
+
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is PdfDocumentNode) {
+          final cb = stripped[child.id];
+          if (cb != null && child.onMutation == null) {
+            child.onMutation = cb;
+          }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Text layout cache stripping (isolate safety)
+  // ---------------------------------------------------------------------------
+
+  /// Clear cached TextPainter from all DigitalTextElements in the tree.
+  /// TextPainter contains native _Paragraph objects that cannot cross
+  /// isolate boundaries. The cache rebuilds lazily on next paint.
+  static void _stripTextLayoutCaches(List<CanvasLayer> layers) {
+    for (final layer in layers) {
+      for (final child in layer.node.children) {
+        if (child is TextNode) {
+          child.textElement.clearLayoutCache();
         }
       }
     }

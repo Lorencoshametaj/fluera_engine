@@ -1,9 +1,43 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import '../utils/key_value_store.dart';
 import './liquid_canvas_config.dart';
+
+/// 🎬 A single keyframe in a multi-phase camera animation.
+///
+/// Used by [InfiniteCanvasController.animateMultiPhase] to define
+/// sequential camera positions (offset + scale) with per-phase
+/// duration and easing curve.
+class CameraKeyframe {
+  /// Target viewport offset at the end of this phase.
+  final Offset targetOffset;
+
+  /// Target zoom scale at the end of this phase.
+  final double targetScale;
+
+  /// Target rotation in radians at the end of this phase.
+  /// null = keep current rotation (no banking).
+  final double? targetRotation;
+
+  /// Duration of this phase in seconds.
+  final double durationSeconds;
+
+  /// Easing curve for this phase.
+  final Curve curve;
+
+  const CameraKeyframe({
+    required this.targetOffset,
+    required this.targetScale,
+    this.targetRotation,
+    this.durationSeconds = 0.4,
+    this.curve = Curves.easeInOutCubic,
+  });
+}
 
 /// 🌊 Controller for infinite canvas with zoom, pan, and liquid physics.
 ///
@@ -39,13 +73,41 @@ class InfiniteCanvasController extends ChangeNotifier {
   /// Set by the widget to trigger haptic feedback.
   VoidCallback? onZoomLimitReached;
 
+  /// 🚀 Callback fired when zoom crosses LOD tier boundaries (0.2x, 0.5x).
+  /// Used to invalidate tile cache and force repaint for LOD transitions.
+  VoidCallback? onLodTierChanged;
+
+  /// Track the last LOD tier to detect boundary crossings.
+  int _lastLodTier = 0;
+
+  /// 🚀 Callback fired when all physics animations settle.
+  /// Used by the canvas to trigger LOD precomputation at the new zoom level.
+  VoidCallback? onAnimationSettle;
+
+  /// 🔑 Callback fired when gesture/animation ends (isPanning goes true→false).
+  /// Used to force a child widget rebuild so DrawingPainter re-renders at
+  /// the new LOD tier (the Transform child is cached by AnimatedBuilder).
+  VoidCallback? onGestureEnd;
+
   // Getters
   Offset get offset => _offset;
   double get scale => _scale;
   double get rotation => _rotation;
 
+  /// 🚀 Current pan velocity from active momentum simulation.
+  /// Returns Offset.zero if no momentum is active.
+  Offset get panVelocity {
+    if (!_isMomentumActive || _panSimX == null || _panSimY == null) {
+      return Offset.zero;
+    }
+    return Offset(
+      _panSimX!.dx(_momentumStartTime),
+      _panSimY!.dx(_momentumStartTime),
+    );
+  }
+
   // 🌀 Rotation lock (persisted)
-  static const String _rotationLockKey = 'nebula_rotation_locked';
+  static const String _rotationLockKey = 'fluera_rotation_locked';
   bool _rotationLocked = false;
   bool get rotationLocked => _rotationLocked;
   set rotationLocked(bool value) {
@@ -104,13 +166,105 @@ class InfiniteCanvasController extends ChangeNotifier {
   SpringSimulation? _rotationSpring;
   bool _isRotationSpringActive = false;
 
+  // — Zoom momentum state (Gap 4) —
+  FrictionSimulation? _zoomMomentumSim;
+  double _zoomMomentumStartTime = 0;
+  bool _isZoomMomentumActive = false;
+  Offset _zoomMomentumFocalPoint = Offset.zero;
+
+  // — Wormhole Dive state —
+  bool _isDiveActive = false;
+  double _diveElapsed = 0;
+  double _diveDuration = 0.5; // seconds
+  Offset _diveStartOffset = Offset.zero;
+  double _diveStartScale = 1.0;
+  Offset _diveTargetOffset = Offset.zero;
+  double _diveTargetScale = 1.0;
+  VoidCallback? _onDiveComplete;
+  /// Curve for the dive animation — fast entry, smooth deceleration.
+  static const Cubic _diveCurve = Cubic(0.16, 1.0, 0.3, 1.0);
+
+  // — Multi-phase flight state —
+  bool _isFlightActive = false;
+  double _flightElapsed = 0;
+  double _flightTotalDuration = 0;
+  List<CameraKeyframe> _flightKeyframes = [];
+  List<double> _flightPhaseEnds = []; // cumulative end times
+  List<Offset> _flightPhaseStartOffsets = [];
+  List<double> _flightPhaseStartScales = [];
+  int _flightCurrentPhase = 0;
+  double _flightProgressValue = 0.0;
+  VoidCallback? _onFlightComplete;
+  void Function(int phaseIndex)? _onFlightPhaseChanged;
+
+  /// 🎯 Cluster IDs of the active flight (for connection-specific glow + DOF).
+  String? _flightSourceClusterId;
+  String? _flightTargetClusterId;
+
+  /// 🎬 Landing pulse state — expanding ring at target after flight completes.
+  bool _landingPulseActive = false;
+  double _landingPulseElapsed = 0;
+  Offset _landingPulseCenter = Offset.zero;
+  static const double _landingPulseDuration = 0.35;
+
+  /// 🚩 Phase start rotations (for rotation interpolation during flight).
+  List<double> _flightPhaseStartRotations = [];
+
   /// Whether any physics animation is running.
   bool get isAnimating =>
       _isMomentumActive ||
       _isZoomSpringActive ||
+      _isZoomMomentumActive ||
       _isRotationMomentumActive ||
       _isRotationSpringActive ||
-      _isPanSpringActive;
+      _isPanSpringActive ||
+      _isDiveActive ||
+      _isFlightActive;
+
+  /// 🌀 Wormhole Dive progress (0.0 = idle/not diving, 0.0→1.0 during dive).
+  ///
+  /// Painters use this to apply depth-of-field blur on non-target elements
+  /// and to render cinematic effects during the dive animation.
+  double get diveProgress => _isDiveActive ? _diveProgressValue : 0.0;
+
+  /// 🎬 Multi-phase flight progress (0.0 = idle, 0.0→1.0 during flight).
+  ///
+  /// Painters use this to render speed-glow effects along the active
+  /// connection and vignette during Hyper-Jump.
+  double get flightProgress => _isFlightActive ? _flightProgressValue : 0.0;
+
+  /// Current flight phase index (0-based). -1 if no flight is active.
+  int get flightPhase => _isFlightActive ? _flightCurrentPhase : -1;
+
+  /// 🎯 Source cluster ID of the active flight (null if no flight).
+  String? get flightSourceClusterId => _isFlightActive ? _flightSourceClusterId : null;
+
+  /// 🎯 Target cluster ID of the active flight (null if no flight).
+  String? get flightTargetClusterId => _isFlightActive ? _flightTargetClusterId : null;
+
+  /// 🎬 Landing pulse progress (0.0—1.0). 0.0 when not active.
+  double get landingPulseProgress => _landingPulseActive
+      ? (_landingPulseElapsed / _landingPulseDuration).clamp(0.0, 1.0)
+      : 0.0;
+
+  /// 🎬 Landing pulse center (canvas coordinates).
+  Offset get landingPulseCenter => _landingPulseCenter;
+  double _diveProgressValue = 0.0;
+
+  /// 🚀 Whether the canvas is actively panning (user gesture or momentum).
+  /// Painters use this to skip expensive work during scroll.
+  bool _isPanning = false;
+  bool get isPanning => _isPanning || _isMomentumActive;
+  set isPanning(bool value) {
+    final wasActive = _isPanning;
+    _isPanning = value;
+    // 🔑 When gesture ends with no momentum, fire callback so the widget
+    // rebuilds the DrawingPainter child at the new scale/LOD tier.
+    if (wasActive && !value && !_isMomentumActive) {
+      notifyListeners();
+      onGestureEnd?.call();
+    }
+  }
 
   /// Request a repaint for all painters listening to this controller.
   ///
@@ -132,6 +286,7 @@ class InfiniteCanvasController extends ChangeNotifier {
   void setScale(double newScale) {
     _scale = newScale.clamp(_minScale, _maxScale);
     notifyListeners();
+    _checkLodTier();
   }
 
   /// Apply combined transform (zoom + pan + rotation) with optional elastic bounds.
@@ -148,10 +303,7 @@ class InfiniteCanvasController extends ChangeNotifier {
     _offset = offset;
     if (rotation != null && !_rotationLocked) _rotation = rotation;
     if (elastic && _liquidConfig.enabled && _liquidConfig.enableElasticZoom) {
-      // Allow overshoot with rubber-band resistance
       _scale = _applyElasticClamp(scale);
-
-      // Fire haptic once when crossing the zoom boundary
       final isAtLimit = scale < _minScale || scale > _maxScale;
       if (isAtLimit && !_wasAtZoomLimit) {
         onZoomLimitReached?.call();
@@ -161,7 +313,45 @@ class InfiniteCanvasController extends ChangeNotifier {
       _scale = scale.clamp(_minScale, _maxScale);
       _wasAtZoomLimit = false;
     }
+
     notifyListeners();
+    _checkLodTier();
+  }
+
+  /// Check if zoom crossed an LOD tier boundary and fire callback.
+  /// Uses hysteresis to prevent flickering at boundaries.
+  void _checkLodTier() {
+    // Hysteresis: different thresholds for zooming in vs out.
+    // Zooming OUT uses lower thresholds → tier change happens later.
+    // Zooming IN uses higher thresholds → tier change happens later.
+    // This prevents rapid toggling at the boundary.
+    final int tier;
+    if (_lastLodTier == 2) {
+      // Currently in sections-only mode → need to zoom IN past 0.30 to exit
+      tier = _scale < 0.30 ? 2 : (_scale < 0.5 ? 1 : 0);
+    } else if (_lastLodTier == 0) {
+      // Currently in full quality → need to zoom OUT past 0.45 to exit
+      tier = _scale < 0.25 ? 2 : (_scale < 0.45 ? 1 : 0);
+    } else {
+      // Tier 1 (batched) → standard thresholds
+      tier = _scale < 0.25 ? 2 : (_scale < 0.5 ? 1 : 0);
+    }
+    if (tier != _lastLodTier) {
+      // 📳 GRADUATED HAPTIC: different feedback for direction & magnitude
+      final tierDelta = (tier - _lastLodTier).abs();
+      if (tierDelta >= 2) {
+        // Jump 2 tiers (e.g. 0→2): medium impact — noticeable shift
+        HapticFeedback.mediumImpact();
+      } else if (tier > _lastLodTier) {
+        // Zooming OUT (quality decreasing): light tap
+        HapticFeedback.lightImpact();
+      } else {
+        // Zooming IN (quality increasing): subtle click
+        HapticFeedback.selectionClick();
+      }
+      _lastLodTier = tier;
+      onLodTierChanged?.call();
+    }
   }
 
   /// Preview what scale value [updateTransform] would actually apply.
@@ -283,13 +473,23 @@ class InfiniteCanvasController extends ChangeNotifier {
   void stopAnimation() {
     _isMomentumActive = false;
     _isZoomSpringActive = false;
+    _isZoomMomentumActive = false;
     _isRotationMomentumActive = false;
     _isRotationSpringActive = false;
     _isPanSpringActive = false;
     _isTransformSpringActive = false;
+    _isDiveActive = false;
+    _diveProgressValue = 0.0;
+    _onDiveComplete = null;
+    _isFlightActive = false;
+    _flightProgressValue = 0.0;
+    _flightKeyframes = [];
+    _onFlightComplete = null;
+    _onFlightPhaseChanged = null;
     _panSimX = null;
     _panSimY = null;
     _zoomSim = null;
+    _zoomMomentumSim = null;
     _rotationSim = null;
     _rotationSpring = null;
     _panSpringSimX = null;
@@ -468,6 +668,149 @@ class InfiniteCanvasController extends ChangeNotifier {
   }
 
   // ============================================================================
+  // 🌀 WORMHOLE DIVE — Cinematic Zoom-Into-Node Animation
+  // ============================================================================
+
+  /// 🌀 Animate the canvas camera to "dive into" a node, framing it at 1:1.
+  ///
+  /// Computes the target offset and scale so that [nodeWorldRect] fills
+  /// the [viewportSize] while maintaining aspect ratio (contain fit).
+  /// The animation uses a cinematic ease curve for a "camera dive" feel.
+  ///
+  /// [onComplete] fires exactly once when the dive reaches t=1.0.
+  /// Use it to trigger the seamless handoff to the viewer screen.
+  ///
+  /// During the dive, [diveProgress] ramps from 0.0 to 1.0 — painters
+  /// can read this to apply depth-of-field blur on non-target elements.
+  void animateDiveTo({
+    required Rect nodeWorldRect,
+    required Size viewportSize,
+    double durationSeconds = 0.5,
+    VoidCallback? onComplete,
+  }) {
+    if (_ticker == null) return;
+    if (nodeWorldRect.isEmpty || viewportSize.isEmpty) return;
+
+    // Stop any running animations first
+    stopAnimation();
+
+    // ── Compute target transform ──
+    // Scale: fit the node rect into the viewport (contain)
+    final scaleX = viewportSize.width / nodeWorldRect.width;
+    final scaleY = viewportSize.height / nodeWorldRect.height;
+    final targetScale = math.min(scaleX, scaleY).clamp(_minScale, _maxScale);
+
+    // Offset: center the node in the viewport
+    final targetOffset = Offset(
+      viewportSize.width / 2 - nodeWorldRect.center.dx * targetScale,
+      viewportSize.height / 2 - nodeWorldRect.center.dy * targetScale,
+    );
+
+    // ── Store dive parameters ──
+    _diveStartOffset = _offset;
+    _diveStartScale = _scale;
+    _diveTargetOffset = targetOffset;
+    _diveTargetScale = targetScale;
+    _diveDuration = durationSeconds;
+    _diveElapsed = 0;
+    _diveProgressValue = 0.0;
+    _onDiveComplete = onComplete;
+    _isDiveActive = true;
+
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  /// Cancel a running dive without firing onComplete.
+  void cancelDive() {
+    if (!_isDiveActive) return;
+    _isDiveActive = false;
+    _diveProgressValue = 0.0;
+    _onDiveComplete = null;
+    notifyListeners();
+  }
+
+  // ============================================================================
+  // 🎬 MULTI-PHASE FLIGHT — Cinematic Camera Sequences
+  // ============================================================================
+
+  /// 🎬 Animate the camera through a sequence of keyframes.
+  ///
+  /// Each [CameraKeyframe] defines a target offset + scale with its own
+  /// duration and easing curve. The animation smoothly interpolates through
+  /// all phases in sequence.
+  ///
+  /// Used for:
+  /// - **Cinematic Flight**: zoom-out → pan along connection → zoom-in
+  /// - **Hyper-Jump**: dramatic zoom-out → transit → zoom-in with LOD
+  ///
+  /// [onComplete] fires when the last keyframe is reached.
+  /// [onPhaseChanged] fires at each phase transition (for haptics).
+  void animateMultiPhase({
+    required List<CameraKeyframe> keyframes,
+    VoidCallback? onComplete,
+    void Function(int phaseIndex)? onPhaseChanged,
+    String? sourceClusterId,
+    String? targetClusterId,
+  }) {
+    if (_ticker == null) return;
+    if (keyframes.isEmpty) return;
+
+    // Stop any running animations first
+    stopAnimation();
+
+    _flightKeyframes = keyframes;
+    _onFlightComplete = onComplete;
+    _onFlightPhaseChanged = onPhaseChanged;
+    _flightSourceClusterId = sourceClusterId;
+    _flightTargetClusterId = targetClusterId;
+
+    // Pre-compute cumulative phase end times
+    _flightPhaseEnds = [];
+    double cumulative = 0;
+    for (final kf in keyframes) {
+      cumulative += kf.durationSeconds;
+      _flightPhaseEnds.add(cumulative);
+    }
+    _flightTotalDuration = cumulative;
+
+    // Pre-compute start positions for each phase
+    _flightPhaseStartOffsets = [_offset];
+    _flightPhaseStartScales = [_scale];
+    _flightPhaseStartRotations = [_rotation];
+    for (int i = 0; i < keyframes.length - 1; i++) {
+      _flightPhaseStartOffsets.add(keyframes[i].targetOffset);
+      _flightPhaseStartScales.add(keyframes[i].targetScale);
+      _flightPhaseStartRotations.add(
+        keyframes[i].targetRotation ?? _flightPhaseStartRotations.last,
+      );
+    }
+
+    _flightElapsed = 0;
+    _flightCurrentPhase = 0;
+    _flightProgressValue = 0.0;
+    _isFlightActive = true;
+
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  /// Cancel a running flight without firing onComplete.
+  void cancelFlight() {
+    if (!_isFlightActive) return;
+    _isFlightActive = false;
+    _flightProgressValue = 0.0;
+    _flightKeyframes = [];
+    _onFlightComplete = null;
+    _onFlightPhaseChanged = null;
+    _flightSourceClusterId = null;
+    _flightTargetClusterId = null;
+    _flightPhaseStartRotations = [];
+    _landingPulseActive = false;
+    notifyListeners();
+  }
+
+  // ============================================================================
   // 🌊 LIQUID PHYSICS — Rotation Momentum
   // ============================================================================
 
@@ -492,6 +835,44 @@ class InfiniteCanvasController extends ChangeNotifier {
 
     _isRotationMomentumActive = true;
     _rotationMomentumStartTime = 0;
+    _lastTickTime = Duration.zero;
+    _ensureTickerRunning();
+  }
+
+  // ============================================================================
+  // 🌊 LIQUID PHYSICS — Zoom Momentum (Gap 4)
+  // ============================================================================
+
+  /// Launch zoom momentum from terminal pinch velocity.
+  ///
+  /// Called on gesture end when the user was actively zooming.
+  /// Uses [FrictionSimulation] on **log-scale** for natural multiplicative
+  /// deceleration (zoom 2x→ 4x feels the same as 0.5x→0.25x).
+  /// The focal point is preserved so the momentum feels anchored.
+  void startZoomMomentum(double scaleVelocity, Offset focalPointScreen) {
+    if (!_liquidConfig.enabled) return;
+    if (_ticker == null) return;
+
+    // Don't start for small velocities (threshold in scale-units/second)
+    if (scaleVelocity.abs() < 0.3) return;
+
+    // If already past limits, skip momentum and let spring-back handle it
+    if (_scale < _minScale || _scale > _maxScale) return;
+
+    // Friction on log-scale: log(scale) + velocity → exp() back to scale.
+    // This gives multiplicative deceleration (2x→4x feels same as 0.5x→0.25x).
+    final logScale = math.log(_scale);
+    final logVelocity = scaleVelocity / _scale; // Convert to log-space velocity
+
+    _zoomMomentumSim = FrictionSimulation(
+      _liquidConfig.panFriction * 3.0, // Higher friction than pan
+      logScale,
+      logVelocity,
+    );
+
+    _zoomMomentumFocalPoint = focalPointScreen;
+    _isZoomMomentumActive = true;
+    _zoomMomentumStartTime = 0;
     _lastTickTime = Duration.zero;
     _ensureTickerRunning();
   }
@@ -606,6 +987,7 @@ class InfiniteCanvasController extends ChangeNotifier {
         _isMomentumActive = false;
         _panSimX = null;
         _panSimY = null;
+        needsNotify = true; // 🚀 SCROLL OPT: Final repaint with isPanning=false
       } else {
         _offset = Offset(newX, newY);
         needsNotify = true;
@@ -656,6 +1038,50 @@ class InfiniteCanvasController extends ChangeNotifier {
         _isZoomSpringActive = false;
         _zoomSim = null;
         needsNotify = true;
+      }
+    }
+
+    // — ZOOM MOMENTUM (Gap 4) —
+    if (_isZoomMomentumActive && _zoomMomentumSim != null) {
+      _zoomMomentumStartTime += t;
+
+      // Simulation runs in log-space; convert back to linear scale
+      final logScale = _zoomMomentumSim!.x(_zoomMomentumStartTime);
+      final newScale = math.exp(logScale);
+      final logVelocity = _zoomMomentumSim!.dx(_zoomMomentumStartTime).abs();
+
+      // Focal-point-preserving zoom (same math as spring-back)
+      final translated = _zoomMomentumFocalPoint - _offset;
+      final cosR = math.cos(-_rotation);
+      final sinR = math.sin(-_rotation);
+      final unrotated = Offset(
+        translated.dx * cosR - translated.dy * sinR,
+        translated.dx * sinR + translated.dy * cosR,
+      );
+      final focalCanvas = unrotated / _scale;
+
+      _scale = newScale;
+
+      final scaled = focalCanvas * _scale;
+      final cosRf = math.cos(_rotation);
+      final sinRf = math.sin(_rotation);
+      final rotated = Offset(
+        scaled.dx * cosRf - scaled.dy * sinRf,
+        scaled.dx * sinRf + scaled.dy * cosRf,
+      );
+      _offset = _zoomMomentumFocalPoint - rotated;
+
+      needsNotify = true;
+
+      // Stop conditions: very slow, or past limits (let spring-back handle)
+      if (logVelocity < 0.01 || newScale < _minScale || newScale > _maxScale) {
+        _isZoomMomentumActive = false;
+        _zoomMomentumSim = null;
+
+        // If past limits, trigger spring-back for seamless elastic bounce
+        if (newScale < _minScale || newScale > _maxScale) {
+          startZoomSpringBack(_zoomMomentumFocalPoint);
+        }
       }
     }
 
@@ -729,6 +1155,124 @@ class InfiniteCanvasController extends ChangeNotifier {
       }
     }
 
+    // — WORMHOLE DIVE (cinematic zoom-into-node) —
+    if (_isDiveActive) {
+      _diveElapsed += t;
+      final rawT = (_diveElapsed / _diveDuration).clamp(0.0, 1.0);
+      // Apply cinematic curve
+      _diveProgressValue = _diveCurve.transform(rawT);
+      final p = _diveProgressValue;
+
+      // Interpolate offset and scale
+      _offset = Offset.lerp(_diveStartOffset, _diveTargetOffset, p)!;
+      _scale = _diveStartScale + (_diveTargetScale - _diveStartScale) * p;
+
+      needsNotify = true;
+
+      if (rawT >= 1.0) {
+        // Snap to exact target
+        _offset = _diveTargetOffset;
+        _scale = _diveTargetScale;
+        _isDiveActive = false;
+        _diveProgressValue = 1.0;
+        final cb = _onDiveComplete;
+        _onDiveComplete = null;
+        // Fire callback AFTER updating state
+        cb?.call();
+        needsNotify = true;
+      }
+    }
+
+    // — MULTI-PHASE FLIGHT (cinematic camera sequence) —
+    if (_isFlightActive && _flightKeyframes.isNotEmpty) {
+      _flightElapsed += t;
+      _flightProgressValue = (_flightElapsed / _flightTotalDuration).clamp(0.0, 1.0);
+
+      // Determine current phase
+      int phase = 0;
+      for (int i = 0; i < _flightPhaseEnds.length; i++) {
+        if (_flightElapsed <= _flightPhaseEnds[i]) {
+          phase = i;
+          break;
+        }
+        if (i == _flightPhaseEnds.length - 1) {
+          phase = i;
+        }
+      }
+
+      // Fire phase-change callback
+      if (phase != _flightCurrentPhase) {
+        _flightCurrentPhase = phase;
+        _onFlightPhaseChanged?.call(phase);
+      }
+
+      // Compute local t within current phase
+      final phaseStart = phase > 0 ? _flightPhaseEnds[phase - 1] : 0.0;
+      final phaseEnd = _flightPhaseEnds[phase];
+      final phaseDuration = phaseEnd - phaseStart;
+      final localT = phaseDuration > 0
+          ? ((_flightElapsed - phaseStart) / phaseDuration).clamp(0.0, 1.0)
+          : 1.0;
+
+      // Apply easing curve for this phase
+      final kf = _flightKeyframes[phase];
+      final easedT = kf.curve.transform(localT);
+
+      // Interpolate offset and scale
+      final startOffset = _flightPhaseStartOffsets[phase];
+      final startScale = _flightPhaseStartScales[phase];
+      _offset = Offset.lerp(startOffset, kf.targetOffset, easedT)!;
+      _scale = startScale + (kf.targetScale - startScale) * easedT;
+
+      // Interpolate rotation (if targetRotation is set for this phase)
+      if (kf.targetRotation != null && _flightPhaseStartRotations.isNotEmpty) {
+        final startRot = _flightPhaseStartRotations[phase];
+        _rotation = startRot + (kf.targetRotation! - startRot) * easedT;
+      }
+
+      needsNotify = true;
+
+      // Check if flight is complete
+      if (_flightElapsed >= _flightTotalDuration) {
+        // Snap to exact final target
+        final lastKf = _flightKeyframes.last;
+        _offset = lastKf.targetOffset;
+        _scale = lastKf.targetScale;
+        if (lastKf.targetRotation != null) {
+          _rotation = lastKf.targetRotation!;
+        }
+        _isFlightActive = false;
+        _flightProgressValue = 1.0;
+
+        // 🎯 Trigger landing pulse at target center
+        // Compute target center from scale+offset
+        if (_flightTargetClusterId != null) {
+          // Center of viewport in canvas space
+          _landingPulseCenter = Offset(
+            -_offset.dx / _scale,
+            -_offset.dy / _scale,
+          );
+          _landingPulseActive = true;
+          _landingPulseElapsed = 0;
+        }
+
+        final cb = _onFlightComplete;
+        _onFlightComplete = null;
+        _onFlightPhaseChanged = null;
+        cb?.call();
+        needsNotify = true;
+      }
+    }
+
+    // — LANDING PULSE (expanding ring animation) —
+    if (_landingPulseActive) {
+      _landingPulseElapsed += t;
+      if (_landingPulseElapsed >= _landingPulseDuration) {
+        _landingPulseActive = false;
+      }
+      needsNotify = true;
+    }
+
     if (needsNotify) {
       notifyListeners();
     }
@@ -736,6 +1280,11 @@ class InfiniteCanvasController extends ChangeNotifier {
     // Stop ticker if all simulations are done
     if (!isAnimating) {
       _ticker?.stop();
+      // 🚀 Notify that all animations have settled (LOD precompute, etc.)
+      onAnimationSettle?.call();
+      // 🔑 Fire gesture-end: isPanning is now false (momentum ended),
+      // triggering widget rebuild for LOD refresh.
+      onGestureEnd?.call();
     }
   }
 
@@ -768,17 +1317,73 @@ class InfiniteCanvasController extends ChangeNotifier {
     if (rawScale > _maxScale) {
       // How far past the limit (0.0 = at limit, 1.0+ = way past)
       final overshoot = (rawScale - _maxScale) / _maxScale;
+      // 🎯 FIX: Cap overshoot — elastic is ~11% (5.0→5.55x) for liquid rubber-band,
+      // but locks quickly (no asymptotic creep). The fast cap keeps drift bounded.
+      final cappedOvershoot = overshoot.clamp(0.0, 0.15);
       // Logarithmic resistance: diminishing overshoot
       final dampedOvershoot =
-          overshoot / (1.0 + overshoot * config.elasticResistance);
+          cappedOvershoot / (1.0 + cappedOvershoot * config.elasticResistance);
       return (_maxScale * (1.0 + dampedOvershoot)).clamp(_maxScale, maxElastic);
     }
 
     // rawScale < _minScale
     final undershoot = (_minScale - rawScale) / _minScale;
+    // 🎯 FIX: Same cap for undershoot (zoom out past min)
+    final cappedUndershoot = undershoot.clamp(0.0, 0.15);
     final dampedUndershoot =
-        undershoot / (1.0 + undershoot * config.elasticResistance);
+        cappedUndershoot / (1.0 + cappedUndershoot * config.elasticResistance);
     return (_minScale * (1.0 - dampedUndershoot)).clamp(minElastic, _minScale);
+  }
+
+  // ============================================================================
+  // 🔍 ADAPTIVE ZOOM PRESETS
+  // ============================================================================
+
+  /// 🔍 Animate to frame all content in the viewport.
+  ///
+  /// Computes the minimum scale and offset needed to make [contentBounds]
+  /// fully visible, then animates smoothly via spring physics.
+  /// [padding] adds screen-space margin around the content.
+  void fitContent(
+    Rect contentBounds,
+    Size viewportSize, {
+    double padding = 40.0,
+  }) {
+    if (contentBounds.isEmpty || viewportSize.isEmpty) return;
+    fitRect(contentBounds, viewportSize, padding: padding);
+  }
+
+  /// 🔍 Animate to frame a specific rect (e.g. lasso selection, PDF page).
+  ///
+  /// Calculates contain-fit scale + centered offset, then uses
+  /// [animateToTransform] for smooth spring animation.
+  void fitRect(
+    Rect targetRect,
+    Size viewportSize, {
+    double padding = 60.0,
+  }) {
+    if (targetRect.isEmpty || viewportSize.isEmpty) return;
+
+    final availW = viewportSize.width - padding * 2;
+    final availH = viewportSize.height - padding * 2;
+    if (availW <= 0 || availH <= 0) return;
+
+    // Contain fit: scale so the entire rect is visible
+    final scaleX = availW / targetRect.width;
+    final scaleY = availH / targetRect.height;
+    final targetScale = math.min(scaleX, scaleY).clamp(_minScale, _maxScale);
+
+    // Center the rect in the viewport
+    final targetOffset = Offset(
+      viewportSize.width / 2 - targetRect.center.dx * targetScale,
+      viewportSize.height / 2 - targetRect.center.dy * targetScale,
+    );
+
+    animateToTransform(
+      targetOffset: targetOffset,
+      targetScale: targetScale,
+      focalPoint: viewportSize.center(Offset.zero),
+    );
   }
 
   // ============================================================================

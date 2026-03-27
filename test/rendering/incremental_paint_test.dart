@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nebula_engine/src/rendering/optimization/dirty_region_tracker.dart';
-import 'package:nebula_engine/src/rendering/canvas/incremental_paint_mixin.dart';
+import 'package:fluera_engine/src/rendering/optimization/dirty_region_tracker.dart';
+import 'package:fluera_engine/src/rendering/canvas/incremental_paint_mixin.dart';
 import 'package:flutter/material.dart';
 
 // =============================================================================

@@ -1,6 +1,13 @@
+library pdf_export_settings_panel;
+
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../export/export_pipeline.dart';
 import '../../export/pdf_export_writer.dart';
+
+part 'pdf_export_widgets.dart';
+
 
 /// 📄 PDF Export Settings Panel — Embeddable widget for any host app.
 ///
@@ -100,11 +107,38 @@ class _PdfExportSettingsPanelState extends State<PdfExportSettingsPanel> {
         ),
         const SizedBox(height: 16),
 
+        // ── Export Scope ──
+        _SectionHeader(label: 'Scope', icon: Icons.filter_alt_outlined),
+        const SizedBox(height: 8),
+        _SettingsTile(
+          icon: Icons.edit_note_rounded,
+          title: 'Only Annotated Pages',
+          subtitle: 'Skip pages without annotations',
+          info:
+              'When enabled, pages that have no drawn annotations '
+              'will be excluded from the exported PDF. Useful to reduce '
+              'file size when only a few pages have notes.',
+          trailing: Switch.adaptive(
+            value: _config.onlyAnnotatedPages,
+            onChanged:
+                (v) => _updateConfig(_config.copyWith(onlyAnnotatedPages: v)),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ── Quality & Format ──
+        _SectionHeader(label: 'Quality', icon: Icons.high_quality_outlined),
+        const SizedBox(height: 8),
+
         // ── PDF/A Conformance ──
         _SettingsTile(
           icon: Icons.verified_outlined,
           title: 'PDF/A-1b Archival',
           subtitle: 'Long-term preservation',
+          info:
+              'Ensures the PDF conforms to the PDF/A-1b ISO standard '
+              'for long-term digital preservation. Embeds all fonts and '
+              'disables features that could become obsolete.',
           trailing: Switch.adaptive(
             value: _config.pdfAConformance,
             onChanged:
@@ -118,6 +152,10 @@ class _PdfExportSettingsPanelState extends State<PdfExportSettingsPanel> {
           icon: Icons.compress,
           title: 'Compression',
           subtitle: 'Flate/ZLib stream compression',
+          info:
+              'Applies ZLib (Flate) compression to PDF content streams. '
+              'Reduces file size significantly with no quality loss. '
+              'Disable only for debugging or maximum compatibility.',
           trailing: Switch.adaptive(
             value: _config.enableCompression,
             onChanged:
@@ -133,6 +171,10 @@ class _PdfExportSettingsPanelState extends State<PdfExportSettingsPanel> {
           icon: Icons.text_fields,
           title: 'Enable Watermark',
           subtitle: 'Overlay text on all pages',
+          info:
+              'Adds a semi-transparent text overlay on every page. '
+              'Useful for marking documents as DRAFT, CONFIDENTIAL, '
+              'or with your name/organization.',
           trailing: Switch.adaptive(
             value: _config.enableWatermark,
             onChanged: (v) {
@@ -167,6 +209,76 @@ class _PdfExportSettingsPanelState extends State<PdfExportSettingsPanel> {
 }
 
 // =============================================================================
+// EXPORT FORMAT
+// =============================================================================
+
+/// Supported export formats for PDF document export.
+enum PdfExportFormat {
+  pdf(
+    'PDF',
+    Icons.picture_as_pdf_rounded,
+    'application/pdf',
+    'pdf',
+    'Vector \u2022 Scalable',
+    Color(0xFFE53935),
+  ),
+  jpg(
+    'JPG',
+    Icons.image_rounded,
+    'image/jpeg',
+    'jpg',
+    'Lossy \u2022 Smaller files',
+    Color(0xFFFFA726),
+  ),
+  png(
+    'PNG',
+    Icons.image_outlined,
+    'image/png',
+    'png',
+    'Lossless \u2022 Best quality',
+    Color(0xFF26A69A),
+  ),
+  svg(
+    'SVG',
+    Icons.polyline_rounded,
+    'image/svg+xml',
+    'svg',
+    'Vector \u2022 Editable',
+    Color(0xFF5C6BC0),
+  );
+
+  final String label;
+  final IconData icon;
+  final String mimeType;
+  final String extension;
+  final String subtitle;
+  final Color accent;
+
+  const PdfExportFormat(
+    this.label,
+    this.icon,
+    this.mimeType,
+    this.extension,
+    this.subtitle,
+    this.accent,
+  );
+}
+
+/// Export resolution presets for image formats.
+enum ExportResolution {
+  screen('Screen', '1×', 1.0, Icons.phone_android_rounded),
+  print_('Print', '2×', 2.0, Icons.print_rounded),
+  ultra('Ultra', '3×', 3.0, Icons.hd_rounded);
+
+  final String label;
+  final String badge;
+  final double multiplier;
+  final IconData icon;
+
+  const ExportResolution(this.label, this.badge, this.multiplier, this.icon);
+}
+
+// =============================================================================
 // PDF EXPORT CONFIG (UI-level model)
 // =============================================================================
 
@@ -177,43 +289,63 @@ class _PdfExportSettingsPanelState extends State<PdfExportSettingsPanel> {
 class PdfExportConfig {
   final String? title;
   final String? author;
+  final String? fileName;
+  final PdfExportFormat format;
+  final double jpgQuality;
+  final ExportResolution resolution;
   final bool pdfAConformance;
   final bool enableCompression;
   final bool enableWatermark;
   final String? watermarkText;
   final WatermarkPosition watermarkPosition;
   final double watermarkOpacity;
+  final bool onlyAnnotatedPages;
 
   const PdfExportConfig({
     this.title,
     this.author,
+    this.fileName,
+    this.format = PdfExportFormat.pdf,
+    this.jpgQuality = 0.9,
+    this.resolution = ExportResolution.print_,
     this.pdfAConformance = false,
     this.enableCompression = true,
     this.enableWatermark = false,
     this.watermarkText,
     this.watermarkPosition = WatermarkPosition.diagonal,
     this.watermarkOpacity = 0.15,
+    this.onlyAnnotatedPages = false,
   });
 
   PdfExportConfig copyWith({
     String? title,
     String? author,
+    String? fileName,
+    PdfExportFormat? format,
+    double? jpgQuality,
+    ExportResolution? resolution,
     bool? pdfAConformance,
     bool? enableCompression,
     bool? enableWatermark,
     String? watermarkText,
     WatermarkPosition? watermarkPosition,
     double? watermarkOpacity,
+    bool? onlyAnnotatedPages,
   }) {
     return PdfExportConfig(
       title: title ?? this.title,
       author: author ?? this.author,
+      fileName: fileName ?? this.fileName,
+      format: format ?? this.format,
+      jpgQuality: jpgQuality ?? this.jpgQuality,
+      resolution: resolution ?? this.resolution,
       pdfAConformance: pdfAConformance ?? this.pdfAConformance,
       enableCompression: enableCompression ?? this.enableCompression,
       enableWatermark: enableWatermark ?? this.enableWatermark,
       watermarkText: watermarkText ?? this.watermarkText,
       watermarkPosition: watermarkPosition ?? this.watermarkPosition,
       watermarkOpacity: watermarkOpacity ?? this.watermarkOpacity,
+      onlyAnnotatedPages: onlyAnnotatedPages ?? this.onlyAnnotatedPages,
     );
   }
 
@@ -237,25 +369,41 @@ class PdfExportConfig {
 // READY-TO-USE EXPORT DIALOG
 // =============================================================================
 
-/// 📄 Ready-to-use PDF export dialog.
+/// 📄 Ready-to-use export dialog with format selection (PDF/JPG/PNG).
 ///
-/// Any host app can show this with:
 /// ```dart
-/// final config = await PdfExportDialog.show(context);
-/// if (config != null) {
-///   // Use config to export
-/// }
+/// final config = await PdfExportDialog.show(context,
+///   defaultFileName: 'My Doc', totalPages: 5);
+/// if (config != null) { /* export */ }
 /// ```
 class PdfExportDialog extends StatefulWidget {
-  const PdfExportDialog({super.key});
+  final String? defaultFileName;
+  final int totalPages;
+  final Uint8List? firstPagePreview;
 
-  /// Show the dialog and return the chosen config, or null if cancelled.
-  static Future<PdfExportConfig?> show(BuildContext context) {
+  const PdfExportDialog({
+    super.key,
+    this.defaultFileName,
+    this.totalPages = 0,
+    this.firstPagePreview,
+  });
+
+  static Future<PdfExportConfig?> show(
+    BuildContext context, {
+    String? defaultFileName,
+    int totalPages = 0,
+    Uint8List? firstPagePreview,
+  }) {
     return showModalBottomSheet<PdfExportConfig>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const PdfExportDialog(),
+      builder:
+          (_) => PdfExportDialog(
+            defaultFileName: defaultFileName,
+            totalPages: totalPages,
+            firstPagePreview: firstPagePreview,
+          ),
     );
   }
 
@@ -263,308 +411,761 @@ class PdfExportDialog extends StatefulWidget {
   State<PdfExportDialog> createState() => _PdfExportDialogState();
 }
 
-class _PdfExportDialogState extends State<PdfExportDialog> {
-  PdfExportConfig _config = const PdfExportConfig();
+class _PdfExportDialogState extends State<PdfExportDialog>
+    with SingleTickerProviderStateMixin {
+  late PdfExportConfig _config;
+  late TextEditingController _fileNameController;
+  late AnimationController _animController;
+
+  @override
+  void initState() {
+    super.initState();
+    final baseName = widget.defaultFileName?.replaceAll(
+      RegExp(r'\.pdf$', caseSensitive: false),
+      '',
+    );
+    _config = PdfExportConfig(fileName: baseName, title: baseName);
+    _fileNameController = TextEditingController(text: baseName ?? '');
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _fileNameController.dispose();
+    _animController.dispose();
+    super.dispose();
+  }
+
+  String get _fullFileName {
+    final name =
+        _config.fileName?.isNotEmpty == true ? _config.fileName! : 'export';
+    return '$name.${_config.format.extension}';
+  }
+
+  Color get _accent => _config.format.accent;
+
+  void _applyPreset(_ExportPreset preset) {
+    HapticFeedback.mediumImpact();
+    _fileNameController.text = _config.fileName ?? '';
+    setState(() {
+      _config = _config.copyWith(
+        format: preset.format,
+        jpgQuality: preset.jpgQuality,
+        resolution: preset.resolution,
+        enableCompression: preset.enableCompression,
+        onlyAnnotatedPages: preset.onlyAnnotated,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+    final cs = theme.colorScheme;
+    final mq = MediaQuery.of(context);
+    final bottomPadding = mq.viewInsets.bottom;
+    final maxHeight =
+        mq.size.height - mq.padding.top - 24; // 24px breathing room
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      padding: EdgeInsets.only(bottom: bottomPadding),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Drag handle
-          Container(
-            margin: const EdgeInsets.only(top: 12),
-            width: 40,
-            height: 4,
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: _animController, curve: Curves.easeOut),
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.06),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            padding: EdgeInsets.only(bottom: bottomPadding),
             decoration: BoxDecoration(
-              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(2),
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: _accent.withValues(alpha: 0.08),
+                width: 1.5,
+              ),
+              boxShadow: [
+                // Format-colored ambient glow
+                BoxShadow(
+                  color: _accent.withValues(alpha: 0.1),
+                  blurRadius: 50,
+                  spreadRadius: -5,
+                  offset: const Offset(0, -8),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 24,
+                  offset: const Offset(0, -3),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ── Animated Gradient Handle ──
+                Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 2),
+                  width: 40,
+                  height: 4.5,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        _accent.withValues(alpha: 0.15),
+                        _accent.withValues(alpha: 0.35),
+                        _accent.withValues(alpha: 0.15),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+
+                // ── Header with accent wash ──
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        _accent.withValues(alpha: 0.04),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 14, 14),
+                  child: Row(
+                    children: [
+                      // Animated format icon in circle
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _accent.withValues(alpha: 0.1),
+                        ),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          transitionBuilder:
+                              (w, a) => ScaleTransition(scale: a, child: w),
+                          child: Icon(
+                            _config.format.icon,
+                            key: ValueKey(_config.format),
+                            color: _accent,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Export Document',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.5,
+                                fontSize: 17,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 200),
+                              child: Text(
+                                widget.totalPages > 0
+                                    ? '${widget.totalPages} ${widget.totalPages == 1 ? "page" : "pages"} \u2022 ${_config.format.label} \u2022 ${_config.format.subtitle}'
+                                    : _config.format.subtitle,
+                                key: ValueKey('${_config.format}_sub'),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: cs.onSurfaceVariant.withValues(
+                                    alpha: 0.7,
+                                  ),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Export CTA — gradient with glow
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _accent.withValues(alpha: 0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.pop(context, _config),
+                          icon: const Icon(Icons.ios_share_rounded, size: 16),
+                          label: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 150),
+                            child: Text(
+                              'Export ${_config.format.label}',
+                              key: ValueKey(_config.format.label),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _accent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Gradient Divider ──
+                Container(
+                  height: 1,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        _accent.withValues(alpha: 0.15),
+                        _accent.withValues(alpha: 0.15),
+                        Colors.transparent,
+                      ],
+                      stops: const [0, 0.2, 0.8, 1],
+                    ),
+                  ),
+                ),
+
+                // ── Content ──
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ── Quick Presets ──
+                        _PresetBar(onPreset: _applyPreset),
+                        const SizedBox(height: 16),
+
+                        // ── Thumbnail Preview ──
+                        if (widget.firstPagePreview != null) ...[
+                          _PagePreviewCard(
+                            imageBytes: widget.firstPagePreview!,
+                            format: _config.format,
+                            totalPages: widget.totalPages,
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        // ── File Name ── (Section Card)
+                        _sectionCard(
+                          cs,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _SectionHeader(
+                                label: 'File Name',
+                                icon: Icons.drive_file_rename_outline,
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _CompactTextField(
+                                      controller: _fileNameController,
+                                      label: 'File name',
+                                      icon: Icons.description_outlined,
+                                      onChanged:
+                                          (v) => setState(() {
+                                            _config = _config.copyWith(
+                                              fileName: v,
+                                              title: v,
+                                            );
+                                          }),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 200),
+                                    transitionBuilder:
+                                        (w, a) => FadeTransition(
+                                          opacity: a,
+                                          child: ScaleTransition(
+                                            scale: a,
+                                            child: w,
+                                          ),
+                                        ),
+                                    child: Container(
+                                      key: ValueKey(_config.format.extension),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            _accent.withValues(alpha: 0.2),
+                                            _accent.withValues(alpha: 0.1),
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: _accent.withValues(alpha: 0.3),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '.${_config.format.extension}',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: _accent,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              // Preview filename
+                              Padding(
+                                padding: const EdgeInsets.only(left: 4, top: 5),
+                                child: Text(
+                                  _fullFileName,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: cs.onSurfaceVariant.withValues(
+                                      alpha: 0.5,
+                                    ),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // ── Format Selector ── (Section Card)
+                        _sectionCard(
+                          cs,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _SectionHeader(
+                                label: 'Format',
+                                icon: Icons.file_present_rounded,
+                              ),
+                              const SizedBox(height: 10),
+                              _FormatSelector(
+                                value: _config.format,
+                                onChanged: (f) {
+                                  HapticFeedback.selectionClick();
+                                  setState(() {
+                                    _config = _config.copyWith(format: f);
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child:
+                              _config.format != PdfExportFormat.pdf &&
+                                      _config.format != PdfExportFormat.svg
+                                  ? _buildResolutionSelector(cs)
+                                  : const SizedBox.shrink(),
+                        ),
+
+                        // ── JPG Quality (conditional) ──
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child:
+                              _config.format == PdfExportFormat.jpg
+                                  ? _buildJpgQualitySlider(cs)
+                                  : const SizedBox.shrink(),
+                        ),
+
+                        // ── PNG info (conditional) ──
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child:
+                              _config.format == PdfExportFormat.png
+                                  ? _buildPngInfo(cs)
+                                  : const SizedBox.shrink(),
+                        ),
+
+                        // ── Estimated size ──
+                        if (widget.totalPages > 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: _buildEstimatedSize(cs),
+                          ),
+
+                        const SizedBox(height: 14),
+
+                        // ── PDF Settings (conditional) ──
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child:
+                              _config.format == PdfExportFormat.pdf
+                                  ? PdfExportSettingsPanel(
+                                    initialConfig: _config,
+                                    onConfigChanged:
+                                        (c) => setState(() => _config = c),
+                                  )
+                                  : const SizedBox.shrink(),
+                        ),
+
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
 
-          // Title bar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-            child: Row(
+  Widget _sectionCard(ColorScheme cs, {required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.08)),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildJpgQualitySlider(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Icon(
-                  Icons.picture_as_pdf_rounded,
-                  color: colorScheme.primary,
-                  size: 24,
-                ),
-                const SizedBox(width: 10),
+                Icon(Icons.tune_rounded, size: 16, color: cs.onSurfaceVariant),
+                const SizedBox(width: 8),
                 Text(
-                  'PDF Export',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  'Quality',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
                   ),
                 ),
                 const Spacer(),
-                TextButton.icon(
-                  onPressed: () => Navigator.pop(context, _config),
-                  icon: const Icon(Icons.check_rounded, size: 18),
-                  label: const Text('Export'),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${(_config.jpgQuality * 100).round()}%',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: cs.primary,
+                    ),
+                  ),
                 ),
               ],
             ),
-          ),
-
-          const Divider(height: 1),
-
-          // Settings panel
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: PdfExportSettingsPanel(
-                initialConfig: _config,
-                onConfigChanged: (c) => setState(() => _config = c),
+            SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+                activeTrackColor: cs.primary,
+                inactiveTrackColor: cs.onSurfaceVariant.withValues(alpha: 0.15),
+                thumbColor: cs.primary,
+              ),
+              child: Slider(
+                value: _config.jpgQuality,
+                min: 0.3,
+                max: 1.0,
+                divisions: 7,
+                onChanged:
+                    (v) => setState(() {
+                      _config = _config.copyWith(jpgQuality: v);
+                    }),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Smaller',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  Text(
+                    _config.jpgQuality >= 0.9
+                        ? 'Maximum quality'
+                        : _config.jpgQuality >= 0.7
+                        ? 'High quality'
+                        : _config.jpgQuality >= 0.5
+                        ? 'Balanced'
+                        : 'Compact',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  Text(
+                    'Larger',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPngInfo(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cs.tertiaryContainer.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.tertiary.withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline_rounded, size: 16, color: cs.tertiary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Lossless quality • Best for screenshots and editing',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResolutionSelector(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(label: 'Resolution', icon: Icons.aspect_ratio_rounded),
+          const SizedBox(height: 8),
+          Row(
+            children:
+                ExportResolution.values.map((res) {
+                  final isSelected = res == _config.resolution;
+                  return Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        right: res != ExportResolution.values.last ? 6 : 0,
+                      ),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOutCubic,
+                        decoration: BoxDecoration(
+                          color:
+                              isSelected
+                                  ? cs.secondaryContainer.withValues(alpha: 0.7)
+                                  : cs.surfaceContainerHighest.withValues(
+                                    alpha: 0.3,
+                                  ),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color:
+                                isSelected
+                                    ? cs.secondary.withValues(alpha: 0.4)
+                                    : cs.outlineVariant.withValues(alpha: 0.12),
+                            width: isSelected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setState(() {
+                                _config = _config.copyWith(resolution: res);
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    res.icon,
+                                    size: 18,
+                                    color:
+                                        isSelected
+                                            ? cs.secondary
+                                            : cs.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    res.label,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight:
+                                          isSelected
+                                              ? FontWeight.w700
+                                              : FontWeight.w500,
+                                      color:
+                                          isSelected
+                                              ? cs.secondary
+                                              : cs.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  Text(
+                                    res.badge,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: (isSelected
+                                              ? cs.secondary
+                                              : cs.onSurfaceVariant)
+                                          .withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
           ),
         ],
       ),
     );
   }
-}
 
-// =============================================================================
-// PRIVATE SUB-WIDGETS
-// =============================================================================
+  Widget _buildEstimatedSize(ColorScheme cs) {
+    // Rough estimation based on format, quality, resolution, and page count
+    final pages = widget.totalPages;
+    final resMult = _config.resolution.multiplier;
 
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  final IconData icon;
+    double sizePerPageMb;
+    switch (_config.format) {
+      case PdfExportFormat.pdf:
+        sizePerPageMb = 0.8;
+      case PdfExportFormat.jpg:
+        sizePerPageMb = 0.3 * _config.jpgQuality * resMult * resMult;
+      case PdfExportFormat.png:
+        sizePerPageMb = 1.5 * resMult * resMult;
+      case PdfExportFormat.svg:
+        sizePerPageMb = 2.0 * resMult * resMult;
+    }
 
-  const _SectionHeader({required this.label, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: colorScheme.primary.withValues(alpha: 0.7)),
-        const SizedBox(width: 6),
-        Text(
-          label.toUpperCase(),
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
-            color: colorScheme.primary.withValues(alpha: 0.7),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget trailing;
-
-  const _SettingsTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final totalMb = sizePerPageMb * pages;
+    final sizeStr =
+        totalMb < 1
+            ? '~${(totalMb * 1024).round()} KB'
+            : '~${totalMb.toStringAsFixed(1)} MB';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(12),
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: colorScheme.onSurfaceVariant),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
+          Icon(
+            Icons.storage_rounded,
+            size: 15,
+            color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Estimated: $sizeStr',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: cs.onSurfaceVariant,
             ),
           ),
-          trailing,
+          const Spacer(),
+          Text(
+            '$pages ${pages == 1 ? "page" : "pages"} • ${_config.format.label} ${_config.resolution.badge}',
+            style: TextStyle(
+              fontSize: 10,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+          ),
         ],
       ),
-    );
-  }
-}
-
-class _CompactTextField extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  final IconData icon;
-  final ValueChanged<String> onChanged;
-
-  const _CompactTextField({
-    required this.controller,
-    required this.label,
-    required this.icon,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return TextField(
-      controller: controller,
-      onChanged: onChanged,
-      style: const TextStyle(fontSize: 13),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(
-          fontSize: 12,
-          color: colorScheme.onSurfaceVariant,
-        ),
-        prefixIcon: Icon(icon, size: 18),
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 10,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(
-            color: colorScheme.outline.withValues(alpha: 0.3),
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(
-            color: colorScheme.outline.withValues(alpha: 0.3),
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
-        ),
-      ),
-    );
-  }
-}
-
-class _WatermarkPositionSelector extends StatelessWidget {
-  final WatermarkPosition value;
-  final ValueChanged<WatermarkPosition> onChanged;
-
-  const _WatermarkPositionSelector({
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Row(
-      children: [
-        Icon(
-          Icons.place_outlined,
-          size: 16,
-          color: colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(width: 8),
-        const Text('Position', style: TextStyle(fontSize: 12)),
-        const Spacer(),
-        SegmentedButton<WatermarkPosition>(
-          segments: const [
-            ButtonSegment(
-              value: WatermarkPosition.diagonal,
-              icon: Icon(Icons.rotate_left, size: 16),
-              label: Text('Diagonal', style: TextStyle(fontSize: 11)),
-            ),
-            ButtonSegment(
-              value: WatermarkPosition.center,
-              icon: Icon(Icons.center_focus_strong, size: 16),
-              label: Text('Center', style: TextStyle(fontSize: 11)),
-            ),
-            ButtonSegment(
-              value: WatermarkPosition.tiled,
-              icon: Icon(Icons.grid_view, size: 16),
-              label: Text('Tiled', style: TextStyle(fontSize: 11)),
-            ),
-          ],
-          selected: {value},
-          onSelectionChanged: (s) => onChanged(s.first),
-          style: ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _OpacitySlider extends StatelessWidget {
-  final double value;
-  final ValueChanged<double> onChanged;
-
-  const _OpacitySlider({required this.value, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Row(
-      children: [
-        Icon(Icons.opacity, size: 16, color: colorScheme.onSurfaceVariant),
-        const SizedBox(width: 8),
-        Text(
-          'Opacity ${(value * 100).round()}%',
-          style: const TextStyle(fontSize: 12),
-        ),
-        Expanded(
-          child: Slider.adaptive(
-            value: value,
-            min: 0.05,
-            max: 0.5,
-            divisions: 9,
-            onChanged: onChanged,
-          ),
-        ),
-      ],
     );
   }
 }

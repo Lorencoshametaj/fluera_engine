@@ -366,6 +366,12 @@ class SpringAnimationController {
       return;
     }
     _lastTickTime = Duration.zero;
-    _ticker!.start();
+    try {
+      _ticker!.start();
+    } catch (_) {
+      // Ticker may be in a bad state (widget disposed between frames).
+      // Gracefully cancel the animation instead of crashing.
+      stop();
+    }
   }
 }

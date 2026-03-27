@@ -69,8 +69,11 @@ class AdaptiveRenderingConfig {
   final bool enableTileCaching;
 
   /// Stroke count threshold to activate tile caching.
-  /// Below this threshold, direct rendering is faster.
-  /// 120Hz: 100 | 90Hz: 75 | 60Hz: 50
+  /// 🚀 PERF: Lowered from 500 → 20. The old assumption that vectorial cache
+  /// (drawPicture replay) is fast on the raster thread was WRONG: the GPU
+  /// still re-executes all path commands every frame (~7ms for 50 strokes).
+  /// Tile caching pre-rasterizes into bitmaps → subsequent frames are pure
+  /// GPU compositing (~0.5-1ms). Benefits kick in from ~20 strokes.
   final int tileCachingStrokeThreshold;
 
   const AdaptiveRenderingConfig({
@@ -84,7 +87,7 @@ class AdaptiveRenderingConfig {
     required this.maxPointsPerStroke,
     required this.viewportPadding,
     required this.enableTileCaching,
-    this.tileCachingStrokeThreshold = 50,
+    this.tileCachingStrokeThreshold = 20,
   });
 
   /// Factory per creare config ottimale basato su refresh rate
@@ -107,8 +110,10 @@ class AdaptiveRenderingConfig {
           maxPointsPerStroke: 128, // Hard limit aggressivo
           // Culling: zero tolerance
           viewportPadding: 0.0, // Render ONLY visible
-          enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
-          tileCachingStrokeThreshold: 100, // High bar at 120Hz
+          enableTileCaching:
+              false, // 🚧 DISABLED: toImageSync blocks UI 30-50ms/tile
+          tileCachingStrokeThreshold:
+              20, // Pre-rasterize bitmaps from 20 strokes
         );
 
       case RefreshRate.hz90:
@@ -127,8 +132,10 @@ class AdaptiveRenderingConfig {
           maxPointsPerStroke: 192,
           // Culling moderato
           viewportPadding: 25.0,
-          enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
-          tileCachingStrokeThreshold: 75,
+          enableTileCaching:
+              false, // 🚧 DISABLED: toImageSync blocks UI 30-50ms/tile
+          tileCachingStrokeThreshold:
+              20, // Pre-rasterize bitmaps from 20 strokes
         );
 
       case RefreshRate.hz60:
@@ -147,8 +154,10 @@ class AdaptiveRenderingConfig {
           maxPointsPerStroke: 256,
           // Culling standard
           viewportPadding: 50.0,
-          enableTileCaching: true, // Tiles are viewport-sized → low GPU cost
-          tileCachingStrokeThreshold: 50,
+          enableTileCaching:
+              false, // 🚧 DISABLED: toImageSync blocks UI 30-50ms/tile
+          tileCachingStrokeThreshold:
+              20, // Pre-rasterize bitmaps from 20 strokes
         );
     }
   }

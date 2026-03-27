@@ -138,7 +138,6 @@ class AssetRegistry with MemoryManagedCacheMixin implements MemoryManagedCache {
     if (entry.refCount == 0) {
       final short =
           handle.id.length > 8 ? handle.id.substring(0, 8) : handle.id;
-      debugPrint('[AssetRegistry] $short… refCount=0, evictable');
     }
   }
 
@@ -260,7 +259,6 @@ class AssetRegistry with MemoryManagedCacheMixin implements MemoryManagedCache {
         return digest.toString();
       }
     } catch (e) {
-      debugPrint('[AssetRegistry] _computeId I/O error for $sourcePath: $e');
       _emitEvent('asset.hash_fallback', {
         'path': sourcePath,
         'error': e.toString(),

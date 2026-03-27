@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🎬 PROTOTYPE & ANIMATION — Wire prototype flow, timeline, smart animate
 // ============================================================================
 
-extension PrototypeAnimationFeatures on _NebulaCanvasScreenState {
+extension PrototypeAnimationFeatures on _FlueraCanvasScreenState {
   /// Start interactive prototype preview.
   /// Wires: prototype_flow, smart_animate_engine
   void _startPrototypePreview() {
@@ -18,7 +18,6 @@ extension PrototypeAnimationFeatures on _NebulaCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => _PrototypePlayerSheet(flow: flow),
     );
-    debugPrint('[Design] Prototype preview started');
   }
 
   /// Add a flow link between two frames.
@@ -31,7 +30,6 @@ extension PrototypeAnimationFeatures on _NebulaCanvasScreenState {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
-    debugPrint('[Design] Flow link mode activated');
   }
 
   /// Show animation timeline panel.
@@ -44,7 +42,6 @@ extension PrototypeAnimationFeatures on _NebulaCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => const AnimationTimelinePanel(),
     );
-    debugPrint('[Design] Animation timeline opened');
   }
 
   /// Enable smart animate between component states.
@@ -59,7 +56,6 @@ extension PrototypeAnimationFeatures on _NebulaCanvasScreenState {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
-    debugPrint('[Design] Smart animate enabled');
   }
 }
 

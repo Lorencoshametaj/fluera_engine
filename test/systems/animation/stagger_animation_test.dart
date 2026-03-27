@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/stagger_animation.dart';
-import 'package:nebula_engine/src/systems/animation_timeline.dart';
+import 'package:fluera_engine/src/systems/stagger_animation.dart';
+import 'package:fluera_engine/src/systems/animation_timeline.dart';
 import 'dart:ui';
 
 void main() {

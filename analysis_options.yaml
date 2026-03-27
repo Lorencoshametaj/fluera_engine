@@ -2,7 +2,7 @@ analyzer:
   exclude:
     - _phase2_disabled/**
   errors:
-    # setState in extensions on _NebulaCanvasScreenState is intentional —
+    # setState in extensions on _FlueraCanvasScreenState is intentional —
     # the extensions are in the same library (via 'part') and act as class methods.
     invalid_use_of_protected_member: ignore
     # Phase 2 state fields, stubs, and methods are intentionally kept for future use.

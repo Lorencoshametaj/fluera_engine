@@ -1,12 +1,12 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_visitor.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/systems/selection_manager.dart';
-import 'package:nebula_engine/src/systems/selection_query.dart';
-import 'package:nebula_engine/src/utils/uid.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_visitor.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/systems/selection_manager.dart';
+import 'package:fluera_engine/src/systems/selection_query.dart';
+import 'package:fluera_engine/src/utils/uid.dart';
 
 /// Minimal concrete CanvasNode for testing purposes.
 class _TestNode extends CanvasNode {

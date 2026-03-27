@@ -1,8 +1,8 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph_observer.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph_observer.dart';
 
 import '../helpers/test_helpers.dart';
 

@@ -47,7 +47,7 @@ class BrushTexture {
   };
 
   /// Package name used for asset resolution when consumed as a dependency.
-  static const String _packageName = 'nebula_engine';
+  static const String _packageName = 'fluera_engine';
 
   /// Loads a texture asynchronously with caching.
   /// Returns `null` if the type is `none` or if loading fails.
@@ -79,7 +79,6 @@ class BrushTexture {
       _cache[type] = frame.image;
       return frame.image;
     } catch (e) {
-      debugPrint('⚠️ BrushTexture: failed to load $type — $e');
       _cache[type] = null;
       return null;
     } finally {

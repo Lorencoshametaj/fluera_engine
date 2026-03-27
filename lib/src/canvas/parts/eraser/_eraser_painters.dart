@@ -1,4 +1,4 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 // ERASER PAINTERS — extracted from _build_ui.dart
@@ -35,8 +35,8 @@ class _EraserTrailPainter extends CustomPainter {
       final t = i / trail.length;
       final color =
           Color.lerp(
-            isDark ? Colors.orange[300]! : Colors.orange[400]!,
-            isDark ? Colors.red[300]! : Colors.red[400]!,
+            isDark ? const Color(0xFFFFB74D) : const Color(0xFFFFA726),
+            isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350),
             t,
           )!;
 
@@ -66,7 +66,7 @@ class _EraserTrailPainter extends CustomPainter {
         final headScreen = canvasController.canvasToScreen(head.position);
         final glowPaint =
             Paint()
-              ..color = (isDark ? Colors.red[200]! : Colors.red[300]!)
+              ..color = (isDark ? const Color(0xFFEF9A9A) : const Color(0xFFE57373))
                   .withValues(alpha: headAlpha * 0.3)
               ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 8.0);
         canvas.drawCircle(headScreen, 10.0 * headAlpha, glowPaint);
@@ -98,7 +98,7 @@ class _EraserParticlePainter extends CustomPainter {
       final screenPos = canvasController.canvasToScreen(p.position);
       final paint =
           Paint()
-            ..color = (isDark ? Colors.red[200]! : Colors.red[400]!).withValues(
+            ..color = (isDark ? const Color(0xFFEF9A9A) : const Color(0xFFEF5350)).withValues(
               alpha: p.opacity * 0.8,
             )
             ..style = PaintingStyle.fill;
@@ -173,14 +173,14 @@ class _EraserLassoPathPainter extends CustomPainter {
     final fillAlpha = isAnimating ? 0.35 : 0.1;
     final fillPaint =
         Paint()
-          ..color = (isDark ? Colors.red[300]! : Colors.red[400]!).withValues(
+          ..color = (isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350)).withValues(
             alpha: fillAlpha,
           )
           ..style = PaintingStyle.fill;
 
     final strokePaint =
         Paint()
-          ..color = isDark ? Colors.red[300]! : Colors.red[400]!
+          ..color = isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350)
           ..strokeWidth = 2.0
           ..style = PaintingStyle.stroke
           ..strokeJoin = StrokeJoin.round;
@@ -225,14 +225,14 @@ class _EraserProtectedRegionPainter extends CustomPainter {
       // Semi-transparent blue fill
       final fillPaint =
           Paint()
-            ..color = (isDark ? Colors.blue[300]! : Colors.blue[400]!)
+            ..color = (isDark ? const Color(0xFF64B5F6) : const Color(0xFF42A5F5))
                 .withValues(alpha: 0.12)
             ..style = PaintingStyle.fill;
 
       // Dashed blue border
       final borderPaint =
           Paint()
-            ..color = isDark ? Colors.blue[300]! : Colors.blue[400]!
+            ..color = isDark ? const Color(0xFF64B5F6) : const Color(0xFF42A5F5)
             ..strokeWidth = 1.5
             ..style = PaintingStyle.stroke;
 
@@ -285,7 +285,7 @@ class _EraserGhostPreviewPainter extends CustomPainter {
       // Draw ghost version — semi-transparent with glow effect
       final ghostPaint =
           Paint()
-            ..color = (isDark ? Colors.red[200]! : Colors.red[400]!).withValues(
+            ..color = (isDark ? const Color(0xFFEF9A9A) : const Color(0xFFEF5350)).withValues(
               alpha: 0.3,
             )
             ..strokeWidth = 3.0
@@ -331,7 +331,7 @@ class _MagneticSnapIndicatorPainter extends CustomPainter {
     // Dashed line
     final dashPaint =
         Paint()
-          ..color = (isDark ? Colors.orange[300]! : Colors.orange[600]!)
+          ..color = (isDark ? const Color(0xFFFFB74D) : const Color(0xFFFB8C00))
               .withValues(alpha: 0.7)
           ..strokeWidth = 1.5
           ..style = PaintingStyle.stroke
@@ -355,7 +355,7 @@ class _MagneticSnapIndicatorPainter extends CustomPainter {
     // Small circle at snap target
     final targetPaint =
         Paint()
-          ..color = isDark ? Colors.orange[300]! : Colors.orange[600]!
+          ..color = isDark ? const Color(0xFFFFB74D) : const Color(0xFFFB8C00)
           ..style = PaintingStyle.fill;
     canvas.drawCircle(snapTarget, 4.0, targetPaint);
 

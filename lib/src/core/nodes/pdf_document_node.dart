@@ -31,6 +31,16 @@ class PdfDocumentNode extends GroupNode {
   List<({Offset delta, List<String> annotationIds})> pendingStrokeTranslations =
       [];
 
+  /// Pending stroke rotation from the last [rotatePage] call.
+  /// Consumed by the layout-changed callback to rotate linked strokes
+  /// around [center] by [angleRadians].
+  ({double angleRadians, Offset center, List<String> annotationIds})?
+  pendingStrokeRotation;
+
+  /// 📡 Callback fired after any mutation (for real-time broadcast).
+  /// Parameters: (subAction, data)
+  void Function(String subAction, Map<String, dynamic> data)? onMutation;
+
   PdfDocumentNode({
     required super.id,
     required this.documentModel,
@@ -70,12 +80,23 @@ class PdfDocumentNode extends GroupNode {
     for (int i = pages.length - 1; i >= 0; i--) {
       final page = pages[i];
       if (page.pageModel.isLocked) continue;
-      final pos = page.position;
-      final size = page.pageModel.originalSize;
-      final rect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
-      if (rect.contains(canvasPoint)) return page;
+      if (pageRectFor(page).contains(canvasPoint)) return page;
     }
     return null;
+  }
+
+  /// Hit-test ALL pages (locked + unlocked) at [canvasPoint].
+  ///
+  /// Returns the page index of the topmost page containing the point,
+  /// or -1 if no page is hit. Used to update toolbar selection on tap.
+  int hitTestPageIndex(Offset canvasPoint) {
+    final pages = pageNodes;
+    for (int i = pages.length - 1; i >= 0; i--) {
+      if (pageRectFor(pages[i]).contains(canvasPoint)) {
+        return pages[i].pageModel.pageIndex;
+      }
+    }
+    return -1;
   }
 
   // ---------------------------------------------------------------------------
@@ -217,6 +238,11 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
     performGridLayout();
+
+    onMutation?.call('pageLocked', {
+      'pageIndex': pageIndex,
+      'locked': pageNode.pageModel.isLocked,
+    });
   }
 
   /// Return a locked page to its default grid position.
@@ -243,6 +269,8 @@ class PdfDocumentNode extends GroupNode {
     _syncTotalPages();
     // performGridLayout() now auto-populates pendingStrokeTranslations
     performGridLayout();
+
+    onMutation?.call('returnedToGrid', {'pageIndex': pageIndex});
 
     // Return the translation for this specific page (if any)
     if (pendingStrokeTranslations.isNotEmpty) {
@@ -324,6 +352,31 @@ class PdfDocumentNode extends GroupNode {
       lastModifiedAt: now,
     );
     documentModel = documentModel.copyWith(lastModifiedAt: now);
+
+    // 🔄 Queue stroke rotation so linked annotations rotate with the page.
+    final annotations = pageNode.pageModel.annotations;
+    if (annotations.isNotEmpty) {
+      final pos = pageNode.position;
+      final size = pageNode.pageModel.originalSize;
+      final center = Offset(pos.dx + size.width / 2, pos.dy + size.height / 2);
+      pendingStrokeRotation = (
+        angleRadians: angleDegrees * math.pi / 180,
+        center: center,
+        annotationIds: List<String>.of(annotations),
+      );
+    }
+
+    // 🔄 Dispose cached raster image so the page is re-rendered at the
+    // new orientation. Without this, the stale unrotated image persists.
+    pageNode.disposeCachedImage();
+
+    // 🔑 Invalidate bounds so viewport culling and grid layout use fresh
+    // values. Row heights may change when a portrait page becomes landscape.
+    invalidateBoundsCache();
+
+    // NOTE: onMutation NOT called here for rotation — broadcast happens
+    // at the call site AFTER the pending rotation is consumed by
+    // onLayoutChanged. This prevents interference with the rotation flow.
   }
 
   // ---------------------------------------------------------------------------
@@ -376,12 +429,36 @@ class PdfDocumentNode extends GroupNode {
       showAnnotations: !page.pageModel.showAnnotations,
       lastModifiedAt: DateTime.now().microsecondsSinceEpoch,
     );
+
+    onMutation?.call('annotationsToggled', {
+      'pageIndex': pageIndex,
+      'visible': page.pageModel.showAnnotations,
+    });
   }
 
-  /// Get the canvas-space rect for a page.
+  /// Get the canvas-space rect for a page, accounting for rotation.
+  ///
+  /// For 90°/270° rotations, width and height are swapped while keeping
+  /// the same center point. This ensures hit-testing and annotation
+  /// linking match the visually rotated page area.
   Rect pageRectFor(PdfPageNode page) {
     final pos = page.position;
     final size = page.pageModel.originalSize;
+    final rotation = page.pageModel.rotation;
+
+    // Check if rotation is near 90° or 270° (π/2 or 3π/2)
+    final quarterTurns = (rotation / (math.pi / 2)).round() % 4;
+    if (quarterTurns == 1 || quarterTurns == 3) {
+      // Dimensions swap; keep same center
+      final cx = pos.dx + size.width / 2;
+      final cy = pos.dy + size.height / 2;
+      return Rect.fromCenter(
+        center: Offset(cx, cy),
+        width: size.height,
+        height: size.width,
+      );
+    }
+
     return Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
   }
 
@@ -433,14 +510,33 @@ class PdfDocumentNode extends GroupNode {
 
     final now = DateTime.now().microsecondsSinceEpoch;
 
+    // 🔄 Swap visual positions so unlocked pages trade places visually.
+    // For locked pages, performGridLayout() handles repositioning.
+    // For unlocked pages, we swap their customOffset so they land in each
+    // other's old spot.
+    final fromPage = pages[fromIndex];
+    final toPage = pages[toIndex];
+
+    final fromCustom = fromPage.pageModel.customOffset;
+    final toCustom = toPage.pageModel.customOffset;
+    final fromPos = fromPage.position;
+    final toPos = toPage.position;
+
+    // Swap customOffset (unlocked pages use this)
+    fromPage.pageModel = fromPage.pageModel.copyWith(
+      customOffset: toCustom ?? toPos,
+    );
+    toPage.pageModel = toPage.pageModel.copyWith(
+      customOffset: fromCustom ?? fromPos,
+    );
+
     // Remove then insert at target position in the children list
-    final page = pages[fromIndex];
-    remove(page);
+    remove(fromPage);
 
     // Re-fetch after removal to get correct insertion index
     final updatedPages = pageNodes;
     final insertIdx = toIndex.clamp(0, updatedPages.length);
-    insertAt(insertIdx, page);
+    insertAt(insertIdx, fromPage);
 
     // Re-assign pageIndex to match new order
     final reordered = pageNodes;
@@ -454,6 +550,11 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
     performGridLayout();
+
+    onMutation?.call('pageReordered', {
+      'fromIndex': fromIndex,
+      'toIndex': toIndex,
+    });
   }
 
   /// Insert a blank page at [afterIndex] (0-based) or at the end if null.
@@ -479,8 +580,23 @@ class PdfDocumentNode extends GroupNode {
         pageIndex: insertIdx,
         originalSize: pageSize,
         lastModifiedAt: now,
+        isBlank: true,
+        isLocked: false,
       ),
     );
+
+    // Position blank page next to the reference page
+    if (afterIndex != null && afterIndex < pages.length) {
+      final refPage = pages[afterIndex];
+      final refPos = refPage.position;
+      final refWidth = refPage.pageModel.originalSize.width;
+      blankPage.pageModel = blankPage.pageModel.copyWith(
+        customOffset: Offset(
+          refPos.dx + refWidth + documentModel.gridSpacing,
+          refPos.dy,
+        ),
+      );
+    }
 
     insertAt(insertIdx, blankPage);
 
@@ -497,7 +613,117 @@ class PdfDocumentNode extends GroupNode {
     _syncTotalPages();
     performGridLayout();
 
+    onMutation?.call('pageAdded', {
+      'afterIndex': afterIndex,
+      'pageWidth': pageSize.width,
+      'pageHeight': pageSize.height,
+    });
+
     return blankPage;
+  }
+
+  /// Duplicate an existing page at [pageIndex] (0-based).
+  ///
+  /// Creates a copy of the page with the same size and native page content
+  /// (same [pageIndex] so the renderer fetches the same native image).
+  /// Annotations are NOT duplicated — the new page is a clean copy.
+  /// Returns the duplicated node.
+  PdfPageNode duplicatePage(int pageIndex) {
+    final pages = pageNodes;
+    if (pageIndex < 0 || pageIndex >= pages.length) {
+      throw RangeError.range(pageIndex, 0, pages.length - 1, 'pageIndex');
+    }
+
+    final sourcePage = pages[pageIndex];
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final insertIdx = pageIndex + 1;
+
+    // Keep the same native pageIndex so the renderer shows the same content
+    final dupPage = PdfPageNode(
+      id: NodeId('dup_${now}_$insertIdx'),
+      name: '${sourcePage.name} (copy)',
+      pageModel: PdfPageModel(
+        pageIndex: sourcePage.pageModel.pageIndex,
+        originalSize: sourcePage.pageModel.originalSize,
+        rotation: sourcePage.pageModel.rotation,
+        isBlank: sourcePage.pageModel.isBlank,
+        isLocked: false,
+        lastModifiedAt: now,
+      ),
+    );
+
+    // Position to the right of the source page
+    final srcPos = sourcePage.position;
+    final srcWidth = sourcePage.pageModel.originalSize.width;
+    dupPage.pageModel = dupPage.pageModel.copyWith(
+      customOffset: Offset(
+        srcPos.dx + srcWidth + documentModel.gridSpacing,
+        srcPos.dy,
+      ),
+    );
+
+    insertAt(insertIdx, dupPage);
+
+    documentModel = documentModel.copyWith(lastModifiedAt: now);
+    _syncTotalPages();
+    performGridLayout();
+
+    onMutation?.call('pageDuplicated', {'pageIndex': pageIndex});
+
+    return dupPage;
+  }
+
+  /// Split this document: extract pages [fromIndex..toIndex] (inclusive)
+  /// into a new standalone list of page models.
+  ///
+  /// The original document is NOT modified. Returns a list of copied
+  /// page models that can be used to create a new PdfDocumentNode.
+  List<PdfPageModel> splitDocument(int fromIndex, int toIndex) {
+    final pages = pageNodes;
+    final from = fromIndex.clamp(0, pages.length - 1);
+    final to = toIndex.clamp(from, pages.length - 1);
+    final result = <PdfPageModel>[];
+    for (int i = from; i <= to; i++) {
+      result.add(pages[i].pageModel.copyWith(pageIndex: i - from));
+    }
+    return result;
+  }
+
+  /// Merge pages from another document into this one.
+  ///
+  /// Appends all pages from [otherPages] at the end of this document,
+  /// re-indexes, syncs totalPages, and rebuilds the grid.
+  void mergePages(List<PdfPageModel> otherPages) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final currentCount = pageNodes.length;
+
+    for (int i = 0; i < otherPages.length; i++) {
+      final srcPage = otherPages[i];
+      final newPage = PdfPageNode(
+        id: NodeId('merged_${now}_${currentCount + i}'),
+        name: 'Page ${currentCount + i + 1}',
+        pageModel: srcPage.copyWith(
+          pageIndex: currentCount + i,
+          lastModifiedAt: now,
+          isLocked: true,
+          clearCustomOffset: true,
+        ),
+      );
+      add(newPage);
+    }
+
+    // Re-index all pages
+    final updated = pageNodes;
+    for (int i = 0; i < updated.length; i++) {
+      updated[i].pageModel = updated[i].pageModel.copyWith(
+        pageIndex: i,
+        lastModifiedAt: now,
+      );
+    }
+
+    documentModel = documentModel.copyWith(lastModifiedAt: now);
+    _syncTotalPages();
+    performGridLayout();
   }
 
   /// E6: Remove a page by [pageIndex] (0-based).
@@ -525,6 +751,8 @@ class PdfDocumentNode extends GroupNode {
     documentModel = documentModel.copyWith(lastModifiedAt: now);
     _syncTotalPages();
     performGridLayout();
+
+    onMutation?.call('pageRemoved', {'pageIndex': pageIndex});
 
     return page;
   }

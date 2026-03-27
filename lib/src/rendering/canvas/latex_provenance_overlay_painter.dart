@@ -43,7 +43,8 @@ class LatexProvenanceOverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     _paintedTargets.clear();
     if (!EngineScope.hasScope) return;
-    final bridge = EngineScope.current.globalTabularBridge;
+    final bridge = EngineScope.current.tabularModule?.tabularLatexBridge;
+    if (bridge == null) return;
 
     // CASE 1: A LatexNode is selected -> Highlight the cells it references
     if (selectedNodeIds.length == 1) {

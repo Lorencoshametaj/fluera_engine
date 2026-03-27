@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/component_state_machine.dart';
+import 'package:fluera_engine/src/systems/component_state_machine.dart';
 
 void main() {
   group('ComponentStateMachine Tests', () {

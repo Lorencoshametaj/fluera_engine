@@ -29,7 +29,7 @@ import 'ink_rasterizer.dart';
 class NativeLatexRecognizer implements LatexRecognitionBridge {
   /// Platform channel for communicating with native ML inference code.
   static const MethodChannel _channel = MethodChannel(
-    'nebula_engine/latex_recognition',
+    'fluera_engine/latex_recognition',
   );
 
   bool _initialized = false;
@@ -57,13 +57,9 @@ class NativeLatexRecognizer implements LatexRecognitionBridge {
       await initialize().timeout(
         timeout,
         onTimeout: () {
-          debugPrint(
-            '[NativeLatexRecognizer] warm-up timed out after ${timeout.inSeconds}s',
-          );
         },
       );
     } catch (e) {
-      debugPrint('[NativeLatexRecognizer] warm-up failed: $e');
     } finally {
       _warmingUp = false;
     }
@@ -81,17 +77,11 @@ class NativeLatexRecognizer implements LatexRecognitionBridge {
       _modelAvailable = result?['available'] as bool? ?? false;
       _initialized = true;
       stopwatch.stop();
-      debugPrint(
-        '[NativeLatexRecognizer] initialized in ${stopwatch.elapsedMilliseconds}ms, '
-        'model available: $_modelAvailable',
-      );
     } on PlatformException catch (e) {
-      debugPrint('[NativeLatexRecognizer] initialization failed: ${e.message}');
       _initialized = true;
       _modelAvailable = false;
     } on MissingPluginException {
       // Platform channel not implemented (e.g. running on desktop/web)
-      debugPrint('[NativeLatexRecognizer] platform not supported');
       _initialized = true;
       _modelAvailable = false;
     }

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nebula_engine/src/rendering/optimization/layer_picture_cache.dart';
+import 'package:fluera_engine/src/rendering/optimization/layer_picture_cache.dart';
 
 // We can't create real ui.Picture objects in unit tests (they require a
 // PictureRecorder + Canvas), so we test the cache logic via mock-like

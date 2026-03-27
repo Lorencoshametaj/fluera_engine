@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'dart:ui';
 import '../scene_graph/canvas_node.dart';
 import '../scene_graph/node_id.dart';
@@ -46,6 +47,10 @@ class LatexNode extends CanvasNode {
 
   /// Pre-computed draw commands (populated by LatexLayoutEngine).
   LatexLayoutResult? _cachedLayout;
+
+  /// Pre-recorded `ui.Picture` for zero-allocation re-painting.
+  /// Invalidated whenever [_cachedLayout] is cleared.
+  ui.Picture? cachedPicture;
 
   /// 🔗 Reactive binding: ID of the source TabularNode (null = standalone).
   String? sourceTabularId;
@@ -140,6 +145,7 @@ class LatexNode extends CanvasNode {
     if (_latexSource == value) return;
     _latexSource = value;
     _cachedLayout = null;
+    cachedPicture = null;
   }
 
   /// Font size for the root expression.
@@ -148,6 +154,7 @@ class LatexNode extends CanvasNode {
     if (_fontSize == value) return;
     _fontSize = value;
     _cachedLayout = null;
+    cachedPicture = null;
   }
 
   /// Text color for the equation.
@@ -156,13 +163,17 @@ class LatexNode extends CanvasNode {
     if (_color == value) return;
     _color = value;
     _cachedLayout = null;
+    cachedPicture = null;
   }
 
   /// The cached layout result (draw commands + size).
   ///
   /// Set externally by the layout engine after computing the layout.
   LatexLayoutResult? get cachedLayout => _cachedLayout;
-  set cachedLayout(LatexLayoutResult? value) => _cachedLayout = value;
+  set cachedLayout(LatexLayoutResult? value) {
+    _cachedLayout = value;
+    cachedPicture = null; // invalidate picture when layout changes
+  }
 
   /// The cached draw commands for rendering.
   List<LatexDrawCommand>? get cachedDrawCommands => _cachedLayout?.commands;

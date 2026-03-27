@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/time_travel/services/time_travel_recorder.dart';
-import 'package:nebula_engine/src/time_travel/services/time_travel_compressor.dart';
-import 'package:nebula_engine/src/time_travel/models/time_travel_session.dart';
-import 'package:nebula_engine/src/history/canvas_delta_tracker.dart';
+import 'package:fluera_engine/src/time_travel/services/time_travel_recorder.dart';
+import 'package:fluera_engine/src/time_travel/services/time_travel_compressor.dart';
+import 'package:fluera_engine/src/time_travel/models/time_travel_session.dart';
+import 'package:fluera_engine/src/history/canvas_delta_tracker.dart';
 
 void main() {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -274,7 +274,7 @@ void main() {
       }
 
       final tempDir = await Directory.systemTemp.createTemp(
-        'nebula_tt_flush_test_',
+        'fluera_tt_flush_test_',
       );
       try {
         final session = await recorder.flushToDisk('test_canvas', tempDir.path);

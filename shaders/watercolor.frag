@@ -16,6 +16,7 @@ uniform float uPressure;   // Avg pressure (controls water amount)
 uniform float uVelocity;   // Segment velocity (controls pigment density)
 uniform float uSeed;       // Random seed for noise
 uniform float uSpread;     // Water spread amount (0–1)
+uniform float uWetness;    // 🌱 Canvas wetness (0=dry, 1=wet) — wet-on-wet
 
 out vec4 fragColor;
 
@@ -58,11 +59,23 @@ void main() {
     float diffusion = mix(0.7, 1.0, n);
 
     // Pigment density: faster strokes = lighter wash
-    float density = mix(0.3, 1.0, 1.0 - uVelocity * 0.6);
+    // 🌱 Wetness reduces density (water dilutes pigment)
+    float wetDilution = 1.0 - uWetness * 0.3;
+    float density = mix(0.3, 1.0, 1.0 - uVelocity * 0.6) * wetDilution;
 
-    // Edge bleed: darker at the edges (pigment settling)
-    float edgeBleed = smoothstep(spreadW * 0.15, spreadW * 0.45, dist);
-    float bleedFactor = edgeBleed * 0.15 * uPressure;
+    // 🌱 Organic: cauliflower pooling — amplified on wet canvas
+    float poolNoise = noise(fragCoord * 0.4 + uSeed * 2.0);
+    float poolShape = smoothstep(0.3, 0.7, poolNoise);
+    // 🌱 Wet canvas = wider spread = bleed starts further from center
+    float wetSpreadBoost = 1.0 + uWetness * 0.4;
+    float edgeBleed = smoothstep(
+        spreadW * 0.15 * wetSpreadBoost,
+        spreadW * 0.45 * wetSpreadBoost,
+        dist
+    );
+    // 🌱 Wet canvas = stronger bleed (more pigment migration)
+    float bleedStrength = mix(0.1, 0.35, poolShape) * (1.0 + uWetness * 0.5);
+    float bleedFactor = edgeBleed * bleedStrength * uPressure;
 
     // Final alpha: combine edge falloff, diffusion, density
     float alpha = edge * diffusion * density * uColorA;

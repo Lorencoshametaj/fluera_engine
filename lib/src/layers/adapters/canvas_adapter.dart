@@ -3,14 +3,12 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
-import '../nebula_layer_controller.dart';
+import '../fluera_layer_controller.dart';
 
 /// 🔌 Adapter interface for different canvas contexts
 ///
 /// Abstracts common operations between:
 /// - Infinite canvas (InfiniteCanvasAdapter)
-/// - Synchronized multiview (future)
-///
 /// DESIGN PRINCIPLES:
 /// - Each adapter knows how to handle coordinates of its context
 /// - Each adapter knows how to persist data in its context
@@ -58,16 +56,16 @@ abstract class CanvasAdapter {
   // ============================================================================
 
   /// Adds a stroke to context
-  void addStroke(NebulaLayerController controller, ProStroke stroke);
+  void addStroke(FlueraLayerController controller, ProStroke stroke);
 
   /// Removes a stroke by ID
-  void removeStroke(NebulaLayerController controller, String strokeId);
+  void removeStroke(FlueraLayerController controller, String strokeId);
 
   /// Gets strokes visible in a viewport
   ///
   /// Uses spatial indexing when available for O(log n) performance.
   List<ProStroke> getStrokesInViewport(
-    NebulaLayerController controller,
+    FlueraLayerController controller,
     Rect viewport,
   );
 
@@ -76,14 +74,14 @@ abstract class CanvasAdapter {
   // ============================================================================
 
   /// Adds a geometric shape to context
-  void addShape(NebulaLayerController controller, GeometricShape shape);
+  void addShape(FlueraLayerController controller, GeometricShape shape);
 
   /// Removes a shape by ID
-  void removeShape(NebulaLayerController controller, String shapeId);
+  void removeShape(FlueraLayerController controller, String shapeId);
 
   /// Gets shapes visible in a viewport
   List<GeometricShape> getShapesInViewport(
-    NebulaLayerController controller,
+    FlueraLayerController controller,
     Rect viewport,
   );
 

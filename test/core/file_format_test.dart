@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/formats/format_registry.dart';
-import 'package:nebula_engine/src/core/formats/format_parser.dart';
-import 'package:nebula_engine/src/core/formats/batch_export_pipeline.dart';
-import 'package:nebula_engine/src/core/formats/format_converter.dart';
+import 'package:fluera_engine/src/core/formats/format_registry.dart';
+import 'package:fluera_engine/src/core/formats/format_parser.dart';
+import 'package:fluera_engine/src/core/formats/batch_export_pipeline.dart';
+import 'package:fluera_engine/src/core/formats/format_converter.dart';
 
 void main() {
   // ===========================================================================

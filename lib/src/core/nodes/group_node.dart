@@ -10,6 +10,14 @@ import '../scene_graph/node_visitor.dart';
 class GroupNode extends CanvasNode {
   final List<CanvasNode> _children = [];
 
+  /// 🚀 O(1) child lookup by ID (maintained on add/remove).
+  final Map<String, int> _childIdIndex = {};
+
+  /// 🚀 Defer index rebuilds during batch operations.
+  bool _deferIndexRebuild = false;
+  bool _indexRebuildNeeded = false;
+  bool _typedCacheInvalidNeeded = false;
+
   /// Cached bounds — invalidated when children change.
   Rect? _cachedLocalBounds;
   bool _boundsDirty = true;
@@ -47,11 +55,13 @@ class GroupNode extends CanvasNode {
   void add(CanvasNode child) {
     _assertNoCycle(child);
     assert(
-      !_children.any((c) => c.id == child.id),
+      !_childIdIndex.containsKey(child.id),
       'Duplicate child ID "${child.id}" in ${this.id}',
     );
     child.parent = this;
+    _childIdIndex[child.id] = _children.length;
     _children.add(child);
+    invalidateTypedCaches();
     _expandBoundsIncremental(child);
   }
 
@@ -85,11 +95,13 @@ class GroupNode extends CanvasNode {
   void insertAt(int index, CanvasNode child) {
     _assertNoCycle(child);
     assert(
-      !_children.any((c) => c.id == child.id),
+      !_childIdIndex.containsKey(child.id),
       'Duplicate child ID "${child.id}" in ${this.id}',
     );
     child.parent = this;
     _children.insert(index, child);
+    _rebuildIdIndex();
+    invalidateTypedCaches();
     invalidateBoundsCache();
   }
 
@@ -98,18 +110,43 @@ class GroupNode extends CanvasNode {
     final removed = _children.remove(child);
     if (removed) {
       child.parent = null;
+      _rebuildIdIndex();
+      invalidateTypedCaches();
       invalidateBoundsCache();
     }
     return removed;
   }
 
-  /// Remove a child by ID.
+  /// Remove a child by ID. O(1) lookup via HashMap index,
+  /// or O(N) linear scan when index rebuild is deferred (batch mode).
   CanvasNode? removeById(String nodeId) {
-    final index = _children.indexWhere((c) => c.id == nodeId);
-    if (index == -1) return null;
+    int? index;
+    if (_deferIndexRebuild) {
+      // 🚀 During batch operations, _childIdIndex is stale after the
+      // first removal. Fall back to linear scan to find the correct
+      // position. O(N) but safe — batch operations are already O(N).
+      for (int i = 0; i < _children.length; i++) {
+        if (_children[i].id == nodeId) {
+          index = i;
+          break;
+        }
+      }
+    } else {
+      index = _childIdIndex[nodeId];
+    }
+    if (index == null) return null;
     final child = _children.removeAt(index);
     child.parent = null;
-    invalidateBoundsCache();
+    _rebuildIdIndex();
+    // 🚀 During batch mode, defer cache invalidation — the caller
+    // has already snapshot the strokes list. Rebuilding caches on
+    // every removal causes O(N²) allocations (30 eraseAt × 181 strokes).
+    if (_deferIndexRebuild) {
+      _typedCacheInvalidNeeded = true;
+    } else {
+      invalidateTypedCaches();
+      invalidateBoundsCache();
+    }
     return child;
   }
 
@@ -117,6 +154,8 @@ class GroupNode extends CanvasNode {
   CanvasNode removeAt(int index) {
     final child = _children.removeAt(index);
     child.parent = null;
+    _rebuildIdIndex();
+    invalidateTypedCaches();
     invalidateBoundsCache();
     return child;
   }
@@ -128,6 +167,8 @@ class GroupNode extends CanvasNode {
     // Adjust index after removal
     final adjustedIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
     _children.insert(adjustedIndex, child);
+    _rebuildIdIndex();
+    invalidateTypedCaches();
     invalidateBoundsCache();
   }
 
@@ -137,6 +178,8 @@ class GroupNode extends CanvasNode {
       child.parent = null;
     }
     _children.clear();
+    _childIdIndex.clear();
+    invalidateTypedCaches();
     invalidateBoundsCache();
   }
 
@@ -144,18 +187,20 @@ class GroupNode extends CanvasNode {
   // Query
   // ---------------------------------------------------------------------------
 
-  /// Find a child by ID (non-recursive, direct children only).
+  /// Find a child by ID (non-recursive). O(1) via HashMap.
   CanvasNode? findChild(String nodeId) {
-    for (final child in _children) {
-      if (child.id == nodeId) return child;
-    }
-    return null;
+    final index = _childIdIndex[nodeId];
+    if (index == null) return null;
+    return _children[index];
   }
 
   /// Recursively find a node by ID in this subtree.
   CanvasNode? findDescendant(String nodeId) {
+    // O(1) check direct children first
+    final direct = findChild(nodeId);
+    if (direct != null) return direct;
+    // Then recurse
     for (final child in _children) {
-      if (child.id == nodeId) return child;
       if (child is GroupNode) {
         final found = child.findDescendant(nodeId);
         if (found != null) return found;
@@ -167,8 +212,8 @@ class GroupNode extends CanvasNode {
   /// Index of a child, or -1 if not found.
   int indexOf(CanvasNode child) => _children.indexOf(child);
 
-  /// Index of a child by ID, or -1 if not found.
-  int indexOfById(String nodeId) => _children.indexWhere((c) => c.id == nodeId);
+  /// Index of a child by ID, or -1 if not found. O(1) via HashMap.
+  int indexOfById(String nodeId) => _childIdIndex[nodeId] ?? -1;
 
   // ---------------------------------------------------------------------------
   // Typed convenience getters
@@ -177,6 +222,45 @@ class GroupNode extends CanvasNode {
   /// All children of type [T].
   List<T> childrenOfType<T extends CanvasNode>() =>
       _children.whereType<T>().toList();
+
+  // ---------------------------------------------------------------------------
+  // Internal index maintenance
+  // ---------------------------------------------------------------------------
+
+  /// Rebuild the id→index map after mutations that shift indices.
+  void _rebuildIdIndex() {
+    if (_deferIndexRebuild) {
+      _indexRebuildNeeded = true;
+      return;
+    }
+    _childIdIndex.clear();
+    for (int i = 0; i < _children.length; i++) {
+      _childIdIndex[_children[i].id] = i;
+    }
+  }
+
+  /// Begin deferring index rebuilds (for batch operations).
+  void beginDeferIndexRebuild() {
+    _deferIndexRebuild = true;
+  }
+
+  /// Flush deferred index rebuild and cache invalidation.
+  void endDeferIndexRebuild() {
+    _deferIndexRebuild = false;
+    if (_indexRebuildNeeded) {
+      _indexRebuildNeeded = false;
+      _rebuildIdIndex();
+    }
+    if (_typedCacheInvalidNeeded) {
+      _typedCacheInvalidNeeded = false;
+      invalidateTypedCaches();
+      invalidateBoundsCache();
+    }
+  }
+
+  /// Hook for subclasses (LayerNode) to invalidate typed caches.
+  @mustCallSuper
+  void invalidateTypedCaches() {}
 
   // ---------------------------------------------------------------------------
   // Bounds
@@ -295,11 +379,14 @@ class GroupNode extends CanvasNode {
     CanvasNode Function(Map<String, dynamic>) nodeFactory,
   ) {
     _children.clear();
+    _childIdIndex.clear();
     for (final childJson in childrenJson) {
       final child = nodeFactory(childJson as Map<String, dynamic>);
       child.parent = this;
+      _childIdIndex[child.id] = _children.length;
       _children.add(child);
     }
+    invalidateTypedCaches();
     invalidateBoundsCache();
   }
 

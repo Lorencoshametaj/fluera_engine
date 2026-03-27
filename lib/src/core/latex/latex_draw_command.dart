@@ -26,6 +26,8 @@ sealed class LatexDrawCommand {
         return LineDrawCommand.fromJson(json);
       case 'path':
         return PathDrawCommand.fromJson(json);
+      case 'rect':
+        return RectDrawCommand.fromJson(json);
       default:
         throw ArgumentError('Unknown LatexDrawCommand type: $type');
     }
@@ -50,7 +52,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
   final Color color;
 
   /// Font family (e.g. 'Latin Modern Math', or system default).
-  final String fontFamily;
+  final String? fontFamily;
 
   /// Whether to render in italic (common for math variables).
   final bool italic;
@@ -64,7 +66,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
     required this.y,
     required this.fontSize,
     required this.color,
-    this.fontFamily = '',
+    this.fontFamily,
     this.italic = false,
     this.bold = false,
   });
@@ -77,7 +79,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
     'y': y,
     'fontSize': fontSize,
     'color': color.toARGB32(),
-    if (fontFamily.isNotEmpty) 'fontFamily': fontFamily,
+    if (fontFamily != null && fontFamily!.isNotEmpty) 'fontFamily': fontFamily,
     if (italic) 'italic': true,
     if (bold) 'bold': true,
   };
@@ -89,7 +91,7 @@ class GlyphDrawCommand extends LatexDrawCommand {
       y: (json['y'] as num).toDouble(),
       fontSize: (json['fontSize'] as num).toDouble(),
       color: Color(json['color'] as int),
-      fontFamily: json['fontFamily'] as String? ?? '',
+      fontFamily: json['fontFamily'] as String?,
       italic: json['italic'] as bool? ?? false,
       bold: json['bold'] as bool? ?? false,
     );
@@ -163,12 +165,18 @@ class PathDrawCommand extends LatexDrawCommand {
   /// Whether to fill the path instead of stroking it.
   final bool filled;
 
+  /// When true, points are rendered as a smooth cubic Bézier spline
+  /// using Catmull-Rom interpolation, producing fluid curves instead
+  /// of angular line segments.
+  final bool smooth;
+
   PathDrawCommand({
     required this.points,
     this.closed = false,
     this.strokeWidth = 1.0,
     required this.color,
     this.filled = false,
+    this.smooth = false,
   });
 
   @override
@@ -179,6 +187,7 @@ class PathDrawCommand extends LatexDrawCommand {
     'strokeWidth': strokeWidth,
     'color': color.toARGB32(),
     if (filled) 'filled': true,
+    if (smooth) 'smooth': true,
   };
 
   factory PathDrawCommand.fromJson(Map<String, dynamic> json) {
@@ -198,6 +207,50 @@ class PathDrawCommand extends LatexDrawCommand {
       strokeWidth: (json['strokeWidth'] as num).toDouble(),
       color: Color(json['color'] as int),
       filled: json['filled'] as bool? ?? false,
+      smooth: json['smooth'] as bool? ?? false,
+    );
+  }
+}
+
+/// Draw a filled or stroked rectangle.
+///
+/// Used for `\colorbox` backgrounds and `\rule` solid blocks.
+class RectDrawCommand extends LatexDrawCommand {
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+  final Color color;
+  final bool filled;
+
+  RectDrawCommand({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    required this.color,
+    this.filled = true,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'rect',
+    'x': x,
+    'y': y,
+    'width': width,
+    'height': height,
+    'color': color.toARGB32(),
+    if (filled) 'filled': true,
+  };
+
+  factory RectDrawCommand.fromJson(Map<String, dynamic> json) {
+    return RectDrawCommand(
+      x: (json['x'] as num).toDouble(),
+      y: (json['y'] as num).toDouble(),
+      width: (json['width'] as num).toDouble(),
+      height: (json['height'] as num).toDouble(),
+      color: Color(json['color'] as int),
+      filled: json['filled'] as bool? ?? true,
     );
   }
 }

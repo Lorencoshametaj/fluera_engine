@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/drawing/services/brush_settings_service.dart';
-import 'package:nebula_engine/src/drawing/models/pro_brush_settings.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/drawing/services/brush_settings_service.dart';
+import 'package:fluera_engine/src/drawing/models/pro_brush_settings.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   late BrushSettingsService service;
@@ -132,10 +132,9 @@ void main() {
   // =========================================================================
 
   group('EngineScope integration', () {
-    test('accessible via EngineScope.current', () {
-      final scopeService = EngineScope.current.brushSettingsService;
-      expect(scopeService, isNotNull);
-      expect(scopeService, isA<BrushSettingsService>());
+    test('drawingModule accessor is available on scope', () {
+      // drawingModule is null before registration but accessor exists
+      expect(EngineScope.current.drawingModule, isNull);
     });
   });
 }

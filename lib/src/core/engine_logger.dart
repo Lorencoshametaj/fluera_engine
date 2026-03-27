@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// Centralized logging utility for the Nebula Engine.
+/// Centralized logging utility for the Fluera Engine.
 ///
 /// Provides leveled logging (debug, info, warning, error) with consistent
 /// formatting and optional stack traces. In release mode, only warnings
@@ -66,8 +66,10 @@ class EngineLogger {
     StackTrace? stack,
   }) {
     final prefix = tag != null ? '[$tag] ' : '';
-    debugPrint('$emoji $prefix$message');
-    if (error != null) debugPrint('   Error: $error');
-    if (stack != null) debugPrint('   Stack: $stack');
+    final buf = StringBuffer('$emoji $prefix$message');
+    if (error != null) buf.write(' | Error: $error');
+    if (stack != null) buf.write('\n$stack');
+    // ignore: avoid_print
+    print(buf.toString());
   }
 }

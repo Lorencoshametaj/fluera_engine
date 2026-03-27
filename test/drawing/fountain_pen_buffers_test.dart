@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/drawing/brushes/fountain_pen_buffers.dart';
+import 'package:fluera_engine/src/drawing/brushes/fountain_pen_buffers.dart';
 
 void main() {
   // =========================================================================

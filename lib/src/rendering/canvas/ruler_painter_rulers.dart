@@ -50,8 +50,36 @@ extension RulerPainterRulers on RulerPainter {
 
     final step = calculateStep(zoom);
     final smallStep = step / 5;
-    final startX = (-canvasOffset.dx / zoom).floorToDouble();
-    final endX = startX + (size.width / zoom);
+
+    // Find the canvas-X range visible on the horizontal ruler strip.
+    // When rotation != 0, we sample the ruler strip's left/right edges at
+    // a reference screen-Y to establish a linear mapping screenX ↔ canvasX.
+    // The mapping is always affine (screen→canvas is a linear transform),
+    // so two samples suffice.
+    final double startX;
+    final double endX;
+    // For rotated case: linear mapping coefficients
+    double _hRulerCLeftDx = 0;
+    double _hRulerDCanvasX = 1;
+    final double _hRulerWidth = size.width - RulerPainter.rulerSize;
+    if (rotation == 0.0) {
+      startX = (-canvasOffset.dx / zoom).floorToDouble();
+      endX = startX + (size.width / zoom);
+    } else {
+      final refY = RulerPainter.rulerSize / 2;
+      final cL = screenToCanvas(Offset(RulerPainter.rulerSize, refY));
+      final cR = screenToCanvas(Offset(size.width, refY));
+      _hRulerCLeftDx = cL.dx;
+      _hRulerDCanvasX = cR.dx - cL.dx;
+      if (_hRulerDCanvasX.abs() < 0.001) {
+        // Canvas X-axis is perpendicular to screen-X — can't show X ticks
+        startX = 0;
+        endX = -1; // skip loop
+      } else {
+        startX = min(cL.dx, cR.dx).floorToDouble();
+        endX = max(cL.dx, cR.dx).ceilToDouble();
+      }
+    }
     final firstTick = (startX / smallStep).floor() * smallStep;
 
     final majorP =
@@ -71,7 +99,16 @@ extension RulerPainterRulers on RulerPainter {
           ..isAntiAlias = true;
 
     for (double x = firstTick; x <= endX; x += smallStep) {
-      final sx = x * zoom + canvasOffset.dx;
+      // Map canvas-X → screen-X along the ruler strip.
+      final double sx;
+      if (rotation == 0.0) {
+        sx = x * zoom + canvasOffset.dx;
+      } else {
+        // Linear interpolation: sx = rulerSize + (x - cL.dx) / dCanvasX * rulerWidth
+        sx =
+            RulerPainter.rulerSize +
+            (x - _hRulerCLeftDx) / _hRulerDCanvasX * _hRulerWidth;
+      }
       if (sx < RulerPainter.rulerSize || sx > size.width) continue;
       final isMajor = (x % step).abs() < 0.001;
       final isMid = !isMajor && (x % (step / 2)).abs() < 0.001;
@@ -180,8 +217,31 @@ extension RulerPainterRulers on RulerPainter {
 
     final step = calculateStep(zoom);
     final smallStep = step / 5;
-    final startY = (-canvasOffset.dy / zoom).floorToDouble();
-    final endY = startY + (size.height / zoom);
+
+    // Find the canvas-Y range visible on the vertical ruler strip.
+    // Same linear-mapping approach as horizontal ruler.
+    final double startY;
+    final double endY;
+    double _vRulerCTopDy = 0;
+    double _vRulerDCanvasY = 1;
+    final double _vRulerHeight = size.height - RulerPainter.rulerSize;
+    if (rotation == 0.0) {
+      startY = (-canvasOffset.dy / zoom).floorToDouble();
+      endY = startY + (size.height / zoom);
+    } else {
+      final refX = RulerPainter.rulerSize / 2;
+      final cT = screenToCanvas(Offset(refX, RulerPainter.rulerSize));
+      final cB = screenToCanvas(Offset(refX, size.height));
+      _vRulerCTopDy = cT.dy;
+      _vRulerDCanvasY = cB.dy - cT.dy;
+      if (_vRulerDCanvasY.abs() < 0.001) {
+        startY = 0;
+        endY = -1; // skip loop
+      } else {
+        startY = min(cT.dy, cB.dy).floorToDouble();
+        endY = max(cT.dy, cB.dy).ceilToDouble();
+      }
+    }
     final firstTick = (startY / smallStep).floor() * smallStep;
 
     final majorP =
@@ -201,7 +261,15 @@ extension RulerPainterRulers on RulerPainter {
           ..isAntiAlias = true;
 
     for (double y = firstTick; y <= endY; y += smallStep) {
-      final sy = y * zoom + canvasOffset.dy;
+      // Map canvas-Y → screen-Y along the ruler strip.
+      final double sy;
+      if (rotation == 0.0) {
+        sy = y * zoom + canvasOffset.dy;
+      } else {
+        sy =
+            RulerPainter.rulerSize +
+            (y - _vRulerCTopDy) / _vRulerDCanvasY * _vRulerHeight;
+      }
       if (sy < RulerPainter.rulerSize || sy > size.height) continue;
       final isMajor = (y % step).abs() < 0.001;
       final isMid = !isMajor && (y % (step / 2)).abs() < 0.001;
@@ -384,10 +452,9 @@ extension RulerPainterRulers on RulerPainter {
       );
     }
 
-    final cxCanvas = (cursorPosition!.dx - canvasOffset.dx) / zoom;
-    final cyCanvas = (cursorPosition!.dy - canvasOffset.dy) / zoom;
-    final cxUnit = guideSystem.convertToUnit(cxCanvas);
-    final cyUnit = guideSystem.convertToUnit(cyCanvas);
+    final canvasPos = screenToCanvas(cursorPosition!);
+    final cxUnit = guideSystem.convertToUnit(canvasPos.dx);
+    final cyUnit = guideSystem.convertToUnit(canvasPos.dy);
     final coordText =
         guideSystem.currentUnit == RulerUnit.px
             ? '${cxUnit.round()}\n${cyUnit.round()}'
@@ -428,10 +495,9 @@ extension RulerPainterRulers on RulerPainter {
     final cy = cursorPosition!.dy;
     if (cx <= RulerPainter.rulerSize || cy <= RulerPainter.rulerSize) return;
 
-    final cxCanvas = (cx - canvasOffset.dx) / zoom;
-    final cyCanvas = (cy - canvasOffset.dy) / zoom;
-    final cxUnit = guideSystem.convertToUnit(cxCanvas);
-    final cyUnit = guideSystem.convertToUnit(cyCanvas);
+    final canvasPos = screenToCanvas(Offset(cx, cy));
+    final cxUnit = guideSystem.convertToUnit(canvasPos.dx);
+    final cyUnit = guideSystem.convertToUnit(canvasPos.dy);
     final label =
         guideSystem.currentUnit == RulerUnit.px
             ? '${cxUnit.round()}, ${cyUnit.round()}'

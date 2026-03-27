@@ -6,8 +6,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:onnxruntime_v2/onnxruntime_v2.dart';
-import 'package:path_provider/path_provider.dart';
+import 'onnx_stub_web.dart';
+import '../utils/safe_path_provider.dart';
 
 import '../core/latex/ink_stroke_data.dart';
 import 'ink_rasterizer.dart';
@@ -30,7 +30,7 @@ import 'latex_recognition_bridge.dart';
 /// ```
 class HmeLatexRecognizer implements LatexRecognitionBridge {
   static const String _tag = 'HmeLatexRecognizer';
-  static const String _packageName = 'nebula_engine';
+  static const String _packageName = 'fluera_engine';
 
   /// Model input dimensions (must match training).
   static const int _imgHeight = 128;
@@ -46,10 +46,11 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
 
   /// Asset paths.
   static const String _encoderAsset = 'assets/models/hme/hme_encoder.onnx';
-  static const String _encoderDataAsset =
-      'assets/models/hme/hme_encoder.onnx.data';
   static const String _decoderAsset = 'assets/models/hme/hme_decoder.onnx';
   static const String _vocabAsset = 'assets/models/hme/hme_attn_vocab.json';
+
+  /// Model version — bump to force re-write of cached models on disk.
+  static const int _modelVersion = 4;
 
   // Internal state
   OrtSession? _encoderSession;
@@ -63,31 +64,23 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
     if (_initialized) return;
 
     try {
-      debugPrint('[$_tag] Step 1: OrtEnv.init...');
       OrtEnv.instance.init();
 
       // Load vocabulary
-      debugPrint('[$_tag] Step 2: Loading vocab...');
       await _loadVocab();
-      debugPrint('[$_tag] Step 2 done: ${_idx2token.length} tokens');
 
       // Write model files to disk
-      debugPrint('[$_tag] Step 3: Writing models to disk...');
       final paths = await _writeModelsToDisk();
       if (paths == null) {
         throw const LatexRecognitionException('HME models not found');
       }
-      debugPrint('[$_tag] Step 3 done');
 
       // Create ONNX sessions
-      debugPrint('[$_tag] Step 4: Creating ORT sessions...');
       final opts = OrtSessionOptions();
 
       _encoderSession = OrtSession.fromFile(File(paths.$1), opts);
-      debugPrint('[$_tag]   Encoder: ${_encoderSession != null ? "✓" : "✗"}');
 
       _decoderSession = OrtSession.fromFile(File(paths.$2), opts);
-      debugPrint('[$_tag]   Decoder: ${_decoderSession != null ? "✓" : "✗"}');
 
       _modelAvailable =
           _encoderSession != null &&
@@ -95,12 +88,9 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
           _idx2token.isNotEmpty;
       _initialized = true;
 
-      debugPrint('[$_tag] initialized — ready=$_modelAvailable');
     } catch (e, st) {
       _initialized = true;
       _modelAvailable = false;
-      debugPrint('[$_tag] initialization failed: $e');
-      debugPrint('[$_tag] stack: $st');
     }
   }
 
@@ -149,10 +139,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
     final latex = _tokensToLatex(tokens);
 
     sw.stop();
-    debugPrint(
-      '[$_tag] recognized in ${sw.elapsedMilliseconds}ms: "$latex" '
-      '(${tokens.length} tokens)',
-    );
 
     // Per-symbol confidence
     final perSymbol = <SymbolConfidence>[];
@@ -237,17 +223,17 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
         final data = await rootBundle.load(assetPath);
         return data.buffer.asUint8List();
       } catch (e) {
-        debugPrint('[$_tag] Asset not found: $assetPath ($e)');
         return null;
       }
     }
   }
 
-  /// Write model files to disk (ORT needs file path for external data).
+  /// Write model files to disk (ORT needs file path).
   Future<(String, String)?> _writeModelsToDisk() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final modelDir = Directory('${dir.path}/hme_attn_models');
+      final dir = await getSafeDocumentsDirectory();
+      if (dir == null) return null; // Web: no filesystem
+      final modelDir = Directory('${dir.path}/hme_attn_models_v$_modelVersion');
       if (!modelDir.existsSync()) {
         modelDir.createSync(recursive: true);
       }
@@ -258,17 +244,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
         final bytes = await _loadAsset(_encoderAsset);
         if (bytes == null) return null;
         await encFile.writeAsBytes(bytes);
-        debugPrint('[$_tag] Wrote encoder: ${bytes.length} bytes');
-      }
-
-      // Encoder .data
-      final encDataFile = File('${modelDir.path}/hme_encoder.onnx.data');
-      if (!encDataFile.existsSync()) {
-        final bytes = await _loadAsset(_encoderDataAsset);
-        if (bytes != null) {
-          await encDataFile.writeAsBytes(bytes);
-          debugPrint('[$_tag] Wrote encoder.data: ${bytes.length} bytes');
-        }
       }
 
       // Decoder
@@ -277,12 +252,10 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
         final bytes = await _loadAsset(_decoderAsset);
         if (bytes == null) return null;
         await decFile.writeAsBytes(bytes);
-        debugPrint('[$_tag] Wrote decoder: ${bytes.length} bytes');
       }
 
       return (encFile.path, decFile.path);
     } catch (e) {
-      debugPrint('[$_tag] Failed to write models: $e');
       return null;
     }
   }
@@ -291,7 +264,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
   Future<void> _loadVocab() async {
     final bytes = await _loadAsset(_vocabAsset);
     if (bytes == null) {
-      debugPrint('[$_tag] vocab not found');
       return;
     }
 
@@ -304,7 +276,6 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
       _idx2token = idx2tok.map((k, v) => MapEntry(int.parse(k), v as String));
     }
 
-    debugPrint('[$_tag] vocab loaded: ${_idx2token.length} tokens');
   }
 
   /// Preprocess PNG → grayscale float tensor [1, 1, H, W].
@@ -391,15 +362,25 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
     const dModel = 256;
     final seqLen = encoderFeatures.length ~/ dModel;
 
+    // Fixed sequence length — ONNX decoder was exported with this shape.
+    // Tokens are padded to this length; the causal mask ensures PAD positions
+    // don't affect the output at active positions.
+    const maxSeqLen = 64;
+
     for (int step = 0; step < _maxDecodeLen; step++) {
-      // Build token tensor [1, S]
-      final tokenData = Int32List(tokens.length);
-      for (int i = 0; i < tokens.length; i++) {
+      // Build padded token tensor [1, maxSeqLen]
+      final tokenData = Int64List(maxSeqLen);
+      // Fill with PAD
+      for (int i = 0; i < maxSeqLen; i++) {
+        tokenData[i] = _padIdx;
+      }
+      // Copy active tokens
+      for (int i = 0; i < tokens.length && i < maxSeqLen; i++) {
         tokenData[i] = tokens[i];
       }
       final tokenTensor = OrtValueTensor.createTensorWithDataList(tokenData, [
         1,
-        tokens.length,
+        maxSeqLen,
       ]);
 
       // Build feature tensor [1, N, D]
@@ -426,7 +407,8 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
         break;
       }
 
-      // Output: [1, S, V] — take last position
+      // Output: [1, maxSeqLen, V] — take the logits at the ACTIVE position
+      // (the last non-PAD position = tokens.length - 1)
       final rawOutput = outputs.first!.value;
       final flat = _flattenToDoubles(rawOutput);
 
@@ -435,11 +417,21 @@ class HmeLatexRecognizer implements LatexRecognitionBridge {
       }
 
       final vocabSize = _idx2token.length;
-      final lastStepStart = flat.length - vocabSize;
-      if (lastStepStart < 0) break;
+      final activePos = tokens.length - 1; // current last token position
+      final logitStart = activePos * vocabSize;
+      if (logitStart + vocabSize > flat.length) break;
 
-      // Softmax + argmax on last position
-      final logits = flat.sublist(lastStepStart);
+      final logits = flat.sublist(logitStart, logitStart + vocabSize).toList();
+
+      // EOS suppression: force model to generate at least 2 content tokens
+      // before allowing EOS/PAD/SOS. This matches the training fix that
+      // boosted accuracy from 0% to 68%.
+      if (step < 2) {
+        logits[_eosIdx] = -1e9;
+        logits[_padIdx] = -1e9;
+        logits[_sosIdx] = -1e9;
+      }
+
       final probs = _softmaxDouble(logits);
 
       int bestIdx = 0;

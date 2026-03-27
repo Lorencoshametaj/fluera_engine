@@ -221,7 +221,7 @@ class BrushTestPainter extends CustomPainter {
       // 🔲 Grid with themed colors
       final gridPaint =
           Paint()
-            ..color = isDark ? Colors.grey[700]! : Colors.grey[200]!
+            ..color = isDark ? const Color(0xFF616161) : const Color(0xFFEEEEEE)
             ..strokeWidth = 0.5
             ..style = PaintingStyle.stroke;
 

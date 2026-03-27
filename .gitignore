@@ -43,3 +43,11 @@ app.*.map.json
 # Android Studio will place build artifacts here
 /android/app/libs/
 /android/app/src/main/assets/
+
+# Secrets
+.env
+
+# Large ML models and test outputs
+*.pt
+test_results.json
+android/src/main/cpp/rnnoise/src/rnnoise_data.c

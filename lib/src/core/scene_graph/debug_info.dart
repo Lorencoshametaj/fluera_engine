@@ -11,8 +11,7 @@ import '../nodes/group_node.dart';
 /// ```dart
 /// final info = SceneGraphDebugInfo.collect(sceneGraph);
 /// print(info); // SceneGraph: 142 nodes (max depth 5), 3 layers
-/// debugPrint(info.toJson().toString());
-/// ```
+////// ```
 class SceneGraphDebugInfo {
   /// Total number of nodes (including root).
   final int totalNodes;

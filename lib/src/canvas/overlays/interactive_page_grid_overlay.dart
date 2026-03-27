@@ -33,6 +33,10 @@ class InteractivePageGridOverlay extends StatefulWidget {
   /// The parameter is the pan delta in screen coordinates
   final ValueChanged<Offset>? onPanCanvas;
 
+  /// Callback for forwarding pinch-zoom from the overlay to the canvas.
+  /// Parameters: (local focalPoint, per-frame scale ratio)
+  final void Function(Offset focalPoint, double frameRatio)? onScaleCanvas;
+
   /// Bottom padding to exclude toolbar from the interactive area
   final double bottomPadding;
 
@@ -47,6 +51,7 @@ class InteractivePageGridOverlay extends StatefulWidget {
     required this.canvasOffset,
     this.showHandlesOnlySelected = true,
     this.onPanCanvas,
+    this.onScaleCanvas,
     this.bottomPadding = 0,
     this.showDarkOverlay = true,
   });
@@ -90,6 +95,11 @@ class _InteractivePageGridOverlayState
   // Multi-touch state (to allow pinch zoom)
   int _pointerCount = 0;
 
+  // Scale gesture state for dark overlay zoom
+  double _scaleStartScale = 1.0;
+  double _lastForwardedScale = 1.0;
+  Offset _scaleStartFocalPoint = Offset.zero;
+
   @override
   void dispose() {
     stopAutoPan();
@@ -101,7 +111,18 @@ class _InteractivePageGridOverlayState
     return Listener(
       // Track pointer count to allow pinch zoom
       onPointerDown: (_) {
-        setState(() => _pointerCount++);
+        final newCount = _pointerCount + 1;
+        setState(() => _pointerCount = newCount);
+        // Cancel active page drag when second finger arrives (enable pinch zoom)
+        if (newCount >= 2 && (_isDraggingPage || _activeHandle != null)) {
+          stopAutoPan();
+          _isDraggingPage = false;
+          _draggingPageIndex = null;
+          _dragStartPosition = null;
+          _initialPageBounds = null;
+          _activeHandle = null;
+          setState(() => _activeSnapLines = []);
+        }
       },
       onPointerUp: (_) {
         setState(() => _pointerCount = (_pointerCount - 1).clamp(0, 10));
@@ -118,12 +139,32 @@ class _InteractivePageGridOverlayState
           final content = Stack(
             clipBehavior: Clip.hardEdge,
             children: [
-              // Dark overlay (optional) - tap to deselect
+              // Dark overlay (optional) - tap to deselect, scale to zoom
               if (widget.showDarkOverlay)
                 Positioned.fill(
                   child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: _deselectPage,
-                    behavior: HitTestBehavior.translucent,
+                    onScaleStart: (details) {
+                      _scaleStartScale = widget.canvasScale;
+                      _lastForwardedScale = 1.0;
+                      _scaleStartFocalPoint = details.localFocalPoint;
+                    },
+                    onScaleUpdate: (details) {
+                      if (details.pointerCount >= 2 && widget.onScaleCanvas != null) {
+                        // Per-frame scale ratio
+                        final frameRatio = details.scale / _lastForwardedScale;
+                        _lastForwardedScale = details.scale;
+                        // Use localFocalPoint so coordinates match canvas controller
+                        widget.onScaleCanvas!(
+                          details.localFocalPoint,
+                          frameRatio,
+                        );
+                      }
+                    },
+                    onScaleEnd: (_) {
+                      _lastForwardedScale = 1.0;
+                    },
                     child: CustomPaint(
                       painter: _DarkOverlayPainter(
                         pageBounds: widget.config.individualPageBounds,
@@ -164,11 +205,6 @@ class _InteractivePageGridOverlayState
             ],
           );
 
-          // With 2+ touches, let pinch zoom pass through
-          if (_pointerCount >= 2) {
-            return IgnorePointer(child: content);
-          }
-
           return content;
         },
       ),
@@ -201,9 +237,9 @@ class _InteractivePageGridOverlayState
           height: screenBounds.height,
           child: GestureDetector(
             onTap: () => _selectPage(index),
-            onPanStart: (details) => onPageDragStart(index, details),
-            onPanUpdate: onPageDragUpdate,
-            onPanEnd: onPageDragEnd,
+            onScaleStart: (details) => onPageScaleStart(index, details),
+            onScaleUpdate: onPageScaleUpdate,
+            onScaleEnd: onPageScaleEnd,
             child: Container(
               decoration: BoxDecoration(
                 border: Border.all(

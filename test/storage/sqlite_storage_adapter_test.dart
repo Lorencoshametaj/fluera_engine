@@ -1,9 +1,9 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/storage/nebula_storage_adapter.dart';
-import 'package:nebula_engine/src/storage/sqlite_storage_adapter.dart';
-import 'package:nebula_engine/src/core/models/canvas_layer.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/storage/fluera_storage_adapter.dart';
+import 'package:fluera_engine/src/storage/sqlite_storage_adapter.dart';
+import 'package:fluera_engine/src/core/models/canvas_layer.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
 import 'dart:ui';
 
 void main() {
@@ -90,8 +90,8 @@ void main() {
     });
 
     test('constructor accepts custom databasePath', () {
-      final adapter = SqliteStorageAdapter(databasePath: '/tmp/test_nebula.db');
-      expect(adapter.databasePath, equals('/tmp/test_nebula.db'));
+      final adapter = SqliteStorageAdapter(databasePath: '/tmp/test_fluera.db');
+      expect(adapter.databasePath, equals('/tmp/test_fluera.db'));
     });
 
     test('_ensureInitialized throws StateError if not initialized', () {
@@ -125,13 +125,13 @@ void main() {
   });
 
   // ===========================================================================
-  // NebulaStorageAdapter — interface contract
+  // FlueraStorageAdapter — interface contract
   // ===========================================================================
 
-  group('NebulaStorageAdapter interface', () {
-    test('SqliteStorageAdapter implements NebulaStorageAdapter', () {
+  group('FlueraStorageAdapter interface', () {
+    test('SqliteStorageAdapter implements FlueraStorageAdapter', () {
       final adapter = SqliteStorageAdapter();
-      expect(adapter, isA<NebulaStorageAdapter>());
+      expect(adapter, isA<FlueraStorageAdapter>());
     });
   });
 

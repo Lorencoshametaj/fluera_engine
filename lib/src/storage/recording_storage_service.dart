@@ -47,7 +47,6 @@ class RecordingStorageService {
   /// the adapter creates the schema (including the `recordings` table).
   void initialize(Database db) {
     _db = db;
-    debugPrint('[RecordingStorage] Initialized with shared database');
   }
 
   /// Persist a [SynchronizedRecording] to the database.
@@ -73,14 +72,12 @@ class RecordingStorageService {
       'total_duration_ms': recording.totalDuration.inMilliseconds,
       'start_time': recording.startTime.toIso8601String(),
       'strokes_json': strokesJson,
+      'transcription_text': recording.transcriptionText,
+      'transcription_language': recording.transcriptionLanguage,
+      'transcription_segments_json': recording.transcriptionSegmentsJson,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-    debugPrint(
-      '[RecordingStorage] Saved recording ${recording.id} '
-      '(${recording.syncedStrokes.length} strokes, '
-      '${recording.totalDuration.inSeconds}s)',
-    );
   }
 
   /// Load all recordings associated with a canvas.
@@ -98,6 +95,40 @@ class RecordingStorageService {
       orderBy: 'created_at ASC',
     );
 
+    return _decodeRows(rows);
+  }
+
+  /// Load ALL recordings regardless of canvas ID.
+  ///
+  /// Used as fallback when canvas_id is auto-generated and changes each run.
+  Future<List<SynchronizedRecording>> loadAllRecordings() async {
+    _ensureInitialized();
+
+    final rows = await _db!.query(_kRecordingsTable, orderBy: 'created_at ASC');
+
+    return _decodeRows(rows);
+  }
+
+  /// Load a single recording by its ID.
+  ///
+  /// Returns `null` if a recording with the given [id] doesn't exist.
+  /// More efficient than [loadAllRecordings] when only one recording is needed.
+  Future<SynchronizedRecording?> loadRecordingById(String id) async {
+    _ensureInitialized();
+
+    final rows = await _db!.query(
+      _kRecordingsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+
+    final decoded = _decodeRows(rows);
+    return decoded.isNotEmpty ? decoded.first : null;
+  }
+
+  /// Decode database rows into SynchronizedRecording objects.
+  List<SynchronizedRecording> _decodeRows(List<Map<String, Object?>> rows) {
     final recordings = <SynchronizedRecording>[];
 
     for (final row in rows) {
@@ -126,19 +157,16 @@ class RecordingStorageService {
             canvasId: row['canvas_id'] as String?,
             noteTitle: row['note_title'] as String?,
             recordingType: row['recording_type'] as String?,
+            transcriptionText: row['transcription_text'] as String?,
+            transcriptionLanguage: row['transcription_language'] as String?,
+            transcriptionSegmentsJson:
+                row['transcription_segments_json'] as String?,
           ),
         );
       } catch (e) {
-        debugPrint(
-          '[RecordingStorage] Failed to decode recording ${row['id']}: $e',
-        );
       }
     }
 
-    debugPrint(
-      '[RecordingStorage] Loaded ${recordings.length} recordings '
-      'for canvas $canvasId',
-    );
     return recordings;
   }
 
@@ -152,7 +180,6 @@ class RecordingStorageService {
       whereArgs: [id],
     );
 
-    debugPrint('[RecordingStorage] Deleted recording $id (rows=$count)');
     return count;
   }
 
@@ -166,9 +193,6 @@ class RecordingStorageService {
       whereArgs: [audioPath],
     );
 
-    debugPrint(
-      '[RecordingStorage] Deleted by audioPath $audioPath (rows=$count)',
-    );
     return count;
   }
 
@@ -182,9 +206,6 @@ class RecordingStorageService {
       whereArgs: [canvasId],
     );
 
-    debugPrint(
-      '[RecordingStorage] Deleted $count recordings for canvas $canvasId',
-    );
     return count;
   }
 

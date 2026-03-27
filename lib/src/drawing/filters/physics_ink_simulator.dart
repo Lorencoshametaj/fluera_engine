@@ -21,7 +21,8 @@ class PhysicsInkSimulator {
   final double stiffness;
 
   /// Virtual tip mass (higher = more inertia)
-  final double mass;
+  /// 🌱 Mutable: pressure modulates mass dynamically
+  double _mass;
 
   /// Speed corrente
   Offset _velocity = Offset.zero;
@@ -41,8 +42,12 @@ class PhysicsInkSimulator {
   PhysicsInkSimulator({
     this.damping = 0.15,
     this.stiffness = 300.0,
-    this.mass = 1.0,
-  });
+    double mass = 1.0,
+  }) : _mass = mass;
+
+  /// 🌱 Dynamic mass (clamped to [0.3, 3.0]).
+  double get mass => _mass;
+  set mass(double value) => _mass = value.clamp(0.3, 3.0);
 
   /// Updates il target (position reale del dito)
   void updateTarget(Offset target, DateTime timestamp) {
@@ -71,7 +76,7 @@ class PhysicsInkSimulator {
     final dampingForce = _velocity * -damping * 100.0; // Scale damping
 
     // F = ma → a = F/m
-    final acceleration = (springForce + dampingForce) / mass;
+    final acceleration = (springForce + dampingForce) / _mass;
 
     // Integra speed e position (Verlet integration)
     _velocity = _velocity + acceleration * dt;
@@ -138,7 +143,7 @@ class PhysicsInkSimulator {
   double getKineticEnergy() {
     // KE = 1/2 * m * v^2
     final speed = _velocity.distance;
-    return 0.5 * mass * speed * speed;
+    return 0.5 * _mass * speed * speed;
   }
 
   /// Checks if the sistema is a riposo
@@ -159,6 +164,6 @@ class PhysicsInkSimulator {
 
   /// Apply an impulse (for special effects)
   void applyImpulse(Offset impulse) {
-    _velocity = _velocity + (impulse / mass);
+    _velocity = _velocity + (impulse / _mass);
   }
 }

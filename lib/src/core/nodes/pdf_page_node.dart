@@ -9,7 +9,7 @@ import '../models/pdf_text_rect.dart';
 /// 📄 Scene graph node representing a single PDF page on the canvas.
 ///
 /// Wraps a [PdfPageModel] and holds the rasterized [ui.Image] cache.
-/// The actual PDF decoding is handled externally via [NebulaPdfProvider];
+/// The actual PDF decoding is handled externally via [FlueraPdfProvider];
 /// this node simply draws the cached image or a placeholder.
 ///
 /// DESIGN PRINCIPLES:
@@ -23,6 +23,11 @@ class PdfPageNode extends CanvasNode {
 
   /// Cached rasterized page image (set by the rendering pipeline).
   ui.Image? cachedImage;
+
+  /// 🖼️ Low-res thumbnail image for instant placeholder display.
+  /// Set by the rendering pipeline when a thumbnail is available.
+  /// Shown while the full-LOD cached image is being rendered.
+  ui.Image? thumbnailImage;
 
   /// LOD scale at which [cachedImage] was rendered.
   double cachedScale;
@@ -77,6 +82,12 @@ class PdfPageNode extends CanvasNode {
     cachedImage?.dispose();
     cachedImage = null;
     cachedScale = 0.0;
+  }
+
+  /// Dispose the thumbnail image.
+  void disposeThumbnail() {
+    thumbnailImage?.dispose();
+    thumbnailImage = null;
   }
 
   /// Whether this page has a valid cached image at the given [targetScale].

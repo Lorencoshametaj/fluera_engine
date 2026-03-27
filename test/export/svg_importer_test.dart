@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/export/svg_importer.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/nodes/path_node.dart';
-import 'package:nebula_engine/src/core/nodes/text_node.dart';
-import 'package:nebula_engine/src/core/vector/vector_path.dart';
+import 'package:fluera_engine/src/export/svg_importer.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/nodes/path_node.dart';
+import 'package:fluera_engine/src/core/nodes/text_node.dart';
+import 'package:fluera_engine/src/core/vector/vector_path.dart';
 
 void main() {
   late SvgImporter importer;

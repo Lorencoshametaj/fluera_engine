@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/nodes/tabular_node.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/tabular/cell_address.dart';
-import 'package:nebula_engine/src/core/tabular/cell_value.dart';
-import 'package:nebula_engine/src/history/tabular_commands.dart';
+import 'package:fluera_engine/src/core/nodes/tabular_node.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/tabular/cell_address.dart';
+import 'package:fluera_engine/src/core/tabular/cell_value.dart';
+import 'package:fluera_engine/src/history/tabular_commands.dart';
 
 void main() {
   late TabularNode node;

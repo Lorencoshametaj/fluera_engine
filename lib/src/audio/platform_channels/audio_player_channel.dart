@@ -1,24 +1,19 @@
 import 'package:flutter/services.dart';
 import 'dart:async';
 import '../native_audio_models.dart';
-import '../../core/engine_scope.dart';
 
 /// 🎵 NATIVE AUDIO PLAYER CHANNEL
 ///
 /// Platform channel per comunicare con il player nativo (iOS/Android)
 class NativeAudioPlayerChannel {
   static const MethodChannel _channel = MethodChannel(
-    'com.looponia.audio/player',
+    'flueraengine.audio/player',
   );
   static const EventChannel _eventChannel = EventChannel(
-    'com.looponia.audio/player_events',
+    'flueraengine.audio/player_events',
   );
 
-  /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static NativeAudioPlayerChannel get instance =>
-      EngineScope.current.audioPlayerChannel;
-
-  /// Creates a new instance (used by [EngineScope]).
+  /// Creates a new instance (used by modules).
   NativeAudioPlayerChannel.create();
 
   Stream<Map<String, dynamic>>? _eventStream;

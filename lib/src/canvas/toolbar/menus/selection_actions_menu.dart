@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../l10n/nebula_localizations.dart';
+import '../../../l10n/fluera_localizations.dart';
 import './compact_action_button.dart';
 
 /// Grouped action categories for the selection menu
@@ -46,6 +46,9 @@ class SelectionActionsMenu extends StatefulWidget {
   final VoidCallback? onDistributeV;
   final VoidCallback? onToggleMultiLayer;
   final bool multiLayerMode;
+  // Phase 3 — Procreate parity
+  final VoidCallback? onInverse;
+  final VoidCallback? onPasteInPlace;
   final String? statsSummary;
 
   const SelectionActionsMenu({
@@ -83,6 +86,8 @@ class SelectionActionsMenu extends StatefulWidget {
     this.onToggleMultiLayer,
     this.multiLayerMode = false,
     this.statsSummary,
+    this.onInverse,
+    this.onPasteInPlace,
   });
 
   @override
@@ -252,7 +257,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.delete_rounded,
             color: Colors.red,
-            tooltip: NebulaLocalizations.of(context).proCanvas_delete,
+            tooltip: FlueraLocalizations.of(context).proCanvas_delete,
             onTap: widget.onDelete,
           ),
 
@@ -260,7 +265,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.close_rounded,
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
-            tooltip: NebulaLocalizations.of(context).proCanvas_close,
+            tooltip: FlueraLocalizations.of(context).proCanvas_close,
             onTap: widget.onClearSelection,
           ),
 
@@ -442,13 +447,13 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
         CompactActionButton(
           icon: Icons.flip,
           color: Colors.orange,
-          tooltip: NebulaLocalizations.of(context).proCanvas_flipHorizontal,
+          tooltip: FlueraLocalizations.of(context).proCanvas_flipHorizontal,
           onTap: widget.onFlipHorizontal,
         ),
         CompactActionButton(
           icon: Icons.flip,
           color: Colors.teal,
-          tooltip: NebulaLocalizations.of(context).proCanvas_flipVertical,
+          tooltip: FlueraLocalizations.of(context).proCanvas_flipVertical,
           rotation: 90,
           onTap: widget.onFlipVertical,
         ),
@@ -639,11 +644,31 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
 
           _buildDivider(),
 
+          // Inverse selection
+          if (widget.onInverse != null)
+            CompactActionButton(
+              icon: Icons.invert_colors_rounded,
+              color: Colors.amber.shade800,
+              tooltip: 'Inverse Selection',
+              onTap: widget.onInverse!,
+            ),
+
+          // Paste in place
+          if (widget.onPasteInPlace != null && widget.hasClipboard)
+            CompactActionButton(
+              icon: Icons.content_paste_go_rounded,
+              color: Colors.green.shade700,
+              tooltip: 'Paste in Place',
+              onTap: widget.onPasteInPlace!,
+            ),
+
+          _buildDivider(),
+
           // OCR Convert to text
           CompactActionButton(
             icon: Icons.text_fields_rounded,
             color: Colors.deepPurple,
-            tooltip: NebulaLocalizations.of(context).proCanvas_convertToText,
+            tooltip: FlueraLocalizations.of(context).proCanvas_convertToText,
             onTap: widget.onConvertToText,
           ),
         ],

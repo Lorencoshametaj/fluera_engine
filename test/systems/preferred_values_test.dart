@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/preferred_values.dart';
+import 'package:fluera_engine/src/systems/preferred_values.dart';
 
 void main() {
   group('PreferredValueSet', () {

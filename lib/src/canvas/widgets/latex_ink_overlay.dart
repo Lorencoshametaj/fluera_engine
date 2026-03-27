@@ -419,7 +419,7 @@ class _GhostLatexPainter extends CustomPainter {
               color: cmd.color,
               fontStyle: cmd.italic ? FontStyle.italic : FontStyle.normal,
               fontWeight: cmd.bold ? FontWeight.bold : FontWeight.normal,
-              fontFamily: cmd.fontFamily.isNotEmpty ? cmd.fontFamily : null,
+              fontFamily: (cmd.fontFamily != null && cmd.fontFamily!.isNotEmpty) ? cmd.fontFamily : null,
             );
             final tp = TextPainter(
               text: TextSpan(text: cmd.text, style: style),
@@ -451,6 +451,15 @@ class _GhostLatexPainter extends CustomPainter {
                 ..color = cmd.color
                 ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
                 ..strokeWidth = cmd.strokeWidth
+                ..isAntiAlias = true,
+            );
+
+          case RectDrawCommand():
+            canvas.drawRect(
+              Rect.fromLTWH(cmd.x, cmd.y, cmd.width, cmd.height),
+              Paint()
+                ..color = cmd.color
+                ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
                 ..isAntiAlias = true,
             );
         }

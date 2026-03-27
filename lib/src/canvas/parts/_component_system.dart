@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🧩 COMPONENT SYSTEM — Wire component states and nested instances
 // ============================================================================
 
-extension ComponentSystemFeatures on _NebulaCanvasScreenState {
+extension ComponentSystemFeatures on _FlueraCanvasScreenState {
   /// Show the component state machine editor.
   /// Wires: component_state_machine, component_state_resolver
   void _showComponentStateMachine() {
@@ -72,21 +72,7 @@ extension ComponentSystemFeatures on _NebulaCanvasScreenState {
                             subtitle: 'Define states and transitions',
                             icon: Icons.account_tree_rounded,
                             color: Colors.deepPurple,
-                            onTap:
-                                () => debugPrint(
-                                  '[Design] State machine editor opened',
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          _ComponentCard(
-                            title: 'Variant Resolver',
-                            subtitle: 'Auto-resolve component variants',
-                            icon: Icons.auto_awesome_rounded,
-                            color: Colors.teal,
-                            onTap:
-                                () => debugPrint(
-                                  '[Design] Variant resolver opened',
-                                ),
+                            onTap: () => Navigator.of(ctx).pop(),
                           ),
                         ],
                       ),
@@ -97,14 +83,12 @@ extension ComponentSystemFeatures on _NebulaCanvasScreenState {
         );
       },
     );
-    debugPrint('[Design] Component state machine opened');
   }
 
   /// Resolve nested instance overrides.
   /// Wires: nested_instance_resolver
   void _resolveNestedOverrides() {
     // Note: requires a SymbolRegistry — this is a placeholder integration
-    debugPrint('[Design] Nested instance resolution triggered');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Resolving nested component overrides...'),

@@ -1,10 +1,10 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/spatial_index.dart';
-import 'package:nebula_engine/src/core/nodes/stroke_node.dart';
-import 'package:nebula_engine/src/core/nodes/shape_node.dart';
+import 'package:fluera_engine/src/systems/spatial_index.dart';
+import 'package:fluera_engine/src/core/nodes/stroke_node.dart';
+import 'package:fluera_engine/src/core/nodes/shape_node.dart';
 
 import '../helpers/test_helpers.dart';
 

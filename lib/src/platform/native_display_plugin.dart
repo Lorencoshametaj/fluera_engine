@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 /// **Android**: Usa WindowManager + FlutterView API
 /// **iOS**: Not supported (fallback a frame-based detection)
 class NativeDisplayPlugin {
-  static const MethodChannel _channel = MethodChannel('nebulaengine/display');
+  static const MethodChannel _channel = MethodChannel('flueraengine/display');
 
   /// Detects il refresh rate nativo of the display (bypassa Flutter)
   ///

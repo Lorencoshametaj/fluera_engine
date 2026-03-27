@@ -41,6 +41,7 @@ class ProBrushSettings {
   // === HIGHLIGHTER (Evidenziatore) ===
   final double highlighterOpacity;
   final double highlighterWidthMultiplier;
+  final bool highlighterAutoStraighten; // Auto-straighten near-horizontal lines
 
   // === BALLPOINT (Penna) ===
   final double ballpointMinPressure;
@@ -111,6 +112,19 @@ class ProBrushSettings {
   // === CHARCOAL ===
   final double charcoalGrain; // 0.0-1.0 (paper grain erosion)
 
+  // === TECHNICAL PEN ===
+  final bool techAngleSnap; // Snap lines to angle increments
+  final double techSnapAngleDeg; // Snap resolution (15/30/45/90)
+  final bool techEndpointSnap; // Close shape when end near start
+  final double techCornerSharpening; // Corner sharpness threshold (0-1)
+  final bool techGridSnap; // Snap to grid
+  final double techGridSize; // Grid cell size in logical pixels
+  final bool techStraightAssist; // Straighten slow straight segments
+  final bool techShowGuides; // Show visual guides + measurements
+  final bool techParallelSnap; // Snap to previous stroke angle
+  final bool techPerpSnap; // Snap perpendicular to previous stroke
+  final bool techMultiSegment; // Tap-to-place connected points mode
+
   // === COLOR MANAGEMENT (Phase 4D) ===
   final bool useWideGamut; // false = sRGB, true = Display P3
 
@@ -144,6 +158,7 @@ class ProBrushSettings {
     // Highlighter defaults
     this.highlighterOpacity = 0.35,
     this.highlighterWidthMultiplier = 3.0,
+    this.highlighterAutoStraighten = true,
     // Ballpoint defaults
     this.ballpointMinPressure = 0.7,
     this.ballpointMaxPressure = 1.1,
@@ -203,6 +218,18 @@ class ProBrushSettings {
     this.markerFlatness = 0.4,
     // Charcoal
     this.charcoalGrain = 0.5,
+    // Technical Pen
+    this.techAngleSnap = false,
+    this.techSnapAngleDeg = 45.0,
+    this.techEndpointSnap = false,
+    this.techCornerSharpening = 0.5,
+    this.techGridSnap = false,
+    this.techGridSize = 20.0,
+    this.techStraightAssist = false,
+    this.techShowGuides = true,
+    this.techParallelSnap = false,
+    this.techPerpSnap = false,
+    this.techMultiSegment = false,
     // Color Management (Phase 4D)
     this.useWideGamut = false,
   });
@@ -238,6 +265,7 @@ class ProBrushSettings {
     double? pencilMaxPressure,
     double? highlighterOpacity,
     double? highlighterWidthMultiplier,
+    bool? highlighterAutoStraighten,
     double? ballpointMinPressure,
     double? ballpointMaxPressure,
     // Texture (Phase 3A)
@@ -296,6 +324,18 @@ class ProBrushSettings {
     double? markerFlatness,
     // Charcoal
     double? charcoalGrain,
+    // Technical Pen
+    bool? techAngleSnap,
+    double? techSnapAngleDeg,
+    bool? techEndpointSnap,
+    double? techCornerSharpening,
+    bool? techGridSnap,
+    double? techGridSize,
+    bool? techStraightAssist,
+    bool? techShowGuides,
+    bool? techParallelSnap,
+    bool? techPerpSnap,
+    bool? techMultiSegment,
     // Color Management (Phase 4D)
     bool? useWideGamut,
   }) {
@@ -333,6 +373,8 @@ class ProBrushSettings {
       highlighterOpacity: highlighterOpacity ?? this.highlighterOpacity,
       highlighterWidthMultiplier:
           highlighterWidthMultiplier ?? this.highlighterWidthMultiplier,
+      highlighterAutoStraighten:
+          highlighterAutoStraighten ?? this.highlighterAutoStraighten,
       ballpointMinPressure: ballpointMinPressure ?? this.ballpointMinPressure,
       ballpointMaxPressure: ballpointMaxPressure ?? this.ballpointMaxPressure,
       textureType: textureType ?? this.textureType,
@@ -388,6 +430,17 @@ class ProBrushSettings {
       watercolorSpread: watercolorSpread ?? this.watercolorSpread,
       markerFlatness: markerFlatness ?? this.markerFlatness,
       charcoalGrain: charcoalGrain ?? this.charcoalGrain,
+      techAngleSnap: techAngleSnap ?? this.techAngleSnap,
+      techSnapAngleDeg: techSnapAngleDeg ?? this.techSnapAngleDeg,
+      techEndpointSnap: techEndpointSnap ?? this.techEndpointSnap,
+      techCornerSharpening: techCornerSharpening ?? this.techCornerSharpening,
+      techGridSnap: techGridSnap ?? this.techGridSnap,
+      techGridSize: techGridSize ?? this.techGridSize,
+      techStraightAssist: techStraightAssist ?? this.techStraightAssist,
+      techShowGuides: techShowGuides ?? this.techShowGuides,
+      techParallelSnap: techParallelSnap ?? this.techParallelSnap,
+      techPerpSnap: techPerpSnap ?? this.techPerpSnap,
+      techMultiSegment: techMultiSegment ?? this.techMultiSegment,
       useWideGamut: useWideGamut ?? this.useWideGamut,
     );
   }
@@ -427,6 +480,7 @@ class ProBrushSettings {
     // Highlighter
     'hOp': highlighterOpacity,
     'hWid': highlighterWidthMultiplier,
+    if (highlighterAutoStraighten) 'hAutoStr': true,
     // Ballpoint
     'bMinP': ballpointMinPressure,
     'bMaxP': ballpointMaxPressure,
@@ -487,6 +541,18 @@ class ProBrushSettings {
     if (markerFlatness != 0.4) 'mkFlt': markerFlatness,
     // Charcoal
     if (charcoalGrain != 0.5) 'chGrn': charcoalGrain,
+    // Technical Pen
+    if (techAngleSnap) 'tASnap': true,
+    if (techSnapAngleDeg != 45.0) 'tSADeg': techSnapAngleDeg,
+    if (techEndpointSnap) 'tESnap': true,
+    if (techCornerSharpening != 0.5) 'tCShrp': techCornerSharpening,
+    if (techGridSnap) 'tGSnap': true,
+    if (techGridSize != 20.0) 'tGSize': techGridSize,
+    if (techStraightAssist) 'tSAssist': true,
+    if (!techShowGuides) 'tSGuides': false,
+    if (techParallelSnap) 'tParSnap': true,
+    if (techPerpSnap) 'tPerpSnap': true,
+    if (techMultiSegment) 'tMultiSeg': true,
     if (useWideGamut) 'wGam': true,
   };
 
@@ -524,6 +590,7 @@ class ProBrushSettings {
       // Highlighter
       highlighterOpacity: (json['hOp'] as num?)?.toDouble() ?? 0.35,
       highlighterWidthMultiplier: (json['hWid'] as num?)?.toDouble() ?? 3.0,
+      highlighterAutoStraighten: (json['hAutoStr'] as bool?) ?? true,
       // Ballpoint - clamp to valid slider range (0.5-1.0)
       ballpointMinPressure: ((json['bMinP'] as num?)?.toDouble() ?? 0.7).clamp(
         0.5,
@@ -593,6 +660,18 @@ class ProBrushSettings {
       markerFlatness: (json['mkFlt'] as num?)?.toDouble() ?? 0.4,
       // Charcoal
       charcoalGrain: (json['chGrn'] as num?)?.toDouble() ?? 0.5,
+      // Technical Pen
+      techAngleSnap: (json['tASnap'] as bool?) ?? false,
+      techSnapAngleDeg: (json['tSADeg'] as num?)?.toDouble() ?? 45.0,
+      techEndpointSnap: (json['tESnap'] as bool?) ?? false,
+      techCornerSharpening: (json['tCShrp'] as num?)?.toDouble() ?? 0.5,
+      techGridSnap: (json['tGSnap'] as bool?) ?? false,
+      techGridSize: (json['tGSize'] as num?)?.toDouble() ?? 20.0,
+      techStraightAssist: (json['tSAssist'] as bool?) ?? false,
+      techShowGuides: (json['tSGuides'] as bool?) ?? true,
+      techParallelSnap: (json['tParSnap'] as bool?) ?? false,
+      techPerpSnap: (json['tPerpSnap'] as bool?) ?? false,
+      techMultiSegment: (json['tMultiSeg'] as bool?) ?? false,
       // Color Management (Phase 4D)
       useWideGamut: (json['wGam'] as bool?) ?? false,
     );
@@ -624,6 +703,7 @@ class ProBrushSettings {
       pencilMaxPressure == 1.2 &&
       highlighterOpacity == 0.35 &&
       highlighterWidthMultiplier == 3.0 &&
+      highlighterAutoStraighten == true &&
       ballpointMinPressure == 0.7 &&
       ballpointMaxPressure == 1.1 &&
       textureType == 'none' &&
@@ -705,6 +785,7 @@ class ProBrushSettings {
         other.pencilMaxPressure == pencilMaxPressure &&
         other.highlighterOpacity == highlighterOpacity &&
         other.highlighterWidthMultiplier == highlighterWidthMultiplier &&
+        other.highlighterAutoStraighten == highlighterAutoStraighten &&
         other.ballpointMinPressure == ballpointMinPressure &&
         other.ballpointMaxPressure == ballpointMaxPressure &&
         other.textureType == textureType &&
@@ -756,6 +837,17 @@ class ProBrushSettings {
         other.watercolorSpread == watercolorSpread &&
         other.markerFlatness == markerFlatness &&
         other.charcoalGrain == charcoalGrain &&
+        other.techAngleSnap == techAngleSnap &&
+        other.techSnapAngleDeg == techSnapAngleDeg &&
+        other.techEndpointSnap == techEndpointSnap &&
+        other.techCornerSharpening == techCornerSharpening &&
+        other.techGridSnap == techGridSnap &&
+        other.techGridSize == techGridSize &&
+        other.techStraightAssist == techStraightAssist &&
+        other.techShowGuides == techShowGuides &&
+        other.techParallelSnap == techParallelSnap &&
+        other.techPerpSnap == techPerpSnap &&
+        other.techMultiSegment == techMultiSegment &&
         other.useWideGamut == useWideGamut;
   }
 
@@ -785,6 +877,7 @@ class ProBrushSettings {
     pencilMaxPressure,
     highlighterOpacity,
     highlighterWidthMultiplier,
+    highlighterAutoStraighten,
     ballpointMinPressure,
     ballpointMaxPressure,
     textureType,
@@ -836,6 +929,17 @@ class ProBrushSettings {
     watercolorSpread,
     markerFlatness,
     charcoalGrain,
+    techAngleSnap,
+    techSnapAngleDeg,
+    techEndpointSnap,
+    techCornerSharpening,
+    techGridSnap,
+    techGridSize,
+    techStraightAssist,
+    techShowGuides,
+    techParallelSnap,
+    techPerpSnap,
+    techMultiSegment,
     useWideGamut,
   ]);
 }

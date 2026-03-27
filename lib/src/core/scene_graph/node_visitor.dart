@@ -14,10 +14,15 @@ import '../nodes/advanced_mask_node.dart';
 import '../nodes/boolean_group_node.dart';
 import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
+import '../nodes/pdf_preview_card_node.dart';
 import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
 import '../nodes/tabular_node.dart';
+import '../nodes/material_zone_node.dart';
+import '../nodes/section_node.dart';
+import '../nodes/adjustment_layer_node.dart';
+import '../nodes/function_graph_node.dart';
 
 /// Double-dispatch visitor for type-safe scene graph traversal.
 ///
@@ -51,9 +56,14 @@ abstract class NodeVisitor<R> {
   R visitShader(ShaderNode node);
   R visitPdfPage(PdfPageNode node);
   R visitPdfDocument(PdfDocumentNode node);
+  R visitPdfPreviewCard(PdfPreviewCardNode node);
   R visitVectorNetwork(VectorNetworkNode node);
   R visitLatex(LatexNode node);
   R visitTabular(TabularNode node);
+  R visitMaterialZone(MaterialZoneNode node);
+  R visitSection(SectionNode node);
+  R visitAdjustmentLayer(AdjustmentLayerNode node);
+  R visitFunctionGraph(FunctionGraphNode node);
 }
 
 /// Default implementation that returns a fallback value for every node type.
@@ -108,9 +118,19 @@ class DefaultNodeVisitor<R> implements NodeVisitor<R> {
   @override
   R visitPdfDocument(PdfDocumentNode node) => defaultValue;
   @override
+  R visitPdfPreviewCard(PdfPreviewCardNode node) => defaultValue;
+  @override
   R visitVectorNetwork(VectorNetworkNode node) => defaultValue;
   @override
   R visitLatex(LatexNode node) => defaultValue;
   @override
   R visitTabular(TabularNode node) => defaultValue;
+  @override
+  R visitMaterialZone(MaterialZoneNode node) => defaultValue;
+  @override
+  R visitSection(SectionNode node) => defaultValue;
+  @override
+  R visitAdjustmentLayer(AdjustmentLayerNode node) => defaultValue;
+  @override
+  R visitFunctionGraph(FunctionGraphNode node) => defaultValue;
 }

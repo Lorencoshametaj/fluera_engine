@@ -34,7 +34,7 @@ class ColorToken {
 /// A named text style token.
 class TypographyToken {
   final String name;
-  final String fontFamily;
+  final String? fontFamily;
   final double fontSize;
   final FontWeight fontWeight;
   final double? lineHeight;

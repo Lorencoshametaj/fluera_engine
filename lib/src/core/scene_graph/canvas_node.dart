@@ -224,11 +224,13 @@ abstract class CanvasNode {
   void translate(double dx, double dy) {
     localTransform[12] += dx;
     localTransform[13] += dy;
+    invalidateTransformCache();
   }
 
   /// Set absolute position (replaces translation component).
   void setPosition(double x, double y) {
     localTransform.setTranslationRaw(x, y, 0.0);
+    invalidateTransformCache();
   }
 
   /// Current translation extracted from [localTransform].
@@ -240,11 +242,13 @@ abstract class CanvasNode {
   /// Rotate around [pivot] by [radians].
   void rotateAround(double radians, Offset pivot) {
     localTransform = _rotateAroundPivot(localTransform, radians, pivot);
+    invalidateTransformCache();
   }
 
   /// Scale from [anchor] by [sx], [sy].
   void scaleFrom(double sx, double sy, Offset anchor) {
     localTransform = _scaleFromAnchor(localTransform, sx, sy, anchor);
+    invalidateTransformCache();
   }
 
   // ---------------------------------------------------------------------------

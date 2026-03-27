@@ -47,6 +47,7 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return GestureDetector(
       // E11: Copy to clipboard on long-press
@@ -70,20 +71,31 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
       child: Container(
         constraints: BoxConstraints(minHeight: widget.minHeight),
         decoration: BoxDecoration(
-          color:
-              widget.backgroundColor ??
-              cs.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: 0.3),
-            width: 0.5,
+          color: widget.backgroundColor ?? (
+            isDark
+                ? const Color(0xFF0D1117)  // Deep dark card
+                : const Color(0xFFF8F9FC)  // Clean light card
           ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.08),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (widget.color).withValues(alpha: isDark ? 0.08 : 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child:
             widget.latexSource.isEmpty
                 ? _buildEmptyState(cs)
                 : ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   child: _buildPreview(cs, context),
                 ),
       ),
@@ -91,6 +103,16 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
   }
 
   Widget _buildPreview(ColorScheme cs, BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Ensure formula color contrasts with preview card background
+    Color previewColor = widget.color;
+    if (isDark && previewColor.computeLuminance() < 0.3) {
+      previewColor = Colors.white;
+    } else if (!isDark && previewColor.computeLuminance() > 0.7) {
+      previewColor = Colors.black87;
+    }
+
     // E12: Try to parse, with error recovery
     LatexLayoutResult? layoutResult;
     String? parseError;
@@ -100,7 +122,7 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
       layoutResult = LatexLayoutEngine.layout(
         ast,
         fontSize: widget.fontSize,
-        color: widget.color,
+        color: previewColor,
       );
     } catch (e) {
       parseError = e.toString();
@@ -123,7 +145,7 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
             layoutResult = LatexLayoutEngine.layout(
               ast,
               fontSize: widget.fontSize,
-              color: widget.color,
+              color: previewColor,
             );
           }
         } catch (_) {
@@ -169,17 +191,54 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
     // E12: Partial render indicator
     final isPartial = parseError != null;
 
+    // Compute actual bounding box from commands to prevent clipping
+    double minY = 0, maxY = layoutResult.size.height;
+    double maxX = layoutResult.size.width;
+    for (final cmd in layoutResult.commands) {
+      switch (cmd) {
+        case GlyphDrawCommand():
+          if (cmd.y < minY) minY = cmd.y;
+          final bottom = cmd.y + cmd.fontSize * 1.2;
+          if (bottom > maxY) maxY = bottom;
+          final right = cmd.x + cmd.fontSize;
+          if (right > maxX) maxX = right;
+        case LineDrawCommand():
+          if (cmd.y1 < minY) minY = cmd.y1;
+          if (cmd.y2 < minY) minY = cmd.y2;
+          if (cmd.y1 > maxY) maxY = cmd.y1;
+          if (cmd.y2 > maxY) maxY = cmd.y2;
+        case PathDrawCommand():
+          for (final p in cmd.points) {
+            if (p.dy < minY) minY = p.dy;
+            if (p.dy > maxY) maxY = p.dy;
+          }
+        case RectDrawCommand():
+          if (cmd.y < minY) minY = cmd.y;
+          if (cmd.y + cmd.height > maxY) maxY = cmd.y + cmd.height;
+          if (cmd.x + cmd.width > maxX) maxX = cmd.x + cmd.width;
+      }
+    }
+    // Add some padding
+    final yOffset = minY < 0 ? -minY + 4 : 4.0;
+    final expandedSize = Size(maxX + 8, maxY - minY + 8);
+
     // E10: Wrap in InteractiveViewer for pinch-to-zoom
     return Stack(
       children: [
-        Center(
-          child: InteractiveViewer(
-            boundaryMargin: const EdgeInsets.all(40),
-            minScale: 0.5,
-            maxScale: 5.0,
-            child: CustomPaint(
-              size: layoutResult.size,
-              painter: _LatexPreviewPainter(layoutResult.commands),
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Center(
+            child: InteractiveViewer(
+              boundaryMargin: const EdgeInsets.all(40),
+              minScale: 0.5,
+              maxScale: 5.0,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: CustomPaint(
+                  size: expandedSize,
+                  painter: _LatexPreviewPainter(layoutResult.commands, yOffset: yOffset),
+                ),
+              ),
             ),
           ),
         ),
@@ -257,11 +316,16 @@ class _LatexPreviewCardState extends State<LatexPreviewCard> {
 /// Custom painter that executes [LatexDrawCommand]s.
 class _LatexPreviewPainter extends CustomPainter {
   final List<LatexDrawCommand> commands;
+  final double yOffset;
 
-  _LatexPreviewPainter(this.commands);
+  _LatexPreviewPainter(this.commands, {this.yOffset = 0});
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Translate to handle negative y coordinates (superscripts)
+    if (yOffset != 0) {
+      canvas.translate(0, yOffset);
+    }
     for (final cmd in commands) {
       switch (cmd) {
         case GlyphDrawCommand():
@@ -270,7 +334,7 @@ class _LatexPreviewPainter extends CustomPainter {
             color: cmd.color,
             fontStyle: cmd.italic ? FontStyle.italic : FontStyle.normal,
             fontWeight: cmd.bold ? FontWeight.bold : FontWeight.normal,
-            fontFamily: cmd.fontFamily.isNotEmpty ? cmd.fontFamily : null,
+            fontFamily: (cmd.fontFamily != null && cmd.fontFamily!.isNotEmpty) ? cmd.fontFamily : null,
           );
           final tp = TextPainter(
             text: TextSpan(text: cmd.text, style: style),
@@ -305,11 +369,20 @@ class _LatexPreviewPainter extends CustomPainter {
               ..strokeCap = StrokeCap.round
               ..isAntiAlias = true,
           );
+
+        case RectDrawCommand():
+          canvas.drawRect(
+            Rect.fromLTWH(cmd.x, cmd.y, cmd.width, cmd.height),
+            Paint()
+              ..color = cmd.color
+              ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
+              ..isAntiAlias = true,
+          );
       }
     }
   }
 
   @override
   bool shouldRepaint(covariant _LatexPreviewPainter old) =>
-      commands != old.commands;
+      commands != old.commands || yOffset != old.yOffset;
 }

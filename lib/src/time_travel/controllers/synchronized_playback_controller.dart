@@ -37,10 +37,12 @@ class SynchronizedPlaybackController extends ChangeNotifier {
   double _ghostOpacity = 0.15; // Ghost stroke opacity (not yet drawn)
   bool _showGhostStrokes = true; // Show ghost strokes semi-trasparenti
   int _currentPageIndex = 0; // 📄 Current page to filter strokes
+  double _speed = 1.0; // 🏎️ Playback speed (0.5x - 2.0x)
 
   // 🕐 Stopwatch for precise time tracking (fallback if stream doesn't work)
   final Stopwatch _stopwatch = Stopwatch();
   Duration _pausedPosition = Duration.zero; // Position at the moment of pause
+  int _lastNotifiedPositionMs = -1; // Cache to skip unchanged frames
 
   // Stream subscriptions
   StreamSubscription? _positionSubscription;
@@ -49,6 +51,12 @@ class SynchronizedPlaybackController extends ChangeNotifier {
 
   // Callback for UI update
   Timer? _updateTimer;
+
+  // ⚡ Stroke cache — computed once per positionMs change
+  int _cachedPositionMs = -1;
+  final Map<int, List<ProStroke>> _activeStrokeCache = {};
+  final Map<int, List<ProStroke>> _ghostStrokeCache = {};
+  int _completedStrokeCount = 0; // How many active strokes are fully visible
 
   /// Costruttore
   SynchronizedPlaybackController() : _instanceId = ++_instanceCounter {}
@@ -63,9 +71,10 @@ class SynchronizedPlaybackController extends ChangeNotifier {
   /// Current position in milliseconds - uses stopwatch for precision
   int get positionMs {
     if (_state == SyncedPlaybackState.playing) {
-      // While playing, use stopwatch + start position
+      // While playing, use stopwatch + start position (adjusted for speed)
       final currentMs =
-          _pausedPosition.inMilliseconds + _stopwatch.elapsedMilliseconds;
+          _pausedPosition.inMilliseconds +
+          (_stopwatch.elapsedMilliseconds * _speed).toInt();
       // Limit to maximum duration
       return currentMs.clamp(0, _duration.inMilliseconds);
     }
@@ -85,6 +94,30 @@ class SynchronizedPlaybackController extends ChangeNotifier {
           ? (positionMs / _duration.inMilliseconds).clamp(0.0, 1.0)
           : 0.0;
 
+  /// Current playback speed multiplier (0.5x–3.0x).
+  double get playbackSpeed => _speed;
+
+  /// Set playback speed multiplier.
+  ///
+  /// The stopwatch-based timing already accounts for [_speed] in [positionMs],
+  /// so this just updates the multiplier. Audio player speed must be set
+  /// separately by the caller.
+  void setPlaybackSpeed(double speed) {
+    final clamped = speed.clamp(0.5, 3.0);
+    if (clamped == _speed) return;
+
+    // Preserve current position before changing speed
+    final currentPos = Duration(milliseconds: positionMs);
+    _pausedPosition = currentPos;
+    _stopwatch.reset();
+    if (_state == SyncedPlaybackState.playing) {
+      _stopwatch.start();
+    }
+
+    _speed = clamped;
+    debugPrint('🏎️ [SyncPlayback] Speed set to ${_speed}x');
+  }
+
   /// Registrazione caricata
   SynchronizedRecording? get recording => _recording;
 
@@ -102,6 +135,9 @@ class SynchronizedPlaybackController extends ChangeNotifier {
 
   /// 📄 Current page (to filter strokes)
   int get currentPageIndex => _currentPageIndex;
+
+  /// 🏎️ Current playback speed
+  double get speed => _speed;
 
   /// 📄 Set the current page
   void setCurrentPage(int pageIndex) {
@@ -166,24 +202,11 @@ class SynchronizedPlaybackController extends ChangeNotifier {
   /// These are the strokes being "drawn" or already complete
   /// 📄 Filtered for the current page
   /// Gets active strokes for a specific page
+  /// Gets active strokes for a specific page — ⚡ CACHED
   List<ProStroke> getActiveStrokesForPage(int pageIndex) {
-    if (_recording == null) return [];
-
-    // 🔧 Save current position to avoid multiple getter calls
-    final currentPosMs = positionMs;
-
-    // 📄 Filter for the current page
-    final pageStrokes = <ProStroke>[];
-    for (final synced in _recording!.syncedStrokes) {
-      if (synced.pageIndex == pageIndex && synced.isStarted(currentPosMs)) {
-        final partial = synced.getPartialStroke(currentPosMs);
-        if (partial != null) {
-          pageStrokes.add(partial);
-        }
-      }
-    }
-
-    return pageStrokes;
+    if (_recording == null) return const [];
+    _ensureStrokeCacheValid();
+    return _activeStrokeCache[pageIndex] ?? const [];
   }
 
   /// Gets i active strokes (parziali o completi) da renderizzare
@@ -196,29 +219,48 @@ class SynchronizedPlaybackController extends ChangeNotifier {
   /// They show a "preview" of what will be drawn
   /// 📄 Filtered for the current page
   /// Gets ghost strokes for a specific page
+  /// Gets ghost strokes for a specific page — ⚡ CACHED
   List<ProStroke> getGhostStrokesForPage(int pageIndex) {
-    if (_recording == null || !_showGhostStrokes) return [];
+    if (_recording == null || !_showGhostStrokes) return const [];
+    _ensureStrokeCacheValid();
+    return _ghostStrokeCache[pageIndex] ?? const [];
+  }
 
-    // 🔧 Save current position to avoid multiple getter calls
-    final currentPosMs = positionMs;
+  /// ⚡ Number of fully-completed active strokes (for Picture caching in painter)
+  int get completedStrokeCount => _completedStrokeCount;
 
-    // 📄 Filter for the current page
-    final pageGhosts = <ProStroke>[];
+  /// ⚡ Rebuild stroke cache if positionMs has changed
+  void _ensureStrokeCacheValid() {
+    final currentPos = positionMs;
+    if (currentPos == _cachedPositionMs) return;
+    _cachedPositionMs = currentPos;
+
+    _activeStrokeCache.clear();
+    _ghostStrokeCache.clear();
+    _completedStrokeCount = 0;
+
     for (final synced in _recording!.syncedStrokes) {
-      if (synced.pageIndex == pageIndex && !synced.isStarted(currentPosMs)) {
-        // Create ghost version with semi-transparent color
-        // ⚠️ Clamp to ensure opacity is always in the 0.0-1.0 range
-        pageGhosts.add(
-          synced.stroke.copyWith(
-            color: synced.stroke.color.withValues(
-              alpha: _ghostOpacity.clamp(0.0, 1.0),
-            ),
-          ),
-        );
+      final page = synced.pageIndex;
+      if (synced.isStarted(currentPos)) {
+        final partial = synced.getPartialStroke(currentPos);
+        if (partial != null) {
+          _activeStrokeCache.putIfAbsent(page, () => []).add(partial);
+          if (synced.isFullyVisible(currentPos)) {
+            _completedStrokeCount++;
+          }
+        }
+      } else if (_showGhostStrokes) {
+        _ghostStrokeCache
+            .putIfAbsent(page, () => [])
+            .add(
+              synced.stroke.copyWith(
+                color: synced.stroke.color.withValues(
+                  alpha: _ghostOpacity.clamp(0.0, 1.0),
+                ),
+              ),
+            );
       }
     }
-
-    return pageGhosts;
   }
 
   /// Gets ghost strokes (not yet started) with reduced opacity
@@ -479,6 +521,23 @@ class SynchronizedPlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 🏎️ Sets playback speed (0.5x - 2.0x)
+  Future<void> setSpeed(double newSpeed) async {
+    _speed = newSpeed.clamp(0.5, 2.0);
+    try {
+      await _audioPlayer.setSpeed(_speed);
+      // Reset stopwatch to resync with new speed
+      if (_state == SyncedPlaybackState.playing) {
+        _pausedPosition = Duration(milliseconds: positionMs);
+        _stopwatch.reset();
+        _stopwatch.start();
+      }
+    } catch (e) {
+      EngineLogger.warning('SetSpeed failed', tag: 'SyncPlayback', error: e);
+    }
+    notifyListeners();
+  }
+
   // ============================================================================
   // PRIVATE
   // ============================================================================
@@ -516,15 +575,23 @@ class SynchronizedPlaybackController extends ChangeNotifier {
   /// Avvia timer di aggiornamento per rendering fluido
   void _startUpdateTimer() {
     _stopUpdateTimer();
-    // Update UI every 16ms (~60fps) for smooth stroke animation
-    _updateTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+    // Update UI every 33ms (~30fps) — sufficient for smooth stroke animation
+    // and drastically reduces widget rebuilds vs 16ms (60fps)
+    _updateTimer = Timer.periodic(const Duration(milliseconds: 33), (_) {
+      final currentPos = positionMs;
       // 🕐 Check if we exceeded total duration
-      if (positionMs >= _duration.inMilliseconds &&
+      if (currentPos >= _duration.inMilliseconds &&
           _duration.inMilliseconds > 0) {
         _stopwatch.stop();
         _state = SyncedPlaybackState.completed;
         _stopUpdateTimer();
+        _lastNotifiedPositionMs = currentPos;
+        notifyListeners();
+        return;
       }
+      // Skip notify if position hasn't changed (saves full rebuild)
+      if (currentPos == _lastNotifiedPositionMs) return;
+      _lastNotifiedPositionMs = currentPos;
       notifyListeners();
     });
   }

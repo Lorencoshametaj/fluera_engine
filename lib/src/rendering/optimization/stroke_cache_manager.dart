@@ -30,7 +30,7 @@ class StrokeCacheManager {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Maximum number of undo snapshots to keep
-  static const int maxUndoSnapshots = 20;
+  static const int maxUndoSnapshots = 10;
 
   /// Ring buffer: stroke count → cached Picture
   /// LinkedHashMap for insertion-order iteration (LRU eviction)
@@ -81,11 +81,17 @@ class StrokeCacheManager {
   /// 📸 Save current cache as an undo snapshot.
   ///
   /// Called automatically after cache creation or update.
+  /// 🚀 P99 FIX: only snapshots every 5th stroke to avoid 1-3ms drawPicture
+  /// replay on every single commit. Undo still works — just may need a
+  /// full rebuild for intermediate counts (rare).
   void _saveUndoSnapshot() {
     if (_cachedPicture == null || _cachedStrokeCount <= 0) return;
 
     // Don't duplicate: if we already have this count, skip
     if (_undoSnapshots.containsKey(_cachedStrokeCount)) return;
+
+    // 🚀 Lazy snapshots: only every 5th stroke count (or first stroke)
+    if (_cachedStrokeCount > 1 && _cachedStrokeCount % 5 != 0) return;
 
     // Clone the current picture for the snapshot
     final recorder = ui.PictureRecorder();
@@ -171,6 +177,16 @@ class StrokeCacheManager {
 
     // 📸 Save undo snapshot
     _saveUndoSnapshot();
+  }
+
+  /// 🚀 STEAL: extract the cached Picture WITHOUT disposing it.
+  /// Transfers ownership to the caller — cache becomes empty.
+  /// Used by LOD transition to avoid expensive snapshot copy.
+  ui.Picture? stealPicture() {
+    final pic = _cachedPicture;
+    _cachedPicture = null;
+    _cachedStrokeCount = 0;
+    return pic;
   }
 
   /// Invalidate the cache completely

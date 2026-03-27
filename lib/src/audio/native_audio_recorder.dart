@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import './native_audio_models.dart';
 import './platform_channels/audio_recorder_channel.dart';
+import '../core/engine_scope.dart';
 
 // =============================================================================
 // 🎤 NATIVE AUDIO RECORDER
@@ -24,14 +25,24 @@ import './platform_channels/audio_recorder_channel.dart';
 /// final path = await recorder.stop(); // returns file path
 /// ```
 class NativeAudioRecorder {
-  final NativeAudioRecorderChannel _channel =
-      NativeAudioRecorderChannel.instance;
+  late final NativeAudioRecorderChannel _channel;
+
+  NativeAudioRecorder({NativeAudioRecorderChannel? channel})
+    : _channel =
+          channel ??
+          (EngineScope.hasScope
+              ? EngineScope.current.audioModule?.recorder ??
+                  NativeAudioRecorderChannel.create()
+              : NativeAudioRecorderChannel.create()) {
+    _initialize();
+  }
 
   bool _isInitialized = false;
   Completer<void>? _initCompleter; // Guard against concurrent init
   AudioRecorderState _currentState = AudioRecorderState.idle;
   Duration _currentDuration = Duration.zero;
   AudioAmplitude _currentAmplitude = const AudioAmplitude(current: 0.0);
+  AudioRecordConfig? _lastConfig;
 
   // Stream subscriptions
   StreamSubscription? _stateSubscription;
@@ -44,10 +55,6 @@ class NativeAudioRecorder {
   final _amplitudeController = StreamController<AudioAmplitude>.broadcast();
   final _durationController = StreamController<Duration>.broadcast();
 
-  NativeAudioRecorder() {
-    _initialize();
-  }
-
   /// Initialize the recorder (guarded against concurrent calls)
   Future<void> _initialize() async {
     if (_isInitialized) return;
@@ -58,13 +65,9 @@ class NativeAudioRecorder {
       await _channel.initialize();
       _setupListeners();
       _isInitialized = true;
-      debugPrint('✅ NativeAudioRecorder initialized');
       _initCompleter!.complete();
     } catch (e) {
       // On desktop/web or if initialization fails, log and continue
-      debugPrint(
-        '⚠️ Failed to initialize NativeAudioRecorder (likely platform mismatch): $e',
-      );
       _initCompleter!.complete(); // Complete even on error so awaits don't hang
     }
   }
@@ -74,7 +77,6 @@ class NativeAudioRecorder {
     _stateSubscription = _channel.stateStream.listen((state) {
       _currentState = state;
       _stateController.add(state);
-      debugPrint('🎤 Recorder state: ${state.name}');
     });
 
     _amplitudeSubscription = _channel.amplitudeStream.listen((amplitude) {
@@ -88,7 +90,6 @@ class NativeAudioRecorder {
     });
 
     _errorSubscription = _channel.errorStream.listen((error) {
-      debugPrint('🎤 Recorder error: $error');
       _currentState = AudioRecorderState.error;
       _stateController.add(AudioRecorderState.error);
     });
@@ -125,22 +126,26 @@ class NativeAudioRecorder {
 
   /// Start recording with optional configuration.
   ///
-  /// Default config: M4A format, 44100 Hz sample rate, 128kbps, mono.
+  /// Default config: M4A format, 48000 Hz sample rate, 256kbps, mono.
   Future<void> start({AudioRecordConfig? config}) async {
     await _ensureInitialized();
     try {
       final recordConfig = config ?? const AudioRecordConfig();
+      _lastConfig = recordConfig;
       await _channel.startRecording(recordConfig);
       _currentState = AudioRecorderState.recording;
       _currentDuration = Duration.zero;
-      debugPrint('🎤 Recording started');
     } catch (e) {
-      debugPrint('❌ Failed to start recording: $e');
       rethrow;
     }
   }
 
   /// Stop recording and return the file path.
+  ///
+  /// Returns the raw (unprocessed) audio path immediately so the UI
+  /// can show the save dialog without waiting for post-processing.
+  /// Call [applyPendingPostProcessing] afterwards to apply RNNoise
+  /// denoising and other DSP if configured.
   ///
   /// Returns `null` if recording was not active or failed.
   Future<String?> stop() async {
@@ -148,11 +153,41 @@ class NativeAudioRecorder {
     try {
       final path = await _channel.stopRecording();
       _currentState = AudioRecorderState.stopped;
-      debugPrint('⏹️ Recording stopped: $path');
+
       return path;
     } catch (e) {
-      debugPrint('❌ Failed to stop recording: $e');
       rethrow;
+    }
+  }
+
+  /// Whether the last recording needs post-processing (RNNoise, HPF, etc.).
+  bool get hasPendingPostProcessing =>
+      _lastConfig != null && _lastConfig!.needsPostProcessing;
+
+  /// Apply audio post-processing (RNNoise denoising, high-pass filter,
+  /// compressor, normalization) to a previously stopped recording.
+  ///
+  /// Call this AFTER the user confirms save in the dialog to avoid
+  /// blocking the UI thread for several seconds.
+  ///
+  /// Returns the processed file path, or [rawPath] unchanged if no
+  /// processing is needed.
+  Future<String?> applyPendingPostProcessing(String rawPath) async {
+    if (_lastConfig == null || !_lastConfig!.needsPostProcessing) {
+      return rawPath;
+    }
+    try {
+      final processed = await _channel.applyAudioProcessing(
+        filePath: rawPath,
+        sampleRate: _lastConfig!.sampleRate,
+        highPassFilterHz: _lastConfig!.highPassFilterHz,
+        compressor: _lastConfig!.compressor,
+        normalization: _lastConfig!.normalization,
+      );
+      return processed;
+    } catch (e) {
+      // Return raw path as fallback — better than losing the recording
+      return rawPath;
     }
   }
 
@@ -162,9 +197,7 @@ class NativeAudioRecorder {
     try {
       await _channel.pauseRecording();
       _currentState = AudioRecorderState.paused;
-      debugPrint('⏸️ Recording paused');
     } catch (e) {
-      debugPrint('❌ Failed to pause recording: $e');
       rethrow;
     }
   }
@@ -175,9 +208,7 @@ class NativeAudioRecorder {
     try {
       await _channel.resumeRecording();
       _currentState = AudioRecorderState.recording;
-      debugPrint('▶️ Recording resumed');
     } catch (e) {
-      debugPrint('❌ Failed to resume recording: $e');
       rethrow;
     }
   }
@@ -189,9 +220,7 @@ class NativeAudioRecorder {
       await _channel.cancelRecording();
       _currentState = AudioRecorderState.idle;
       _currentDuration = Duration.zero;
-      debugPrint('🗑️ Recording cancelled');
     } catch (e) {
-      debugPrint('❌ Failed to cancel recording: $e');
       rethrow;
     }
   }
@@ -206,7 +235,6 @@ class NativeAudioRecorder {
     try {
       return await _channel.hasPermission();
     } catch (e) {
-      debugPrint('❌ Failed to check permission: $e');
       return false;
     }
   }
@@ -221,7 +249,6 @@ class NativeAudioRecorder {
     try {
       return await _channel.requestPermission();
     } catch (e) {
-      debugPrint('❌ Failed to request permission: $e');
       return false;
     }
   }
@@ -244,6 +271,5 @@ class NativeAudioRecorder {
     await _channel.dispose();
     _isInitialized = false;
 
-    debugPrint('🗑️ NativeAudioRecorder disposed');
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:convert' as convert;
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import './pro_brush_settings.dart';
@@ -17,52 +19,103 @@ class ProDrawingPoint {
     this.tiltX = 0.0,
     this.tiltY = 0.0,
     this.orientation = 0.0,
-    required this.timestamp,
+    this.timestamp = 0,
   });
 
   /// Getter per compatibility con OptimizedPathBuilder
   Offset get offset => position;
 
-  /// Serialize con precisione ottimizzata per storage
+  /// Serialize as compact array: [x, y, p?, tx?, ty?, o?]
   ///
-  /// 🚀 OTTIMIZZAZIONE v2: 4 decimali per coordinate (era 2)
-  /// - Coordinate: 0.0001px → preserva curve Catmull-Rom smooth
-  /// - Pressure: 0.01 (2 decimals sufficient for 100 levels)
-  /// - Tilt/Orientation: 2 decimals (adequate angular precision)
+  /// 🚀 OTTIMIZZAZIONE v4: Array format + 3 decimal coordinates
+  /// - Array: no key overhead (saves ~40% vs object keys)
+  /// - 3 decimali: 0.001px precision — visually identical, Catmull-Rom safe
+  /// - Trailing optional fields omitted if zero/default
   ///
-  /// 🎯 FIX: 2 decimals caused rough curves after load because
-  /// le piccole differenze tra punti adiacenti venivano quantizzate,
-  /// corrompendo i control points del Catmull-Rom spline.
-  Map<String, dynamic> toJson() => {
-    'x': _round4(position.dx),
-    'y': _round4(position.dy),
-    'pressure': _round2(pressure),
-    // Omit tilt/orientation if they are 0 (default) to save space
-    if (tiltX != 0.0) 'tiltX': _round2(tiltX),
-    if (tiltY != 0.0) 'tiltY': _round2(tiltY),
-    if (orientation != 0.0) 'orientation': _round2(orientation),
-    'timestamp': timestamp,
-  };
+  /// Risultato: ~17 bytes/punto (era ~70 in v1) → -75% storage
+  dynamic toJson() {
+    // Build from the end, trimming trailing defaults
+    final hasO = orientation != 0.0;
+    final hasTY = tiltY != 0.0 || hasO;
+    final hasTX = tiltX != 0.0 || hasTY;
+    final hasP = pressure != 1.0 || hasTX;
 
-  /// Round to 4 decimals (for coordinates — preserves smoothness)
-  static double _round4(double value) =>
-      (value * 10000).roundToDouble() / 10000;
+    if (hasO) {
+      return [
+        _r3(position.dx),
+        _r3(position.dy),
+        _r2(pressure),
+        _r2(tiltX),
+        _r2(tiltY),
+        _r2(orientation),
+      ];
+    } else if (hasTY) {
+      return [
+        _r3(position.dx),
+        _r3(position.dy),
+        _r2(pressure),
+        _r2(tiltX),
+        _r2(tiltY),
+      ];
+    } else if (hasTX) {
+      return [_r3(position.dx), _r3(position.dy), _r2(pressure), _r2(tiltX)];
+    } else if (hasP) {
+      return [_r3(position.dx), _r3(position.dy), _r2(pressure)];
+    }
+    return [_r3(position.dx), _r3(position.dy)];
+  }
 
-  /// Round to 2 decimals (for pressure, tilt, orientation)
-  static double _round2(double value) => (value * 100).roundToDouble() / 100;
+  /// Round to 3 decimals (coordinates — 0.001px, smooth enough)
+  static double _r3(double v) => (v * 1000).roundToDouble() / 1000;
 
-  factory ProDrawingPoint.fromJson(Map<String, dynamic> json) =>
-      ProDrawingPoint(
+  /// Round to 2 decimals (pressure, tilt, orientation)
+  static double _r2(double v) => (v * 100).roundToDouble() / 100;
+
+  /// Parse from array [x, y, p?, tx?, ty?, o?] or legacy object {x, y, ...}
+  factory ProDrawingPoint.fromJson(dynamic json) {
+    // 🚀 v4: Compact array format
+    if (json is List) {
+      return ProDrawingPoint(
         position: Offset(
-          (json['x'] as num).toDouble(),
-          (json['y'] as num).toDouble(),
+          (json[0] as num).toDouble(),
+          (json[1] as num).toDouble(),
         ),
-        pressure: (json['pressure'] as num).toDouble(),
-        tiltX: (json['tiltX'] as num?)?.toDouble() ?? 0.0,
-        tiltY: (json['tiltY'] as num?)?.toDouble() ?? 0.0,
-        orientation: (json['orientation'] as num?)?.toDouble() ?? 0.0,
-        timestamp: json['timestamp'] as int,
+        pressure: json.length > 2 ? (json[2] as num).toDouble() : 1.0,
+        tiltX: json.length > 3 ? (json[3] as num).toDouble() : 0.0,
+        tiltY: json.length > 4 ? (json[4] as num).toDouble() : 0.0,
+        orientation: json.length > 5 ? (json[5] as num).toDouble() : 0.0,
       );
+    }
+
+    // Legacy: object format {x, y, pressure/p, tiltX/tx, ...}
+    final map =
+        json is Map<String, dynamic>
+            ? json
+            : Map<String, dynamic>.from(json as Map);
+    return ProDrawingPoint(
+      position: Offset(
+        (map['x'] as num).toDouble(),
+        (map['y'] as num).toDouble(),
+      ),
+      pressure:
+          (map['p'] as num?)?.toDouble() ??
+          (map['pressure'] as num?)?.toDouble() ??
+          1.0,
+      tiltX:
+          (map['tx'] as num?)?.toDouble() ??
+          (map['tiltX'] as num?)?.toDouble() ??
+          0.0,
+      tiltY:
+          (map['ty'] as num?)?.toDouble() ??
+          (map['tiltY'] as num?)?.toDouble() ??
+          0.0,
+      orientation:
+          (map['o'] as num?)?.toDouble() ??
+          (map['orientation'] as num?)?.toDouble() ??
+          0.0,
+      timestamp: (map['timestamp'] as int?) ?? 0,
+    );
+  }
 
   ProDrawingPoint copyWith({
     Offset? position,
@@ -100,6 +153,11 @@ class ProStroke {
   /// Incrementare when modifica il comportamento di un brush.
   final int engineVersion;
 
+  /// 🖼️ Image scale at the time this stroke was drawn.
+  /// Used to proportionally scale strokes when the image is resized.
+  /// Defaults to 1.0 for canvas strokes or legacy image strokes.
+  final double referenceScale;
+
   /// Current rendering engine version
   static const int currentEngineVersion = 2;
 
@@ -122,6 +180,70 @@ class ProStroke {
   /// Avoids O(n) recalculation at every frame during viewport culling
   Rect? _cachedBounds;
 
+  /// 🚀 CACHED PATH - Catmull-Rom path computed once, reused every frame.
+  /// Strokes are immutable after commit → path never changes.
+  /// Stored in an Expando (not an instance field) because ui.Path is a
+  /// native object that CANNOT cross isolate boundaries. Storing it as
+  /// a field on ProStroke would crash the save isolate.
+  /// Expando: auto-cleaned when ProStroke is GC'd, O(1) lookup.
+  static final Expando<ui.Path> _pathCache = Expando<ui.Path>('strokePath');
+
+  /// Get or compute the cached Catmull-Rom path for this stroke.
+  ui.Path get cachedPath {
+    var path = _pathCache[this];
+    if (path == null) {
+      path = _buildCatmullRomPathImpl();
+      _pathCache[this] = path;
+    }
+    return path;
+  }
+
+
+  ui.Path _buildCatmullRomPathImpl() {
+    final path = ui.Path();
+    if (points.isEmpty) return path;
+    final first = points.first.position;
+    path.moveTo(first.dx, first.dy);
+    if (points.length == 1) return path;
+    if (points.length == 2) {
+      final p = points[1].position;
+      path.lineTo(p.dx, p.dy);
+      return path;
+    }
+    if (points.length == 3) {
+      final p1 = points[1].position;
+      final p2 = points[2].position;
+      path.quadraticBezierTo(p1.dx, p1.dy, p2.dx, p2.dy);
+      return path;
+    }
+    // Catmull-Rom spline (same algorithm as OptimizedPathBuilder)
+    for (int i = 0; i < points.length - 1; i++) {
+      final p0 = i > 0 ? points[i - 1].position : points[i].position;
+      final p1 = points[i].position;
+      final p2 = points[i + 1].position;
+      final p3 =
+          i < points.length - 2
+              ? points[i + 2].position
+              : points[i + 1].position;
+      path.cubicTo(
+        p1.dx + (p2.dx - p0.dx) / 6,
+        p1.dy + (p2.dy - p0.dy) / 6,
+        p2.dx - (p3.dx - p1.dx) / 6,
+        p2.dy - (p3.dy - p1.dy) / 6,
+        p2.dx,
+        p2.dy,
+      );
+    }
+    return path;
+  }
+
+  /// 🗂️ STUB SUPPORT: forced bounds for paged-out strokes.
+  /// When a stroke is paged out, its points are dropped but bounds are kept.
+  final Rect? _forcedBounds;
+
+  /// Whether this stroke is a stub (paged out to disk, points empty).
+  bool get isStub => _forcedBounds != null && points.isEmpty;
+
   ProStroke({
     required this.id,
     required List<ProDrawingPoint> points,
@@ -131,15 +253,51 @@ class ProStroke {
     required this.createdAt,
     ProBrushSettings? settings,
     int? engineVersion,
+    this.referenceScale = 1.0,
     this.fillOverlay,
     this.fillBounds,
+    Rect? forcedBounds,
   }) : points = List.unmodifiable(points),
        settings = settings ?? const ProBrushSettings(),
-       engineVersion = engineVersion ?? currentEngineVersion;
+       engineVersion = engineVersion ?? currentEngineVersion,
+       _forcedBounds = forcedBounds;
+
+  /// 🗂️ Create a lightweight stub copy (bounds only, no points).
+  /// Used by StrokePagingManager to free memory while keeping R-Tree working.
+  ProStroke toStub() {
+    final b = bounds; // Force calculation before dropping points
+    return ProStroke(
+      id: id,
+      points: const [],
+      color: color,
+      baseWidth: baseWidth,
+      penType: penType,
+      createdAt: createdAt,
+      settings: settings,
+      engineVersion: engineVersion,
+      referenceScale: referenceScale,
+      forcedBounds: b,
+    );
+  }
+
+  /// 🗂️ Create a stub from bounds only (for lazy-load index).
+  /// Minimal allocation: only id + bounds are meaningful.
+  factory ProStroke.stubFromBounds({required String id, required Rect bounds}) {
+    return ProStroke(
+      id: id,
+      points: const [],
+      color: const Color(0xFF000000),
+      baseWidth: 2.0,
+      penType: ProPenType.ballpoint,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+      forcedBounds: bounds,
+    );
+  }
 
   /// 🚀 Bounds cachato - calcola una volta e riusa
   /// Performance: from O(n) every frame to O(1) after first calculation
   Rect get bounds {
+    if (_forcedBounds != null) return _forcedBounds;
     _cachedBounds ??= _calculateBounds();
     return _cachedBounds!;
   }
@@ -183,22 +341,30 @@ class ProStroke {
     'createdAt': createdAt.toIso8601String(),
     // 🎛️ Save settings only thef not sono i default (ottimizza storage)
     if (!settings.isDefault) 'settings': settings.toJson(),
+    if (referenceScale != 1.0) 'rs': referenceScale,
   };
 
   factory ProStroke.fromJson(Map<String, dynamic> json) => ProStroke(
     id: json['id'] as String,
     // 🛡️ Old strokes without 'ev' are version 1 (pre-versioning)
     engineVersion: (json['ev'] as int?) ?? 1,
-    points:
-        (json['points'] as List)
-            .map(
-              (p) => ProDrawingPoint.fromJson(
-                p is Map<String, dynamic>
-                    ? p
-                    : Map<String, dynamic>.from(p as Map),
-              ),
-            )
-            .toList(),
+    points: () {
+      final raw = json['points'];
+      List pointsList;
+      if (raw is List) {
+        pointsList = raw;
+      } else if (raw is String) {
+        // Firestore may serialize List as JSON string
+        try {
+          pointsList = convert.jsonDecode(raw) as List;
+        } catch (_) {
+          pointsList = [];
+        }
+      } else {
+        pointsList = [];
+      }
+      return pointsList.map((p) => ProDrawingPoint.fromJson(p)).toList();
+    }(),
     color: Color(json['color'] as int),
     baseWidth: (json['baseWidth'] as num).toDouble(),
     penType: ProPenType.values.firstWhere(
@@ -211,6 +377,7 @@ class ProStroke {
           ? Map<String, dynamic>.from(json['settings'] as Map)
           : null,
     ),
+    referenceScale: (json['rs'] as num?)?.toDouble() ?? 1.0,
   );
 
   ProStroke copyWith({
@@ -222,6 +389,7 @@ class ProStroke {
     DateTime? createdAt,
     ProBrushSettings? settings,
     int? engineVersion,
+    double? referenceScale,
   }) {
     return ProStroke(
       id: id ?? this.id,
@@ -232,6 +400,7 @@ class ProStroke {
       createdAt: createdAt ?? this.createdAt,
       settings: settings ?? this.settings,
       engineVersion: engineVersion ?? this.engineVersion,
+      referenceScale: referenceScale ?? this.referenceScale,
     );
   }
 }
@@ -249,4 +418,5 @@ enum ProPenType {
   sprayPaint, // Spray paint (GPU stochastic dots + gaussian falloff)
   neonGlow, // Neon glow (GPU multi-layer bloom + bright core)
   inkWash, // Ink wash (GPU wet-ink diffusion + bleed edges)
+  technicalPen, // Technical pen (constant width, no taper, hard edges)
 }

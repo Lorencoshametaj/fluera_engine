@@ -3,7 +3,7 @@ import 'dart:async';
 import 'engine_permission.dart';
 import 'permission_policy.dart';
 
-/// 🔐 PERMISSION SERVICE — Central authorization gate for the Nebula Engine.
+/// 🔐 PERMISSION SERVICE — Central authorization gate for the Fluera Engine.
 ///
 /// Provides the single source of truth for "can this user do X?", combining:
 /// 1. **RBAC** — role-based permissions from [currentRole]

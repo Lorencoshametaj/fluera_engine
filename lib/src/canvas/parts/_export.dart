@@ -1,11 +1,11 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 📦 Export & Multi-Page — generic SDK implementation.
 ///
 /// Multi-page canvas math is kept in-SDK (pure state operations).
 /// Export UI and actual file generation are delegated to the host app
 /// via `_config.onShowExportDialog`.
-extension ExportExtension on _NebulaCanvasScreenState {
+extension ExportExtension on _FlueraCanvasScreenState {
   /// Enter export mode — directly opens multi-page editing.
   void _enterExportMode() {
     _enterMultiPageEditMode(
@@ -13,6 +13,90 @@ extension ExportExtension on _NebulaCanvasScreenState {
       pageFormat: _exportConfig.pageFormat,
       maxPages: 20,
     );
+    
+    // 🔍 Detect content clusters for smart navigation
+    _detectExportClusters();
+
+    // 🪄 Zero-Touch Auto-Framing: inquadra il primo cluster (o tutto)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        if (_exportClusters.length > 1) {
+          // Multiple clusters: frame the first one
+          _currentClusterIndex = 0;
+          _autoFrameCluster(_exportClusters[0]);
+        } else {
+          // Single cluster or empty: frame everything
+          _currentClusterIndex = -1;
+          _autoFrameMultiPage();
+        }
+      }
+    });
+  }
+
+  // ============================================================================
+  // 🔍 CLUSTER-AWARE EXPORT
+  // ============================================================================
+
+  /// Detect logical content clusters across all visible layers.
+  void _detectExportClusters() {
+    const detector = ClusterDetector();
+    final allClusters = <ContentCluster>[];
+
+    for (final layer in _layerController.layers) {
+      if (!layer.isVisible) continue;
+      final clusters = detector.detect(
+        strokes: layer.strokes,
+        shapes: layer.shapes,
+        texts: layer.texts,
+        images: layer.images,
+      );
+      allClusters.addAll(clusters);
+    }
+
+    // Sort clusters by position (top-left to bottom-right, reading order)
+    allClusters.sort((a, b) {
+      final rowDiff = (a.bounds.top / 200).floor() - (b.bounds.top / 200).floor();
+      if (rowDiff != 0) return rowDiff;
+      return a.bounds.left.compareTo(b.bounds.left);
+    });
+
+    setState(() {
+      _exportClusters = allClusters;
+      _currentClusterIndex = allClusters.length > 1 ? 0 : -1;
+    });
+  }
+
+  /// Auto-frame a specific cluster (with cinematic fly-out).
+  void _autoFrameCluster(ContentCluster cluster) {
+    _frameBounds(cluster.bounds.inflate(30.0));
+  }
+
+  /// Navigate to the next cluster.
+  void _nextExportCluster() {
+    if (_exportClusters.isEmpty) return;
+    setState(() {
+      _currentClusterIndex = (_currentClusterIndex + 1) % _exportClusters.length;
+    });
+    _autoFrameCluster(_exportClusters[_currentClusterIndex]);
+  }
+
+  /// Navigate to the previous cluster.
+  void _prevExportCluster() {
+    if (_exportClusters.isEmpty) return;
+    setState(() {
+      _currentClusterIndex = _currentClusterIndex <= 0
+          ? _exportClusters.length - 1
+          : _currentClusterIndex - 1;
+    });
+    _autoFrameCluster(_exportClusters[_currentClusterIndex]);
+  }
+
+  /// Frame all content (exit cluster navigation).
+  void _frameAllClusters() {
+    setState(() {
+      _currentClusterIndex = -1;
+    });
+    _autoFrameMultiPage();
   }
 
   /// Exit export mode.
@@ -20,6 +104,8 @@ extension ExportExtension on _NebulaCanvasScreenState {
     setState(() {
       _isExportMode = false;
       _exportArea = Rect.zero;
+      _exportClusters = const [];
+      _currentClusterIndex = -1;
     });
   }
 
@@ -128,6 +214,8 @@ extension ExportExtension on _NebulaCanvasScreenState {
 
     setState(() {
       _isMultiPageEditMode = false;
+      _exportClusters = const [];
+      _currentClusterIndex = -1;
     });
     HapticFeedback.selectionClick();
   }
@@ -195,7 +283,7 @@ extension ExportExtension on _NebulaCanvasScreenState {
           content: Text(
             'Maximum of ${_multiPageConfig.maxPages} pages reached',
           ),
-          backgroundColor: Colors.orange[700],
+          backgroundColor: const Color(0xFFF57C00),
         ),
       );
       return;
@@ -270,6 +358,175 @@ extension ExportExtension on _NebulaCanvasScreenState {
     HapticFeedback.mediumImpact();
   }
 
+  /// 🔄 TOGGLE MODE: Passa da griglia (A4) a Freeform (Infinite)
+  void _toggleMultiPageMode() {
+    final newMode = _multiPageConfig.mode == MultiPageMode.uniform
+        ? MultiPageMode.individual
+        : MultiPageMode.uniform;
+
+    setState(() {
+      _multiPageConfig = _multiPageConfig.copyWith(
+        mode: newMode,
+      );
+    });
+    HapticFeedback.selectionClick();
+    
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          newMode == MultiPageMode.uniform
+              ? 'Modalità Griglia (Pagine fisse)'
+              : 'Modalità Libera (Freeform)',
+          textAlign: TextAlign.center,
+        ),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        width: 250,
+      ),
+    );
+  }
+
+  /// 🔲 TOGGLE BACKGROUND: Alterna trasparenza o sfondo originale
+  void _toggleExportBackground() {
+    final isTransparent = _exportConfig.background == ExportBackground.transparent;
+    final newBackground = isTransparent ? ExportBackground.withTemplate : ExportBackground.transparent;
+
+    setState(() {
+      _exportConfig = _exportConfig.copyWith(background: newBackground);
+    });
+    HapticFeedback.selectionClick();
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          newBackground == ExportBackground.transparent
+              ? 'Sfondo Esportazione: Trasparente'
+              : 'Sfondo Esportazione: Con Griglia/Template',
+          textAlign: TextAlign.center,
+        ),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        width: 320,
+      ),
+    );
+  }
+
+  /// 🎥 CINEMATIC FLY-OUT: Anima la videocamera per inquadrare le pagine generate
+  void _cinematicFlyOut(List<Rect> boundingBoxes) {
+    if (boundingBoxes.isEmpty) return;
+
+    Rect totalRect = boundingBoxes.first;
+    for (var b in boundingBoxes) {
+      totalRect = totalRect.expandToInclude(b);
+    }
+
+    // Padding per non far toccare i bordi allo schermo
+    final viewRect = totalRect.inflate(60.0);
+    
+    final viewportSize = MediaQuery.of(context).size;
+    final scaleX = viewportSize.width / viewRect.width;
+    final scaleY = viewportSize.height / viewRect.height;
+    
+    // clamp tra 0.05 e 2.0 in modo da non zoomare dentro roba minuscola o fuori troppo
+    final targetScale = math.min(scaleX, scaleY).clamp(0.05, 2.0);
+
+    final targetOffset = Offset(
+      viewportSize.width / 2 - viewRect.center.dx * targetScale,
+      viewportSize.height / 2 - viewRect.center.dy * targetScale,
+    );
+
+    _canvasController.animateToTransform(
+      targetOffset: targetOffset,
+      targetScale: targetScale,
+    );
+  }
+
+  /// 🪄 SMART AUTO-FRAMING: Inquadra automaticamente tutti i contenuti del canvas
+  /// (oppure SOLO la selezione attiva se si usa il Lazo).
+  void _autoFrameMultiPage() {
+    Rect contentBounds;
+    bool isLassoSelection = false;
+
+    if (_lassoTool.hasSelection && _lassoTool.exportBounds != null && !_lassoTool.exportBounds!.isEmpty) {
+      contentBounds = _lassoTool.exportBounds!;
+      isLassoSelection = true;
+    } else {
+      contentBounds = _contentBoundsTracker.bounds.value;
+    }
+
+    if (contentBounds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nessun contenuto da inquadrare'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    _frameBounds(contentBounds.inflate(isLassoSelection ? 20.0 : 40.0));
+  }
+
+  /// 🎯 Core framing logic: computes page bounds for a given target rect,
+  /// updates config, triggers haptics + cinematic fly-out.
+  void _frameBounds(Rect paddedBounds) {
+    if (_multiPageConfig.mode == MultiPageMode.individual) {
+      setState(() {
+        _multiPageConfig = _multiPageConfig.copyWith(
+          individualPageBounds: [paddedBounds],
+          selectedPageIndex: 0,
+        );
+      });
+    } else {
+      final pageSize = _multiPageConfig.uniformPageSize ??
+          const Size(800, 1131);
+
+      final cols = (paddedBounds.width / pageSize.width).ceil().clamp(1, 10);
+      final rows = (paddedBounds.height / pageSize.height).ceil().clamp(1, 10);
+
+      final gridWidth = cols * pageSize.width;
+      final gridHeight = rows * pageSize.height;
+      final startX = paddedBounds.center.dx - (gridWidth / 2);
+      final startY = paddedBounds.center.dy - (gridHeight / 2);
+
+      final newBounds = <Rect>[];
+      for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+          newBounds.add(Rect.fromLTWH(
+            startX + c * pageSize.width,
+            startY + r * pageSize.height,
+            pageSize.width,
+            pageSize.height,
+          ));
+        }
+      }
+
+      if (newBounds.length > _multiPageConfig.maxPages) {
+        newBounds.removeRange(_multiPageConfig.maxPages, newBounds.length);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Limite di ${_multiPageConfig.maxPages} pagine raggiunto'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+
+      setState(() {
+        _multiPageConfig = _multiPageConfig.copyWith(
+          individualPageBounds: newBounds,
+          selectedPageIndex: 0,
+        );
+      });
+    }
+
+    HapticFeedback.mediumImpact();
+    _cinematicFlyOut(_multiPageConfig.individualPageBounds);
+  }
+
   /// Confirm multi-page edit and proceed to export dialog.
   void _confirmMultiPageEdit() {
     _exitMultiPageEditMode(saveChanges: true);
@@ -286,7 +543,7 @@ extension ExportExtension on _NebulaCanvasScreenState {
     final multiPageConfig =
         _multiPageConfig.pageCount > 0 ? _multiPageConfig : null;
 
-    final exportData = NebulaExportData(
+    final exportData = FlueraExportData(
       canvasId: _canvasId,
       layers: _layerController.layers,
       backgroundColor: _canvasBackgroundColor,
@@ -301,7 +558,6 @@ extension ExportExtension on _NebulaCanvasScreenState {
         if (mounted) _exitExportMode();
       });
     } else {
-      debugPrint('[Export] No onShowExportDialog configured');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Export not configured in this app'),

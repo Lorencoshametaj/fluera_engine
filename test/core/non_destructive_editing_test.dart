@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/editing/adjustment_layer.dart';
-import 'package:nebula_engine/src/core/editing/smart_filter_stack.dart';
-import 'package:nebula_engine/src/core/editing/blend_mode_engine.dart';
-import 'package:nebula_engine/src/core/editing/mask_channel.dart';
+import 'package:fluera_engine/src/core/editing/adjustment_layer.dart';
+import 'package:fluera_engine/src/core/editing/smart_filter_stack.dart';
+import 'package:fluera_engine/src/core/editing/blend_mode_engine.dart';
+import 'package:fluera_engine/src/core/editing/mask_channel.dart';
 
 void main() {
   // ===========================================================================

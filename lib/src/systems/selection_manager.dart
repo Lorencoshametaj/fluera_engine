@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/scene_graph/canvas_node.dart';
+import '../core/nodes/stroke_node.dart';
 import '../core/nodes/group_node.dart';
 import '../core/engine_scope.dart';
 import '../core/engine_event.dart';
@@ -328,6 +329,31 @@ class SelectionManager {
     }
   }
 
+  /// Bake any pending localTransform into the raw stroke point data.
+  ///
+  /// Call this ONCE at the end of a drag/fling gesture, not during.
+  /// During drag, [translateAll] uses fast O(1) matrix transforms.
+  /// This method persists those transforms into actual point coordinates
+  /// so hit-testing and re-selection find strokes at their new position.
+  void bakeStrokeTransforms() {
+    for (final node in selectedNodes) {
+      if (node.isLocked) continue;
+      if (node is StrokeNode && !node.isIdentityTransform) {
+        final tx = node.localTransform[12]; // X translation
+        final ty = node.localTransform[13]; // Y translation
+        if (tx == 0.0 && ty == 0.0) continue;
+        final movedPoints = node.stroke.points.map((p) {
+          return p.copyWith(
+            position: Offset(p.position.dx + tx, p.position.dy + ty),
+          );
+        }).toList();
+        node.stroke = node.stroke.copyWith(points: movedPoints);
+        node.localTransform = Matrix4.identity();
+        node.invalidateTransformCache();
+      }
+    }
+  }
+
   /// Rotate all selected nodes around the selection center by [radians].
   void rotateAll(double radians) {
     final pivot = aggregateCenter;
@@ -337,12 +363,15 @@ class SelectionManager {
     }
   }
 
-  /// Scale all selected nodes from the selection center by [sx], [sy].
-  void scaleAll(double sx, double sy) {
-    final anchor = aggregateCenter;
+  /// Scale all selected nodes from [anchor] by [sx], [sy].
+  ///
+  /// If [anchor] is null, uses [aggregateCenter] as the scale pivot.
+  /// For multi-frame gestures, pass a fixed anchor to avoid drift.
+  void scaleAll(double sx, double sy, {Offset? anchor}) {
+    final pivot = anchor ?? aggregateCenter;
     for (final node in selectedNodes) {
       if (node.isLocked) continue;
-      node.scaleFrom(sx, sy, anchor);
+      node.scaleFrom(sx, sy, pivot);
     }
   }
 
@@ -354,6 +383,7 @@ class SelectionManager {
     for (final node in selectedNodes) {
       if (node.isLocked) continue;
       node.localTransform = transform.multiplied(node.localTransform);
+      node.invalidateTransformCache();
     }
   }
 

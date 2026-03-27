@@ -8,6 +8,7 @@ import '../../core/nodes/tabular_node.dart';
 import '../../core/tabular/cell_address.dart';
 import '../../core/tabular/cell_value.dart';
 import '../../core/tabular/cell_node.dart';
+import '../../core/tabular/tabular_hit_test_utils.dart';
 
 /// 📊 Interactive tool state for the tabular engine.
 ///
@@ -84,13 +85,30 @@ class TabularToolState extends ChangeNotifier {
   }
 
   void selectCell(CellAddress addr) {
-    _selectedCell = addr;
-    _selectionStart = null;
-    _selectionEnd = null;
     _selectedRow = null;
     _selectedColumn = null;
     _isEditing = false;
     _editValue = '';
+
+    // Check if the cell belongs to a merge region → expand selection.
+    if (_activeNode != null) {
+      for (final region in _activeNode!.mergeManager.regions) {
+        if (addr.column >= region.startColumn &&
+            addr.column <= region.endColumn &&
+            addr.row >= region.startRow &&
+            addr.row <= region.endRow) {
+          _selectedCell = CellAddress(region.startColumn, region.startRow);
+          _selectionStart = CellAddress(region.startColumn, region.startRow);
+          _selectionEnd = CellAddress(region.endColumn, region.endRow);
+          notifyListeners();
+          return;
+        }
+      }
+    }
+
+    _selectedCell = addr;
+    _selectionStart = null;
+    _selectionEnd = null;
     notifyListeners();
   }
 
@@ -351,6 +369,8 @@ class TabularTool extends BaseTool {
 
   /// Detect tap on a row or column header.
   /// Returns (type, index) or null if not on a header.
+  ///
+  /// Uses O(log n) binary search via prefix-sum offsets.
   (_HeaderHitType, int)? _hitTestHeader(Offset canvasPos) {
     final node = toolState.activeNode;
     if (node == null) return null;
@@ -361,26 +381,29 @@ class TabularTool extends BaseTool {
 
     final x = localPos.dx;
     final y = localPos.dy;
+    final model = node.model;
 
     // Tap on row header (left strip: x < headerWidth, y > headerHeight).
     if (node.showRowHeaders && x >= 0 && x < xOffset && y >= yOffset) {
       final gridY = y - yOffset;
-      double ry = 0;
-      for (int r = 0; r < node.effectiveRows; r++) {
-        final h = node.model.getRowHeight(r);
-        if (ry + h > gridY) return (_HeaderHitType.row, r);
-        ry += h;
+      final rows = node.effectiveRows;
+      if (rows > 0 && gridY < model.rowOffset(rows)) {
+        return (
+          _HeaderHitType.row,
+          TabularHitTestUtils.findRow(model, rows, gridY),
+        );
       }
     }
 
     // Tap on column header (top strip: y < headerHeight, x > headerWidth).
     if (node.showColumnHeaders && y >= 0 && y < yOffset && x >= xOffset) {
       final gridX = x - xOffset;
-      double cx = 0;
-      for (int c = 0; c < node.effectiveColumns; c++) {
-        final w = node.model.getColumnWidth(c);
-        if (cx + w > gridX) return (_HeaderHitType.column, c);
-        cx += w;
+      final cols = node.effectiveColumns;
+      if (cols > 0 && gridX < model.columnOffset(cols)) {
+        return (
+          _HeaderHitType.column,
+          TabularHitTestUtils.findColumn(model, cols, gridX),
+        );
       }
     }
 
@@ -388,12 +411,13 @@ class TabularTool extends BaseTool {
   }
 
   /// Convert a canvas position to a cell address within the active node.
+  ///
+  /// Uses O(log n) binary search via prefix-sum offsets.
   CellAddress? _hitTestCell(Offset canvasPos) {
     final node = toolState.activeNode;
     if (node == null) return null;
 
     // Transform canvas position to node-local coordinates.
-    // For simplicity, assume the node's transform is applied upstream.
     final localPos = canvasPos;
 
     final xOffset = node.showRowHeaders ? node.headerWidth : 0.0;
@@ -404,33 +428,18 @@ class TabularTool extends BaseTool {
 
     if (x < 0 || y < 0) return null;
 
-    // Find column.
-    int col = -1;
-    double cx = 0;
+    final model = node.model;
     final cols = node.effectiveColumns;
-    for (int c = 0; c < cols; c++) {
-      final w = node.model.getColumnWidth(c);
-      if (cx + w > x) {
-        col = c;
-        break;
-      }
-      cx += w;
-    }
-
-    // Find row.
-    int row = -1;
-    double ry = 0;
     final rows = node.effectiveRows;
-    for (int r = 0; r < rows; r++) {
-      final h = node.model.getRowHeight(r);
-      if (ry + h > y) {
-        row = r;
-        break;
-      }
-      ry += h;
+
+    // Check bounds.
+    if (x >= model.columnOffset(cols) || y >= model.rowOffset(rows)) {
+      return null;
     }
 
-    if (col < 0 || row < 0) return null;
+    // Binary search for column and row.
+    final col = TabularHitTestUtils.findColumn(model, cols, x);
+    final row = TabularHitTestUtils.findRow(model, rows, y);
 
     // If the cell is hidden by a merge, redirect to the master cell.
     final addr = CellAddress(col, row);

@@ -1,32 +1,31 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
+import '../utils/safe_path_provider.dart';
 import 'package:path/path.dart' as path;
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 
 /// 🖼️ IMAGE SERVICE
 /// Handles selezione e caricamento immagini from the galleria
 class ImageService {
-  static final ImagePicker _picker = ImagePicker();
-
   /// Seleziona un'immagine from the galleria
   /// Returns il path locale of the image salvata
   static Future<String?> pickImageFromGallery(BuildContext context) async {
     try {
-      // Open galleria con limiti ragionevoli per canvas professionale
-      final XFile? pickedFile = await _picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1920, // Max full HD per quality professionale
-        maxHeight: 1920,
-        imageQuality: 90, // Alta quality per dettagli
+      // Open galleria con file_picker (cross-platform: mobile + desktop)
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
       );
 
-      if (pickedFile == null) return null;
+      if (result == null || result.files.isEmpty) return null;
+      final pickedFile = result.files.first;
+      if (pickedFile.path == null) return null;
 
       // Save the image in the app directory
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getSafeDocumentsDirectory();
+      if (appDir == null) return null; // Web: no filesystem
       final imagesDir = Directory('${appDir.path}/canvas_images');
 
       // Create directory if not esiste
@@ -36,17 +35,17 @@ class ImageService {
 
       // Genera nome unico
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final extension = path.extension(pickedFile.path);
+      final extension = path.extension(pickedFile.path!);
       final fileName = 'image_$timestamp$extension';
       final savedPath = '${imagesDir.path}/$fileName';
 
       // Copia il file
-      await File(pickedFile.path).copy(savedPath);
+      await File(pickedFile.path!).copy(savedPath);
 
       return savedPath;
     } catch (e) {
       if (context.mounted) {
-        final l10n = NebulaLocalizations.of(context);
+        final l10n = FlueraLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(l10n.proCanvas_errorLoadingImage(e.toString())),
@@ -122,14 +121,14 @@ class ImageService {
       if (await file.exists()) {
         await file.delete();
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   /// Clears tutte le immagini non utilizzate
   static Future<void> cleanupUnusedImages(List<String> usedPaths) async {
     try {
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getSafeDocumentsDirectory();
+      if (appDir == null) return; // Web: no filesystem
       final imagesDir = Directory('${appDir.path}/canvas_images');
 
       if (!await imagesDir.exists()) return;
@@ -143,7 +142,6 @@ class ImageService {
           }
         }
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 }

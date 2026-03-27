@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // ✅ DESIGN QUALITY — Wire smart snap, lint, styles, a11y, selection query
 // ============================================================================
 
-extension DesignQualityFeatures on _NebulaCanvasScreenState {
+extension DesignQualityFeatures on _FlueraCanvasScreenState {
   /// Toggle smart snap engine.
   /// Wires: smart_snap_engine
   void _toggleSmartSnap() {
@@ -13,10 +13,8 @@ extension DesignQualityFeatures on _NebulaCanvasScreenState {
     });
     if (_isSmartSnapEnabled) {
       _smartSnapEngine = SmartSnapEngine();
-      debugPrint('[Design] Smart Snap ON');
     } else {
       _smartSnapEngine = null;
-      debugPrint('[Design] Smart Snap OFF');
     }
   }
 
@@ -37,7 +35,6 @@ extension DesignQualityFeatures on _NebulaCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => DesignQualityPanel(lintResults: violations),
     );
-    debugPrint('[Design] Lint: ${violations.length} issues found');
   }
 
   /// Show style system panel.
@@ -143,7 +140,6 @@ extension DesignQualityFeatures on _NebulaCanvasScreenState {
         );
       },
     );
-    debugPrint('[Design] Style system panel opened');
   }
 
   Widget _buildStyleGroupCard(
@@ -302,6 +298,5 @@ extension DesignQualityFeatures on _NebulaCanvasScreenState {
         );
       },
     );
-    debugPrint('[Design] A11y tree opened');
   }
 }

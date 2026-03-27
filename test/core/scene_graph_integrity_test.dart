@@ -1,13 +1,13 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph_integrity.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node_factory.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/nodes/layer_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_visitor.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph_integrity.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node_factory.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/nodes/layer_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_visitor.dart';
 
 /// Test-only node with concrete bounds for spatial index testing.
 class _BoundsNode extends CanvasNode {

@@ -113,16 +113,11 @@ extension ShaderStampRenderer on ShaderBrushService {
       paint.blendMode = BlendMode.clear;
     }
 
+    // Note: brush_stamp.frag has NO sampler2D — tip/dual textures are
+    // CPU concepts. Do NOT call setImageSampler() — crashes with
+    // "Sampler index out of bounds".
     final hasTip = tipTexture != null;
-    if (hasTip) {
-      shader.setImageSampler(0, tipTexture);
-    }
-
-    // Phase 3: Dual brush — second sampler
     final hasDual = dualTexture != null && dualBlend > 0.001;
-    if (hasDual) {
-      shader.setImageSampler(1, dualTexture);
-    }
 
     final clipBounds = canvas.getLocalClipBounds();
     final cullPadding = baseWidth * maxPressure + 2.0;

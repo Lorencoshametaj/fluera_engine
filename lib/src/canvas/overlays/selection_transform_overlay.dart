@@ -54,7 +54,10 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
   // Handle attualmente trascinato
   _HandleType? _activeHandle;
   Offset? _dragStart;
-  Offset? _rotationCenter; // Stable center captured at gesture start
+  Offset?
+  _rotationCenter; // Stable screen-space center captured at gesture start
+  Offset?
+  _canvasAnchor; // Stable canvas-space anchor for scale (captured at gesture start)
   double _initialAngle = 0;
   double _initialDistance = 0;
 
@@ -80,9 +83,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
   double _lastHandleRotationDelta = 0.0;
   int _lastHandleTimestamp = 0;
 
-  static const double _handleSize = 22.0;
-  static const double _hitAreaSize = 48.0; // Minimum touch target
-  static const double _rotationHandleOffset = 36.0;
+
 
   @override
   void initState() {
@@ -166,7 +167,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
           child: IgnorePointer(
             child: CustomPaint(
               painter: _ReflowGhostPainter(
-                clusters: widget.lassoTool.clusterCache,
+                clusters: widget.lassoTool.reflowController?.clusterCache ?? [],
                 displacements: activeDisplacements,
                 canvasController: widget.canvasController,
                 strokes: activeLayer?.strokes ?? [],
@@ -191,18 +192,32 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
                 _flingController.stop();
                 _isFlingActive = false;
                 _isSnapSpringActive = false;
+                // 🚀 FIX: Bake transforms NOW — _onAnimationComplete won't
+                // be called when animation is stopped via stop().
+                widget.lassoTool.selectionManager.bakeStrokeTransforms();
+                widget.lassoTool.layerController.activeLayer?.node.invalidateStrokeCache();
+                DrawingPainter.invalidateRenderIndex();
+                DrawingPainter.invalidateAllTiles();
               }
               final canvasPos = widget.canvasController.screenToCanvas(
                 details.globalPosition,
               );
               widget.lassoTool.startDrag(canvasPos);
+              DrawingPainter.forceDirectRender = true;
             },
             onPanUpdate: (details) {
               final canvasPos = widget.canvasController.screenToCanvas(
                 details.globalPosition,
               );
-              widget.lassoTool.updateDrag(canvasPos);
-              DrawingPainter.invalidateAllTiles();
+              final moved = widget.lassoTool.updateDrag(canvasPos);
+              if (moved) {
+                // 🚀 FIX: bump version + invalidate ALL caches
+                widget.lassoTool.layerController.sceneGraph.bumpVersion();
+                DrawingPainter.invalidateAllTiles();
+                // Trigger repaint via LOD notifier (bypasses shouldRepaint)
+                DrawingPainter.triggerRepaint();
+                widget.canvasController.markNeedsPaint();
+              }
               // 🏀️ Edge auto-scroll during selection drag
               widget.onEdgeAutoScroll?.call(details.globalPosition);
               setState(() {});
@@ -211,27 +226,33 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
               // 🏀️ Stop edge auto-scroll
               widget.onEdgeAutoScrollEnd?.call();
 
+              // 🌊 FLING: Check if velocity warrants a fling animation
+              final rawVelocity = widget.lassoTool.lastDragVelocity;
+              final config = widget.canvasController.liquidConfig;
+              final willFling =
+                  rawVelocity.distance > config.nodeDragFlingThreshold &&
+                  widget.lassoTool.hasSelection;
+
               // 🌊 REFLOW: Snapshot displacements for settle animation
               final ghostSnap = Map<String, Offset>.from(
                 widget.lassoTool.reflowGhostDisplacements,
               );
 
-              widget.lassoTool.endDrag();
+              // If fling will start, defer reflow bake to fling end
+              widget.lassoTool.endDrag(skipReflow: willFling);
+              if (!willFling) DrawingPainter.forceDirectRender = false;
               DrawingPainter.invalidateAllTiles();
               widget.onTransformComplete();
 
-              // 🌊 REFLOW: Trigger settle fade-out animation
-              if (ghostSnap.isNotEmpty) {
+              // 🌊 REFLOW: Trigger settle fade-out animation (only if no fling)
+              if (!willFling && ghostSnap.isNotEmpty) {
                 _settleDisplacements = ghostSnap;
                 _settleOpacity = 1.0;
                 _settleController.forward(from: 0.0);
               }
 
               // 🌊 FLING: Launch friction fling if velocity exceeds threshold
-              final rawVelocity = widget.lassoTool.lastDragVelocity;
-              final config = widget.canvasController.liquidConfig;
-              if (rawVelocity.distance > config.nodeDragFlingThreshold &&
-                  widget.lassoTool.hasSelection) {
+              if (willFling) {
                 // 🚀 T4: Velocity clamping
                 final velocity =
                     rawVelocity.distance > config.nodeDragMaxFlingVelocity
@@ -253,137 +274,96 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
                 _flingFrameCount = 0;
               }
             },
-            child: CustomPaint(
-              painter: _DashedBorderPainter(isDark: widget.isDark),
-            ),
+            child: const SizedBox.expand(),
           ),
         ),
 
-        // Hide transform handles during drag-move for cleaner UX
+        // Invisible edge-drag zones for resize (no visible handles)
         if (!widget.lassoTool.isDragging) ...[
-          // Handle angoli (scala proporzionale)
-          _buildHandle(screenBounds.topLeft, _HandleType.topLeft, center),
-          _buildHandle(screenBounds.topRight, _HandleType.topRight, center),
-          _buildHandle(screenBounds.bottomLeft, _HandleType.bottomLeft, center),
-          _buildHandle(
-            screenBounds.bottomRight,
-            _HandleType.bottomRight,
-            center,
-          ),
-
-          // Handle lati (scala su un asse)
-          _buildHandle(
-            Offset(screenBounds.center.dx, screenBounds.top),
-            _HandleType.topCenter,
-            center,
-          ),
-          _buildHandle(
-            Offset(screenBounds.center.dx, screenBounds.bottom),
-            _HandleType.bottomCenter,
-            center,
-          ),
-          _buildHandle(
-            Offset(screenBounds.left, screenBounds.center.dy),
-            _HandleType.middleLeft,
-            center,
-          ),
-          _buildHandle(
-            Offset(screenBounds.right, screenBounds.center.dy),
-            _HandleType.middleRight,
-            center,
-          ),
-
-          // Handle rotation (above the box)
-          _buildRotationHandle(
-            Offset(
-              screenBounds.center.dx,
-              screenBounds.top - _rotationHandleOffset,
-            ),
-            center,
-          ),
-
-          // Linea connettore al rotation handle
-          Positioned(
-            left: screenBounds.center.dx - 0.5,
-            top: screenBounds.top - _rotationHandleOffset,
-            child: CustomPaint(
-              size: Size(1, _rotationHandleOffset),
-              painter: _ConnectorLinePainter(isDark: widget.isDark),
-            ),
-          ),
+          // Corner zones (proportional scale)
+          _buildEdgeZone(screenBounds, _HandleType.topLeft, center),
+          _buildEdgeZone(screenBounds, _HandleType.topRight, center),
+          _buildEdgeZone(screenBounds, _HandleType.bottomLeft, center),
+          _buildEdgeZone(screenBounds, _HandleType.bottomRight, center),
+          // Edge zones (single-axis scale)
+          _buildEdgeZone(screenBounds, _HandleType.topCenter, center),
+          _buildEdgeZone(screenBounds, _HandleType.bottomCenter, center),
+          _buildEdgeZone(screenBounds, _HandleType.middleLeft, center),
+          _buildEdgeZone(screenBounds, _HandleType.middleRight, center),
         ],
       ],
     );
   }
 
-  Widget _buildHandle(Offset position, _HandleType type, Offset center) {
+  /// Edge hit-zone thickness (invisible, but catches drag gestures).
+  static const double _edgeHitThickness = 28.0;
+  /// Corner hit-zone size.
+  static const double _cornerHitSize = 30.0;
+
+  Widget _buildEdgeZone(Rect sb, _HandleType type, Offset center) {
+    // Compute position and size for each zone type
+    final double left, top, width, height;
+    switch (type) {
+      // Corners: small squares at each corner
+      case _HandleType.topLeft:
+        left = sb.left - _cornerHitSize / 2;
+        top = sb.top - _cornerHitSize / 2;
+        width = _cornerHitSize;
+        height = _cornerHitSize;
+      case _HandleType.topRight:
+        left = sb.right - _cornerHitSize / 2;
+        top = sb.top - _cornerHitSize / 2;
+        width = _cornerHitSize;
+        height = _cornerHitSize;
+      case _HandleType.bottomLeft:
+        left = sb.left - _cornerHitSize / 2;
+        top = sb.bottom - _cornerHitSize / 2;
+        width = _cornerHitSize;
+        height = _cornerHitSize;
+      case _HandleType.bottomRight:
+        left = sb.right - _cornerHitSize / 2;
+        top = sb.bottom - _cornerHitSize / 2;
+        width = _cornerHitSize;
+        height = _cornerHitSize;
+      // Edges: thin rectangles along each side (between corners)
+      case _HandleType.topCenter:
+        left = sb.left + _cornerHitSize / 2;
+        top = sb.top - _edgeHitThickness / 2;
+        width = sb.width - _cornerHitSize;
+        height = _edgeHitThickness;
+      case _HandleType.bottomCenter:
+        left = sb.left + _cornerHitSize / 2;
+        top = sb.bottom - _edgeHitThickness / 2;
+        width = sb.width - _cornerHitSize;
+        height = _edgeHitThickness;
+      case _HandleType.middleLeft:
+        left = sb.left - _edgeHitThickness / 2;
+        top = sb.top + _cornerHitSize / 2;
+        width = _edgeHitThickness;
+        height = sb.height - _cornerHitSize;
+      case _HandleType.middleRight:
+        left = sb.right - _edgeHitThickness / 2;
+        top = sb.top + _cornerHitSize / 2;
+        width = _edgeHitThickness;
+        height = sb.height - _cornerHitSize;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    // Skip if too small
+    if (width < 4 || height < 4) return const SizedBox.shrink();
+
     return Positioned(
-      left: position.dx - _hitAreaSize / 2,
-      top: position.dy - _hitAreaSize / 2,
+      left: left,
+      top: top,
+      width: width,
+      height: height,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onPanStart: (details) => _onHandleDragStart(details, type, center),
         onPanUpdate: (details) => _onHandleDragUpdate(details, type, center),
         onPanEnd: (_) => _onHandleDragEnd(),
-        child: Container(
-          width: _hitAreaSize,
-          height: _hitAreaSize,
-          color: Colors.transparent, // Invisible hit area
-          alignment: Alignment.center,
-          child: Container(
-            width: _handleSize,
-            height: _handleSize,
-            decoration: BoxDecoration(
-              color: widget.isDark ? Colors.white : Colors.white,
-              border: Border.all(color: Colors.blue, width: 2),
-              borderRadius: BorderRadius.circular(3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.25),
-                  blurRadius: 3,
-                  offset: const Offset(0, 1),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRotationHandle(Offset position, Offset center) {
-    return Positioned(
-      left: position.dx - _hitAreaSize / 2,
-      top: position.dy - _hitAreaSize / 2,
-      child: GestureDetector(
-        onPanStart:
-            (details) =>
-                _onHandleDragStart(details, _HandleType.rotation, center),
-        onPanUpdate:
-            (details) =>
-                _onHandleDragUpdate(details, _HandleType.rotation, center),
-        onPanEnd: (_) => _onHandleDragEnd(),
-        child: Container(
-          width: _hitAreaSize,
-          height: _hitAreaSize,
-          color: Colors.transparent, // Invisible hit area
-          alignment: Alignment.center,
-          child: Container(
-            width: _handleSize + 2,
-            height: _handleSize + 2,
-            decoration: BoxDecoration(
-              color: Colors.green,
-              border: Border.all(color: Colors.green.shade700, width: 2),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.25),
-                  blurRadius: 3,
-                  offset: const Offset(0, 1),
-                ),
-              ],
-            ),
-          ),
-        ),
+        child: const SizedBox.expand(),
       ),
     );
   }
@@ -396,14 +376,17 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
     _activeHandle = type;
     _dragStart = details.globalPosition;
     _rotationCenter = center; // Capture stable center at gesture start
+    DrawingPainter.forceDirectRender = true; // bypass tile cache LOD
 
     if (type == _HandleType.rotation) {
       // Calculate angolo iniziale rispetto al centro (fisso per tutta la gesture)
       final delta = details.globalPosition - _rotationCenter!;
       _initialAngle = atan2(delta.dy, delta.dx);
     } else {
-      // Calculate distanza iniziale per scala
-      _initialDistance = (details.globalPosition - center).distance;
+      // Calculate distanza iniziale per scala (use stable center)
+      _initialDistance = (details.globalPosition - _rotationCenter!).distance;
+      // Capture canvas-space anchor once — used as a fixed pivot for scaleAll
+      _canvasAnchor = widget.canvasController.screenToCanvas(_rotationCenter!);
     }
   }
 
@@ -439,13 +422,17 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
       // Convert stable center from screen to canvas space for the lasso tool
       final canvasCenter = widget.canvasController.screenToCanvas(stableCenter);
       widget.lassoTool.rotateSelectedByAngle(angleDelta, center: canvasCenter);
-      // 🚀 PERF: Only invalidate layer caches (not tile + stroke caches)
-      DrawingPainter.invalidateLayerCaches();
+      // 🚀 FIX: Full invalidation pipeline (same as drag) so strokes re-render
+      widget.lassoTool.layerController.sceneGraph.bumpVersion();
+      DrawingPainter.invalidateAllTiles();
+      DrawingPainter.triggerRepaint();
+      widget.canvasController.markNeedsPaint();
       widget.lassoTool.dragNotifier.value++;
       widget.onTransformComplete();
     } else {
-      // Scala
-      final currentDistance = (details.globalPosition - center).distance;
+      // Scala — use stable center captured at drag start
+      final stableCenter = _rotationCenter ?? center;
+      final currentDistance = (details.globalPosition - stableCenter).distance;
       if (_initialDistance > 0) {
         final scaleFactor = currentDistance / _initialDistance;
         // Clamp to avoid scale troppo estreme
@@ -455,10 +442,13 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
         _lastHandleScaleDelta = clampedFactor - 1.0;
         _lastHandleTimestamp = now;
 
-        widget.lassoTool.scaleSelected(clampedFactor);
+        widget.lassoTool.scaleSelected(clampedFactor, center: _canvasAnchor);
         _initialDistance = currentDistance;
-        // 🚀 PERF: Only invalidate layer caches (not tile + stroke caches)
-        DrawingPainter.invalidateLayerCaches();
+        // 🚀 FIX: Full invalidation pipeline (same as drag) so strokes re-render
+        widget.lassoTool.layerController.sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        DrawingPainter.triggerRepaint();
+        widget.canvasController.markNeedsPaint();
         widget.lassoTool.dragNotifier.value++;
         widget.onTransformComplete();
       }
@@ -477,7 +467,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
       // Bake displacements into actual positions
       widget.lassoTool.bakeReflowDisplacements();
-      widget.lassoTool.reflowGhostDisplacements = {};
+      widget.lassoTool.reflowController?.clearGhosts();
 
       // Trigger settle fade-out animation
       _settleController.forward(from: 0);
@@ -525,6 +515,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
     _lastHandleScaleDelta = 0.0;
     _lastHandleRotationDelta = 0.0;
     _lastHandleTimestamp = 0;
+    DrawingPainter.forceDirectRender = false; // resume tile cache
 
     // 🚀 PERF: Full cache invalidation at gesture end (lightweight during gesture)
     DrawingPainter.invalidateAllTiles();
@@ -541,6 +532,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
   /// Called each frame during friction fling or snap spring with accumulated offset.
   void _onFlingOrSnapUpdate(Offset currentOffset) {
+    if (!mounted) return;
     if (!(_isFlingActive || _isSnapSpringActive) ||
         !widget.lassoTool.hasSelection) {
       return;
@@ -559,7 +551,11 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
     // Apply to selected elements
     widget.lassoTool.moveSelected(delta);
-    DrawingPainter.invalidateLayerCaches();
+    // 🚀 FIX: Full invalidation pipeline (same as drag) so strokes re-render
+    widget.lassoTool.layerController.sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    DrawingPainter.triggerRepaint();
+    widget.canvasController.markNeedsPaint();
     widget.lassoTool.dragNotifier.value++;
 
     // 🧲 T4: Mid-fling magnetic catch — check for snap guides every 4 frames
@@ -639,9 +635,32 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
 
   /// Called when either fling or snap spring animation finishes.
   void _onAnimationComplete() {
+    if (!mounted) return;
     if (_isFlingActive) {
-      // Fling just ended — check for post-fling snap
+      // Fling just ended — bake deferred reflow and check for post-fling snap
       _isFlingActive = false;
+      DrawingPainter.forceDirectRender = false;
+
+      // 🌊 REFLOW: Bake displacements at fling-end position
+      if (widget.lassoTool.isReflowEnabled) {
+        // Snapshot ghosts for settle animation
+        final ghostSnap = Map<String, Offset>.from(
+          widget.lassoTool.reflowGhostDisplacements,
+        );
+        widget.lassoTool.bakeReflowDisplacements();
+        widget.lassoTool.reflowController?.clearGhosts();
+        if (ghostSnap.isNotEmpty) {
+          _settleDisplacements = ghostSnap;
+          _settleOpacity = 1.0;
+          _settleController.forward(from: 0.0);
+        }
+      }
+
+      // 🚀 Bake localTransform into stroke points at fling end
+      widget.lassoTool.selectionManager.bakeStrokeTransforms();
+      widget.lassoTool.layerController.activeLayer?.node.invalidateStrokeCache();
+      DrawingPainter.invalidateRenderIndex();
+
       _tryPostFlingSnap();
       return;
     }
@@ -651,6 +670,9 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
     }
 
     // Final cleanup
+    widget.lassoTool.selectionManager.bakeStrokeTransforms();
+    widget.lassoTool.layerController.activeLayer?.node.invalidateStrokeCache();
+    DrawingPainter.invalidateRenderIndex();
     DrawingPainter.invalidateAllTiles();
     widget.onTransformComplete();
   }
@@ -705,7 +727,7 @@ enum _HandleType {
   rotation,
 }
 
-/// Painter for the dashed border of the bounding box
+/// Painter for the gradient border of the bounding box.
 class _DashedBorderPainter extends CustomPainter {
   final bool isDark;
 
@@ -713,115 +735,50 @@ class _DashedBorderPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = Colors.blue.withValues(alpha: 0.8)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5;
+    final rect = Offset.zero & size;
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(4));
 
-    const dashLength = 6.0;
-    const gapLength = 4.0;
-
-    // Top
-    _drawDashedLine(
-      canvas,
-      Offset.zero,
-      Offset(size.width, 0),
-      paint,
-      dashLength,
-      gapLength,
+    // Ambient glow
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF818CF8).withValues(alpha: 0.12),
+            const Color(0xFF22D3EE).withValues(alpha: 0.15),
+          ],
+        ).createShader(rect)
+        ..strokeWidth = 5.0
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0),
     );
-    // Right
-    _drawDashedLine(
-      canvas,
-      Offset(size.width, 0),
-      Offset(size.width, size.height),
-      paint,
-      dashLength,
-      gapLength,
+
+    // Gradient border
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: const [
+            Color(0xFF818CF8),
+            Color(0xFF22D3EE),
+            Color(0xFFC084FC),
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ).createShader(rect)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke,
     );
-    // Bottom
-    _drawDashedLine(
-      canvas,
-      Offset(0, size.height),
-      Offset(size.width, size.height),
-      paint,
-      dashLength,
-      gapLength,
-    );
-    // Left
-    _drawDashedLine(
-      canvas,
-      Offset.zero,
-      Offset(0, size.height),
-      paint,
-      dashLength,
-      gapLength,
-    );
-  }
-
-  void _drawDashedLine(
-    Canvas canvas,
-    Offset start,
-    Offset end,
-    Paint paint,
-    double dashLen,
-    double gapLen,
-  ) {
-    final dx = end.dx - start.dx;
-    final dy = end.dy - start.dy;
-    final length = sqrt(dx * dx + dy * dy);
-    final unitX = dx / length;
-    final unitY = dy / length;
-
-    double distance = 0;
-    bool draw = true;
-
-    while (distance < length) {
-      final segLen = draw ? dashLen : gapLen;
-      final endDist = (distance + segLen).clamp(0.0, length);
-
-      if (draw) {
-        canvas.drawLine(
-          Offset(start.dx + unitX * distance, start.dy + unitY * distance),
-          Offset(start.dx + unitX * endDist, start.dy + unitY * endDist),
-          paint,
-        );
-      }
-
-      distance = endDist;
-      draw = !draw;
-    }
   }
 
   @override
   bool shouldRepaint(covariant _DashedBorderPainter oldDelegate) => false;
 }
 
-/// Painter per la linea connettore al rotation handle
-class _ConnectorLinePainter extends CustomPainter {
-  final bool isDark;
 
-  _ConnectorLinePainter({this.isDark = false});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = Colors.blue.withValues(alpha: 0.6)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0;
-
-    canvas.drawLine(
-      Offset(size.width / 2, 0),
-      Offset(size.width / 2, size.height),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _ConnectorLinePainter oldDelegate) => false;
-}
 
 /// 🌊 Painter for reflow ghost previews.
 ///

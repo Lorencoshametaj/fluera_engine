@@ -36,6 +36,15 @@ class CellBorders {
   /// Whether no borders are visible.
   bool get hasNone => !top && !bottom && !left && !right;
 
+  /// Create a copy with selective overrides.
+  CellBorders copyWith({bool? top, bool? bottom, bool? left, bool? right}) =>
+      CellBorders(
+        top: top ?? this.top,
+        bottom: bottom ?? this.bottom,
+        left: left ?? this.left,
+        right: right ?? this.right,
+      );
+
   Map<String, dynamic> toJson() => {
     'top': top,
     'bottom': bottom,
@@ -189,6 +198,32 @@ class CellFormat {
     italic,
     borders,
   );
+
+  /// Merge this format (base) with an [overlay].
+  ///
+  /// Non-null properties in [overlay] override `this`. Useful for
+  /// layering conditional formatting on top of static cell formatting.
+  CellFormat mergeWith(CellFormat overlay) => CellFormat(
+    numberFormat: overlay.numberFormat ?? numberFormat,
+    horizontalAlign: overlay.horizontalAlign ?? horizontalAlign,
+    verticalAlign: overlay.verticalAlign ?? verticalAlign,
+    fontSize: overlay.fontSize ?? fontSize,
+    textColor: overlay.textColor ?? textColor,
+    backgroundColor: overlay.backgroundColor ?? backgroundColor,
+    bold: overlay.bold ?? bold,
+    italic: overlay.italic ?? italic,
+    borders: overlay.borders ?? borders,
+  );
+
+  /// Merge two nullable formats. Returns `null` if both are `null`.
+  ///
+  /// [overlay] properties override [base] properties.
+  static CellFormat? merge(CellFormat? base, CellFormat? overlay) {
+    if (base == null && overlay == null) return null;
+    if (overlay == null) return base;
+    if (base == null) return overlay;
+    return base.mergeWith(overlay);
+  }
 }
 
 /// Horizontal alignment options.

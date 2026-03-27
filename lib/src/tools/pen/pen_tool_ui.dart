@@ -124,40 +124,21 @@ extension _PenToolUI on PenTool {
                                     : strokeColor.withValues(alpha: 0.2);
                           }),
                     ),
-                    const SizedBox(width: 4),
+                    // V1: HIDDEN — advanced pen tool options below
+                    // Re-enable post-launch by uncommenting.
 
-                    // 45° angle constraint.
-                    _toggleChip(
-                      cs: cs,
-                      icon: Icons.straighten_rounded,
-                      active: constrainAngles,
-                      tooltip: '45°',
-                      onTap:
-                          () => setLocalState(() {
-                            constrainAngles = !constrainAngles;
-                          }),
-                    ),
-                    const SizedBox(width: 4),
-
-                    // Grid snap.
-                    _toggleChip(
-                      cs: cs,
-                      icon: Icons.grid_on_rounded,
-                      active: gridSpacing != null,
-                      onTap: () => _showGridPopup(ctx, cs, setLocalState),
-                    ),
-                    const SizedBox(width: 4),
-
-                    // Curvature comb.
-                    _toggleChip(
-                      cs: cs,
-                      icon: Icons.show_chart_rounded,
-                      active: showCurvatureComb,
-                      onTap:
-                          () => setLocalState(() {
-                            showCurvatureComb = !showCurvatureComb;
-                          }),
-                    ),
+                    // const SizedBox(width: 4),
+                    // // 45° angle constraint.
+                    // _toggleChip(cs: cs, icon: Icons.straighten_rounded, active: constrainAngles, tooltip: '45°',
+                    //     onTap: () => setLocalState(() { constrainAngles = !constrainAngles; })),
+                    // const SizedBox(width: 4),
+                    // // Grid snap.
+                    // _toggleChip(cs: cs, icon: Icons.grid_on_rounded, active: gridSpacing != null,
+                    //     onTap: () => _showGridPopup(ctx, cs, setLocalState)),
+                    // const SizedBox(width: 4),
+                    // // Curvature comb.
+                    // _toggleChip(cs: cs, icon: Icons.show_chart_rounded, active: showCurvatureComb,
+                    //     onTap: () => setLocalState(() { showCurvatureComb = !showCurvatureComb; })),
                   ],
                 ),
 
@@ -243,105 +224,23 @@ extension _PenToolUI on PenTool {
                   ),
                 ],
 
-                // ── ROW 3: Path operations (reverse, delete selected, type cycle) ──
-                if (_anchors.length >= 2) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Reverse path direction.
-                      _actionChip(
-                        cs: cs,
-                        icon: Icons.swap_horiz_rounded,
-                        onTap: () {
-                          reversePathDirection();
-                          onToolOptionsChanged?.call();
-                        },
-                      ),
-                      const SizedBox(width: 4),
-
-                      // Delete selected anchors.
-                      if (_selectedAnchorIndices.isNotEmpty)
-                        _actionChip(
-                          cs: cs,
-                          icon: Icons.delete_outline_rounded,
-                          color: cs.error,
-                          onTap: () {
-                            deleteSelectedAnchors();
-                            onToolOptionsChanged?.call();
-                          },
-                        ),
-                      if (_selectedAnchorIndices.isNotEmpty)
-                        const SizedBox(width: 4),
-
-                      // Cycle type on last-tapped anchor.
-                      if (_editingAnchorIndex >= 0 ||
-                          _lastTappedAnchorIndex >= 0)
-                        _actionChip(
-                          cs: cs,
-                          icon: Icons.transform_rounded,
-                          onTap: () {
-                            final idx =
-                                _editingAnchorIndex >= 0
-                                    ? _editingAnchorIndex
-                                    : _lastTappedAnchorIndex;
-                            cycleAnchorTypeAt(idx);
-                            onToolOptionsChanged?.call();
-                          },
-                        ),
-
-                      // Equalize handles.
-                      if (_editingAnchorIndex >= 0)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: _actionChip(
-                            cs: cs,
-                            icon: Icons.balance_rounded,
-                            onTap: () {
-                              equalizeHandlesAt(_editingAnchorIndex);
-                              onToolOptionsChanged?.call();
-                            },
-                          ),
-                        ),
-
-                      // Auto-smooth.
-                      const SizedBox(width: 4),
-                      _actionChip(
-                        cs: cs,
-                        icon: Icons.auto_awesome_rounded,
-                        onTap: () {
-                          autoSmooth();
-                          onToolOptionsChanged?.call();
-                        },
-                      ),
-
-                      // Edit mode badge.
-                      if (_isEditingExisting)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: cs.tertiaryContainer,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              'EDIT',
-                              style: TextStyle(
-                                color: cs.onTertiaryContainer,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.0,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
+                // V1: HIDDEN — Row 3 advanced path operations
+                // Re-enable post-launch by uncommenting.
+                // // ── ROW 3: Path operations (reverse, delete selected, type cycle) ──
+                // if (_anchors.length >= 2) ...[
+                //   const SizedBox(height: 6),
+                //   Row(mainAxisSize: MainAxisSize.min, children: [
+                //     _actionChip(cs: cs, icon: Icons.swap_horiz_rounded, onTap: () { reversePathDirection(); onToolOptionsChanged?.call(); }),
+                //     const SizedBox(width: 4),
+                //     if (_selectedAnchorIndices.isNotEmpty) _actionChip(cs: cs, icon: Icons.delete_outline_rounded, color: cs.error, onTap: () { deleteSelectedAnchors(); onToolOptionsChanged?.call(); }),
+                //     if (_selectedAnchorIndices.isNotEmpty) const SizedBox(width: 4),
+                //     if (_editingAnchorIndex >= 0 || _lastTappedAnchorIndex >= 0) _actionChip(cs: cs, icon: Icons.transform_rounded, onTap: () { cycleAnchorTypeAt(_editingAnchorIndex >= 0 ? _editingAnchorIndex : _lastTappedAnchorIndex); onToolOptionsChanged?.call(); }),
+                //     if (_editingAnchorIndex >= 0) Padding(padding: const EdgeInsets.only(left: 4), child: _actionChip(cs: cs, icon: Icons.balance_rounded, onTap: () { equalizeHandlesAt(_editingAnchorIndex); onToolOptionsChanged?.call(); })),
+                //     const SizedBox(width: 4),
+                //     _actionChip(cs: cs, icon: Icons.auto_awesome_rounded, onTap: () { autoSmooth(); onToolOptionsChanged?.call(); }),
+                //     if (_isEditingExisting) Padding(padding: const EdgeInsets.only(left: 8), child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: cs.tertiaryContainer, borderRadius: BorderRadius.circular(8)), child: Text('EDIT', style: TextStyle(color: cs.onTertiaryContainer, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.0)))),
+                //   ]),
+                // ],
               ],
             ),
           ),

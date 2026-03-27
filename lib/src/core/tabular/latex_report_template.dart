@@ -334,7 +334,9 @@ class LatexReportTemplate {
             final clampedEnd = merge.endColumn.clamp(minCol, maxCol);
             final colSpan = clampedEnd - merge.startColumn + 1;
             if (colSpan > 1) {
-              cells.add('\\multicolumn{$colSpan}{|c|}{}');
+              final lB = _borders(merge.startColumn, row).left ? '|' : '';
+              final rB = _borders(merge.endColumn, row).right ? '|' : '';
+              cells.add('\\multicolumn{$colSpan}{${lB}c$rB}{}');
             } else {
               cells.add('');
             }
@@ -360,11 +362,15 @@ class LatexReportTemplate {
 
           if (colSpan > 1 && rowSpan > 1) {
             // 2D merge: \multicolumn wrapping \multirow.
+            final lB = _borders(col, row).left ? '|' : '';
+            final rB = _borders(clampedEndCol, row).right ? '|' : '';
             cellText =
-                '\\multicolumn{$colSpan}{|c|}'
+                '\\multicolumn{$colSpan}{${lB}c$rB}'
                 '{\\multirow{$rowSpan}{*}{$cellText}}';
           } else if (colSpan > 1) {
-            cellText = '\\multicolumn{$colSpan}{|c|}{$cellText}';
+            final lB = _borders(col, row).left ? '|' : '';
+            final rB = _borders(clampedEndCol, row).right ? '|' : '';
+            cellText = '\\multicolumn{$colSpan}{${lB}c$rB}{$cellText}';
           } else if (rowSpan > 1) {
             cellText = '\\multirow{$rowSpan}{*}{$cellText}';
           }
@@ -531,7 +537,7 @@ class LatexReportTemplate {
         segStart ??= i;
       } else {
         if (segStart != null) {
-          buf.writeln('\\cline{${segStart + 1}-${i}');
+          buf.writeln('\\cline{${segStart + 1}-$i}');
           segStart = null;
         }
       }

@@ -329,8 +329,8 @@ class EngineThemeData {
 
   /// Material Design 3 inspired light theme.
   factory EngineThemeData.light() => EngineThemeData(
-    id: 'nebula_light',
-    name: 'Nebula Light',
+    id: 'fluera_light',
+    name: 'Fluera Light',
     brightness: ThemeBrightness.light,
     colors: const ColorPalette(
       primary: Color(0xFF6750A4),
@@ -352,8 +352,8 @@ class EngineThemeData {
 
   /// Material Design 3 inspired dark theme.
   factory EngineThemeData.dark() => EngineThemeData(
-    id: 'nebula_dark',
-    name: 'Nebula Dark',
+    id: 'fluera_dark',
+    name: 'Fluera Dark',
     brightness: ThemeBrightness.dark,
     colors: const ColorPalette(
       primary: Color(0xFFD0BCFF),
@@ -514,7 +514,7 @@ class ThemeResolver {
 /// final manager = EngineThemeManager(eventBus: scope.eventBus);
 /// manager.registerTheme(EngineThemeData.light());
 /// manager.registerTheme(EngineThemeData.dark());
-/// manager.setActiveTheme('nebula_dark'); // fires theme changed event
+/// manager.setActiveTheme('fluera_dark'); // fires theme changed event
 /// ```
 class EngineThemeManager extends ChangeNotifier {
   final EngineEventBus? _eventBus;
@@ -536,7 +536,7 @@ class EngineThemeManager extends ChangeNotifier {
       _active = EngineThemeData.light() {
     // Pre-register default themes.
     _themes[_active.id] = _active;
-    _themes['nebula_dark'] = EngineThemeData.dark();
+    _themes['fluera_dark'] = EngineThemeData.dark();
   }
 
   /// The currently active theme.
@@ -595,9 +595,9 @@ class EngineThemeManager extends ChangeNotifier {
   /// Toggle between light and dark themes.
   void toggleBrightness() {
     if (_active.brightness == ThemeBrightness.light) {
-      setActiveTheme('nebula_dark');
+      setActiveTheme('fluera_dark');
     } else {
-      setActiveTheme('nebula_light');
+      setActiveTheme('fluera_light');
     }
   }
 }

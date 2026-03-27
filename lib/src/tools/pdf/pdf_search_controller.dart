@@ -4,7 +4,7 @@ import '../../core/nodes/pdf_document_node.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/models/ocr_result.dart';
 import '../../core/models/pdf_text_rect.dart';
-import '../../canvas/nebula_canvas_config.dart';
+import '../../canvas/fluera_canvas_config.dart';
 import '../../core/engine_scope.dart';
 import '../../core/engine_error.dart';
 import '../../core/engine_telemetry.dart';
@@ -63,7 +63,7 @@ class _DocState {
   /// Raw PDF bytes. Nullable: cleared after full Dart text extraction
   /// succeeds to free RAM (Issue 6).
   Uint8List? bytes;
-  final NebulaPdfProvider? provider;
+  final FlueraPdfProvider? provider;
   List<ExtractedPageText>? extractedPages;
   final Map<int, String> textCache = {};
 
@@ -207,7 +207,7 @@ class PdfSearchController extends ChangeNotifier {
   void registerDocument(
     String documentId,
     Uint8List bytes, {
-    NebulaPdfProvider? provider,
+    FlueraPdfProvider? provider,
   }) {
     _documents[documentId] = _DocState(bytes: bytes, provider: provider);
   }
@@ -432,10 +432,6 @@ class PdfSearchController extends ChangeNotifier {
     if (_searchVersion != version) return;
 
     if (kDebugMode) {
-      debugPrint(
-        '[PDF Search] Streaming Done: $totalPagesWithText pages had text, '
-        '${_matches.length} matches across ${docs.length} document(s)',
-      );
     }
 
     _isSearching = false;
@@ -749,6 +745,20 @@ class PdfSearchController extends ChangeNotifier {
 
   /// Ensures [rects] are in normalized 0.0–1.0 coordinates with Y=0 at top.
   ///
+  /// Public wrapper for standalone usage (e.g. PdfReaderScreen text selection).
+  static List<PdfTextRect> normalizeRectsPublic(
+    List<PdfTextRect> rects,
+    double extractorWidth,
+    double extractorHeight, {
+    bool isYFlipped = false,
+    double originX = 0,
+    double originY = 0,
+  }) =>
+      _normalizeRects(rects, extractorWidth, extractorHeight,
+          isYFlipped: isYFlipped, originX: originX, originY: originY);
+
+  /// Ensures [rects] are in normalized 0.0–1.0 coordinates with Y=0 at top.
+  ///
   /// 1. Detects if rects are already normalized (values ≤ 1.5).
   /// 2. If not normalized, divides by the extractor's page dimensions.
   /// 3. Uses the extractor's [isYFlipped] flag (from CTM d-component):
@@ -969,12 +979,6 @@ class PdfSearchController extends ChangeNotifier {
                         0,
                         extracted.text.length.clamp(0, 50),
                       );
-                      debugPrint('[PDF DBG] Native text p0: "$nativeSnip"');
-                      debugPrint('[PDF DBG] Dart text p0:   "$dartSnip"');
-                      debugPrint(
-                        '[PDF DBG] Native len=${text.length}, '
-                        'Dart len=${extracted.text.length}',
-                      );
                     }
                     docState.textCache[pageIndex] = extracted.text;
                     return extracted.text;
@@ -1144,12 +1148,6 @@ class PdfSearchController extends ChangeNotifier {
       });
 
       if (kDebugMode) {
-        debugPrint(
-          '[PDF OCR] Page $pageIndex: ${enriched.blocks.length} blocks, '
-          '${enriched.text.length} chars, '
-          'avgConf=${enriched.averageConfidence?.toStringAsFixed(2) ?? "n/a"}, '
-          '${stopwatch.elapsedMilliseconds}ms',
-        );
       }
 
       // Cache results

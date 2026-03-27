@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/image_fill_mode.dart';
+import 'package:fluera_engine/src/systems/image_fill_mode.dart';
 import 'dart:ui';
 import 'package:vector_math/vector_math_64.dart';
 

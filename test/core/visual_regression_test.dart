@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/testing/golden_snapshot.dart';
-import 'package:nebula_engine/src/core/testing/performance_baseline.dart';
-import 'package:nebula_engine/src/core/testing/pixel_diff_engine.dart';
-import 'package:nebula_engine/src/core/testing/visual_regression_runner.dart';
+import 'package:fluera_engine/src/core/testing/golden_snapshot.dart';
+import 'package:fluera_engine/src/core/testing/performance_baseline.dart';
+import 'package:fluera_engine/src/core/testing/pixel_diff_engine.dart';
+import 'package:fluera_engine/src/core/testing/visual_regression_runner.dart';
 
 /// Create a solid RGBA image of the given color.
 Uint8List _solidImage(int w, int h, int r, int g, int b, [int a = 255]) {

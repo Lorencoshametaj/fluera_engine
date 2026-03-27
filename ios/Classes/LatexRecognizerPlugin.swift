@@ -16,7 +16,7 @@ import Flutter
 /// 3. Decode autoregressively via decoder.ptl → token IDs
 /// 4. Convert token IDs → LaTeX string via vocab.json
 ///
-/// Channel: `nebula_engine/latex_recognition`
+/// Channel: `fluera_engine/latex_recognition`
 public class LatexRecognizerPlugin: NSObject, FlutterPlugin {
     
     // PyTorch Mobile modules
@@ -38,7 +38,7 @@ public class LatexRecognizerPlugin: NSObject, FlutterPlugin {
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
-            name: "nebula_engine/latex_recognition",
+            name: "fluera_engine/latex_recognition",
             binaryMessenger: registrar.messenger()
         )
         let instance = LatexRecognizerPlugin()

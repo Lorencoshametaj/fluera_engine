@@ -1,4 +1,4 @@
-import 'dart:io';
+import '../../utils/platform_guard.dart';
 import 'package:flutter/gestures.dart';
 
 /// 🖊️ STYLUS DETECTOR
@@ -19,13 +19,13 @@ class StylusDetector {
 
   /// Checks if the device supports the stylus
   static bool get isStylusSupported {
-    if (Platform.isAndroid) {
+    if (PlatformGuard.isAndroid) {
       // Samsung, Wacom e altri Android devices
       return true;
-    } else if (Platform.isIOS) {
+    } else if (PlatformGuard.isIOS) {
       // Apple Pencil su iPad
       return true;
-    } else if (Platform.isWindows) {
+    } else if (PlatformGuard.isWindows) {
       // Surface Pen e altri Windows devices
       return true;
     }
@@ -109,11 +109,11 @@ class StylusDetector {
 
   /// Informazioni specifiche per piattaforma
   static String getPlatformStylusInfo() {
-    if (Platform.isAndroid) {
+    if (PlatformGuard.isAndroid) {
       return 'Android (Samsung S Pen, Wacom, Generic)';
-    } else if (Platform.isIOS) {
+    } else if (PlatformGuard.isIOS) {
       return 'iOS (Apple Pencil)';
-    } else if (Platform.isWindows) {
+    } else if (PlatformGuard.isWindows) {
       return 'Windows (Surface Pen, Wacom)';
     }
     return 'Platform not supported';

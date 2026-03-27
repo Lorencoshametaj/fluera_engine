@@ -4,7 +4,7 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
-import '../nebula_layer_controller.dart';
+import '../fluera_layer_controller.dart';
 
 /// 🖼️ Adapter for Infinite Canvas
 ///
@@ -101,12 +101,12 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
   // ============================================================================
 
   @override
-  void addStroke(NebulaLayerController controller, ProStroke stroke) {
+  void addStroke(FlueraLayerController controller, ProStroke stroke) {
     controller.addStroke(stroke);
   }
 
   @override
-  void removeStroke(NebulaLayerController controller, String strokeId) {
+  void removeStroke(FlueraLayerController controller, String strokeId) {
     final layer = controller.activeLayer;
     if (layer == null) return;
 
@@ -118,7 +118,7 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
 
   @override
   List<ProStroke> getStrokesInViewport(
-    NebulaLayerController controller,
+    FlueraLayerController controller,
     Rect viewport,
   ) {
     // Use spatial index when available for O(log n) performance
@@ -141,12 +141,12 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
   // ============================================================================
 
   @override
-  void addShape(NebulaLayerController controller, GeometricShape shape) {
+  void addShape(FlueraLayerController controller, GeometricShape shape) {
     controller.addShape(shape);
   }
 
   @override
-  void removeShape(NebulaLayerController controller, String shapeId) {
+  void removeShape(FlueraLayerController controller, String shapeId) {
     final layer = controller.activeLayer;
     if (layer == null) return;
 
@@ -158,7 +158,7 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
 
   @override
   List<GeometricShape> getShapesInViewport(
-    NebulaLayerController controller,
+    FlueraLayerController controller,
     Rect viewport,
   ) {
     // Use spatial index when available
@@ -239,7 +239,7 @@ class InfiniteCanvasAdapter extends CanvasAdapter {
   // DEBUG
   // ============================================================================
 
-  AdapterDebugInfo getDebugInfo(NebulaLayerController controller) {
+  AdapterDebugInfo getDebugInfo(FlueraLayerController controller) {
     return AdapterDebugInfo(
       contextType: contextType,
       contextId: contextId,

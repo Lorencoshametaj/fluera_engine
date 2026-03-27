@@ -54,14 +54,7 @@ class TimeTravelCompressor {
 
     final compressed = Map<String, dynamic>.from(strokeData);
     compressed['points'] = _compressPoints(
-      List<Map<String, dynamic>>.from(
-        points.map(
-          (p) =>
-              p is Map<String, dynamic>
-                  ? p
-                  : Map<String, dynamic>.from(p as Map),
-        ),
-      ),
+      List<Map<String, dynamic>>.from(points.map((p) => _normalizePoint(p))),
     );
     compressed['_tt_v'] = 1; // Versione formato compresso
 
@@ -257,6 +250,29 @@ class TimeTravelCompressor {
   /// Quantizza coordinata a fixed-point integer
   /// 412.3456 → 4123 (with scale=10, i.e. 1 decimal)
   static int _quantizeCoord(double value) => (value * _coordScale).round();
+
+  /// Normalize a point from array format [x, y, p?, tx?, ty?, o?] to Map,
+  /// or pass through if already a Map.
+  static Map<String, dynamic> _normalizePoint(dynamic p) {
+    if (p is Map<String, dynamic>) return p;
+    if (p is Map) return Map<String, dynamic>.from(p);
+
+    // Array format: [x, y, p?, tx?, ty?, o?]
+    if (p is List) {
+      final map = <String, dynamic>{
+        'x': p[0],
+        'y': p[1],
+        'pressure': p.length > 2 ? p[2] : 1.0,
+        'timestamp': 0,
+      };
+      if (p.length > 3) map['tiltX'] = p[3];
+      if (p.length > 4) map['tiltY'] = p[4];
+      if (p.length > 5) map['orientation'] = p[5];
+      return map;
+    }
+
+    return <String, dynamic>{};
+  }
 
   /// Round to 2 decimals (for pressure/tilt/orientation)
   static double _round2(double value) => (value * 100).roundToDouble() / 100;

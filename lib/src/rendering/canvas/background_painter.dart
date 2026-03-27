@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import './paper_pattern_painter.dart';
@@ -46,34 +47,103 @@ class BackgroundPainter extends CustomPainter {
     // 2️⃣ Se is blank, non serve disegnare il pattern
     if (paperType == 'blank') return;
 
-    // 3️⃣ Genera/aggiorna tile cache
-    _regenerateTileIfNeeded();
+    // Delegate to static method for reuse by DrawingPainter
+    paintTilesStatic(canvas, size, paperType, backgroundColor, controller);
+  }
 
-    // 4️⃣ Viewport-level tile rendering (~4-9 visible tiles)
+  /// 🚀 LAYER MERGE: Static method for rendering background tiles.
+  /// Called by both BackgroundPainter.paint() and DrawingPainter.paint().
+  static void paintTilesStatic(
+    Canvas canvas,
+    Size size,
+    String paperType,
+    Color backgroundColor,
+    InfiniteCanvasController controller,
+  ) {
+    // Genera/aggiorna tile cache
+    _regenerateTileIfNeededStatic(paperType, backgroundColor);
+
+    // Viewport-level tile rendering
     final canvasScale = controller.scale;
     final canvasOffset = controller.offset;
     final rotation = controller.rotation;
     final scaledTileSize = _cachedTileSize * canvasScale;
-
-    // When rotated, we need more tiles to cover the rotated viewport
-    final extraTiles =
-        rotation != 0.0 ? (size.longestSide / scaledTileSize * 0.5).ceil() : 0;
-
     final originScreenX = canvasOffset.dx;
     final originScreenY = canvasOffset.dy;
 
-    // Primo/ultimo tile visibile (supporta coordinate negative)
-    final firstTileX =
-        ((0 - originScreenX) / scaledTileSize).floor() - extraTiles;
-    final firstTileY =
-        ((0 - originScreenY) / scaledTileSize).floor() - extraTiles;
-    final lastTileX =
-        ((size.width - originScreenX) / scaledTileSize).ceil() + extraTiles;
-    final lastTileY =
-        ((size.height - originScreenY) / scaledTileSize).ceil() + extraTiles;
+    // Compute visible tile range.
+    // When the canvas is rotated, the axis-aligned viewport rectangle covers
+    // a larger area in canvas space. We transform all 4 viewport corners
+    // through the INVERSE canvas transform to find the AABB in canvas space,
+    // then convert to tile indices.
+    int firstTileX, firstTileY, lastTileX, lastTileY;
 
-    // 5️⃣ Apply canvas transform (translate + rotate) then print tiles
+    if (rotation == 0.0) {
+      // Fast path: no rotation — simple axis-aligned calculation
+      firstTileX = ((0 - originScreenX) / scaledTileSize).floor();
+      firstTileY = ((0 - originScreenY) / scaledTileSize).floor();
+      lastTileX = ((size.width - originScreenX) / scaledTileSize).ceil();
+      lastTileY = ((size.height - originScreenY) / scaledTileSize).ceil();
+    } else {
+      // Slow path: rotation — compute AABB of rotated viewport in canvas space.
+      // Inverse transform: un-translate → un-rotate → result is in canvas space.
+      final cosR = math.cos(-rotation);
+      final sinR = math.sin(-rotation);
+
+      // Viewport corners in screen space
+      final corners = [
+        Offset.zero,
+        Offset(size.width, 0),
+        Offset(size.width, size.height),
+        Offset(0, size.height),
+      ];
+
+      double minCX = double.infinity, minCY = double.infinity;
+      double maxCX = double.negativeInfinity, maxCY = double.negativeInfinity;
+
+      for (final corner in corners) {
+        // Un-translate (remove canvas origin offset)
+        final dx = corner.dx - originScreenX;
+        final dy = corner.dy - originScreenY;
+        // Un-rotate
+        final cx = dx * cosR - dy * sinR;
+        final cy = dx * sinR + dy * cosR;
+
+        if (cx < minCX) minCX = cx;
+        if (cy < minCY) minCY = cy;
+        if (cx > maxCX) maxCX = cx;
+        if (cy > maxCY) maxCY = cy;
+      }
+
+      firstTileX = (minCX / scaledTileSize).floor() - 1;
+      firstTileY = (minCY / scaledTileSize).floor() - 1;
+      lastTileX = (maxCX / scaledTileSize).ceil() + 1;
+      lastTileY = (maxCY / scaledTileSize).ceil() + 1;
+    }
+
+    // 🌀 FADE: Smooth opacity transition when zooming out.
+    // Below 36 tiles: full opacity. 36→80: linear fade. Above 80: invisible.
+    final tileCount = (lastTileX - firstTileX + 1) * (lastTileY - firstTileY + 1);
+    if (tileCount > 80) return; // Hard cap — fully invisible
+
+    const fadeStart = 36;
+    const fadeEnd = 80;
+    final patternOpacity = tileCount <= fadeStart
+        ? 1.0
+        : 1.0 - ((tileCount - fadeStart) / (fadeEnd - fadeStart)).clamp(0.0, 1.0);
+
+    // Apply canvas transform (translate + rotate) then print tiles
     canvas.save();
+
+    // 🌀 FADE: If fading, wrap in saveLayer with alpha modulation.
+    // saveLayer composites the layer back using paint.color.alpha.
+    if (patternOpacity < 1.0) {
+      canvas.saveLayer(
+        Rect.fromLTWH(0, 0, size.width, size.height),
+        Paint()..color = Color.fromARGB((patternOpacity * 255).round(), 255, 255, 255),
+      );
+    }
+
     canvas.translate(originScreenX, originScreenY);
     if (rotation != 0.0) {
       canvas.rotate(rotation);
@@ -92,11 +162,17 @@ class BackgroundPainter extends CustomPainter {
       }
     }
 
+    if (patternOpacity < 1.0) {
+      canvas.restore(); // saveLayer
+    }
     canvas.restore();
   }
 
-  /// Rigenera il tile cache only if necessario
-  void _regenerateTileIfNeeded() {
+  /// Static version of tile regeneration for use by paintTilesStatic
+  static void _regenerateTileIfNeededStatic(
+    String paperType,
+    Color backgroundColor,
+  ) {
     final needsRegeneration =
         _cachedTile == null ||
         _cachedPaperType != paperType ||

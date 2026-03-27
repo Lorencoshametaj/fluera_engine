@@ -28,7 +28,14 @@ abstract final class EraserHitTester {
     double eraserShapeWidth = 30.0,
     double eraserShapeAngle = 0.0,
   }) {
-    if (stroke.points.isEmpty) return false;
+    // 🚀 STUB SUPPORT: strokes paged out to disk have bounds but no points.
+    // Use bounds-based hit test as a conservative approximation.
+    if (stroke.points.isEmpty) {
+      final bounds = stroke.bounds;
+      if (bounds == Rect.zero) return false;
+      final expanded = bounds.inflate(eraserRadius);
+      return expanded.contains(eraserCenter);
+    }
 
     // Quick bounding box rejection
     final bbox = strokeBBox(stroke);
@@ -271,7 +278,10 @@ abstract final class EraserHitTester {
 
   /// Quick bounding box for a stroke (delegates to cached ProStroke.bounds).
   static Rect? strokeBBox(ProStroke stroke) {
+    // Stubs have _forcedBounds — use those even with empty points
+    final bounds = stroke.bounds;
+    if (bounds != Rect.zero) return bounds;
     if (stroke.points.isEmpty) return null;
-    return stroke.bounds;
+    return bounds;
   }
 }

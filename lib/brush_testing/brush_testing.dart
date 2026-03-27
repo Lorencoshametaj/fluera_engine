@@ -1,3 +1,3 @@
 /// Compatibility re-export for old import path.
-/// Prefer: `import 'package:nebula_engine/nebula_engine.dart';`
-export 'package:nebula_engine/testing/brush_testing.dart';
+/// Prefer: `import 'package:fluera_engine/fluera_engine.dart';`
+export 'package:fluera_engine/testing/brush_testing.dart';

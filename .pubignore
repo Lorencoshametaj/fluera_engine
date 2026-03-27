@@ -1,0 +1,32 @@
+# Files and directories to exclude from `dart pub publish`.
+
+# ML models (LaTeX recognition — available as separate add-on)
+assets/models/
+onnx_ep*
+hme_attn_onnx/
+hme_attn_vocab.json
+
+# PyTorch training artifacts
+*.pt
+scripts/
+hw_fonts/
+
+# Build artifacts
+build/
+doc/
+docs/
+
+# Dev/test artifacts
+test_results.*
+test_failures.*
+flutter_*.log
+distill_log.txt
+gpu_shaders.shaderbundle.json
+
+# Phase 2 disabled features
+_phase2_disabled/
+
+# IDE/editor
+.venv/
+.dart_tool/
+.git/

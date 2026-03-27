@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/collaboration/scene_graph_crdt.dart';
+import 'package:fluera_engine/src/collaboration/scene_graph_crdt.dart';
 
 void main() {
   // ───────────────────────────────────────────────────────────────────────────

@@ -42,6 +42,10 @@ class CanvasPresenceOverlay extends StatelessWidget {
                     (data['d'] ?? data['isDrawing']) as bool? ?? false;
                 final isTyping =
                     (data['t'] ?? data['isTyping']) as bool? ?? false;
+                final isRecording =
+                    (data['r'] ?? data['isRecording']) as bool? ?? false;
+                final isListening =
+                    (data['l'] ?? data['isListening']) as bool? ?? false;
                 final name =
                     (data['n'] ?? data['displayName']) as String? ?? 'User';
                 final colorValue =
@@ -71,6 +75,8 @@ class CanvasPresenceOverlay extends StatelessWidget {
                         color: color,
                         isDrawing: isDrawing,
                         isTyping: isTyping,
+                        isRecording: isRecording,
+                        isListening: isListening,
                         displayName: name,
                         penType: penType,
                         penColor:
@@ -96,6 +102,8 @@ class _RemoteTouchIndicator extends StatefulWidget {
   final Color color;
   final bool isDrawing;
   final bool isTyping;
+  final bool isRecording;
+  final bool isListening;
   final String displayName;
   final String? penType;
   final Color? penColor;
@@ -105,6 +113,8 @@ class _RemoteTouchIndicator extends StatefulWidget {
     required this.color,
     required this.isDrawing,
     required this.isTyping,
+    this.isRecording = false,
+    this.isListening = false,
     required this.displayName,
     this.penType,
     this.penColor,
@@ -139,7 +149,10 @@ class _RemoteTouchIndicatorState extends State<_RemoteTouchIndicator>
       end: 0.0,
     ).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeOut));
 
-    if (widget.isDrawing || widget.isTyping) {
+    if (widget.isDrawing ||
+        widget.isTyping ||
+        widget.isRecording ||
+        widget.isListening) {
       _pulseController.repeat();
     }
   }
@@ -147,8 +160,16 @@ class _RemoteTouchIndicatorState extends State<_RemoteTouchIndicator>
   @override
   void didUpdateWidget(covariant _RemoteTouchIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final shouldPulse = widget.isDrawing || widget.isTyping;
-    final wasPulsing = oldWidget.isDrawing || oldWidget.isTyping;
+    final shouldPulse =
+        widget.isDrawing ||
+        widget.isTyping ||
+        widget.isRecording ||
+        widget.isListening;
+    final wasPulsing =
+        oldWidget.isDrawing ||
+        oldWidget.isTyping ||
+        oldWidget.isRecording ||
+        oldWidget.isListening;
     if (shouldPulse != wasPulsing) {
       if (shouldPulse) {
         _pulseController.repeat();
@@ -167,6 +188,8 @@ class _RemoteTouchIndicatorState extends State<_RemoteTouchIndicator>
 
   /// Get tool icon based on pen type
   IconData _getToolIcon() {
+    if (widget.isListening) return Icons.headphones;
+    if (widget.isRecording) return Icons.mic;
     if (widget.isTyping) return Icons.keyboard;
     switch (widget.penType) {
       case 'pencil':
@@ -189,9 +212,19 @@ class _RemoteTouchIndicatorState extends State<_RemoteTouchIndicator>
   @override
   Widget build(BuildContext context) {
     final color = widget.color;
-    final isActive = widget.isDrawing || widget.isTyping;
+    final isActive =
+        widget.isDrawing ||
+        widget.isTyping ||
+        widget.isRecording ||
+        widget.isListening;
     final dotColor =
-        widget.isDrawing && widget.penColor != null ? widget.penColor! : color;
+        widget.isDrawing && widget.penColor != null
+            ? widget.penColor!
+            : widget.isRecording
+            ? Colors.red
+            : widget.isListening
+            ? Colors.green
+            : color;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -278,7 +311,11 @@ class _RemoteTouchIndicatorState extends State<_RemoteTouchIndicator>
                 const SizedBox(width: 3),
               ],
               Text(
-                widget.isTyping
+                widget.isListening
+                    ? '${widget.displayName} 🎧'
+                    : widget.isRecording
+                    ? '${widget.displayName} 🎤'
+                    : widget.isTyping
                     ? '${widget.displayName} ✍️'
                     : widget.displayName,
                 style: const TextStyle(

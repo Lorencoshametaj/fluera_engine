@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nebula_engine/src/rendering/optimization/snapshot_cache_manager.dart';
+import 'package:fluera_engine/src/rendering/optimization/snapshot_cache_manager.dart';
 
 void main() {
   group('SnapshotCacheManager node-based API (GAP 8)', () {

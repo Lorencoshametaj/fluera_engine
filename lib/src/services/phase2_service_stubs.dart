@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
+import '../utils/safe_path_provider.dart';
 
 import '../history/models/canvas_branch.dart';
 import '../core/models/canvas_layer.dart';
@@ -18,11 +19,11 @@ import '../time_travel/models/time_travel_session.dart';
 import '../time_travel/services/time_travel_playback_engine.dart';
 import '../time_travel/services/time_travel_recorder.dart';
 
-// ─── Inlined Interfaces (were in deleted nebula_sync_interfaces.dart) ────
+// ─── Inlined Interfaces (were in deleted fluera_sync_interfaces.dart) ────
 
 /// Abstract interface for time travel storage.
 /// Phase 2: host app will provide a concrete implementation.
-abstract class NebulaTimeTravelStorage {
+abstract class FlueraTimeTravelStorage {
   Future<List<TimeTravelSession>> loadSessionIndex(
     String canvasId, {
     String? branchId,
@@ -41,7 +42,7 @@ abstract class NebulaTimeTravelStorage {
 
 /// Abstract interface for branch cloud sync.
 /// Phase 2: host app will provide a Firebase RTDB-backed implementation.
-abstract class NebulaBranchCloudSync {
+abstract class FlueraBranchCloudSync {
   Future<void> syncBranchMetadata(String canvasId, CanvasBranch branch);
   Future<void> uploadForkSnapshot({
     required String canvasId,
@@ -75,10 +76,10 @@ abstract class NebulaBranchCloudSync {
 
 // ─── TimeTravelStorageService ───────────────────────────────────────────
 
-/// Stub implementation of [NebulaTimeTravelStorage].
+/// Stub implementation of [FlueraTimeTravelStorage].
 /// Phase 2: the host app will provide a real implementation backed by
 /// local filesystem + path_provider.
-class TimeTravelStorageService implements NebulaTimeTravelStorage {
+class TimeTravelStorageService implements FlueraTimeTravelStorage {
   @override
   Future<List<TimeTravelSession>> loadSessionIndex(
     String canvasId, {
@@ -99,7 +100,6 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
           )
           .toList();
     } catch (e) {
-      debugPrint('🎬 [TTStorage] Error loading session index: $e');
       return [];
     }
   }
@@ -116,9 +116,6 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
     final file = File(p.join(basePath, session.deltaFilePath));
 
     if (!await file.exists()) {
-      debugPrint(
-        '🎬 [TTStorage] Session file not found: ${session.deltaFilePath}',
-      );
       return [];
     }
 
@@ -133,9 +130,6 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
         return TimeTravelEvent.fromJson(json);
       }).toList();
     } catch (e) {
-      debugPrint(
-        '🎬 [TTStorage] Error loading events from ${session.deltaFilePath}: $e',
-      );
       return [];
     }
   }
@@ -184,14 +178,16 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
               .toList();
       return (layers, bestIndex);
     } catch (e) {
-      debugPrint('🎬 [TTStorage] Error loading snapshot: $e');
       return null;
     }
   }
 
   @override
-  Future<String> getTimeTravelPathForCanvas(String canvasId) async =>
-      '/tmp/nebula_tt/$canvasId';
+  Future<String> getTimeTravelPathForCanvas(String canvasId) async {
+    final dir = await getSafeDocumentsDirectory();
+    if (dir == null) return ''; // Web: no filesystem
+    return p.join(dir.path, 'fluera_tt', canvasId);
+  }
 
   /// 💾 Save a recorded session to disk.
   ///
@@ -205,7 +201,6 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
     String? branchId,
   }) async {
     if (!recorder.hasEvents) {
-      debugPrint('🎬 [TTStorage] No events to save');
       return;
     }
 
@@ -236,10 +231,6 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
       await _saveSnapshot(basePath, existingIndex.length - 1, currentLayers);
     }
 
-    debugPrint(
-      '🎬 [TTStorage] Saved session ${session.id} '
-      '(${session.deltaCount} events, index #${existingIndex.length - 1})',
-    );
   }
 
   /// 🗑️ Delete all time travel history for a canvas/branch.
@@ -248,7 +239,6 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
     final dir = Directory(basePath);
     if (await dir.exists()) {
       await dir.delete(recursive: true);
-      debugPrint('🎬 [TTStorage] Deleted history at $basePath');
     }
   }
 
@@ -281,18 +271,14 @@ class TimeTravelStorageService implements NebulaTimeTravelStorage {
     final file = File(p.join(snapshotDir.path, 'snapshot_$sessionIndex.json'));
     final json = layers.map((l) => l.toJson()).toList();
     await file.writeAsString(jsonEncode(json));
-    debugPrint(
-      '🎬 [TTStorage] Saved snapshot at session index $sessionIndex '
-      '(${layers.length} layers)',
-    );
   }
 }
 
 // ─── BranchCloudSyncService ─────────────────────────────────────────────
 
-/// Stub implementation of [NebulaBranchCloudSync].
+/// Stub implementation of [FlueraBranchCloudSync].
 /// Phase 2: the host app will provide a Firebase RTDB-backed implementation.
-class BranchCloudSyncService implements NebulaBranchCloudSync {
+class BranchCloudSyncService implements FlueraBranchCloudSync {
   BranchCloudSyncService._();
   static final BranchCloudSyncService instance = BranchCloudSyncService._();
 
@@ -372,7 +358,6 @@ class TimelapseExportDialog {
     required TimeTravelPlaybackEngine engine,
     required int totalEventCount,
   }) {
-    debugPrint('[Phase2 Stub] TimelapseExportDialog.show — not available yet');
   }
 }
 

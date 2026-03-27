@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/collaboration/realtime_enterprise.dart';
-import 'package:nebula_engine/src/collaboration/nebula_realtime_adapter.dart';
+import 'package:fluera_engine/src/collaboration/realtime_enterprise.dart';
+import 'package:fluera_engine/src/collaboration/fluera_realtime_adapter.dart';
 
 void main() {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -387,7 +387,7 @@ void main() {
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
-class _MockAdapter implements NebulaRealtimeAdapter {
+class _MockAdapter implements FlueraRealtimeAdapter {
   final _controller = StreamController<CanvasRealtimeEvent>.broadcast();
   final List<CanvasRealtimeEvent> sentEvents = [];
 

@@ -1,0 +1,8 @@
+dartdoc:
+  name: Fluera Engine
+  description: >
+    A professional 2D canvas engine for Flutter.
+    Provides drawing tools, brushes, layers, shapes, text,
+    images, vector networks, and a complete scene graph system.
+  output: doc/api
+  showUndocumentedCategories: true

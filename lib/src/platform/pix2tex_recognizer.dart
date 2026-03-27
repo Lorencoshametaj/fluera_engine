@@ -78,10 +78,6 @@ class Pix2TexRecognizer implements LatexRecognitionBridge {
     try {
       final available = await isAvailable();
       if (!available) {
-        debugPrint(
-          '[Pix2TexRecognizer] HTTP API not reachable at ${config.baseUrl}. '
-          'Recognition will fail until server is started.',
-        );
       }
     } catch (_) {
       // Non-fatal
@@ -240,7 +236,7 @@ class Pix2TexRecognizer implements LatexRecognitionBridge {
   /// Send a single multipart POST request to the pix2tex API.
   Future<String> _sendRequest(Uint8List imageBytes) async {
     final boundary =
-        '----NebulaPix2Tex${DateTime.now().millisecondsSinceEpoch}';
+        '----FlueraPix2Tex${DateTime.now().millisecondsSinceEpoch}';
 
     final request = await _httpClient!
         .postUrl(config.predictUri)

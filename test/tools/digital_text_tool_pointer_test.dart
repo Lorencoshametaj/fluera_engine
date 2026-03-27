@@ -1,11 +1,11 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/models/digital_text_element.dart';
-import 'package:nebula_engine/src/layers/layer_controller.dart';
-import 'package:nebula_engine/src/layers/adapters/infinite_canvas_adapter.dart';
-import 'package:nebula_engine/src/tools/base/tool_context.dart';
-import 'package:nebula_engine/src/tools/text/digital_text_tool.dart';
+import 'package:fluera_engine/src/core/models/digital_text_element.dart';
+import 'package:fluera_engine/src/layers/layer_controller.dart';
+import 'package:fluera_engine/src/layers/adapters/infinite_canvas_adapter.dart';
+import 'package:fluera_engine/src/tools/base/tool_context.dart';
+import 'package:fluera_engine/src/tools/text/digital_text_tool.dart';
 
 void main() {
   late DigitalTextTool tool;

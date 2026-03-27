@@ -173,10 +173,8 @@ class IntegrityMetrics {
 /// ```dart
 /// final violations = SceneGraphIntegrity.validate(graph);
 /// if (violations.isNotEmpty) {
-///   debugPrint('Found ${violations.length} integrity violations!');
-///   final report = SceneGraphIntegrity.validateAndRepair(graph);
-///   debugPrint('Repaired: ${report.repaired.length}');
-/// }
+//////   final report = SceneGraphIntegrity.validateAndRepair(graph);
+////// }
 /// ```
 class SceneGraphIntegrity {
   SceneGraphIntegrity._();
@@ -277,10 +275,6 @@ class SceneGraphIntegrity {
     _reportToErrorRecovery(violations, repaired);
 
     if (repaired.isNotEmpty) {
-      debugPrint(
-        '[SceneGraphIntegrity] Repaired ${repaired.length}/${violations.length} '
-        'violations',
-      );
     }
 
     return report;
@@ -618,19 +612,16 @@ class SceneGraphIntegrity {
     }
 
     walk(graph.rootNode, null);
-    debugPrint('[SceneGraphIntegrity] Parent pointers repaired');
   }
 
   /// Rebuild the spatial index from the tree.
   static void _repairSpatialIndex(SceneGraph graph) {
     graph.spatialIndex.rebuild(graph.allNodes);
-    debugPrint('[SceneGraphIntegrity] Spatial index rebuilt');
   }
 
   /// Re-register all tree nodes in the dirty tracker.
   static void _repairDirtyTracker(SceneGraph graph) {
     graph.dirtyTracker.registerSubtree(graph.rootNode);
-    debugPrint('[SceneGraphIntegrity] Dirty tracker re-synced');
   }
 
   /// Rebuild the node index from the tree.
@@ -638,7 +629,6 @@ class SceneGraphIntegrity {
   /// Removes stale ghost entries and adds missing nodes.
   static void _repairNodeIndex(SceneGraph graph) {
     graph.rebuildNodeIndex();
-    debugPrint('[SceneGraphIntegrity] Node index rebuilt');
   }
 
   /// Report violations to the centralized ErrorRecoveryService as EngineErrors.
@@ -699,16 +689,8 @@ class IntegrityWatchdog {
     _timer = Timer.periodic(interval, (_) {
       final report = SceneGraphIntegrity.validateAndRepair(_graph);
       if (report.violations.isNotEmpty) {
-        debugPrint(
-          '[IntegrityWatchdog] Found ${report.violations.length} violations '
-          '(${report.repaired.length} repaired, '
-          '${report.unresolved.length} unresolved)',
-        );
       }
     });
-    debugPrint(
-      '[IntegrityWatchdog] Started (interval: ${interval.inSeconds}s)',
-    );
   }
 
   /// Whether the watchdog is actively monitoring.

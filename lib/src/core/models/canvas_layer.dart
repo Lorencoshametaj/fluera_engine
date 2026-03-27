@@ -4,13 +4,17 @@ import './shape_type.dart';
 import './digital_text_element.dart';
 import './image_element.dart';
 import '../nodes/layer_node.dart';
+import '../nodes/stroke_node.dart';
+import '../nodes/shape_node.dart';
+import '../nodes/text_node.dart';
+import '../nodes/image_node.dart';
 import '../scene_graph/node_id.dart';
 import '../scene_graph/canvas_node_factory.dart';
 
 /// Canvas layer — thin adapter around [LayerNode].
 ///
 /// This preserves the existing public API so that all consumers
-/// (NebulaLayerController, DrawingPainter, storage services, sync, etc.)
+/// (FlueraLayerController, DrawingPainter, storage services, sync, etc.)
 /// continue compiling without changes during the migration.
 /// Internally, all data is stored in the [LayerNode] scene graph tree.
 class CanvasLayer {
@@ -112,7 +116,7 @@ class CanvasLayer {
     double? opacity,
     ui.BlendMode? blendMode,
   }) {
-    return CanvasLayer(
+    final copy = CanvasLayer(
       id: id ?? this.id,
       name: name ?? this.name,
       strokes: strokes ?? this.strokes,
@@ -124,6 +128,19 @@ class CanvasLayer {
       opacity: opacity ?? this.opacity,
       blendMode: blendMode ?? this.blendMode,
     );
+    // 🔑 Transfer non-element children (PdfDocumentNode, TabularNode, etc.)
+    // that were added directly to the node via node.add(). Without this,
+    // copyWith would discard them — causing PDFs/tables to vanish.
+    // Generic: transfers ANY non-standard child, not just PdfDocumentNode.
+    for (final child in node.children) {
+      if (child is! StrokeNode &&
+          child is! ShapeNode &&
+          child is! TextNode &&
+          child is! ImageNode) {
+        copy.node.add(child);
+      }
+    }
+    return copy;
   }
 
   // ---------------------------------------------------------------------------
@@ -132,6 +149,9 @@ class CanvasLayer {
 
   /// Serialize to JSON using the scene graph node format.
   Map<String, dynamic> toJson() => node.toJson();
+
+  /// 🚀 PERF: Serialize metadata only (no strokes) for sharded cloud save.
+  Map<String, dynamic> toJsonMetadataOnly() => node.toJsonMetadataOnly();
 
   /// Deserialize from JSON.
   ///
@@ -153,6 +173,50 @@ class CanvasLayer {
               ?.map((s) => ProStroke.fromJson(s as Map<String, dynamic>))
               .toList() ??
           [],
+      shapes:
+          (json['shapes'] as List<dynamic>?)
+              ?.map((s) => GeometricShape.fromJson(s as Map<String, dynamic>))
+              .toList() ??
+          [],
+      texts:
+          (json['texts'] as List<dynamic>?)
+              ?.map(
+                (t) => DigitalTextElement.fromJson(t as Map<String, dynamic>),
+              )
+              .toList() ??
+          [],
+      images:
+          (json['images'] as List<dynamic>?)
+              ?.map((i) => ImageElement.fromJson(i as Map<String, dynamic>))
+              .toList() ??
+          [],
+      isVisible: json['isVisible'] as bool? ?? true,
+      isLocked: json['isLocked'] as bool? ?? false,
+      opacity: (json['opacity'] as num?)?.toDouble() ?? 1.0,
+      blendMode: _blendModeFromName(json['blendMode'] as String?),
+    );
+  }
+
+  /// 🚀 LAZY DECODE: Deserialize from JSON WITHOUT stroke data.
+  ///
+  /// Loads layer metadata (id, name, visibility, opacity, blendMode) and
+  /// non-stroke children (shapes, texts, images, PDFs) but skips stroke
+  /// deserialization entirely. This eliminates the transient ~750MB memory
+  /// peak when loading 100K+ strokes that are already indexed in SQLite.
+  ///
+  /// Stubs are injected separately via [StrokePagingManager.loadStubsFromIndex].
+  factory CanvasLayer.fromJsonMetadataOnly(Map<String, dynamic> json) {
+    // Scene graph format: use metadata-only layer factory
+    if (json.containsKey('children') || json['nodeType'] == 'layer') {
+      final layerNode = CanvasNodeFactory.layerFromJsonMetadataOnly(json);
+      return CanvasLayer.fromNode(layerNode);
+    }
+
+    // Legacy format: load everything except strokes
+    return CanvasLayer(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      strokes: [], // Skip stroke deserialization
       shapes:
           (json['shapes'] as List<dynamic>?)
               ?.map((s) => GeometricShape.fromJson(s as Map<String, dynamic>))

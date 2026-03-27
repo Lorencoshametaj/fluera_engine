@@ -3,13 +3,13 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/models/digital_text_element.dart';
 import '../../core/models/image_element.dart';
-import '../../layers/nebula_layer_controller.dart';
+import '../../layers/fluera_layer_controller.dart';
 import '../../layers/adapters/canvas_adapter.dart';
 import '../unified_tool_controller.dart';
 
 /// 🎯 Context provided to all tools
 ///
-/// Abstracts the differences between Infinite Canvas and Multiview.
+/// Abstracts the differences between canvas contexts.
 /// The tool doesn't know which context it's operating in - it only uses this context.
 ///
 /// DESIGN PRINCIPLES:
@@ -21,7 +21,7 @@ class ToolContext {
   final CanvasAdapter adapter;
 
   /// Layer controller for managing strokes, shapes, etc.
-  final NebulaLayerController layerController;
+  final FlueraLayerController layerController;
 
   /// Current viewport scale (1.0 = 100%)
   final double scale;
@@ -163,7 +163,7 @@ class ToolContext {
   /// Creates a copy with new settings
   ToolContext copyWith({
     CanvasAdapter? adapter,
-    NebulaLayerController? layerController,
+    FlueraLayerController? layerController,
     double? scale,
     Offset? viewOffset,
     Size? viewportSize,
@@ -200,7 +200,7 @@ class ToolSettings {
   final ShapeType shapeType;
 
   const ToolSettings({
-    this.penType = ProPenType.fountain,
+    this.penType = ProPenType.ballpoint,
     this.color = Colors.black,
     this.width = 3.78, // 1mm = 3.78px @ 96 DPI
     this.opacity = 1.0,

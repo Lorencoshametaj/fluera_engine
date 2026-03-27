@@ -17,6 +17,8 @@ class _ImageAdjustmentPanelState extends State<ImageAdjustmentPanel> {
   double _contrast = 0.0;
   double _saturation = 0.0;
   double _hue = 0.0;
+  double _blur = 0.0;
+  double _sharpen = 0.0;
 
   void _resetAll() {
     setState(() {
@@ -24,6 +26,8 @@ class _ImageAdjustmentPanelState extends State<ImageAdjustmentPanel> {
       _contrast = 0.0;
       _saturation = 0.0;
       _hue = 0.0;
+      _blur = 0.0;
+      _sharpen = 0.0;
     });
   }
 
@@ -105,6 +109,28 @@ class _ImageAdjustmentPanelState extends State<ImageAdjustmentPanel> {
             color: Colors.deepPurple,
             cs: cs,
             onChanged: (v) => setState(() => _hue = v),
+          ),
+          const Divider(height: 16),
+          // 🔍 GPU Post-Processing Effects
+          _AdjustSlider(
+            icon: Icons.blur_on_rounded,
+            label: 'Blur',
+            value: _blur,
+            min: 0.0,
+            max: 50.0,
+            color: Colors.teal,
+            cs: cs,
+            onChanged: (v) => setState(() => _blur = v),
+          ),
+          _AdjustSlider(
+            icon: Icons.deblur_rounded,
+            label: 'Sharpen',
+            value: _sharpen,
+            min: 0.0,
+            max: 2.0,
+            color: Colors.orange,
+            cs: cs,
+            onChanged: (v) => setState(() => _sharpen = v),
           ),
         ],
       ),

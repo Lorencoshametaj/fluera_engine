@@ -1,6 +1,5 @@
-import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/collaboration/design_comment.dart';
+import 'package:fluera_engine/src/collaboration/design_comment.dart';
 
 void main() {
   group('DesignComment', () {

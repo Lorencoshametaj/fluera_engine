@@ -3,13 +3,13 @@ import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 
 // ============================================================================
-// TOOLBAR BRUSH STRIP — Procreate-style preset selector
+// TOOLBAR BRUSH STRIP — Category-tabbed preset selector (single row)
 // ============================================================================
 
-/// Professional Brush Strip — animated preset pills.
-/// Shows all brush presets (built-in + custom) as pills.
-/// Tap to select; long-press for brush editor.
-class ToolbarBrushStrip extends StatelessWidget {
+/// Professional Brush Strip with inline Writing / Artistic category toggle.
+/// Single row: [📝|🎨] separator [pill pill pill ...]
+/// Tap category to switch; tap pill to select; long-press for brush editor.
+class ToolbarBrushStrip extends StatefulWidget {
   final List<BrushPreset> presets;
   final String? selectedPresetId;
   final bool isPenActive;
@@ -28,10 +28,22 @@ class ToolbarBrushStrip extends StatelessWidget {
   });
 
   @override
+  State<ToolbarBrushStrip> createState() => _ToolbarBrushStripState();
+}
+
+class _ToolbarBrushStripState extends State<ToolbarBrushStrip> {
+  // V1: category toggle removed — all non-GPU presets shown in a flat list.
+  // Re-enable _CategoryToggle post-launch when GPU pens are ready.
+
+  List<BrushPreset> get _displayPresets {
+    return widget.presets.isNotEmpty
+        ? widget.presets
+        : BrushPreset.defaultPresets;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final displayPresets =
-        presets.isNotEmpty ? presets : BrushPreset.defaultPresets;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
@@ -43,16 +55,106 @@ class ToolbarBrushStrip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children:
-            displayPresets.map((preset) {
+            _displayPresets.map((preset) {
               return ToolbarBrushPill(
                 preset: preset,
-                isSelected: selectedPresetId == preset.id,
-                isPenActive: isPenActive,
-                isDark: isDark,
-                onTap: () => onPresetSelected(preset),
-                onLongPress: onLongPress,
+                isSelected: widget.selectedPresetId == preset.id,
+                isPenActive: widget.isPenActive,
+                isDark: widget.isDark,
+                onTap: () => widget.onPresetSelected(preset),
+                onLongPress:
+                    widget.selectedPresetId == preset.id
+                        ? widget.onLongPress
+                        : null,
               );
             }).toList(),
+      ),
+    );
+  }
+}
+
+/// Compact inline category toggle: two emoji buttons side by side.
+class _CategoryToggle extends StatelessWidget {
+  final BrushCategory activeCategory;
+  final bool selectedInOtherCategory;
+  final BrushCategory? selectedCategory;
+  final bool isDark;
+  final ValueChanged<BrushCategory> onCategoryChanged;
+
+  const _CategoryToggle({
+    required this.activeCategory,
+    required this.selectedInOtherCategory,
+    required this.selectedCategory,
+    required this.isDark,
+    required this.onCategoryChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHigh.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      padding: const EdgeInsets.all(2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildTab(context, '📝', 'Writing', BrushCategory.writing, cs),
+          _buildTab(context, '🎨', 'Artistic', BrushCategory.artistic, cs),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTab(
+    BuildContext context,
+    String emoji,
+    String tooltip,
+    BrushCategory category,
+    ColorScheme cs,
+  ) {
+    final isActive = activeCategory == category;
+    final hasDot = selectedInOtherCategory && selectedCategory == category;
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: GestureDetector(
+        onTap: () => onCategoryChanged(category),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          decoration: BoxDecoration(
+            color:
+                isActive
+                    ? cs.primary.withValues(alpha: isDark ? 0.3 : 0.15)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 13)),
+              if (hasDot)
+                Positioned(
+                  top: -3,
+                  right: -5,
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: cs.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -102,6 +204,8 @@ class ToolbarBrushPill extends StatelessWidget {
         return isDark ? const Color(0xFF84FFFF) : const Color(0xFF00B8D4);
       case ProPenType.inkWash:
         return isDark ? const Color(0xFF9E9E9E) : const Color(0xFF424242);
+      case ProPenType.technicalPen:
+        return isDark ? const Color(0xFF78909C) : const Color(0xFF37474F);
     }
   }
 

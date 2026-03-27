@@ -15,7 +15,7 @@ library;
 // ENGINE PERMISSION
 // =============================================================================
 
-/// Granular permission atoms for the Nebula Engine.
+/// Granular permission atoms for the Fluera Engine.
 ///
 /// Each permission represents a single, indivisible capability.
 /// Roles are composed from sets of permissions.

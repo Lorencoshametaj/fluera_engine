@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/engine_logger.dart';
+import 'package:fluera_engine/src/core/engine_logger.dart';
 
 void main() {
   setUp(() {

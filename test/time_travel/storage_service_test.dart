@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/services/phase2_service_stubs.dart';
-import 'package:nebula_engine/src/time_travel/services/time_travel_recorder.dart';
-import 'package:nebula_engine/src/time_travel/models/time_travel_session.dart';
-import 'package:nebula_engine/src/core/models/canvas_layer.dart';
-import 'package:nebula_engine/src/history/canvas_delta_tracker.dart';
+import 'package:fluera_engine/src/services/phase2_service_stubs.dart';
+import 'package:fluera_engine/src/time_travel/services/time_travel_recorder.dart';
+import 'package:fluera_engine/src/time_travel/models/time_travel_session.dart';
+import 'package:fluera_engine/src/core/models/canvas_layer.dart';
+import 'package:fluera_engine/src/history/canvas_delta_tracker.dart';
 
 void main() {
   late Directory tempDir;
@@ -14,7 +14,7 @@ void main() {
   const canvasId = 'test_canvas_storage';
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('nebula_tt_storage_test_');
+    tempDir = await Directory.systemTemp.createTemp('fluera_tt_storage_test_');
     // Override getTimeTravelPathForCanvas via subclass
     storage = _TestStorageService(tempDir.path);
   });

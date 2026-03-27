@@ -1,9 +1,9 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/assets/asset_handle.dart';
-import 'package:nebula_engine/src/core/assets/asset_registry.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/core/assets/asset_handle.dart';
+import 'package:fluera_engine/src/core/assets/asset_registry.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   late AssetRegistry registry;

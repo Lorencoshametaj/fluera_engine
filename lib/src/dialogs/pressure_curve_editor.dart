@@ -483,8 +483,8 @@ class _PresetChip extends StatelessWidget {
           decoration: BoxDecoration(
             color:
                 isActive
-                    ? (isDark ? Colors.teal[800] : Colors.teal[50])
-                    : (isDark ? Colors.white10 : Colors.grey[100]),
+                    ? (isDark ? const Color(0xFF00695C) : const Color(0xFFE0F2F1))
+                    : (isDark ? Colors.white10 : const Color(0xFFF5F5F5)),
             borderRadius: BorderRadius.circular(20),
             border:
                 isActive
@@ -501,7 +501,7 @@ class _PresetChip extends StatelessWidget {
               fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
               color:
                   isActive
-                      ? (isDark ? Colors.tealAccent : Colors.teal[700])
+                      ? (isDark ? Colors.tealAccent : const Color(0xFF00796B))
                       : (isDark ? Colors.white70 : Colors.black54),
             ),
           ),
@@ -523,7 +523,7 @@ class _StrokePreview extends StatelessWidget {
     return Container(
       height: 40,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey[50],
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFFAFAFA),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
       ),

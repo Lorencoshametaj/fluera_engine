@@ -15,17 +15,27 @@ import '../nodes/advanced_mask_node.dart';
 import '../nodes/boolean_group_node.dart';
 import '../nodes/pdf_page_node.dart';
 import '../nodes/pdf_document_node.dart';
+import '../nodes/pdf_preview_card_node.dart';
 import '../nodes/vector_network_node.dart';
 import '../effects/shader_effect.dart';
 import '../nodes/latex_node.dart';
 import '../nodes/tabular_node.dart';
+import '../nodes/material_zone_node.dart';
+import '../nodes/section_node.dart';
+import '../nodes/adjustment_layer_node.dart';
+import '../nodes/function_graph_node.dart';
+import '../engine_scope.dart';
 
 /// Factory for deserializing [CanvasNode] subclasses from JSON.
 ///
-/// The `nodeType` field in the JSON determines which concrete class
-/// to instantiate. This centralizes the dispatch logic so that
-/// [GroupNode.loadChildrenFromJson] and [SceneGraph.fromJson] don't
-/// need to know about every node type.
+/// Uses a two-tier lookup strategy:
+/// 1. **Dynamic**: Delegates to [ModuleRegistry.createNodeFromJson] which
+///    checks registered [NodeDescriptor]s from all active modules.
+/// 2. **Hardcoded**: Falls back to the built-in switch for core node types
+///    (group, layer, etc.) that aren't owned by any module.
+///
+/// This allows new modules to register custom node types without modifying
+/// this file.
 class CanvasNodeFactory {
   /// Create a [CanvasNode] from its JSON representation.
   ///
@@ -33,6 +43,17 @@ class CanvasNodeFactory {
   static CanvasNode fromJson(Map<String, dynamic> json) {
     final nodeType = json['nodeType'] as String?;
 
+    // ── Tier 1: Dynamic module lookup ──
+    // If modules are initialized, try the module registry first.
+    // This enables extensible deserialization without hardcoded cases.
+    if (EngineScope.hasScope) {
+      final moduleNode = EngineScope.current.moduleRegistry.createNodeFromJson(
+        json,
+      );
+      if (moduleNode != null) return moduleNode;
+    }
+
+    // ── Tier 2: Built-in hardcoded fallback ──
     switch (nodeType) {
       case 'stroke':
         return StrokeNode.fromJson(json);
@@ -95,11 +116,11 @@ class CanvasNodeFactory {
         return PdfPageNode.fromJson(json);
 
       case 'pdfDocument':
-        final doc = PdfDocumentNode.fromJson(json);
-        if (json['children'] != null) {
-          doc.loadChildrenFromJson(json['children'] as List<dynamic>, fromJson);
-        }
-        return doc;
+        // 📄 Migration: old multi-page grid → preview card
+        return PdfPreviewCardNode.migrateFromDocumentJson(json);
+
+      case 'pdfPreviewCard':
+        return PdfPreviewCardNode.fromJson(json);
 
       case 'vector_network':
         return VectorNetworkNode.fromJson(json);
@@ -109,6 +130,25 @@ class CanvasNodeFactory {
 
       case 'tabular':
         return TabularNode.fromJson(json);
+
+      case 'materialZone':
+        return MaterialZoneNode.fromJson(json);
+
+      case 'section':
+        final section = SectionNode.fromJson(json);
+        if (json['children'] != null) {
+          section.loadChildrenFromJson(
+            json['children'] as List<dynamic>,
+            fromJson,
+          );
+        }
+        return section;
+
+      case 'adjustmentLayer':
+        return AdjustmentLayerNode.fromJson(json);
+
+      case 'functionGraph':
+        return FunctionGraphNode.fromJson(json);
 
       default:
         throw ArgumentError('Unknown nodeType: $nodeType');
@@ -121,6 +161,29 @@ class CanvasNodeFactory {
     CanvasNode.applyBaseFromJson(layer, json);
     if (json['children'] != null) {
       layer.loadChildrenFromJson(json['children'] as List<dynamic>, fromJson);
+    }
+    return layer;
+  }
+
+  /// 🚀 LAZY DECODE: Create a [LayerNode] from JSON, skipping stroke children.
+  ///
+  /// Loads layer metadata (id, name, visibility, opacity, blendMode) and
+  /// non-stroke children (shapes, texts, images, PDFs) but does NOT
+  /// deserialize stroke data. This avoids the massive transient memory
+  /// allocation when stroke data is already indexed in SQLite.
+  ///
+  /// Stubs are injected separately via [StrokePagingManager.loadStubsFromIndex].
+  static LayerNode layerFromJsonMetadataOnly(Map<String, dynamic> json) {
+    final layer = LayerNode(id: NodeId(json['id'] as String));
+    CanvasNode.applyBaseFromJson(layer, json);
+    if (json['children'] != null) {
+      final nonStrokeChildren =
+          (json['children'] as List<dynamic>)
+              .where((c) => c is Map && c['nodeType'] != 'stroke')
+              .toList();
+      if (nonStrokeChildren.isNotEmpty) {
+        layer.loadChildrenFromJson(nonStrokeChildren, fromJson);
+      }
     }
     return layer;
   }

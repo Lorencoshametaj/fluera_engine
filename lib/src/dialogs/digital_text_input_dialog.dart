@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 
 /// 📝 DIALOG INPUT TESTO DIGITALE
 /// Dialog professionale per inserire testo con tastiera
@@ -188,7 +188,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
       HapticFeedback.mediumImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(NebulaLocalizations.of(context).proCanvas_textEmpty),
+          content: Text(FlueraLocalizations.of(context).proCanvas_textEmpty),
           duration: const Duration(seconds: 1),
         ),
       );
@@ -231,7 +231,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  NebulaLocalizations.of(context).proCanvas_insertText,
+                  FlueraLocalizations.of(context).proCanvas_insertText,
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -245,7 +245,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                     color: isDark ? Colors.white70 : Colors.black54,
                   ),
                   onPressed: () => Navigator.of(context).pop(),
-                  tooltip: NebulaLocalizations.of(context).close,
+                  tooltip: FlueraLocalizations.of(context).close,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
                     minWidth: 36,
@@ -286,7 +286,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                           color: isDark ? Colors.white : Colors.black87,
                         ),
                         decoration: InputDecoration(
-                          hintText: NebulaLocalizations.of(context).proCanvas_typeHere,
+                          hintText: FlueraLocalizations.of(context).proCanvas_typeHere,
                           hintStyle: TextStyle(
                             color: (isDark ? Colors.white : Colors.black)
                                 .withValues(alpha:  0.4),
@@ -328,7 +328,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  NebulaLocalizations.of(context).proCanvas_ocrTextCheck,
+                                  FlueraLocalizations.of(context).proCanvas_ocrTextCheck,
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
@@ -342,7 +342,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                                   onPressed: _applyOCRCorrections,
                                   icon: Icon(Icons.auto_fix_high, size: 14),
                                   label: Text(
-                                    NebulaLocalizations.of(context).proCanvas_correct,
+                                    FlueraLocalizations.of(context).proCanvas_correct,
                                     style: TextStyle(fontSize: 11),
                                   ),
                                   style: TextButton.styleFrom(
@@ -361,17 +361,17 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                             const SizedBox(height: 8),
                             // Checklist items
                             _buildChecklistItem(
-                              NebulaLocalizations.of(context).proCanvas_capitalStart,
+                              FlueraLocalizations.of(context).proCanvas_capitalStart,
                               _hasCapitalStart(),
                               isDark,
                             ),
                             _buildChecklistItem(
-                              NebulaLocalizations.of(context).proCanvas_endPunctuation,
+                              FlueraLocalizations.of(context).proCanvas_endPunctuation,
                               _hasEndPunctuation(),
                               isDark,
                             ),
                             _buildChecklistItem(
-                              NebulaLocalizations.of(context).proCanvas_correctSpacing,
+                              FlueraLocalizations.of(context).proCanvas_correctSpacing,
                               _hasCorrectSpacing(),
                               isDark,
                             ),
@@ -413,7 +413,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        NebulaLocalizations.of(context).proCanvas_keepHandwriting,
+                                        FlueraLocalizations.of(context).proCanvas_keepHandwriting,
                                         style: TextStyle(
                                           fontSize: 12,
                                           color:
@@ -440,7 +440,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                     // Anteprima
                     if (_textController.text.isNotEmpty) ...[
                       Text(
-                        NebulaLocalizations.of(context).proCanvas_previewLabel,
+                        FlueraLocalizations.of(context).proCanvas_previewLabel,
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -473,7 +473,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
 
                     // Color selection
                     Text(
-                      NebulaLocalizations.of(context).proCanvas_colorLabel,
+                      FlueraLocalizations.of(context).proCanvas_colorLabel,
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
@@ -552,7 +552,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                     ),
                   ),
                   child: Text(
-                    NebulaLocalizations.of(context).cancel,
+                    FlueraLocalizations.of(context).cancel,
                     style: TextStyle(
                       fontSize: 14,
                       color: (isDark ? Colors.white : Colors.black).withValues(alpha:  
@@ -580,7 +580,7 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
                     ),
                   ),
                   child: Text(
-                    NebulaLocalizations.of(context).confirm,
+                    FlueraLocalizations.of(context).confirm,
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),

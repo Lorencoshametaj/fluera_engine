@@ -186,11 +186,6 @@ class MemoryBudgetController {
       _lowWaterMarkPercent = 55.0;
     }
 
-    debugPrint(
-      '[MemoryBudget] Calibrated for ${totalRAM_MB.toStringAsFixed(0)} MB RAM: '
-      'cap=${_budgetCapMB}MB, warn=${_warningThresholdPercent}%, '
-      'crit=${_criticalThresholdPercent}%, low=${_lowWaterMarkPercent}%',
-    );
   }
 
   /// Manually calibrate thresholds for testing or custom devices.
@@ -351,7 +346,6 @@ class MemoryBudgetController {
       if (_hysteresisActive && usagePercent < _lowWaterMarkPercent) {
         _hysteresisActive = false;
         _setRefillAllowed(true);
-        debugPrint('[MemoryBudget] Hysteresis released — refill unlocked');
       }
       return;
     }
@@ -373,7 +367,6 @@ class MemoryBudgetController {
     if (!_hysteresisActive) {
       _hysteresisActive = true;
       _setRefillAllowed(false);
-      debugPrint('[MemoryBudget] Hysteresis activated — refill locked');
     }
   }
 
@@ -409,7 +402,6 @@ class MemoryBudgetController {
         }
       } catch (e) {
         // Never let a single cache failure block others
-        debugPrint('[MemoryBudget] Error evicting ${reg.cache.cacheName}: $e');
       }
     }
 

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'cell_address.dart';
 import 'cell_node.dart';
 import 'cell_validation.dart';
@@ -32,16 +34,35 @@ class SpreadsheetModel {
   final Map<int, double> _rowHeights = {};
 
   /// Default column width in logical pixels.
-  double defaultColumnWidth;
+  double _defaultColumnWidth;
+  double get defaultColumnWidth => _defaultColumnWidth;
+  set defaultColumnWidth(double v) {
+    if (_defaultColumnWidth != v) {
+      _defaultColumnWidth = v;
+      _colPrefixSums = null;
+    }
+  }
 
   /// Default row height in logical pixels.
-  double defaultRowHeight;
+  double _defaultRowHeight;
+  double get defaultRowHeight => _defaultRowHeight;
+  set defaultRowHeight(double v) {
+    if (_defaultRowHeight != v) {
+      _defaultRowHeight = v;
+      _rowPrefixSums = null;
+    }
+  }
 
   /// Number of frozen columns (scroll lock).
   int frozenColumns;
 
   /// Number of frozen rows (scroll lock).
   int frozenRows;
+
+  // ── Prefix-sum caches for O(1) offset lookups ──
+  // Built lazily; set to null to invalidate.
+  List<double>? _colPrefixSums;
+  List<double>? _rowPrefixSums;
 
   /// Sparse validation rules per cell address.
   final Map<CellAddress, CellValidation> _validations = {};
@@ -53,11 +74,12 @@ class SpreadsheetModel {
   final Map<String, CellRange> _namedRanges = {};
 
   SpreadsheetModel({
-    this.defaultColumnWidth = 100.0,
-    this.defaultRowHeight = 28.0,
+    double defaultColumnWidth = 100.0,
+    double defaultRowHeight = 28.0,
     this.frozenColumns = 0,
     this.frozenRows = 0,
-  });
+  }) : _defaultColumnWidth = defaultColumnWidth,
+       _defaultRowHeight = defaultRowHeight;
 
   // -------------------------------------------------------------------------
   // Cell CRUD
@@ -182,56 +204,72 @@ class SpreadsheetModel {
 
   /// Get column width (uses default if not explicitly set).
   double getColumnWidth(int column) =>
-      _columnWidths[column] ?? defaultColumnWidth;
+      _columnWidths[column] ?? _defaultColumnWidth;
 
   /// Set column width explicitly.
   void setColumnWidth(int column, double width) {
     _columnWidths[column] = width;
+    _colPrefixSums = null;
   }
 
   /// Get row height (uses default if not explicitly set).
-  double getRowHeight(int row) => _rowHeights[row] ?? defaultRowHeight;
+  double getRowHeight(int row) => _rowHeights[row] ?? _defaultRowHeight;
 
   /// Set row height explicitly.
   void setRowHeight(int row, double height) {
     _rowHeights[row] = height;
+    _rowPrefixSums = null;
   }
 
-  /// Total width of columns [0, columnCount).
-  double totalWidth(int columnCount) {
-    double total = 0;
-    for (int c = 0; c < columnCount; c++) {
-      total += getColumnWidth(c);
+  // ── Prefix-sum build ─────────────────────────────────────────────────
+
+  /// Rebuild column prefix sums up to the max explicitly-set column.
+  List<double> _buildColPrefixSums() {
+    final maxExplicit =
+        _columnWidths.isEmpty ? 0 : _columnWidths.keys.reduce(math.max) + 1;
+    final sums = List<double>.filled(maxExplicit + 1, 0.0);
+    for (int c = 0; c < maxExplicit; c++) {
+      sums[c + 1] = sums[c] + getColumnWidth(c);
     }
-    return total;
+    return sums;
   }
 
-  /// Total height of rows [0, rowCount).
-  double totalHeight(int rowCount) {
-    double total = 0;
-    for (int r = 0; r < rowCount; r++) {
-      total += getRowHeight(r);
+  /// Rebuild row prefix sums up to the max explicitly-set row.
+  List<double> _buildRowPrefixSums() {
+    final maxExplicit =
+        _rowHeights.isEmpty ? 0 : _rowHeights.keys.reduce(math.max) + 1;
+    final sums = List<double>.filled(maxExplicit + 1, 0.0);
+    for (int r = 0; r < maxExplicit; r++) {
+      sums[r + 1] = sums[r] + getRowHeight(r);
     }
-    return total;
+    return sums;
   }
 
-  /// X offset of the left edge of column [col].
+  // ── O(1) offset lookups ──────────────────────────────────────────────
+
+  /// X offset of the left edge of column [col]. O(1) via prefix-sum.
   double columnOffset(int col) {
-    double offset = 0;
-    for (int c = 0; c < col; c++) {
-      offset += getColumnWidth(c);
-    }
-    return offset;
+    if (col <= 0) return 0;
+    final sums = _colPrefixSums ??= _buildColPrefixSums();
+    if (col < sums.length) return sums[col];
+    // Beyond the explicit range: extrapolate with default width.
+    return sums.last + (col - (sums.length - 1)) * _defaultColumnWidth;
   }
 
-  /// Y offset of the top edge of row [row].
+  /// Y offset of the top edge of row [row]. O(1) via prefix-sum.
   double rowOffset(int row) {
-    double offset = 0;
-    for (int r = 0; r < row; r++) {
-      offset += getRowHeight(r);
-    }
-    return offset;
+    if (row <= 0) return 0;
+    final sums = _rowPrefixSums ??= _buildRowPrefixSums();
+    if (row < sums.length) return sums[row];
+    // Beyond the explicit range: extrapolate with default height.
+    return sums.last + (row - (sums.length - 1)) * _defaultRowHeight;
   }
+
+  /// Total width of columns [0, columnCount). O(1) via prefix-sum.
+  double totalWidth(int columnCount) => columnOffset(columnCount);
+
+  /// Total height of rows [0, rowCount). O(1) via prefix-sum.
+  double totalHeight(int rowCount) => rowOffset(rowCount);
 
   // -------------------------------------------------------------------------
   // Serialization

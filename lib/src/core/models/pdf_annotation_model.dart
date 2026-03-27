@@ -18,7 +18,13 @@ enum PdfAnnotationType {
 
   /// Positioned note icon with expandable text content.
   stickyNote,
+
+  /// Predefined stamp overlay (e.g. Approved, Draft).
+  stamp,
 }
+
+/// Predefined PDF stamp types.
+enum PdfStampType { approved, draft, confidential, final_, reviewed, rejected }
 
 /// 📝 A structured annotation on a PDF page.
 ///
@@ -50,6 +56,9 @@ class PdfAnnotation {
   /// Optional text content (used for sticky notes, comment text).
   final String? text;
 
+  /// Stamp type (only used when type == stamp).
+  final PdfStampType? stampType;
+
   /// Microseconds since epoch — creation time.
   final int createdAt;
 
@@ -63,6 +72,7 @@ class PdfAnnotation {
     required this.rect,
     this.color = const Color(0x80FFEB3B), // Yellow highlight default
     this.text,
+    this.stampType,
     int? createdAt,
     int? lastModifiedAt,
   }) : createdAt = createdAt ?? 0,
@@ -80,6 +90,7 @@ class PdfAnnotation {
     Color? color,
     String? text,
     bool clearText = false,
+    PdfStampType? stampType,
     int? createdAt,
     int? lastModifiedAt,
   }) {
@@ -90,6 +101,7 @@ class PdfAnnotation {
       rect: rect ?? this.rect,
       color: color ?? this.color,
       text: clearText ? null : (text ?? this.text),
+      stampType: stampType ?? this.stampType,
       createdAt: createdAt ?? this.createdAt,
       lastModifiedAt: lastModifiedAt ?? this.lastModifiedAt,
     );
@@ -111,6 +123,7 @@ class PdfAnnotation {
     },
     'color': color.toARGB32(),
     if (text != null) 'text': text,
+    if (stampType != null) 'stampType': stampType!.name,
     'createdAt': createdAt,
     'lastModifiedAt': lastModifiedAt,
   };
@@ -145,6 +158,13 @@ class PdfAnnotation {
       rect: rect,
       color: Color((json['color'] as num?)?.toInt() ?? 0x80FFEB3B),
       text: json['text'] as String?,
+      stampType:
+          json['stampType'] != null
+              ? PdfStampType.values.firstWhere(
+                (s) => s.name == json['stampType'],
+                orElse: () => PdfStampType.approved,
+              )
+              : null,
       createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
       lastModifiedAt: (json['lastModifiedAt'] as num?)?.toInt() ?? 0,
     );
@@ -194,6 +214,8 @@ extension PdfAnnotationTypeDefaults on PdfAnnotationType {
         return const Color(0xFFE53935); // Red
       case PdfAnnotationType.stickyNote:
         return const Color(0xFFFFF176); // Light yellow
+      case PdfAnnotationType.stamp:
+        return const Color(0x80E53935); // Semi-transparent red
     }
   }
 
@@ -206,6 +228,8 @@ extension PdfAnnotationTypeDefaults on PdfAnnotationType {
         return 'Underline';
       case PdfAnnotationType.stickyNote:
         return 'Note';
+      case PdfAnnotationType.stamp:
+        return 'Stamp';
     }
   }
 
@@ -218,6 +242,8 @@ extension PdfAnnotationTypeDefaults on PdfAnnotationType {
         return 'format_underlined';
       case PdfAnnotationType.stickyNote:
         return 'sticky_note_2';
+      case PdfAnnotationType.stamp:
+        return 'approval';
     }
   }
 }

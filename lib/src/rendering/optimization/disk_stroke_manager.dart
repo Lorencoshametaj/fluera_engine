@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
-import 'package:path_provider/path_provider.dart';
+import '../../utils/safe_path_provider.dart';
 import 'package:flutter/foundation.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/engine_scope.dart';
@@ -100,7 +100,8 @@ class DiskStrokeManager
     if (_initialized) return;
 
     try {
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getSafeDocumentsDirectory();
+      if (appDir == null) return; // Web: no filesystem
       _dataDir = Directory('${appDir.path}/$dataFolderName/$canvasId');
 
       // Create directory if not esiste
@@ -220,7 +221,7 @@ class DiskStrokeManager
 
   /// Saves uno stroke to disk
   ///
-  /// Call after the stroke was added to the NebulaLayerController.
+  /// Call after the stroke was added to the FlueraLayerController.
   /// I punti verranno salvati nel chunk corrente.
   Future<void> saveStroke(
     String strokeId,

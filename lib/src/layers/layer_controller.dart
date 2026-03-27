@@ -2,16 +2,22 @@ import 'dart:ui' as ui;
 import '../core/models/canvas_layer.dart';
 import '../core/scene_graph/canvas_node.dart';
 import '../core/nodes/layer_node.dart';
+import '../core/nodes/stroke_node.dart';
+import '../core/nodes/shape_node.dart';
+import '../core/nodes/text_node.dart';
+import '../core/nodes/image_node.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
+import '../core/editing/adjustment_layer.dart';
+import '../core/nodes/adjustment_layer_node.dart';
 import '../core/scene_graph/scene_graph.dart';
 import '../rendering/optimization/spatial_index.dart';
 import '../history/canvas_delta_tracker.dart';
 import '../history/undo_redo_manager.dart';
 import '../rendering/optimization/dirty_region_tracker.dart';
-import './nebula_layer_controller.dart';
+import './fluera_layer_controller.dart';
 
 part 'layer_element_operations.dart';
 part 'layer_spatial_index.dart';
@@ -34,9 +40,17 @@ typedef TimeTravelEventCallback =
 /// Heavy element CRUD is in [layer_element_operations.dart],
 /// spatial index in [layer_spatial_index.dart], and scene graph
 /// in [layer_scene_graph.dart].
-class LayerController extends NebulaLayerController {
+class LayerController extends FlueraLayerController {
   final List<CanvasLayer> _layers = [];
   String? _activeLayerId;
+
+  /// 🚀 FIX 3: Atomic counter to prevent ID collisions in batch operations.
+  static int _idCounter = 0;
+  static String _generateUniqueId() =>
+      '${DateTime.now().microsecondsSinceEpoch}_${_idCounter++}';
+
+  /// 🚀 FIX 4: Cached active layer index. Invalidated on layer mutations.
+  int? _cachedActiveLayerIndex;
 
   /// Spatial Index for optimized viewport queries.
   final SpatialIndexManager _spatialIndex = SpatialIndexManager();
@@ -60,6 +74,11 @@ class LayerController extends NebulaLayerController {
   /// Scene graph (lazy-rebuilt from layers).
   SceneGraph _sceneGraph = SceneGraph();
   bool _sceneGraphDirty = true;
+
+  /// 🚀 Batch mode: defer version bumps during bulk operations (erasing).
+  int _batchDepth = 0;
+  bool _batchNeedsBump = false;
+  bool _batchNeedsNotify = false;
 
   /// Flag to enable/disable delta tracking.
   /// Disable during batch operations (e.g., load from storage).
@@ -94,33 +113,109 @@ class LayerController extends NebulaLayerController {
   }
 
   @override
+  void notifyListeners() {
+    // 🚀 During batch mode, suppress per-mutation notifications.
+    // The eraser calls removeStroke() up to 30× per frame (interpolation).
+    // Without this guard, each call triggers cache invalidation + widget
+    // rebuild — 30 rebuilds per frame instead of 1.
+    if (_isBatching) {
+      _batchNeedsNotify = true;
+      return;
+    }
+    _invalidateLayersCache();
+    _cachedActiveLayerIndex = null;
+    _cachedVisibleShapes = null;
+    super.notifyListeners();
+  }
+
+  @override
   void dispose() {
     _undoRedoManager.removeListener(_onUndoRedoChanged);
     super.dispose();
   }
 
   // ==========================================================================
+  // 🚀 Batch mode (used by eraser for deferred version bumps)
+  // ==========================================================================
+
+  /// Begin a batch of mutations. Version bumps are deferred until [endBatch].
+  ///
+  /// Nestable — only the outermost [endBatch] triggers the version bump.
+  void beginBatch() {
+    _batchDepth++;
+  }
+
+  /// End a batch of mutations and flush any deferred version bump.
+  void endBatch() {
+    assert(_batchDepth > 0, 'endBatch called without matching beginBatch');
+    _batchDepth--;
+    if (_batchDepth == 0) {
+      if (_batchNeedsBump) {
+        _batchNeedsBump = false;
+        if (!_sceneGraphDirty) {
+          _sceneGraph.bumpVersion();
+        }
+      }
+      // 🚀 Flush deferred notification — single rebuild for the entire batch
+      if (_batchNeedsNotify) {
+        _batchNeedsNotify = false;
+        _invalidateLayersCache();
+        _cachedActiveLayerIndex = null;
+        _cachedVisibleShapes = null;
+        super.notifyListeners();
+      }
+    }
+  }
+
+  /// Whether we are inside a batch.
+  bool get _isBatching => _batchDepth > 0;
+
+  /// Bump scene graph version (deferred if batching).
+  void _bumpVersionOrDefer() {
+    if (_isBatching) {
+      _batchNeedsBump = true;
+    } else if (!_sceneGraphDirty) {
+      _sceneGraph.bumpVersion();
+    }
+  }
+
+  // ==========================================================================
   // State getters
   // ==========================================================================
 
+  /// 🚀 PERF: Cached unmodifiable view. Recreated only when layers mutate.
+  /// Without this, shouldRepaint returned true on EVERY frame because
+  /// List.unmodifiable() created a new object on each access.
+  List<CanvasLayer>? _cachedUnmodifiableLayers;
+
   @override
-  List<CanvasLayer> get layers => List.unmodifiable(_layers);
+  List<CanvasLayer> get layers {
+    _cachedUnmodifiableLayers ??= List.unmodifiable(_layers);
+    return _cachedUnmodifiableLayers!;
+  }
+
+  /// Invalidate the cached unmodifiable list when layers change.
+  void _invalidateLayersCache() {
+    _cachedUnmodifiableLayers = null;
+  }
 
   @override
   CanvasLayer? get activeLayer {
-    if (_activeLayerId == null) return null;
-    try {
-      return _layers.firstWhere((l) => l.id == _activeLayerId);
-    } catch (_) {
-      return null;
-    }
+    final idx = activeLayerIndex;
+    return idx == -1 ? null : _layers[idx];
   }
 
   @override
   String? get activeLayerId => _activeLayerId;
 
   @override
-  int get activeLayerIndex => _layers.indexWhere((l) => l.id == _activeLayerId);
+  int get activeLayerIndex {
+    if (_activeLayerId == null) return -1;
+    if (_cachedActiveLayerIndex != null) return _cachedActiveLayerIndex!;
+    final idx = _layers.indexWhere((l) => l.id == _activeLayerId);
+    _cachedActiveLayerIndex = idx;
+    return idx;
+  }
 
   @override
   SpatialIndexManager get spatialIndex {
@@ -162,10 +257,7 @@ class LayerController extends NebulaLayerController {
   // ==========================================================================
 
   void _createDefaultLayer() {
-    final layer = CanvasLayer(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Layer 1',
-    );
+    final layer = CanvasLayer(id: _generateUniqueId(), name: 'Layer 1');
     _layers.add(layer);
     _activeLayerId = layer.id;
   }
@@ -174,7 +266,7 @@ class LayerController extends NebulaLayerController {
   void addLayer({String? name}) {
     final newLayerNumber = _layers.length + 1;
     final layer = CanvasLayer(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: _generateUniqueId(),
       name: name ?? 'Layer $newLayerNumber',
     );
     _layers.add(layer);
@@ -195,7 +287,7 @@ class LayerController extends NebulaLayerController {
     if (index == -1) return;
 
     final source = _layers[index];
-    final newId = DateTime.now().millisecondsSinceEpoch.toString();
+    final newId = _generateUniqueId();
     final copy = source.copyWith(id: newId, name: '${source.name} (Copy)');
 
     _layers.insert(index + 1, copy);
@@ -480,6 +572,24 @@ class LayerController extends NebulaLayerController {
   }
 
   @override
+  void addAdjustmentLayer(String id, AdjustmentStack stack) {
+    _addAdjustmentLayerImpl(id, stack);
+    notifyListeners();
+  }
+
+  @override
+  void removeAdjustmentLayer(String adjustmentId) {
+    _removeAdjustmentLayerImpl(adjustmentId);
+    notifyListeners();
+  }
+
+  @override
+  void updateAdjustmentLayer(String adjustmentId, AdjustmentStack newStack) {
+    _updateAdjustmentLayerImpl(adjustmentId, newStack);
+    notifyListeners();
+  }
+
+  @override
   void clearActiveLayer() {
     _clearActiveLayerImpl();
     notifyListeners();
@@ -488,8 +598,14 @@ class LayerController extends NebulaLayerController {
   @override
   List<ProStroke> getAllVisibleStrokes() => _getAllVisibleStrokesImpl();
 
+  /// 🚀 PERF: Cached visible shapes list.
+  List<GeometricShape>? _cachedVisibleShapes;
+
   @override
-  List<GeometricShape> getAllVisibleShapes() => _getAllVisibleShapesImpl();
+  List<GeometricShape> getAllVisibleShapes() {
+    _cachedVisibleShapes ??= _getAllVisibleShapesImpl();
+    return _cachedVisibleShapes!;
+  }
 
   List<DigitalTextElement> getAllVisibleTexts() => _getAllVisibleTextsImpl();
 
@@ -598,16 +714,13 @@ class LayerController extends NebulaLayerController {
       // Skip if they're the same instance (no copyWith happened)
       if (identical(oldLayer.node, newLayer.node)) continue;
 
-      // Collect extra children (anything not in strokes/shapes/texts/images)
-      final standardIds = <String>{
-        ...oldLayer.strokes.map((s) => s.id),
-        ...oldLayer.shapes.map((s) => s.id),
-        ...oldLayer.texts.map((t) => t.id),
-        ...oldLayer.images.map((i) => i.id),
-      };
+      // 🚀 Generic: transfer ALL non-standard children by type check.
+      // No need to build a set of standard IDs — just check the type.
       for (final child in oldLayer.node.children) {
-        if (!standardIds.contains(child.id)) {
-          // This is an extra child — move it to the new layer
+        if (child is! StrokeNode &&
+            child is! ShapeNode &&
+            child is! TextNode &&
+            child is! ImageNode) {
           newLayer.node.add(child);
         }
       }

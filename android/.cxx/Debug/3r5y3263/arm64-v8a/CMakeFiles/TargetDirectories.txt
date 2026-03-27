@@ -1,0 +1,4 @@
+/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/3r5y3263/arm64-v8a/CMakeFiles/fluera_rnnoise.dir
+/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/3r5y3263/arm64-v8a/CMakeFiles/fluera_vk_stroke.dir
+/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/3r5y3263/arm64-v8a/CMakeFiles/edit_cache.dir
+/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/3r5y3263/arm64-v8a/CMakeFiles/rebuild_cache.dir

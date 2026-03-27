@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/systems/variable_font.dart';
+import 'package:fluera_engine/src/systems/variable_font.dart';
 import 'dart:ui' show FontVariation;
 
 void main() {

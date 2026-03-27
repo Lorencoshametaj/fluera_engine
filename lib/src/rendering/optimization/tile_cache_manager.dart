@@ -1,651 +1,345 @@
 import 'dart:collection';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import '../../drawing/models/pro_drawing_point.dart';
-import '../../drawing/brushes/brushes.dart';
 
-import './stroke_data_manager.dart';
-import './advanced_tile_optimizer.dart';
-import './memory_managed_cache.dart';
-import '../../core/engine_scope.dart';
-
-/// 🚀 TILE CACHE MANAGER - Scalable tile caching for 100k+ strokes
+/// 🧩 TILE CACHE MANAGER — Regional cache for O(1) stroke addition
 ///
-/// STRATEGY:
-/// - Canvas divided into 4096x4096 px tiles
-/// - Only visible tiles are rasterized
-/// - Every tile has a cached ui.Image (HiDPI)
-/// - LRU eviction to limit memory
-/// - Invalidatezione granulare (1 tile invece di tutto)
+/// Divides the canvas into fixed-size tiles (4096×4096 canvas units).
+/// Each tile stores a pre-rendered `ui.Picture` of the strokes within it.
 ///
-/// PERFORMANCE WITH 100k+ STROKES:
-/// - Memory: O(viewport) instead of O(n)
-/// - Rendering: O(1) - draws only cached images
-/// - Invalidatezione: O(k) dove k = tile coinvolti (typically 1-2)
+/// PERFORMANCE:
+/// - Adding a stroke invalidates only the 1-2 tiles it overlaps
+/// - Drawing replays only tiles visible in the current viewport
+/// - Full cache rebuild cost: O(strokes_per_tile) instead of O(all_strokes)
 ///
-/// ARCHITECTURE PREPARED FOR:
-/// - Phase 2: LOD (Level of Detail) for zoom
-/// - Phase 3: Disk-backed tiles for 10M+ strokes
-class TileCacheManager
-    with MemoryManagedCacheMixin
-    implements MemoryManagedCache {
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 CONFIGURATION
-  // ═══════════════════════════════════════════════════════════════════════════
+/// TILE COORDINATE SYSTEM:
+/// Canvas point (x, y) → tile (x ~/ tileSize, y ~/ tileSize)
+/// Tile (tx, ty) covers canvas area [tx*4096, ty*4096, (tx+1)*4096, (ty+1)*4096]
+class TileCacheManager {
+  /// Size of each tile in canvas units.
+  /// 4096 is a good balance: large enough to contain many strokes per tile
+  /// (reducing overhead), small enough that rebuilding one tile is fast.
+  static const double tileSize = 4096.0;
 
-  /// Base tile size in logical pixels (adapted by scale)
-  /// Memory per tile: 1408² × 4 bytes = ~8MB
-  static const double baseTileSize = 512.0;
+  /// Maximum cached tiles to prevent OOM on large canvases.
+  /// 128 tiles × display lists = very memory-efficient (Pictures are
+  /// GPU command lists, not raw bitmaps).
+  static const int maxTiles = 48;
 
-  /// Get adaptive tile size based on zoom level
-  static double getTileSize(double scale) {
-    return baseTileSize / scale.clamp(0.25, 4.0).ceil();
+  /// Cached pictures keyed by tile coordinates.
+  /// LinkedHashMap preserves insertion order for LRU eviction.
+  final LinkedHashMap<TileKey, ui.Picture> _tiles =
+      LinkedHashMap<TileKey, ui.Picture>();
+
+  /// 🚀 STALE TILES: old-LOD tiles kept as GPU-scaled fallback during
+  /// progressive rebuild. Disposed lazily as new tiles replace them.
+  final Map<TileKey, ui.Picture> _staleTiles = {};
+
+  /// Scene graph version when each tile was last built.
+  final Map<TileKey, int> _tileVersions = {};
+
+  /// Total stroke count when the tile cache was last fully valid.
+  int _cachedStrokeCount = 0;
+
+  /// Scene graph version for the overall cache.
+  int _cachedVersion = -1;
+
+  /// Public access to cached scene version for external invalidation checks.
+  int get cachedVersion => _cachedVersion;
+
+  /// Number of cached tiles.
+  int get tileCount => _tiles.length;
+
+  /// Total stroke count in the cache.
+  int get cachedStrokeCount => _cachedStrokeCount;
+
+  /// Whether the cache has any tiles.
+  bool get hasCachedTiles => _tiles.isNotEmpty;
+
+  // =========================================================================
+  // CACHE STATS (for debug overlay)
+  // =========================================================================
+
+  int _cacheHits = 0;
+  int _cacheMisses = 0;
+
+  /// Cache hit count since last reset.
+  int get cacheHits => _cacheHits;
+
+  /// Cache miss count since last reset.
+  int get cacheMisses => _cacheMisses;
+
+  /// Hit rate as a percentage (0-100). Returns 100 if no requests.
+  double get hitRate {
+    final total = _cacheHits + _cacheMisses;
+    return total > 0 ? (_cacheHits / total * 100) : 100;
   }
 
-  /// Maximum number of cached tiles (LRU eviction)
-  /// 32 tiles × ~8MB = ~256MB max (was 8×127MB = ~1GB)
-  static const int maxCachedTiles = 32;
-
-  /// Extra margin to pre-load adjacent tiles
-  static const double preloadMargin = 0.5; // 50% of the tile
-
-  // 🐛 DEBUG: Counters to track Image/Picture lifecycle
-  static int _totalImagesCreated = 0;
-  static int _totalImagesDisposed = 0;
-  static int _totalPicturesCreated = 0;
-  static int _totalPicturesDisposed = 0;
-
-  static void _logMemoryStats(String context) {
-    // No-op: logging removed with singleton migration
+  /// Reset hit/miss counters (call periodically from monitor).
+  void resetStats() {
+    _cacheHits = 0;
+    _cacheMisses = 0;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🗂️ CACHE STATE
-  // ═══════════════════════════════════════════════════════════════════════════
+  // =========================================================================
+  // TILE KEY COMPUTATION
+  // =========================================================================
 
-  /// LRU Cache: tileKey -> rasterized image
-  /// LinkedHashMap maintains access order for LRU
-  final LinkedHashMap<String, ui.Image> _tileCache = LinkedHashMap();
-
-  /// Tiles that need to be re-rasterized
-  final Set<String> _dirtyTiles = {};
-
-  /// Stroke count per tile to detect changes
-  final Map<String, int> _tileStrokeCounts = {};
-
-  /// Current device pixel ratio
-  double _devicePixelRatio = 1.0;
-
-  /// Current scale bucket for grid alignment (flushes when changed)
-  int _currentScaleBucket = 1;
-
-  /// Update the internal scale bucket.
-  ///
-  /// Unlike the previous implementation, this does NOT clear the cache
-  /// on bucket change. Tiles from the old LOD level stay in the LRU
-  /// cache and are evicted naturally by the LRU policy. This eliminates
-  /// the full-cache flush jank on pinch-zoom transitions.
-  void updateScale(double scale) {
-    _currentScaleBucket = scale.clamp(0.25, 4.0).ceil();
+  /// Compute the tile key for a canvas point.
+  static TileKey tileKeyForPoint(double x, double y) {
+    return TileKey(x ~/ tileSize, y ~/ tileSize);
   }
 
-  /// Get the active tile size for the current bucket
-  double get currentTileSize => baseTileSize / _currentScaleBucket;
+  /// Compute all tile keys that overlap a given rect.
+  static List<TileKey> tileKeysForRect(Rect rect) {
+    if (rect.isEmpty) return const [];
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🔧 SINGLETON (optional, can be instance)
-  // ═══════════════════════════════════════════════════════════════════════════
-  /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static TileCacheManager get instance => EngineScope.current.tileCacheManager;
+    final minTx = rect.left ~/ tileSize - (rect.left < 0 ? 1 : 0);
+    final minTy = rect.top ~/ tileSize - (rect.top < 0 ? 1 : 0);
+    final maxTx = rect.right ~/ tileSize;
+    final maxTy = rect.bottom ~/ tileSize;
 
-  /// Creates a new instance (used by [EngineScope]).
-  TileCacheManager.create();
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 📐 TILE GEOMETRY
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Generates unique key for tile, including LOD level.
-  ///
-  /// Format: `lod:x:y` — tiles from different zoom levels coexist
-  /// in the same LRU cache without colliding.
-  String _tileKey(int x, int y) => '$_currentScaleBucket:$x:$y';
-
-  /// Generates tile key for a specific LOD level.
-  String _tileKeyForLod(int lod, int x, int y) => '$lod:$x:$y';
-
-  /// Returns all LOD levels that currently have cached tiles.
-  Set<int> get _allCachedLodLevels {
-    final lods = <int>{};
-    for (final key in _tileCache.keys) {
-      final colonIdx = key.indexOf(':');
-      if (colonIdx > 0) {
-        final lod = int.tryParse(key.substring(0, colonIdx));
-        if (lod != null) lods.add(lod);
+    final keys = <TileKey>[];
+    for (int tx = minTx; tx <= maxTx; tx++) {
+      for (int ty = minTy; ty <= maxTy; ty++) {
+        keys.add(TileKey(tx, ty));
       }
     }
-    return lods;
+    return keys;
   }
 
-  /// Calculates tile bounds in canvas coordinates
-  Rect getTileBounds(int tileX, int tileY, double scale) {
-    updateScale(scale);
-    final ts = getTileSize(scale);
-    return Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
+  /// Get the canvas-space bounds of a tile.
+  static Rect tileBounds(TileKey key) {
+    return Rect.fromLTWH(
+      key.tx * tileSize,
+      key.ty * tileSize,
+      tileSize,
+      tileSize,
+    );
   }
 
-  /// Calculates which tiles are visible in the viewport (with preload margin)
-  /// Supports negative coordinates for infinite canvas
-  List<(int, int)> getVisibleTiles(Rect viewport, double scale) {
-    updateScale(scale);
-    final ts = getTileSize(scale);
-    // Expand viewport for preload
-    final expandedViewport = viewport.inflate(ts * preloadMargin);
-
-    final startX = (expandedViewport.left / ts).floor();
-    final startY = (expandedViewport.top / ts).floor();
-    final endX = (expandedViewport.right / ts).ceil();
-    final endY = (expandedViewport.bottom / ts).ceil();
-
-    return [
-      for (int x = startX; x <= endX; x++)
-        for (int y = startY; y <= endY; y++) (x, y),
-    ];
+  /// 🚀 Sort tile keys by distance to viewport center (center-first priority).
+  /// Tiles closest to where the user is looking are rebuilt first.
+  static void sortByDistanceToCenter(List<TileKey> tiles, Rect viewport) {
+    final cx = viewport.center.dx / tileSize;
+    final cy = viewport.center.dy / tileSize;
+    tiles.sort((a, b) {
+      final da = (a.tx - cx) * (a.tx - cx) + (a.ty - cy) * (a.ty - cy);
+      final db = (b.tx - cx) * (b.tx - cx) + (b.ty - cy) * (b.ty - cy);
+      return da.compareTo(db);
+    });
   }
 
-  /// Calculates which tiles are touched by bounds (stroke, shape)
-  /// Uses internally cached scale bucket to not require scale parameter
-  List<(int, int)> getTilesForBounds(Rect bounds) {
-    final ts = currentTileSize;
-    final startX = (bounds.left / ts).floor();
-    final startY = (bounds.top / ts).floor();
-    final endX = (bounds.right / ts).ceil();
-    final endY = (bounds.bottom / ts).ceil();
-
-    return [
-      for (int x = startX; x <= endX; x++)
-        for (int y = startY; y <= endY; y++) (x, y),
-    ];
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🎨 TILE RASTERIZATION
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Rasterize a single tile with its strokes at max quality
-  ///
-  /// [tileX], [tileY]: Tile coordinates
-  /// [strokesInTile]: Strokes intersecting this tile
-  /// [devicePixelRatio]: For HiDPI rendering
-  void rasterizeTile(
-    int tileX,
-    int tileY,
-    List<ProStroke> strokesInTile,
-    double devicePixelRatio,
+  /// 🚀 Sort tiles biased toward pan direction (viewport prediction).
+  /// Tiles in the pan direction get negative distance bias → built first.
+  /// `panDir` should be a normalized direction vector (dx, dy).
+  static void sortByPanPrediction(
+    List<TileKey> tiles,
+    Rect viewport,
+    Offset panDir,
   ) {
-    final key = _tileKey(tileX, tileY);
-    _devicePixelRatio = devicePixelRatio;
-
-    // 🗑️ CRITICAL FIX: Dispose previous image BEFORE creating new one
-    final oldImage = _tileCache[key];
-    if (oldImage != null) {
-      // Remove from cache BEFORE dispose to avoid race conditions
-      _tileCache.remove(key);
-      _tileStrokeCounts.remove(key);
-      // 🐛 DEBUG: IMMEDIATE Dispose instead of Future.microtask
-      oldImage.dispose();
-      _totalImagesDisposed++;
-    }
-
-    if (strokesInTile.isEmpty) {
-      _dirtyTiles.remove(key);
-      _logMemoryStats('rasterizeTile-empty');
+    if (panDir == Offset.zero) {
+      sortByDistanceToCenter(tiles, viewport);
       return;
     }
-
-    // 🗑️ LRU eviction BEFORE adding new tile
-    _evictOldestTilesBeforeAdd();
-
-    // Create recorder to record drawing
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-
-    // Scale for HiDPI
-    canvas.scale(devicePixelRatio);
-
-    // Translate to position tile at origin
-    final ts = currentTileSize;
-    canvas.translate(-tileX * ts, -tileY * ts);
-
-    // 📦 BATCH RENDERING: group strokes by penType/color/width,
-    // then draw each batch in a single pass (ballpoint combined into 1 path).
-    final optimizer = AdvancedTileOptimizer.instance;
-    final batches = optimizer.batchStrokes(strokesInTile);
-    for (final entry in batches.entries) {
-      optimizer.drawStrokeBatch(canvas, entry.key, entry.value);
-    }
-
-    final picture = recorder.endRecording();
-    _totalPicturesCreated++;
-
-    // Rasterize at HiDPI size
-    final pixelWidth = (ts * devicePixelRatio).ceil();
-    final pixelHeight = (ts * devicePixelRatio).ceil();
-
-    // toImageSync is synchronous - no lag!
-    final image = picture.toImageSync(pixelWidth, pixelHeight);
-    _totalImagesCreated++;
-
-    // 🗑️ CRITICAL: Dispose picture after rasterization to avoid memory leak
-    picture.dispose();
-    _totalPicturesDisposed++;
-
-    // Add to cache (skip if hysteresis refill-lock is active)
-    if (isRefillAllowed) {
-      _tileCache[key] = image;
-      _tileStrokeCounts[key] = strokesInTile.length;
-      _dirtyTiles.remove(key);
-    } else {
-      // Draw direct without caching — image will be GC'd
-      _totalImagesDisposed++;
-    }
-
-    _logMemoryStats('rasterizeTile-end');
+    final cx = viewport.center.dx / tileSize;
+    final cy = viewport.center.dy / tileSize;
+    final pdx = panDir.dx;
+    final pdy = panDir.dy;
+    tiles.sort((a, b) {
+      // Dot product with pan direction: higher = more aligned
+      final dotA = (a.tx - cx) * pdx + (a.ty - cy) * pdy;
+      final dotB = (b.tx - cx) * pdx + (b.ty - cy) * pdy;
+      // Prefer tiles aligned with pan direction (negative = behind)
+      // Strongly bias: subtract 2× dot product from distance
+      final da =
+          (a.tx - cx) * (a.tx - cx) + (a.ty - cy) * (a.ty - cy) - dotA * 3.0;
+      final db =
+          (b.tx - cx) * (b.tx - cx) + (b.ty - cy) * (b.ty - cy) - dotB * 3.0;
+      return da.compareTo(db);
+    });
   }
 
-  /// 🚀 INCREMENTAL UPDATE: Overlays a single stroke on an existing tile
-  ///
-  /// Instead of re-rasterizing ALL strokes in the tile, draws only
-  /// the new stroke over the cached bitmap. O(1) per stroke vs O(N) full.
-  ///
-  /// Returns true if incremental update succeeded, false if full is needed.
-  bool incrementalUpdateTile(
-    int tileX,
-    int tileY,
-    ProStroke newStroke,
-    double devicePixelRatio,
-  ) {
-    final key = _tileKey(tileX, tileY);
-    final existingImage = _tileCache[key];
-
-    // If there is no cached tile, full rasterization is needed
-    if (existingImage == null) return false;
-
-    _devicePixelRatio = devicePixelRatio;
-    final ts = currentTileSize;
-    final pixelWidth = (ts * devicePixelRatio).ceil();
-    final pixelHeight = (ts * devicePixelRatio).ceil();
-
-    // Create recorder and draw existing bitmap + new stroke
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-
-    // 1. Draw existing bitmap (without scaling — already at HiDPI size)
-    canvas.drawImage(existingImage, Offset.zero, Paint());
-
-    // 2. Overlay the new stroke (with HiDPI scaling + tile translation)
-    canvas.scale(devicePixelRatio);
-    canvas.translate(-tileX * ts, -tileY * ts);
-    _drawStroke(canvas, newStroke);
-
-    final picture = recorder.endRecording();
-    _totalPicturesCreated++;
-
-    // Composite rasterization
-    final newImage = picture.toImageSync(pixelWidth, pixelHeight);
-    _totalImagesCreated++;
-
-    picture.dispose();
-    _totalPicturesDisposed++;
-
-    // Dispose old image and replace
-    _tileCache.remove(key);
-    existingImage.dispose();
-    _totalImagesDisposed++;
-
-    _tileCache[key] = newImage;
-    _tileStrokeCounts[key] = (_tileStrokeCounts[key] ?? 0) + 1;
-    _dirtyTiles.remove(key);
-
-    return true;
-  }
-
-  /// Draws a stroke on the canvas at max quality (zero LOD)
-  void _drawStroke(Canvas canvas, ProStroke stroke) {
-    // Get points (lazy loading if configured)
-    final points = StrokeDataManager.getPoints(
-      stroke.id,
-      fallbackPoints: stroke.points,
-    );
-    if (points.isEmpty) return;
-
-    BrushEngine.renderStroke(
-      canvas,
-      points,
-      stroke.color,
-      stroke.baseWidth,
-      stroke.penType,
-      stroke.settings,
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🖼️ RENDERING
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Draws all visible tiles on the canvas
-  ///
-  /// [canvas]: Canvas to draw on
-  /// [viewport]: Current viewport in canvas coordinates
-  /// [scale]: Current scale of the canvas
-  void paintVisibleTiles(Canvas canvas, Rect viewport, double scale) {
-    final visibleTiles = getVisibleTiles(viewport, scale);
-    final ts = currentTileSize;
-
-    for (final (tileX, tileY) in visibleTiles) {
-      final key = _tileKey(tileX, tileY);
-      final image = _tileCache[key];
-
-      if (image != null) {
-        // Update access for LRU
-        _touchTile(key);
-
-        // Calculate destination position
-        final destRect = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
-
-        // Draw correctly scaled tile
-        canvas.drawImageRect(
-          image,
-          Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-          destRect,
-          Paint()..filterQuality = FilterQuality.medium,
-        );
+  /// 🚀 Collect missing tiles in a 2-ring surrounding the viewport (pre-warm).
+  /// Returns tiles OUTSIDE the viewport that aren't cached yet.
+  List<TileKey> collectMissingPreWarm(Rect viewport) {
+    // Inflate viewport by 2 tiles in each direction for aggressive pre-warm
+    final inflated = viewport.inflate(tileSize * 2);
+    final allKeys = tileKeysForRect(inflated);
+    final visibleKeys = tileKeysForRect(viewport).toSet();
+    final missing = <TileKey>[];
+    for (final key in allKeys) {
+      if (!visibleKeys.contains(key) && !_tiles.containsKey(key)) {
+        missing.add(key);
       }
     }
+    return missing;
   }
 
-  /// 🚀 Draw ALL cached tiles for the CURRENT LOD level on the canvas.
-  ///
-  /// Only draws tiles matching `_currentScaleBucket` — tiles from other
-  /// LOD levels stay in cache but are not rendered.
-  void paintAllCachedTiles(Canvas canvas) {
-    final tilePaint = Paint()..filterQuality = FilterQuality.medium;
-    final lodPrefix = '$_currentScaleBucket:';
+  // =========================================================================
+  // CACHE OPERATIONS
+  // =========================================================================
 
-    for (final entry in _tileCache.entries) {
-      final key = entry.key;
-      if (!key.startsWith(lodPrefix)) continue; // Skip other LOD levels
+  /// Check if the tile cache is valid for the given stroke count and version.
+  bool isValid(int strokeCount, int sceneVersion) {
+    return _cachedStrokeCount == strokeCount &&
+        _cachedVersion == sceneVersion &&
+        _tiles.isNotEmpty;
+  }
 
-      final image = entry.value;
-
-      // Parse tile coordinates from key "lod:x:y"
-      final parts = key.split(':');
-      if (parts.length != 3) continue;
-      final tileX = int.tryParse(parts[1]);
-      final tileY = int.tryParse(parts[2]);
-      if (tileX == null || tileY == null) continue;
-
-      final ts = currentTileSize;
-      final destRect = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
-
-      canvas.drawImageRect(
-        image,
-        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-        destRect,
-        tilePaint,
-      );
+  /// Invalidate tiles that overlap the given bounds (e.g. a new stroke).
+  void invalidateForBounds(Rect bounds) {
+    final keys = tileKeysForRect(bounds);
+    for (final key in keys) {
+      _tiles.remove(key)?.dispose();
+      _tileVersions.remove(key);
     }
   }
 
-  /// Updates LRU order for a tile
-  void _touchTile(String key) {
-    if (_tileCache.containsKey(key)) {
-      final image = _tileCache.remove(key);
-      if (image != null) {
-        _tileCache[key] = image;
-      }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🔄 INVALIDATION
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Invalidate a tile at ALL LOD levels.
-  ///
-  /// When content changes (stroke add/remove), the affected spatial region
-  /// must be invalidated at every cached LOD level, not just the active one.
-  /// Otherwise, switching zoom levels would show stale tiles.
-  void invalidateTile(int tileX, int tileY) {
-    // Invalidate at current LOD level
-    _invalidateSingleTile(_tileKey(tileX, tileY));
-
-    // Also invalidate tiles at other cached LOD levels that overlap
-    // the same spatial region. Different LOD levels have different tile
-    // sizes, so the tile coordinates differ per level.
-    for (final lod in _allCachedLodLevels) {
-      if (lod == _currentScaleBucket) continue;
-      // Compute the spatial bounds of this tile at current LOD
-      final ts = currentTileSize;
-      final bounds = Rect.fromLTWH(tileX * ts, tileY * ts, ts, ts);
-      // Map to tile coordinates at the other LOD level
-      final otherTs = baseTileSize / lod;
-      final startX = (bounds.left / otherTs).floor();
-      final startY = (bounds.top / otherTs).floor();
-      final endX = (bounds.right / otherTs).ceil();
-      final endY = (bounds.bottom / otherTs).ceil();
-      for (int x = startX; x <= endX; x++) {
-        for (int y = startY; y <= endY; y++) {
-          _invalidateSingleTile(_tileKeyForLod(lod, x, y));
-        }
-      }
-    }
-    _logMemoryStats('invalidateTile');
-  }
-
-  /// Invalidate a single tile by key (internal helper).
-  void _invalidateSingleTile(String key) {
-    _dirtyTiles.add(key);
-    final oldImage = _tileCache[key];
-    if (oldImage != null) {
-      _tileCache.remove(key);
-      _tileStrokeCounts.remove(key);
-      oldImage.dispose();
-      _totalImagesDisposed++;
-    }
-  }
-
-  /// Invalidate all tiles that contain a certain stroke
-  void invalidateTilesForStroke(ProStroke stroke) {
-    final bounds = stroke.bounds;
-    if (bounds == Rect.zero) return;
-
-    for (final (tileX, tileY) in getTilesForBounds(bounds)) {
-      invalidateTile(tileX, tileY);
-    }
-  }
-
-  /// Invalidate all tiles that intersect a bounds
-  void invalidateTilesInBounds(Rect bounds) {
-    for (final (tileX, tileY) in getTilesForBounds(bounds)) {
-      invalidateTile(tileX, tileY);
-    }
-  }
-
-  /// Gets tiles that need to be updated
-  Set<String> get dirtyTiles => Set.unmodifiable(_dirtyTiles);
-
-  /// Checks if a specific tile is dirty
-  bool isTileDirty(int tileX, int tileY) {
-    return _dirtyTiles.contains(_tileKey(tileX, tileY));
-  }
-
-  /// Checks if a tile is in cache
-  bool hasTileCached(int tileX, int tileY) {
-    return _tileCache.containsKey(_tileKey(tileX, tileY));
-  }
-
-  /// Gets the number of strokes cached for a tile (0 if not in cache)
-  int getTileStrokeCount(int tileX, int tileY) {
-    return _tileStrokeCounts[_tileKey(tileX, tileY)] ?? 0;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🗑️ LRU EVICTION
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// 🗑️ Removes tile to make space BEFORE adding a new one
-  void _evictOldestTilesBeforeAdd() {
-    if (_tileCache.length < maxCachedTiles) return;
-
-    int evicted = 0;
-
-    // Evict if we are already at the limit (to make space for new one)
-    while (_tileCache.length >= maxCachedTiles) {
-      final oldestKey = _tileCache.keys.first;
-      final oldImage = _tileCache[oldestKey];
-      if (oldImage != null) {
-        // 🐛 DEBUG: IMMEDIATE Dispose instead of Future.microtask
-        oldImage.dispose();
-        _totalImagesDisposed++;
-        evicted++;
-      }
-      _tileCache.remove(oldestKey);
-      _tileStrokeCounts.remove(oldestKey);
-
-      _dirtyTiles.remove(oldestKey);
-    }
-
-    _logMemoryStats('evictOldest');
-  }
-
-  /// Forces eviction of tiles far from viewport
-  void evictDistantTiles(Rect viewport, double scale) {
-    final visibleTiles =
-        getVisibleTiles(
-          viewport,
-          scale,
-        ).map((t) => _tileKey(t.$1, t.$2)).toSet();
-
-    final keysToRemove = <String>[];
-    for (final key in _tileCache.keys) {
-      if (!visibleTiles.contains(key)) {
-        keysToRemove.add(key);
-      }
-    }
-
-    for (final key in keysToRemove) {
-      final oldImage = _tileCache[key];
-      if (oldImage != null) {
-        // 🐛 DEBUG: Dispose IMMEDIATO
-        oldImage.dispose();
-        _totalImagesDisposed++;
-      }
-      _tileCache.remove(key);
-      _tileStrokeCounts.remove(key);
-
-      _dirtyTiles.remove(key);
-    }
-
-    _logMemoryStats('evictDistant');
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 📊 STATISTICS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Number of tiles currently in cache
-  int get cachedTileCount => _tileCache.length;
-
-  /// Number of dirty tiles
-  int get dirtyTileCount => _dirtyTiles.length;
-
-  /// Estimated memory used from cache (in bytes)
-  int get estimatedMemoryUsage {
-    int total = 0;
-    for (final image in _tileCache.values) {
-      total += image.width * image.height * 4; // 4 bytes per pixel (RGBA)
-    }
-    return total;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🧠 MEMORY MANAGED CACHE INTERFACE
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  @override
-  String get cacheName => 'TileCache';
-
-  @override
-  int get estimatedMemoryBytes => estimatedMemoryUsage;
-
-  @override
-  int get cacheEntryCount => cachedTileCount;
-
-  /// Expensive: full GPU re-rasterization needed to rebuild.
-  @override
-  int get evictionPriority => 70;
-
-  @override
-  void evictFraction(double fraction) {
-    if (_tileCache.isEmpty || fraction <= 0) return;
-
-    final toEvict = (cachedTileCount * fraction).ceil().clamp(
-      1,
-      cachedTileCount,
-    );
-    int evicted = 0;
-
-    while (evicted < toEvict && _tileCache.isNotEmpty) {
-      final oldestKey = _tileCache.keys.first;
-      final oldImage = _tileCache[oldestKey];
-      if (oldImage != null) {
-        oldImage.dispose();
-        _totalImagesDisposed++;
-      }
-      _tileCache.remove(oldestKey);
-      _tileStrokeCounts.remove(oldestKey);
-      _dirtyTiles.remove(oldestKey);
-      evicted++;
-    }
-  }
-
-  @override
-  void evictAll() => clear();
-
-  /// Statistics for debugging
-  Map<String, dynamic> get stats => {
-    'cachedTiles': cachedTileCount,
-    'dirtyTiles': dirtyTileCount,
-    'memoryMB': (estimatedMemoryUsage / 1024 / 1024).toStringAsFixed(1),
-    'devicePixelRatio': _devicePixelRatio,
-  };
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🧹 CLEANUP
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Invalidate all tiles (complete reconstruction)
+  /// Invalidate ALL tiles (e.g. on undo or full scene change).
   void invalidateAll() {
-    _dirtyTiles.addAll(_tileCache.keys);
-  }
-
-  /// Clears the entire cache
-  void clear() {
-    // Dispose all Images IMMEDIATELY
-    for (final image in _tileCache.values) {
-      image.dispose();
-      _totalImagesDisposed++;
+    for (final picture in _tiles.values) {
+      picture.dispose();
     }
-    _tileCache.clear();
-    _dirtyTiles.clear();
-    _tileStrokeCounts.clear();
-
-    _logMemoryStats('clear');
+    _tiles.clear();
+    _tileVersions.clear();
+    _cachedStrokeCount = 0;
+    _cachedVersion = -1;
+    // Also dispose stale tiles
+    for (final p in _staleTiles.values) {
+      p.dispose();
+    }
+    _staleTiles.clear();
   }
 
-  /// Dispose manager
+  /// 🚀 Mark all current tiles as STALE (wrong LOD) instead of disposing.
+  /// Stale tiles are drawn as fallback during progressive rebuild,
+  /// then disposed lazily as new tiles replace them.
+  void markAllStale() {
+    // Move current tiles → stale, dispose any existing stale
+    for (final entry in _staleTiles.entries) {
+      entry.value.dispose();
+    }
+    _staleTiles.clear();
+    _staleTiles.addAll(_tiles);
+    _tiles.clear();
+    _tileVersions.clear();
+    _cachedStrokeCount = 0;
+    _cachedVersion = -1;
+  }
+
+  /// Draw all cached tiles that overlap the viewport.
+  ///
+  /// Returns the list of tile keys that are MISSING (need rebuilding).
+  /// The caller should rebuild those tiles and call [cacheTile] for each.
+  List<TileKey> drawAndCollectMissing(Canvas canvas, Rect viewport) {
+    final visibleKeys = tileKeysForRect(viewport);
+    final missing = <TileKey>[];
+
+    for (final key in visibleKeys) {
+      final picture = _tiles[key];
+      if (picture != null) {
+        canvas.drawPicture(picture);
+        _cacheHits++;
+      } else {
+        // 🚀 STALE FALLBACK: draw old-LOD tile if available (GPU-scaled)
+        final stale = _staleTiles[key];
+        if (stale != null) {
+          canvas.drawPicture(stale);
+        }
+        _cacheMisses++;
+        missing.add(key);
+      }
+    }
+
+    return missing;
+  }
+
+  /// 🚀 Collect missing tile keys WITHOUT drawing cached tiles.
+  /// Used during progressive LOD transition: we draw the old snapshot
+  /// and only need to know which tiles still need rebuilding.
+  List<TileKey> collectMissing(Rect viewport) {
+    final visibleKeys = tileKeysForRect(viewport);
+    final missing = <TileKey>[];
+    for (final key in visibleKeys) {
+      if (!_tiles.containsKey(key)) {
+        missing.add(key);
+      }
+    }
+    return missing;
+  }
+
+  /// 🚀 Draw ONLY cached tiles (skip missing). Used for global cache adoption
+  /// where we just need to replay already-rendered tiles into a PictureRecorder.
+  /// No tile rebuilding — O(1) per tile via drawPicture.
+  void drawCachedOnly(Canvas canvas, Rect viewport) {
+    final visibleKeys = tileKeysForRect(viewport);
+    for (final key in visibleKeys) {
+      final picture = _tiles[key];
+      if (picture != null) {
+        canvas.drawPicture(picture);
+      }
+    }
+  }
+
+  /// Cache a rebuilt tile picture.
+  /// Evicts oldest tiles if the cache exceeds [maxTiles].
+  void cacheTile(TileKey key, ui.Picture picture, int sceneVersion) {
+    _tiles.remove(key)?.dispose();
+    _tiles[key] = picture; // Insert at end (newest)
+    _tileVersions[key] = sceneVersion;
+
+    // 🚀 Dispose stale tile for this key (no longer needed)
+    _staleTiles.remove(key)?.dispose();
+
+    // 🛡️ LRU EVICTION: remove oldest tiles if over cap
+    while (_tiles.length > maxTiles) {
+      final oldest = _tiles.keys.first;
+      _tiles.remove(oldest)?.dispose();
+      _tileVersions.remove(oldest);
+    }
+  }
+
+  /// Mark the cache as fully valid for the given counts.
+  void markValid(int strokeCount, int sceneVersion) {
+    _cachedStrokeCount = strokeCount;
+    _cachedVersion = sceneVersion;
+  }
+
+  /// Dispose all cached tiles.
   void dispose() {
-    clear();
+    for (final picture in _tiles.values) {
+      picture.dispose();
+    }
+    _tiles.clear();
+    _tileVersions.clear();
+    for (final p in _staleTiles.values) {
+      p.dispose();
+    }
+    _staleTiles.clear();
   }
+}
+
+// ===========================================================================
+// TILE KEY
+// ===========================================================================
+
+/// Immutable tile coordinate key for cache lookups.
+@immutable
+class TileKey {
+  final int tx;
+  final int ty;
+
+  const TileKey(this.tx, this.ty);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TileKey && other.tx == tx && other.ty == ty;
+
+  @override
+  int get hashCode => tx.hashCode ^ (ty.hashCode * 31);
+
+  @override
+  String toString() => 'TileKey($tx, $ty)';
 }

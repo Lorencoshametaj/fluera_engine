@@ -223,11 +223,11 @@ class SceneGraphSnapshot {
   /// FNV-1a produces better distribution than naive `h * 31` chains,
   /// reducing false-negative diffs in large scene graphs.
   static int _computeHash(CanvasNode node) {
-    // FNV-1a offset basis and prime for 64-bit (truncated to Dart int).
-    var h = 0xcbf29ce484222325;
+    // FNV-1a 32-bit hash (JS-safe — no 64-bit literals).
+    var h = 0x811c9dc5;
     void _mix(int v) {
       h ^= v;
-      h = (h * 0x100000001b3) & 0x7FFFFFFFFFFFFFFF;
+      h = (h * 0x01000193) & 0x7FFFFFFF;
     }
 
     _mix(node.name.hashCode);

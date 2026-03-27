@@ -111,6 +111,7 @@ class DirtyRegionTracker extends ChangeNotifier {
 
   /// Clear all dirty regions (after repaint)
   void clearDirty() {
+    if (_dirtyRegions.isEmpty) return; // 🚀 Skip redundant notify
     _dirtyRegions.clear();
     notifyListeners();
   }

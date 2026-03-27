@@ -6,7 +6,9 @@ import 'package:flutter/scheduler.dart';
 import '../../core/engine_scope.dart';
 import '../../core/engine_error.dart';
 import '../../core/nodes/pdf_page_node.dart';
-import '../../canvas/nebula_canvas_config.dart';
+import '../../core/models/pdf_page_model.dart';
+import '../../core/models/pdf_annotation_model.dart';
+import '../../canvas/fluera_canvas_config.dart';
 import '../../platform/native_performance_monitor.dart';
 import './pdf_memory_budget.dart';
 import './pdf_disk_cache.dart';
@@ -31,7 +33,7 @@ import './pdf_render_stats.dart';
 /// - **Budget auto-refresh**: Refreshed from [NativePerformanceMonitor] every 60 frames
 /// - **Queue flush**: Stale queue entries purged on each paint cycle
 class PdfPagePainter {
-  final NebulaPdfProvider? _provider;
+  final FlueraPdfProvider? _provider;
   final PdfMemoryBudget _memoryBudget;
   final PdfDiskCache? _diskCache;
 
@@ -105,6 +107,16 @@ class PdfPagePainter {
   /// Max retries per page before giving up.
   static const int _kMaxRetries = 3;
 
+  /// 🚀 Per-frame render budget: max new enqueues per paint cycle.
+  /// Prevents N×enqueue cascades when many pages become visible at once.
+  static const int _kMaxRendersPerFrame = 2;
+  int _frameRenderBudget = _kMaxRendersPerFrame;
+
+  /// Reset budget at the start of each paint frame.
+  void resetFrameBudget() {
+    _frameRenderBudget = _kMaxRendersPerFrame;
+  }
+
   /// Fade-in duration in milliseconds.
   static const int _kFadeInMs = 200;
 
@@ -126,6 +138,9 @@ class PdfPagePainter {
 
   /// 🔋 Whether the viewport is actively scrolling (for idle detection).
   bool _isScrolling = false;
+
+  /// 🔋 ENERGY: When true, prefetch is suppressed to save battery.
+  bool suppressPrefetch = false;
 
   /// Frame counter for throttled stale cleanup.
   int _cleanupFrameCounter = 0;
@@ -163,8 +178,23 @@ class PdfPagePainter {
     letterSpacing: 1,
   );
 
+  // 🚀 PERF: Pre-allocated Paint objects for hot path
+  static final Paint _nightModePaint = Paint()..colorFilter = _invertFilter;
+  static final Paint _blankPageBgPaint =
+      Paint()..color = const Color(0xFFFFFFFF);
+  static final Paint _fadeInPaint =
+      Paint()
+        ..filterQuality = FilterQuality.high
+        ..isAntiAlias = true;
+  static final Paint _annotPaint = Paint(); // color set per-use
+  static final Paint _stickyBorderPaint =
+      Paint()
+        ..color = const Color(0x40000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+
   PdfPagePainter({
-    required NebulaPdfProvider? provider,
+    required FlueraPdfProvider? provider,
     required PdfMemoryBudget memoryBudget,
     String? documentId,
   }) : _provider = provider,
@@ -181,20 +211,65 @@ class PdfPagePainter {
   /// Uses **progressive LOD**: if the node has a cached image at the wrong
   /// LOD scale, draws the stale image while scheduling a debounced upgrade.
   /// Only shows placeholder if no cache exists at all.
+  // Inversion color filter for night mode.
+  static final ColorFilter _invertFilter = const ColorFilter.matrix(<double>[
+    -1,
+    0,
+    0,
+    0,
+    255,
+    0,
+    -1,
+    0,
+    0,
+    255,
+    0,
+    0,
+    -1,
+    0,
+    255,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ]);
+
   void paintPage(
     Canvas canvas,
     PdfPageNode node, {
     required double currentZoom,
     VoidCallback? onNeedRepaint,
     Rect viewport = Rect.zero,
+    bool nightMode = false,
+    bool isPanning = false, // 🚀 MULTI-COL OPT
   }) {
     final pageSize = node.pageModel.originalSize;
     final pageRect = Rect.fromLTWH(0, 0, pageSize.width, pageSize.height);
 
+    // 🌙 Night mode: wrap everything in an invert layer
+    if (nightMode) {
+      canvas.saveLayer(pageRect, _nightModePaint);
+    }
+
+    // 📄 Blank pages: draw white with pattern + border, no native rendering
+    if (node.pageModel.isBlank) {
+      canvas.drawRect(pageRect, _blankPageBgPaint);
+      _drawPageBackground(canvas, node.pageModel.background, pageRect);
+      canvas.drawRect(pageRect, _borderPaint);
+      _drawBookmarkBadge(canvas, node, pageRect);
+      if (nightMode) canvas.restore();
+      return;
+    }
+
     // Stamp LRU timestamp and track this page
     node.lastDrawnTimestamp = ++_drawCounter;
     _knownPages.add(node);
-    if (viewport != Rect.zero) {
+
+    // 🚀 Per-frame render budget: only N pages get LOD upgrades per frame.
+    // Combined with viewport-center sort, center pages upgrade first.
+    final canEnqueue = _frameRenderBudget > 0;
+    if (viewport != Rect.zero && !isPanning) {
       _prevViewportCenter = _viewportCenter;
       _lastViewport = viewport;
       _viewportCenter = viewport.center;
@@ -202,8 +277,8 @@ class PdfPagePainter {
       _isScrolling = (_viewportCenter - _prevViewportCenter).distance > 2.0;
     }
 
-    // Periodic budget auto-refresh
-    _maybeRefreshBudget();
+    // Periodic budget auto-refresh (🚀 skip during pan)
+    if (!isPanning) _maybeRefreshBudget();
 
     // Determine target LOD scale
     final baseLod = PdfMemoryBudget.lodScaleForZoom(currentZoom);
@@ -220,13 +295,14 @@ class PdfPagePainter {
     } else if (node.cachedImage != null) {
       // 🔄 Progressive path: draw stale cache + schedule upgrade
       _drawCachedImage(canvas, node, pageRect, onNeedRepaint: onNeedRepaint);
-      if (zoomChanged) {
-        // Debounce during active zoom — don't flood the queue
-        _debounceLodUpgrade(node, targetScale, pageRect, onNeedRepaint);
-      } else if (!_pendingGenerations.containsKey(node.id)) {
-        // Only enqueue if no render is already pending for this page.
-        // Without this guard, every paint frame re-enqueues the same page
-        // with a new generation, creating a render→repaint→render loop.
+      // 🚀 SCROLL OPT: Don't enqueue LOD upgrades during pan — prevents
+      // render→repaint→iterate-122-pages cascade that causes 20ms+ spikes.
+      if (!isPanning &&
+          canEnqueue &&
+          !_pendingGenerations.containsKey(node.id)) {
+        _frameRenderBudget--;
+        // Enqueue immediately — no debounce needed when pan has stopped.
+        // (_lastZoom is stale from pan period, so zoomChanged is unreliable)
         _enqueueRender(
           node,
           targetScale,
@@ -236,19 +312,33 @@ class PdfPagePainter {
         );
       }
     } else {
-      // ⚡ Progressive cold path: render at adaptive LOD first,
-      // then the next paint frame will upgrade via the progressive path.
+      // ⚡ Cold path: no cached image — draw thumbnail or placeholder
       stats.recordMemoryMiss();
-      _drawPlaceholder(canvas, node, pageRect);
-      if (!_pendingGenerations.containsKey(node.id)) {
-        // Adaptive cold LOD: lower scale at very low zoom
+
+      // 🖼️ Show thumbnail if available (instant low-res preview)
+      if (node.thumbnailImage != null) {
+        _drawThumbnailImage(canvas, node, pageRect);
+      } else {
+        _drawPlaceholder(canvas, node, pageRect);
+        // 🚀 Trigger async thumbnail fetch (fire-and-forget)
+        if (_provider != null && !_isDisposed) {
+          _fetchThumbnail(node);
+        }
+      }
+
+      // 🚀 SCROLL OPT: Defer cold renders to after scroll stops.
+      if (!isPanning &&
+          canEnqueue &&
+          !_pendingGenerations.containsKey(node.id)) {
+        _frameRenderBudget--;
+        // Prefetch in management section handles it when isPanning = false.
         final double coldScale;
         if (targetScale <= 0.25) {
-          coldScale = targetScale; // Already very low
+          coldScale = targetScale;
         } else if (currentZoom < 0.3) {
-          coldScale = 0.25; // Very low zoom → ultra-fast preview
+          coldScale = 0.25;
         } else {
-          coldScale = 0.5; // Normal quick preview
+          coldScale = 0.5;
         }
         _enqueueRender(
           node,
@@ -259,6 +349,18 @@ class PdfPagePainter {
         );
       }
     }
+
+    // 🖍️ Structured annotations (highlights, underlines, sticky notes)
+    // 🚀 MULTI-COL OPT: Skip during pan
+    if (!isPanning) {
+      _drawStructuredAnnotations(canvas, node);
+
+      // 🔖 Bookmark badge (drawn after page content)
+      _drawBookmarkBadge(canvas, node, pageRect);
+    }
+
+    // 🌙 Restore night mode layer
+    if (nightMode) canvas.restore();
   }
 
   // ---------------------------------------------------------------------------
@@ -271,34 +373,45 @@ class PdfPagePainter {
     Rect pageRect, {
     VoidCallback? onNeedRepaint,
   }) {
-    final img = node.cachedImage!;
-    final srcRect = Rect.fromLTWH(
-      0,
-      0,
-      img.width.toDouble(),
-      img.height.toDouble(),
-    );
+    final img = node.cachedImage;
+    // 🛡️ Guard: skip if image was disposed (race with stub-out/eviction)
+    if (img == null) {
+      _drawPlaceholder(canvas, node, pageRect);
+      return;
+    }
 
-    // 🎬 Smooth fade-in over _kFadeInMs
-    final elapsed = _fadeStopwatch.elapsedMilliseconds - node.cacheUpdatedAt;
-    if (elapsed < _kFadeInMs) {
-      final opacity = (elapsed / _kFadeInMs).clamp(0.0, 1.0);
-      final fadePaint =
-          Paint()
-            ..filterQuality = FilterQuality.high
-            ..isAntiAlias = true
-            ..color = Color.fromRGBO(255, 255, 255, opacity);
-      canvas.drawImageRect(img, srcRect, pageRect, fadePaint);
-      // 🔋 Single scheduled repaint for all active fade-ins (no microtask spam)
-      if (onNeedRepaint != null && !_fadeInRepaintScheduled) {
-        _fadeInRepaintScheduled = true;
-        SchedulerBinding.instance.addPostFrameCallback((_) {
-          _fadeInRepaintScheduled = false;
-          onNeedRepaint();
-        });
+    // 🛡️ Wrap in try-catch: ui.Image can be .dispose()'d but Dart ref
+    // stays non-null → native throws "non-genuine Image" on draw.
+    try {
+      final srcRect = Rect.fromLTWH(
+        0,
+        0,
+        img.width.toDouble(),
+        img.height.toDouble(),
+      );
+
+      // 🎬 Smooth fade-in over _kFadeInMs
+      final elapsed = _fadeStopwatch.elapsedMilliseconds - node.cacheUpdatedAt;
+      if (elapsed < _kFadeInMs) {
+        final opacity = (elapsed / _kFadeInMs).clamp(0.0, 1.0);
+        _fadeInPaint.color = Color.fromRGBO(255, 255, 255, opacity);
+        canvas.drawImageRect(img, srcRect, pageRect, _fadeInPaint);
+        // 🔋 Single scheduled repaint for all active fade-ins (no microtask spam)
+        if (onNeedRepaint != null && !_fadeInRepaintScheduled) {
+          _fadeInRepaintScheduled = true;
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            _fadeInRepaintScheduled = false;
+            onNeedRepaint();
+          });
+        }
+      } else {
+        canvas.drawImageRect(img, srcRect, pageRect, _imagePaint);
       }
-    } else {
-      canvas.drawImageRect(img, srcRect, pageRect, _imagePaint);
+    } catch (_) {
+      // Image was disposed between null-check and draw — clear stale ref
+      node.cachedImage = null;
+      node.cachedScale = 0.0;
+      _drawPlaceholder(canvas, node, pageRect);
     }
   }
 
@@ -320,6 +433,363 @@ class PdfPagePainter {
         (pageRect.height - _textPainter.height) / 2,
       ),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Thumbnail drawing
+  // ---------------------------------------------------------------------------
+
+  /// 🖼️ Draw a low-res thumbnail image scaled to fill the page rect.
+  /// Used as an instant placeholder while the full-LOD render is pending.
+  void _drawThumbnailImage(Canvas canvas, PdfPageNode node, Rect pageRect) {
+    final img = node.thumbnailImage;
+    if (img == null) {
+      _drawPlaceholder(canvas, node, pageRect);
+      return;
+    }
+
+    try {
+      final srcRect = Rect.fromLTWH(
+        0,
+        0,
+        img.width.toDouble(),
+        img.height.toDouble(),
+      );
+      canvas.drawImageRect(img, srcRect, pageRect, _imagePaint);
+    } catch (_) {
+      node.thumbnailImage = null;
+      _drawPlaceholder(canvas, node, pageRect);
+    }
+  }
+
+  /// Set of node IDs with pending thumbnail fetches — prevents duplicates.
+  final Set<String> _pendingThumbnails = {};
+
+  /// 🖼️ Fetch a thumbnail for a page node (one-shot, fire-and-forget).
+  void _fetchThumbnail(PdfPageNode node) {
+    final nodeId = node.id.toString();
+    if (_pendingThumbnails.contains(nodeId)) return;
+    _pendingThumbnails.add(nodeId);
+
+    _provider!.renderThumbnail(node.pageModel.pageIndex).then((image) {
+      if (!_isDisposed && image != null && node.cachedImage == null) {
+        node.thumbnailImage = image;
+        // Don't trigger repaint for thumbnails — the next frame will
+        // pick it up automatically. This avoids repaint storms when
+        // loading 100+ page documents.
+      }
+      _pendingThumbnails.remove(nodeId);
+    }).catchError((_) {
+      _pendingThumbnails.remove(nodeId);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bookmark badge
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // 📝 Page background patterns
+  // ---------------------------------------------------------------------------
+
+  /// Line color for ruled/grid patterns — subtle light blue.
+  static final Paint _patternLinePaint =
+      Paint()
+        ..color = const Color(0xFFB3D5F5)
+        ..strokeWidth = 0.5
+        ..style = PaintingStyle.stroke;
+
+  /// Dot fill for dotted pattern.
+  static final Paint _patternDotPaint =
+      Paint()
+        ..color = const Color(0xFFB0BEC5)
+        ..style = PaintingStyle.fill;
+
+  /// Heavier line for section dividers (Cornell, Music).
+  static final Paint _patternHeavyPaint =
+      Paint()
+        ..color = const Color(0xFF90A4AE)
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke;
+
+  /// Red margin line for ruled pattern.
+  static final Paint _marginLinePaint =
+      Paint()
+        ..color = const Color(0x40E57373)
+        ..strokeWidth = 0.8
+        ..style = PaintingStyle.stroke;
+
+  /// Draw the background pattern for a blank page.
+  void _drawPageBackground(
+    Canvas canvas,
+    PdfPageBackground background,
+    Rect pageRect,
+  ) {
+    switch (background) {
+      case PdfPageBackground.blank:
+        return; // No pattern
+
+      case PdfPageBackground.ruled:
+        _drawRuledPattern(canvas, pageRect);
+
+      case PdfPageBackground.grid:
+        _drawGridPattern(canvas, pageRect);
+
+      case PdfPageBackground.dotted:
+        _drawDottedPattern(canvas, pageRect);
+
+      case PdfPageBackground.music:
+        _drawMusicPattern(canvas, pageRect);
+
+      case PdfPageBackground.cornell:
+        _drawCornellPattern(canvas, pageRect);
+    }
+  }
+
+  /// 📏 Ruled lines — horizontal lines with a red margin.
+  void _drawRuledPattern(Canvas canvas, Rect pageRect) {
+    const lineSpacing = 24.0;
+    const topMargin = 72.0; // 1 inch from top
+    const leftMargin = 72.0; // 1 inch from left
+
+    // Red margin line
+    canvas.drawLine(
+      Offset(pageRect.left + leftMargin, pageRect.top),
+      Offset(pageRect.left + leftMargin, pageRect.bottom),
+      _marginLinePaint,
+    );
+
+    // Horizontal ruled lines
+    for (
+      double y = pageRect.top + topMargin;
+      y < pageRect.bottom - 24;
+      y += lineSpacing
+    ) {
+      canvas.drawLine(
+        Offset(pageRect.left + 24, y),
+        Offset(pageRect.right - 24, y),
+        _patternLinePaint,
+      );
+    }
+  }
+
+  /// 📐 Square grid — evenly spaced horizontal and vertical lines.
+  void _drawGridPattern(Canvas canvas, Rect pageRect) {
+    const spacing = 20.0;
+    const margin = 20.0;
+
+    for (
+      double x = pageRect.left + margin;
+      x <= pageRect.right - margin;
+      x += spacing
+    ) {
+      canvas.drawLine(
+        Offset(x, pageRect.top + margin),
+        Offset(x, pageRect.bottom - margin),
+        _patternLinePaint,
+      );
+    }
+    for (
+      double y = pageRect.top + margin;
+      y <= pageRect.bottom - margin;
+      y += spacing
+    ) {
+      canvas.drawLine(
+        Offset(pageRect.left + margin, y),
+        Offset(pageRect.right - margin, y),
+        _patternLinePaint,
+      );
+    }
+  }
+
+  /// ⋯ Dotted grid — small dots at grid intersections.
+  void _drawDottedPattern(Canvas canvas, Rect pageRect) {
+    const spacing = 20.0;
+    const margin = 20.0;
+    const dotRadius = 1.2;
+
+    for (
+      double x = pageRect.left + margin;
+      x <= pageRect.right - margin;
+      x += spacing
+    ) {
+      for (
+        double y = pageRect.top + margin;
+        y <= pageRect.bottom - margin;
+        y += spacing
+      ) {
+        canvas.drawCircle(Offset(x, y), dotRadius, _patternDotPaint);
+      }
+    }
+  }
+
+  /// 🎵 Music staff — groups of 5 lines with spacing between staves.
+  void _drawMusicPattern(Canvas canvas, Rect pageRect) {
+    const staffLineSpacing = 8.0;
+    const staffSpacing = 48.0; // Space between stave groups
+    const topMargin = 60.0;
+    const sideMargin = 40.0;
+
+    double y = pageRect.top + topMargin;
+    while (y + staffLineSpacing * 4 < pageRect.bottom - 40) {
+      // Draw 5 lines per staff
+      for (int line = 0; line < 5; line++) {
+        final ly = y + line * staffLineSpacing;
+        canvas.drawLine(
+          Offset(pageRect.left + sideMargin, ly),
+          Offset(pageRect.right - sideMargin, ly),
+          _patternHeavyPaint,
+        );
+      }
+      y += staffLineSpacing * 4 + staffSpacing;
+    }
+  }
+
+  /// 📋 Cornell layout — cue column (left), notes (right), summary (bottom).
+  void _drawCornellPattern(Canvas canvas, Rect pageRect) {
+    final w = pageRect.width;
+    final h = pageRect.height;
+    const topMargin = 60.0;
+
+    // Cue column divider (left ~30%)
+    final cueX = pageRect.left + w * 0.30;
+    canvas.drawLine(
+      Offset(cueX, pageRect.top + topMargin),
+      Offset(cueX, pageRect.bottom - h * 0.20),
+      _patternHeavyPaint,
+    );
+
+    // Summary section divider (bottom ~20%)
+    final summaryY = pageRect.bottom - h * 0.20;
+    canvas.drawLine(
+      Offset(pageRect.left + 20, summaryY),
+      Offset(pageRect.right - 20, summaryY),
+      _patternHeavyPaint,
+    );
+
+    // Top header line
+    canvas.drawLine(
+      Offset(pageRect.left + 20, pageRect.top + topMargin),
+      Offset(pageRect.right - 20, pageRect.top + topMargin),
+      _patternHeavyPaint,
+    );
+
+    // Ruled lines in the notes area (right of cue column)
+    const lineSpacing = 24.0;
+    for (
+      double y = pageRect.top + topMargin + lineSpacing;
+      y < summaryY - 12;
+      y += lineSpacing
+    ) {
+      canvas.drawLine(
+        Offset(cueX + 8, y),
+        Offset(pageRect.right - 24, y),
+        _patternLinePaint,
+      );
+    }
+
+    // Ruled lines in summary area
+    for (
+      double y = summaryY + lineSpacing;
+      y < pageRect.bottom - 24;
+      y += lineSpacing
+    ) {
+      canvas.drawLine(
+        Offset(pageRect.left + 24, y),
+        Offset(pageRect.right - 24, y),
+        _patternLinePaint,
+      );
+    }
+  }
+
+  static final Paint _bookmarkPaint = Paint()..color = const Color(0xFFE53935);
+
+  /// Draw a red bookmark triangle in the top-right corner of bookmarked pages.
+  void _drawBookmarkBadge(Canvas canvas, PdfPageNode node, Rect pageRect) {
+    if (!node.pageModel.isBookmarked) return;
+    final size = 24.0;
+    final path =
+        Path()
+          ..moveTo(pageRect.right - size, pageRect.top)
+          ..lineTo(pageRect.right, pageRect.top)
+          ..lineTo(pageRect.right, pageRect.top + size)
+          ..close();
+    canvas.drawPath(path, _bookmarkPaint);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Structured annotations (highlights, underlines, sticky notes)
+  // ---------------------------------------------------------------------------
+
+  /// Draw all structured annotations (highlights, underlines, sticky notes)
+  /// on the current page. These are drawn in page-local coordinates.
+  void _drawStructuredAnnotations(Canvas canvas, PdfPageNode node) {
+    final annotations = node.pageModel.structuredAnnotations;
+    if (annotations.isEmpty) return;
+
+    for (final ann in annotations) {
+      _annotPaint
+        ..color = ann.color
+        ..style = PaintingStyle.fill
+        ..strokeWidth = 0;
+      switch (ann.type) {
+        case PdfAnnotationType.highlight:
+          // Semi-transparent colored rectangle
+          canvas.drawRect(ann.rect, _annotPaint);
+          break;
+        case PdfAnnotationType.underline:
+          // Colored line at the bottom of the rect
+          final y = ann.rect.bottom;
+          _annotPaint
+            ..strokeWidth = 2.0
+            ..style = PaintingStyle.stroke;
+          canvas.drawLine(
+            Offset(ann.rect.left, y),
+            Offset(ann.rect.right, y),
+            _annotPaint,
+          );
+          break;
+        case PdfAnnotationType.stickyNote:
+          // Small colored square with border
+          final noteRect = Rect.fromLTWH(ann.rect.left, ann.rect.top, 24, 24);
+          canvas.drawRect(noteRect, _annotPaint);
+          canvas.drawRect(noteRect, _stickyBorderPaint);
+          break;
+        case PdfAnnotationType.stamp:
+          // Rotated stamp text
+          canvas.save();
+          final cx = ann.rect.center.dx;
+          final cy = ann.rect.center.dy;
+          canvas.translate(cx, cy);
+          canvas.rotate(-0.3); // ~17° tilt
+          final stampRect = Rect.fromCenter(
+            center: Offset.zero,
+            width: ann.rect.width,
+            height: ann.rect.height,
+          );
+          canvas.drawRect(
+            stampRect,
+            _annotPaint
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 3.0,
+          );
+          final label = ann.stampType?.name.toUpperCase() ?? 'STAMP';
+          final tp = TextPainter(
+            text: TextSpan(
+              text: label,
+              style: TextStyle(
+                color: ann.color.withValues(alpha: 1.0),
+                fontSize: ann.rect.height * 0.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+          canvas.restore();
+          break;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -430,15 +900,32 @@ class PdfPagePainter {
   void _executeRender(_RenderRequest request) {
     _activeRenders++;
 
-    final targetWidth = (request.pageRect.width * request.targetScale).toInt();
-    final targetHeight =
-        (request.pageRect.height * request.targetScale).toInt();
+    // 🛡️ Cap raster tile dimensions to prevent native provider from
+    // failing on impossibly large allocations at very high zoom.
+    // 4096px is a safe max for most mobile GPUs.
+    const int kMaxDimension = 4096;
+    var targetWidth = (request.pageRect.width * request.targetScale).toInt();
+    var targetHeight = (request.pageRect.height * request.targetScale).toInt();
+
+    if (targetWidth > kMaxDimension || targetHeight > kMaxDimension) {
+      final scaleFactor =
+          kMaxDimension /
+          (targetWidth > targetHeight ? targetWidth : targetHeight);
+      targetWidth = (targetWidth * scaleFactor).toInt();
+      targetHeight = (targetHeight * scaleFactor).toInt();
+    }
+
     final pageIndex = request.node.pageModel.pageIndex;
 
     _executeRenderAsync(request, pageIndex, targetWidth, targetHeight);
   }
 
   /// Async implementation of render execution with disk cache support.
+  ///
+  /// Render priority:
+  /// 1. Disk cache (fastest — decompresses gzipped pixels)
+  /// 2. 🚀 Texture path (zero-copy — no pixel data crosses MethodChannel)
+  /// 3. Pixel path (legacy — transfers RGBA bytes via MethodChannel)
   Future<void> _executeRenderAsync(
     _RenderRequest request,
     int pageIndex,
@@ -485,8 +972,64 @@ class PdfPagePainter {
       }
     }
 
-    // 💻 Step 2: Render via native provider
     stats.recordDiskMiss();
+
+    // 🚀 Step 2: Try zero-copy texture path (no pixel data via MethodChannel)
+    try {
+      final textureTile = await _provider!.renderPageTexture(
+        pageIndex: pageIndex,
+        scale: request.targetScale,
+        targetSize: Size(targetWidth.toDouble(), targetHeight.toDouble()),
+      );
+
+      if (textureTile != null && !_isDisposed) {
+        // Capture the GPU texture as a ui.Image via Scene.toImage()
+        final image = await _captureTextureAsImage(
+          textureTile.textureId,
+          textureTile.width,
+          textureTile.height,
+        );
+
+        textureTile.dispose();
+
+        if (image != null) {
+          renderStopwatch.stop();
+          stats.recordNativeRender(renderStopwatch.elapsedMilliseconds);
+          _applyRenderResult(request, image);
+
+          // 💾 Save to disk cache asynchronously (fire-and-forget)
+          if (_diskCache != null) {
+            image
+                .toByteData(format: ui.ImageByteFormat.rawRgba)
+                .then((byteData) {
+                  if (byteData != null && !_isDisposed) {
+                    _diskCache.save(
+                      pageIndex,
+                      targetWidth,
+                      targetHeight,
+                      byteData.buffer.asUint8List(),
+                    );
+                  }
+                })
+                .catchError((e) {
+                  EngineScope.current.errorRecovery.reportError(
+                    EngineError(
+                      severity: ErrorSeverity.transient,
+                      domain: ErrorDomain.storage,
+                      source: 'PdfPagePainter.diskCacheSave.texture',
+                      original: e,
+                    ),
+                  );
+                });
+          }
+          return;
+        }
+      }
+    } catch (_) {
+      // Texture path failed — fall through to pixel path
+    }
+
+    // 💻 Step 3: Render via native provider (legacy pixel path)
     try {
       final image = await _provider!.renderPage(
         pageIndex: pageIndex,
@@ -575,6 +1118,35 @@ class PdfPagePainter {
     }
   }
 
+  /// 🚀 Capture a Flutter texture (registered via TextureRegistry) as a
+  /// `ui.Image` using `SceneBuilder.addTexture()` + `Scene.toImage()`.
+  ///
+  /// This is the bridge between the zero-copy texture path and the existing
+  /// `Canvas.drawImageRect()`-based painting pipeline. The resulting
+  /// `ui.Image` is GPU-backed and avoids any pixel copy.
+  Future<ui.Image?> _captureTextureAsImage(
+    int textureId,
+    int width,
+    int height,
+  ) async {
+    try {
+      final builder = ui.SceneBuilder();
+      builder.pushOffset(0, 0);
+      builder.addTexture(
+        textureId,
+        width: width.toDouble(),
+        height: height.toDouble(),
+      );
+      builder.pop();
+      final scene = builder.build();
+      final image = await scene.toImage(width, height);
+      scene.dispose();
+      return image;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Apply a successfully rendered image to the node.
   /// Returns true if applied, false if stale/disposed.
   bool _applyRenderResult(_RenderRequest request, ui.Image image) {
@@ -610,34 +1182,42 @@ class PdfPagePainter {
     return true;
   }
 
-  /// Drain the queue, picking the request closest to viewport center first.
+  /// Drain the queue, picking visible-priority requests first (FIFO),
+  /// then closest prefetch requests.
+  /// 🚀 PERF: Avoids O(queue²) scan by splitting visible vs prefetch.
   void _drainQueue() {
     while (_activeRenders < maxConcurrent && _renderQueue.isNotEmpty) {
-      // 🎯 Viewport-distance priority: pick closest to viewport center
-      _RenderRequest? best;
-      double bestDist = double.infinity;
+      // First: pick any visible-priority request (FIFO order)
+      _RenderRequest? picked;
       for (final req in _renderQueue) {
         final currentGen = _pendingGenerations[req.node.id];
         if (currentGen != null && currentGen > req.generation) continue;
-
-        final pos = req.node.position;
-        final sz = req.node.pageModel.originalSize;
-        final center = Offset(pos.dx + sz.width / 2, pos.dy + sz.height / 2);
-        final dist = (center - _viewportCenter).distanceSquared;
-
-        // Visible priority bonus (treated as 0 distance)
-        final effectiveDist =
-            req.priority == _RenderPriority.visible ? dist * 0.001 : dist;
-
-        if (effectiveDist < bestDist) {
-          bestDist = effectiveDist;
-          best = req;
+        if (req.priority == _RenderPriority.visible) {
+          picked = req;
+          break;
         }
       }
 
-      if (best == null) break;
-      _renderQueue.remove(best);
-      _executeRender(best);
+      // Fallback: pick closest prefetch request
+      if (picked == null) {
+        double bestDist = double.infinity;
+        for (final req in _renderQueue) {
+          final currentGen = _pendingGenerations[req.node.id];
+          if (currentGen != null && currentGen > req.generation) continue;
+          final pos = req.node.position;
+          final sz = req.node.pageModel.originalSize;
+          final center = Offset(pos.dx + sz.width / 2, pos.dy + sz.height / 2);
+          final dist = (center - _viewportCenter).distanceSquared;
+          if (dist < bestDist) {
+            bestDist = dist;
+            picked = req;
+          }
+        }
+      }
+
+      if (picked == null) break;
+      _renderQueue.remove(picked);
+      _executeRender(picked);
     }
   }
 
@@ -649,21 +1229,17 @@ class PdfPagePainter {
   ///
   /// Call after painting visible pages. Removes requests that would waste
   /// native render time on pages the user has already scrolled past.
+  /// 🚀 PERF: In-place removal — no allocation.
   void flushStaleQueue(Rect viewport) {
     if (_renderQueue.isEmpty) return;
 
-    final fresh = Queue<_RenderRequest>();
-    for (final req in _renderQueue) {
+    _renderQueue.removeWhere((req) {
+      if (req.priority == _RenderPriority.prefetch) return false;
       final pos = req.node.position;
       final sz = req.node.pageModel.originalSize;
       final pageRect = Rect.fromLTWH(pos.dx, pos.dy, sz.width, sz.height);
-      if (pageRect.overlaps(viewport) ||
-          req.priority == _RenderPriority.prefetch) {
-        fresh.addLast(req);
-      }
-    }
-    _renderQueue.clear();
-    _renderQueue.addAll(fresh);
+      return !pageRect.overlaps(viewport);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -754,14 +1330,21 @@ class PdfPagePainter {
   }) {
     if (_provider == null || _isDisposed) return;
 
+    // 🔋 ENERGY: Skip prefetch entirely in low-power mode
+    if (suppressPrefetch) return;
+
     // 🔋 Skip prefetch when idle (not scrolling) — saves battery
     if (!_isScrolling) return;
 
     final prefetchCount = _memoryBudget.prefetchCount;
     if (prefetchCount == 0) return;
 
+    // 🚀 PERF: Find visible range with early exit.
+    // Pages are typically ordered spatially. Once we find a visible page
+    // and then encounter a non-visible one, we can stop scanning.
     int firstVisible = -1;
     int lastVisible = -1;
+    bool foundThenLost = false;
 
     for (int i = 0; i < allPages.length; i++) {
       final pos = allPages[i].position;
@@ -770,6 +1353,12 @@ class PdfPagePainter {
       if (pageRect.overlaps(viewport)) {
         if (firstVisible == -1) firstVisible = i;
         lastVisible = i;
+        foundThenLost = false;
+      } else if (firstVisible != -1) {
+        // 🚀 EARLY EXIT: if we found visible pages then lost them,
+        // the rest are likely off-screen too (spatial ordering).
+        if (foundThenLost) break;
+        foundThenLost = true;
       }
     }
 
@@ -852,7 +1441,7 @@ class PdfPagePainter {
   /// visible pages. Falls back to pure LRU if all cached pages are visible.
   void _evictLruPage(String excludeId) {
     PdfPageNode? bestCandidate;
-    int lowestTimestamp = 0x7FFFFFFFFFFFFFFF;
+    int lowestTimestamp = 0x7FFFFFFF; // JS-safe max int for LRU comparison
     bool bestIsOffViewport = false;
 
     for (final page in _knownPages) {
@@ -886,9 +1475,33 @@ class PdfPagePainter {
     }
   }
 
+  /// 🚀 SCREEN-OFF: Release ALL cached page textures to free memory.
+  /// Called when the app goes to background. The LOD system will
+  /// re-render pages on demand when the screen turns back on.
+  void releaseAllCachedPages() {
+    for (final page in _knownPages) {
+      if (page.cachedImage != null) {
+        page.disposeCachedImage();
+      }
+      page.disposeThumbnail();
+    }
+    _totalCachedBytes = 0;
+    _renderQueue.clear();
+    _pendingGenerations.clear();
+  }
+
+  /// 🚀 PERF: Only checks _knownPages (pages with cache), not ALL pages.
+  /// Early exit when memory is under budget.
   void evictOffViewport(List<PdfPageNode> allPages, Rect viewport) {
+    // 🚀 Early exit: no pressure = no eviction needed
+    if (!_memoryBudget.shouldEvictAgressively &&
+        _totalCachedBytes <= _memoryBudget.currentBudgetBytes) {
+      return;
+    }
+
+    // Collect offscreen cached pages from _knownPages (smaller set)
     final offscreen = <PdfPageNode>[];
-    for (final page in allPages) {
+    for (final page in _knownPages) {
       if (page.cachedImage == null) continue;
       final pos = page.position;
       final sz = page.pageModel.originalSize;
@@ -923,6 +1536,7 @@ class PdfPagePainter {
     warmUpProgress.dispose();
     for (final page in allPages) {
       page.disposeCachedImage();
+      page.disposeThumbnail();
     }
     _totalCachedBytes = 0;
     _pendingGenerations.clear();

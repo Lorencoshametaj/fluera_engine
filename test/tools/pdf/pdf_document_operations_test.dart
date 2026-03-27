@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/tools/pdf/pdf_document_operations.dart';
-import 'package:nebula_engine/src/export/pdf_export_writer.dart';
+import 'package:fluera_engine/src/tools/pdf/pdf_document_operations.dart';
+import 'package:fluera_engine/src/export/pdf_export_writer.dart';
 
 /// Helper to create a simple test PDF with the given number of pages.
 Uint8List _createTestPdf(

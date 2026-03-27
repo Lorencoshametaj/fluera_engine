@@ -33,13 +33,10 @@ import '../../core/engine_error.dart';
 /// - [ShaderInkWashRenderer] in `shader_ink_wash_renderer.dart`
 class ShaderBrushService {
   // ═══════════════════════════════════════════════════════════════════════════
-  // SINGLETON
+  // CONSTRUCTION
   // ═══════════════════════════════════════════════════════════════════════════
-  /// Legacy singleton accessor — delegates to [EngineScope.current].
-  static ShaderBrushService get instance =>
-      EngineScope.current.shaderBrushService;
 
-  /// Creates a new instance (used by [EngineScope]).
+  /// Creates a new instance (used by modules).
   ShaderBrushService.create();
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -64,19 +61,11 @@ class ShaderBrushService {
   /// Whether GPU shaders are loaded and ready
   bool get isAvailable => _initialized;
 
-  /// Whether the texture overlay GPU shader is ready
+  /// Whether the texture overlay GPU shader is ready (always available)
   bool get isTextureOverlayAvailable => _textureOverlayShader != null;
 
-  /// Whether Pro shader effects are enabled for the current user.
-  /// Set via [enablePro] / [disablePro] based on subscription status.
-  bool _proEnabled = false;
-  bool get isProEnabled => _proEnabled && _initialized;
-
-  /// Enable Pro shader effects (call when user has Pro subscription)
-  void enablePro() => _proEnabled = true;
-
-  /// Disable Pro shader effects (call on downgrade/logout)
-  void disablePro() => _proEnabled = false;
+  /// Whether Pro shader effects are enabled (currently always true).
+  bool get isProEnabled => _initialized;
 
   // Reusable shader instances (avoid re-creation per frame)
   // Exposed via getters for extension method access.
@@ -144,26 +133,30 @@ class ShaderBrushService {
   // INITIALIZATION
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Load all shader programs from assets.
-  /// Call once at app startup. Safe to call multiple times.
   Future<void> initialize() async {
     if (_initAttempted) return;
     _initAttempted = true;
 
+    // 🎨 GPU shaders enabled — path fix: packages/fluera_engine/shaders/
+
     try {
       // Load all shaders in parallel
+      // 🎯 Package-prefixed paths: required when fluera_engine is a
+      // dependency (not the root app). Flutter resolves shader assets
+      // via 'packages/<package_name>/<path>' for package dependencies.
+      const prefix = 'packages/fluera_engine/shaders';
       final results = await Future.wait([
-        ui.FragmentProgram.fromAsset('shaders/pencil_pro.frag'),
-        ui.FragmentProgram.fromAsset('shaders/fountain_pen_pro.frag'),
-        ui.FragmentProgram.fromAsset('shaders/texture_overlay.frag'),
-        ui.FragmentProgram.fromAsset('shaders/brush_stamp.frag'),
-        ui.FragmentProgram.fromAsset('shaders/watercolor.frag'),
-        ui.FragmentProgram.fromAsset('shaders/marker.frag'),
-        ui.FragmentProgram.fromAsset('shaders/charcoal.frag'),
-        ui.FragmentProgram.fromAsset('shaders/oil_paint.frag'),
-        ui.FragmentProgram.fromAsset('shaders/spray_paint.frag'),
-        ui.FragmentProgram.fromAsset('shaders/neon_glow.frag'),
-        ui.FragmentProgram.fromAsset('shaders/ink_wash.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/pencil_pro.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/fountain_pen_pro.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/texture_overlay.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/brush_stamp.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/watercolor.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/marker.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/charcoal.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/oil_paint.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/spray_paint.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/neon_glow.frag'),
+        ui.FragmentProgram.fromAsset('$prefix/ink_wash.frag'),
       ]);
 
       _pencilProgram = results[0];
@@ -231,12 +224,20 @@ class ShaderBrushService {
         _inkWashShader,
       ]) {
         if (shader != null) {
-          // Set minimum required uniforms to avoid out-of-bounds
-          for (int i = 0; i < 22; i++) {
-            shader.setFloat(i, 0.0);
+          try {
+            // Set minimum required uniforms to avoid out-of-bounds
+            for (int i = 0; i < 22; i++) {
+              shader.setFloat(i, 0.0);
+            }
+            // texture_overlay has sampler2D — must set fallback image
+            if (shader == _textureOverlayShader) {
+              shader.setImageSampler(0, fallbackImage);
+            }
+            transparentPaint.shader = shader;
+            canvas.drawRect(warmUpRect, transparentPaint);
+          } catch (_) {
+            // Individual shader warmup failure is non-fatal
           }
-          transparentPaint.shader = shader;
-          canvas.drawRect(warmUpRect, transparentPaint);
         }
       }
     } catch (e, stack) {
@@ -284,16 +285,24 @@ class ShaderBrushService {
     ];
     for (final shader in shaders) {
       if (shader == null) continue;
-      // Set minimal uniforms (all zeros is fine for warm-up)
-      for (int i = 0; i < 16; i++) {
-        shader.setFloat(i, 0.0);
+      try {
+        // Set minimal uniforms (all zeros is fine for warm-up)
+        for (int i = 0; i < 16; i++) {
+          shader.setFloat(i, 0.0);
+        }
+        // texture_overlay has sampler2D — must set fallback image
+        if (shader == _textureOverlayShader) {
+          shader.setImageSampler(0, fallbackImage);
+        }
+        final paint = Paint()..shader = shader;
+        // Clip to empty rect → zero pixels actually rendered, but GPU compiles
+        canvas.save();
+        canvas.clipRect(Rect.zero);
+        canvas.drawRect(const Rect.fromLTWH(0, 0, 1, 1), paint);
+        canvas.restore();
+      } catch (_) {
+        // Individual shader warmup failure is non-fatal
       }
-      final paint = Paint()..shader = shader;
-      // Clip to empty rect → zero pixels actually rendered, but GPU compiles
-      canvas.save();
-      canvas.clipRect(Rect.zero);
-      canvas.drawRect(const Rect.fromLTWH(0, 0, 1, 1), paint);
-      canvas.restore();
     }
   }
 

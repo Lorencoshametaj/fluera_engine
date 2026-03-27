@@ -7,6 +7,8 @@ import '../core/nodes/layer_node.dart';
 import '../core/tabular/cell_address.dart';
 import '../core/tabular/cell_value.dart';
 import '../core/tabular/selection_to_latex.dart';
+import '../core/tabular/spreadsheet_model.dart';
+import '../core/tabular/tabular_hit_test_utils.dart';
 
 /// 📊 TabularInteractionTool — manages selection, drag, and resize of
 /// [TabularNode] instances on the canvas.
@@ -80,7 +82,23 @@ class TabularInteractionTool {
   }
 
   /// Select a specific cell within the current table.
+  ///
+  /// If the cell belongs to a merge region, the selection automatically
+  /// expands to cover the entire merged area.
   void selectCell(int col, int row) {
+    // O(1) merge region lookup via inverse index.
+    if (_selected != null) {
+      final addr = CellAddress(col, row);
+      final region = _selected!.mergeManager.getRegion(addr);
+      if (region != null) {
+        // Expand selection to full merge region.
+        _selectedCol = region.startColumn;
+        _selectedRow = region.startRow;
+        _rangeEndCol = region.endColumn;
+        _rangeEndRow = region.endRow;
+        return;
+      }
+    }
     _selectedCol = col;
     _selectedRow = row;
     _rangeEndCol = null;
@@ -420,6 +438,8 @@ class TabularInteractionTool {
 
   /// Returns the (column, row) of the cell at [canvasPos], or null if
   /// the point is on a header or outside the grid.
+  ///
+  /// Uses O(log n) binary search via prefix-sum offsets.
   (int col, int row)? hitTestCell(Offset canvasPos) {
     if (_selected == null) return null;
     final tx = _selected!.localTransform.getTranslation();
@@ -427,29 +447,19 @@ class TabularInteractionTool {
     final localY = canvasPos.dy - tx.y - _selected!.headerHeight;
     if (localX < 0 || localY < 0) return null;
 
-    // Find column
-    double cumX = 0;
-    int col = -1;
-    for (int c = 0; c < _selected!.visibleColumns; c++) {
-      cumX += _selected!.model.getColumnWidth(c);
-      if (localX < cumX) {
-        col = c;
-        break;
-      }
-    }
-    if (col < 0) return null;
+    final model = _selected!.model;
+    final cols = _selected!.visibleColumns;
+    final rows = _selected!.visibleRows;
 
-    // Find row
-    double cumY = 0;
-    int row = -1;
-    for (int r = 0; r < _selected!.visibleRows; r++) {
-      cumY += _selected!.model.getRowHeight(r);
-      if (localY < cumY) {
-        row = r;
-        break;
-      }
+    // Check bounds.
+    if (localX >= model.columnOffset(cols) || localY >= model.rowOffset(rows)) {
+      return null;
     }
-    if (row < 0) return null;
+
+    // Binary search for column.
+    final col = TabularHitTestUtils.findColumn(model, cols, localX);
+    // Binary search for row.
+    final row = TabularHitTestUtils.findRow(model, rows, localY);
 
     // Redirect hidden merge cells to the master cell.
     final addr = CellAddress(col, row);
@@ -463,6 +473,8 @@ class TabularInteractionTool {
   /// Like [hitTestCell] but clamps to the last valid row/column instead
   /// of returning null when the position is beyond the grid edge.
   /// Used by fill handle to allow dragging near/beyond the table boundary.
+  ///
+  /// Uses O(log n) binary search via prefix-sum offsets.
   (int col, int row)? clampedHitTestCell(Offset canvasPos) {
     if (_selected == null) return null;
     final tx = _selected!.localTransform.getTranslation();
@@ -470,27 +482,21 @@ class TabularInteractionTool {
     final localY = canvasPos.dy - tx.y - _selected!.headerHeight;
     if (localX < 0 || localY < 0) return null;
 
-    // Find column — clamp to last if beyond.
-    double cumX = 0;
-    int col = _selected!.effectiveColumns - 1;
-    for (int c = 0; c < _selected!.effectiveColumns; c++) {
-      cumX += _selected!.model.getColumnWidth(c);
-      if (localX < cumX) {
-        col = c;
-        break;
-      }
-    }
+    final model = _selected!.model;
+    final cols = _selected!.effectiveColumns;
+    final rows = _selected!.effectiveRows;
 
-    // Find row — clamp to last if beyond.
-    double cumY = 0;
-    int row = _selected!.effectiveRows - 1;
-    for (int r = 0; r < _selected!.effectiveRows; r++) {
-      cumY += _selected!.model.getRowHeight(r);
-      if (localY < cumY) {
-        row = r;
-        break;
-      }
-    }
+    // Binary search for column — clamp to last if beyond.
+    final col =
+        localX >= model.columnOffset(cols)
+            ? cols - 1
+            : TabularHitTestUtils.findColumn(model, cols, localX);
+
+    // Binary search for row — clamp to last if beyond.
+    final row =
+        localY >= model.rowOffset(rows)
+            ? rows - 1
+            : TabularHitTestUtils.findRow(model, rows, localY);
 
     // Redirect hidden merge cells to the master cell.
     final addr = CellAddress(col, row);
@@ -502,14 +508,17 @@ class TabularInteractionTool {
   }
 
   /// Get the screen-space rect of a specific cell (for overlay positioning).
+  ///
+  /// Merge-region widths use O(1) offset subtraction.
   Rect? getCellRect(int col, int row, Offset canvasOffset, double scale) {
     if (_selected == null) return null;
     final node = _selected!;
     final tx = node.localTransform.getTranslation();
+    final model = node.model;
 
-    // Cell position in canvas coords.
-    final cellX = tx.x + node.headerWidth + node.model.columnOffset(col);
-    final cellY = tx.y + node.headerHeight + node.model.rowOffset(row);
+    // Cell position in canvas coords — O(1) via prefix-sum.
+    final cellX = tx.x + node.headerWidth + model.columnOffset(col);
+    final cellY = tx.y + node.headerHeight + model.rowOffset(row);
 
     // Check if this cell is the master of a merge region.
     final addr = CellAddress(col, row);
@@ -517,17 +526,16 @@ class TabularInteractionTool {
     double cellW;
     double cellH;
     if (mergeRegion != null && node.mergeManager.isMasterCell(addr)) {
-      cellW = 0;
-      for (int c = mergeRegion.startColumn; c <= mergeRegion.endColumn; c++) {
-        cellW += node.model.getColumnWidth(c);
-      }
-      cellH = 0;
-      for (int r = mergeRegion.startRow; r <= mergeRegion.endRow; r++) {
-        cellH += node.model.getRowHeight(r);
-      }
+      // O(1) via offset subtraction instead of summing each width/height.
+      cellW =
+          model.columnOffset(mergeRegion.endColumn + 1) -
+          model.columnOffset(mergeRegion.startColumn);
+      cellH =
+          model.rowOffset(mergeRegion.endRow + 1) -
+          model.rowOffset(mergeRegion.startRow);
     } else {
-      cellW = node.model.getColumnWidth(col);
-      cellH = node.model.getRowHeight(row);
+      cellW = model.getColumnWidth(col);
+      cellH = model.getRowHeight(row);
     }
 
     // Convert to screen coords.
@@ -556,16 +564,19 @@ class TabularInteractionTool {
 
   /// Test if [canvasPos] is near a column or row border of the selected table.
   /// Returns a record with (isColumn, borderIndex) or null.
+  ///
+  /// Uses O(log n) binary search to find the nearest border.
   ({bool isColumn, int index})? hitTestBorder(Offset canvasPos) {
     if (_selected == null) return null;
     final node = _selected!;
     final tx = node.localTransform.getTranslation();
     final localX = canvasPos.dx - tx.x - node.headerWidth;
     final localY = canvasPos.dy - tx.y - node.headerHeight;
+    final model = node.model;
 
-    // Must be within the grid area (allowing some tolerance outside)
-    final gridW = node.model.totalWidth(node.visibleColumns);
-    final gridH = node.model.totalHeight(node.visibleRows);
+    // Must be within the grid area (allowing some tolerance outside).
+    final gridW = model.totalWidth(node.visibleColumns);
+    final gridH = model.totalHeight(node.visibleRows);
     if (localX < -_borderTolerance || localX > gridW + _borderTolerance) {
       return null;
     }
@@ -573,21 +584,37 @@ class TabularInteractionTool {
       return null;
     }
 
-    // Check column borders (right edge of each column)
-    double cumX = 0;
-    for (int c = 0; c < node.visibleColumns; c++) {
-      cumX += node.model.getColumnWidth(c);
-      if ((localX - cumX).abs() < _borderTolerance) {
-        return (isColumn: true, index: c);
+    // Binary search for nearest column border (right edge = columnOffset(c+1)).
+    final cols = node.visibleColumns;
+    if (cols > 0) {
+      // Find the column whose right edge is closest to localX.
+      final nearCol = TabularHitTestUtils.findColumn(model, cols, localX);
+      // Check both the right edge of nearCol and the right edge of nearCol-1.
+      for (
+        int c = (nearCol - 1).clamp(0, cols - 1);
+        c <= nearCol && c < cols;
+        c++
+      ) {
+        final rightEdge = model.columnOffset(c + 1);
+        if ((localX - rightEdge).abs() < _borderTolerance) {
+          return (isColumn: true, index: c);
+        }
       }
     }
 
-    // Check row borders (bottom edge of each row)
-    double cumY = 0;
-    for (int r = 0; r < node.visibleRows; r++) {
-      cumY += node.model.getRowHeight(r);
-      if ((localY - cumY).abs() < _borderTolerance) {
-        return (isColumn: false, index: r);
+    // Binary search for nearest row border (bottom edge = rowOffset(r+1)).
+    final rows = node.visibleRows;
+    if (rows > 0) {
+      final nearRow = TabularHitTestUtils.findRow(model, rows, localY);
+      for (
+        int r = (nearRow - 1).clamp(0, rows - 1);
+        r <= nearRow && r < rows;
+        r++
+      ) {
+        final bottomEdge = model.rowOffset(r + 1);
+        if ((localY - bottomEdge).abs() < _borderTolerance) {
+          return (isColumn: false, index: r);
+        }
       }
     }
 

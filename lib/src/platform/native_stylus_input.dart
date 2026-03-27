@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import '../utils/platform_guard.dart';
 import 'package:flutter/services.dart';
 import '../core/engine_scope.dart';
 import '../core/engine_error.dart';
@@ -44,18 +44,18 @@ class NativeStylusInput {
 
   // iOS uses PredictedTouchPlugin channels for hover
   static const EventChannel _iosEventChannel = EventChannel(
-    'com.nebulaengine/predicted_touches',
+    'com.flueraengine/predicted_touches',
   );
   static const MethodChannel _iosMethodChannel = MethodChannel(
-    'com.nebulaengine/predicted_touches_control',
+    'com.flueraengine/predicted_touches_control',
   );
 
   // Android uses dedicated StylusInputPlugin channels
   static const EventChannel _androidEventChannel = EventChannel(
-    'com.nebulaengine/stylus_input',
+    'com.flueraengine/stylus_input',
   );
   static const MethodChannel _androidMethodChannel = MethodChannel(
-    'com.nebulaengine/stylus_input_control',
+    'com.flueraengine/stylus_input_control',
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -98,16 +98,16 @@ class NativeStylusInput {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    if (!Platform.isIOS && !Platform.isAndroid) {
+    if (!PlatformGuard.isIOS && !PlatformGuard.isAndroid) {
       _isStylusSupported = false;
       _isInitialized = true;
       return;
     }
 
     try {
-      if (Platform.isIOS) {
+      if (PlatformGuard.isIOS) {
         await _initializeIOS();
-      } else if (Platform.isAndroid) {
+      } else if (PlatformGuard.isAndroid) {
         await _initializeAndroid();
       }
 

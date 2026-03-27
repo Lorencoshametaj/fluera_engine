@@ -142,6 +142,31 @@ class ColorManager {
     ];
   }
 
+  /// Generate tetradic (square) colors (90° apart)
+  static List<Color> tetradic(Color color) {
+    final hsl = HSLColor.fromColor(color);
+    return [
+      color,
+      hsl.withHue((hsl.hue + 90) % 360).toColor(),
+      hsl.withHue((hsl.hue + 180) % 360).toColor(),
+      hsl.withHue((hsl.hue + 270) % 360).toColor(),
+    ];
+  }
+
+  /// Generate monochromatic variations (same hue, varying lightness/saturation)
+  static List<Color> monochromatic(Color color) {
+    final hsl = HSLColor.fromColor(color);
+    return [
+      hsl.withLightness((hsl.lightness * 0.3).clamp(0.05, 0.95))
+          .withSaturation((hsl.saturation * 1.2).clamp(0.0, 1.0)).toColor(),
+      hsl.withLightness((hsl.lightness * 0.6).clamp(0.05, 0.95)).toColor(),
+      color,
+      hsl.withLightness((hsl.lightness * 1.3).clamp(0.05, 0.95)).toColor(),
+      hsl.withLightness((hsl.lightness * 1.6).clamp(0.05, 0.95))
+          .withSaturation((hsl.saturation * 0.7).clamp(0.0, 1.0)).toColor(),
+    ];
+  }
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // HIGH-PRECISION SERIALIZATION
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

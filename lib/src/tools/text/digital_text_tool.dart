@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/models/digital_text_element.dart';
 import '../base/tool_interface.dart';
@@ -184,6 +185,9 @@ class DigitalTextTool implements DrawingTool {
   /// Currently selected element
   DigitalTextElement? _selectedElement;
 
+  /// 🔀 Multi-select: set of selected element IDs
+  final Set<String> _selectedElementIds = {};
+
   /// Drag start position (for calculating delta)
   Offset? _dragStartCanvasPosition;
 
@@ -199,9 +203,25 @@ class DigitalTextTool implements DrawingTool {
   /// Whether an element is currently selected
   bool get hasSelection => _selectedElement != null;
 
+  /// 🔀 Whether multiple elements are selected
+  bool get hasMultiSelection => _selectedElementIds.length > 1;
+
+  /// 🔀 Get all selected element IDs
+  Set<String> get selectedElementIds => Set.unmodifiable(_selectedElementIds);
+
+  /// 🔀 Get selected elements from list
+  List<DigitalTextElement> selectedElements(
+    List<DigitalTextElement> allElements,
+  ) {
+    return allElements
+        .where((e) => _selectedElementIds.contains(e.id))
+        .toList();
+  }
+
   /// Full reset of tool state
   void reset() {
     _selectedElement = null;
+    _selectedElementIds.clear();
     _dragStartCanvasPosition = null;
     _resizeHandleIndex = null;
     _previousResizePosition = null;
@@ -210,14 +230,66 @@ class DigitalTextTool implements DrawingTool {
   /// Select an element
   void selectElement(DigitalTextElement element) {
     _selectedElement = element;
+    _selectedElementIds
+      ..clear()
+      ..add(element.id);
+  }
+
+  /// Update the selected element in-place (e.g. after Smart Guides snap).
+  /// Does NOT reset drag or selection state — safe to call mid-drag.
+  void updateSelectedElement(DigitalTextElement element) {
+    _selectedElement = element;
+  }
+
+  /// 🔀 Toggle element in multi-selection (shift-tap)
+  void toggleMultiSelect(DigitalTextElement element) {
+    if (_selectedElementIds.contains(element.id)) {
+      _selectedElementIds.remove(element.id);
+      // If removed the primary, pick another or clear
+      if (_selectedElement?.id == element.id) {
+        _selectedElement = null;
+      }
+    } else {
+      _selectedElementIds.add(element.id);
+      _selectedElement ??= element;
+    }
+  }
+
+  /// 🔀 Move all multi-selected elements by delta
+  List<DigitalTextElement> moveMultiSelection(
+    List<DigitalTextElement> allElements,
+    Offset delta,
+  ) {
+    final updated = <DigitalTextElement>[];
+    for (int i = 0; i < allElements.length; i++) {
+      if (_selectedElementIds.contains(allElements[i].id)) {
+        allElements[i] = allElements[i].copyWith(
+          position: allElements[i].position + delta,
+          modifiedAt: DateTime.now(),
+        );
+        updated.add(allElements[i]);
+      }
+    }
+    return updated;
   }
 
   /// Deselect current element
   void deselectElement() {
     _selectedElement = null;
+    _selectedElementIds.clear();
     _dragStartCanvasPosition = null;
     _resizeHandleIndex = null;
     _previousResizePosition = null;
+  }
+
+  /// 🔍 Search text elements by query (case-insensitive)
+  List<DigitalTextElement> searchText(
+    List<DigitalTextElement> elements,
+    String query,
+  ) {
+    if (query.isEmpty) return [];
+    final lower = query.toLowerCase();
+    return elements.where((e) => e.text.toLowerCase().contains(lower)).toList();
   }
 
   // ============================================================================
@@ -238,10 +310,24 @@ class DigitalTextTool implements DrawingTool {
     return null;
   }
 
-  /// Hit test on resize handles (returns handle index or null)
+  /// Hit test on resize handles (returns handle index or null).
+  /// Rotation-aware: un-rotates the test point before checking.
   int? hitTestResizeHandles(Offset canvasPosition, DigitalTextElement element) {
     final bounds = element.getBounds();
     final handles = _getResizeHandles(bounds);
+
+    // Un-rotate test point for rotated elements
+    Offset testPoint = canvasPosition;
+    if (element.rotation != 0.0) {
+      final cosR = math.cos(-element.rotation);
+      final sinR = math.sin(-element.rotation);
+      final dx = canvasPosition.dx - element.position.dx;
+      final dy = canvasPosition.dy - element.position.dy;
+      testPoint = Offset(
+        element.position.dx + dx * cosR - dy * sinR,
+        element.position.dy + dx * sinR + dy * cosR,
+      );
+    }
 
     for (int i = 0; i < handles.length; i++) {
       final handleRect = Rect.fromCenter(
@@ -249,7 +335,7 @@ class DigitalTextTool implements DrawingTool {
         width: 40,
         height: 40,
       );
-      if (handleRect.contains(canvasPosition)) {
+      if (handleRect.contains(testPoint)) {
         return i;
       }
     }
@@ -282,6 +368,12 @@ class DigitalTextTool implements DrawingTool {
     _dragStartCanvasPosition = canvasPosition;
   }
 
+  /// Whether snap-to-grid is enabled during drag.
+  bool snapToGrid = false;
+
+  /// Grid size for snap (canvas units).
+  double gridSize = 10.0;
+
   /// Update drag position
   DigitalTextElement? updateDrag(Offset canvasPosition) {
     if (_selectedElement == null || _dragStartCanvasPosition == null) {
@@ -291,8 +383,18 @@ class DigitalTextTool implements DrawingTool {
     // Calculate delta from the previous point (not the initial point!)
     final delta = canvasPosition - _dragStartCanvasPosition!;
 
+    var newPosition = _selectedElement!.position + delta;
+
+    // 🧲 Snap-to-grid: snap position to nearest grid point
+    if (snapToGrid && gridSize > 0) {
+      newPosition = Offset(
+        (newPosition.dx / gridSize).round() * gridSize,
+        (newPosition.dy / gridSize).round() * gridSize,
+      );
+    }
+
     _selectedElement = _selectedElement!.copyWith(
-      position: _selectedElement!.position + delta,
+      position: newPosition,
       modifiedAt: DateTime.now(),
     );
 
@@ -349,33 +451,39 @@ class DigitalTextTool implements DrawingTool {
     // Calculate delta from the previous position (not the initial!)
     final delta = canvasPosition - _previousResizePosition!;
 
-    // Use distance to calculate scale variation
-    final scaleDelta = (delta.dx.abs() + delta.dy.abs()) / 200.0;
+    // 📦 Auto-fit textbox: adjust maxWidth with horizontal drag
+    if (_selectedElement!.maxWidth != null) {
+      // Right handles (1, 3) → increase width with positive dx
+      // Left handles (0, 2) → increase width with negative dx
+      final isRightHandle = _resizeHandleIndex == 1 || _resizeHandleIndex == 3;
+      final widthDelta = isRightHandle ? delta.dx : -delta.dx;
+      final newWidth = (_selectedElement!.maxWidth! + widthDelta).clamp(
+        40.0,
+        2000.0,
+      );
 
-    // Determine zoom direction based on handle and drag direction
-    final isZoomIn =
-        (_resizeHandleIndex == 3 &&
-            delta.dx > 0 &&
-            delta.dy > 0) || // bottom-right
-        (_resizeHandleIndex == 1 &&
-            delta.dx > 0 &&
-            delta.dy < 0) || // top-right
-        (_resizeHandleIndex == 2 &&
-            delta.dx < 0 &&
-            delta.dy > 0) || // bottom-left
-        (_resizeHandleIndex == 0 && delta.dx < 0 && delta.dy < 0); // top-left
+      _selectedElement = _selectedElement!.copyWith(
+        maxWidth: newWidth,
+        modifiedAt: DateTime.now(),
+      );
+    } else {
+      // Legacy scale-based resize
+      final scaleDelta = (delta.dx.abs() + delta.dy.abs()) / 200.0;
+      final isZoomIn =
+          (_resizeHandleIndex == 3 && delta.dx > 0 && delta.dy > 0) ||
+          (_resizeHandleIndex == 1 && delta.dx > 0 && delta.dy < 0) ||
+          (_resizeHandleIndex == 2 && delta.dx < 0 && delta.dy > 0) ||
+          (_resizeHandleIndex == 0 && delta.dx < 0 && delta.dy < 0);
 
-    // Apply incremental delta to current scale
-    double newScale =
-        _selectedElement!.scale + (isZoomIn ? scaleDelta : -scaleDelta);
+      double newScale =
+          _selectedElement!.scale + (isZoomIn ? scaleDelta : -scaleDelta);
+      newScale = newScale.clamp(0.3, 3.0);
 
-    // Clamp scale between 0.3 and 3.0
-    newScale = newScale.clamp(0.3, 3.0);
-
-    _selectedElement = _selectedElement!.copyWith(
-      scale: newScale,
-      modifiedAt: DateTime.now(),
-    );
+      _selectedElement = _selectedElement!.copyWith(
+        scale: newScale,
+        modifiedAt: DateTime.now(),
+      );
+    }
 
     // Update previous position for next frame
     _previousResizePosition = canvasPosition;

@@ -4,6 +4,18 @@ import 'package:flutter/foundation.dart';
 
 import './pdf_page_model.dart';
 
+/// Layout modes for PDF documents on the canvas.
+enum PdfLayoutMode {
+  /// Pages arranged in a grid (default).
+  grid,
+
+  /// Pages stacked vertically in a continuous scroll.
+  continuous,
+
+  /// Fullscreen one-page-at-a-time presentation.
+  presentation,
+}
+
 /// 📄 Pure data model for a PDF document on the canvas.
 ///
 /// Stores document-level metadata: page list, grid layout settings,
@@ -45,6 +57,21 @@ class PdfDocumentModel {
   /// Local file path where the PDF bytes are stored for persistence.
   final String? filePath;
 
+  /// Original file name of the imported PDF (e.g. "report.pdf").
+  final String? fileName;
+
+  /// Whether night mode (inverted colors) is active for this document.
+  final bool nightMode;
+
+  /// Watermark text overlay (null = no watermark).
+  final String? watermarkText;
+
+  /// Layout mode: grid, continuous scroll, or presentation.
+  final PdfLayoutMode layoutMode;
+
+  /// Optional password for exported PDF encryption (null = no encryption).
+  final String? exportPassword;
+
   const PdfDocumentModel({
     required this.sourceHash,
     required this.totalPages,
@@ -56,6 +83,11 @@ class PdfDocumentModel {
     int? lastModifiedAt,
     this.timelineRef,
     this.filePath,
+    this.fileName,
+    this.nightMode = false,
+    this.watermarkText,
+    this.layoutMode = PdfLayoutMode.grid,
+    this.exportPassword,
   }) : createdAt = createdAt ?? 0,
        lastModifiedAt = lastModifiedAt ?? 0;
 
@@ -75,6 +107,13 @@ class PdfDocumentModel {
     String? timelineRef,
     bool clearTimelineRef = false,
     String? filePath,
+    String? fileName,
+    bool? nightMode,
+    String? watermarkText,
+    bool clearWatermarkText = false,
+    PdfLayoutMode? layoutMode,
+    String? exportPassword,
+    bool clearExportPassword = false,
   }) {
     return PdfDocumentModel(
       sourceHash: sourceHash ?? this.sourceHash,
@@ -87,6 +126,13 @@ class PdfDocumentModel {
       lastModifiedAt: lastModifiedAt ?? this.lastModifiedAt,
       timelineRef: clearTimelineRef ? null : (timelineRef ?? this.timelineRef),
       filePath: filePath ?? this.filePath,
+      fileName: fileName ?? this.fileName,
+      nightMode: nightMode ?? this.nightMode,
+      watermarkText:
+          clearWatermarkText ? null : (watermarkText ?? this.watermarkText),
+      layoutMode: layoutMode ?? this.layoutMode,
+      exportPassword:
+          clearExportPassword ? null : (exportPassword ?? this.exportPassword),
     );
   }
 
@@ -105,6 +151,11 @@ class PdfDocumentModel {
     'lastModifiedAt': lastModifiedAt,
     if (timelineRef != null) 'timelineRef': timelineRef,
     if (filePath != null) 'filePath': filePath,
+    if (fileName != null) 'fileName': fileName,
+    if (nightMode) 'nightMode': true,
+    if (watermarkText != null) 'watermarkText': watermarkText,
+    if (layoutMode != PdfLayoutMode.grid) 'layoutMode': layoutMode.name,
+    if (exportPassword != null) 'exportPassword': exportPassword,
   };
 
   factory PdfDocumentModel.fromJson(Map<String, dynamic> json) {
@@ -130,6 +181,14 @@ class PdfDocumentModel {
       lastModifiedAt: (json['lastModifiedAt'] as num?)?.toInt() ?? 0,
       timelineRef: json['timelineRef'] as String?,
       filePath: json['filePath'] as String?,
+      fileName: json['fileName'] as String?,
+      nightMode: json['nightMode'] as bool? ?? false,
+      watermarkText: json['watermarkText'] as String?,
+      layoutMode: PdfLayoutMode.values.firstWhere(
+        (m) => m.name == (json['layoutMode'] as String? ?? 'grid'),
+        orElse: () => PdfLayoutMode.grid,
+      ),
+      exportPassword: json['exportPassword'] as String?,
     );
   }
 
@@ -146,7 +205,12 @@ class PdfDocumentModel {
           createdAt == other.createdAt &&
           lastModifiedAt == other.lastModifiedAt &&
           timelineRef == other.timelineRef &&
-          filePath == other.filePath;
+          filePath == other.filePath &&
+          fileName == other.fileName &&
+          nightMode == other.nightMode &&
+          watermarkText == other.watermarkText &&
+          layoutMode == other.layoutMode &&
+          exportPassword == other.exportPassword;
 
   @override
   int get hashCode => Object.hash(
@@ -160,6 +224,7 @@ class PdfDocumentModel {
     lastModifiedAt,
     timelineRef,
     filePath,
+    fileName,
   );
 
   @override

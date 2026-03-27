@@ -61,23 +61,22 @@ class OneEuroFilter {
       filteredDx.dx * filteredDx.dx + filteredDx.dy * filteredDx.dy,
     );
 
-    // 🔥 ADAPTIVE SMOOTHING based on speed AND distance
-    // For movimenti piccoli e veloci (scrittura piccola): MINIMO smoothing
-    final isSmallMovement = distance < 3.0; // pixel
-    final isFastMovement = speed > 300.0; // px/s
+    // 🚀 CONTINUOUS ADAPTIVE SMOOTHING (Gap 7)
+    //
+    // Instead of discrete threshold branches, use smooth curves:
+    //   - speedFactor: 0.0 (stationary) → 1.0 (very fast, ≥800 px/s)
+    //   - distanceFactor: 0.0 (large movement) → 1.0 (micro, ≤1px)
+    //
+    // Fast + small → maximum reactivity (writing small characters)
+    // Slow + large → maximum smoothing (long deliberate strokes)
+    final speedFactor = (speed / 800.0).clamp(0.0, 1.0);
+    final distanceFactor = (1.0 - distance / 5.0).clamp(0.0, 1.0);
+    final reactivityNeed = math.max(speedFactor, distanceFactor);
 
-    double adaptiveBeta = beta;
-    double adaptiveMinCutoff = minCutoff;
-
-    if (isSmallMovement) {
-      // Scrittura piccola: riduce smoothing drasticamente
-      adaptiveBeta = beta * 4.0; // 4x more reattivo
-      adaptiveMinCutoff = minCutoff * 3.0; // 3x less filtering
-    } else if (isFastMovement) {
-      // Movimenti veloci: riduce smoothing
-      adaptiveBeta = beta * 2.0; // 2x more reattivo
-      adaptiveMinCutoff = minCutoff * 1.5; // 1.5x less filtering
-    }
+    // β: 1x (default) → 6x (very reactive) based on reactivity need
+    final adaptiveBeta = beta * (1.0 + reactivityNeed * 5.0);
+    // minCutoff: 1x (default) → 4x (less filtering) based on reactivity need
+    final adaptiveMinCutoff = minCutoff * (1.0 + reactivityNeed * 3.0);
 
     // Calculate cutoff adattivo basato sulla speed
     final cutoff = adaptiveMinCutoff + adaptiveBeta * speed;
@@ -85,12 +84,12 @@ class OneEuroFilter {
     // Filter il punto
     final filtered = _filterPoint(point, cutoff, dt);
 
-    // 🔥 LATENCY COMPENSATION for small and fast movements
-    // Avvicina il punto filtrato a quello reale per ridurre lag percepito
+    // 🚀 CONTINUOUS LATENCY COMPENSATION
+    // Blend towards raw point proportional to reactivity need.
+    // reactivityNeed=0 → 0% blend, reactivityNeed=1 → 50% blend.
     Offset finalPoint = filtered;
-    if (isSmallMovement && isFastMovement) {
-      // Blend verso il punto reale (riduce "effetto interno")
-      final blendFactor = 0.4; // 40% verso il punto reale
+    if (reactivityNeed > 0.3) {
+      final blendFactor = (reactivityNeed - 0.3) * 0.7; // 0→0.49
       finalPoint = Offset(
         filtered.dx + (point.dx - filtered.dx) * blendFactor,
         filtered.dy + (point.dy - filtered.dy) * blendFactor,

@@ -39,45 +39,55 @@ class CurrentStrokePainter extends CustomPainter {
   // 🚀 Viewport-level mode: apply canvas transform inside paint()
   final InfiniteCanvasController? controller;
 
-  // 🚀 Predictive renderer for anti-lag (only 60Hz mode)
+  // 🧬 Surface material — applied to BrushEngine for programmable materiality
+  final SurfaceMaterial? surface;
+
+  // ✂️ PDF page clipping: when drawing on a PDF page, clip live stroke
+  // to the page rect so ink doesn't overflow outside the page.
+  final Rect? pdfClipRect;
+
+  // 🔥 Skip Dart rendering when Vulkan/Metal native overlay handles the stroke
+  final bool useNativeOverlay;
+
+  // 🚀 Predictive renderer for anti-lag (ghost trail prediction)
   static final PredictiveRenderer _predictor = PredictiveRenderer(
     predictedPointsCount: 2,
     ghostOpacity: 0.08,
     velocityDecay: 0.7,
   );
 
-  // ─── INCREMENTAL CACHE ──────────────────────────────────────────
-  // Enabled: fountain pen now always renders with liveStroke=true (1 Chaikin,
-  // no feathering), so the overlap zone between cached body and tail has
-  // only opaque core vertices — no semi-transparent fringe that would cause
-  // visible alpha accumulation. This bounds per-frame cost to O(overlap + new)
-  // instead of O(total_stroke_length).
+  // 🚀 Track last point count fed to predictor (avoid re-feeding same points)
+  static int _predictorFedCount = 0;
+
+  // 🚀 Cached paint for ghost trail (reused across frames)
+  static final Paint _ghostBasePaint =
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
+  // ─── 🚀 PICTURE CACHE ──────────────────────────────────────────
+  // Record BrushEngine output as ui.Picture on each new point.
+  // Replay cached Picture on idle frames (O(1) GPU blit).
   static const bool _enableIncrementalCache = true;
   static const int _cacheThreshold = 20;
 
-  /// How many new points to accumulate before refreshing the cache.
-  static const int _cacheRefreshInterval = 15;
-
-  /// Overlap points between cache and tail for seamless smoothing context.
-  /// Must be large enough for the brushes' smoothing window (EMA passes,
-  /// tangent computation, Chaikin subdivision context).
-  static const int _overlapPoints = 20;
-
-  /// Cached picture of the stroke body.
+  /// Cached Picture of the full stroke.
   static ui.Picture? _cachedPicture;
-
-  /// Number of points baked into _cachedPicture.
   static int _cachedPointCount = 0;
-
-  /// Style fingerprint to detect style changes that invalidate the cache.
   static int _cachedStyleHash = 0;
 
   /// Number of points rendered in the last paint() call.
-  /// Used to trim unseen trailing points on finalization.
   static int _lastRenderedCount = 0;
-
-  /// Returns how many points were in the last paint().
   static int get lastRenderedCount => _lastRenderedCount;
+
+  /// Reset rendered count for a new stroke. Must be called from _onDrawStart
+  /// to prevent stale values from a previous stroke being used for trimming.
+  static void resetForNewStroke() {
+    _lastRenderedCount = 0;
+    _predictor.reset();
+    _predictorFedCount = 0;
+  }
 
   CurrentStrokePainter({
     required this.strokeNotifier,
@@ -90,7 +100,18 @@ class CurrentStrokePainter extends CustomPainter {
     this.enablePredictive = true,
     this.guideSystem,
     this.controller,
-  }) : super(repaint: strokeNotifier);
+    this.pdfClipRect,
+    this.surface,
+    this.useNativeOverlay = false,
+  }) : super(
+         // 🚀 PERF: When Vulkan handles the stroke (non-highlighter),
+         // skip subscribing to strokeNotifier. Otherwise, paint() is
+         // called 120x/sec (returning immediately), but the RepaintBoundary
+         // layer is still invalidated → GPU re-composites for nothing.
+         repaint: (useNativeOverlay && penType != ProPenType.highlighter)
+             ? null
+             : strokeNotifier,
+       );
 
   /// Style hash to detect when cached picture must be invalidated.
   int get _styleHash =>
@@ -103,7 +124,14 @@ class CurrentStrokePainter extends CustomPainter {
     // If the stroke is empty, reset everything
     if (currentStroke.isEmpty) {
       _predictor.reset();
+      _predictorFedCount = 0;
       _invalidateCache();
+      return;
+    }
+
+    // 🔥 Skip Dart rendering when native overlay (Vulkan/Metal) handles it
+    if (useNativeOverlay &&
+        penType != ProPenType.highlighter) {
       return;
     }
 
@@ -130,6 +158,11 @@ class CurrentStrokePainter extends CustomPainter {
       canvas.clipRect(Rect.fromLTWH(0, 0, canvasSize.width, canvasSize.height));
     }
 
+    // ✂️ PDF page clipping: clip live stroke to the page bounds
+    if (pdfClipRect != null) {
+      canvas.clipRect(pdfClipRect!);
+    }
+
     // Determine if symmetry is active (disables incremental caching
     // because mirrored strokes need full re-render)
     final hasSymmetry =
@@ -137,13 +170,28 @@ class CurrentStrokePainter extends CustomPainter {
         guideSystem!.symmetryEnabled &&
         currentStroke.length >= 2;
 
+    // ─── 🚀 DIRECT-DRAW: skip PictureRecorder ──────────────────
+    // These pens use rendering algorithms that need ALL points at once
+    // (triangle-strip tessellation, Catmull-Rom spline). Incremental
+    // drawFromIndex would produce different geometry than full render,
+    // causing live/committed mismatch.
+    final isDirectDraw =
+        (penType == ProPenType.ballpoint &&
+            settings.textureType == 'none' &&
+            !settings.stampEnabled) ||
+        penType == ProPenType.highlighter ||
+        penType == ProPenType.marker ||
+        penType == ProPenType.fountain;
+
     // ─── Choose render strategy ──────────────────────────────────
-    if (_enableIncrementalCache &&
-        !hasSymmetry &&
+    if (isDirectDraw || hasSymmetry) {
+      // Direct draw: ballpoint fast-path or symmetry (needs full re-render)
+      _invalidateCache();
+      _drawStroke(canvas, currentStroke, color, width, penType, settings);
+    } else if (_enableIncrementalCache &&
         currentStroke.length > _cacheThreshold) {
       _paintIncremental(canvas, currentStroke);
     } else {
-      // Full render (default — incremental cache disabled)
       _invalidateCache();
       _drawStroke(canvas, currentStroke, color, width, penType, settings);
     }
@@ -153,6 +201,33 @@ class CurrentStrokePainter extends CustomPainter {
     // updateStroke() adds a point but clear() cancels the scheduled repaint.
     // Without this tracking, the finalized stroke includes unseen points.
     _lastRenderedCount = currentStroke.length;
+
+    // ─── 🚀 PREDICTIVE GHOST TRAIL ──────────────────────────────────
+    // Feed new points into the predictor and draw predicted extension.
+    // This reduces perceived latency by ~15-20ms.
+    // 🚀 Skip for ballpoint: constant-width stroke has no visual latency
+    // to hide, and the predictor costs ~0.2ms/frame in feed + predict.
+    if (enablePredictive && !isDirectDraw && currentStroke.length >= 3) {
+      final feedStart = _predictorFedCount.clamp(0, currentStroke.length - 1);
+      for (int i = feedStart; i < currentStroke.length; i++) {
+        final pt = currentStroke[i];
+        _predictor.addPoint(
+          pt.position,
+          pt.timestamp * 1000,
+          pressure: pt.pressure,
+        );
+      }
+      _predictorFedCount = currentStroke.length;
+
+      // Predict and render ghost trail
+      final predicted = _predictor.predictNextPoints();
+      if (predicted.isNotEmpty) {
+        _ghostBasePaint
+          ..color = color
+          ..strokeWidth = width;
+        _predictor.drawGhostTrail(canvas, _ghostBasePaint, predicted);
+      }
+    }
 
     // 🪞 LIVE SYMMETRY PREVIEW: mirror stroke in real-time
     if (hasSymmetry) {
@@ -178,57 +253,67 @@ class CurrentStrokePainter extends CustomPainter {
     }
   }
 
-  /// Incremental rendering: replay cached body + render only new tail.
+  /// 🚀 TRUE INCREMENTAL RENDERING:
+  /// 1. Replay cached picture (O(1) — all previously rendered points)
+  /// 2. Render ONLY new points since last frame (O(ΔN) — typically 3-5 points)
+  /// 3. Merge into new cache for next frame
+  ///
+  /// Periodic full re-render every 50 new points prevents visual drift.
   void _paintIncremental(Canvas canvas, List<ProDrawingPoint> stroke) {
     final currentStyle = _styleHash;
     final pointCount = stroke.length;
 
-    // Invalidate cache if style changed
     if (currentStyle != _cachedStyleHash) {
       _invalidateCache();
     }
 
-    // Determine if we should refresh the cache
-    final newPointsSinceCache = pointCount - _cachedPointCount;
-    final needsRefresh =
-        _cachedPicture == null || newPointsSinceCache >= _cacheRefreshInterval;
-
-    if (needsRefresh) {
-      // Bake current body (all but last _overlapPoints) into a Picture.
-      // We leave _overlapPoints un-cached so the tail overlaps seamlessly
-      // with enough smoothing context for EMA/tangent/Chaikin passes.
-      final cacheEnd = pointCount - _overlapPoints;
-      if (cacheEnd > 0) {
-        final bodyPoints = stroke.sublist(0, cacheEnd);
-        final recorder = ui.PictureRecorder();
-        final recordCanvas = Canvas(recorder);
-        _drawStroke(recordCanvas, bodyPoints, color, width, penType, settings);
-        _cachedPicture?.dispose();
-        _cachedPicture = recorder.endRecording();
-        _cachedPointCount = cacheEnd;
-        _cachedStyleHash = currentStyle;
-      }
+    if (_cachedPicture == null && pointCount > 0) {
+      _lastRenderedCount = 0;
     }
 
-    // 1. Replay cached body
+    final newPoints = pointCount - _cachedPointCount;
+    final needsRefresh = _cachedPicture == null || newPoints > 0;
+
+    if (needsRefresh) {
+      // 🚀 Periodic full re-render every 50 new points to prevent visual drift
+      // or if cache is empty (first render)
+      final forceFullRender = _cachedPicture == null || newPoints > 50;
+
+      final recorder = ui.PictureRecorder();
+      final recCanvas = Canvas(recorder);
+
+      if (forceFullRender) {
+        // Full render: all points from scratch
+        _drawStroke(recCanvas, stroke, color, width, penType, settings);
+      } else {
+        // 🚀 INCREMENTAL: replay old cache + draw only new points
+        if (_cachedPicture != null) {
+          recCanvas.drawPicture(_cachedPicture!);
+        }
+        // Draw only new points (drawFromIndex uses BrushEngine incremental path)
+        _drawStroke(
+          recCanvas,
+          stroke,
+          color,
+          width,
+          penType,
+          settings,
+          drawFromIndex: _cachedPointCount > 2 ? _cachedPointCount - 2 : 0,
+        );
+      }
+
+      _cachedPicture?.dispose();
+      _cachedPicture = recorder.endRecording();
+      _cachedPointCount = pointCount;
+      _cachedStyleHash = currentStyle;
+    }
+
     if (_cachedPicture != null) {
       canvas.drawPicture(_cachedPicture!);
     }
-
-    // 2. Render tail (overlap + new points) with full stroke context.
-    // The large overlap (20 points) ensures smoothing/tangent computation
-    // produces the same geometry as if the full stroke were rendered.
-    final tailStart = (_cachedPointCount - _overlapPoints).clamp(
-      0,
-      pointCount - 1,
-    );
-    if (tailStart < pointCount) {
-      final tailPoints = stroke.sublist(tailStart);
-      _drawStroke(canvas, tailPoints, color, width, penType, settings);
-    }
   }
 
-  /// Invalidate the dirty region cache.
+  /// Invalidate cache.
   static void _invalidateCache() {
     _cachedPicture?.dispose();
     _cachedPicture = null;
@@ -239,6 +324,7 @@ class CurrentStrokePainter extends CustomPainter {
   /// 🗑️ Pulisce lo stato (chiamare when chiude il canvas)
   static void clearCache() {
     _predictor.reset();
+    _predictorFedCount = 0;
     _invalidateCache();
     _lastRenderedCount = 0;
   }
@@ -300,8 +386,9 @@ class CurrentStrokePainter extends CustomPainter {
     Color color,
     double width,
     ProPenType penType,
-    ProBrushSettings settings,
-  ) {
+    ProBrushSettings settings, {
+    int drawFromIndex = 0,
+  }) {
     BrushEngine.renderStroke(
       canvas,
       points,
@@ -310,13 +397,21 @@ class CurrentStrokePainter extends CustomPainter {
       penType,
       settings,
       isLive: true,
+      drawFromIndex: drawFromIndex,
+      surface: surface,
     );
   }
 
   @override
   bool shouldRepaint(CurrentStrokePainter oldDelegate) {
-    // Always repaint when rebuilt — rebuilds are controlled by
-    // ValueListenableBuilder (only fires on stroke data changes).
+    // Short-circuit: empty stroke during navigation → skip repaint.
+    if (strokeNotifier.value.isEmpty &&
+        oldDelegate.strokeNotifier.value.isEmpty) {
+      return penType != oldDelegate.penType ||
+          color != oldDelegate.color ||
+          width != oldDelegate.width;
+    }
+    // During active drawing, always repaint (ValueNotifier drives frames).
     return true;
   }
 }

@@ -1,0 +1,69 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-Debug-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.10.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "fluera_native",
+					"targetIndexes" : 
+					[
+						0,
+						1
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "fluera_rnnoise::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-fluera_rnnoise-Debug-98a6710fd1d406445bc8.json",
+					"name" : "fluera_rnnoise",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "fluera_vk_stroke::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-fluera_vk_stroke-Debug-7c9c15db720f70048287.json",
+					"name" : "fluera_vk_stroke",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/lorenzo/development/fluera/fluera_engine/android/.cxx/Debug/3r5y3263/arm64-v8a",
+		"source" : "/home/lorenzo/development/fluera/fluera_engine/android/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

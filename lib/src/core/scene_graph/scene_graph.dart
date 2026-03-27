@@ -452,12 +452,7 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
     assert(() {
       final violations = SceneGraphIntegrity.validate(graph);
       if (violations.isNotEmpty) {
-        debugPrint(
-          '[SceneGraph] Post-load integrity check found '
-          '${violations.length} violation(s):',
-        );
         for (final v in violations) {
-          debugPrint('  - $v');
         }
       }
       return violations.isEmpty;
@@ -528,16 +523,12 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
         _nodeIndex.length > _nodeIndexWarningThreshold) {
       _nodeIndexWarningEmitted = true;
       telemetryBus?.counter('scene_graph.node_index_large').increment();
-      debugPrint(
-        '[SceneGraph] ⚠️ Node index exceeds $_nodeIndexWarningThreshold '
-        'entries (current: ${_nodeIndex.length}). Consider lazy-loading.',
-      );
     }
 
-    // --- Global Tabular/LaTeX Bridge Integration ---
+    // --- Module-based Tabular/LaTeX Bridge Integration ---
     if (EngineScope.hasScope) {
       if (node is LatexNode) {
-        EngineScope.current.globalTabularBridge.registerLatexNode(
+        EngineScope.current.tabularModule?.tabularLatexBridge.registerLatexNode(
           node,
           node.id.toString(),
         );
@@ -556,12 +547,11 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
       }
     }
 
-    // --- Global Tabular/LaTeX Bridge Integration ---
+    // --- Module-based Tabular/LaTeX Bridge Integration ---
     if (EngineScope.hasScope) {
       if (node is LatexNode) {
-        EngineScope.current.globalTabularBridge.unregisterLatexNode(
-          node.id.toString(),
-        );
+        EngineScope.current.tabularModule?.tabularLatexBridge
+            .unregisterLatexNode(node.id.toString());
       }
     }
 
@@ -581,6 +571,9 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
     if (spatialIndex.contains(node.id)) {
       spatialIndex.update(node);
     }
+    // Bump version so shouldRepaint detects the change and triggers
+    // a cache rebuild (e.g., section moved/resized during drag).
+    _version++;
   }
 
   /// Public helper for [TransactionInverseOp] rollback — registers a subtree.

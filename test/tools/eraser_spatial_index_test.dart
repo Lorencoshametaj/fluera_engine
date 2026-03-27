@@ -1,7 +1,7 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/tools/eraser/eraser_spatial_index.dart';
-import 'package:nebula_engine/src/tools/eraser/eraser_hit_tester.dart';
+import 'package:fluera_engine/src/tools/eraser/eraser_spatial_index.dart';
+import 'package:fluera_engine/src/tools/eraser/eraser_hit_tester.dart';
 import '../helpers/test_helpers.dart';
 
 void main() {

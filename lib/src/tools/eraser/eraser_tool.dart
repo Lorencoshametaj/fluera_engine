@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../../utils/key_value_store.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
-import '../../layers/nebula_layer_controller.dart';
+import '../../layers/fluera_layer_controller.dart';
 import 'eraser_hit_tester.dart';
 import 'eraser_spatial_index.dart';
 import 'eraser_analytics.dart';
@@ -39,7 +39,7 @@ enum EraserPressureCurve { linear, easeIn, easeOut, easeInOut, custom }
 /// - [EraserAnalytics] — session tracking, heatmap, dissolve effects
 /// - [EraserPresetManager] — save/load/delete named configurations
 class EraserTool {
-  final NebulaLayerController layerController;
+  final FlueraLayerController layerController;
 
   // ─── Configuretion ─────────────────────────────────────────────────
   double eraserRadius;
@@ -380,18 +380,30 @@ class EraserTool {
       return eraseToRevealAt(position);
     }
 
+    // 🚀 Batch mode: defer version bumps + index rebuilds to one flush
+    layerController.beginBatch();
+
     bool erased = false;
 
     if (eraseAllLayers) {
       for (final layer in layerController.layers) {
         if (!layer.isVisible || layer.isLocked) continue;
+        layer.node.beginDeferIndexRebuild();
         erased |= _eraseOnLayer(layer, position);
+        layer.node.endDeferIndexRebuild();
       }
     } else {
       final activeLayer = layerController.activeLayer;
-      if (activeLayer == null || activeLayer.isLocked) return false;
+      if (activeLayer == null || activeLayer.isLocked) {
+        layerController.endBatch();
+        return false;
+      }
+      activeLayer.node.beginDeferIndexRebuild();
       erased = _eraseOnLayer(activeLayer, position);
+      activeLayer.node.endDeferIndexRebuild();
     }
+
+    layerController.endBatch();
 
     if (erased) {
       if (!_gestureDidErase) {
@@ -406,8 +418,15 @@ class EraserTool {
 
   bool _eraseOnLayer(dynamic layer, Offset position) {
     bool erased = false;
-    final strokeIndicesToProcess = <int>[];
-    final shapeIndicesToRemove = <int>[];
+
+    // 🚀 PERF: Snapshot strokes/shapes ONCE. The getter calls
+    // strokeNodes.map((n) => n.stroke).toList() — O(N) allocation each time.
+    // Previously called 2× per eraseAt (scan + process), up to 30× per frame.
+    final strokes = layer.strokes as List<ProStroke>;
+    final shapes = layer.shapes as List<GeometricShape>;
+
+    final strokesToProcess = <ProStroke>[];
+    final shapesToRemove = <GeometricShape>[];
 
     // Pre-filter using spatial index
     final nearbyIds = _spatialIndex.getNearbyStrokeIds(
@@ -418,9 +437,7 @@ class EraserTool {
       eraserShapeAngle: eraserShapeAngle,
     );
 
-    for (int i = 0; i < layer.strokes.length; i++) {
-      final stroke = layer.strokes[i] as ProStroke;
-
+    for (final stroke in strokes) {
       if (nearbyIds.isNotEmpty && !nearbyIds.contains(stroke.id)) continue;
 
       if (eraseByColor != null &&
@@ -436,31 +453,26 @@ class EraserTool {
         eraserShapeWidth: eraserShapeWidth,
         eraserShapeAngle: eraserShapeAngle,
       )) {
-        strokeIndicesToProcess.add(i);
+        strokesToProcess.add(stroke);
         erased = true;
       }
     }
 
-    for (int i = 0; i < layer.shapes.length; i++) {
-      final shape = layer.shapes[i] as GeometricShape;
+    for (final shape in shapes) {
       if (EraserHitTester.shapeIntersectsEraser(
         shape,
         position,
         eraserRadius: eraserRadius,
       )) {
-        shapeIndicesToRemove.add(i);
+        shapesToRemove.add(shape);
         erased = true;
       }
     }
 
-    // Process strokes in reverse order to preserve indices
-    for (final index in strokeIndicesToProcess.reversed) {
-      final stroke = layer.strokes[index] as ProStroke;
-
+    // Process strokes (no index dependency — uses stored references)
+    for (final stroke in strokesToProcess) {
       // 🚀 PERF: Incremental spatial index update — keeps index valid for
       // subsequent eraseAt() calls within the same interpolation loop.
-      // Without this, markDirty() would cause all following calls to
-      // fall back to O(N) full scan.
       _spatialIndex.incrementalRemove(stroke);
 
       if (opacityEraseMode) {
@@ -485,7 +497,8 @@ class EraserTool {
           layerController.addStroke(fadedStroke);
           _spatialIndex.incrementalAdd(fadedStroke);
         }
-      } else if (eraseWholeStroke) {
+      } else if (eraseWholeStroke || stroke.isStub) {
+        // Stubbed strokes have no point data → can't split, always whole-erase
         _currentGestureOps.add(
           _EraseOperation(removedStroke: stroke, addedFragments: const []),
         );
@@ -511,8 +524,7 @@ class EraserTool {
     }
 
     // Remove shapes
-    for (final index in shapeIndicesToRemove.reversed) {
-      final shape = layer.shapes[index] as GeometricShape;
+    for (final shape in shapesToRemove) {
       layerController.removeShape(shape.id);
     }
 

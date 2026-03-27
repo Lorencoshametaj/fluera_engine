@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/painting.dart';
 import 'latex_ast.dart';
 import 'latex_draw_command.dart';
@@ -8,23 +9,44 @@ import 'latex_draw_command.dart';
 /// size, and style of every glyph and line in the expression.
 ///
 /// The layout is deterministic and side-effect-free: given the same AST,
-/// fontSize, and color, it always produces identical output.
+/// fontSize, color, and fontFamily, it always produces identical output.
 ///
 /// Example:
 /// ```dart
 /// final ast = LatexParser.parse(r'\frac{a}{b}');
-/// final result = LatexLayoutEngine.layout(ast, fontSize: 24, color: Colors.white);
+/// final result = LatexLayoutEngine.layout(
+///   ast,
+///   fontSize: 24,
+///   color: Colors.white,
+///   fontFamily: 'STIX Two Math',
+/// );
 /// // result.commands → [GlyphDrawCommand, LineDrawCommand, GlyphDrawCommand]
 /// // result.size → Size(width, height)
 /// ```
+///
+/// ## Recommended math fonts (include in pubspec.yaml assets):
+/// - `STIX Two Math`   — excellent Unicode coverage, free (SIL OFL)
+/// - `Latin Modern Math` — closest to LaTeX default Computer Modern
+/// - `Libertinus Math` — elegant serif alternative
+/// - `Fira Math`       — modern sans-serif option
 class LatexLayoutEngine {
   /// Layout an AST tree into positioned draw commands.
+  ///
+  /// [fontFamily] sets the math font for all glyphs. Recommended: 'STIX Two Math'
+  /// or 'Latin Modern Math'. Falls back to system default if null.
+  /// Default math font family. Set once so all call sites automatically
+  /// benefit from the bundled STIX Two Math font.
+  static const String defaultMathFont = 'STIXTwoMath';
+
   static LatexLayoutResult layout(
     LatexAstNode node, {
     required double fontSize,
     required Color color,
+    String? fontFamily,
   }) {
-    final engine = LatexLayoutEngine._();
+    final engine = LatexLayoutEngine._(
+      mathFontFamily: fontFamily ?? defaultMathFont,
+    );
     final box = engine._layout(node, fontSize, color);
     return LatexLayoutResult(
       commands: engine._commands,
@@ -33,60 +55,80 @@ class LatexLayoutEngine {
     );
   }
 
-  LatexLayoutEngine._();
+  LatexLayoutEngine._({String? mathFontFamily}) : _mathFontFamily = mathFontFamily;
 
   final List<LatexDrawCommand> _commands = [];
 
-  // Measurement cache — avoids redundant TextPainter.layout() calls.
-  final Map<String, double> _widthCache = {};
+  /// Math font family applied to every glyph. Setting this to a dedicated
+  /// math font (e.g. 'STIX Two Math') is the single biggest visual upgrade.
+  final String? _mathFontFamily;
+
+  // L: Global measurement cache — shared across all LatexLayoutEngine
+  // instances so repeated formulas don't re-measure the same glyphs.
+  static final Map<String, double> _widthCache = {};
 
   // ---------------------------------------------------------------------------
-  // TeX-Inspired Constants (proportional to fontSize)
+  // TeX-Inspired Constants (proportional to fontSize / 1 em)
+  //
+  // Derived from The TeXbook (Knuth) and the OpenType MATH table spec.
+  // All values are fractions of the current font size (1 em).
   // ---------------------------------------------------------------------------
 
-  /// Scale factor for sub/superscripts relative to base font size.
-  static const double _scriptScale = 0.7;
+  /// Scale factor for first-level sub/superscripts. TeX uses √½ ≈ 0.707.
+  static const double _scriptScale = 0.71;
 
-  /// Scale factor for sub-sub-scripts.
-  static const double _scriptScriptScale = 0.5;
+  /// Scale factor for second-level scripts (script-of-script).
+  static const double _scriptScriptScale = 0.504;
 
-  /// Superscript vertical offset (upward) as fraction of fontSize.
+  /// Superscript vertical shift (upward) as fraction of fontSize.
+  /// TeX: SuperscriptShiftUp ≈ 0.413 em; bump slightly for digital clarity.
   static const double _superscriptShift = 0.45;
 
-  /// Subscript vertical offset (downward) as fraction of fontSize.
-  static const double _subscriptShift = 0.25;
+  /// Subscript vertical shift (downward) as fraction of fontSize.
+  /// TeX: SubscriptShiftDown ≈ 0.2 em.
+  static const double _subscriptShift = 0.22;
 
   /// Fraction bar thickness as fraction of fontSize.
-  static const double _fractionBarThickness = 0.04;
+  /// TeX: FractionRuleThickness ≈ 0.06 em.
+  static const double _fractionBarThickness = 0.065;
 
   /// Gap between fraction bar and numerator/denominator.
+  /// TeX: FractionNumDisplayStyleShiftUp gap contribution ≈ 0.15 em.
   static const double _fractionGap = 0.15;
 
-  /// Horizontal padding for fraction numerator/denominator.
-  static const double _fractionPadding = 0.1;
+  /// Horizontal padding inside fraction (left/right of bar).
+  static const double _fractionPadding = 0.10;
 
-  /// Radical symbol vertical overhang above radicand.
-  static const double _radicalOverhang = 0.1;
+  /// Radical symbol vertical clearance above radicand.
+  static const double _radicalOverhang = 0.14;
 
-  /// Baseline fraction (how far down from top the baseline sits).
-  static const double _baselineFraction = 0.7;
+  /// Baseline fraction (distance from top to baseline, as fraction of height).
+  static const double _baselineFraction = 0.72;
 
-  /// Math axis position relative to baseline (fraction of fontSize).
+  /// Math axis offset above baseline (fraction of fontSize).
   ///
-  /// In TeX, the math axis is the vertical center of operators and fraction
-  /// bars. It sits slightly above the geometric midline of the x-height.
-  /// Operators like =, +, - and fraction bars must align to this axis,
-  /// NOT to the text baseline.
-  static const double _mathAxisOffset = 0.25;
+  /// In TeX the math axis is the vertical center of the = sign and fraction
+  /// bars. It sits above the geometric midline. TeX: AxisHeight ≈ 0.25 em.
+  static const double _mathAxisOffset = 0.27;
 
-  /// Approximate character width as fraction of fontSize.
-  static const double _charWidthFraction = 0.55;
+  /// Approximate default character width as fraction of fontSize.
+  static const double _charWidthFraction = 0.54;
 
-  /// Spacing between atoms as fraction of fontSize.
-  static const double _atomSpacing = 0.05;
+  /// Spacing between ordinary atoms (tight kern, TeX Ord-Ord = 0).
+  /// Only applied between non-operator siblings in groups; operators
+  /// add their own spacing via _thinSpace / _thickSpace.
+  static const double _atomSpacing = 0.02;
 
-  /// Operator spacing (around +, -, =, etc.) as fraction of fontSize.
-  static const double _operatorSpacing = 0.15;
+  /// TeX thin space (3 mu = 3/18 em ≈ 0.167 em).
+  /// Used on both sides of binary operators: +, −, ×, ÷, ·, ±, ∓.
+  static const double _thinSpace = 3.0 / 18.0;
+
+  /// TeX thick space (5 mu = 5/18 em ≈ 0.278 em).
+  /// Used on both sides of relational operators: =, ≠, <, >, ≤, ≥, ≈, ≡, ∼.
+  static const double _thickSpace = 5.0 / 18.0;
+
+  /// Space between big-operator glyph and inline limits (sub/superscript).
+  static const double _bigOpLimitKern = 0.04;
 
   // ---------------------------------------------------------------------------
   // Core Layout
@@ -110,6 +152,16 @@ class LatexLayoutEngine {
       LatexLimit() => _layoutLimit(node, fs, color),
       LatexAccent() => _layoutAccent(node, fs, color),
       LatexErrorNode() => _layoutError(node, fs, color),
+      LatexColored() => _layoutColored(node, fs, color),
+      LatexBoxed() => _layoutBoxed(node, fs, color),
+      LatexUnderOver() => _layoutUnderOver(node, fs, color),
+      LatexCancel() => _layoutCancel(node, fs, color),
+      LatexPhantom() => _layoutPhantom(node, fs, color),
+      LatexCases() => _layoutCases(node, fs, color),
+      LatexExtensibleArrow() => _layoutExtensibleArrow(node, fs, color),
+      LatexAlign() => _layoutAlign(node, fs, color),
+      LatexColorBox() => _layoutColorBox(node, fs, color),
+      LatexRule() => _layoutRule(node, fs, color),
     };
   }
 
@@ -118,28 +170,44 @@ class LatexLayoutEngine {
   // ---------------------------------------------------------------------------
 
   _LayoutBox _layoutSymbol(LatexSymbol node, double fs, Color color) {
-    final isOperator = _isOperatorSymbol(node.value);
-    final charWidth = _measureCharWidth(node.value, fs);
+    final isBinary = _isBinaryOperator(node.value);
+    final isRelational = _isRelationalOperator(node.value);
+    final isOperator = isBinary || isRelational;
+
+    final charWidth = _measureCharWidth(node.value, fs, italic: node.italic);
     final height = fs;
     final baseline = fs * _baselineFraction;
 
-    // R3: For binary/relational operators, shift Y so the glyph center
-    // aligns with the math axis rather than sitting on the text baseline.
+    // Align binary/relational operators to the math axis so that, e.g.,
+    // the = sign sits centered vertically in the line.
     final yShift = isOperator ? fs * _mathAxisOffset * 0.5 : 0.0;
 
     _commands.add(
       GlyphDrawCommand(
         text: node.value,
-        x: 0, // will be offset by parent
+        x: 0,
         y: -yShift,
         fontSize: fs,
         color: color,
+        fontFamily: _mathFontFamily,
         italic: node.italic,
+        bold: node.bold,
       ),
     );
 
-    final totalWidth =
-        isOperator ? charWidth + fs * _operatorSpacing * 2 : charWidth;
+    // TeX spacing around operators:
+    //   relational (=, ≠, ≤, ≥ …) → thick space (5 mu each side)
+    //   binary     (+, −, ×, ÷ …) → thin space  (3 mu each side)
+    final double sideSpacing;
+    if (isRelational) {
+      sideSpacing = fs * _thickSpace;
+    } else if (isBinary) {
+      sideSpacing = fs * _thinSpace;
+    } else {
+      sideSpacing = 0.0;
+    }
+
+    final totalWidth = charWidth + sideSpacing * 2;
 
     return _LayoutBox(
       width: totalWidth,
@@ -160,33 +228,49 @@ class LatexLayoutEngine {
       childBoxes.add(_layout(child, fs, color));
     }
 
-    // Compute total width and max ascent/descent
-    double totalWidth = 0;
-    double maxAscent = 0; // baseline distance from top
-    double maxDescent = 0; // distance from baseline to bottom
-
+    // Compute max ascent and descent across all children.
+    double maxAscent = 0;
+    double maxDescent = 0;
     for (final box in childBoxes) {
-      maxAscent = maxAscent > box.baseline ? maxAscent : box.baseline;
+      if (box.baseline > maxAscent) maxAscent = box.baseline;
       final descent = box.height - box.baseline;
-      maxDescent = maxDescent > descent ? maxDescent : descent;
+      if (descent > maxDescent) maxDescent = descent;
     }
 
     final totalHeight = maxAscent + maxDescent;
 
-    // Position children horizontally, aligned by baseline
+    // Place children left-to-right, aligned on the shared baseline.
+    double totalWidth = 0;
     for (int i = 0; i < childBoxes.length; i++) {
       final box = childBoxes[i];
       final dx = totalWidth;
       final dy = maxAscent - box.baseline;
 
-      // Offset all commands in this child
       _offsetCommands(box.commandStart, box.commandEnd, dx, dy);
 
-      totalWidth += box.width + fs * _atomSpacing;
-    }
+      totalWidth += box.width;
+      // TeX-aware inter-atom spacing: operators include their own
+      // padding (via _layoutSymbol), so we only add a minimal kern
+      // between non-operator siblings.
+      if (i < childBoxes.length - 1) {
+        final child = node.children[i];
+        final next = node.children[i + 1];
+        final childIsOp = child is LatexSymbol &&
+            (_isBinaryOperator(child.value) ||
+                _isRelationalOperator(child.value));
+        final nextIsOp = next is LatexSymbol &&
+            (_isBinaryOperator(next.value) ||
+                _isRelationalOperator(next.value));
 
-    // Remove trailing atom spacing
-    totalWidth -= fs * _atomSpacing;
+        // K: Detect unary minus — a binary operator at position 0 or
+        // immediately after another operator is unary (prefix), so we
+        // skip its left spacing.
+        if (nextIsOp && next is LatexSymbol && next.value == '-' && (i == 0 || childIsOp)) {
+        } else if (!childIsOp && !nextIsOp) {
+          totalWidth += fs * _atomSpacing;
+        }
+      }
+    }
 
     return _LayoutBox(
       width: totalWidth,
@@ -211,33 +295,35 @@ class LatexLayoutEngine {
     final totalHeight =
         numBox.height + gap + barThickness + gap + denBox.height;
 
-    // R3: Math axis alignment — the fraction bar sits at the math axis,
-    // which is offset above the baseline center. This ensures that in
-    // expressions like `a + \frac{b}{c} = d`, the = sign aligns with
-    // the fraction bar, not with the top or bottom of the fraction.
-    final mathAxis = fs * _baselineFraction - fs * _mathAxisOffset;
-    final barY = numBox.height + gap + barThickness / 2;
-    final baseline = mathAxis + (barY - mathAxis);
+    // The fraction bar should sit on the math axis, not just the geometric
+    // midpoint.  The math axis is _mathAxisOffset above the visual baseline.
+    final barTopY = numBox.height + gap;
+    final barMidY = barTopY + barThickness / 2;
 
-    // Position numerator (centered)
+    // Align baseline to math axis: bar center + axis offset from baseline.
+    final baseline = barMidY + fs * _mathAxisOffset * 0.15;
+
+    // Position numerator centered above bar.
     final numX = (contentWidth - numBox.width) / 2;
     _offsetCommands(numBox.commandStart, numBox.commandEnd, numX, 0);
 
-    // Fraction bar
-    _commands.add(
-      LineDrawCommand(
-        x1: 0,
-        y1: numBox.height + gap + barThickness / 2,
-        x2: contentWidth,
-        y2: numBox.height + gap + barThickness / 2,
-        thickness: barThickness,
-        color: color,
-      ),
-    );
+    // Draw fraction bar (vinculum) — only if showBar is true.
+    if (node.showBar) {
+      _commands.add(
+        LineDrawCommand(
+          x1: 0,
+          y1: barMidY,
+          x2: contentWidth,
+          y2: barMidY,
+          thickness: barThickness,
+          color: color,
+        ),
+      );
+    }
 
-    // Position denominator (centered)
+    // Position denominator centered below bar.
     final denX = (contentWidth - denBox.width) / 2;
-    final denY = numBox.height + gap + barThickness + gap;
+    final denY = barTopY + barThickness + gap;
     _offsetCommands(denBox.commandStart, denBox.commandEnd, denX, denY);
 
     return _LayoutBox(
@@ -251,27 +337,40 @@ class LatexLayoutEngine {
 
   _LayoutBox _layoutSuperscript(LatexSuperscript node, double fs, Color color) {
     final baseBox = _layout(node.base, fs, color);
-    final supBox = _layout(node.exponent, fs * _scriptScale, color);
 
-    final supY = -(fs * _superscriptShift);
+    // Italic correction: if the base is italic, shift superscript right by a
+    // small kern so it clears the slanted stroke (TeX: italcorr).
+    final italicCorrection =
+        (node.base is LatexSymbol && (node.base as LatexSymbol).italic)
+            ? fs * 0.10
+            : 0.0;
+
+    // Cramped style: when superscript is itself a superscript (nested),
+    // use a slightly smaller scale to avoid oversized towers.
+    final isNested = node.exponent is LatexSuperscript ||
+        node.exponent is LatexSubSuperscript;
+    final supScale = isNested ? _scriptScale * 0.85 : _scriptScale;
+    final supBox = _layout(node.exponent, fs * supScale, color);
+
+    // Superscript sits above the base top edge.
+    final supShift = fs * _superscriptShift;
+    final supY = baseBox.baseline - supShift - supBox.height;
+
     _offsetCommands(
       supBox.commandStart,
       supBox.commandEnd,
-      baseBox.width,
+      baseBox.width + italicCorrection,
       supY,
     );
 
-    final ascent = baseBox.baseline + (-supY > 0 ? -supY : 0);
-    final descent =
-        (baseBox.height - baseBox.baseline) >
-                (supBox.height + supY - baseBox.baseline)
-            ? (baseBox.height - baseBox.baseline)
-            : 0.0;
+    final supTop = -supY > 0 ? -supY : 0.0;
+    final ascent = supTop > baseBox.baseline ? supTop : baseBox.baseline;
+    final baseDescent = baseBox.height - baseBox.baseline;
+    final totalHeight = ascent + baseDescent;
 
     return _LayoutBox(
-      width: baseBox.width + supBox.width,
-      height:
-          ascent + descent > baseBox.height ? ascent + descent : baseBox.height,
+      width: baseBox.width + italicCorrection + supBox.width,
+      height: totalHeight > baseBox.height ? totalHeight : baseBox.height,
       baseline: ascent,
       commandStart: baseBox.commandStart,
       commandEnd: _commands.length,
@@ -282,22 +381,27 @@ class LatexLayoutEngine {
     final baseBox = _layout(node.base, fs, color);
     final subBox = _layout(node.subscript, fs * _scriptScale, color);
 
-    final subY = fs * _subscriptShift;
+    // E: Italic correction — TeX shifts subscripts left so they tuck under
+    // the italic slant rather than sticking out to the right.
+    final italicCorrection =
+        (node.base is LatexSymbol && (node.base as LatexSymbol).italic)
+            ? -fs * 0.06
+            : 0.0;
+
+    final subY = baseBox.baseline - subBox.baseline + fs * _subscriptShift;
     _offsetCommands(
       subBox.commandStart,
       subBox.commandEnd,
-      baseBox.width,
+      baseBox.width + italicCorrection,
       subY,
     );
 
-    final totalHeight =
-        baseBox.height + subY > baseBox.height + subBox.height
-            ? baseBox.height
-            : subY + subBox.height;
+    final subBottom = subY + subBox.height;
+    final totalHeight = subBottom > baseBox.height ? subBottom : baseBox.height;
 
     return _LayoutBox(
-      width: baseBox.width + subBox.width,
-      height: totalHeight > baseBox.height ? totalHeight : baseBox.height,
+      width: baseBox.width + subBox.width + italicCorrection,
+      height: totalHeight,
       baseline: baseBox.baseline,
       commandStart: baseBox.commandStart,
       commandEnd: _commands.length,
@@ -313,15 +417,22 @@ class LatexLayoutEngine {
     final supBox = _layout(node.superscript, fs * _scriptScale, color);
     final subBox = _layout(node.subscript, fs * _scriptScale, color);
 
-    final supY = -(fs * _superscriptShift);
+    // Italic correction for the base glyph.
+    final italicCorrection =
+        (node.base is LatexSymbol && (node.base as LatexSymbol).italic)
+            ? fs * 0.10
+            : 0.0;
+
+    final supShift = fs * _superscriptShift;
+    final supY = baseBox.baseline - supShift - supBox.height;
     _offsetCommands(
       supBox.commandStart,
       supBox.commandEnd,
-      baseBox.width,
+      baseBox.width + italicCorrection,
       supY,
     );
 
-    final subY = fs * _subscriptShift;
+    final subY = baseBox.baseline - subBox.baseline + fs * _subscriptShift;
     _offsetCommands(
       subBox.commandStart,
       subBox.commandEnd,
@@ -330,10 +441,18 @@ class LatexLayoutEngine {
     );
 
     final scriptWidth =
-        supBox.width > subBox.width ? supBox.width : subBox.width;
-    final ascent = baseBox.baseline + (-supY > 0 ? -supY : 0);
-    final descent = subY + subBox.height - baseBox.baseline;
-    final totalHeight = ascent + (descent > 0 ? descent : 0);
+        (supBox.width + italicCorrection) > subBox.width
+            ? (supBox.width + italicCorrection)
+            : subBox.width;
+
+    final supTop = supY < 0 ? -supY : 0.0;
+    final ascent = supTop > baseBox.baseline ? supTop : baseBox.baseline;
+
+    final baseDescent = baseBox.height - baseBox.baseline;
+    final subBottom = subY + subBox.height - baseBox.baseline;
+    final descent = subBottom > baseDescent ? subBottom : baseDescent;
+
+    final totalHeight = ascent + descent;
 
     return _LayoutBox(
       width: baseBox.width + scriptWidth,
@@ -349,34 +468,50 @@ class LatexLayoutEngine {
     final radBox = _layout(node.radicand, fs, color);
     final overhang = fs * _radicalOverhang;
     final barThickness = fs * _fractionBarThickness;
-    final symbolWidth = fs * 0.5;
-    final tailWidth = symbolWidth * 0.25;
-    final veeWidth = symbolWidth * 0.25;
+
+    // Proportions tuned to match TeX's Computer Modern radical glyph:
+    //   symbolWidth : the horizontal span of the √ symbol itself
+    //   tailWidth   : the small horizontal serif at the left
+    //   veeWidth    : the diagonal run to the bottom of the V
+    final symbolWidth = fs * 0.52;
+    final tailWidth = symbolWidth * 0.22;
+    final veeWidth = symbolWidth * 0.28;
+    final strokeWidth = barThickness * 1.6;
 
     final symHeight = radBox.height + overhang + barThickness;
 
-    // √ shape as a clean multi-segment path:
-    //   small horizontal tail → short downstroke → deep V → up to bar
+    // Radical shape — five control points (rendered as polyline):
+    //   P0 (tail start)  — left end of small horizontal serif
+    //   P1 (tail end)    — right end of serif, start of downstroke
+    //   P2 (V bottom)    — lowest point of the check mark
+    //   P3 (bar join)    — where the upstroke meets the vinculum
+    //
+    //   The serif sits at ~62 % height so it is clearly visible but leaves
+    //   enough room for the V sweep. The downstroke angle and upstroke angle
+    //   intentionally differ (TeX's radical is NOT symmetric).
+    // Radical shape — smooth Bézier curve through control points
+    // for a fluid, professional √ symbol.
     _commands.add(
       PathDrawCommand(
         points: [
-          // Tail
-          Offset(0, symHeight * 0.55),
-          Offset(tailWidth, symHeight * 0.55),
-          // Down to V bottom
-          Offset(tailWidth + veeWidth, symHeight),
-          // Up to bar start
-          Offset(symbolWidth, 0),
+          Offset(0, symHeight * 0.62),                      // P0: serif left
+          Offset(tailWidth * 0.5, symHeight * 0.60),        // P1: serif curve
+          Offset(tailWidth, symHeight * 0.57),              // P2: kink
+          Offset(tailWidth + veeWidth * 0.5, symHeight * 0.85), // P3: midway down
+          Offset(tailWidth + veeWidth, symHeight),          // P4: V bottom
+          Offset(tailWidth + veeWidth + (symbolWidth - tailWidth - veeWidth) * 0.3, symHeight * 0.35), // P5: upstroke mid
+          Offset(symbolWidth, barThickness / 2),            // P6: top
         ],
-        strokeWidth: barThickness * 1.5,
+        strokeWidth: strokeWidth,
         color: color,
+        smooth: true,
       ),
     );
 
-    // Horizontal bar (vinculum) over radicand
+    // Vinculum (horizontal bar over radicand).
     _commands.add(
       LineDrawCommand(
-        x1: symbolWidth - barThickness * 0.5,
+        x1: symbolWidth - strokeWidth * 0.25,
         y1: barThickness / 2,
         x2: symbolWidth + radBox.width + overhang,
         y2: barThickness / 2,
@@ -385,7 +520,7 @@ class LatexLayoutEngine {
       ),
     );
 
-    // Offset radicand content to sit under the bar
+    // Shift radicand to sit under the vinculum with the correct clearance.
     _offsetCommands(
       radBox.commandStart,
       radBox.commandEnd,
@@ -394,24 +529,22 @@ class LatexLayoutEngine {
     );
 
     final totalWidth = symbolWidth + radBox.width + overhang;
-    final totalHeight = symHeight;
 
-    // Optional degree label (e.g. ³√)
+    // Optional degree label (e.g. ³√).
     if (node.degree != null) {
       final degBox = _layout(node.degree!, fs * _scriptScriptScale, color);
-      // Position degree above and to the left of the radical symbol
       _offsetCommands(
         degBox.commandStart,
         degBox.commandEnd,
         tailWidth * 0.5,
-        symHeight * 0.55 - degBox.height - fs * 0.05,
+        symHeight * 0.57 - degBox.height - fs * 0.05,
       );
     }
 
     return _LayoutBox(
       width: totalWidth,
-      height: totalHeight,
-      baseline: totalHeight * _baselineFraction,
+      height: symHeight,
+      baseline: symHeight * _baselineFraction,
       commandStart: cmdStart,
       commandEnd: _commands.length,
     );
@@ -419,24 +552,96 @@ class LatexLayoutEngine {
 
   _LayoutBox _layoutBigOperator(LatexBigOperator node, double fs, Color color) {
     final cmdStart = _commands.length;
-    final opSize = fs * 1.5;
-    final opWidth = _measureTextWidth(node.operator, opSize);
+    const opScale = 1.6;
+    final opSize = fs * opScale;
 
-    // Render operator symbol
-    _commands.add(
-      GlyphDrawCommand(
-        text: node.operator,
-        x: 0,
-        y: 0,
-        fontSize: opSize,
-        color: color,
-      ),
-    );
+    final isIntegral =
+        node.operator == '∫' ||
+        node.operator == '∬' ||
+        node.operator == '∭' ||
+        node.operator == '∮';
 
-    // If no limits, return simple box
+    double opWidth;
+
+    if (isIntegral) {
+      opWidth = opSize * 0.32;
+      final strokeW = fs * _fractionBarThickness * 2.2;
+      final h = opSize;
+      final w = opWidth;
+
+      final count = switch (node.operator) {
+        '∬' => 2,
+        '∭' => 3,
+        _ => 1,
+      };
+      final spacing = count > 1 ? w * 0.6 : 0.0;
+
+      for (int n = 0; n < count; n++) {
+        final dx = n * spacing;
+        // Integral ∫ — smooth Bézier curve for fluid S-shape.
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(dx + w * 0.70, h * 0.02),
+              Offset(dx + w * 0.55, 0),
+              Offset(dx + w * 0.45, h * 0.05),
+              Offset(dx + w * 0.48, h * 0.25),
+              Offset(dx + w * 0.48, h * 0.45),
+              Offset(dx + w * 0.50, h * 0.50),
+              Offset(dx + w * 0.52, h * 0.55),
+              Offset(dx + w * 0.52, h * 0.75),
+              Offset(dx + w * 0.55, h * 0.95),
+              Offset(dx + w * 0.45, h),
+              Offset(dx + w * 0.30, h * 0.98),
+            ],
+            strokeWidth: strokeW,
+            color: color,
+            smooth: true,
+          ),
+        );
+      }
+
+      if (node.operator == '∮') {
+        final cx = w * 0.50;
+        final cy = h * 0.50;
+        final r = fs * 0.08;
+        // D: High-fidelity 16-segment smooth circle for contour integral.
+        final circlePoints = <Offset>[];
+        for (int i = 0; i <= 16; i++) {
+          final angle = i * math.pi * 2.0 / 16;
+          circlePoints.add(Offset(cx + r * _cos(angle), cy + r * _sin(angle)));
+        }
+        // (duplicate removed)
+        _commands.add(
+          PathDrawCommand(
+            points: circlePoints,
+            strokeWidth: strokeW * 0.7,
+            color: color,
+            closed: true,
+            smooth: true,
+          ),
+        );
+      }
+
+      if (count > 1) opWidth = w + spacing * (count - 1);
+    } else {
+      opWidth = _measureTextWidth(node.operator, opSize);
+      _commands.add(
+        GlyphDrawCommand(
+          text: node.operator,
+          x: 0,
+          y: 0,
+          fontSize: opSize,
+          color: color,
+          fontFamily: _mathFontFamily,
+        ),
+      );
+    }
+
+    // Simple case: no limits.
     if (node.lower == null && node.upper == null) {
       return _LayoutBox(
-        width: opWidth + fs * _operatorSpacing,
+        width: opWidth + fs * _thickSpace,
         height: opSize,
         baseline: opSize * _baselineFraction,
         commandStart: cmdStart,
@@ -444,55 +649,49 @@ class LatexLayoutEngine {
       );
     }
 
-    // For ∑, ∏ — display limits ABOVE/BELOW (display style)
-    // For ∫ — display limits as sub/superscript (inline style)
-    final isInlineStyle =
-        node.operator == '∫' ||
-        node.operator == '∬' ||
-        node.operator == '∭' ||
-        node.operator == '∮';
+    final isInlineStyle = isIntegral;
 
     if (isInlineStyle) {
-      // Inline: limits as sub/superscript next to operator
-      double totalWidth = opWidth;
-      double totalHeight = opSize;
-      double baseline = opSize * _baselineFraction;
+      // Inline style (∫, ∬ …): limits as sub/superscript.
+      final opBaseline = opSize * _baselineFraction;
+      final limX = opWidth + fs * _bigOpLimitKern;
+      double totalWidth = limX;
+      double ascent = opBaseline;
+      double descent = opSize - opBaseline;
 
       if (node.upper != null) {
         final supBox = _layout(node.upper!, fs * _scriptScale, color);
-        final supY = -(fs * _superscriptShift * 0.8);
-        _offsetCommands(supBox.commandStart, supBox.commandEnd, opWidth, supY);
-        totalWidth = opWidth + supBox.width;
-        if (-supY > 0) baseline = opSize * _baselineFraction + (-supY);
-        totalHeight = baseline + (opSize - opSize * _baselineFraction);
+        final supShift = fs * _superscriptShift;
+        final supY = opBaseline - supShift - supBox.height;
+        _offsetCommands(supBox.commandStart, supBox.commandEnd, limX, supY);
+        totalWidth = limX + supBox.width;
+        if (-supY > ascent) ascent = -supY;
       }
 
       if (node.lower != null) {
         final subBox = _layout(node.lower!, fs * _scriptScale, color);
-        final subY = fs * _subscriptShift * 0.8;
-        _offsetCommands(subBox.commandStart, subBox.commandEnd, opWidth, subY);
-        final scriptW =
-            node.upper != null ? (totalWidth - opWidth) : subBox.width;
-        totalWidth =
-            opWidth + (scriptW > subBox.width ? scriptW : subBox.width);
-        final bottom = subY + subBox.height;
-        if (bottom > totalHeight) totalHeight = bottom;
+        final subY = opBaseline + fs * _subscriptShift - subBox.baseline;
+        _offsetCommands(subBox.commandStart, subBox.commandEnd, limX, subY);
+        final scriptW = node.upper != null ? (totalWidth - limX) : subBox.width;
+        totalWidth = limX + (scriptW > subBox.width ? scriptW : subBox.width);
+        final subBottom = subY + subBox.height - opBaseline;
+        if (subBottom > descent) descent = subBottom;
       }
 
       return _LayoutBox(
-        width: totalWidth + fs * _operatorSpacing,
-        height: totalHeight,
-        baseline: baseline,
+        width: totalWidth + fs * _thickSpace,
+        height: ascent + descent,
+        baseline: ascent,
         commandStart: cmdStart,
         commandEnd: _commands.length,
       );
     }
 
-    // Display style: limits centered above/below operator
+    // Display style (∑, ∏ …): limits centered above/below.
     double upperHeight = 0;
     double lowerHeight = 0;
     double maxWidth = opWidth;
-    final gap = fs * 0.1;
+    final gap = fs * 0.12;
 
     _LayoutBox? upperBox;
     _LayoutBox? lowerBox;
@@ -512,17 +711,14 @@ class LatexLayoutEngine {
     final totalHeight = upperHeight + opSize + lowerHeight;
     final baseline = upperHeight + opSize * _baselineFraction;
 
-    // Center operator horizontally
     final opX = (maxWidth - opWidth) / 2;
     _offsetCommands(cmdStart, cmdStart + 1, opX, upperHeight);
 
-    // Position upper limit centered above
     if (upperBox != null) {
       final ux = (maxWidth - upperBox.width) / 2;
       _offsetCommands(upperBox.commandStart, upperBox.commandEnd, ux, 0);
     }
 
-    // Position lower limit centered below
     if (lowerBox != null) {
       final lx = (maxWidth - lowerBox.width) / 2;
       final ly = upperHeight + opSize + gap;
@@ -530,7 +726,7 @@ class LatexLayoutEngine {
     }
 
     return _LayoutBox(
-      width: maxWidth + fs * _operatorSpacing,
+      width: maxWidth + fs * _thickSpace,
       height: totalHeight,
       baseline: baseline,
       commandStart: cmdStart,
@@ -545,11 +741,10 @@ class LatexLayoutEngine {
 
     final cmdStart = _commands.length;
     final cellFs = fs * _scriptScale;
-    final cellGap = fs * 0.3;
-    final rowGap = fs * 0.2;
+    final cellGap = fs * 0.32;
+    final rowGap = fs * 0.22;
     final delimPadding = fs * 0.15;
 
-    // Layout all cells
     final cellBoxes = <List<_LayoutBox>>[];
     for (final row in node.rows) {
       final rowBoxes = <_LayoutBox>[];
@@ -559,7 +754,6 @@ class LatexLayoutEngine {
       cellBoxes.add(rowBoxes);
     }
 
-    // Compute column widths
     int maxCols = 0;
     for (final row in cellBoxes) {
       if (row.length > maxCols) maxCols = row.length;
@@ -572,7 +766,6 @@ class LatexLayoutEngine {
       }
     }
 
-    // Compute row heights
     final rowHeights =
         cellBoxes.map((row) {
           double maxH = cellFs;
@@ -582,12 +775,10 @@ class LatexLayoutEngine {
           return maxH;
         }).toList();
 
-    // Determine delimiter offset (leave space for delimiters)
     final hasDelims = node.style != MatrixStyle.plain;
     final delimW = hasDelims ? fs * 0.25 : 0.0;
     final contentOffsetX = delimW + delimPadding;
 
-    // Position all cells
     double y = 0;
     for (int r = 0; r < cellBoxes.length; r++) {
       double x = 0;
@@ -607,7 +798,6 @@ class LatexLayoutEngine {
         rowHeights.fold(0.0, (s, h) => s + h) + rowGap * (cellBoxes.length - 1);
     final totalWidth = contentWidth + (contentOffsetX + delimW + delimPadding);
 
-    // Draw matrix delimiters
     if (hasDelims) {
       final String openDelim;
       final String closeDelim;
@@ -640,6 +830,7 @@ class LatexLayoutEngine {
             y: 0,
             fontSize: totalHeight,
             color: color,
+            fontFamily: _mathFontFamily,
           ),
         );
       }
@@ -651,6 +842,7 @@ class LatexLayoutEngine {
             y: 0,
             fontSize: totalHeight,
             color: color,
+            fontFamily: _mathFontFamily,
           ),
         );
       }
@@ -665,52 +857,223 @@ class LatexLayoutEngine {
     );
   }
 
+  /// Draw a tall delimiter as a B\u00e9zier path instead of a scaled glyph.
+  ///
+  /// For tall expressions, scaling a glyph character produces thick, distorted
+  /// strokes. This method draws each delimiter type (parens, brackets, braces)
+  /// as proportional B\u00e9zier curves that look correct at any height.
+  void _addPathDelimiter(
+    String delim,
+    double x,
+    double y,
+    double width,
+    double height,
+    double fontSize,
+    Color color,
+  ) {
+    final strokeW = fontSize * _fractionBarThickness * 1.5;
+    final h = height;
+    final w = width;
+
+    switch (delim) {
+      case '(' :
+        // Left parenthesis: smooth arc from top to bottom.
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.85, y),
+            Offset(x + w * 0.55, y + h * 0.15),
+            Offset(x + w * 0.30, y + h * 0.35),
+            Offset(x + w * 0.25, y + h * 0.50),
+            Offset(x + w * 0.30, y + h * 0.65),
+            Offset(x + w * 0.55, y + h * 0.85),
+            Offset(x + w * 0.85, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+          smooth: true,
+        ));
+      case ')':
+        // Right parenthesis: mirror of left.
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.15, y),
+            Offset(x + w * 0.45, y + h * 0.15),
+            Offset(x + w * 0.70, y + h * 0.35),
+            Offset(x + w * 0.75, y + h * 0.50),
+            Offset(x + w * 0.70, y + h * 0.65),
+            Offset(x + w * 0.45, y + h * 0.85),
+            Offset(x + w * 0.15, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+          smooth: true,
+        ));
+      case '[':
+        // Left bracket: three straight lines (top, vertical, bottom).
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.75, y),
+            Offset(x + w * 0.30, y),
+            Offset(x + w * 0.30, y + h),
+            Offset(x + w * 0.75, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+        ));
+      case ']':
+        // Right bracket: mirror.
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.25, y),
+            Offset(x + w * 0.70, y),
+            Offset(x + w * 0.70, y + h),
+            Offset(x + w * 0.25, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+        ));
+      case '{':
+        // Left brace: smooth S-shape with center point.
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.80, y),
+            Offset(x + w * 0.55, y + h * 0.05),
+            Offset(x + w * 0.50, y + h * 0.20),
+            Offset(x + w * 0.50, y + h * 0.40),
+            Offset(x + w * 0.25, y + h * 0.50), // center cusp
+            Offset(x + w * 0.50, y + h * 0.60),
+            Offset(x + w * 0.50, y + h * 0.80),
+            Offset(x + w * 0.55, y + h * 0.95),
+            Offset(x + w * 0.80, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+          smooth: true,
+        ));
+      case '}':
+        // Right brace: mirror of left.
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.20, y),
+            Offset(x + w * 0.45, y + h * 0.05),
+            Offset(x + w * 0.50, y + h * 0.20),
+            Offset(x + w * 0.50, y + h * 0.40),
+            Offset(x + w * 0.75, y + h * 0.50), // center cusp
+            Offset(x + w * 0.50, y + h * 0.60),
+            Offset(x + w * 0.50, y + h * 0.80),
+            Offset(x + w * 0.45, y + h * 0.95),
+            Offset(x + w * 0.20, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+          smooth: true,
+        ));
+      case '|':
+        // Vertical bar: single line.
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.50, y),
+            Offset(x + w * 0.50, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+        ));
+      case '‖':
+        // Double vertical bar.
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.35, y),
+            Offset(x + w * 0.35, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+        ));
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(x + w * 0.65, y),
+            Offset(x + w * 0.65, y + h),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+        ));
+      default:
+        // Unsupported delimiter — fall back to glyph.
+        _commands.add(GlyphDrawCommand(
+          text: delim,
+          x: x,
+          y: y,
+          fontSize: height,
+          color: color,
+          fontFamily: _mathFontFamily,
+        ));
+    }
+  }
+
   _LayoutBox _layoutDelimited(LatexDelimited node, double fs, Color color) {
     final bodyBox = _layout(node.body, fs, color);
-    final delimWidth = fs * 0.3;
-    final delimHeight = bodyBox.height * 1.1;
 
-    // Draw opening delimiter
+    // Scale delimiters to at least 1 em tall and add 10 % vertical clearance.
+    final minDelimHeight = fs;
+    final rawHeight = bodyBox.height * 1.10;
+    final delimHeight = rawHeight > minDelimHeight ? rawHeight : minDelimHeight;
+    final delimWidth = fs * 0.30;
+
+    // Vertical offset so delimiters are centered around the body.
+    final vertOffset = (delimHeight - bodyBox.height) / 2;
+
+    // C: For tall delimiters (> 1.5× font), draw with Bézier paths to
+    //    avoid thick/distorted glyph scaling.
+    final usePathDelim = delimHeight > fs * 1.5;
+
     if (node.open.isNotEmpty) {
-      _commands.add(
-        GlyphDrawCommand(
-          text: node.open,
-          x: 0,
-          y: (delimHeight - bodyBox.height) / 2,
-          fontSize: delimHeight,
-          color: color,
-        ),
-      );
+      if (usePathDelim) {
+        _addPathDelimiter(node.open, 0, vertOffset, delimWidth, delimHeight, fs, color);
+      } else {
+        _commands.add(
+          GlyphDrawCommand(
+            text: node.open,
+            x: 0,
+            y: vertOffset,
+            fontSize: delimHeight,
+            color: color,
+            fontFamily: _mathFontFamily,
+          ),
+        );
+      }
     }
 
-    // Offset body
     _offsetCommands(
       bodyBox.commandStart,
       bodyBox.commandEnd,
       delimWidth,
-      (delimHeight - bodyBox.height) / 2,
+      vertOffset,
     );
 
-    // Draw closing delimiter
     if (node.close.isNotEmpty) {
-      _commands.add(
-        GlyphDrawCommand(
-          text: node.close,
-          x: delimWidth + bodyBox.width,
-          y: (delimHeight - bodyBox.height) / 2,
-          fontSize: delimHeight,
-          color: color,
-        ),
-      );
+      if (usePathDelim) {
+        _addPathDelimiter(node.close, delimWidth + bodyBox.width, vertOffset, delimWidth, delimHeight, fs, color);
+      } else {
+        _commands.add(
+          GlyphDrawCommand(
+            text: node.close,
+            x: delimWidth + bodyBox.width,
+            y: vertOffset,
+            fontSize: delimHeight,
+            color: color,
+            fontFamily: _mathFontFamily,
+          ),
+        );
+      }
     }
 
-    final closeWidth = node.close.isNotEmpty ? delimWidth : 0;
-    final openWidth = node.open.isNotEmpty ? delimWidth : 0;
+    final openWidth = node.open.isNotEmpty ? delimWidth : 0.0;
+    final closeWidth = node.close.isNotEmpty ? delimWidth : 0.0;
 
     return _LayoutBox(
       width: openWidth + bodyBox.width + closeWidth,
       height: delimHeight,
-      baseline: delimHeight * _baselineFraction,
+      // Baseline rises by the same vertOffset applied to the body.
+      baseline: bodyBox.baseline + vertOffset,
       commandStart:
           _commands.length -
           (bodyBox.commandEnd - bodyBox.commandStart) -
@@ -721,7 +1084,8 @@ class LatexLayoutEngine {
   }
 
   _LayoutBox _layoutText(LatexText node, double fs, Color color) {
-    // Use real TextPainter measurement for accurate text width
+    // I: Use null fontFamily so \text{} renders in the system sans-serif
+    // font, matching TeX convention where \text uses the document font.
     final width = _measureTextWidth(node.text, fs, italic: false);
 
     _commands.add(
@@ -731,12 +1095,17 @@ class LatexLayoutEngine {
         y: 0,
         fontSize: fs,
         color: color,
+        fontFamily: null, // I: system font, not math font
         italic: false,
       ),
     );
 
+    // G: Add trailing thin space after operator names (sin, cos, log, etc.)
+    // so that e.g. "\sin x" renders as "sin x" not "sinx".
+    final trailingSpace = fs * _thinSpace;
+
     return _LayoutBox(
-      width: width,
+      width: width + trailingSpace,
       height: fs,
       baseline: fs * _baselineFraction,
       commandStart: _commands.length - 1,
@@ -764,14 +1133,14 @@ class LatexLayoutEngine {
         y: 0,
         fontSize: fs,
         color: color,
+        fontFamily: _mathFontFamily,
         italic: false,
       ),
     );
 
-    // If no subscript, simple return
     if (node.subscript == null) {
       return _LayoutBox(
-        width: limWidth + fs * _operatorSpacing,
+        width: limWidth + fs * _thickSpace,
         height: fs,
         baseline: fs * _baselineFraction,
         commandStart: cmdStart,
@@ -779,16 +1148,13 @@ class LatexLayoutEngine {
       );
     }
 
-    // Layout subscript below "lim", centered
     final subBox = _layout(node.subscript!, fs * _scriptScale, color);
     final gap = fs * 0.08;
     final maxWidth = limWidth > subBox.width ? limWidth : subBox.width;
 
-    // Center "lim" text
     final limX = (maxWidth - limWidth) / 2;
     _offsetCommands(cmdStart, cmdStart + 1, limX, 0);
 
-    // Center subscript below
     final subX = (maxWidth - subBox.width) / 2;
     final subY = fs + gap;
     _offsetCommands(subBox.commandStart, subBox.commandEnd, subX, subY);
@@ -796,7 +1162,7 @@ class LatexLayoutEngine {
     final totalHeight = fs + gap + subBox.height;
 
     return _LayoutBox(
-      width: maxWidth + fs * _operatorSpacing,
+      width: maxWidth + fs * _thickSpace,
       height: totalHeight,
       baseline: fs * _baselineFraction,
       commandStart: cmdStart,
@@ -806,25 +1172,55 @@ class LatexLayoutEngine {
 
   _LayoutBox _layoutAccent(LatexAccent node, double fs, Color color) {
     final baseBox = _layout(node.base, fs, color);
-    final accentChar = _accentSymbol(node.accentType);
-    final accentFs = fs * 0.8;
-    final accentWidth = _measureTextWidth(accentChar, accentFs);
-    final accentHeight = fs * 0.25;
 
-    // Center accent above base
-    final accentX = (baseBox.width - accentWidth) / 2;
+    // Special handling for \underline — draw line below base.
+    if (node.accentType == 'underline') {
+      final lineGap = fs * 0.06;
+      final lineThickness = fs * _fractionBarThickness;
+      final lineY = baseBox.height + lineGap;
+
+      _commands.add(LineDrawCommand(
+        x1: 0, y1: lineY,
+        x2: baseBox.width, y2: lineY,
+        thickness: lineThickness,
+        color: color,
+      ));
+
+      return _LayoutBox(
+        width: baseBox.width,
+        height: lineY + lineThickness,
+        baseline: baseBox.baseline,
+        commandStart: baseBox.commandStart,
+        commandEnd: _commands.length,
+      );
+    }
+
+    final accentChar = _accentSymbol(node.accentType);
+    final accentFs = fs * 0.80;
+    final accentWidth = _measureTextWidth(accentChar, accentFs);
+    final accentHeight = fs * 0.26;
+
+    // Center accent above base, with italic correction if applicable.
+    final italicShift =
+        (node.base is LatexSymbol && (node.base as LatexSymbol).italic)
+            ? fs * 0.05
+            : 0.0;
+    final accentX = ((baseBox.width - accentWidth) / 2 + italicShift).clamp(
+      0.0,
+      double.infinity,
+    );
 
     _commands.add(
       GlyphDrawCommand(
         text: accentChar,
-        x: accentX > 0 ? accentX : 0,
+        x: accentX,
         y: -accentHeight,
         fontSize: accentFs,
         color: color,
+        fontFamily: _mathFontFamily,
       ),
     );
 
-    // Offset base down to make room for accent
     _offsetCommands(baseBox.commandStart, baseBox.commandEnd, 0, accentHeight);
 
     final totalWidth =
@@ -840,9 +1236,9 @@ class LatexLayoutEngine {
   }
 
   _LayoutBox _layoutError(LatexErrorNode node, double fs, Color color) {
-    // Render error text in red
-    final errorColor = const Color(0xFFFF4444);
+    const errorColor = Color(0xFFFF4444);
     final text = node.rawText.isNotEmpty ? node.rawText : '?';
+    final width = _measureTextWidth(text, fs, italic: true);
 
     _commands.add(
       GlyphDrawCommand(
@@ -855,10 +1251,495 @@ class LatexLayoutEngine {
       ),
     );
 
+    // H: Draw a red underline to visually distinguish parse errors.
+    final barY = fs * 0.95;
+    _commands.add(
+      LineDrawCommand(
+        x1: 0,
+        y1: barY,
+        x2: width,
+        y2: barY,
+        thickness: fs * 0.04,
+        color: errorColor,
+      ),
+    );
+
     return _LayoutBox(
-      width: fs * _charWidthFraction * text.length,
+      width: width,
       height: fs,
       baseline: fs * _baselineFraction,
+      commandStart: _commands.length - 2,
+      commandEnd: _commands.length,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // New Construct Layouts
+  // ---------------------------------------------------------------------------
+
+  /// Color name → ARGB color mapping.
+  static Color _parseColorName(String name) {
+    return switch (name.toLowerCase()) {
+      'red' => const Color(0xFFFF0000),
+      'blue' => const Color(0xFF0000FF),
+      'green' => const Color(0xFF00AA00),
+      'orange' => const Color(0xFFFF8800),
+      'purple' => const Color(0xFF8800FF),
+      'cyan' => const Color(0xFF00CCCC),
+      'magenta' => const Color(0xFFFF00FF),
+      'yellow' => const Color(0xFFCCCC00),
+      'white' => const Color(0xFFFFFFFF),
+      'black' => const Color(0xFF000000),
+      'gray' || 'grey' => const Color(0xFF888888),
+      'brown' => const Color(0xFF884400),
+      'pink' => const Color(0xFFFF88AA),
+      'lime' => const Color(0xFF88FF00),
+      'teal' => const Color(0xFF008888),
+      'violet' => const Color(0xFF8800CC),
+      _ => name.startsWith('#') && name.length == 7
+          ? Color(int.parse('FF${name.substring(1)}', radix: 16))
+          : const Color(0xFFFF4444), // fallback red for unknown
+    };
+  }
+
+  _LayoutBox _layoutColored(LatexColored node, double fs, Color color) {
+    final resolvedColor = _parseColorName(node.colorName);
+    return _layout(node.body, fs, resolvedColor);
+  }
+
+  _LayoutBox _layoutBoxed(LatexBoxed node, double fs, Color color) {
+    final bodyBox = _layout(node.body, fs, color);
+    final padding = fs * 0.12;
+    final borderThickness = fs * _fractionBarThickness;
+    final cmdStart = bodyBox.commandStart;
+
+    // Offset body for padding.
+    _offsetCommands(bodyBox.commandStart, bodyBox.commandEnd, padding, padding);
+
+    final totalWidth = bodyBox.width + padding * 2;
+    final totalHeight = bodyBox.height + padding * 2;
+
+    // Draw rectangle border.
+    // Top
+    _commands.add(LineDrawCommand(x1: 0, y1: 0, x2: totalWidth, y2: 0,
+        thickness: borderThickness, color: color));
+    // Bottom
+    _commands.add(LineDrawCommand(x1: 0, y1: totalHeight, x2: totalWidth, y2: totalHeight,
+        thickness: borderThickness, color: color));
+    // Left
+    _commands.add(LineDrawCommand(x1: 0, y1: 0, x2: 0, y2: totalHeight,
+        thickness: borderThickness, color: color));
+    // Right
+    _commands.add(LineDrawCommand(x1: totalWidth, y1: 0, x2: totalWidth, y2: totalHeight,
+        thickness: borderThickness, color: color));
+
+    return _LayoutBox(
+      width: totalWidth,
+      height: totalHeight,
+      baseline: bodyBox.baseline + padding,
+      commandStart: cmdStart,
+      commandEnd: _commands.length,
+    );
+  }
+
+  _LayoutBox _layoutUnderOver(LatexUnderOver node, double fs, Color color) {
+    final bodyBox = _layout(node.body, fs, color);
+    final annoBox = _layout(node.annotation, fs * _scriptScale, color);
+    final gap = fs * 0.10;
+    final braceHeight = node.braceStyle == 'brace' ? fs * 0.18 : 0.0;
+
+    final maxWidth = bodyBox.width > annoBox.width ? bodyBox.width : annoBox.width;
+
+    if (node.above) {
+      // Annotation above: annotation → (brace) → body
+      final annoX = (maxWidth - annoBox.width) / 2;
+      final bodyX = (maxWidth - bodyBox.width) / 2;
+
+      _offsetCommands(annoBox.commandStart, annoBox.commandEnd, annoX, 0);
+
+      if (node.braceStyle == 'brace') {
+        // Draw a horizontal overbrace between annotation and body
+        final braceY = annoBox.height + gap;
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(bodyX, braceY + braceHeight),
+            Offset(bodyX, braceY),
+            Offset(bodyX + bodyBox.width / 2, braceY - braceHeight * 0.3),
+            Offset(bodyX + bodyBox.width, braceY),
+            Offset(bodyX + bodyBox.width, braceY + braceHeight),
+          ],
+          strokeWidth: fs * _fractionBarThickness,
+          color: color,
+          smooth: true,
+        ));
+      }
+
+      final bodyY = annoBox.height + gap + braceHeight + gap;
+      _offsetCommands(bodyBox.commandStart, bodyBox.commandEnd, bodyX, bodyY);
+
+      final totalHeight = bodyY + bodyBox.height;
+      return _LayoutBox(
+        width: maxWidth,
+        height: totalHeight,
+        baseline: bodyY + bodyBox.baseline,
+        commandStart: annoBox.commandStart,
+        commandEnd: _commands.length,
+      );
+    } else {
+      // Annotation below: body → (brace) → annotation
+      final bodyX = (maxWidth - bodyBox.width) / 2;
+      final annoX = (maxWidth - annoBox.width) / 2;
+
+      _offsetCommands(bodyBox.commandStart, bodyBox.commandEnd, bodyX, 0);
+
+      final braceY = bodyBox.height + gap;
+      if (node.braceStyle == 'brace') {
+        _commands.add(PathDrawCommand(
+          points: [
+            Offset(bodyX, braceY),
+            Offset(bodyX, braceY + braceHeight),
+            Offset(bodyX + bodyBox.width / 2, braceY + braceHeight * 1.3),
+            Offset(bodyX + bodyBox.width, braceY + braceHeight),
+            Offset(bodyX + bodyBox.width, braceY),
+          ],
+          strokeWidth: fs * _fractionBarThickness,
+          color: color,
+          smooth: true,
+        ));
+      }
+
+      final annoY = braceY + braceHeight + gap;
+      _offsetCommands(annoBox.commandStart, annoBox.commandEnd, annoX, annoY);
+
+      final totalHeight = annoY + annoBox.height;
+      return _LayoutBox(
+        width: maxWidth,
+        height: totalHeight,
+        baseline: bodyBox.baseline,
+        commandStart: bodyBox.commandStart,
+        commandEnd: _commands.length,
+      );
+    }
+  }
+
+  _LayoutBox _layoutCancel(LatexCancel node, double fs, Color color) {
+    final bodyBox = _layout(node.body, fs, color);
+    final strokeW = fs * _fractionBarThickness * 1.2;
+
+    switch (node.direction) {
+      case 'forward': // diagonal /
+        _commands.add(LineDrawCommand(
+          x1: 0, y1: bodyBox.height,
+          x2: bodyBox.width, y2: 0,
+          thickness: strokeW, color: const Color(0xFFFF4444),
+        ));
+      case 'back': // diagonal \
+        _commands.add(LineDrawCommand(
+          x1: 0, y1: 0,
+          x2: bodyBox.width, y2: bodyBox.height,
+          thickness: strokeW, color: const Color(0xFFFF4444),
+        ));
+      case 'cross': // X
+        _commands.add(LineDrawCommand(
+          x1: 0, y1: bodyBox.height,
+          x2: bodyBox.width, y2: 0,
+          thickness: strokeW, color: const Color(0xFFFF4444),
+        ));
+        _commands.add(LineDrawCommand(
+          x1: 0, y1: 0,
+          x2: bodyBox.width, y2: bodyBox.height,
+          thickness: strokeW, color: const Color(0xFFFF4444),
+        ));
+    }
+
+    return _LayoutBox(
+      width: bodyBox.width,
+      height: bodyBox.height,
+      baseline: bodyBox.baseline,
+      commandStart: bodyBox.commandStart,
+      commandEnd: _commands.length,
+    );
+  }
+
+  _LayoutBox _layoutPhantom(LatexPhantom node, double fs, Color color) {
+    // Layout the body to get dimensions, then discard its commands.
+    final cmdStart = _commands.length;
+    final bodyBox = _layout(node.body, fs, color);
+    // Remove all commands generated by body — phantom is invisible.
+    _commands.removeRange(cmdStart, _commands.length);
+
+    return _LayoutBox(
+      width: bodyBox.width,
+      height: bodyBox.height,
+      baseline: bodyBox.baseline,
+    );
+  }
+
+  _LayoutBox _layoutCases(LatexCases node, double fs, Color color) {
+    final braceWidth = fs * 0.30;
+    final rowGap = fs * 0.15;
+    final colGap = fs * 0.60;
+
+    // Layout each cell.
+    final cellBoxes = <List<_LayoutBox>>[];
+    for (final row in node.rows) {
+      final rowBoxes = <_LayoutBox>[];
+      for (final cell in row) {
+        rowBoxes.add(_layout(cell, fs, color));
+      }
+      cellBoxes.add(rowBoxes);
+    }
+
+    // Compute column widths.
+    final numCols = cellBoxes.fold<int>(0, (mx, r) => r.length > mx ? r.length : mx);
+    final colWidths = List<double>.filled(numCols, 0);
+    for (final row in cellBoxes) {
+      for (var c = 0; c < row.length; c++) {
+        if (row[c].width > colWidths[c]) colWidths[c] = row[c].width;
+      }
+    }
+
+    // Compute row heights.
+    final rowHeights = <double>[];
+    for (final row in cellBoxes) {
+      var maxH = fs;
+      for (final cell in row) {
+        if (cell.height > maxH) maxH = cell.height;
+      }
+      rowHeights.add(maxH);
+    }
+
+    // Total content dimensions.
+    final contentWidth = colWidths.fold<double>(0, (s, w) => s + w) +
+        (numCols > 1 ? (numCols - 1) * colGap : 0);
+    final contentHeight = rowHeights.fold<double>(0, (s, h) => s + h) +
+        (rowHeights.length > 1 ? (rowHeights.length - 1) * rowGap : 0);
+
+    // Position cells.
+    var currentY = 0.0;
+    for (var r = 0; r < cellBoxes.length; r++) {
+      var currentX = braceWidth;
+      for (var c = 0; c < cellBoxes[r].length; c++) {
+        final cell = cellBoxes[r][c];
+        final cellY = currentY + (rowHeights[r] - cell.height) / 2;
+        _offsetCommands(cell.commandStart, cell.commandEnd, currentX, cellY);
+        currentX += colWidths[c] + colGap;
+      }
+      currentY += rowHeights[r] + rowGap;
+    }
+
+    // Draw left brace using path delimiter.
+    _addPathDelimiter('{', 0, 0, braceWidth, contentHeight, fs, color);
+
+    final totalWidth = braceWidth + contentWidth;
+    return _LayoutBox(
+      width: totalWidth,
+      height: contentHeight,
+      baseline: contentHeight / 2 + fs * _mathAxisOffset,
+      commandStart: cellBoxes.isNotEmpty && cellBoxes.first.isNotEmpty
+          ? cellBoxes.first.first.commandStart
+          : _commands.length - 1,
+      commandEnd: _commands.length,
+    );
+  }
+
+  _LayoutBox _layoutExtensibleArrow(LatexExtensibleArrow node, double fs, Color color) {
+    final cmdStart = _commands.length;
+    final minWidth = fs * 2.0;
+    final strokeW = fs * _fractionBarThickness;
+
+    // Layout optional text above/below.
+    _LayoutBox? aboveBox;
+    _LayoutBox? belowBox;
+    if (node.above != null) {
+      aboveBox = _layout(node.above!, fs * _scriptScale, color);
+    }
+    if (node.below != null) {
+      belowBox = _layout(node.below!, fs * _scriptScale, color);
+    }
+
+    final textWidth = [
+      minWidth,
+      if (aboveBox != null) aboveBox.width + fs * 0.4,
+      if (belowBox != null) belowBox.width + fs * 0.4,
+    ].fold<double>(0, (a, b) => a > b ? a : b);
+
+    final arrowY = (aboveBox != null ? aboveBox.height + fs * 0.08 : 0) + fs * 0.1;
+
+    // Draw arrow line.
+    _commands.add(LineDrawCommand(
+      x1: 0, y1: arrowY, x2: textWidth, y2: arrowY,
+      thickness: strokeW, color: color,
+    ));
+
+    // Draw arrowhead.
+    final headSize = fs * 0.12;
+    if (node.direction == 'right' || node.direction == 'both') {
+      _commands.add(PathDrawCommand(
+        points: [
+          Offset(textWidth - headSize, arrowY - headSize),
+          Offset(textWidth, arrowY),
+          Offset(textWidth - headSize, arrowY + headSize),
+        ],
+        strokeWidth: strokeW, color: color,
+      ));
+    }
+    if (node.direction == 'left' || node.direction == 'both') {
+      _commands.add(PathDrawCommand(
+        points: [
+          Offset(headSize, arrowY - headSize),
+          Offset(0, arrowY),
+          Offset(headSize, arrowY + headSize),
+        ],
+        strokeWidth: strokeW, color: color,
+      ));
+    }
+
+    // Position text above/below arrow.
+    if (aboveBox != null) {
+      final ax = (textWidth - aboveBox.width) / 2;
+      _offsetCommands(aboveBox.commandStart, aboveBox.commandEnd, ax, 0);
+    }
+    if (belowBox != null) {
+      final bx = (textWidth - belowBox.width) / 2;
+      final by = arrowY + fs * 0.15;
+      _offsetCommands(belowBox.commandStart, belowBox.commandEnd, bx, by);
+    }
+
+    final totalHeight = arrowY + fs * 0.1 +
+        (belowBox != null ? belowBox.height + fs * 0.08 : 0);
+
+    return _LayoutBox(
+      width: textWidth,
+      height: totalHeight,
+      baseline: arrowY,
+      commandStart: cmdStart,
+      commandEnd: _commands.length,
+    );
+  }
+
+  _LayoutBox _layoutAlign(LatexAlign node, double fs, Color color) {
+    if (node.rows.isEmpty) {
+      return _LayoutBox(width: 0, height: fs, baseline: fs * _baselineFraction);
+    }
+
+    final rowGap = fs * 0.25;
+    final colGap = fs * 0.15;
+
+    // Layout each cell.
+    final cellBoxes = <List<_LayoutBox>>[];
+    for (final row in node.rows) {
+      final rowBoxes = <_LayoutBox>[];
+      for (final cell in row) {
+        rowBoxes.add(_layout(cell, fs, color));
+      }
+      cellBoxes.add(rowBoxes);
+    }
+
+    // Determine max columns (typically 2: left & right of &).
+    final numCols = cellBoxes.fold<int>(0, (mx, r) => r.length > mx ? r.length : mx);
+
+    // Compute column widths.
+    final colWidths = List<double>.filled(numCols, 0);
+    for (final row in cellBoxes) {
+      for (var c = 0; c < row.length; c++) {
+        if (row[c].width > colWidths[c]) colWidths[c] = row[c].width;
+      }
+    }
+
+    // Compute row heights.
+    final rowHeights = <double>[];
+    for (final row in cellBoxes) {
+      var maxH = fs;
+      for (final cell in row) {
+        if (cell.height > maxH) maxH = cell.height;
+      }
+      rowHeights.add(maxH);
+    }
+
+    // Total width.
+    final totalWidth = colWidths.fold<double>(0, (s, w) => s + w) +
+        (numCols > 1 ? (numCols - 1) * colGap : 0);
+
+    // Position cells — right-align col 0 (before &), left-align col 1+ (after &).
+    var currentY = 0.0;
+    for (var r = 0; r < cellBoxes.length; r++) {
+      var currentX = 0.0;
+      for (var c = 0; c < cellBoxes[r].length; c++) {
+        final cell = cellBoxes[r][c];
+        double cellX;
+        if (c == 0) {
+          // Right-align the left column.
+          cellX = colWidths[0] - cell.width;
+        } else {
+          cellX = currentX;
+        }
+        final cellY = currentY + (rowHeights[r] - cell.height) / 2;
+        _offsetCommands(cell.commandStart, cell.commandEnd, cellX, cellY);
+        currentX = colWidths[0] + colGap + (c > 0 ? colWidths[c] + colGap : 0);
+      }
+      currentY += rowHeights[r] + rowGap;
+    }
+
+    final totalHeight = currentY - rowGap; // remove trailing gap
+
+    return _LayoutBox(
+      width: totalWidth,
+      height: totalHeight,
+      baseline: rowHeights.isNotEmpty
+          ? rowHeights.first * _baselineFraction
+          : totalHeight / 2,
+      commandStart: cellBoxes.first.isNotEmpty
+          ? cellBoxes.first.first.commandStart
+          : _commands.length,
+      commandEnd: _commands.length,
+    );
+  }
+
+  _LayoutBox _layoutColorBox(LatexColorBox node, double fs, Color color) {
+    final bgColor = _parseColorName(node.colorName);
+    final bodyBox = _layout(node.body, fs, color);
+    final padding = fs * 0.08;
+    final cmdStart = bodyBox.commandStart;
+
+    // Offset body for padding.
+    _offsetCommands(bodyBox.commandStart, bodyBox.commandEnd, padding, padding);
+
+    final totalWidth = bodyBox.width + padding * 2;
+    final totalHeight = bodyBox.height + padding * 2;
+
+    // Draw filled background rectangle.
+    _commands.add(RectDrawCommand(
+      x: 0, y: 0,
+      width: totalWidth, height: totalHeight,
+      color: bgColor,
+      filled: true,
+    ));
+
+    return _LayoutBox(
+      width: totalWidth,
+      height: totalHeight,
+      baseline: bodyBox.baseline + padding,
+      commandStart: cmdStart,
+      commandEnd: _commands.length,
+    );
+  }
+
+  _LayoutBox _layoutRule(LatexRule node, double fs, Color color) {
+    final w = fs * node.widthEm;
+    final h = fs * node.heightEm;
+
+    _commands.add(RectDrawCommand(
+      x: 0, y: 0,
+      width: w, height: h,
+      color: color,
+      filled: true,
+    ));
+
+    return _LayoutBox(
+      width: w,
+      height: h,
+      baseline: h,
       commandStart: _commands.length - 1,
       commandEnd: _commands.length,
     );
@@ -903,18 +1784,26 @@ class LatexLayoutEngine {
             color: cmd.color,
             filled: cmd.filled,
           );
+        case RectDrawCommand():
+          _commands[i] = RectDrawCommand(
+            x: cmd.x + dx,
+            y: cmd.y + dy,
+            width: cmd.width,
+            height: cmd.height,
+            color: cmd.color,
+            filled: cmd.filled,
+          );
       }
     }
   }
 
-  /// Measure text width using TextPainter for accurate results.
-  /// Results are cached by (text, fontSize, italic) key.
+  /// Measure text width using TextPainter. Results cached by (text, size, italic, font).
   double _measureTextWidth(
     String text,
     double fontSize, {
     bool italic = false,
   }) {
-    final key = '$text|$fontSize|$italic';
+    final key = '$text|$fontSize|$italic|${_mathFontFamily ?? ""}';
     final cached = _widthCache[key];
     if (cached != null) return cached;
 
@@ -923,6 +1812,7 @@ class LatexLayoutEngine {
         text: text,
         style: TextStyle(
           fontSize: fontSize,
+          fontFamily: _mathFontFamily,
           fontStyle: italic ? FontStyle.italic : FontStyle.normal,
         ),
       ),
@@ -934,44 +1824,45 @@ class LatexLayoutEngine {
     return width;
   }
 
-  /// Approximate character width — used for single chars where speed matters.
-  /// Falls back to TextPainter for multi-char or Unicode math symbols.
-  double _measureCharWidth(String char, double fontSize) {
-    if (char.length > 1) return _measureTextWidth(char, fontSize);
-    // Use TextPainter for Unicode math symbols
-    if (char.codeUnitAt(0) > 127) return _measureTextWidth(char, fontSize);
-    // Fast path for ASCII with reasonable heuristics
-    if ('WMwm'.contains(char)) return fontSize * 0.75;
-    if ('iIlj1|!.,;:'.contains(char)) return fontSize * 0.3;
-    if ('ft'.contains(char)) return fontSize * 0.35;
-    return fontSize * _charWidthFraction;
+  /// Measure character width using TextPainter for accurate glyph metrics.
+  ///
+  /// All characters — including single ASCII — are measured against the
+  /// actual font to ensure correct alignment with the bundled math font.
+  double _measureCharWidth(
+    String char,
+    double fontSize, {
+    bool italic = false,
+  }) {
+    return _measureTextWidth(char, fontSize, italic: italic);
   }
 
-  static bool _isOperatorSymbol(String s) {
-    return '+-=≠≤≥≈≡∼±∓×÷·→←↔⇒⇐⇔∈∉⊂⊃∪∩∝'.contains(s);
+  /// Returns true if [s] is a binary operator (thin-space spacing).
+  static bool _isBinaryOperator(String s) {
+    return '+-×÷·±∓∗∘∙⊕⊗⊖⊙'.contains(s);
   }
+
+  /// Returns true if [s] is a relational operator (thick-space spacing).
+  static bool _isRelationalOperator(String s) {
+    return '=≠≤≥<>≈≡∼∝∈∉⊂⊃⊆⊇∪∩→←↔⇒⇐⇔'.contains(s);
+  }
+
+  static double _cos(double x) => math.cos(x);
+  static double _sin(double x) => math.sin(x);
 
   static String _accentSymbol(String type) {
-    switch (type) {
-      case 'hat':
-        return '^';
-      case 'bar':
-      case 'overline':
-        return '‾';
-      case 'vec':
-        return '→';
-      case 'dot':
-        return '˙';
-      case 'ddot':
-        return '¨';
-      case 'tilde':
-      case 'widetilde':
-        return '~';
-      case 'widehat':
-        return '^';
-      default:
-        return '^';
-    }
+    return switch (type) {
+      'hat' || 'widehat' => '^',
+      'bar' || 'overline' => '‾',
+      'vec' => '→',
+      'dot' => '˙',
+      'ddot' => '¨',
+      'tilde' || 'widetilde' => '~',
+      'breve' => '˘',
+      'check' => 'ˇ',
+      'acute' => '´',
+      'grave' => '`',
+      _ => '^',
+    };
   }
 }
 

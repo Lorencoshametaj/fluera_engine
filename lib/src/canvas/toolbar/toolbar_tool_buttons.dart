@@ -164,6 +164,31 @@ class ToolbarRulerButton extends StatelessWidget {
   }
 }
 
+/// 🗺️ Minimap toggle button
+class ToolbarMinimapButton extends StatelessWidget {
+  final bool isActive;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const ToolbarMinimapButton({
+    super.key,
+    required this.isActive,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ToolToggleButton(
+      isActive: isActive,
+      onTap: onTap,
+      isDark: isDark,
+      icon: Icons.map_outlined,
+      activeColor: Colors.teal,
+    );
+  }
+}
+
 /// Vector Pen Tool button
 class ToolbarPenToolButton extends StatelessWidget {
   final bool isActive;
@@ -366,6 +391,56 @@ class ToolbarShapeRecognitionButton extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// 📐 Section (artboard) button
+class ToolbarSectionButton extends StatelessWidget {
+  final bool isActive;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const ToolbarSectionButton({
+    super.key,
+    required this.isActive,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ToolToggleButton(
+      isActive: isActive,
+      onTap: onTap,
+      isDark: isDark,
+      icon: Icons.dashboard_outlined,
+      activeColor: const Color(0xFF2196F3),
+    );
+  }
+}
+
+/// 🔍 Handwriting Search button (ML Kit powered)
+class ToolbarSearchButton extends StatelessWidget {
+  final bool isActive;
+  final VoidCallback onTap;
+  final bool isDark;
+
+  const ToolbarSearchButton({
+    super.key,
+    required this.isActive,
+    required this.onTap,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ToolToggleButton(
+      isActive: isActive,
+      onTap: onTap,
+      isDark: isDark,
+      icon: Icons.search_rounded,
+      activeColor: Colors.cyan,
     );
   }
 }

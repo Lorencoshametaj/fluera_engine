@@ -10,15 +10,21 @@ import 'lasso_tool.dart';
 /// Shortcuts:
 /// - Ctrl+C: Copy
 /// - Ctrl+V: Paste
+/// - Ctrl+Shift+V: Paste in Place
 /// - Ctrl+D: Duplicate
 /// - Ctrl+A: Select All
 /// - Ctrl+G: Group
 /// - Ctrl+Shift+G: Ungroup
 /// - Ctrl+Z: Undo
+/// - Ctrl+Shift+I: Inverse Selection
 /// - Delete/Backspace: Delete selected
 /// - Ctrl+]: Bring to Front
 /// - Ctrl+[: Send to Back
 /// - Ctrl+Shift+S: Toggle Snap
+/// - E: Ellipse selection mode
+/// - M: Marquee selection mode
+/// - L: Lasso selection mode
+/// - Alt (hold): Subtract mode (while held)
 class LassoKeyboardShortcuts extends StatelessWidget {
   final LassoTool lassoTool;
   final Widget child;
@@ -44,6 +50,13 @@ class LassoKeyboardShortcuts extends StatelessWidget {
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      // Handle Alt key release for subtract mode toggle
+      if (event is KeyUpEvent &&
+          (event.logicalKey == LogicalKeyboardKey.altLeft ||
+           event.logicalKey == LogicalKeyboardKey.altRight)) {
+        lassoTool.subtractiveMode = false;
+        return KeyEventResult.handled;
+      }
       return KeyEventResult.ignored;
     }
 
@@ -51,6 +64,10 @@ class LassoKeyboardShortcuts extends StatelessWidget {
         HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
     final isShift = HardwareKeyboard.instance.isShiftPressed;
+
+    // Try new shortcuts first (mode switches, inverse, paste-in-place, etc.)
+    final newResult = _handleNewShortcuts(event, isCtrl, isShift);
+    if (newResult == KeyEventResult.handled) return newResult;
 
     if (!lassoTool.hasSelection && !isCtrl) {
       return KeyEventResult.ignored;
@@ -139,6 +156,61 @@ class LassoKeyboardShortcuts extends StatelessWidget {
       if (lassoTool.hasSelection) {
         onDelete?.call();
         HapticFeedback.mediumImpact();
+        return KeyEventResult.handled;
+      }
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _handleNewShortcuts(KeyEvent event, bool isCtrl, bool isShift) {
+    final isAlt = HardwareKeyboard.instance.isAltPressed;
+
+    // Alt key: toggle subtract mode (on press/release)
+    if (event.logicalKey == LogicalKeyboardKey.altLeft ||
+        event.logicalKey == LogicalKeyboardKey.altRight) {
+      lassoTool.subtractiveMode = event is KeyDownEvent;
+      return KeyEventResult.handled;
+    }
+
+    // E: Ellipse selection mode
+    if (!isCtrl && event.logicalKey == LogicalKeyboardKey.keyE) {
+      lassoTool.selectionMode = SelectionMode.ellipse;
+      onStateChanged?.call();
+      HapticFeedback.lightImpact();
+      return KeyEventResult.handled;
+    }
+
+    // M: Marquee selection mode
+    if (!isCtrl && event.logicalKey == LogicalKeyboardKey.keyM) {
+      lassoTool.selectionMode = SelectionMode.marquee;
+      onStateChanged?.call();
+      HapticFeedback.lightImpact();
+      return KeyEventResult.handled;
+    }
+
+    // L: Lasso selection mode
+    if (!isCtrl && event.logicalKey == LogicalKeyboardKey.keyL) {
+      lassoTool.selectionMode = SelectionMode.lasso;
+      onStateChanged?.call();
+      HapticFeedback.lightImpact();
+      return KeyEventResult.handled;
+    }
+
+    // Ctrl+Shift+I: Inverse Selection
+    if (isCtrl && isShift && event.logicalKey == LogicalKeyboardKey.keyI) {
+      lassoTool.invertSelection();
+      onStateChanged?.call();
+      HapticFeedback.mediumImpact();
+      return KeyEventResult.handled;
+    }
+
+    // Ctrl+Shift+V: Paste in Place
+    if (isCtrl && isShift && event.logicalKey == LogicalKeyboardKey.keyV) {
+      if (lassoTool.hasClipboard) {
+        lassoTool.pasteInPlace();
+        onStateChanged?.call();
+        HapticFeedback.lightImpact();
         return KeyEventResult.handled;
       }
     }

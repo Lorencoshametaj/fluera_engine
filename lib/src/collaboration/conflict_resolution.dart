@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'nebula_realtime_adapter.dart';
+import 'fluera_realtime_adapter.dart';
 import 'realtime_enterprise.dart';
 
 // =============================================================================
@@ -556,7 +556,6 @@ class TextOTConflictStrategy implements ConflictStrategy {
             '"${_truncate(merged)}"',
       );
     } catch (e) {
-      debugPrint('🔀 OT merge failed: $e');
       return null; // Fall through to next strategy
     }
   }
@@ -656,10 +655,6 @@ class ConflictResolver {
       conflictHistory.removeLast();
     }
 
-    debugPrint(
-      '🔀 Conflict detected on ${conflict.elementId ?? "global"}: '
-      '${localEvent.type.name} vs ${remoteEvent.type.name}',
-    );
 
     // Try strategies in order
     for (final strategy in strategies) {
@@ -668,18 +663,15 @@ class ConflictResolver {
         if (result != null) {
           conflict.resolution = result.resolution;
           _resolvedController.add(conflict);
-          debugPrint('🔀 Resolved via ${strategy.name}: ${result.description}');
           return result;
         }
       } catch (e) {
-        debugPrint('🔀 Strategy ${strategy.name} failed: $e');
       }
     }
 
     // No strategy could resolve
     conflict.resolution = ConflictResolution.unresolved;
     onUnresolved?.call(conflict);
-    debugPrint('🔀 Conflict unresolved — requires user intervention');
     return null;
   }
 

@@ -78,10 +78,6 @@ class ErrorRecoveryService {
       scope.eventBus.emit(ErrorReportedEngineEvent(error: error));
     }
 
-    debugPrint(
-      '[ErrorRecovery] ${error.severity.name}/${error.domain.name} '
-      'in ${error.source}: ${error.original}',
-    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -297,10 +293,6 @@ class ErrorRecoveryService {
             },
           ),
         );
-        debugPrint(
-          '[ErrorRecovery] Circuit OPEN for $serviceId '
-          'after ${breaker.consecutiveFailures} failures',
-        );
       } else {
         reportError(
           EngineError(
@@ -376,7 +368,6 @@ class ErrorRecoveryService {
             },
           ),
         );
-        debugPrint('[ErrorRecovery] Circuit OPEN for $serviceId');
       } else {
         reportError(
           EngineError(

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import '../utils/platform_guard.dart';
 import 'package:flutter/services.dart';
 import '../core/engine_scope.dart';
 import '../core/engine_error.dart';
@@ -33,12 +33,12 @@ class DisplayLinkService {
 
   // EventChannel for receiving frame timing from iOS
   static const EventChannel _eventChannel = EventChannel(
-    'com.nebulaengine/display_link',
+    'com.flueraengine/display_link',
   );
 
   // MethodChannel for control
   static const MethodChannel _methodChannel = MethodChannel(
-    'com.nebulaengine/display_link_control',
+    'com.flueraengine/display_link_control',
   );
 
   // Stream controller for frame timing
@@ -70,7 +70,7 @@ class DisplayLinkService {
     if (_isInitialized) return;
 
     // Only supported on iOS
-    if (!Platform.isIOS) {
+    if (!PlatformGuard.isIOS) {
       _isInitialized = true;
       return;
     }
@@ -100,7 +100,7 @@ class DisplayLinkService {
 
   /// Start frame sync (subscribe to display link)
   Future<void> start() async {
-    if (!Platform.isIOS || _eventSubscription != null) return;
+    if (!PlatformGuard.isIOS || _eventSubscription != null) return;
 
     try {
       _eventSubscription = _eventChannel.receiveBroadcastStream().listen(

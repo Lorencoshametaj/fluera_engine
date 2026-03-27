@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/nodes/latex_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node_factory.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/latex/latex_draw_command.dart';
+import 'package:fluera_engine/src/core/nodes/latex_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node_factory.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/latex/latex_draw_command.dart';
 
 void main() {
   // ===========================================================================

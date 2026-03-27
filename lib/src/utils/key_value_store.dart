@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
+import 'safe_path_provider.dart';
 
 /// 💾 Lightweight JSON-file-backed key-value store.
 ///
 /// Drop-in replacement for `SharedPreferences` — same async singleton API,
-/// zero platform plugins. Data is persisted to `nebula_prefs.json` in the
+/// zero platform plugins. Data is persisted to `fluera_prefs.json` in the
 /// app documents directory.
 ///
 /// Supported value types: `String`, `bool`, `double`, `int`, `List<String>`.
@@ -30,8 +30,12 @@ class KeyValueStore {
   }
 
   static Future<KeyValueStore> _init() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/nebula_prefs.json');
+    final dir = await getSafeDocumentsDirectory();
+    if (dir == null) {
+      // Web: in-memory store (no filesystem persistence)
+      return KeyValueStore._(File(''), {});
+    }
+    final file = File('${dir.path}/fluera_prefs.json');
 
     Map<String, dynamic> data = {};
     if (await file.exists()) {

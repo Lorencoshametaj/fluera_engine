@@ -22,6 +22,9 @@ extension ShaderFountainPenRenderer on ShaderBrushService {
     required dynamic precomputedWidths,
     ui.Image? textureImage,
     double textureScale = 0.0,
+    double surfaceRoughness = 0.0,
+    double surfaceAbsorption = 0.0,
+    double surfacePigmentRetention = 1.0,
   }) {
     if (!isAvailable || fountainPenShader == null || points.length < 2) {
       return;
@@ -31,9 +34,9 @@ extension ShaderFountainPenRenderer on ShaderBrushService {
     final hasTexture = textureImage != null && textureScale > 0;
     final seed = random.nextDouble() * 100.0;
 
-    // Hoist image sampler — MUST always be set (Flutter requires all
-    // declared sampler2D to be bound, even if shader guards with uTextureScale)
-    shader.setImageSampler(0, hasTexture ? textureImage : fallbackImage);
+    // Note: fountain_pen_pro.frag has NO sampler2D — texture params are for
+    // CPU-side BrushTexture overlay, not for this shader.
+    // Do NOT call setImageSampler() — it crashes with "Sampler index out of bounds".
 
     // Reuse paint
     final paint = Paint()..shader = shader;
@@ -44,9 +47,23 @@ extension ShaderFountainPenRenderer on ShaderBrushService {
     // Viewport culling
     final clipBounds = canvas.getLocalClipBounds();
 
-    // Iterate over every consecutive point pair (no coalescing — short segments
-    // prevent visible round-cap bumps at joints)
-    for (int k = 0; k < offsets.length - 1; k++) {
+    // 🚀 LOD: skip segments when zoomed out (sub-pixel)
+    int segStep = 1;
+    if (offsets.length > 4) {
+      final strokeExtent = (offsets.last - offsets.first).distance;
+      if (strokeExtent > 0) {
+        final avgSegScreenLen = strokeExtent / offsets.length;
+        if (avgSegScreenLen < 0.8) {
+          segStep = (0.8 / avgSegScreenLen).ceil().clamp(1, 6);
+        }
+      }
+    }
+
+    // 🚀 Adaptive padding
+    final paddingScale = surfaceAbsorption > 0.01 ? 0.8 : 0.55;
+    final paddingExtra = surfaceAbsorption > 0.01 ? 6.0 : 2.0;
+
+    for (int k = 0; k < offsets.length - 1; k += segStep) {
       var p1 = offsets[k];
       var p2 = offsets[k + 1];
 
@@ -78,7 +95,7 @@ extension ShaderFountainPenRenderer on ShaderBrushService {
 
       // Tight bounding box
       final maxW = math.max(w1, w2);
-      final padding = maxW * 0.5 + 2.0;
+      final padding = maxW * paddingScale + paddingExtra;
       final rect = Rect.fromPoints(
         Offset(
           math.min(p1.dx, p2.dx) - padding,
@@ -119,6 +136,10 @@ extension ShaderFountainPenRenderer on ShaderBrushService {
           segDelta.distance > 0.01 ? math.atan2(segDelta.dy, segDelta.dx) : 0.0;
       shader.setFloat(idx++, math.cos(strokeAngle)); // uCosAngle
       shader.setFloat(idx++, math.sin(strokeAngle)); // uSinAngle
+      // 🧬 Surface material uniforms
+      shader.setFloat(idx++, surfaceRoughness); // uRoughness
+      shader.setFloat(idx++, surfaceAbsorption); // uAbsorption
+      shader.setFloat(idx++, surfacePigmentRetention); // uRetention
 
       // Paired translate (no save/restore)
       canvas.translate(rect.left, rect.top);

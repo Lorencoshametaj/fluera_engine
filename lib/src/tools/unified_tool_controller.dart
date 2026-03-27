@@ -11,7 +11,7 @@ import './base/tool_registry.dart';
 /// - Tool state (color, width, opacity, brush type)
 /// - Current active tool
 /// - Special modes (eraser, lasso, pan, stylus)
-/// - Coordination between Canvas and Multiview
+/// - Coordination between Canvas contexts
 ///
 /// DESIGN PRINCIPLES:
 /// - Single source of truth for all tool state
@@ -20,13 +20,13 @@ import './base/tool_registry.dart';
 ///
 /// Replaces and unifies:
 /// - Internal variables of ProfessionalCanvasScreenState
-/// - Existing MultiviewToolController
+/// - Existing tool controllers
 class UnifiedToolController extends ChangeNotifier {
   // ============================================================================
   // TOOL SETTINGS STATE
   // ============================================================================
 
-  ProPenType _penType = ProPenType.fountain;
+  ProPenType _penType = ProPenType.ballpoint;
   Color _color = Colors.black;
   double _width = 3.78; // 1mm = 3.78px @ 96 DPI
   double _opacity = 1.0;
@@ -118,6 +118,9 @@ class UnifiedToolController extends ChangeNotifier {
   bool get isPenToolMode => _activeToolId == 'pen_tool';
   bool get isLatexMode => _activeToolId == 'latex';
   bool get isTabularMode => _activeToolId == 'tabular';
+  bool get isLiquifyMode => _activeToolId == 'liquify';
+  bool get isSmudgeMode => _activeToolId == 'smudge';
+  bool get isWarpMode => _activeToolId == 'warp';
   bool get isShapeMode =>
       _shapeType != ShapeType.freehand && _activeToolId == 'shape';
 
@@ -324,6 +327,21 @@ class UnifiedToolController extends ChangeNotifier {
     selectTool(_activeToolId == 'tabular' ? null : 'tabular');
   }
 
+  /// 🌊 Toggle Liquify mode
+  void toggleLiquifyMode() {
+    selectTool(_activeToolId == 'liquify' ? null : 'liquify');
+  }
+
+  /// 👆 Toggle Smudge mode
+  void toggleSmudgeMode() {
+    selectTool(_activeToolId == 'smudge' ? null : 'smudge');
+  }
+
+  /// 🔄 Toggle Transform Warp mode
+  void toggleWarpMode() {
+    selectTool(_activeToolId == 'warp' ? null : 'warp');
+  }
+
   /// Toggle stylus mode
   void toggleStylusMode() {
     _isStylusMode = !_isStylusMode;
@@ -490,7 +508,7 @@ class UnifiedToolController extends ChangeNotifier {
   }
 
   // ============================================================================
-  // COMPATIBILITY (Backward compatibility with MultiviewToolController)
+  // COMPATIBILITY (Legacy compatibility aliases)
   // ============================================================================
 
   /// Alias for compatibility with old code

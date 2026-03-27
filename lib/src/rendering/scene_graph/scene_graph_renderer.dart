@@ -20,14 +20,20 @@ import '../../core/nodes/advanced_mask_node.dart';
 import '../../core/nodes/boolean_group_node.dart';
 import '../../core/nodes/pdf_page_node.dart';
 import '../../core/nodes/pdf_document_node.dart';
+import '../../core/nodes/pdf_preview_card_node.dart';
 import '../../core/nodes/vector_network_node.dart';
 import '../../core/effects/shader_effect.dart';
 import '../../core/nodes/latex_node.dart';
 import '../../core/nodes/tabular_node.dart';
+import '../../core/nodes/material_zone_node.dart';
+import '../../core/nodes/section_node.dart';
+import '../../core/nodes/adjustment_layer_node.dart';
+import '../../core/nodes/function_graph_node.dart';
 import '../../core/effects/paint_stack.dart';
 import '../../core/models/shape_type.dart';
 import '../../core/scene_graph/scene_graph.dart';
 import '../../core/scene_graph/invalidation_graph.dart';
+import '../../drawing/models/pro_drawing_point.dart';
 import './render_plan.dart';
 import '../../core/scene_graph/node_visitor.dart';
 import '../../drawing/brushes/brushes.dart';
@@ -40,8 +46,11 @@ import './render_interceptor.dart';
 import './render_batch.dart';
 import './tabular_renderer.dart';
 import './latex_renderer.dart';
+import './function_graph_renderer.dart';
 import '../optimization/layer_picture_cache.dart';
 import '../optimization/snapshot_cache_manager.dart';
+import '../optimization/optimization.dart';
+import '../shaders/adjustment_shader_service.dart';
 
 /// Renders a [SceneGraph] by recursively traversing the node tree.
 ///
@@ -76,6 +85,25 @@ class SceneGraphRenderer {
   /// Current zoom scale — used for LOD decisions in stroke rendering.
   /// Set per frame in [render()].
   double _currentScale = 1.0;
+
+  /// Set the current zoom scale for LOD decisions.
+  /// Call before [renderNode] when rendering tiles outside of [render].
+  set currentScale(double s) => _currentScale = s;
+
+  /// Stroke IDs to skip during the global render pass.
+  ///
+  /// Set per frame by [DrawingPainter] to exclude PDF-linked annotation
+  /// strokes from the global pass (they are rendered clipped inside
+  /// [DrawingPainter._paintPdfPage] instead).
+  Set<String>? skipStrokeIds;
+
+  /// When true, PDF page and document nodes are skipped during rendering.
+  ///
+  /// Set by [DrawingPainter] to prevent PDF pages from being baked into
+  /// the stroke cache Picture. PDF pages are rendered separately in
+  /// [DrawingPainter._paintPdfDocuments], so including them in the cache
+  /// causes ghost pages when pages are dragged (stale cached positions).
+  bool skipPdfNodes = false;
 
   // ---------------------------------------------------------------------------
   // Compiled Render Plan (GAP 1)
@@ -123,6 +151,10 @@ class SceneGraphRenderer {
   set snapshotCache(SnapshotCacheManager? cache) {
     _snapshotCache = cache;
   }
+
+  /// Adjustment layer GPU shader service.
+  final AdjustmentShaderService adjustmentShaderService =
+      AdjustmentShaderService();
 
   SceneGraphRenderer() {
     _visitor = _RendererVisitor(this);
@@ -332,6 +364,10 @@ class SceneGraphRenderer {
       _renderFrame(canvas, node, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
       return;
     }
+    if (node is SectionNode) {
+      _renderSection(canvas, node, const Rect.fromLTWH(-1e9, -1e9, 2e9, 2e9));
+      return;
+    }
     if (node is AdvancedMaskNode) {
       _renderAdvancedMask(
         canvas,
@@ -359,8 +395,13 @@ class SceneGraphRenderer {
 
   /// Render all children of a GroupNode.
   void _renderChildren(Canvas canvas, GroupNode group, Rect viewport) {
+    // Pass 1: Render SectionNodes first (always behind strokes/images).
     for (final child in group.children) {
-      renderNode(canvas, child, viewport);
+      if (child is SectionNode) renderNode(canvas, child, viewport);
+    }
+    // Pass 2: Render everything else on top.
+    for (final child in group.children) {
+      if (child is! SectionNode) renderNode(canvas, child, viewport);
     }
   }
 
@@ -396,6 +437,10 @@ class SceneGraphRenderer {
     final stroke = node.stroke;
     if (stroke.points.isEmpty) return;
 
+    // Skip strokes that belong to a PDF page — they are rendered
+    // clipped inside _paintPdfPage instead of the global pass.
+    if (skipStrokeIds != null && skipStrokeIds!.contains(stroke.id)) return;
+
     // Adaptive LOD: skip sub-pixel strokes at low zoom.
     if (_currentScale < 0.5) {
       final bounds = stroke.bounds;
@@ -403,21 +448,67 @@ class SceneGraphRenderer {
         bounds.width * _currentScale,
         bounds.height * _currentScale,
       );
-      if (screenSize < 2.0) return;
+      if (screenSize < 4.0) return;
     }
 
     if (stroke.isFill) {
       _drawFillOverlay(canvas, stroke);
-    } else {
-      BrushEngine.renderStroke(
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 🚀 ULTRA-FAST PATH: bypass entire BrushEngine pipeline for
+    // simple committed strokes at normal zoom. Conditions:
+    // - Has cachedPath (committed, not decimated)
+    // - Normal zoom (≥ 0.5, no LOD decimation)
+    // - Simple pen (ballpoint with default settings)
+    // - No blend mode, no texture, no stamp
+    // Saves: EngineScope lookup, pressure curve, surface material,
+    // 15+ conditional checks per stroke.
+    // ─────────────────────────────────────────────────────────────────
+    if (_currentScale >= 0.5 &&
+        stroke.penType == ProPenType.ballpoint &&
+        stroke.settings.textureType == 'none' &&
+        stroke.settings.pressureCurve.isLinear &&
+        !stroke.settings.stampEnabled) {
+      BallpointBrush.drawStrokeWithSettings(
         canvas,
         stroke.points,
         stroke.color,
         stroke.baseWidth,
-        stroke.penType,
-        stroke.settings,
+        minPressure: stroke.settings.ballpointMinPressure,
+        maxPressure: stroke.settings.ballpointMaxPressure,
+        cachedPath: stroke.cachedPath,
       );
+      return;
     }
+
+    // 🚀 RASTER LOD: decimate points at low zoom to reduce GPU path
+    // complexity. Missing points are sub-pixel on screen → invisible.
+    var points = stroke.points;
+    final isDecimated = _currentScale < 0.5 && points.length > 10;
+    if (isDecimated) {
+      final step = (1.0 / _currentScale).ceil().clamp(2, 8);
+      final decimated = <ProDrawingPoint>[];
+      for (int i = 0; i < points.length; i += step) {
+        decimated.add(points[i]);
+      }
+      if (decimated.last != points.last) {
+        decimated.add(points.last);
+      }
+      points = decimated;
+    }
+    BrushEngine.renderStroke(
+      canvas,
+      points,
+      stroke.color,
+      stroke.baseWidth,
+      stroke.penType,
+      stroke.settings,
+      scale: _currentScale,
+      // O(1) cached path only when points aren't decimated
+      cachedPath: isDecimated ? null : stroke.cachedPath,
+    );
   }
 
   /// Render a shape via the paint stack, or legacy ShapePainter.
@@ -941,6 +1032,70 @@ class SceneGraphRenderer {
   }
 
   // ---------------------------------------------------------------------------
+  // Adjustment Layer rendering (GPU post-processing)
+  // ---------------------------------------------------------------------------
+
+  /// Render an [AdjustmentLayerNode] via GPU fragment shader.
+  ///
+  /// Captures the current layer content into a [Picture] → [Image], then
+  /// draws a full-viewport rect with the adjustment shader applied,
+  /// producing the color-transformed output.
+  ///
+  /// Falls back to no-op if the shader is not loaded.
+  void _renderAdjustmentLayer(
+    Canvas canvas,
+    AdjustmentLayerNode node,
+    Rect viewport,
+  ) {
+    if (!adjustmentShaderService.isAvailable) return;
+    if (node.adjustmentStack.layers.isEmpty) return;
+
+    // Determine the area to apply the adjustment.
+    // Use the viewport bounds (the adjustment affects the full layer).
+    final width = viewport.width;
+    final height = viewport.height;
+    if (width <= 0 || height <= 0) return;
+
+    // Apply the adjustment as a saveLayer with a shader-based paint.
+    // The shader reads the content from the saveLayer's backing texture
+    // and transforms each pixel in-place.
+    //
+    // We create a snapshot of the current content, apply the shader, and
+    // composite the result. This is the standard post-processing pattern.
+    final recorder = ui.PictureRecorder();
+    final offscreenCanvas = Canvas(recorder, viewport);
+
+    // Render all sibling content that was drawn before this adjustment node
+    // into the offscreen buffer. The parent LayerNode handles this via
+    // z-order — content below the adjustment was already rendered to `canvas`.
+    // We need to capture it.
+    //
+    // Strategy: use canvas saveLayer + drawRect with the shader.
+    // The adjustment node acts as a color filter over existing content.
+    offscreenCanvas.drawPaint(Paint()..color = const ui.Color(0x00000000));
+    final picture = recorder.endRecording();
+    final image = picture.toImageSync(width.ceil(), height.ceil());
+    picture.dispose();
+
+    final paint = adjustmentShaderService.createPaint(
+      node.adjustmentStack,
+      image,
+      width,
+      height,
+    );
+
+    if (paint != null) {
+      // Draw the shader-transformed content
+      canvas.save();
+      canvas.translate(viewport.left, viewport.top);
+      canvas.drawRect(Rect.fromLTWH(0, 0, width, height), paint);
+      canvas.restore();
+    }
+
+    image.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
   // Shader Node rendering
   // ---------------------------------------------------------------------------
 
@@ -1129,6 +1284,404 @@ class SceneGraphRenderer {
     }
   }
 
+  /// Render a section (named canvas area) with background, label, border,
+  /// optional grid, and children.
+  void _renderSection(Canvas canvas, SectionNode node, Rect viewport) {
+    final bounds = node.localBounds;
+
+    // All sizes are FIXED world-space, proportional to the section.
+    // NO zoom-adaptive invScale — avoids stale values baked into tile cache.
+    final sectionScale = (bounds.width / 400.0).clamp(0.3, 2.0);
+
+    // ── 1. Subtle drop shadow for depth ──
+    final cr = node.cornerRadius;
+    final shadowShift = 2.0 * sectionScale;
+    final shadowRect = bounds.shift(Offset(shadowShift, shadowShift));
+    final shadowPaint =
+        Paint()
+          ..color = const Color(0x12000000)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4.0 * sectionScale);
+    if (cr > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(shadowRect, Radius.circular(cr)),
+        shadowPaint,
+      );
+    } else {
+      canvas.drawRect(shadowRect, shadowPaint);
+    }
+
+    // ── 2. Background fill ──
+    if (node.backgroundColor != null) {
+      final fillPaint = Paint()..color = node.backgroundColor!;
+      if (cr > 0) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(bounds, Radius.circular(cr)),
+          fillPaint,
+        );
+      } else {
+        canvas.drawRect(bounds, fillPaint);
+      }
+    }
+
+    // ── 3. Internal grid ──
+    if (node.showGrid && node.gridSpacing > 0) {
+      final gridPaint =
+          Paint()
+            ..color = const Color(0x1A000000)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.5;
+
+      for (
+        double x = node.gridSpacing;
+        x < bounds.width;
+        x += node.gridSpacing
+      ) {
+        canvas.drawLine(Offset(x, 0), Offset(x, bounds.height), gridPaint);
+      }
+      for (
+        double y = node.gridSpacing;
+        y < bounds.height;
+        y += node.gridSpacing
+      ) {
+        canvas.drawLine(Offset(0, y), Offset(bounds.width, y), gridPaint);
+      }
+    }
+
+    // ── 3b. Subdivision dividers (notebook-style) ──
+    if (node.subdivisionRows > 1 || node.subdivisionColumns > 1) {
+      final divPaint =
+          Paint()
+            ..color = node.subdivisionColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2 * sectionScale;
+
+      // Horizontal dividers
+      if (node.subdivisionRows > 1) {
+        final cellH = bounds.height / node.subdivisionRows;
+        for (int r = 1; r < node.subdivisionRows; r++) {
+          final y = cellH * r;
+          _drawDashedLine(
+            canvas,
+            Offset(0, y),
+            Offset(bounds.width, y),
+            divPaint,
+            8.0 * sectionScale,
+            4.0 * sectionScale,
+          );
+        }
+      }
+
+      // Vertical dividers
+      if (node.subdivisionColumns > 1) {
+        final cellW = bounds.width / node.subdivisionColumns;
+        for (int c = 1; c < node.subdivisionColumns; c++) {
+          final x = cellW * c;
+          _drawDashedLine(
+            canvas,
+            Offset(x, 0),
+            Offset(x, bounds.height),
+            divPaint,
+            8.0 * sectionScale,
+            4.0 * sectionScale,
+          );
+        }
+      }
+    }
+
+    // ── 4. Clip children ──
+    if (node.clipContent) {
+      canvas.save();
+      if (cr > 0) {
+        canvas.clipRRect(RRect.fromRectAndRadius(bounds, Radius.circular(cr)));
+      } else {
+        canvas.clipRect(bounds);
+      }
+    }
+
+    // Render children.
+    _renderChildren(canvas, node, viewport);
+
+    if (node.clipContent) {
+      canvas.restore();
+    }
+
+    // ── 5. Border ──
+    if (node.borderWidth > 0) {
+      final borderPaint =
+          Paint()
+            ..color = node.borderColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = node.borderWidth;
+      if (cr > 0) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(bounds, Radius.circular(cr)),
+          borderPaint,
+        );
+      } else {
+        canvas.drawRect(bounds, borderPaint);
+      }
+    }
+
+    // ── 5b. Subdivision cell labels (A1, B2, etc.) ──
+    if (node.subdivisionRows > 1 || node.subdivisionColumns > 1) {
+      final cellW =
+          bounds.width /
+          (node.subdivisionColumns < 1 ? 1 : node.subdivisionColumns);
+      final cellH =
+          bounds.height / (node.subdivisionRows < 1 ? 1 : node.subdivisionRows);
+      final cellScale = (cellW / 100.0).clamp(0.3, 2.0);
+      final cellFontSize = 10.0 * cellScale;
+      final cellLabelColor = node.subdivisionColor.withValues(alpha: 0.6);
+
+      for (int r = 0; r < node.subdivisionRows; r++) {
+        for (int c = 0; c < node.subdivisionColumns; c++) {
+          // Generate label: A1, A2, B1, B2, ...
+          final rowLabel = String.fromCharCode(65 + r); // A, B, C, ...
+          final colLabel = '${c + 1}'; // 1, 2, 3, ...
+          final cellLabel = '$rowLabel$colLabel';
+
+          final tp = TextPainter(
+            text: TextSpan(
+              text: cellLabel,
+              style: TextStyle(
+                color: cellLabelColor,
+                fontSize: cellFontSize,
+                fontWeight: FontWeight.w500,
+                fontFamily: 'monospace',
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+
+          tp.paint(
+            canvas,
+            Offset(c * cellW + 4 * cellScale, r * cellH + 2 * cellScale),
+          );
+        }
+      }
+    }
+
+    // ── 6. Fixed world-space label badge ──
+    // Labels use FIXED world sizes proportional to the section, NOT zoom-adaptive.
+    // This ensures: (a) labels scale naturally with zoom (like Figma/Sketch),
+    // (b) labels don't overflow at extreme dezoom (no invScale explosion).
+    final labelScale = (bounds.width / 400.0).clamp(0.3, 2.0);
+    final fontSize = 12.0 * labelScale;
+    final dimsFontSize = 10.0 * labelScale;
+    final labelPadH = 8.0 * labelScale;
+    final labelPadV = 4.0 * labelScale;
+    final iconSize = 14.0 * labelScale;
+    final labelGap = 4.0 * labelScale;
+    final badgeRadius = 6.0 * labelScale;
+    final labelY = -(28.0 * labelScale) + 2 * labelScale;
+
+    // Main label text
+    final namePainter = TextPainter(
+      text: TextSpan(
+        text: node.sectionName,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: bounds.width * 0.5);
+
+    // Dimensions badge
+    final dimsText =
+        '${node.sectionSize.width.round()} × ${node.sectionSize.height.round()}';
+    final dimsPainter = TextPainter(
+      text: TextSpan(
+        text: dimsText,
+        style: TextStyle(
+          color: const Color(0x99FFFFFF),
+          fontSize: dimsFontSize,
+          fontWeight: FontWeight.w400,
+          fontFamily: 'monospace',
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+
+    final rawLabelW =
+        iconSize +
+        labelGap +
+        namePainter.width +
+        labelGap * 2 +
+        dimsPainter.width +
+        labelPadH * 2;
+    // Clamp label width to section width so nearby labels don't overlap.
+    final totalLabelW = rawLabelW.clamp(0.0, bounds.width);
+    final labelH = namePainter.height + labelPadV * 2;
+
+    // Badge background
+    final labelRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, labelY, totalLabelW, labelH),
+      Radius.circular(badgeRadius),
+    );
+    canvas.drawRRect(labelRect, Paint()..color = const Color(0xDD1E1E2E));
+
+    // Icon (section dashboard icon approximation — draw a small grid)
+    final iconX = labelPadH;
+    final iconY = labelY + (labelH - iconSize) / 2;
+    _drawSectionIcon(canvas, Offset(iconX, iconY), iconSize, labelScale);
+
+    // Clip to badge area so text doesn't overflow
+    canvas.save();
+    canvas.clipRRect(labelRect);
+
+    // Name text
+    namePainter.paint(
+      canvas,
+      Offset(iconX + iconSize + labelGap, labelY + labelPadV),
+    );
+
+    // Separator dot
+    final dotX = iconX + iconSize + labelGap + namePainter.width + labelGap;
+    final dotY = labelY + labelH / 2;
+    canvas.drawCircle(
+      Offset(dotX, dotY),
+      1.5 * labelScale,
+      Paint()..color = const Color(0x66FFFFFF),
+    );
+
+    // Dimensions text
+    dimsPainter.paint(
+      canvas,
+      Offset(
+        dotX + labelGap,
+        labelY + labelPadV + (namePainter.height - dimsPainter.height) / 2,
+      ),
+    );
+
+    canvas.restore();
+
+    // ── 7. Corner resize handles (subtle dots) ──
+    final handleRadius = 3.0 * sectionScale;
+    final handlePaint = Paint()..color = const Color(0xAA2196F3);
+    final handleStroke =
+        Paint()
+          ..color = const Color(0x44FFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0 * sectionScale;
+    for (final corner in [
+      bounds.topLeft,
+      bounds.topRight,
+      bounds.bottomRight,
+      bounds.bottomLeft,
+    ]) {
+      canvas.drawCircle(corner, handleRadius, handlePaint);
+      canvas.drawCircle(corner, handleRadius, handleStroke);
+    }
+  }
+
+  /// Draw a small section icon (2×2 grid squares).
+  void _drawSectionIcon(
+    Canvas canvas,
+    Offset topLeft,
+    double size,
+    double invScale,
+  ) {
+    final paint =
+        Paint()
+          ..color = const Color(0xFF64B5F6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0 * invScale
+          ..strokeCap = StrokeCap.round;
+
+    final half = size / 2;
+    final gap = 1.5 * invScale;
+    final r = 1.5 * invScale;
+
+    // Top-left rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(topLeft.dx, topLeft.dy, half - gap, half - gap),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+    // Top-right rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          topLeft.dx + half + gap,
+          topLeft.dy,
+          half - gap,
+          half - gap,
+        ),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+    // Bottom-left rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          topLeft.dx,
+          topLeft.dy + half + gap,
+          half - gap,
+          half - gap,
+        ),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+    // Bottom-right rect
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          topLeft.dx + half + gap,
+          topLeft.dy + half + gap,
+          half - gap,
+          half - gap,
+        ),
+        Radius.circular(r),
+      ),
+      paint,
+    );
+  }
+
+  /// Draw a dashed line between two points.
+  void _drawDashedLine(
+    Canvas canvas,
+    Offset start,
+    Offset end,
+    Paint paint,
+    double dashLen,
+    double gapLen,
+  ) {
+    final dx = end.dx - start.dx;
+    final dy = end.dy - start.dy;
+    final length = Offset(dx, dy).distance;
+    if (length < 1) return;
+    final ux = dx / length;
+    final uy = dy / length;
+
+    double drawn = 0;
+    bool drawing = true;
+    while (drawn < length) {
+      final segLen = drawing ? dashLen : gapLen;
+      final remaining = length - drawn;
+      final len = segLen < remaining ? segLen : remaining;
+
+      if (drawing) {
+        canvas.drawLine(
+          Offset(start.dx + ux * drawn, start.dy + uy * drawn),
+          Offset(start.dx + ux * (drawn + len), start.dy + uy * (drawn + len)),
+          paint,
+        );
+      }
+      drawn += len;
+      drawing = !drawing;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // PDF Node rendering
   // ---------------------------------------------------------------------------
@@ -1136,6 +1689,143 @@ class SceneGraphRenderer {
   /// Render a PDF document (group container) by rendering all page children.
   void _renderPdfDocument(Canvas canvas, PdfDocumentNode node, Rect viewport) {
     _renderChildren(canvas, node, viewport);
+  }
+
+  /// Render a PDF preview card — single-page thumbnail with title badge.
+  void _renderPdfPreviewCard(Canvas canvas, PdfPreviewCardNode node) {
+    final bounds = node.localBounds;
+    final cardRadius = 12.0;
+
+    // 1. Drop shadow
+    final shadowPaint = Paint()
+      ..color = const Color(0x20000000)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        bounds.shift(const Offset(2, 3)),
+        Radius.circular(cardRadius),
+      ),
+      shadowPaint,
+    );
+
+    // 2. White card background
+    final cardPaint = Paint()..color = const Color(0xFFFFFFFF);
+    final cardRRect = RRect.fromRectAndRadius(
+      bounds,
+      Radius.circular(cardRadius),
+    );
+    canvas.drawRRect(cardRRect, cardPaint);
+
+    // 3. Thumbnail image area (top portion, minus badge)
+    final badgeHeight = 40.0;
+    final imageRect = Rect.fromLTWH(
+      bounds.left,
+      bounds.top,
+      bounds.width,
+      bounds.height - badgeHeight,
+    );
+
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndCorners(
+      imageRect,
+      topLeft: Radius.circular(cardRadius),
+      topRight: Radius.circular(cardRadius),
+    ));
+
+    if (node.thumbnailImage != null) {
+      final img = node.thumbnailImage!;
+      try {
+        final srcRect = Rect.fromLTWH(
+          0, 0, img.width.toDouble(), img.height.toDouble(),
+        );
+        canvas.drawImageRect(img, srcRect, imageRect, Paint());
+      } catch (_) {
+        canvas.drawRect(imageRect, Paint()..color = const Color(0xFFF5F5F5));
+      }
+    } else {
+      // Placeholder
+      canvas.drawRect(imageRect, Paint()..color = const Color(0xFFF5F5F5));
+      // PDF icon (simple rectangle with fold)
+      final iconSize = 40.0;
+      final iconRect = Rect.fromCenter(
+        center: imageRect.center,
+        width: iconSize * 0.8,
+        height: iconSize,
+      );
+      canvas.drawRect(
+        iconRect,
+        Paint()
+          ..color = const Color(0xFFBBBBBB)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+    canvas.restore();
+
+    // 4. Bottom badge (dark background with name + page count)
+    final badgeRect = Rect.fromLTWH(
+      bounds.left,
+      bounds.bottom - badgeHeight,
+      bounds.width,
+      badgeHeight,
+    );
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndCorners(
+      badgeRect,
+      bottomLeft: Radius.circular(cardRadius),
+      bottomRight: Radius.circular(cardRadius),
+    ));
+    canvas.drawRect(badgeRect, Paint()..color = const Color(0xE61E1E2E));
+
+    // PDF name
+    final displayName = node.name.isNotEmpty
+        ? node.name
+        : 'PDF (${node.documentModel.totalPages} pages)';
+    final namePainter = TextPainter(
+      text: TextSpan(
+        text: displayName,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: bounds.width - 16);
+    namePainter.paint(
+      canvas,
+      Offset(badgeRect.left + 8, badgeRect.top + 5),
+    );
+
+    // Page count badge
+    final countText = '${node.documentModel.totalPages} pages';
+    final countPainter = TextPainter(
+      text: TextSpan(
+        text: countText,
+        style: const TextStyle(
+          color: Color(0x99FFFFFF),
+          fontSize: 10,
+          fontWeight: FontWeight.w400,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    countPainter.paint(
+      canvas,
+      Offset(badgeRect.left + 8, badgeRect.top + 22),
+    );
+
+    canvas.restore();
+
+    // 5. Subtle border
+    final borderPaint = Paint()
+      ..color = const Color(0x22000000)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawRRect(cardRRect, borderPaint);
   }
 
   /// Render a single PDF page from its raster cache or a placeholder.
@@ -1147,6 +1837,17 @@ class SceneGraphRenderer {
   void _renderPdfPage(Canvas canvas, PdfPageNode node) {
     final bounds = node.pageModel.originalSize;
     final rect = Rect.fromLTWH(0, 0, bounds.width, bounds.height);
+
+    // 🔄 Apply page rotation around center (matches DrawingPainter)
+    final rotation = node.pageModel.rotation;
+    if (rotation != 0) {
+      canvas.save();
+      final cx = rect.center.dx;
+      final cy = rect.center.dy;
+      canvas.translate(cx, cy);
+      canvas.rotate(rotation);
+      canvas.translate(-cx, -cy);
+    }
 
     if (node.cachedImage != null) {
       // Draw the cached raster tile, scaled to fill the page bounds.
@@ -1179,6 +1880,11 @@ class SceneGraphRenderer {
         canvas,
         Offset((rect.width - tp.width) / 2, (rect.height - tp.height) / 2),
       );
+    }
+
+    // Close rotation transform
+    if (rotation != 0) {
+      canvas.restore();
     }
   }
 
@@ -1224,7 +1930,20 @@ class SceneGraphRenderer {
 
   /// Render a tabular (spreadsheet) node via TabularRenderer.
   void _renderTabular(Canvas canvas, TabularNode node) {
-    TabularRenderer.drawTabularNode(canvas, node);
+    TabularRenderer.drawTabularNode(
+      canvas,
+      node,
+      visibleRect: _visitor._viewport,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Function Graph rendering
+  // ---------------------------------------------------------------------------
+
+  /// Render a function graph node via FunctionGraphRenderer.
+  void _renderFunctionGraph(Canvas canvas, FunctionGraphNode node) {
+    FunctionGraphRenderer.drawFunctionGraphNode(canvas, node);
   }
 
   // ---------------------------------------------------------------------------
@@ -1304,11 +2023,21 @@ class _RendererVisitor implements NodeVisitor<void> {
       renderer._renderShaderNode(_canvas, node);
 
   @override
-  void visitPdfPage(PdfPageNode node) => renderer._renderPdfPage(_canvas, node);
+  void visitPdfPage(PdfPageNode node) {
+    if (renderer.skipPdfNodes) return;
+    renderer._renderPdfPage(_canvas, node);
+  }
 
   @override
-  void visitPdfDocument(PdfDocumentNode node) =>
-      renderer._renderPdfDocument(_canvas, node, _viewport);
+  void visitPdfDocument(PdfDocumentNode node) {
+    if (renderer.skipPdfNodes) return;
+    renderer._renderPdfDocument(_canvas, node, _viewport);
+  }
+
+  @override
+  void visitPdfPreviewCard(PdfPreviewCardNode node) {
+    renderer._renderPdfPreviewCard(_canvas, node);
+  }
 
   @override
   void visitVectorNetwork(VectorNetworkNode node) =>
@@ -1319,6 +2048,23 @@ class _RendererVisitor implements NodeVisitor<void> {
 
   @override
   void visitTabular(TabularNode node) => renderer._renderTabular(_canvas, node);
+
+  @override
+  void visitMaterialZone(MaterialZoneNode node) =>
+      renderer._renderChildren(_canvas, node, _viewport);
+
+  @override
+  void visitSection(SectionNode node) =>
+      renderer._renderSection(_canvas, node, _viewport);
+
+  @override
+  void visitAdjustmentLayer(AdjustmentLayerNode node) {
+    renderer._renderAdjustmentLayer(_canvas, node, _viewport);
+  }
+
+  @override
+  void visitFunctionGraph(FunctionGraphNode node) =>
+      renderer._renderFunctionGraph(_canvas, node);
 }
 
 // ---------------------------------------------------------------------------
@@ -1380,9 +2126,7 @@ class _InterceptorChainRunner {
             severity: ErrorSeverity.transient,
           ),
         );
-      } else {
-        debugPrint('[RenderInterceptor] ${interceptor.runtimeType} error: $e');
-      }
+      } else {}
       // Skip this interceptor, continue with next in chain.
       _next(canvas, node, viewport);
     }

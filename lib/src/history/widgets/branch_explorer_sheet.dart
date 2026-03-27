@@ -289,7 +289,6 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
       try {
         return Color(int.parse(branch.color!, radix: 16) | 0xFF000000);
       } catch (e) {
-        debugPrint('[BranchExplorer] Color parse error: $e');
       }
     }
     // Default: generate color from hash
@@ -400,11 +399,11 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                         leading: Icon(
                           Icons.merge_rounded,
                           size: 20,
-                          color: Colors.green[400],
+                          color: const Color(0xFF66BB6A),
                         ),
                         title: Text(
                           'Merge to $targetName',
-                          style: TextStyle(color: Colors.green[400]),
+                          style: TextStyle(color: const Color(0xFF66BB6A)),
                         ),
                         subtitle: Text(
                           'Overwrite "$targetName" with this branch',
@@ -425,11 +424,11 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                   leading: Icon(
                     Icons.delete_outline_rounded,
                     size: 20,
-                    color: Colors.red[400],
+                    color: const Color(0xFFEF5350),
                   ),
                   title: Text(
                     'Delete',
-                    style: TextStyle(color: Colors.red[400]),
+                    style: TextStyle(color: const Color(0xFFEF5350)),
                   ),
                   subtitle:
                       widget.branchingManager.hasChildren(branch.id)
@@ -437,7 +436,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                             'Will also delete sub-branches',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.red[300],
+                              color: const Color(0xFFE57373),
                             ),
                           )
                           : null,
@@ -562,7 +561,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                       isDark ? const Color(0xFF2A2A3E) : Colors.white,
                   icon: Icon(
                     Icons.merge_rounded,
-                    color: Colors.green[400],
+                    color: const Color(0xFF66BB6A),
                     size: 32,
                   ),
                   title: Text('Merge to $targetName'),
@@ -596,7 +595,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                             Icon(
                               Icons.warning_amber_rounded,
                               size: 18,
-                              color: Colors.orange[400],
+                              color: const Color(0xFFFFA726),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -605,7 +604,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                                 'This cannot be undone.',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.orange[400],
+                                  color: const Color(0xFFFFA726),
                                   height: 1.3,
                                 ),
                               ),
@@ -660,7 +659,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                         );
                       },
                       style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green[600],
+                        backgroundColor: const Color(0xFF43A047),
                       ),
                       child: const Text('Merge'),
                     ),
@@ -682,7 +681,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
             backgroundColor: isDark ? const Color(0xFF2A2A3E) : Colors.white,
             icon: Icon(
               Icons.warning_amber_rounded,
-              color: Colors.red[400],
+              color: const Color(0xFFEF5350),
               size: 40,
             ),
             title: Text(
@@ -742,7 +741,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                         Icon(
                           Icons.info_outline_rounded,
                           size: 16,
-                          color: Colors.orange[400],
+                          color: const Color(0xFFFFA726),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -750,7 +749,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                             'You are currently on this branch. '
                             'You will be switched to Main.',
                             style: TextStyle(
-                              color: Colors.orange[400],
+                              color: const Color(0xFFFFA726),
                               fontSize: 12,
                               height: 1.3,
                             ),
@@ -790,7 +789,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                 },
                 icon: const Icon(Icons.delete_forever_rounded, size: 18),
                 label: const Text('Delete Forever'),
-                style: FilledButton.styleFrom(backgroundColor: Colors.red[400]),
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEF5350)),
               ),
             ],
           ),
@@ -812,7 +811,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
             size: 16,
             color:
                 isWarning
-                    ? Colors.red[400]
+                    ? const Color(0xFFEF5350)
                     : (isDark ? Colors.white38 : Colors.black38),
           ),
           const SizedBox(width: 10),
@@ -822,7 +821,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
               style: TextStyle(
                 color:
                     isWarning
-                        ? Colors.red[400]
+                        ? const Color(0xFFEF5350)
                         : (isDark ? Colors.white60 : Colors.black54),
                 fontSize: 13,
                 fontWeight: isWarning ? FontWeight.w600 : FontWeight.normal,

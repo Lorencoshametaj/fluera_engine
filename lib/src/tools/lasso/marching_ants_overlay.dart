@@ -1,13 +1,25 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-/// Animated marching ants border around a selection rectangle.
+/// Shape for the marching ants animation.
+enum MarchingAntsShape {
+  /// Standard rectangular selection.
+  rect,
+
+  /// Elliptical selection.
+  ellipse,
+}
+
+/// Animated marching ants border around a selection rectangle or ellipse.
 ///
 /// Creates a Photoshop-style animated dashed border that continuously
 /// moves around the selection bounds.
 class MarchingAntsOverlay extends StatefulWidget {
   /// The bounding rectangle to draw marching ants around.
   final Rect bounds;
+
+  /// Shape of the marching ants path.
+  final MarchingAntsShape shape;
 
   /// Dash length in logical pixels.
   final double dashLength;
@@ -30,6 +42,7 @@ class MarchingAntsOverlay extends StatefulWidget {
   const MarchingAntsOverlay({
     super.key,
     required this.bounds,
+    this.shape = MarchingAntsShape.rect,
     this.dashLength = 6.0,
     this.gapLength = 4.0,
     this.strokeWidth = 1.5,
@@ -69,6 +82,7 @@ class _MarchingAntsOverlayState extends State<MarchingAntsOverlay>
         return CustomPaint(
           painter: _MarchingAntsPainter(
             bounds: widget.bounds,
+            shape: widget.shape,
             dashLength: widget.dashLength,
             gapLength: widget.gapLength,
             strokeWidth: widget.strokeWidth,
@@ -85,6 +99,7 @@ class _MarchingAntsOverlayState extends State<MarchingAntsOverlay>
 
 class _MarchingAntsPainter extends CustomPainter {
   final Rect bounds;
+  final MarchingAntsShape shape;
   final double dashLength;
   final double gapLength;
   final double strokeWidth;
@@ -94,6 +109,7 @@ class _MarchingAntsPainter extends CustomPainter {
 
   _MarchingAntsPainter({
     required this.bounds,
+    required this.shape,
     required this.dashLength,
     required this.gapLength,
     required this.strokeWidth,
@@ -110,7 +126,6 @@ class _MarchingAntsPainter extends CustomPainter {
           ..color = backgroundColor
           ..style = PaintingStyle.stroke
           ..strokeWidth = strokeWidth;
-    canvas.drawRect(bounds, bgPaint);
 
     // Foreground dashed stroke (animated)
     final fgPaint =
@@ -120,11 +135,17 @@ class _MarchingAntsPainter extends CustomPainter {
           ..strokeWidth = strokeWidth
           ..strokeCap = StrokeCap.butt;
 
-    _drawDashedRect(canvas, bounds, fgPaint);
+    switch (shape) {
+      case MarchingAntsShape.rect:
+        canvas.drawRect(bounds, bgPaint);
+        _drawDashedPath(canvas, Path()..addRect(bounds), fgPaint);
+      case MarchingAntsShape.ellipse:
+        canvas.drawOval(bounds, bgPaint);
+        _drawDashedPath(canvas, Path()..addOval(bounds), fgPaint);
+    }
   }
 
-  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
-    final path = Path()..addRect(rect);
+  void _drawDashedPath(Canvas canvas, Path path, Paint paint) {
     final metrics = path.computeMetrics();
 
     for (final metric in metrics) {
@@ -141,5 +162,8 @@ class _MarchingAntsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MarchingAntsPainter oldDelegate) =>
-      oldDelegate.dashOffset != dashOffset || oldDelegate.bounds != bounds;
+      oldDelegate.dashOffset != dashOffset ||
+      oldDelegate.bounds != bounds ||
+      oldDelegate.shape != shape;
 }
+

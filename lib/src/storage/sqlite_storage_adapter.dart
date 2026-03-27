@@ -17,20 +17,25 @@
 // ============================================================================
 
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../utils/safe_path_provider.dart';
+import 'sqflite_stub_web.dart'
+    if (dart.library.ffi) 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common/sqflite.dart' show Sqflite;
 import 'package:path/path.dart' as p;
 
-import 'nebula_storage_adapter.dart';
+import 'fluera_storage_adapter.dart';
+import 'canvas_creation_options.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
+import '../core/nodes/pdf_preview_card_node.dart';
 import '../core/nodes/latex_node.dart';
 import '../core/nodes/tabular_node.dart';
+import '../core/nodes/section_node.dart';
 import '../core/engine_scope.dart';
 import '../core/engine_error.dart';
 import '../core/schema_version.dart';
@@ -38,10 +43,10 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 6;
+const int _kSchemaVersion = 12;
 
 /// Database file name.
-const String _kDatabaseName = 'nebula_canvas.db';
+const String _kDatabaseName = 'fluera_canvas.db';
 
 /// 💾 Default SQLite storage adapter for canvas persistence.
 ///
@@ -65,7 +70,7 @@ const String _kDatabaseName = 'nebula_canvas.db';
 /// // Load canvas
 /// final loaded = await storage.loadCanvas(canvasId);
 /// ```
-class SqliteStorageAdapter implements NebulaStorageAdapter {
+class SqliteStorageAdapter implements FlueraStorageAdapter {
   Database? _db;
 
   /// Optional custom database path. If null, uses the default sqflite path.
@@ -92,9 +97,8 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
   Future<void> initialize() async {
     if (_db != null) return; // Already initialized
 
-    // Initialize FFI for desktop platforms (no-op on mobile)
-    final bool isMobile = Platform.isAndroid || Platform.isIOS;
-    if (!isMobile) {
+    // Initialize FFI for desktop platforms (no-op on mobile, skip on web)
+    if (!kIsWeb) {
       sqfliteFfiInit();
     }
     final factory = databaseFactoryFfi;
@@ -105,7 +109,8 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     if (databasePath != null) {
       path = databasePath!;
     } else {
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getSafeDocumentsDirectory();
+      if (appDir == null) return; // Web: no filesystem
       path = p.join(appDir.path, _kDatabaseName);
     }
 
@@ -123,8 +128,6 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         },
       ),
     );
-
-    debugPrint('[NebulaStorage] SQLite initialized at: $path');
   }
 
   /// Create initial schema.
@@ -135,6 +138,7 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         title         TEXT,
         paper_type    TEXT NOT NULL DEFAULT 'blank',
         background_color TEXT,
+        folder_id     TEXT,
         active_layer_id TEXT,
         infinite_canvas_id TEXT,
         node_id       TEXT,
@@ -142,11 +146,25 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         pdf_documents_json TEXT,
         variables_json TEXT,
         scene_nodes_json TEXT,
+        connections_json TEXT,
+        semantic_titles_json TEXT,
+        snapshot_png   BLOB,
         schema_version INTEGER NOT NULL DEFAULT 1,
         layer_count   INTEGER NOT NULL DEFAULT 0,
         stroke_count  INTEGER NOT NULL DEFAULT 0,
         created_at    INTEGER NOT NULL,
         updated_at    INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE folders (
+        folder_id       TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        parent_folder_id TEXT,
+        color           TEXT NOT NULL DEFAULT '0xFF6750A4',
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
       )
     ''');
 
@@ -168,30 +186,19 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
 
     // 🎤 v2: Recordings table for audio + synced stroke persistence
     await _createRecordingsTable(db);
-
-    debugPrint('[NebulaStorage] Schema v$version created');
   }
 
   /// Handle schema migrations.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    debugPrint('[NebulaStorage] Migrating schema v$oldVersion → v$newVersion');
-
     if (oldVersion < 2) {
       await _createRecordingsTable(db);
-      debugPrint('[NebulaStorage] Migration v1→v2: recordings table created');
     }
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE canvases ADD COLUMN variables_json TEXT');
-      debugPrint(
-        '[NebulaStorage] Migration v2→v3: variables_json column added',
-      );
     }
     if (oldVersion < 4) {
       await db.execute(
         'ALTER TABLE canvases ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1',
-      );
-      debugPrint(
-        '[NebulaStorage] Migration v3→v4: schema_version column added',
       );
     }
     if (oldVersion < 5) {
@@ -205,9 +212,6 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       } catch (_) {
         // Column may already exist if database was created with v4+ _onCreate.
       }
-      debugPrint(
-        '[NebulaStorage] Migration v4→v5: pdf_documents_json column added',
-      );
     }
     if (oldVersion < 6) {
       try {
@@ -217,9 +221,67 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       } catch (_) {
         // Column may already exist if database was created with v6+ _onCreate.
       }
-      debugPrint(
-        '[NebulaStorage] Migration v5→v6: scene_nodes_json column added',
-      );
+    }
+    if (oldVersion < 7) {
+      try {
+        await db.execute('ALTER TABLE canvases ADD COLUMN snapshot_png BLOB');
+      } catch (_) {}
+    }
+    if (oldVersion < 8) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS folders (
+            folder_id       TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            parent_folder_id TEXT,
+            color           TEXT NOT NULL DEFAULT '0xFF6750A4',
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL
+          )
+        ''');
+        await db.execute('ALTER TABLE canvases ADD COLUMN folder_id TEXT');
+      } catch (_) {}
+    }
+    if (oldVersion < 9) {
+      // 🔍 Handwriting index tables.
+      // The actual table creation is handled by HandwritingIndexService._createTables()
+      // when it initializes with this database. Migration here just bumps version.
+    }
+    if (oldVersion < 10) {
+      // 🔗 Knowledge Flow connections persistence.
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN connections_json TEXT',
+        );
+      } catch (_) {
+        // Column may already exist in fresh databases.
+      }
+    }
+    if (oldVersion < 11) {
+      // 📝 Speech-to-text transcription persistence.
+      try {
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN transcription_text TEXT',
+        );
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN transcription_language TEXT',
+        );
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN transcription_segments_json TEXT',
+        );
+      } catch (_) {
+        // Columns may already exist in fresh databases.
+      }
+    }
+    if (oldVersion < 12) {
+      // 🧠 Semantic AI titles persistence.
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN semantic_titles_json TEXT',
+        );
+      } catch (_) {
+        // Column may already exist in fresh databases.
+      }
     }
   }
 
@@ -235,6 +297,9 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         total_duration_ms INTEGER NOT NULL,
         start_time        TEXT NOT NULL,
         strokes_json      TEXT,
+        transcription_text TEXT,
+        transcription_language TEXT,
+        transcription_segments_json TEXT,
         created_at        INTEGER NOT NULL,
         FOREIGN KEY (canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
       )
@@ -320,6 +385,8 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     Map<String, dynamic>? guides,
     Set<String>? dirtyLayerIds,
     String? variablesJson,
+    String? connectionsJson,
+    String? semanticTitlesJson,
   }) async {
     final db = _ensureInitialized();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -366,13 +433,19 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     final pdfJson =
         pdfDocumentsJson.isNotEmpty ? jsonEncode(pdfDocumentsJson) : null;
 
-    // 💾 Extract LatexNode and TabularNode from layers (binary doesn't support them).
+    // 💾 Extract scene graph nodes not supported by binary format
+    // (LatexNode, TabularNode, SectionNode, PdfPreviewCardNode)
+    // — stored as JSON sidecar in scene_nodes_json column.
     final sceneNodesJson = <Map<String, dynamic>>[];
     for (final layer in layers) {
       for (final child in layer.node.children) {
         if (child is LatexNode) {
           sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
         } else if (child is TabularNode) {
+          sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
+        } else if (child is SectionNode) {
+          sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
+        } else if (child is PdfPreviewCardNode) {
           sceneNodesJson.add({'layerId': layer.id, 'node': child.toJson()});
         }
       }
@@ -383,15 +456,32 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
     // SQLite writes are I/O-bound and async — they don't block the main thread.
     final guidesJson = guides != null ? jsonEncode(guides) : null;
     await db.transaction((txn) async {
-      // 1. Upsert canvas metadata (always updated)
+      // 🔧 FIX: Use ON CONFLICT ... DO UPDATE instead of INSERT OR REPLACE.
+      // INSERT OR REPLACE is internally DELETE+INSERT, which triggers
+      // ON DELETE CASCADE on the recordings table and wipes all recordings
+      // every time the canvas is saved!
       await txn.rawInsert(
         '''
-        INSERT OR REPLACE INTO canvases (
+        INSERT INTO canvases (
           canvas_id, title, paper_type, background_color,
           active_layer_id, infinite_canvas_id, node_id, guides_json,
           pdf_documents_json, variables_json, schema_version,
           layer_count, stroke_count, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(canvas_id) DO UPDATE SET
+          title = excluded.title,
+          paper_type = excluded.paper_type,
+          background_color = excluded.background_color,
+          active_layer_id = excluded.active_layer_id,
+          infinite_canvas_id = excluded.infinite_canvas_id,
+          node_id = excluded.node_id,
+          guides_json = excluded.guides_json,
+          pdf_documents_json = excluded.pdf_documents_json,
+          variables_json = excluded.variables_json,
+          schema_version = excluded.schema_version,
+          layer_count = excluded.layer_count,
+          stroke_count = excluded.stroke_count,
+          updated_at = excluded.updated_at
       ''',
         [
           canvasId,
@@ -419,6 +509,34 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
           await txn.update(
             'canvases',
             {'scene_nodes_json': sceneJson},
+            where: 'canvas_id = ?',
+            whereArgs: [canvasId],
+          );
+        } catch (_) {
+          // Column may not exist if migration hasn't run — safe to ignore.
+        }
+      }
+
+      // 🔗 Save Knowledge Flow connections as JSON sidecar
+      if (connectionsJson != null) {
+        try {
+          await txn.update(
+            'canvases',
+            {'connections_json': connectionsJson},
+            where: 'canvas_id = ?',
+            whereArgs: [canvasId],
+          );
+        } catch (_) {
+          // Column may not exist if migration hasn't run — safe to ignore.
+        }
+      }
+
+      // 🧠 Save semantic AI titles as JSON sidecar
+      if (semanticTitlesJson != null) {
+        try {
+          await txn.update(
+            'canvases',
+            {'semantic_titles_json': semanticTitlesJson},
             where: 'canvas_id = ?',
             whereArgs: [canvasId],
           );
@@ -624,6 +742,42 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
       }
     }
 
+    // 🔗 Parse Knowledge Flow connections JSON if present
+    final connectionsStr = meta['connections_json'] as String?;
+    if (connectionsStr != null) {
+      try {
+        result['connections'] = jsonDecode(connectionsStr);
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.connectionsJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
+    }
+
+    // 🧠 Parse semantic AI titles JSON if present
+    final semanticTitlesStr = meta['semantic_titles_json'] as String?;
+    if (semanticTitlesStr != null) {
+      try {
+        result['semanticTitles'] = jsonDecode(semanticTitlesStr);
+      } catch (e, stack) {
+        EngineScope.current.errorRecovery.reportError(
+          EngineError(
+            severity: ErrorSeverity.degraded,
+            domain: ErrorDomain.storage,
+            source: 'SqliteStorageAdapter.loadCanvas.semanticTitlesJson',
+            original: e,
+            stack: stack,
+          ),
+        );
+      }
+    }
+
     return result;
   }
 
@@ -644,7 +798,7 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
   // ===========================================================================
 
   @override
-  Future<List<CanvasMetadata>> listCanvases() async {
+  Future<List<CanvasMetadata>> listCanvases({String? folderId}) async {
     final db = _ensureInitialized();
 
     final rows = await db.query(
@@ -653,11 +807,15 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         'canvas_id',
         'title',
         'paper_type',
+        'background_color',
+        'folder_id',
         'layer_count',
         'stroke_count',
         'created_at',
         'updated_at',
       ],
+      where: folderId != null ? 'folder_id = ?' : 'folder_id IS NULL',
+      whereArgs: folderId != null ? [folderId] : null,
       orderBy: 'updated_at DESC',
     );
 
@@ -666,6 +824,8 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         canvasId: row['canvas_id'] as String,
         title: row['title'] as String?,
         paperType: row['paper_type'] as String? ?? 'blank',
+        backgroundColorValue: _parseBackgroundColor(row['background_color']),
+        parentFolderId: row['folder_id'] as String?,
         layerCount: row['layer_count'] as int? ?? 0,
         strokeCount: row['stroke_count'] as int? ?? 0,
         createdAt: DateTime.fromMillisecondsSinceEpoch(
@@ -676,6 +836,16 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
         ),
       );
     }).toList();
+  }
+
+  /// Parse background color from DB (stored as hex string or int).
+  static int _parseBackgroundColor(dynamic value) {
+    if (value == null) return 0xFFFFFFFF;
+    if (value is int) return value;
+    if (value is String) {
+      return int.tryParse(value.replaceFirst('#', '0xFF')) ?? 0xFFFFFFFF;
+    }
+    return 0xFFFFFFFF;
   }
 
   // ===========================================================================
@@ -695,6 +865,34 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
   }
 
   // ===========================================================================
+  // SNAPSHOT (SPLASH SCREEN PREVIEW)
+  // ===========================================================================
+
+  @override
+  Future<void> saveSnapshot(String canvasId, Uint8List png) async {
+    final db = _ensureInitialized();
+    await db.update(
+      'canvases',
+      {'snapshot_png': png},
+      where: 'canvas_id = ?',
+      whereArgs: [canvasId],
+    );
+  }
+
+  @override
+  Future<Uint8List?> loadSnapshot(String canvasId) async {
+    final db = _ensureInitialized();
+    final rows = await db.query(
+      'canvases',
+      columns: ['snapshot_png'],
+      where: 'canvas_id = ?',
+      whereArgs: [canvasId],
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['snapshot_png'] as Uint8List?;
+  }
+
+  // ===========================================================================
   // CLOSE
   // ===========================================================================
 
@@ -702,7 +900,181 @@ class SqliteStorageAdapter implements NebulaStorageAdapter {
   Future<void> close() async {
     await _db?.close();
     _db = null;
-    debugPrint('[NebulaStorage] SQLite closed');
+  }
+
+  @override
+  Future<String> createCanvas(CanvasCreationOptions options) async {
+    final id = options.resolveCanvasId();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final db = _ensureInitialized();
+    await db.rawInsert(
+      '''
+      INSERT INTO canvases (
+        canvas_id, title, paper_type, background_color,
+        folder_id, layer_count, stroke_count, created_at, updated_at, schema_version
+      ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+    ''',
+      [
+        id,
+        options.title,
+        options.paperType.storageKey,
+        '0x${options.backgroundColor.value.toRadixString(16).padLeft(8, '0')}',
+        options.folderId,
+        now,
+        now,
+        kCurrentSchemaVersion,
+      ],
+    );
+    return id;
+  }
+
+  // ===========================================================================
+  // FOLDER OPERATIONS
+  // ===========================================================================
+
+  @override
+  Future<String> createFolder(
+    String name, {
+    String? parentFolderId,
+    Color color = const Color(0xFF6750A4),
+  }) async {
+    final db = _ensureInitialized();
+    final id = 'folder_${DateTime.now().millisecondsSinceEpoch}';
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.insert('folders', {
+      'folder_id': id,
+      'name': name,
+      'parent_folder_id': parentFolderId,
+      'color': '0x${color.value.toRadixString(16).padLeft(8, '0')}',
+      'created_at': now,
+      'updated_at': now,
+    });
+    return id;
+  }
+
+  @override
+  Future<void> renameFolder(String folderId, String name) async {
+    final db = _ensureInitialized();
+    await db.update(
+      'folders',
+      {'name': name, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'folder_id = ?',
+      whereArgs: [folderId],
+    );
+  }
+
+  @override
+  Future<void> deleteFolder(String folderId) async {
+    final db = _ensureInitialized();
+    // Find the folder's parent so we can reparent contents
+    final rows = await db.query(
+      'folders',
+      columns: ['parent_folder_id'],
+      where: 'folder_id = ?',
+      whereArgs: [folderId],
+    );
+    final parentId =
+        rows.isNotEmpty ? rows.first['parent_folder_id'] as String? : null;
+
+    await db.transaction((txn) async {
+      // Move canvases to parent folder
+      await txn.update(
+        'canvases',
+        {'folder_id': parentId},
+        where: 'folder_id = ?',
+        whereArgs: [folderId],
+      );
+      // Move subfolders to parent folder
+      await txn.update(
+        'folders',
+        {'parent_folder_id': parentId},
+        where: 'parent_folder_id = ?',
+        whereArgs: [folderId],
+      );
+      // Delete the folder itself
+      await txn.delete(
+        'folders',
+        where: 'folder_id = ?',
+        whereArgs: [folderId],
+      );
+    });
+  }
+
+  @override
+  Future<List<FolderMetadata>> listFolders({String? parentFolderId}) async {
+    final db = _ensureInitialized();
+    final rows = await db.query(
+      'folders',
+      where:
+          parentFolderId != null
+              ? 'parent_folder_id = ?'
+              : 'parent_folder_id IS NULL',
+      whereArgs: parentFolderId != null ? [parentFolderId] : null,
+      orderBy: 'name ASC',
+    );
+
+    final results = <FolderMetadata>[];
+    for (final row in rows) {
+      final fId = row['folder_id'] as String;
+      // Count canvases in this folder
+      final cCountRows = await db.rawQuery(
+        'SELECT COUNT(*) as cnt FROM canvases WHERE folder_id = ?',
+        [fId],
+      );
+      final cCount = (cCountRows.first['cnt'] as int?) ?? 0;
+      // Count subfolders
+      final sCountRows = await db.rawQuery(
+        'SELECT COUNT(*) as cnt FROM folders WHERE parent_folder_id = ?',
+        [fId],
+      );
+      final sCount = (sCountRows.first['cnt'] as int?) ?? 0;
+
+      results.add(
+        FolderMetadata(
+          folderId: fId,
+          name: row['name'] as String,
+          parentFolderId: row['parent_folder_id'] as String?,
+          colorValue: _parseBackgroundColor(row['color']),
+          createdAt: DateTime.fromMillisecondsSinceEpoch(
+            row['created_at'] as int,
+          ),
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(
+            row['updated_at'] as int,
+          ),
+          canvasCount: cCount,
+          subfolderCount: sCount,
+        ),
+      );
+    }
+    return results;
+  }
+
+  @override
+  Future<void> moveCanvasToFolder(String canvasId, String? folderId) async {
+    final db = _ensureInitialized();
+    await db.update(
+      'canvases',
+      {'folder_id': folderId},
+      where: 'canvas_id = ?',
+      whereArgs: [canvasId],
+    );
+  }
+
+  @override
+  Future<void> moveFolderToFolder(
+    String folderId,
+    String? parentFolderId,
+  ) async {
+    final db = _ensureInitialized();
+    await db.update(
+      'folders',
+      {
+        'parent_folder_id': parentFolderId,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'folder_id = ?',
+      whereArgs: [folderId],
+    );
   }
 
   // ===========================================================================

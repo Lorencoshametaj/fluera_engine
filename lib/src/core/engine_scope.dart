@@ -1,5 +1,6 @@
 import 'assets/asset_registry.dart';
 import 'audit/audit_event_bridge.dart';
+import 'modules/module_registry.dart';
 import 'audit/audit_log_service.dart';
 import 'rbac/permission_interceptor.dart';
 import 'rbac/permission_service.dart';
@@ -16,15 +17,13 @@ import '../history/undo_redo_manager.dart';
 import '../history/background_checkpoint_service.dart';
 import '../history/command_journal.dart';
 import '../history/journal_recovery_middleware.dart';
-import '../drawing/services/brush_settings_service.dart';
-import '../drawing/services/stroke_persistence_service.dart';
-import '../rendering/shaders/shader_brush_service.dart';
+import '../drawing/drawing_module.dart';
 import '../rendering/render_profiler.dart';
 import '../tools/base/tool_registry.dart';
-import '../rendering/optimization/tile_cache_manager.dart';
+
 import '../rendering/optimization/disk_stroke_manager.dart';
 import '../rendering/optimization/frame_budget_manager.dart';
-import '../rendering/optimization/advanced_tile_optimizer.dart';
+
 import '../rendering/optimization/memory_budget_controller.dart';
 import '../rendering/optimization/lod_manager.dart';
 import '../services/adaptive_debouncer_service.dart';
@@ -34,16 +33,22 @@ import '../platform/display_link_service.dart';
 import '../drawing/input/predicted_touch_service.dart';
 import '../platform/native_stylus_input.dart';
 import '../platform/native_performance_monitor.dart';
-import '../audio/platform_channels/audio_player_channel.dart';
-import '../audio/platform_channels/audio_recorder_channel.dart';
+
 import '../services/image_cache_service.dart';
 import '../history/async_command.dart';
 import '../systems/engine_theme.dart';
 import '../systems/plugin_api.dart';
 import '../rendering/cache/render_cache_scope.dart';
-import 'tabular/spreadsheet_model.dart';
-import 'tabular/spreadsheet_evaluator.dart';
-import 'tabular/tabular_latex_bridge.dart';
+import 'conscious_architecture.dart';
+import '../systems/style_coherence_engine.dart';
+
+import 'tabular/tabular_module.dart';
+import 'latex/latex_module.dart';
+import '../tools/pdf/pdf_module.dart';
+import '../audio/audio_module.dart';
+import 'enterprise/enterprise_module.dart';
+import '../ai/ai_provider.dart';
+import '../ai/atlas_ai_service.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -79,7 +84,7 @@ class _ScopeEntry {
 // Engine Scope
 // ---------------------------------------------------------------------------
 
-/// Scoped dependency container for the Nebula Engine.
+/// Scoped dependency container for the Fluera Engine.
 ///
 /// Replaces global singletons with a composable, testable scope.
 /// Each [EngineScope] owns a complete set of engine services, enabling:
@@ -113,10 +118,17 @@ class EngineScope {
   /// is automatically registered on [commandHistory].
   final String? journalPath;
 
+  /// Optional Gemini API key for Atlas AI.
+  ///
+  /// When set, [atlasProvider] is initialized with this key.
+  /// Pass this from the app layer (e.g. from `--dart-define` or secure storage).
+  final String? geminiApiKey;
+
   /// Create a new engine scope.
   ///
   /// Pass [journalPath] to enable the crash-recovery write-ahead log.
-  EngineScope({this.journalPath});
+  /// Pass [geminiApiKey] to enable Atlas AI with Gemini.
+  EngineScope({this.journalPath, this.geminiApiKey});
   // ---------------------------------------------------------------------------
   // Scope Stack Management
   // ---------------------------------------------------------------------------
@@ -161,12 +173,6 @@ class EngineScope {
     entry.scope.dispose();
   }
 
-  /// Bind a scope as the active scope (backward-compatible alias for [push]).
-  ///
-  /// Prefer [push]/[pop] for new code — they provide ownership safety.
-  @Deprecated('Use push()/pop() for safe multi-canvas scope management')
-  static void bind(EngineScope scope) => push(scope);
-
   /// Reset the global scope, disposing ALL scopes on the stack.
   static void reset() {
     for (final entry in _stack.reversed) {
@@ -195,23 +201,8 @@ class EngineScope {
   late final BackgroundSaveService backgroundSaveService =
       BackgroundSaveService.create();
 
-  /// Brush settings storage & notification.
-  late final BrushSettingsService brushSettingsService =
-      BrushSettingsService.create();
-
-  /// Stroke disk persistence service.
-  late final StrokePersistenceService strokePersistenceService =
-      StrokePersistenceService.create();
-
-  /// GPU shader brush rendering service.
-  late final ShaderBrushService shaderBrushService =
-      ShaderBrushService.create();
-
   /// Tool registration and selection.
   late final ToolRegistry toolRegistry = ToolRegistry.create();
-
-  /// Tile-based render cache manager.
-  late final TileCacheManager tileCacheManager = TileCacheManager.create();
 
   /// Stroke point simplification and LOD caching.
   late final LODManager lodManager = LODManager.create();
@@ -226,10 +217,6 @@ class EngineScope {
   /// Memory pressure handler.
   late final MemoryPressureHandler memoryPressureHandler =
       MemoryPressureHandler.create();
-
-  /// Advanced tile optimization.
-  late final AdvancedTileOptimizer advancedTileOptimizer =
-      AdvancedTileOptimizer.create();
 
   /// Adaptive debouncer for save operations.
   late final AdaptiveDebouncerService adaptiveDebouncerService =
@@ -256,14 +243,6 @@ class EngineScope {
   late final NativePerformanceMonitor performanceMonitor =
       NativePerformanceMonitor.create();
 
-  /// Native audio player platform channel.
-  late final NativeAudioPlayerChannel audioPlayerChannel =
-      NativeAudioPlayerChannel.create();
-
-  /// Native audio recorder platform channel.
-  late final NativeAudioRecorderChannel audioRecorderChannel =
-      NativeAudioRecorderChannel.create();
-
   /// Image loading and LRU caching service.
   late final ImageCacheService imageCacheService = ImageCacheService.create();
 
@@ -273,7 +252,6 @@ class EngineScope {
           performanceMonitor: performanceMonitor,
           memoryPressureHandler: memoryPressureHandler,
         )
-        ..registerCache(tileCacheManager)
         ..registerCache(
           lodManager,
           warningFraction: 0.75,
@@ -335,6 +313,23 @@ class EngineScope {
   /// Per-scope rendering cache state (replaces static caches).
   late final RenderCacheScope renderCacheScope = RenderCacheScope();
 
+  /// 🧠 Conscious Architecture — four intelligence layers beyond fluidity.
+  late final ConsciousArchitecture consciousArchitecture =
+      ConsciousArchitecture();
+
+  /// 🎨 Style Coherence — L4 Generative: per-document style learning.
+  late final StyleCoherenceEngine styleCoherenceEngine = StyleCoherenceEngine();
+
+  /// 🌌 Atlas AI — spatial intelligence provider (Gemini by default).
+  late final AiProvider atlasProvider = GeminiProvider(apiKey: geminiApiKey);
+
+  /// 📦 Module Registry — manages all canvas modules (drawing, tabular, etc.).
+  late final ModuleRegistry moduleRegistry = ModuleRegistry(
+    eventBus: eventBus,
+    commandHistory: commandHistory,
+    scope: this,
+  );
+
   /// Immutable, queryable audit trail for compliance & forensics.
   late final AuditLogService auditLog = AuditLogService();
 
@@ -347,22 +342,71 @@ class EngineScope {
   /// RBAC/ABAC permission service.
   late final PermissionService permissionService = PermissionService();
 
+  /// Convenience accessor: returns the [TabularModule] if registered,
+  /// or `null` if the module hasn't been registered yet.
+  ///
+  /// NOTE: TabularModule is not registered by default in the core SDK.
+  /// Register it manually via `moduleRegistry.register(TabularModule())`.
+  TabularModule? get tabularModule =>
+      moduleRegistry.findModule<TabularModule>();
+
+  /// Convenience accessor for the [DrawingModule].
+  DrawingModule? get drawingModule =>
+      moduleRegistry.findModule<DrawingModule>();
+
+  /// Convenience accessor for the [LaTeXModule].
+  ///
+  /// NOTE: LaTeXModule is not registered by default in the core SDK.
+  LaTeXModule? get latexModule => moduleRegistry.findModule<LaTeXModule>();
+
+  /// Convenience accessor for the [PDFModule].
+  PDFModule? get pdfModule => moduleRegistry.findModule<PDFModule>();
+
+  /// Convenience accessor for the [AudioModule].
+  AudioModule? get audioModule => moduleRegistry.findModule<AudioModule>();
+
+  /// Convenience accessor for the [EnterpriseModule].
+  ///
+  /// NOTE: EnterpriseModule is not registered by default in the core SDK.
+  EnterpriseModule? get enterpriseModule =>
+      moduleRegistry.findModule<EnterpriseModule>();
+
   // ---------------------------------------------------------------------------
-  // Global Tabular Integration (P1)
+  // Module Initialization
   // ---------------------------------------------------------------------------
 
-  /// Global spreadsheet model (shared logic across all tabular nodes).
-  late final SpreadsheetModel globalSpreadsheetModel = SpreadsheetModel();
+  bool _modulesInitialized = false;
 
-  /// Global evaluator for the spreadsheet model.
-  late final SpreadsheetEvaluator globalSpreadsheetEvaluator =
-      SpreadsheetEvaluator(globalSpreadsheetModel);
+  /// Whether [initializeModules] has been called.
+  bool get modulesInitialized => _modulesInitialized;
 
-  /// The magical bridge that natively connects tabular data to LaTeX output.
-  late final TabularLatexBridge globalTabularBridge = TabularLatexBridge(
-    globalSpreadsheetEvaluator,
-    invalidationGraph,
-  );
+  /// Register and initialize all built-in canvas modules.
+  ///
+  /// Call this once after the scope is created (e.g. in the app's main).
+  /// Safe to call multiple times — subsequent calls are no-ops.
+  ///
+  /// ```dart
+  /// final scope = EngineScope();
+  /// EngineScope.push(scope);
+  /// await scope.initializeModules();
+  /// ```
+  Future<void> initializeModules() async {
+    if (_modulesInitialized) return;
+    _modulesInitialized = true;
+
+    await moduleRegistry.register(DrawingModule(), toolRegistry: toolRegistry);
+    await moduleRegistry.register(PDFModule(), toolRegistry: toolRegistry);
+    await moduleRegistry.register(AudioModule(), toolRegistry: toolRegistry);
+
+    // NOTE: TabularModule, LaTeXModule, and EnterpriseModule are available
+    // as separate add-on packages. Register them manually if needed:
+    //   await moduleRegistry.register(TabularModule(), toolRegistry: toolRegistry);
+    //   await moduleRegistry.register(LaTeXModule(), toolRegistry: toolRegistry);
+    //   await moduleRegistry.register(
+    //     EnterpriseModule(permissionService: permissionService),
+    //     toolRegistry: toolRegistry,
+    //   );
+  }
 
   // ---------------------------------------------------------------------------
   // Health Check
@@ -415,7 +459,27 @@ class EngineScope {
 
     services.add(ServiceHealth(name: 'PluginRegistry', healthy: true));
 
+    services.add(
+      ServiceHealth(
+        name: 'ConsciousArchitecture',
+        healthy: true,
+        detail:
+            'subsystems=${consciousArchitecture.subsystems.length}, '
+            'active=${consciousArchitecture.subsystems.where((s) => s.isActive).length}',
+      ),
+    );
+
     services.add(ServiceHealth(name: 'AssetRegistry', healthy: true));
+
+    services.add(
+      ServiceHealth(
+        name: 'ModuleRegistry',
+        healthy: true,
+        detail:
+            'modules=${moduleRegistry.moduleCount}, '
+            'nodeTypes=${moduleRegistry.registeredNodeTypes.length}',
+      ),
+    );
 
     services.add(
       ServiceHealth(
@@ -460,16 +524,13 @@ class EngineScope {
     if (_disposed) return;
     _disposed = true;
 
-    // ── 0. Independent Systems ──
-    globalTabularBridge.dispose();
-    globalSpreadsheetEvaluator.dispose();
-
     // ── 1. Leaf services (no other service depends on these) ──
+    // Modules (drawing, audio, tabular, etc.) dispose their own services.
+    moduleRegistry.dispose();
+    consciousArchitecture.dispose();
     pluginRegistry.dispose();
     toolRegistry.dispose();
-    brushSettingsService.dispose();
     themeManager.dispose();
-    shaderBrushService.dispose();
     renderCacheScope.dispose();
 
     // ── 2. Mid-tier (depend on infra, depended on by leaves) ──
@@ -481,7 +542,7 @@ class EngineScope {
     commandHistory.dispose();
     memoryBudgetController.dispose();
     invalidationGraph.dispose();
-    tileCacheManager.dispose();
+
     lodManager.clearCache();
 
     // ── 3. Infrastructure (depended upon by everything above) ──

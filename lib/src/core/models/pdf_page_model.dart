@@ -2,6 +2,27 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'pdf_annotation_model.dart';
 
+/// Background pattern for PDF pages.
+enum PdfPageBackground {
+  /// Plain white — no pattern.
+  blank,
+
+  /// Horizontal ruled lines (notebook style).
+  ruled,
+
+  /// Square grid (graph paper).
+  grid,
+
+  /// Dotted grid.
+  dotted,
+
+  /// Music staff lines (5-line staves).
+  music,
+
+  /// Cornell note-taking layout (sections for notes, cues, summary).
+  cornell,
+}
+
 /// 📄 Pure data model for a single PDF page on the canvas.
 ///
 /// Stores metadata about one page: its index in the original PDF,
@@ -43,6 +64,19 @@ class PdfPageModel {
   /// Structured annotations (highlights, underlines, sticky notes).
   final List<PdfAnnotation> structuredAnnotations;
 
+  /// Whether this is a blank (user-inserted) page with no native PDF content.
+  final bool isBlank;
+
+  /// Background pattern for this page (lines, grid, dots, etc.).
+  final PdfPageBackground background;
+
+  /// Whether this page is bookmarked by the user.
+  final bool isBookmarked;
+
+  /// Optional crop rectangle (normalized 0..1 fractions of originalSize).
+  /// null = no crop (show full page).
+  final Rect? cropRect;
+
   /// Microseconds since epoch — last annotation or position change.
   final int lastModifiedAt;
 
@@ -57,6 +91,10 @@ class PdfPageModel {
     this.annotations = const [],
     this.showAnnotations = true,
     this.structuredAnnotations = const [],
+    this.isBlank = false,
+    this.background = PdfPageBackground.blank,
+    this.isBookmarked = false,
+    this.cropRect,
     int? lastModifiedAt,
   }) : lastModifiedAt = lastModifiedAt ?? 0;
 
@@ -76,6 +114,11 @@ class PdfPageModel {
     List<String>? annotations,
     bool? showAnnotations,
     List<PdfAnnotation>? structuredAnnotations,
+    bool? isBlank,
+    PdfPageBackground? background,
+    bool? isBookmarked,
+    Rect? cropRect,
+    bool clearCropRect = false,
     int? lastModifiedAt,
   }) {
     return PdfPageModel(
@@ -91,6 +134,10 @@ class PdfPageModel {
       showAnnotations: showAnnotations ?? this.showAnnotations,
       structuredAnnotations:
           structuredAnnotations ?? this.structuredAnnotations,
+      isBlank: isBlank ?? this.isBlank,
+      background: background ?? this.background,
+      isBookmarked: isBookmarked ?? this.isBookmarked,
+      cropRect: clearCropRect ? null : (cropRect ?? this.cropRect),
       lastModifiedAt: lastModifiedAt ?? this.lastModifiedAt,
     );
   }
@@ -116,6 +163,16 @@ class PdfPageModel {
     if (structuredAnnotations.isNotEmpty)
       'structuredAnnotations':
           structuredAnnotations.map((a) => a.toJson()).toList(),
+    if (isBlank) 'isBlank': true,
+    if (background != PdfPageBackground.blank) 'background': background.name,
+    if (isBookmarked) 'isBookmarked': true,
+    if (cropRect != null)
+      'cropRect': {
+        'left': cropRect!.left,
+        'top': cropRect!.top,
+        'right': cropRect!.right,
+        'bottom': cropRect!.bottom,
+      },
     'lastModifiedAt': lastModifiedAt,
   };
 
@@ -158,6 +215,21 @@ class PdfPageModel {
               ?.map((a) => PdfAnnotation.fromJson(a as Map<String, dynamic>))
               .toList() ??
           const [],
+      isBlank: json['isBlank'] as bool? ?? false,
+      background: PdfPageBackground.values.firstWhere(
+        (b) => b.name == (json['background'] as String? ?? 'blank'),
+        orElse: () => PdfPageBackground.blank,
+      ),
+      isBookmarked: json['isBookmarked'] as bool? ?? false,
+      cropRect:
+          json['cropRect'] is Map<String, dynamic>
+              ? Rect.fromLTRB(
+                (json['cropRect']['left'] as num?)?.toDouble() ?? 0,
+                (json['cropRect']['top'] as num?)?.toDouble() ?? 0,
+                (json['cropRect']['right'] as num?)?.toDouble() ?? 1,
+                (json['cropRect']['bottom'] as num?)?.toDouble() ?? 1,
+              )
+              : null,
       lastModifiedAt: (json['lastModifiedAt'] as num?)?.toInt() ?? 0,
     );
   }
@@ -176,6 +248,10 @@ class PdfPageModel {
           listEquals(annotations, other.annotations) &&
           showAnnotations == other.showAnnotations &&
           listEquals(structuredAnnotations, other.structuredAnnotations) &&
+          isBlank == other.isBlank &&
+          background == other.background &&
+          isBookmarked == other.isBookmarked &&
+          cropRect == other.cropRect &&
           lastModifiedAt == other.lastModifiedAt;
 
   @override

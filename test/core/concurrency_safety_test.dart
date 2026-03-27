@@ -1,9 +1,9 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph.dart';
-import 'package:nebula_engine/src/core/scene_graph/scene_graph_observer.dart';
-import 'package:nebula_engine/src/core/nodes/layer_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph.dart';
+import 'package:fluera_engine/src/core/scene_graph/scene_graph_observer.dart';
+import 'package:fluera_engine/src/core/nodes/layer_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
 
 /// Observer that tries to mutate the graph inside its callback.
 class _ReEntrantObserver extends SceneGraphObserver {

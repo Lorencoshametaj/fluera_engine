@@ -9,6 +9,9 @@ import '../../drawing/models/pro_drawing_point.dart';
 import '../models/shape_type.dart';
 import '../models/digital_text_element.dart';
 import '../models/image_element.dart';
+import '../editing/adjustment_layer.dart';
+import './adjustment_layer_node.dart';
+import './function_graph_node.dart';
 
 /// A [GroupNode] that represents a canvas layer.
 ///
@@ -29,14 +32,41 @@ class LayerNode extends GroupNode {
   });
 
   // ---------------------------------------------------------------------------
-  // Typed convenience getters (read-only views)
+  // 🚀 Cached typed getters (invalidated on child add/remove/reorder)
+  // ---------------------------------------------------------------------------
+
+  List<StrokeNode>? _cachedStrokeNodes;
+  List<ShapeNode>? _cachedShapeNodes;
+  List<ProStroke>? _cachedStrokes;
+  List<GeometricShape>? _cachedShapes;
+
+  @override
+  void invalidateTypedCaches() {
+    super.invalidateTypedCaches();
+    _cachedStrokeNodes = null;
+    _cachedShapeNodes = null;
+    _cachedStrokes = null;
+    _cachedShapes = null;
+  }
+
+  /// 🛡️ Invalidate only stroke caches (used by save pipeline after
+  /// restoring paged-out stubs on StrokeNode.stroke).
+  void invalidateStrokeCache() {
+    _cachedStrokeNodes = null;
+    _cachedStrokes = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Typed convenience getters (cached)
   // ---------------------------------------------------------------------------
 
   /// All stroke nodes in this layer.
-  List<StrokeNode> get strokeNodes => childrenOfType<StrokeNode>();
+  List<StrokeNode> get strokeNodes =>
+      _cachedStrokeNodes ??= childrenOfType<StrokeNode>();
 
   /// All shape nodes in this layer.
-  List<ShapeNode> get shapeNodes => childrenOfType<ShapeNode>();
+  List<ShapeNode> get shapeNodes =>
+      _cachedShapeNodes ??= childrenOfType<ShapeNode>();
 
   /// All text nodes in this layer.
   List<TextNode> get textNodes => childrenOfType<TextNode>();
@@ -44,11 +74,21 @@ class LayerNode extends GroupNode {
   /// All image nodes in this layer.
   List<ImageNode> get imageNodes => childrenOfType<ImageNode>();
 
+  /// All adjustment layer nodes in this layer.
+  List<AdjustmentLayerNode> get adjustmentNodes =>
+      childrenOfType<AdjustmentLayerNode>();
+
+  /// All function graph nodes in this layer.
+  List<FunctionGraphNode> get graphNodes =>
+      childrenOfType<FunctionGraphNode>();
+
   /// All ProStroke objects in this layer (convenience for rendering).
-  List<ProStroke> get strokes => strokeNodes.map((n) => n.stroke).toList();
+  List<ProStroke> get strokes =>
+      _cachedStrokes ??= strokeNodes.map((n) => n.stroke).toList();
 
   /// All GeometricShape objects in this layer.
-  List<GeometricShape> get shapes => shapeNodes.map((n) => n.shape).toList();
+  List<GeometricShape> get shapes =>
+      _cachedShapes ??= shapeNodes.map((n) => n.shape).toList();
 
   /// All DigitalTextElement objects in this layer.
   List<DigitalTextElement> get texts =>
@@ -90,6 +130,27 @@ class LayerNode extends GroupNode {
     return node;
   }
 
+  /// Add an adjustment layer to this layer.
+  AdjustmentLayerNode addAdjustmentLayer({
+    required String id,
+    required AdjustmentStack stack,
+    String name = '',
+  }) {
+    final node = AdjustmentLayerNode(
+      id: NodeId(id),
+      adjustmentStack: stack,
+      name: name,
+    );
+    add(node);
+    return node;
+  }
+
+  /// Add a function graph to this layer.
+  FunctionGraphNode addGraph(FunctionGraphNode graphNode) {
+    add(graphNode);
+    return graphNode;
+  }
+
   // ---------------------------------------------------------------------------
   // Typed remove helpers
   // ---------------------------------------------------------------------------
@@ -112,6 +173,16 @@ class LayerNode extends GroupNode {
   /// Remove an image element by its ID.
   bool removeImageById(String imageId) {
     return removeById(imageId) != null;
+  }
+
+  /// Remove an adjustment layer by its ID.
+  bool removeAdjustmentLayerById(String adjustmentId) {
+    return removeById(adjustmentId) != null;
+  }
+
+  /// Remove a function graph by its ID.
+  bool removeGraphById(String graphId) {
+    return removeById(graphId) != null;
   }
 
   // ---------------------------------------------------------------------------
@@ -140,6 +211,12 @@ class LayerNode extends GroupNode {
   ImageNode? findImageNode(String imageId) {
     final node = findChild(imageId);
     return node is ImageNode ? node : null;
+  }
+
+  /// Find a function graph node by its ID.
+  FunctionGraphNode? findGraphNode(String graphId) {
+    final node = findChild(graphId);
+    return node is FunctionGraphNode ? node : null;
   }
 
   // ---------------------------------------------------------------------------
@@ -178,6 +255,19 @@ class LayerNode extends GroupNode {
     final json = baseToJson();
     json['nodeType'] = 'layer';
     json['children'] = children.map((c) => c.toJson()).toList();
+    return json;
+  }
+
+  /// 🚀 PERF: Serialize layer metadata WITHOUT stroke data.
+  ///
+  /// Used by the sharded cloud save path where strokes are saved to a
+  /// subcollection. Skips `StrokeNode.toJson()` for all stroke children,
+  /// avoiding ~1MB of temporary allocation (300+ strokes × ~3KB each).
+  Map<String, dynamic> toJsonMetadataOnly() {
+    final json = baseToJson();
+    json['nodeType'] = 'layer';
+    json['children'] =
+        children.where((c) => c is! StrokeNode).map((c) => c.toJson()).toList();
     return json;
   }
 

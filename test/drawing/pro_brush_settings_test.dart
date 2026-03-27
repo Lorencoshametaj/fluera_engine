@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/drawing/models/pro_brush_settings.dart';
+import 'package:fluera_engine/src/drawing/models/pro_brush_settings.dart';
 
 void main() {
   // =========================================================================

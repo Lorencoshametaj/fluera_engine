@@ -113,7 +113,7 @@ class AuditExporter {
         'generatedAt': DateTime.now().toUtc().toIso8601String(),
         'generatedBy': generatedBy,
         'documentId': documentId,
-        'format': 'nebula-audit-report',
+        'format': 'fluera-audit-report',
       },
       'summary': {
         'totalEntries': entries.length,

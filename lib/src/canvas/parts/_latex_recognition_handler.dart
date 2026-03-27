@@ -1,4 +1,4 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 /// 🧮 LaTeX Recognition Handler — converts lasso-selected strokes to LatexNode.
 ///
@@ -8,20 +8,17 @@ part of '../nebula_canvas_screen.dart';
 /// 3. Recognize via Pix2TexRecognizer
 /// 4. Show confirmation dialog with preview
 /// 5. On confirm: delete strokes + insert LatexNode at same position
-extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
+extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
   /// Convert the current lasso selection to a LatexNode via OCR recognition.
   Future<void> _convertSelectionToLatex() async {
-    debugPrint('🧮 [LaTeX] _convertSelectionToLatex called');
     try {
       if (!_lassoTool.hasSelection) {
-        debugPrint('🧮 [LaTeX] No selection, aborting');
         return;
       }
 
       // 1. Collect selected strokes
       final layer = _layerController.activeLayer;
       if (layer == null) {
-        debugPrint('🧮 [LaTeX] No active layer, aborting');
         return;
       }
 
@@ -32,13 +29,7 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
         }
       }
 
-      debugPrint(
-        '🧮 [LaTeX] Selected ${selectedStrokes.length} strokes from ${layer.strokes.length} total',
-      );
       if (selectedStrokes.isEmpty) {
-        debugPrint(
-          '🧮 [LaTeX] No strokes matched selectedIds: ${_lassoTool.selectedIds}',
-        );
         return;
       }
 
@@ -58,27 +49,32 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
           }).toList();
 
       final inkData = InkData(inkStrokes);
-      debugPrint('🧮 [LaTeX] InkData ready: ${inkData.totalPoints} points');
 
       // 3. Rasterize to PNG
-      final png = await InkRasterizer.rasterize(inkData, size: 512);
+      final png = await InkRasterizer.rasterize(
+        inkData,
+        width: 512,
+        height: 128,
+      );
       if (png == null || !mounted) {
-        debugPrint(
-          '🧮 [LaTeX] Rasterize failed (png=${png != null}, mounted=$mounted)',
-        );
         return;
       }
-      debugPrint('🧮 [LaTeX] Rasterized: ${png.length} bytes');
+
+      // DEBUG: Save rasterized image to inspect what the model sees
+      try {
+        final dir = await getSafeDocumentsDirectory();
+        if (dir == null) return; // Web: no filesystem
+        final debugFile = File('${dir.path}/hme_debug_input.png');
+        await debugFile.writeAsBytes(png);
+      } catch (_) {}
 
       // 4. Recognize via HME CTC model
-      debugPrint('🧮 [LaTeX] Initializing recognizer...');
-      if (NebulaCanvasLatexHandler._latexRecognizer == null) {
-        NebulaCanvasLatexHandler._latexRecognizer = HmeLatexRecognizer();
-        await NebulaCanvasLatexHandler._latexRecognizer!.initialize();
+      if (FlueraCanvasLatexHandler._latexRecognizer == null) {
+        FlueraCanvasLatexHandler._latexRecognizer = HmeLatexRecognizer();
+        await FlueraCanvasLatexHandler._latexRecognizer!.initialize();
       }
-      final recognizer = NebulaCanvasLatexHandler._latexRecognizer!;
+      final recognizer = FlueraCanvasLatexHandler._latexRecognizer!;
       if (!mounted) return;
-      debugPrint('🧮 [LaTeX] Recognizer ready, calling recognizeImage...');
 
       // Show loading indicator
       ScaffoldMessenger.of(context).showSnackBar(
@@ -102,9 +98,6 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
       );
 
       final result = await recognizer.recognizeImage(png);
-      debugPrint(
-        '🧮 [LaTeX] Recognition result: "${result.latexString}" (confidence: ${result.confidence})',
-      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -161,10 +154,7 @@ extension NebulaCanvasLatexRecognitionHandler on _NebulaCanvasScreenState {
       _autoSaveCanvas();
 
       HapticFeedback.heavyImpact();
-      debugPrint('🧮 [LaTeX] LatexNode created at ($center)');
     } catch (e, st) {
-      debugPrint('🧮 [LaTeX] ERROR: $e');
-      debugPrint('🧮 [LaTeX] STACKTRACE: $st');
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(

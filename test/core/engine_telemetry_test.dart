@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/engine_telemetry.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/core/engine_telemetry.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   late EngineTelemetry telemetry;

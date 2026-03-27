@@ -1,4 +1,4 @@
-# Aggiornamento Motore PDF — Nebula Engine
+# Aggiornamento Motore PDF — Fluera Engine
 *Report completo delle implementazioni effettuate per portare il modulo PDF a uno standard professionale ("Top-Tier").*
 
 L'intero codice del `PdfExportWriter` (puro Dart, zero dipendenze esterne) è stato completamente riscritto e potenziato, passando da circa 600 righe di codice a oltre 2000. Sono stati creati 2 nuovi file di supporto e ben **56 unit test** (tutti superati con successo).

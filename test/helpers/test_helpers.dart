@@ -1,14 +1,14 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
-import 'package:nebula_engine/src/core/nodes/group_node.dart';
-import 'package:nebula_engine/src/core/nodes/layer_node.dart';
-import 'package:nebula_engine/src/core/nodes/stroke_node.dart';
-import 'package:nebula_engine/src/core/nodes/shape_node.dart';
-import 'package:nebula_engine/src/drawing/models/pro_drawing_point.dart';
-import 'package:nebula_engine/src/drawing/models/pro_brush_settings.dart';
-import 'package:nebula_engine/src/core/models/shape_type.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/nodes/group_node.dart';
+import 'package:fluera_engine/src/core/nodes/layer_node.dart';
+import 'package:fluera_engine/src/core/nodes/stroke_node.dart';
+import 'package:fluera_engine/src/core/nodes/shape_node.dart';
+import 'package:fluera_engine/src/drawing/models/pro_drawing_point.dart';
+import 'package:fluera_engine/src/drawing/models/pro_brush_settings.dart';
+import 'package:fluera_engine/src/core/models/shape_type.dart';
 
 // ---------------------------------------------------------------------------
 // Test helpers — reusable across all test files

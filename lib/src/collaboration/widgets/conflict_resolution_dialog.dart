@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../conflict_resolution.dart';
-import '../nebula_realtime_adapter.dart';
+import '../fluera_realtime_adapter.dart';
 
 /// 🔀 Conflict Resolution Dialog
 ///

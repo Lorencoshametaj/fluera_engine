@@ -8,12 +8,17 @@ import '../../utils/key_value_store.dart';
 import '../../core/tabular/cell_node.dart';
 import './formula_reference_sheet.dart';
 import './hsv_color_picker.dart';
-import '../../l10n/nebula_localizations.dart';
+import './pro_color_picker.dart';
+import '../overlays/eyedropper_overlay.dart';
+import '../../core/engine_scope.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
+import '../../core/models/pdf_annotation_model.dart';
+import '../../core/models/pdf_document_model.dart';
 import '../../../testing/brush_testing.dart';
-import '../../storage/nebula_cloud_adapter.dart';
+import '../../storage/fluera_cloud_adapter.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../tools/pdf/pdf_annotation_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
@@ -28,12 +33,14 @@ import 'toolbar_shapes.dart';
 import 'toolbar_color_palette.dart';
 import 'toolbar_sliders.dart';
 import 'toolbar_settings_dropdown.dart';
+import 'handedness_settings_sheet.dart'; // 🖐️ Handedness & palm rejection
 import 'toolbar_recording.dart';
 import 'toolbar_layout.dart';
 import 'toolbar_tab_bar.dart';
 
 part '_toolbar_top_row.dart';
 part '_toolbar_tools_area.dart';
+part '_toolbar_tools_widgets.dart';
 
 /// 🎨 Toolbar professionale per uso quotidiano
 /// Design minimalista e funzionale con:
@@ -59,6 +66,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final bool isPanModeActive; // 🖐️ Modalità Pan
   final bool isStylusModeActive; // 🖊️ Modalità Stylus
   final bool isRulerActive; // 📏 Ruler/guide overlay
+  final bool isMinimapVisible; // 🗺️ Minimap overlay
+  final bool isSectionActive; // 📐 Section tool
   final bool isPenToolActive; // ✏️ Vector Pen Tool
   final bool isLatexActive; // 🧮 LaTeX editor
   final bool isTabularActive; // 📊 Tabular spreadsheet
@@ -104,6 +113,12 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final bool hasFrozenRow; // Whether header row is frozen
   final VoidCallback? onToggleFreezeRow;
   final Duration recordingDuration;
+  final double recordingAmplitude; // 🎵 Live amplitude for waveform bars
+  /// 🚀 P99 FIX: Optional ValueListenables for recording state.
+  /// When provided, the recording button uses these to update independently
+  /// of the parent widget tree, eliminating full canvas rebuilds.
+  final ValueListenable<Duration>? recordingDurationNotifier;
+  final ValueListenable<double>? recordingAmplitudeNotifier;
   final String? noteTitle;
   // 🎨 Preset-based brush selection
   final List<BrushPreset> brushPresets;
@@ -137,6 +152,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback onPanModeToggle; // 🖐️ Callback Pan Mode
   final VoidCallback onStylusModeToggle; // 🖊️ Callback Stylus Mode
   final VoidCallback? onRulerToggle; // 📏 Callback Ruler toggle
+  final VoidCallback? onMinimapToggle; // 🗺️ Callback Minimap toggle
+  final VoidCallback? onSectionToggle; // 📐 Callback Section toggle
   final VoidCallback? onPenToolToggle; // ✏️ Callback Pen Tool toggle
   final VoidCallback? onLatexToggle; // 🧮 Callback LaTeX toggle
   final VoidCallback? onTabularToggle; // 📊 Callback Tabular toggle (compat)
@@ -147,10 +164,6 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback onRecordingPressed; // � Callback registrazione
   final VoidCallback
   onViewRecordingsPressed; // 🎧 Callback visualizza registrazioni
-  final VoidCallback?
-  onMultiViewPressed; // 📋 Callback pulsante multiview (opzionale)
-  final ValueChanged<int>?
-  onMultiViewModeSelected; // 📋 Callback selezione mode specifica
   final bool forceLeftAlign; // 🎯 Forza allineamento a sinistra
   // 📐 Layout callbacks
   final VoidCallback? onCanvasLayoutPressed; // Canvas solo
@@ -177,7 +190,10 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final VoidCallback?
   onShapeRecognitionSensitivityCycle; // 🔷 Long-press to cycle sensitivity
   final VoidCallback? onGhostSuggestionToggle; // 👻 Double-tap to toggle ghost
+  final VoidCallback? onSearchPressed; // 🔍 Handwriting search
+  final bool isSearchActive; // 🔍 Search overlay visible
   final VoidCallback? onPdfImportPressed; // 📄 PDF import
+  final VoidCallback? onPdfCreateBlankPressed; // 📄 PDF create blank
   // 📄 PDF active state — contextual tools appear when a PDF is loaded
   final bool isPdfActive;
   final PdfDocumentNode? pdfDocument;
@@ -186,14 +202,30 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final PdfSearchController? pdfSearchController;
   final CommandHistory? pdfCommandHistory;
   final void Function(int selectedPageIndex)? onPdfInsertBlankPage;
+  final void Function(int)? onPdfDuplicatePage;
   final void Function(int)? onPdfDeletePage;
+  final void Function(int oldIndex, int newIndex)? onPdfReorderPage;
+  final VoidCallback? onPdfNightModeToggle;
+  final void Function(int)? onPdfBookmarkToggle;
+  final void Function(int)? onPdfZoomToFit;
+  final VoidCallback? onPdfWatermarkToggle;
+  final void Function(int pageIndex, PdfStampType stamp)? onPdfAddStamp;
+  final void Function(int pageIndex)? onPdfChangeBackground;
+  final VoidCallback? onPdfPrint;
+  final VoidCallback? onPdfPresentation;
+  // TODO(future): onPdfSignature — digital signing requires QTSP, X.509, PAdES.
+  final void Function(PdfLayoutMode)? onPdfLayoutModeChanged;
   final void Function(String, int)? onPdfGoToPage; // 🔍 Scroll to PDF page
   final void Function(String documentId)?
   onPdfDocumentChanged; // 📄 Switch active PDF
   final VoidCallback?
   onPdfLayoutChanged; // 📄 Notify canvas of PDF layout mutations
   final VoidCallback? onPdfExport;
+  final VoidCallback? onPdfDeleteDocument; // 🗑️ Delete entire PDF
   final int pdfSelectedPageIndex;
+  final bool showPdfPageNumbers;
+  final VoidCallback? onTogglePdfPageNumbers;
+  final ValueChanged<int>? onPdfPageIndexChanged;
 
   // ─────────────────────────────────────────────────────────────────────────
   // 🎨 DESIGN TAB — Callbacks and state for Design toolbar features
@@ -232,7 +264,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   final ValueChanged<String>? onTokenExport;
 
   /// ☁️ Cloud sync state notifier — drives the toolbar sync indicator.
-  final ValueListenable<NebulaSyncState>? cloudSyncState;
+  final ValueListenable<FlueraSyncState>? cloudSyncState;
 
   const ProfessionalCanvasToolbar({
     super.key,
@@ -252,6 +284,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.isPanModeActive,
     required this.isStylusModeActive,
     this.isRulerActive = false,
+    this.isMinimapVisible = true,
+    this.isSectionActive = false,
     this.isPenToolActive = false,
     this.isLatexActive = false,
     this.isTabularActive = false,
@@ -293,6 +327,9 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.hasFrozenRow = false,
     this.onToggleFreezeRow,
     required this.recordingDuration,
+    this.recordingAmplitude = 0.0,
+    this.recordingDurationNotifier,
+    this.recordingAmplitudeNotifier,
     this.isImageEditingMode = false,
     this.noteTitle,
     this.brushPresets = const [],
@@ -323,6 +360,8 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.onPanModeToggle,
     required this.onStylusModeToggle,
     this.onRulerToggle,
+    this.onMinimapToggle,
+    this.onSectionToggle,
     this.onPenToolToggle,
     this.onLatexToggle,
     this.onTabularToggle,
@@ -332,8 +371,6 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     required this.onRecordingPressed,
     required this.onViewRecordingsPressed,
 
-    this.onMultiViewPressed,
-    this.onMultiViewModeSelected,
     this.forceLeftAlign = false,
     this.onCanvasLayoutPressed,
     this.onHSplitLayoutPressed,
@@ -358,7 +395,10 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.onShapeRecognitionToggle, // 🔷 Shape recognition toggle
     this.onShapeRecognitionSensitivityCycle, // 🔷 Sensitivity cycle
     this.onGhostSuggestionToggle, // 👻 Ghost toggle
+    this.onSearchPressed, // 🔍 Handwriting search
+    this.isSearchActive = false, // 🔍 Search overlay state
     this.onPdfImportPressed, // 📄 PDF import
+    this.onPdfCreateBlankPressed, // 📄 PDF create blank
     this.isPdfActive = false,
     this.pdfDocument,
     this.pdfDocuments = const [],
@@ -366,12 +406,27 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.pdfSearchController,
     this.pdfCommandHistory,
     this.onPdfInsertBlankPage,
+    this.onPdfDuplicatePage,
     this.onPdfDeletePage,
+    this.onPdfReorderPage,
+    this.onPdfNightModeToggle,
+    this.onPdfBookmarkToggle,
+    this.onPdfZoomToFit,
+    this.onPdfWatermarkToggle,
+    this.onPdfAddStamp,
+    this.onPdfChangeBackground,
+    this.onPdfPrint,
+    this.onPdfPresentation,
+    this.onPdfLayoutModeChanged,
     this.onPdfGoToPage, // 🔍 Scroll to page
     this.onPdfDocumentChanged, // 📄 Switch active PDF
     this.onPdfLayoutChanged, // 📄 Layout mutation callback
     this.onPdfExport,
+    this.onPdfDeleteDocument, // 🗑️ Delete entire PDF
     this.pdfSelectedPageIndex = 0,
+    this.showPdfPageNumbers = true,
+    this.onTogglePdfPageNumbers,
+    this.onPdfPageIndexChanged,
     // 🎨 Design tab
     this.onPrototypePlay,
     this.onFlowLinkAdd,
@@ -415,8 +470,9 @@ class _ProfessionalCanvasToolbarState
     final tabs = [ToolbarTab.main];
     // Always show PDF tab — even without documents, the import button is there
     tabs.add(ToolbarTab.pdf);
+    // V1: Excel hidden — re-enable post-launch
     tabs.add(ToolbarTab.scientific);
-    tabs.add(ToolbarTab.excel);
+    // tabs.add(ToolbarTab.excel);
     tabs.add(ToolbarTab.media);
     // Design tab: SDK-only, not exposed in Looponia (see dev.md)
     return tabs;
@@ -432,10 +488,14 @@ class _ProfessionalCanvasToolbarState
     const Color(0xFFFF6F00), // Arancione
   ];
 
+  // Color history (last 12 used)
+  List<Color> _colorHistory = [];
+
   @override
   void initState() {
     super.initState();
     _loadCustomColors();
+    _loadColorHistory();
   }
 
   // Load colori salvati
@@ -460,45 +520,53 @@ class _ProfessionalCanvasToolbarState
     await prefs.setStringList('custom_colors', colorStrings);
   }
 
-  // Show color picker per slot specifico
-  void _showColorPicker(int index) {
-    Color pickerColor = _customColors[index];
+  // Load color history
+  Future<void> _loadColorHistory() async {
+    final prefs = await KeyValueStore.getInstance();
+    final saved = prefs.getStringList('color_history');
+    if (saved != null && saved.isNotEmpty) {
+      setState(() {
+        _colorHistory = saved
+            .map((s) => Color(int.parse(s)))
+            .toList();
+      });
+    }
+  }
 
-    showDialog(
+  // Save color to history
+  Future<void> _addToColorHistory(Color color) async {
+    setState(() {
+      _colorHistory.removeWhere((c) => c.toARGB32() == color.toARGB32());
+      _colorHistory.insert(0, color);
+      if (_colorHistory.length > 12) _colorHistory = _colorHistory.sublist(0, 12);
+    });
+    final prefs = await KeyValueStore.getInstance();
+    await prefs.setStringList('color_history',
+        _colorHistory.map((c) => c.toARGB32().toString()).toList());
+  }
+
+  // Show pro color picker per slot specifico
+  void _showColorPicker(int index) async {
+    final color = await showProColorPicker(
       context: context,
-      builder: (context) {
-        final l10n = NebulaLocalizations.of(context);
-        return AlertDialog(
-          title: Text(l10n.proCanvas_chooseColor),
-          content: SingleChildScrollView(
-            child: HsvColorPicker(
-              pickerColor: pickerColor,
-              onColorChanged: (color) {
-                pickerColor = color;
-              },
-              pickerAreaHeightPercent: 0.8,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(l10n.cancel),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _customColors[index] = pickerColor;
-                });
-                _saveCustomColors();
-                widget.onColorChanged(pickerColor);
-                Navigator.pop(context);
-              },
-              child: Text(l10n.save),
-            ),
-          ],
-        );
+      currentColor: _customColors[index],
+      colorHistory: _colorHistory,
+      onEyedropperRequested: () async {
+        final picked = await showEyedropperOverlay(context: context);
+        if (picked != null && mounted) {
+          setState(() => _customColors[index] = picked);
+          _saveCustomColors();
+          _addToColorHistory(picked);
+          widget.onColorChanged(picked);
+        }
       },
     );
+    if (color != null && mounted) {
+      setState(() => _customColors[index] = color);
+      _saveCustomColors();
+      _addToColorHistory(color);
+      widget.onColorChanged(color);
+    }
   }
 
   @override

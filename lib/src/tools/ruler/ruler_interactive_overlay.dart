@@ -138,9 +138,18 @@ class _RulerInteractiveOverlayState extends State<RulerInteractiveOverlay> {
 
   Rect _viewportRect() {
     final sz = context.size ?? const Size(800, 600);
-    final s = widget.canvasController.scale;
-    final o = widget.canvasController.offset;
-    return Rect.fromLTWH(-o.dx / s, -o.dy / s, sz.width / s, sz.height / s);
+    // Use screenToCanvas to get proper bounds when rotated.
+    final tl = widget.canvasController.screenToCanvas(Offset.zero);
+    final tr = widget.canvasController.screenToCanvas(Offset(sz.width, 0));
+    final bl = widget.canvasController.screenToCanvas(Offset(0, sz.height));
+    final br = widget.canvasController.screenToCanvas(
+      Offset(sz.width, sz.height),
+    );
+    final minX = [tl.dx, tr.dx, bl.dx, br.dx].reduce((a, b) => a < b ? a : b);
+    final maxX = [tl.dx, tr.dx, bl.dx, br.dx].reduce((a, b) => a > b ? a : b);
+    final minY = [tl.dy, tr.dy, bl.dy, br.dy].reduce((a, b) => a < b ? a : b);
+    final maxY = [tl.dy, tr.dy, bl.dy, br.dy].reduce((a, b) => a > b ? a : b);
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   @override
@@ -166,6 +175,7 @@ class _RulerInteractiveOverlayState extends State<RulerInteractiveOverlay> {
                     guideSystem: gs,
                     canvasOffset: offset,
                     zoom: scale,
+                    rotation: widget.canvasController.rotation,
                     isDark: widget.isDark,
                     cursorPosition: _cursorPosition,
                     activeGuideIndex: _dragGuideIndex,
@@ -202,17 +212,12 @@ class _RulerInteractiveOverlayState extends State<RulerInteractiveOverlay> {
                 ),
               ),
 
-            // Guide grab strips
-            if (!_isDragging &&
-                !gs.isMeasuring &&
-                !gs.multiSelectMode &&
-                gs.guidesVisible)
+            // Guide grab strips — always in tree when guides visible
+            // (removing during drag cancels the ongoing gesture)
+            if (!gs.isMeasuring && !gs.multiSelectMode && gs.guidesVisible)
               for (int i = 0; i < gs.horizontalGuides.length; i++)
                 _buildHStrip(i, scale, offset),
-            if (!_isDragging &&
-                !gs.isMeasuring &&
-                !gs.multiSelectMode &&
-                gs.guidesVisible)
+            if (!gs.isMeasuring && !gs.multiSelectMode && gs.guidesVisible)
               for (int i = 0; i < gs.verticalGuides.length; i++)
                 _buildVStrip(i, scale, offset),
 
@@ -401,7 +406,10 @@ class _RulerInteractiveOverlayState extends State<RulerInteractiveOverlay> {
   // ─── Guide Strips ─────────────────────────────────────────────────
 
   Widget _buildHStrip(int i, double scale, Offset offset) {
-    final sy = widget.guideSystem.horizontalGuides[i] * scale + offset.dy;
+    final screenPos = widget.canvasController.canvasToScreen(
+      Offset(0, widget.guideSystem.horizontalGuides[i]),
+    );
+    final sy = screenPos.dy;
     if (sy < rulerSize - _stripW / 2 || sy > 4000) {
       return const SizedBox.shrink();
     }
@@ -424,7 +432,10 @@ class _RulerInteractiveOverlayState extends State<RulerInteractiveOverlay> {
   }
 
   Widget _buildVStrip(int i, double scale, Offset offset) {
-    final sx = widget.guideSystem.verticalGuides[i] * scale + offset.dx;
+    final screenPos = widget.canvasController.canvasToScreen(
+      Offset(widget.guideSystem.verticalGuides[i], 0),
+    );
+    final sx = screenPos.dx;
     if (sx < rulerSize - _stripW / 2 || sx > 4000) {
       return const SizedBox.shrink();
     }

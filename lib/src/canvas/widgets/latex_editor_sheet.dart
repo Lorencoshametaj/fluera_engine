@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../core/latex/ink_stroke_data.dart';
 import '../../core/latex/latex_fuzzy_corrector.dart';
 import '../../core/latex/latex_validator.dart';
+import '../../core/latex/latex_evaluator.dart';
 import '../../core/latex/latex_confidence_annotator.dart';
 import '../../platform/latex_recognition_bridge.dart';
 import 'latex_command_reference.dart';
@@ -12,7 +15,10 @@ import 'latex_preview_card.dart';
 import 'latex_ink_overlay.dart';
 import 'latex_symbol_palette.dart';
 import 'latex_confidence_chips.dart';
+import 'latex_function_graph.dart';
 import 'latex_syntax_highlighting.dart';
+
+part '_latex_editor_widgets.dart';
 
 /// 🧮 LatexEditorSheet — Enterprise-grade Material Design 3 bottom sheet for
 /// creating and editing LaTeX mathematical expressions.
@@ -58,7 +64,11 @@ class LatexEditorSheet extends StatefulWidget {
     this.recognizer,
     this.onConfirm,
     this.onCancel,
+    this.onInsertGraphToCanvas,
   });
+
+  /// Called when user inserts graph to canvas from the graph sheet.
+  final void Function(String latexSource, double xMin, double xMax, double yMin, double yMax, int curveColor)? onInsertGraphToCanvas;
 
   @override
   State<LatexEditorSheet> createState() => _LatexEditorSheetState();
@@ -87,6 +97,10 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   String _lastSnapshotText = '';
   Timer? _undoDebounce;
 
+  // ── P3: Evaluation state ──
+  double? _evaluationResult;
+  String? _evaluationError;
+
   // ── E3: Expression history ──
   static final List<String> _expressionHistory = [];
 
@@ -106,6 +120,13 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   List<LatexCommandEntry> _autocompleteSuggestions = [];
   String _autocompletePrefix = '';
   final FocusNode _editorFocusNode = FocusNode();
+
+  // ── New UX state fields ──
+  bool _previewCollapsed = false;
+  bool _wasKeyboardOpen = false;
+  final List<String> _recentCommands = [];
+  // P4: Font size slider toggle
+  bool _showFontSlider = false;
 
   @override
   void initState() {
@@ -194,6 +215,21 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
 
     // T2: Update autocomplete suggestions
     _updateAutocompleteSuggestions();
+
+    // P3: Live evaluation
+    final src = _sourceController.text.trim();
+    if (src.isNotEmpty && !src.contains('x')) {
+      try {
+        _evaluationResult = LatexEvaluator.evaluate(src);
+        _evaluationError = null;
+      } catch (e) {
+        _evaluationResult = null;
+        _evaluationError = e.toString().replaceFirst('Exception: ', '');
+      }
+    } else {
+      _evaluationResult = null;
+      _evaluationError = null;
+    }
 
     // Trigger rebuild for preview (immediate, lightweight)
     setState(() {});
@@ -480,75 +516,155 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
 
-    // T5: Keyboard shortcuts + T6: Accessibility semantics
-    return Semantics(
-      label: 'Editor LaTeX',
-      container: true,
-      child: Shortcuts(
-        shortcuts: <ShortcutActivator, Intent>{
-          const SingleActivator(LogicalKeyboardKey.enter, control: true):
-              const _ConfirmIntent(),
-          const SingleActivator(LogicalKeyboardKey.enter, meta: true):
-              const _ConfirmIntent(),
-          const SingleActivator(
-                LogicalKeyboardKey.keyZ,
-                control: true,
-                shift: true,
-              ):
-              const _RedoIntent(),
-          const SingleActivator(
-                LogicalKeyboardKey.keyZ,
-                meta: true,
-                shift: true,
-              ):
-              const _RedoIntent(),
-          const SingleActivator(LogicalKeyboardKey.escape):
-              const _CancelIntent(),
-        },
-        child: Actions(
-          actions: <Type, Action<Intent>>{
-            _ConfirmIntent: CallbackAction<_ConfirmIntent>(
-              onInvoke: (_) {
-                if (_sourceController.text.isNotEmpty) _confirm();
-                return null;
+    return Scaffold(
+      backgroundColor: cs.surface,
+      appBar: AppBar(
+        title: const Text('Editor LaTeX'),
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed:
+              () => (widget.onCancel ?? () => Navigator.of(context).pop())(),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.undo_rounded),
+            tooltip: 'Annulla',
+            onPressed: _undoStack.isNotEmpty ? _undo : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.redo_rounded),
+            tooltip: 'Ripeti',
+            onPressed: _redoStack.isNotEmpty ? _redo : null,
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (val) {
+              switch (val) {
+                case 'history':
+                  _showHistorySheet();
+                case 'templates':
+                  _showTemplateSheet();
+                case 'graph':
+                  _showGraphSheet();
+                case 'palette':
+                  _showCommandPalette();
+              }
+            },
+            itemBuilder:
+                (_) => [
+                  const PopupMenuItem(
+                    value: 'history',
+                    child: ListTile(
+                      leading: Icon(Icons.history_rounded),
+                      title: Text('Cronologia'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'templates',
+                    child: ListTile(
+                      leading: Icon(Icons.grid_view_rounded),
+                      title: Text('Modelli'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'graph',
+                    child: ListTile(
+                      leading: Icon(Icons.show_chart_rounded),
+                      title: Text('Grafico'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'palette',
+                    child: ListTile(
+                      leading: Icon(Icons.terminal_rounded),
+                      title: Text('Comandi'),
+                      dense: true,
+                    ),
+                  ),
+                ],
+          ),
+        ],
+      ),
+      body: Builder(
+        builder: (ctx) {
+          final kbOpen = MediaQuery.of(ctx).viewInsets.bottom > 80;
+          if (kbOpen && !_wasKeyboardOpen) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _previewCollapsed = true);
+            });
+          }
+          _wasKeyboardOpen = kbOpen;
+          return Shortcuts(
+            shortcuts: <ShortcutActivator, Intent>{
+              const SingleActivator(LogicalKeyboardKey.enter, control: true):
+                  const _ConfirmIntent(),
+              const SingleActivator(LogicalKeyboardKey.enter, meta: true):
+                  const _ConfirmIntent(),
+              const SingleActivator(
+                    LogicalKeyboardKey.keyZ,
+                    control: true,
+                    shift: true,
+                  ):
+                  const _RedoIntent(),
+              const SingleActivator(
+                    LogicalKeyboardKey.keyZ,
+                    meta: true,
+                    shift: true,
+                  ):
+                  const _RedoIntent(),
+              const SingleActivator(LogicalKeyboardKey.escape):
+                  const _CancelIntent(),
+            },
+            child: Actions(
+              actions: <Type, Action<Intent>>{
+                _ConfirmIntent: CallbackAction<_ConfirmIntent>(
+                  onInvoke: (_) {
+                    if (_sourceController.text.isNotEmpty) _confirm();
+                    return null;
+                  },
+                ),
+                _RedoIntent: CallbackAction<_RedoIntent>(
+                  onInvoke: (_) {
+                    _redo();
+                    return null;
+                  },
+                ),
+                _CancelIntent: CallbackAction<_CancelIntent>(
+                  onInvoke: (_) {
+                    (widget.onCancel ?? () => Navigator.of(context).pop())();
+                    return null;
+                  },
+                ),
               },
-            ),
-            _RedoIntent: CallbackAction<_RedoIntent>(
-              onInvoke: (_) {
-                _redo();
-                return null;
-              },
-            ),
-            _CancelIntent: CallbackAction<_CancelIntent>(
-              onInvoke: (_) {
-                (widget.onCancel ?? () => Navigator.of(context).pop())();
-                return null;
-              },
-            ),
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: cs.surface,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
+              child: Column(
+                children: [
+                  if (isLandscape)
+                    Expanded(child: _buildLandscapeLayout(cs))
+                  else
+                    Expanded(child: _buildPortraitLayout(cs)),
+
+                  _buildToolbar(cs),
+                ],
               ),
             ),
-            child: Column(
-              children: [
-                _buildDragHandle(cs),
-                _buildHeader(cs),
-                const Divider(height: 1),
-
-                // E9: Adaptive layout
-                if (isLandscape)
-                  Expanded(child: _buildLandscapeLayout(cs))
-                else
-                  Expanded(child: _buildPortraitLayout(cs)),
-
-                _buildToolbar(cs),
-              ],
-            ),
-          ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _sourceController.text.isNotEmpty ? _confirm : null,
+        backgroundColor:
+            _sourceController.text.isNotEmpty
+                ? cs.primary
+                : cs.surfaceContainerHighest,
+        child: Icon(
+          Icons.check_rounded,
+          color:
+              _sourceController.text.isNotEmpty
+                  ? cs.onPrimary
+                  : cs.onSurfaceVariant,
         ),
       ),
     );
@@ -620,56 +736,119 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     );
   }
 
-  // Portrait — stacked
+  // Portrait — stacked with collapsible preview
   Widget _buildPortraitLayout(ColorScheme cs) {
-    return Column(
-      children: [
-        // Preview (compact)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: LatexPreviewCard(
-            latexSource: _sourceController.text,
-            fontSize: _fontSize,
-            color: _color,
-            minHeight: 56,
+    return GestureDetector(
+      onVerticalDragUpdate: (d) {
+        if (d.delta.dy > 6) {
+          FocusScope.of(context).unfocus();
+        }
+      },
+      child: Column(
+        children: [
+          // Collapsible preview
+          GestureDetector(
+            onTap: () => setState(() => _previewCollapsed = !_previewCollapsed),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              child:
+                  _previewCollapsed
+                      ? Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.expand_more_rounded,
+                              size: 18,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Anteprima',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                      : Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                        child: GestureDetector(
+                          onLongPress: () {
+                            final src = _sourceController.text;
+                            if (src.isNotEmpty) {
+                              Clipboard.setData(ClipboardData(text: src));
+                              HapticFeedback.mediumImpact();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Text('LaTeX copiato'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 1),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: InteractiveViewer(
+                            child: LatexPreviewCard(
+                              latexSource: _sourceController.text,
+                              fontSize: _fontSize,
+                              color: _color,
+                              minHeight: 100,
+                            ),
+                          ),
+                        ),
+                      ),
+            ),
           ),
-        ),
 
-        // Validation warnings
-        if (_validationErrors.isNotEmpty) _buildValidationBar(cs),
+          // P3: Unified status bar (eval + graph chip + char count)
+          _buildUnifiedStatusBar(cs),
 
-        // Confidence chips
-        if (_confidenceAnnotations.isNotEmpty)
-          LatexConfidenceChips(
-            annotations: _confidenceAnnotations,
-            onChipTapped: (ann) {
-              _sourceController.selection = TextSelection(
-                baseOffset: ann.startIndex,
-                extentOffset: ann.endIndex,
-              );
-            },
+          // Validation warnings
+          if (_validationErrors.isNotEmpty) _buildValidationBar(cs),
+
+          // Confidence chips
+          if (_confidenceAnnotations.isNotEmpty)
+            LatexConfidenceChips(
+              annotations: _confidenceAnnotations,
+              onChipTapped: (ann) {
+                _sourceController.selection = TextSelection(
+                  baseOffset: ann.startIndex,
+                  extentOffset: ann.endIndex,
+                );
+              },
+            ),
+
+          // Tab bar
+          _buildTabBar(cs),
+
+          // Mode content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              physics:
+                  _tabController.index == 1
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
+              children: [
+                _buildKeyboardMode(cs),
+                _buildHandwritingMode(cs),
+                _buildSymbolsMode(),
+                _buildCameraMode(cs),
+              ],
+            ),
           ),
-
-        // Tab bar
-        _buildTabBar(cs),
-
-        // Mode content
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            physics:
-                _tabController.index == 1
-                    ? const NeverScrollableScrollPhysics()
-                    : null,
-            children: [
-              _buildKeyboardMode(cs),
-              _buildHandwritingMode(cs),
-              _buildSymbolsMode(),
-              _buildCameraMode(cs),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -894,325 +1073,398 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     );
   }
 
+  // ── Compact status bar ──
+  // P3: Unified status bar — eval result + graph chip + validation badge + char count
+  Widget _buildUnifiedStatusBar(ColorScheme cs) {
+    final src = _sourceController.text;
+    final len = src.length;
+    final errCount = _validationErrors.length;
+    final containsX = src.contains('x');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: Row(
+        children: [
+          // Evaluation result
+          if (_evaluationResult != null && errCount == 0)
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  final formatted = LatexEvaluator.formatResult(_evaluationResult!);
+                  Clipboard.setData(ClipboardData(text: formatted));
+                  HapticFeedback.selectionClick();
+                },
+                child: Text(
+                  '= ${LatexEvaluator.formatResult(_evaluationResult!)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: cs.primary,
+                    fontFamily: 'monospace',
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
+          else if (_evaluationError != null)
+            Expanded(
+              child: Text(
+                _evaluationError!,
+                style: TextStyle(fontSize: 11, color: cs.error, fontStyle: FontStyle.italic),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            )
+          else
+            const Spacer(),
+
+          // P2: Graph chip instead of inline graph
+          if (containsX)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ActionChip(
+                avatar: Icon(Icons.show_chart_rounded, size: 14, color: cs.primary),
+                label: Text('f(x)', style: TextStyle(fontSize: 11, color: cs.primary)),
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  _showGraphSheet();
+                },
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                backgroundColor: cs.primaryContainer.withValues(alpha: 0.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                side: BorderSide.none,
+              ),
+            ),
+
+          // Validation badge
+          if (errCount > 0) ...[
+            Icon(Icons.warning_amber_rounded, size: 14, color: cs.error),
+            const SizedBox(width: 2),
+            Text('$errCount', style: TextStyle(fontSize: 11, color: cs.error, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 8),
+          ],
+
+          // Char count
+          if (len > 0)
+            Text(
+              '$len car.',
+              style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Track and insert (for quick-insert chips) ──
+  void _trackAndInsert(String latex) {
+    _recentCommands.remove(latex);
+    _recentCommands.insert(0, latex);
+    if (_recentCommands.length > 20) _recentCommands.removeLast();
+    _insertSymbol(latex);
+  }
+
+  // ── History sheet ──
+  void _showHistorySheet() {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (_) => DraggableScrollableSheet(
+            initialChildSize: 0.5,
+            minChildSize: 0.25,
+            maxChildSize: 0.85,
+            expand: false,
+            builder:
+                (ctx, sc) => Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Cronologia',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child:
+                          _expressionHistory.isEmpty
+                              ? Center(
+                                child: Text(
+                                  'Nessuna espressione recente',
+                                  style: TextStyle(color: cs.onSurfaceVariant),
+                                ),
+                              )
+                              : ListView.builder(
+                                controller: sc,
+                                itemCount: _expressionHistory.length,
+                                itemBuilder: (_, i) {
+                                  final expr = _expressionHistory[i];
+                                  final isFav = _expressionFavorites.contains(
+                                    expr,
+                                  );
+                                  return ListTile(
+                                    title: Text(
+                                      expr,
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    leading: Icon(
+                                      isFav
+                                          ? Icons.star_rounded
+                                          : Icons.history_rounded,
+                                      color: isFav ? cs.primary : null,
+                                    ),
+                                    trailing: IconButton(
+                                      icon: Icon(
+                                        isFav
+                                            ? Icons.star_rounded
+                                            : Icons.star_outline_rounded,
+                                      ),
+                                      onPressed: () {
+                                        HapticFeedback.selectionClick();
+                                        setState(() {
+                                          if (isFav) {
+                                            _expressionFavorites.remove(expr);
+                                          } else {
+                                            _expressionFavorites.insert(
+                                              0,
+                                              expr,
+                                            );
+                                          }
+                                        });
+                                        Navigator.of(ctx).pop();
+                                      },
+                                    ),
+                                    onTap: () {
+                                      HapticFeedback.selectionClick();
+                                      _sourceController.text = expr;
+                                      _sourceController
+                                          .selection = TextSelection.collapsed(
+                                        offset: expr.length,
+                                      );
+                                      _pushUndoSnapshot();
+                                      Navigator.of(ctx).pop();
+                                    },
+                                  );
+                                },
+                              ),
+                    ),
+                  ],
+                ),
+          ),
+    );
+  }
+
+  // ── Template sheet ──
+  void _showTemplateSheet() {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (_) => Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Modelli',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildTemplateGrid(cs),
+              ],
+            ),
+          ),
+    );
+  }
+
+  // ── Command palette ──
+  void _showCommandPalette() {
+    _openCommandReference();
+  }
+
+  // ── Graph sheet ──
+  void _showGraphSheet() {
+    final src = _sourceController.text;
+    if (src.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Inserisci un\'espressione prima di visualizzare il grafico',
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (_) => SizedBox(
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: LatexFunctionGraph(
+              latexSource: src,
+              accentColor: Theme.of(context).colorScheme.primary,
+              onInsertToCanvas: widget.onInsertGraphToCanvas,
+            ),
+          ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
-  // Mode: Keyboard — E3 history + E4 expanded quick-insert + E5 templates
+  // Mode: Keyboard — simplified editor-first layout
   // ---------------------------------------------------------------------------
 
   Widget _buildKeyboardMode(ColorScheme cs) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // E3 + U5: Expression history + favorites chips
-          if (_expressionHistory.isNotEmpty ||
-              _expressionFavorites.isNotEmpty) ...[
-            SizedBox(
-              height: 30,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  // U5: Favorites first
-                  ..._expressionFavorites.map((expr) {
-                    final preview =
-                        expr.length > 20 ? '${expr.substring(0, 17)}…' : expr;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: GestureDetector(
-                        onLongPress: () {
-                          // Remove from favorites
-                          HapticFeedback.mediumImpact();
-                          setState(() => _expressionFavorites.remove(expr));
-                        },
-                        child: ActionChip(
-                          label: Text(
-                            preview,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontFamily: 'monospace',
-                              color: cs.onPrimaryContainer,
-                            ),
-                          ),
-                          avatar: Icon(
-                            Icons.star_rounded,
-                            size: 14,
-                            color: cs.primary,
-                          ),
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            _sourceController.text = expr;
-                            _sourceController.selection =
-                                TextSelection.collapsed(offset: expr.length);
-                            _pushUndoSnapshot();
-                          },
-                          backgroundColor: cs.primaryContainer,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                        ),
-                      ),
-                    );
-                  }),
-                  // History (non-favorites)
-                  ..._expressionHistory
-                      .where((e) => !_expressionFavorites.contains(e))
-                      .map((expr) {
-                        final preview =
-                            expr.length > 20
-                                ? '${expr.substring(0, 17)}…'
-                                : expr;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: GestureDetector(
-                            onLongPress: () {
-                              // U5: Add to favorites
-                              HapticFeedback.mediumImpact();
-                              setState(() {
-                                if (!_expressionFavorites.contains(expr)) {
-                                  _expressionFavorites.insert(0, expr);
-                                  if (_expressionFavorites.length > 10) {
-                                    _expressionFavorites.removeLast();
-                                  }
-                                }
-                              });
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    'Aggiunto ai preferiti ★',
-                                  ),
-                                  behavior: SnackBarBehavior.floating,
-                                  duration: const Duration(seconds: 1),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              );
-                            },
-                            child: ActionChip(
-                              label: Text(
-                                preview,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontFamily: 'monospace',
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                              avatar: Icon(
-                                Icons.history_rounded,
-                                size: 14,
-                                color: cs.onSurfaceVariant,
-                              ),
-                              onPressed: () {
-                                HapticFeedback.selectionClick();
-                                _sourceController.text = expr;
-                                _sourceController
-                                    .selection = TextSelection.collapsed(
-                                  offset: expr.length,
-                                );
-                                _pushUndoSnapshot();
-                              },
-                              backgroundColor: cs.surfaceContainerHigh,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-
-          // E4: Expanded quick-insert — compact when keyboard visible
-          _buildQuickInsertRows(
-            cs,
-            compact: MediaQuery.of(context).viewInsets.bottom > 80,
-          ),
+          // P1+P5: Paginated quick-insert (with history as page 0)
+          _buildPaginatedQuickInsert(cs),
 
           const SizedBox(height: 12),
 
-          // E5: Template library (collapsible)
-          if (_showTemplates) ...[
-            _buildTemplateGrid(cs),
-            const SizedBox(height: 8),
-          ],
-
-          // Text field with T1 syntax highlighting + T3 auto-brackets
+          // Text field with autocomplete
           Expanded(
-            child: Stack(
+            child: Column(
               children: [
-                Semantics(
-                  label: 'Campo sorgente LaTeX',
-                  textField: true,
-                  child: TextField(
-                    controller: _sourceController,
-                    focusNode: _editorFocusNode,
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 15,
-                      color: cs.onSurface,
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFF5F5FF),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _color.withValues(alpha: 0.3),
+                        width: 1.5,
+                      ),
                     ),
-                    // T3: Auto-bracket closing
-                    inputFormatters: [_AutoBracketFormatter()],
-                    // U4: Context menu with 'Wrap in…' options
-                    contextMenuBuilder: (context, editableTextState) {
-                      final defaultItems =
-                          editableTextState.contextMenuButtonItems;
-                      final sel = _sourceController.selection;
-                      final hasSelection = sel.isValid && !sel.isCollapsed;
-
-                      if (!hasSelection) {
-                        return AdaptiveTextSelectionToolbar.buttonItems(
-                          anchors: editableTextState.contextMenuAnchors,
-                          buttonItems: defaultItems,
-                        );
-                      }
-
-                      // Add wrap-in commands
-                      final wrapItems = <ContextMenuButtonItem>[
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\frac{}{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\frac{}{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\sqrt{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\sqrt{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\hat{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\hat{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\overline{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\overline{}');
-                          },
-                        ),
-                        ContextMenuButtonItem(
-                          label: 'Wrap \\mathbf{}',
-                          onPressed: () {
-                            ContextMenuController.removeAny();
-                            _insertSymbol(r'\mathbf{}');
-                          },
-                        ),
-                      ];
-
-                      return AdaptiveTextSelectionToolbar.buttonItems(
-                        anchors: editableTextState.contextMenuAnchors,
-                        buttonItems: [...defaultItems, ...wrapItems],
-                      );
-                    },
-                    decoration: InputDecoration(
-                      hintText: r'Es: \frac{x^2 + 1}{y}',
-                      hintStyle: TextStyle(
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-                        fontSize: 14,
+                    child: TextField(
+                      controller: _sourceController,
+                      focusNode: _editorFocusNode,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: _fontSize.clamp(16, 28),
+                        color: cs.onSurface,
+                        height: 1.5,
+                        letterSpacing: 0.5,
                       ),
-                      filled: true,
-                      fillColor: cs.surfaceContainerLow,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: cs.outlineVariant),
+                      decoration: InputDecoration(
+                        hintText: r'es. \frac{a}{b} + \sqrt{x}',
+                        hintStyle: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 16,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                          fontStyle: FontStyle.italic,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(14),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: cs.primary, width: 1.5),
-                      ),
-                      contentPadding: const EdgeInsets.all(12),
+                      onChanged: (_) => _pushUndoSnapshot(),
                     ),
                   ),
                 ),
-                // T2: Autocomplete overlay
-                if (_autocompleteSuggestions.isNotEmpty)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: 8,
-                    child: Material(
-                      elevation: 8,
-                      borderRadius: BorderRadius.circular(12),
-                      color: cs.surfaceContainerHigh,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children:
-                            _autocompleteSuggestions.map((entry) {
-                              return InkWell(
-                                onTap: () => _acceptAutocomplete(entry),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Text(
-                                        entry.command,
-                                        style: TextStyle(
-                                          fontFamily: 'monospace',
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: cs.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          entry.label,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: cs.onSurfaceVariant,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (entry.category != null)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: cs.primaryContainer
-                                                .withValues(alpha: 0.5),
-                                            borderRadius: BorderRadius.circular(
-                                              4,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            entry.category!,
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              color: cs.onPrimaryContainer,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+                // Live evaluation result badge
+                if (_evaluationResult != null || _evaluationError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _evaluationResult != null
+                            ? Colors.green.withValues(alpha: isDark ? 0.15 : 0.08)
+                            : Colors.red.withValues(alpha: isDark ? 0.15 : 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _evaluationResult != null
+                              ? Colors.green.withValues(alpha: 0.3)
+                              : Colors.red.withValues(alpha: 0.3),
+                        ),
                       ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _evaluationResult != null ? Icons.functions_rounded : Icons.error_outline_rounded,
+                            size: 14,
+                            color: _evaluationResult != null ? Colors.green : Colors.red.shade300,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              _evaluationResult != null
+                                  ? '= ${_evaluationResult!.toStringAsFixed(_evaluationResult! == _evaluationResult!.roundToDouble() ? 0 : 4)}'
+                                  : _evaluationError ?? '',
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _evaluationResult != null ? Colors.green : Colors.red.shade300,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                // Autocomplete suggestions
+                if (_autocompleteSuggestions.isNotEmpty)
+                  Container(
+                    height: 40,
+                    margin: const EdgeInsets.only(top: 4),
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _autocompleteSuggestions.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 4),
+                      itemBuilder: (_, i) {
+                        final entry = _autocompleteSuggestions[i];
+                        return ActionChip(
+                          label: Text(
+                            entry.command,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                            ),
+                          ),
+                          onPressed: () => _acceptAutocomplete(entry),
+                          visualDensity: VisualDensity.compact,
+                        );
+                      },
                     ),
                   ),
               ],
@@ -1223,277 +1475,215 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     );
   }
 
-  // ── E4: Three rows of quick-insert chips ──
-  Widget _buildQuickInsertRows(ColorScheme cs, {bool compact = false}) {
-    if (compact) {
-      // ── Keyboard visible: 2 compact rows ──
-      return Column(
-        children: [
-          // Row 1: Most-used structures
-          SizedBox(
-            height: 32,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              children: [
-                _QuickInsertChip(
-                  label: 'frac',
-                  onTap: () => _insertSymbol(r'\frac{}{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '√',
-                  onTap: () => _insertSymbol(r'\sqrt{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'x²',
-                  onTap: () => _insertSymbol('^{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'xᵢ',
-                  onTap: () => _insertSymbol('_{}'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∫',
-                  onTap: () => _insertSymbol(r'\int'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∑',
-                  onTap: () => _insertSymbol(r'\sum'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'lim',
-                  onTap: () => _insertSymbol(r'\lim'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 3),
-          // Row 2: Brackets + common functions
-          SizedBox(
-            height: 32,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              children: [
-                _QuickInsertChip(
-                  label: '(  )',
-                  onTap: () => _insertSymbol(r'\left( \right)'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '[  ]',
-                  onTap: () => _insertSymbol(r'\left[ \right]'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'sin',
-                  onTap: () => _insertSymbol(r'\sin'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'cos',
-                  onTap: () => _insertSymbol(r'\cos'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: 'log',
-                  onTap: () => _insertSymbol(r'\log'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∂',
-                  onTap: () => _insertSymbol(r'\partial'),
-                ),
-                const SizedBox(width: 4),
-                _QuickInsertChip(
-                  label: '∞',
-                  onTap: () => _insertSymbol(r'\infty'),
-                ),
-              ],
-            ),
-          ),
-        ],
+  // ---------------------------------------------------------------------------
+  // Quick-insert — single scrollable row with cursor keys
+  // ---------------------------------------------------------------------------
+
+  // P1+P5: Paginated quick-insert with optional history page
+  Widget _buildPaginatedQuickInsert(ColorScheme cs) {
+    Widget chip(String label, String latex, {IconData? icon}) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: ActionChip(
+          avatar: icon != null ? Icon(icon, size: 14) : null,
+          label: Text(label, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            _trackAndInsert(latex);
+          },
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
       );
     }
 
-    // ── Normal: 3 full rows ──
+    final hasHistory = _expressionHistory.isNotEmpty || _expressionFavorites.isNotEmpty;
+
+    // Build pages list
+    final pages = <Widget>[
+      // Page 0 (optional): History + Favorites
+      if (hasHistory)
+        ListView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          children: [
+            ..._expressionFavorites.map((expr) {
+              final preview = expr.length > 18 ? '${expr.substring(0, 15)}…' : expr;
+              return Padding(
+                padding: const EdgeInsets.only(right: 5),
+                child: GestureDetector(
+                  onLongPress: () {
+                    HapticFeedback.mediumImpact();
+                    setState(() => _expressionFavorites.remove(expr));
+                  },
+                  child: ActionChip(
+                    label: Text(preview, style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: cs.onPrimaryContainer)),
+                    avatar: Icon(Icons.star_rounded, size: 14, color: cs.primary),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      _sourceController.text = expr;
+                      _sourceController.selection = TextSelection.collapsed(offset: expr.length);
+                      _pushUndoSnapshot();
+                    },
+                    backgroundColor: cs.primaryContainer,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                ),
+              );
+            }),
+            ..._expressionHistory.where((e) => !_expressionFavorites.contains(e)).map((expr) {
+              final preview = expr.length > 18 ? '${expr.substring(0, 15)}…' : expr;
+              return Padding(
+                padding: const EdgeInsets.only(right: 5),
+                child: GestureDetector(
+                  onLongPress: () {
+                    HapticFeedback.mediumImpact();
+                    setState(() {
+                      if (!_expressionFavorites.contains(expr)) {
+                        _expressionFavorites.insert(0, expr);
+                        if (_expressionFavorites.length > 10) _expressionFavorites.removeLast();
+                      }
+                    });
+                  },
+                  child: ActionChip(
+                    label: Text(preview, style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: cs.onSurfaceVariant)),
+                    avatar: Icon(Icons.history_rounded, size: 14, color: cs.onSurfaceVariant),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      _sourceController.text = expr;
+                      _sourceController.selection = TextSelection.collapsed(offset: expr.length);
+                      _pushUndoSnapshot();
+                    },
+                    backgroundColor: cs.surfaceContainerHigh,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+
+      // Page: Structures (with cursor keys)
+      ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              children: [
+                SizedBox(width: 32, child: IconButton(icon: const Icon(Icons.chevron_left_rounded, size: 18), onPressed: () => _moveCursor(-1), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero)),
+                SizedBox(width: 32, child: IconButton(icon: const Icon(Icons.chevron_right_rounded, size: 18), onPressed: () => _moveCursor(1), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero)),
+              ],
+            ),
+          ),
+          chip(r'\\', r'\\'),
+          chip('frac', r'\frac{}{}'),
+          chip('sqrt', r'\sqrt{}'),
+          chip('^', '^{}'),
+          chip('_', '_{}'),
+          chip('sum', r'\sum'),
+          chip('int', r'\int'),
+        ],
+      ),
+
+      // Page: Environments
+      ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          chip('()', r'\left(\right)'),
+          chip('[]', r'\left[\right]'),
+          chip('{}', r'\{\}'),
+          chip('matrix', r'\begin{pmatrix}  \\  \end{pmatrix}'),
+          chip('cases', r'\begin{cases}  \\  \end{cases}'),
+          chip('aligned', r'\begin{aligned}  \\  \end{aligned}'),
+        ],
+      ),
+
+      // Page: Functions + Greek
+      ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          chip('sin', r'\sin'),
+          chip('cos', r'\cos'),
+          chip('tan', r'\tan'),
+          chip('log', r'\log'),
+          chip('ln', r'\ln'),
+          chip('inf', r'\infty'),
+          chip('pi', r'\pi'),
+          chip('alpha', r'\alpha'),
+          chip('beta', r'\beta'),
+        ],
+      ),
+    ];
+
+    final pageCount = pages.length;
+    // Use a consistent PageController — avoid recreating
     return Column(
       children: [
-        // Row 1: Structures
         SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _QuickInsertChip(
-                label: 'frac',
-                onTap: () => _insertSymbol(r'\frac{}{}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '√',
-                onTap: () => _insertSymbol(r'\sqrt{}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: 'x²', onTap: () => _insertSymbol('^{}')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: 'xᵢ', onTap: () => _insertSymbol('_{}')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: '∫', onTap: () => _insertSymbol(r'\int')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: '∑', onTap: () => _insertSymbol(r'\sum')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∏',
-                onTap: () => _insertSymbol(r'\prod'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'lim',
-                onTap: () => _insertSymbol(r'\lim'),
-              ),
-            ],
+          height: 36,
+          child: PageView(
+            onPageChanged: (i) => setState(() {}), // refresh dots
+            children: pages,
           ),
         ),
         const SizedBox(height: 4),
-        // Row 2: Environments
-        SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _QuickInsertChip(
-                label: '(  )',
-                onTap: () => _insertSymbol(r'\left( \right)'),
+        // Dot indicators
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(pageCount, (i) {
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(3),
               ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '[  ]',
-                onTap: () => _insertSymbol(r'\left[ \right]'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '{  }',
-                onTap: () => _insertSymbol(r'\left\{ \right\}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'matrix',
-                onTap: () => _insertSymbol(r'\begin{matrix}  \\  \end{matrix}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'cases',
-                onTap: () => _insertSymbol(r'\begin{cases}  \\  \end{cases}'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'aligned',
-                onTap:
-                    () => _insertSymbol(r'\begin{aligned}  \\  \end{aligned}'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        // Row 3: Common functions + template toggle
-        SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _QuickInsertChip(
-                label: 'sin',
-                onTap: () => _insertSymbol(r'\sin'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'cos',
-                onTap: () => _insertSymbol(r'\cos'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'tan',
-                onTap: () => _insertSymbol(r'\tan'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: 'log',
-                onTap: () => _insertSymbol(r'\log'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(label: 'ln', onTap: () => _insertSymbol(r'\ln')),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∂',
-                onTap: () => _insertSymbol(r'\partial'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∇',
-                onTap: () => _insertSymbol(r'\nabla'),
-              ),
-              const SizedBox(width: 5),
-              _QuickInsertChip(
-                label: '∞',
-                onTap: () => _insertSymbol(r'\infty'),
-              ),
-              const SizedBox(width: 12),
-              // E5: Template toggle
-              _TemplateToggleChip(
-                isExpanded: _showTemplates,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() => _showTemplates = !_showTemplates);
-                },
-              ),
-            ],
-          ),
+            );
+          }),
         ),
       ],
     );
   }
 
-  // ── E5: Template grid ──
+  // ---------------------------------------------------------------------------
+  // Template grid
+  // ---------------------------------------------------------------------------
+
   Widget _buildTemplateGrid(ColorScheme cs) {
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 130),
-      child: GridView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 6,
-          crossAxisSpacing: 6,
-          childAspectRatio: 0.35,
-        ),
-        itemCount: _templates.length,
-        itemBuilder: (context, i) {
-          final t = _templates[i];
-          return _TemplateCard(
-            name: t.name,
-            preview: t.preview,
-            onTap: () {
-              HapticFeedback.mediumImpact();
-              _sourceController.text = t.latex;
-              _sourceController.selection = TextSelection.collapsed(
-                offset: t.latex.length,
-              );
-              _pushUndoSnapshot();
-              setState(() => _showTemplates = false);
-            },
-          );
-        },
-      ),
+    final templates = <(String, String)>[
+      ('Fraction', r'\frac{a}{b}'),
+      ('Power', r'x^{n}'),
+      ('Square Root', r'\sqrt{x}'),
+      ('Integral', r'\int_{a}^{b} f(x)\,dx'),
+      ('Sum', r'\sum_{i=0}^{n} a_i'),
+      ('Matrix', r'\begin{pmatrix} a & b \\ c & d \end{pmatrix}'),
+      ('Limit', r'\lim_{x \to \infty} f(x)'),
+      ('Derivative', r'\frac{d}{dx} f(x)'),
+    ];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children:
+          templates.map((t) {
+            return ActionChip(
+              label: Text(t.$1, style: const TextStyle(fontSize: 12)),
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                _trackAndInsert(t.$2);
+                Navigator.of(context).pop();
+              },
+            );
+          }).toList(),
     );
   }
 
@@ -1541,19 +1731,25 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   // Camera OCR mode
   // ---------------------------------------------------------------------------
 
-  /// Pick an image from camera or gallery and run OCR recognition.
-  Future<void> _pickAndRecognize(ImageSource source) async {
+  /// Pick an image from gallery/file system and run OCR recognition.
+  Future<void> _pickAndRecognize() async {
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 90,
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
       );
-      if (picked == null) return;
+      if (result == null || result.files.isEmpty) return;
+      final pickedFile = result.files.first;
+      if (pickedFile.path == null) return;
 
-      final bytes = await picked.readAsBytes();
+      // On web, use bytes directly from FilePicker (no File access)
+      final Uint8List bytes;
+      if (kIsWeb) {
+        if (pickedFile.bytes == null) return;
+        bytes = pickedFile.bytes!;
+      } else {
+        bytes = await File(pickedFile.path!).readAsBytes();
+      }
       setState(() {
         _cameraImageBytes = bytes;
         _isCameraRecognizing = true;
@@ -1569,21 +1765,21 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         return;
       }
 
-      final result = await recognizer.recognizeImage(bytes);
+      final result2 = await recognizer.recognizeImage(bytes);
 
       if (!mounted) return;
 
       setState(() {
         _isCameraRecognizing = false;
-        _cameraConfidence = result.confidence;
-        _cameraAlternatives = result.alternatives;
+        _cameraConfidence = result2.confidence;
+        _cameraAlternatives = result2.alternatives;
       });
 
-      if (result.latexString.isNotEmpty) {
+      if (result2.latexString.isNotEmpty) {
         _pushUndoSnapshot();
-        _sourceController.text = result.latexString;
+        _sourceController.text = result2.latexString;
         _sourceController.selection = TextSelection.collapsed(
-          offset: result.latexString.length,
+          offset: result2.latexString.length,
         );
         HapticFeedback.heavyImpact();
       }
@@ -1698,42 +1894,20 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
           const SizedBox(height: 12),
 
           // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed:
-                      _isCameraRecognizing
-                          ? null
-                          : () => _pickAndRecognize(ImageSource.camera),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.camera_alt_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('Scatta'),
-                    ],
-                  ),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonal(
+              onPressed:
+                  _isCameraRecognizing ? null : () => _pickAndRecognize(),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.photo_library_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Text('Scegli immagine'),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed:
-                      _isCameraRecognizing
-                          ? null
-                          : () => _pickAndRecognize(ImageSource.gallery),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.photo_library_rounded, size: 18),
-                      SizedBox(width: 8),
-                      Text('Galleria'),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
 
           // Alternative results
@@ -1788,55 +1962,37 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // E8: Font size slider — hide when keyboard is up
-          if (MediaQuery.of(context).viewInsets.bottom < 80)
-            Row(
-              children: [
-                Icon(
-                  Icons.format_size_rounded,
-                  size: 18,
-                  color: cs.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${_fontSize.toInt()}',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurface,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderThemeData(
-                      trackHeight: 3,
-                      thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 7,
-                      ),
-                      overlayShape: const RoundSliderOverlayShape(
-                        overlayRadius: 14,
-                      ),
-                      activeTrackColor: cs.primary,
-                      inactiveTrackColor: cs.primaryContainer,
-                      thumbColor: cs.primary,
+          // P4: Font size slider — toggled by icon, hidden by default
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _showFontSlider && MediaQuery.of(context).viewInsets.bottom < 80
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.format_size_rounded, size: 18, color: cs.onSurfaceVariant),
+                        const SizedBox(width: 8),
+                        Text('${_fontSize.toInt()}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface, fontFeatures: const [FontFeature.tabularFigures()])),
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderThemeData(
+                              trackHeight: 3,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                              activeTrackColor: cs.primary,
+                              inactiveTrackColor: cs.primaryContainer,
+                              thumbColor: cs.primary,
+                            ),
+                            child: Slider(value: _fontSize, min: 10, max: 96, divisions: 43, onChanged: (v) => setState(() => _fontSize = v), onChangeEnd: (_) => HapticFeedback.selectionClick()),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Slider(
-                      value: _fontSize,
-                      min: 10,
-                      max: 96,
-                      divisions: 43,
-                      onChanged: (v) {
-                        setState(() => _fontSize = v);
-                      },
-                      onChangeEnd: (_) => HapticFeedback.selectionClick(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          if (MediaQuery.of(context).viewInsets.bottom < 80)
-            const SizedBox(height: 4),
+                  )
+                : const SizedBox.shrink(),
+          ),
           // Action buttons row — compact when keyboard is visible
           Builder(
             builder: (context) {
@@ -1955,6 +2111,18 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     icon: Icons.menu_book_rounded,
                     tooltip: 'LaTeX Commands',
                     onTap: () => _openCommandReference(),
+                  ),
+
+                  const SizedBox(width: 4),
+
+                  // P4: Font size toggle
+                  _ToolbarIconButton(
+                    icon: Icons.format_size_rounded,
+                    tooltip: 'Dimensione: ${_fontSize.toInt()}',
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _showFontSlider = !_showFontSlider);
+                    },
                   ),
 
                   const Spacer(),
@@ -2265,456 +2433,4 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
       },
     );
   }
-}
-
-// =============================================================================
-// Editor Mode
-// =============================================================================
-
-/// Input modes for the LaTeX editor.
-enum LatexEditorMode {
-  /// Traditional keyboard text input.
-  keyboard,
-
-  /// Stylus/touch handwriting recognition.
-  handwriting,
-
-  /// Symbol palette insertion.
-  symbols,
-
-  /// Camera/photo OCR recognition.
-  camera,
-}
-
-// =============================================================================
-// E5: Template Data
-// =============================================================================
-
-class _TemplateData {
-  final String name;
-  final String preview;
-  final String latex;
-  const _TemplateData(this.name, this.preview, this.latex);
-}
-
-const _templates = [
-  _TemplateData(
-    'Quadratica',
-    'x = −b±√…',
-    r'x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}',
-  ),
-  _TemplateData('Euler', 'e^{iπ}+1=0', r'e^{i\pi} + 1 = 0'),
-  _TemplateData('Pitagora', 'a²+b²=c²', r'a^2 + b^2 = c^2'),
-  _TemplateData('Derivata', 'df/dx', r'\frac{d}{dx} f(x)'),
-  _TemplateData('Integrale def.', '∫ₐᵇ f dx', r'\int_{a}^{b} f(x) \, dx'),
-  _TemplateData(
-    'Taylor',
-    'f=∑ fⁿ/n!',
-    r'f(x) = \sum_{n=0}^{\infty} \frac{f^{(n)}(a)}{n!} (x-a)^n',
-  ),
-  _TemplateData('Limite', 'lim x→∞', r'\lim_{x \to \infty} f(x)'),
-  _TemplateData(
-    'Matrice 2×2',
-    '[ a b; c d ]',
-    r'\begin{pmatrix} a & b \\ c & d \end{pmatrix}',
-  ),
-  _TemplateData('Binomiale', '(n k)', r'\binom{n}{k}'),
-  _TemplateData('Sommatoria', '∑ᵢ₌₁ⁿ', r'\sum_{i=1}^{n} a_i'),
-  _TemplateData('Produttoria', '∏ᵢ₌₁ⁿ', r'\prod_{i=1}^{n} a_i'),
-  _TemplateData(
-    'Sistema',
-    '{ eq₁; eq₂ }',
-    r'\begin{cases} x + y = 1 \\ x - y = 0 \end{cases}',
-  ),
-];
-
-// =============================================================================
-// Helper Widgets
-// =============================================================================
-
-class _QuickInsertChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _QuickInsertChip({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Material(
-      color: cs.secondaryContainer,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: cs.onSecondaryContainer,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// E5: Template library toggle chip
-class _TemplateToggleChip extends StatelessWidget {
-  final bool isExpanded;
-  final VoidCallback onTap;
-
-  const _TemplateToggleChip({required this.isExpanded, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Material(
-      color: isExpanded ? cs.primaryContainer : cs.tertiaryContainer,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.auto_awesome_rounded,
-                size: 14,
-                color:
-                    isExpanded ? cs.onPrimaryContainer : cs.onTertiaryContainer,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                'Template',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color:
-                      isExpanded
-                          ? cs.onPrimaryContainer
-                          : cs.onTertiaryContainer,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Icon(
-                isExpanded
-                    ? Icons.expand_less_rounded
-                    : Icons.expand_more_rounded,
-                size: 16,
-                color:
-                    isExpanded ? cs.onPrimaryContainer : cs.onTertiaryContainer,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// E5: Template card
-class _TemplateCard extends StatelessWidget {
-  final String name;
-  final String preview;
-  final VoidCallback onTap;
-
-  const _TemplateCard({
-    required this.name,
-    required this.preview,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Material(
-      color: cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                preview,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  color: cs.onSurfaceVariant,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ToolbarIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  final Color? dotColor;
-  final double? size;
-
-  const _ToolbarIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    this.dotColor,
-    this.size,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            width: size ?? 36,
-            height: size ?? 36,
-            child: Center(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(
-                    icon,
-                    size: size != null ? 18 : 20,
-                    color: cs.onSurfaceVariant,
-                  ),
-                  if (dotColor != null)
-                    Positioned(
-                      right: -2,
-                      bottom: -2,
-                      child: Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: dotColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: cs.surface, width: 1.5),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Compact text key for the keyboard toolbar (e.g. '\\', '{', '}').
-class _CompactKey extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  final ColorScheme cs;
-
-  const _CompactKey({
-    required this.label,
-    required this.onTap,
-    required this.cs,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: cs.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          width: 34,
-          height: 32,
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'monospace',
-                color: cs.onSurface,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Compact icon key for the keyboard toolbar (e.g. arrow keys).
-class _CompactIconKey extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final ColorScheme cs;
-
-  const _CompactIconKey({
-    required this.icon,
-    required this.onTap,
-    required this.cs,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: cs.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          width: 34,
-          height: 32,
-          child: Center(child: Icon(icon, size: 18, color: cs.onSurface)),
-        ),
-      ),
-    );
-  }
-}
-
-/// E2: Header icon button (undo/redo) with enabled state
-class _HeaderIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _HeaderIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.all(6),
-            child: Icon(
-              icon,
-              size: 20,
-              color:
-                  enabled
-                      ? cs.onSurfaceVariant
-                      : cs.onSurfaceVariant.withValues(alpha: 0.3),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// T3: Auto-bracket closing formatter
-// =============================================================================
-
-/// Automatically inserts matching closing brackets and positions
-/// the cursor between them.
-class _AutoBracketFormatter extends TextInputFormatter {
-  static const _pairs = <String, String>{'{': '}', '(': ')', '[': ']'};
-
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    // Only process single-char insertions
-    if (newValue.text.length != oldValue.text.length + 1) return newValue;
-    if (!newValue.selection.isCollapsed) return newValue;
-
-    final cursor = newValue.selection.baseOffset;
-    if (cursor < 1) return newValue;
-
-    final inserted = newValue.text[cursor - 1];
-    final closer = _pairs[inserted];
-
-    if (closer != null) {
-      // Check if the next char is already the matching closer
-      if (cursor < newValue.text.length && newValue.text[cursor] == closer) {
-        return newValue;
-      }
-
-      // Insert the closer and position cursor between
-      final text =
-          newValue.text.substring(0, cursor) +
-          closer +
-          newValue.text.substring(cursor);
-      return TextEditingValue(
-        text: text,
-        selection: TextSelection.collapsed(offset: cursor),
-      );
-    }
-
-    return newValue;
-  }
-}
-
-// =============================================================================
-// T5: Intent classes for keyboard shortcuts
-// =============================================================================
-
-class _ConfirmIntent extends Intent {
-  const _ConfirmIntent();
-}
-
-class _RedoIntent extends Intent {
-  const _RedoIntent();
-}
-
-class _CancelIntent extends Intent {
-  const _CancelIntent();
 }

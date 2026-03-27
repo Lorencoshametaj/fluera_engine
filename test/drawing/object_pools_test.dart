@@ -1,8 +1,8 @@
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/drawing/input/path_pool.dart';
-import 'package:nebula_engine/src/drawing/input/stroke_point_pool.dart';
-import 'package:nebula_engine/src/core/engine_scope.dart';
+import 'package:fluera_engine/src/drawing/input/path_pool.dart';
+import 'package:fluera_engine/src/drawing/input/stroke_point_pool.dart';
+import 'package:fluera_engine/src/core/engine_scope.dart';
 
 void main() {
   // =========================================================================

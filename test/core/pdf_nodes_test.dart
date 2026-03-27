@@ -1,12 +1,12 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/models/pdf_page_model.dart';
-import 'package:nebula_engine/src/core/models/pdf_document_model.dart';
-import 'package:nebula_engine/src/core/models/pdf_text_rect.dart';
-import 'package:nebula_engine/src/core/nodes/pdf_page_node.dart';
-import 'package:nebula_engine/src/core/nodes/pdf_document_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node_factory.dart';
+import 'package:fluera_engine/src/core/models/pdf_page_model.dart';
+import 'package:fluera_engine/src/core/models/pdf_document_model.dart';
+import 'package:fluera_engine/src/core/models/pdf_text_rect.dart';
+import 'package:fluera_engine/src/core/nodes/pdf_page_node.dart';
+import 'package:fluera_engine/src/core/nodes/pdf_document_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node_factory.dart';
 
 void main() {
   // ===========================================================================
@@ -477,10 +477,12 @@ void main() {
       expect(doc.pageNodes[0].pageModel.customOffset, isNotNull);
       expect(doc.pageNodes[0].pageModel.lastModifiedAt, isPositive);
 
-      // Re-lock
+      // Re-lock (lock-in-place: customOffset preserves current position)
       doc.togglePageLock(0);
       expect(doc.pageNodes[0].pageModel.isLocked, true);
-      expect(doc.pageNodes[0].pageModel.customOffset, isNull);
+      // Lock-in-place: customOffset = current position, not null.
+      // Use returnPageToGrid() to snap back to grid (clears customOffset).
+      expect(doc.pageNodes[0].pageModel.customOffset, isNotNull);
     });
 
     test('totalCachedMemoryBytes is 0 without cached images', () {

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../l10n/nebula_localizations.dart';
+import '../l10n/fluera_localizations.dart';
 
 /// 🎨 SPLIT PANEL CONTENT
 /// Model for defining the content of a panel in the advanced split system
@@ -96,7 +96,7 @@ enum SplitPanelContentType {
 
   /// Localized display name
   String getDisplayName(BuildContext context) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     switch (this) {
       case SplitPanelContentType.canvas:
         return l10n.splitPanel_infiniteCanvas;
@@ -117,7 +117,7 @@ enum SplitPanelContentType {
 
   /// Descrizione dettagliata del type of contenuto
   String getDescription(BuildContext context) {
-    final l10n = NebulaLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context);
     switch (this) {
       case SplitPanelContentType.canvas:
         return l10n.splitPanel_canvasDescription;

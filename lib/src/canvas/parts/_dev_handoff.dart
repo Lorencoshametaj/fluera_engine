@@ -1,10 +1,10 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 🛠️ DEV HANDOFF — Wire inspect engine, redline calculator, code generator
 // ============================================================================
 
-extension DevHandoffFeatures on _NebulaCanvasScreenState {
+extension DevHandoffFeatures on _FlueraCanvasScreenState {
   /// Toggle inspect mode.
   /// Wires: inspect_engine
   void _toggleInspectMode() {
@@ -13,10 +13,8 @@ extension DevHandoffFeatures on _NebulaCanvasScreenState {
     });
     if (_isInspectModeActive) {
       _activeInspectEngine = const InspectEngine();
-      debugPrint('[Design] Inspect mode ON');
     } else {
       _activeInspectEngine = null;
-      debugPrint('[Design] Inspect mode OFF');
     }
   }
 
@@ -26,7 +24,6 @@ extension DevHandoffFeatures on _NebulaCanvasScreenState {
     setState(() {
       _isRedlineActive = !_isRedlineActive;
     });
-    debugPrint('[Design] Redline overlay ${_isRedlineActive ? "ON" : "OFF"}');
   }
 
   /// Show code generator panel.
@@ -38,6 +35,5 @@ extension DevHandoffFeatures on _NebulaCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => const DevHandoffPanel(),
     );
-    debugPrint('[Design] Code generator opened');
   }
 }

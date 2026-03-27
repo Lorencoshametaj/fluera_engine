@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import '../core/nodes/pdf_page_node.dart';
 import '../core/nodes/pdf_document_node.dart';
+import '../core/nodes/group_node.dart';
+import '../reflow/reflow_controller.dart';
 
 /// 📄 Controller for dragging unlocked PDF pages on the canvas.
 ///
@@ -18,6 +20,9 @@ class PdfPageDragController {
 
   /// The parent document of the dragging page.
   PdfDocumentNode? _parentDocument;
+
+  /// The parent document being dragged (for broadcast).
+  PdfDocumentNode? get parentDocument => _parentDocument;
 
   /// Page position at drag start (for cancel/undo).
   Offset _dragStartPosition = Offset.zero;
@@ -66,6 +71,20 @@ class PdfPageDragController {
   /// The annotation IDs linked to the dragging page.
   List<String> get linkedAnnotationIds =>
       _draggingPage?.pageModel.annotations ?? const [];
+
+  /// All annotation IDs across grid-locked pages in the dragging document.
+  /// Excludes unlocked pages (customOffset != null) since they don't move
+  /// with the document drag.
+  List<String> get allDocumentAnnotationIds {
+    if (_parentDocument == null) return const [];
+    final ids = <String>[];
+    for (final page in _parentDocument!.pageNodes) {
+      // Skip unlocked pages — they stay at their absolute position
+      if (page.pageModel.customOffset != null) continue;
+      ids.addAll(page.pageModel.annotations);
+    }
+    return ids;
+  }
 
   /// Start dragging a page.
   ///
@@ -197,6 +216,10 @@ class PdfPageDragController {
 
   /// Cancel the drag and restore original position.
   void cancelDrag() {
+    if (_isDraggingDocument) {
+      _cancelDocumentDrag();
+      return;
+    }
     if (_draggingPage == null) return;
 
     _draggingPage!.setPosition(_dragStartPosition.dx, _dragStartPosition.dy);
@@ -206,5 +229,148 @@ class PdfPageDragController {
     _draggingPage = null;
     _parentDocument = null;
     _isSnapped = false;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // 📄 Document-level drag (move all pages as a block)
+  // ────────────────────────────────────────────────────────────────────────────
+
+  /// Whether we are dragging the entire document (vs a single page).
+  bool _isDraggingDocument = false;
+
+  /// Grid origin at drag start (for cancel/undo).
+  Offset _docDragStartOrigin = Offset.zero;
+
+  /// Document grid origin at drag start (for computing total delta).
+  Offset get dragStartDocOrigin => _docDragStartOrigin;
+
+  /// 🌊 Reflow controller for physics-based content displacement.
+  ReflowController? reflowController;
+
+  /// 🌊 Cluster IDs to exclude from reflow (the document's own elements).
+  Set<String> _docExcludeClusterIds = const {};
+
+  /// Whether a document-level drag is active.
+  bool get isDraggingDocument => _isDraggingDocument;
+
+  /// Start dragging the entire document.
+  ///
+  /// [document] — the PdfDocumentNode to drag.
+  /// [touchPoint] — the initial touch position in canvas space.
+  void startDocumentDrag(PdfDocumentNode document, Offset touchPoint) {
+    _parentDocument = document;
+    _isDraggingDocument = true;
+    _docDragStartOrigin = document.documentModel.gridOrigin;
+    _previousPosition = touchPoint;
+    _lastDelta = Offset.zero;
+    _touchOffset = Offset(
+      touchPoint.dx - _docDragStartOrigin.dx,
+      touchPoint.dy - _docDragStartOrigin.dy,
+    );
+
+    // 🌊 REFLOW: Build exclude set from all page annotation IDs
+    if (reflowController != null && reflowController!.isEnabled) {
+      final pageElementIds = <String>{};
+      for (final page in document.pageNodes) {
+        pageElementIds.addAll(page.pageModel.annotations);
+      }
+      _docExcludeClusterIds = reflowController!.getClusterIdsForElements(
+        pageElementIds,
+      );
+    }
+
+    HapticFeedback.selectionClick();
+  }
+
+  /// Compute the union of all page rects as the disturbance area.
+  Rect? _computePageUnionRect() {
+    if (_parentDocument == null) return null;
+    final pages = _parentDocument!.pageNodes;
+    if (pages.isEmpty) return null;
+    var rect = _parentDocument!.pageRectFor(pages.first);
+    for (int i = 1; i < pages.length; i++) {
+      rect = rect.expandToInclude(_parentDocument!.pageRectFor(pages[i]));
+    }
+    return rect;
+  }
+
+  /// Update document drag position.
+  bool updateDocumentDrag(Offset currentPoint) {
+    if (!_isDraggingDocument || _parentDocument == null) return false;
+
+    final newOriginX = currentPoint.dx - _touchOffset.dx;
+    final newOriginY = currentPoint.dy - _touchOffset.dy;
+    final newOrigin = Offset(newOriginX, newOriginY);
+
+    _lastDelta = currentPoint - _previousPosition;
+    _previousPosition = currentPoint;
+
+    // Update grid origin and re-lay out all pages
+    _parentDocument!.documentModel = _parentDocument!.documentModel.copyWith(
+      gridOrigin: newOrigin,
+    );
+
+    // 🔑 Unlocked pages (with customOffset) stay at their absolute position.
+    // They were individually repositioned and should NOT follow the document drag.
+    // Only grid-locked pages (no customOffset) move with the gridOrigin.
+
+    _parentDocument!.performGridLayout();
+    _parentDocument!.invalidateBoundsCache();
+
+    // 🌊 REFLOW: Compute ghost displacements using page union rect
+    if (reflowController != null && reflowController!.isEnabled) {
+      final disturbance = _computePageUnionRect();
+      if (disturbance != null && disturbance.isFinite) {
+        reflowController!.computeGhostDisplacements(
+          disturbance: disturbance,
+          excludeIds: _docExcludeClusterIds,
+        );
+      }
+    }
+
+    return true;
+  }
+
+  /// End document drag.
+  Offset? endDocumentDrag({GroupNode? layerNode}) {
+    if (!_isDraggingDocument || _parentDocument == null) return null;
+
+    final previousOrigin = _docDragStartOrigin;
+    _parentDocument!.invalidateBoundsCache();
+
+    // 🌊 REFLOW: Solve and bake final displacements
+    if (reflowController != null &&
+        reflowController!.ghostDisplacements.isNotEmpty &&
+        layerNode != null) {
+      final disturbance = _computePageUnionRect();
+      if (disturbance != null && disturbance.isFinite) {
+        reflowController!.solveAndBake(
+          disturbance: disturbance,
+          excludeIds: _docExcludeClusterIds,
+          layerNode: layerNode,
+        );
+      }
+    }
+    reflowController?.clearGhosts();
+
+    HapticFeedback.selectionClick();
+
+    _isDraggingDocument = false;
+    _parentDocument = null;
+    _docExcludeClusterIds = const {};
+    return previousOrigin;
+  }
+
+  void _cancelDocumentDrag() {
+    if (_parentDocument == null) return;
+    _parentDocument!.documentModel = _parentDocument!.documentModel.copyWith(
+      gridOrigin: _docDragStartOrigin,
+    );
+    _parentDocument!.performGridLayout();
+    _parentDocument!.invalidateBoundsCache();
+    reflowController?.clearGhosts();
+    _isDraggingDocument = false;
+    _parentDocument = null;
+    _docExcludeClusterIds = const {};
   }
 }

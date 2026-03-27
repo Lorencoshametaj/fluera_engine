@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:onnxruntime_v2/onnxruntime_v2.dart';
+import 'onnx_stub_web.dart';
 
 import '../core/latex/ink_stroke_data.dart';
 import '../core/latex/latex_tokenizer.dart';
@@ -84,7 +84,7 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
   static const int _maxCacheSize = 32;
 
   /// Package name for asset resolution from host apps.
-  static const String _packageName = 'nebula_engine';
+  static const String _packageName = 'fluera_engine';
 
   OnnxLatexRecognizer({
     this.encoderAssetPath = 'assets/models/comer/encoder.onnx',
@@ -116,10 +116,8 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
         if (bytes == null) continue;
         try {
           _encoderSession = OrtSession.fromBuffer(bytes, sessionOptions);
-          debugPrint('[OnnxLatexRecognizer] Encoder loaded: $path');
           break;
         } catch (e) {
-          debugPrint('[OnnxLatexRecognizer] Encoder $path failed: $e');
           continue;
         }
       }
@@ -130,10 +128,8 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
         if (bytes == null) continue;
         try {
           _decoderSession = OrtSession.fromBuffer(bytes, sessionOptions);
-          debugPrint('[OnnxLatexRecognizer] Decoder loaded: $path');
           break;
         } catch (e) {
-          debugPrint('[OnnxLatexRecognizer] Decoder $path failed: $e');
           continue;
         }
       }
@@ -144,18 +140,9 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
           _tokenizer.isLoaded;
 
       _initialized = true;
-
-      debugPrint(
-        '[OnnxLatexRecognizer] initialized — '
-        'encoder: ${_encoderSession != null ? "✓" : "✗"}, '
-        'decoder: ${_decoderSession != null ? "✓" : "✗"}, '
-        'vocab: ${_tokenizer.vocabSize} tokens, '
-        'beam: $beamWidth, repPenalty: $repetitionPenalty',
-      );
     } catch (e) {
       _initialized = true;
       _modelsAvailable = false;
-      debugPrint('[OnnxLatexRecognizer] initialization failed: $e');
     }
   }
 
@@ -198,7 +185,6 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
 
     // Serialize inference: wait if another call is in progress
     if (_inferenceRunning) {
-      debugPrint('[OnnxLatexRecognizer] waiting for previous inference...');
       await _inferenceDone?.future;
       // Check cache again — previous call might have cached this result
       final cached2 = _cache[cacheKey];
@@ -271,7 +257,7 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
 
   /// Load asset with package prefix fallback.
   ///
-  /// Tries `packages/nebula_engine/<path>` first (for host apps),
+  /// Tries `packages/fluera_engine/<path>` first (for host apps),
   /// then raw `<path>` (for engine tests).
   Future<Uint8List?> _loadAsset(String assetPath) async {
     // Try package-prefixed path first (required when loaded from a host app)
@@ -285,7 +271,6 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
         final data = await rootBundle.load(assetPath);
         return data.buffer.asUint8List();
       } catch (e) {
-        debugPrint('[OnnxLatexRecognizer] Asset not found: $assetPath ($e)');
         return null;
       }
     }
@@ -420,7 +405,6 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
 
     // If no content found, return minimal frame
     if (maxX < minX || maxY < minY) {
-      debugPrint('[OnnxLatexRecognizer] preprocess: no content found');
       const int w = 32, h = 32;
       return _CoMERInput(
         imageData: Float32List(w * h), // all zeros
@@ -455,11 +439,6 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
       outW = (outW * scaleUp).round().clamp(16, 1024);
       outH = (outH * scaleUp).round().clamp(16, 256);
     }
-
-    debugPrint(
-      '[OnnxLatexRecognizer] preprocess: ${origW}x$origH '
-      'content=${contentW}x$contentH → ${outW}x$outH',
-    );
 
     // ── Build output tensor (variable size, matches CROHME pipeline) ──
     final totalPixels = outW * outH;
@@ -568,11 +547,6 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
                     '${c.index}(${_tokenizer.decode([c.index])}=${c.probability.toStringAsFixed(3)})',
               )
               .join(', ');
-          debugPrint(
-            '[OnnxLatexRecognizer] step=$step '
-            'seqLen=${beam.tokenIds.length} '
-            'top5=[$topInfo]',
-          );
         }
 
         // Get top-K tokens
@@ -678,10 +652,9 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
     int charIdx = 0;
 
     for (int i = 0; i < hypothesis.tokenProbs.length; i++) {
-      final tokenId =
-          i + 1 < hypothesis.tokenIds.length
-              ? hypothesis.tokenIds[i + 1]
-              : _tokenizer.eosTokenId;
+      final tokenId = i + 1 < hypothesis.tokenIds.length
+          ? hypothesis.tokenIds[i + 1]
+          : _tokenizer.eosTokenId;
 
       if (tokenId == _tokenizer.bosTokenId ||
           tokenId == _tokenizer.padTokenId) {
@@ -726,21 +699,12 @@ class OnnxLatexRecognizer implements LatexRecognitionBridge {
     // Infer actual vocab size: total elements = batch(1) * seqLen * vocabSize
     final inferredVocabSize = totalElements ~/ seqLen;
     if (inferredVocabSize <= 0 || totalElements != seqLen * inferredVocabSize) {
-      debugPrint(
-        '[OnnxLatexRecognizer] logits shape mismatch: '
-        'total=$totalElements, seqLen=$seqLen, '
-        'inferred vocab=$inferredVocabSize',
-      );
       return null;
     }
 
     // Log once on first call
     if (_loggedVocabSize != inferredVocabSize) {
       _loggedVocabSize = inferredVocabSize;
-      debugPrint(
-        '[OnnxLatexRecognizer] decoder vocab size: $inferredVocabSize '
-        '(tokenizer: ${_tokenizer.vocabSize})',
-      );
     }
 
     final startIdx = (seqLen - 1) * inferredVocabSize;

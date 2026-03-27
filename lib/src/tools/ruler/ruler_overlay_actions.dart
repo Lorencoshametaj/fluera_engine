@@ -129,7 +129,6 @@ extension _RulerOverlayActions on _RulerInteractiveOverlayState {
                 );
               }
             } catch (e) {
-              debugPrint('[RulerOverlay] importGuides parse error: $e');
             }
           }
         });
@@ -210,7 +209,6 @@ extension _RulerOverlayActions on _RulerInteractiveOverlayState {
         }
       case 'exportPresets':
         final json = gs.exportPresetsToJson();
-        debugPrint('Guide presets JSON: $json');
       // Batch operations
       case 'lockAll':
         gs.lockAllGuides();

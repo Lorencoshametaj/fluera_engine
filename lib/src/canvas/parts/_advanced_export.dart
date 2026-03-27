@@ -1,11 +1,11 @@
-part of '../nebula_canvas_screen.dart';
+part of '../fluera_canvas_screen.dart';
 
 // ============================================================================
 // 📤 ADVANCED EXPORT — Wire token export, raster, CRDT, file format,
 //    image adjustment, image fill mode, text auto-resize, plugins
 // ============================================================================
 
-extension AdvancedExportFeatures on _NebulaCanvasScreenState {
+extension AdvancedExportFeatures on _FlueraCanvasScreenState {
   /// Export design tokens in platform format.
   /// Wires: design_token_exporter (CSS/Kotlin/Swift), exportToString
   void _exportTokensToFormat(String format) {
@@ -24,7 +24,6 @@ extension AdvancedExportFeatures on _NebulaCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => TokenExportDialog(format: tokenFormat),
     );
-    debugPrint('[Design] Token export: $format');
   }
 
   /// Show image adjustment panel.
@@ -35,7 +34,6 @@ extension AdvancedExportFeatures on _NebulaCanvasScreenState {
       backgroundColor: Colors.transparent,
       builder: (ctx) => const ImageAdjustmentPanel(),
     );
-    debugPrint('[Design] Image adjustments opened');
   }
 
   /// Set image fill mode.
@@ -106,38 +104,90 @@ extension AdvancedExportFeatures on _NebulaCanvasScreenState {
             ),
           ),
     );
-    debugPrint('[Design] Image fill mode picker opened');
   }
 
   /// Enable text auto-resize on selected text node.
   /// Wires: text_auto_resize
-  void _enableTextAutoResize() {
-    debugPrint('[Design] Text auto-resize enabled');
-  }
+  void _enableTextAutoResize() {}
 
   /// Enable CRDT sync for real-time collaboration.
   /// Wires: scene_graph_crdt, realtime_enterprise
-  void _enableCRDTSync() {
-    debugPrint('[Design] CRDT sync enabled');
-  }
+  void _enableCRDTSync() {}
 
-  /// Save as binary Nebula format.
-  /// Wires: nebula_file_format, binary_canvas_format
-  void _saveAsNebulaFormat() {
-    debugPrint('[Design] Saving as Nebula binary format');
+  /// Save as binary Fluera format.
+  /// Wires: fluera_file_format, binary_canvas_format, fluera_file_export_service
+  Future<void> _saveAsFlueraFormat() async {
+    final layers = _layerController.layers;
+    if (layers.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nothing to export — canvas is empty'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      // Build the .fluera file
+      final bytes = await FlueraFileExportService.buildFlueraFile(
+        layers: layers,
+        title: _noteTitle ?? 'Untitled',
+        backgroundColor:
+            '#${_canvasBackgroundColor.toARGB32().toRadixString(16).padLeft(8, '0')}',
+        paperType: _paperType,
+      );
+
+      if (!mounted) return;
+
+      // Use file_picker to let the user choose a save location
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save as Fluera file',
+        fileName: '${_noteTitle ?? 'canvas'}.fluera',
+        type: FileType.any,
+        bytes: bytes,
+      );
+
+      if (result != null && mounted) {
+        // On desktop, file_picker returns a path; on mobile, bytes are written directly
+        // On web, bytes are downloaded via browser — no File access needed
+        if (!kIsWeb && result.isNotEmpty) {
+          final file = File(result);
+          if (!await file.exists()) {
+            await file.writeAsBytes(bytes);
+          }
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Saved ${(bytes.length / 1024).toStringAsFixed(1)} KB',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   /// Export timelapse recording.
   /// Wires: timelapse_export_config
-  void _exportTimelapseImpl() {
-    debugPrint('[Design] Timelapse export started');
-  }
+  void _exportTimelapseImpl() {}
 
   /// Open raster export dialog.
   /// Wires: raster_encoder_channel, raster_image_encoder
-  void _exportRasterImage() {
-    debugPrint('[Design] Raster export started');
-  }
+  void _exportRasterImage() {}
 
   /// Open plugin manager.
   /// Wires: plugin_api, plugin_budget, sandboxed_event_stream
@@ -233,7 +283,6 @@ extension AdvancedExportFeatures on _NebulaCanvasScreenState {
                 ),
           ),
     );
-    debugPrint('[Design] Plugin manager opened');
   }
 }
 
@@ -265,7 +314,6 @@ class _FillModeOption extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onTap: () {
         Navigator.pop(context);
-        debugPrint('[Design] Fill mode set to: $label');
       },
     );
   }

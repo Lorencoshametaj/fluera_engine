@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/scene_graph/invalidation_graph.dart';
+import 'package:fluera_engine/src/core/scene_graph/invalidation_graph.dart';
 
 void main() {
   late InvalidationGraph graph;

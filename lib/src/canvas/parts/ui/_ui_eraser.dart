@@ -1,8 +1,8 @@
-part of '../../nebula_canvas_screen.dart';
+part of '../../fluera_canvas_screen.dart';
 
 /// 🏗️ Eraser Overlays — cursor, trail, particles, shapes, analytics, undo ghost, etc.
-/// Extracted from _NebulaCanvasScreenState._buildImpl
-extension NebulaCanvasEraserUI on _NebulaCanvasScreenState {
+/// Extracted from _FlueraCanvasScreenState._buildImpl
+extension FlueraCanvasEraserUI on _FlueraCanvasScreenState {
   /// Builds all eraser-related overlays (cursor, trail, lasso, particles, etc.)
   List<Widget> _buildEraserOverlays(BuildContext context) {
     if (!_effectiveIsEraser || _eraserCursorPosition == null) {
@@ -17,11 +17,11 @@ extension NebulaCanvasEraserUI on _NebulaCanvasScreenState {
     // 🎨 Dark/light mode adaptive colors
     final cursorBorderColor =
         isDark
-            ? Colors.red[300]!.withValues(alpha: 0.8)
+            ? const Color(0xFFE57373).withValues(alpha: 0.8)
             : Colors.red.withValues(alpha: 0.7);
     final cursorFillColor =
         isDark
-            ? Colors.red[400]!.withValues(
+            ? const Color(0xFFEF5350).withValues(
               alpha: _eraserPreviewIds.isNotEmpty ? 0.25 : 0.08,
             )
             : Colors.red.withValues(
@@ -116,8 +116,8 @@ extension NebulaCanvasEraserUI on _NebulaCanvasScreenState {
                           decoration: BoxDecoration(
                             color:
                                 isDark
-                                    ? Colors.grey[800]!.withValues(alpha: 0.85)
-                                    : Colors.grey[200]!.withValues(alpha: 0.85),
+                                    ? const Color(0xFF424242).withValues(alpha: 0.85)
+                                    : const Color(0xFFEEEEEE).withValues(alpha: 0.85),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Text(
@@ -244,19 +244,19 @@ extension NebulaCanvasEraserUI on _NebulaCanvasScreenState {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: (isDark ? Colors.grey[900]! : Colors.white)
+                          color: (isDark ? const Color(0xFF212121) : Colors.white)
                               .withValues(alpha: 0.85),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color:
-                                isDark ? Colors.grey[700]! : Colors.grey[300]!,
+                                isDark ? const Color(0xFF616161) : const Color(0xFFE0E0E0),
                           ),
                         ),
                         child: Text(
                           _eraserTool.analyticsSummary,
                           style: TextStyle(
                             fontSize: 10,
-                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                            color: isDark ? const Color(0xFFBDBDBD) : const Color(0xFF757575),
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -441,9 +441,9 @@ extension NebulaCanvasEraserUI on _NebulaCanvasScreenState {
                       color:
                           items[i].$3
                               ? (isDark
-                                  ? Colors.orange[700]
-                                  : Colors.orange[400])
-                              : (isDark ? Colors.grey[800] : Colors.grey[200]),
+                                  ? const Color(0xFFF57C00)
+                                  : const Color(0xFFFFA726))
+                              : (isDark ? const Color(0xFF424242) : const Color(0xFFEEEEEE)),
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
@@ -599,7 +599,7 @@ extension NebulaCanvasEraserUI on _NebulaCanvasScreenState {
                           child: Text(
                             '${_eraserTool.eraserRadius.round()}px',
                             style: TextStyle(
-                              color: isDark ? Colors.red[200] : Colors.red[600],
+                              color: isDark ? const Color(0xFFEF9A9A) : const Color(0xFFE53935),
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
                             ),

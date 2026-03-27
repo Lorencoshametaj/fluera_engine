@@ -1,13 +1,13 @@
-import 'package:nebula_engine/src/core/scene_graph/node_id.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_id.dart';
 import 'package:flutter/material.dart'
     hide CrossAxisAlignment, MainAxisAlignment;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nebula_engine/src/core/nodes/frame_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/canvas_node.dart';
-import 'package:nebula_engine/src/core/scene_graph/node_visitor.dart';
-import 'package:nebula_engine/src/systems/layout_engine.dart';
-import 'package:nebula_engine/src/systems/responsive_breakpoint.dart';
-import 'package:nebula_engine/src/systems/responsive_variant.dart';
+import 'package:fluera_engine/src/core/nodes/frame_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/canvas_node.dart';
+import 'package:fluera_engine/src/core/scene_graph/node_visitor.dart';
+import 'package:fluera_engine/src/systems/layout_engine.dart';
+import 'package:fluera_engine/src/systems/responsive_breakpoint.dart';
+import 'package:fluera_engine/src/systems/responsive_variant.dart';
 
 // =============================================================================
 // Test helpers
