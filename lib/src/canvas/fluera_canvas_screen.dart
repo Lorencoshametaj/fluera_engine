@@ -131,6 +131,14 @@ import '../services/adaptive_debouncer_service.dart';
 import '../services/digital_ink_service.dart';
 import '../services/ink_prediction_service.dart';
 import '../services/word_completion_dictionary.dart';
+import '../services/spellcheck_service.dart';
+import '../services/personal_dictionary_service.dart';
+import '../services/grammar_check_service.dart';
+import '../rendering/canvas/spellcheck_painter.dart';
+import '../rendering/canvas/grammar_painter.dart';
+import '../canvas/overlays/spellcheck_popup.dart';
+import '../canvas/parts/ui/spellcheck_context_menu.dart';
+import '../canvas/parts/ui/grammar_settings_sheet.dart';
 import '../canvas/overlays/ink_prediction_bubble.dart';
 import '../canvas/overlays/ghost_ink_painter.dart';
 import '../services/text_recognition_service.dart';
@@ -378,6 +386,7 @@ part './parts/_radial_expansion.dart';
 part './parts/_proactive_analysis.dart'; // 💡 Proactive knowledge gap analysis
 part './parts/_smart_ink.dart'; // ✍️ Smart Ink — tap-to-reveal handwriting
 part './parts/_chat_with_notes.dart'; // 💬 Chat with Notes — conversational AI
+part './parts/_spellcheck.dart'; // 🔍 Spellcheck — in-canvas spell checking
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -1111,6 +1120,16 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   DigitalTextElement? _inlineEditingElement;
   DateTime? _inlineTextFinishedAt; // 🔒 Cooldown to prevent spurious re-creation
   final _inlineOverlayKey = GlobalKey<InlineTextOverlayState>();
+
+  // 🔍 Spellcheck state
+  Map<String, SpellcheckOverlay> _spellcheckOverlays = {};
+  SpellcheckError? _activeSpellcheckError;
+  String? _activeSpellcheckElementId;
+  Offset? _spellcheckPopupPosition;
+
+  // 📝 Grammar check state
+  Map<String, _GrammarOverlayData> _grammarOverlays = {};
+  GrammarError? _activeGrammarError;
   Color _inlineTextColor = Colors.black;
   FontWeight _inlineTextFontWeight = FontWeight.normal;
   FontStyle _inlineTextFontStyle = FontStyle.normal;

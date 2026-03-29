@@ -456,6 +456,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         },
                       ),
 
+                    // 🔍 SPELLCHECK: Wavy underlines + correction popup
+                    ...buildSpellcheckOverlays(),
+
                     // ↩️ Action Flash Overlay (Undo/Redo HUD feedback)
                     ActionFlashOverlay(key: _actionFlashKey),
                   ],
