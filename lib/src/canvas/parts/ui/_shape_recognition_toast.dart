@@ -317,6 +317,19 @@ class _GhostSuggestionData {
   const _GhostSuggestionData({required this.shape, required this.result});
 }
 
+/// Data class for ink prediction bubble overlay.
+class _InkPredictionBubbleData {
+  final InkPrediction prediction;
+  final Offset anchor;
+  final int strokeCount;
+
+  const _InkPredictionBubbleData({
+    required this.prediction,
+    required this.anchor,
+    required this.strokeCount,
+  });
+}
+
 /// CustomPainter that renders a ghost (semi-transparent dashed) shape preview.
 class _GhostShapePainter extends CustomPainter {
   final ShapeType type;

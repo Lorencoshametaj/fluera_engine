@@ -72,6 +72,7 @@ class ToolbarColorButton extends StatelessWidget {
           HapticFeedback.mediumImpact();
           onLongPress();
         },
+        customBorder: const CircleBorder(),
         borderRadius: BorderRadius.circular(16),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),

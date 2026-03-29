@@ -37,7 +37,7 @@ class OcrResult {
 /// Abstract OCR engine interface.
 ///
 /// Implement this to plug in different OCR backends:
-/// - [MlKitOcrEngine] — Google ML Kit (default, Android/iOS)
+/// - [StubOcrEngine] — No-op stub (default, no external dependency)
 /// - Tesseract, PaddleOCR, Apple Vision, etc.
 ///
 /// The engine handles the raw recognition. [TextRecognitionService]

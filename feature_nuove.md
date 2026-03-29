@@ -295,7 +295,35 @@ Serve: Topological sort + difficulty scoring + study timeline UI + camera guidan
 
 
 ███████████████████████████████████████████████████████████████████████████████
-  SEZIONE C — GESTURES
+  SEZIONE D — MARKETPLACE & TEMPLATES ✅ IMPLEMENTATO
+███████████████████████████████████████████████████████████████████████████████
+
+29. 📦 Marketplace & Templates (Ecosistema di Condivisione) ✅ IMPLEMENTATO
+L'intersezione tra: FlueraFileFormat v4 + Cloud Storage + Canvas Creation
+
+Lo Status Quo: L'utente crea template da zero ogni volta. Non c'è modo di
+condividere o scoprire template creati da altri.
+
+Il Livello Top Tier: Un marketplace integrato dove utenti possono:
+- Sfogliare template per categoria (Studio, Planner, Musica, Calligrafia...)
+- Installare template con un tap → cache locale automatica
+- Applicare un template → canvas pre-popolato con layers + paper type + colori
+- Pubblicare i propri canvas come template per la community
+- Valutare e filtrare template (rating, download count, featured)
+
+Architettura: Backend-agnostico — l'SDK definisce FlueraMarketplaceAdapter
+(interfaccia astratta), l'host app implementa con Firebase/Supabase/REST.
+I template sono file .fluera standard con metadata arricchita.
+
+Implementato in:
+- template_models.dart (TemplatePackage, TemplateCategory, TemplateSearchQuery)
+- fluera_marketplace_adapter.dart (interfaccia astratta con esempi Supabase/Firebase)
+- template_manager.dart (install, apply, publish, cache management)
+- 54 unit test (modelli + manager lifecycle)
+
+
+███████████████████████████████████████████████████████████████████████████████
+  SEZIONE E — GESTURES
 ███████████████████████████████████████████████████████████████████████████████
 
 undo -> tap con due dita

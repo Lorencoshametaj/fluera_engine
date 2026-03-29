@@ -2713,8 +2713,9 @@ class KnowledgeFlowPainter extends CustomPainter {
     final inverseScale = (1.0 / canvasScale).clamp(3.0, 16.0);
     final center = cluster.centroid;
     final importance = semanticController!.clusterImportance[clusterId] ?? 0.5;
-    final importanceScale = 0.7 + importance * 0.6;
-    final nodeRadius = (20.0 + cluster.elementCount.clamp(0, 50) * 0.8) * importanceScale * inverseScale;
+    // Use actual cluster bounds + padding (matches _paintSemanticNodes)
+    final nodePadding = (10.0 + importance * 6.0) * inverseScale;
+    final clusterRect = cluster.bounds.inflate(nodePadding);
     final accentColor = _clusterColor(cluster);
 
     const cardW = 200.0;
@@ -2810,16 +2811,16 @@ class KnowledgeFlowPainter extends CustomPainter {
     final double cardY = center.dy - cardH * 0.3;
     if (placeLeft) {
       // Card to the LEFT of the node
-      cardX = center.dx - nodeRadius - 15 - cardW * (1.0 / canvasScale);
+      cardX = clusterRect.left - 15 - cardW * (1.0 / canvasScale);
     } else {
       // Card to the RIGHT of the node (default)
-      cardX = center.dx + nodeRadius + 15;
+      cardX = clusterRect.right + 15;
     }
 
     // ── 0. 🔗 CONNECTOR LINE: node → card ──
     final connNodeSide = placeLeft
-        ? Offset(center.dx - nodeRadius, center.dy)
-        : Offset(center.dx + nodeRadius, center.dy);
+        ? Offset(clusterRect.left, center.dy)
+        : Offset(clusterRect.right, center.dy);
     final connCardSide = placeLeft
         ? Offset(cardX + cardW * (1.0 / canvasScale), cardY + cardH * 0.3)
         : Offset(cardX, cardY + cardH * 0.3);
@@ -3470,6 +3471,16 @@ class KnowledgeFlowPainter extends CustomPainter {
     // Inverse scale for text readability at extreme zoom-out
     final inverseScale = (1.0 / canvasScale).clamp(3.0, 16.0);
 
+    // 🚀 PERF: Pre-compute loop invariants
+    final textScale = inverseScale * 0.65;
+    final badgeScale = inverseScale * 0.55;
+    final importanceThreshold = semanticController!.importanceTopThreshold;
+    final multiCluster = clusters.length > 2;
+    final flashcardId = semanticController!.flashcardClusterId;
+
+    // 🚀 PERF: Shadow color is cluster-independent — set once
+    _shadowPaint.color = Colors.black.withValues(alpha: 0.12 * fade);
+
     // Collect connected clusters and count connections per cluster
     final connCounts = <String, int>{};
     for (final conn in controller.connections) {
@@ -3480,8 +3491,6 @@ class KnowledgeFlowPainter extends CustomPainter {
     }
 
     for (final cluster in clusters) {
-      // 🔕 FILTER: Skip clusters with fewer than 20 strokes that lack an AI title.
-      // Small clusters without a title are noise in the semantic overview.
       final hasAiTitle = clusterTexts[cluster.id]?.isNotEmpty == true;
       if (cluster.strokeIds.length < 20 && !hasAiTitle) continue;
 
@@ -3490,283 +3499,337 @@ class KnowledgeFlowPainter extends CustomPainter {
       final stats = semanticController!.clusterStats[cluster.id];
       final connCount = connCounts[cluster.id] ?? 0;
 
-      // ── Node radius proportional to element count × importance × inverseScale ──
-      final elementCount = stats?.totalElements ?? 1;
       final importance = semanticController!.getSmoothedImportance(cluster.id);
-      final importanceScale = 0.7 + importance * 0.6; // 0.7x–1.3x
-      final baseNodeRadius = ((math.sqrt(elementCount.toDouble()) * 18.0 + 24.0)
-          .clamp(30.0, 120.0)) * importanceScale * inverseScale;
-      final isTopNode = importance >= semanticController!.importanceTopThreshold
-          && clusters.length > 2;
+      final isTopNode = importance >= importanceThreshold && multiCluster;
+
+      // ── Node rect from actual cluster bounds ──
+      final bounds = cluster.bounds;
+      if (bounds.isEmpty || !bounds.isFinite) continue;
+      final nodePadding = (10.0 + importance * 6.0) * inverseScale;
+      final shortSide = math.min(bounds.width + nodePadding * 2,
+          bounds.height + nodePadding * 2);
+      final cornerRadius = Radius.circular(
+          (shortSide * 0.06).clamp(4.0 * inverseScale, 16.0 * inverseScale));
+      final nodeRect = bounds.inflate(nodePadding);
+      final nodeRRect = RRect.fromRectAndRadius(nodeRect, cornerRadius);
 
       // ── Breathing pulse for connected nodes ──
-      final breathPhase = animationTime * 1.0 +
-          center.dx * 0.001 + center.dy * 0.001;
-      final breath = connCount > 0
-          ? (math.sin(breathPhase) * 0.08 + 1.0)
-          : 1.0;
-      final nodeRadius = baseNodeRadius * breath;
+      final breathRRect = connCount > 0
+          ? (() {
+              final breathPhase = animationTime +
+                  center.dx * 0.001 + center.dy * 0.001;
+              final breathInflate =
+                  (math.sin(breathPhase) * 0.03) * nodePadding;
+              return breathInflate > 0.1
+                  ? RRect.fromRectAndRadius(
+                      nodeRect.inflate(breathInflate), cornerRadius)
+                  : nodeRRect;
+            })()
+          : nodeRRect;
 
-      // ── 0.5. Cluster ownership boundary — tinted area over the strokes ──
-      final bounds = cluster.bounds;
-      if (!bounds.isEmpty && bounds.isFinite) {
-        final inflated = bounds.inflate(12.0 * inverseScale);
-        final ownerRect = RRect.fromRectAndRadius(
-          inflated, Radius.circular(8.0 * inverseScale),
-        );
-        // Subtle fill — cluster color at very low alpha
-        _p
-          ..style = PaintingStyle.fill
-          ..shader = null
-          ..maskFilter = null
-          ..color = color.withValues(alpha: 0.06 * fade);
-        canvas.drawRRect(ownerRect, _p);
-        // Dashed border — slightly more visible
-        _p
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5 * inverseScale
-          ..color = color.withValues(alpha: 0.20 * fade);
-        canvas.drawRRect(ownerRect, _p);
-      }
-
-      // ── 1. Outer glow — importance scales halo ──
-      final glowMultiplier = 1.4 + importance * 0.6; // 1.4x—2.0x
-      final glowAlpha = (0.15 + importance * 0.20) * fade; // 0.15—0.35
-      _softGlowPaint.color = color.withValues(alpha: glowAlpha);
-      canvas.drawCircle(center, nodeRadius * glowMultiplier, _softGlowPaint);
-
-      // ── 2. Glass fill — radial gradient ──
-      final fillGradient = RadialGradient(
-        center: const Alignment(-0.3, -0.3),
-        radius: 1.0,
-        colors: [
-          color.withValues(alpha: 0.18 * fade),
-          color.withValues(alpha: 0.06 * fade),
-          const Color(0xFF0D1117).withValues(alpha: 0.12 * fade),
-        ],
-        stops: const [0.0, 0.6, 1.0],
+      // ── 0. Drop shadow ──
+      canvas.drawRRect(
+        breathRRect.shift(Offset(1.5 * inverseScale, 3.0 * inverseScale)),
+        _shadowPaint,
       );
-      final nodeRect = Rect.fromCircle(center: center, radius: nodeRadius);
+
+      // ── 1. Outer glow ──
+      final glowInflate = (4.0 + importance * 8.0) * inverseScale;
+      _softGlowPaint.color = color.withValues(
+          alpha: (0.10 + importance * 0.15) * fade);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(nodeRect.inflate(glowInflate), cornerRadius),
+        _softGlowPaint,
+      );
+
+      // ── 2. Glass fill ──
+      // 🚀 PERF: Only 2 colors, create shader directly on rect
       _p
         ..style = PaintingStyle.fill
-        ..shader = fillGradient.createShader(nodeRect)
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.06 * fade),
+            color.withValues(alpha: 0.04 * fade),
+          ],
+        ).createShader(nodeRect)
         ..maskFilter = null;
-      canvas.drawCircle(center, nodeRadius, _p);
+      canvas.drawRRect(breathRRect, _p);
       _p.shader = null;
 
-      // ── 3. Inner highlight — glass refraction arc at top ──
-      _reusePath.reset();
-      _reusePath.addArc(
-        Rect.fromCircle(center: center, radius: nodeRadius * 0.92),
-        -math.pi * 0.85,
-        math.pi * 0.7,
-      );
-      _p
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: 0.15 * fade);
-      canvas.drawPath(_reusePath, _p);
-
-      // ── 4. Luminous border — thickness scales with importance ──
-      final borderWidth = 1.0 + importance * 2.0; // 1.0—3.0
+      // ── 3. Luminous border ──
+      final borderWidth =
+          (0.8 + importance * 1.5) * (inverseScale * 0.3).clamp(0.5, 2.5);
       _p
         ..style = PaintingStyle.stroke
         ..strokeWidth = borderWidth
-        ..color = color.withValues(alpha: (0.35 + importance * 0.20) * fade);
-      canvas.drawCircle(center, nodeRadius, _p);
+        ..color = color.withValues(alpha: (0.30 + importance * 0.20) * fade);
+      canvas.drawRRect(breathRRect, _p);
 
-      // ── 5. Connection glow ring (for highly connected nodes) ──
+      // ── 4. Inner highlight ──
+      // 🚀 PERF: White→transparent gradient is cluster-independent
+      final highlightH = 3.0 * inverseScale;
+      final hlRect = Rect.fromLTWH(
+        nodeRect.left + cornerRadius.x,
+        nodeRect.top,
+        nodeRect.width - cornerRadius.x * 2,
+        highlightH,
+      );
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.18 * fade),
+            Colors.transparent,
+          ],
+        ).createShader(hlRect);
+      canvas.drawRect(hlRect, _p);
+      _p.shader = null;
+
+      // ── 5. Connection glow ring ──
       if (connCount >= 2) {
         final glowPulse = math.sin(animationTime * 2.0 + connCount * 0.5)
             * 0.5 + 0.5;
         _softGlowPaint.color = color.withValues(
-          alpha: (0.08 + glowPulse * 0.06) * fade,
+          alpha: (0.06 + glowPulse * 0.05) * fade,
         );
-        canvas.drawCircle(center, nodeRadius + 8, _softGlowPaint);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              nodeRect.inflate(6 * inverseScale), cornerRadius),
+          _softGlowPaint,
+        );
       }
 
-      // ── 5.2 🃏 Flashcard selection ring — animated pulsing glow ──
-      final isFlashcardTarget =
-          semanticController!.flashcardClusterId == cluster.id;
-      if (isFlashcardTarget) {
+      // ── 5.2 Flashcard selection ring ──
+      if (flashcardId == cluster.id) {
         final pulse = math.sin(animationTime * 3.0) * 0.3 + 0.7;
-        // Outer glow halo
         _softGlowPaint.color = const Color(0xFF00E5FF).withValues(
           alpha: 0.20 * pulse * fade,
         );
-        canvas.drawCircle(center, nodeRadius * 1.6, _softGlowPaint);
-        // Inner ring
-        _p
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5
-          ..color = const Color(0xFF00E5FF).withValues(
-            alpha: 0.50 * pulse * fade,
-          );
-        canvas.drawCircle(center, nodeRadius + 6, _p);
-      }
-
-
-      // ── 5.5 Shimmer loading effect for pending AI title nodes ──
-      final isPending = semanticController!.pendingAiRequests.contains(cluster.id);
-      if (isPending) {
-        // Animated shimmer sweep across the node
-        final shimmerPhase = (animationTime * 1.5 +
-            center.dx * 0.002) % (2.0 * math.pi);
-        final shimmerX = math.cos(shimmerPhase) * nodeRadius * 0.8;
-
-        final shimmerGradient = LinearGradient(
-          begin: Alignment(-1.0 + shimmerX / nodeRadius, -0.5),
-          end: Alignment(1.0 + shimmerX / nodeRadius, 0.5),
-          colors: [
-            Colors.transparent,
-            Colors.white.withValues(alpha: 0.08 * fade),
-            Colors.white.withValues(alpha: 0.18 * fade),
-            Colors.white.withValues(alpha: 0.08 * fade),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              nodeRect.inflate(14 * inverseScale), cornerRadius),
+          _softGlowPaint,
         );
         _p
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..color = const Color(0xFF00E5FF).withValues(
+            alpha: 0.45 * pulse * fade,
+          );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              nodeRect.inflate(5 * inverseScale), cornerRadius),
+          _p,
+        );
+      }
+
+      // ── 5.5 Shimmer (only for pending AI) ──
+      if (semanticController!.pendingAiRequests.contains(cluster.id)) {
+        final shimmerPhase = (animationTime * 1.5 +
+            center.dx * 0.002) % (2.0 * math.pi);
+        final halfW = nodeRect.width / 2;
+        final shimmerX = math.cos(shimmerPhase) * halfW * 0.8;
+        _p
           ..style = PaintingStyle.fill
-          ..shader = shimmerGradient.createShader(nodeRect);
-        canvas.drawCircle(center, nodeRadius, _p);
+          ..shader = LinearGradient(
+            begin: Alignment(-1.0 + shimmerX / halfW, -0.5),
+            end: Alignment(1.0 + shimmerX / halfW, 0.5),
+            colors: [
+              Colors.transparent,
+              Colors.white.withValues(alpha: 0.06 * fade),
+              Colors.white.withValues(alpha: 0.14 * fade),
+              Colors.white.withValues(alpha: 0.06 * fade),
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+          ).createShader(nodeRect);
+        canvas.drawRRect(breathRRect, _p);
         _p.shader = null;
       }
 
-      // ── 6. Title text — centered, auto-scaled, with AI crossfade ──
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.scale(inverseScale * 0.70);
-      canvas.translate(-center.dx, -center.dy);
+      // =================================================================
+      // ── 6. FROSTED TITLE BAR ──
+      // =================================================================
 
-      // Constrain width to node diameter (inverse-scaled)
-      final maxTextWidth = nodeRadius * 2.0 / (inverseScale * 0.70) * 0.75;
-      final constrainedWidth = maxTextWidth.clamp(60.0, 300.0);
-
-      // 🎨 Compute dark text color from cluster accent (readable on white)
-      final hsl = HSLColor.fromColor(color);
-      final darkTextColor = hsl.withLightness(0.15).toColor();
-
-      // 🏷️ Content type icon — cached TextPainter
+      final (displayTitle, titleOpacity) =
+          semanticController!.getCrossfadeTitle(cluster.id);
       final icon = semanticController!.contentIcon(cluster.id);
-      final iconAlpha = (0.70 * fade);
+
+      // 🚀 PERF: Cache title TextPainter (layout is the expensive part)
+      final titleCacheKey = '${cluster.id}_sembar_$displayTitle';
+      var titleTp = _cachedTitlePainters[titleCacheKey];
+      final maxTitleW = nodeRect.width / textScale * 0.90;
+      final clampedMaxW = maxTitleW.clamp(50.0, 280.0);
+      if (titleTp == null) {
+        titleTp = TextPainter(
+          text: TextSpan(
+            text: displayTitle,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.92 * fade * titleOpacity),
+              fontSize: 12.0,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+              height: 1.25,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          ellipsis: '…',
+        )..layout(maxWidth: clampedMaxW);
+        _cachedTitlePainters[titleCacheKey] = titleTp;
+        if (_cachedTitlePainters.length > 150) {
+          final keys = _cachedTitlePainters.keys.toList();
+          for (int i = 0; i < 50; i++) {
+            _cachedTitlePainters.remove(keys[i]);
+          }
+        }
+      }
+
+      // Title bar dimensions
+      final barH = (titleTp.height + 10) * textScale;
+      final barRect = Rect.fromLTWH(
+        nodeRect.left,
+        nodeRect.top - barH - 2.0 * inverseScale,
+        nodeRect.width,
+        barH,
+      );
+      final barRRect = RRect.fromRectAndRadius(barRect, cornerRadius);
+
+      // Bar background — frosted dark
+      // 🚀 PERF: Color.lerp once, withValues once
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = null
+        ..maskFilter = null
+        ..color = Color.lerp(color, const Color(0xFF0D1117), 0.75)!
+            .withValues(alpha: 0.85 * fade);
+      canvas.drawRRect(barRRect, _p);
+
+      // Bar border
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.6
+        ..color = color.withValues(alpha: 0.30 * fade);
+      canvas.drawRRect(barRRect, _p);
+
+      // ── Paint icon + title inside bar ──
+      canvas.save();
+      final barCenter = barRect.center;
+      canvas.translate(barCenter.dx, barCenter.dy);
+      canvas.scale(textScale);
+      canvas.translate(-barCenter.dx, -barCenter.dy);
+
+      // 🚀 PERF: Icon cached via _cachedTitlePainters
       final iconCacheKey = '${cluster.id}_icon_$icon';
       var iconTp = _cachedTitlePainters[iconCacheKey];
       if (iconTp == null) {
         iconTp = TextPainter(
           text: TextSpan(text: icon, style: TextStyle(
-            fontSize: 11.0, height: 1.0,
-            color: darkTextColor.withValues(alpha: iconAlpha),
+            fontSize: 10.0, height: 1.0,
+            color: Colors.white.withValues(alpha: 0.70 * fade),
           )),
           textDirection: TextDirection.ltr,
-          textAlign: TextAlign.center,
-        );
-        iconTp.layout();
+        )..layout();
         _cachedTitlePainters[iconCacheKey] = iconTp;
       }
-      iconTp.paint(
-        canvas,
-        Offset(center.dx - iconTp.width / 2, center.dy - iconTp.height - 8),
-      );
 
-      // ── ⭐ Star badge for top-20% importance nodes ──
+      final totalContentW = iconTp.width + 4.0 + titleTp.width;
+      final contentStartX = barCenter.dx - totalContentW / 2;
+
+      iconTp.paint(canvas, Offset(
+        contentStartX,
+        barCenter.dy - iconTp.height / 2,
+      ));
+      titleTp.paint(canvas, Offset(
+        contentStartX + iconTp.width + 4.0,
+        barCenter.dy - titleTp.height / 2,
+      ));
+
+      // Previous title (fading out) — only during crossfade transitions
+      final previousTitle = semanticController!.previousTitles[cluster.id];
+      if (previousTitle != null && titleOpacity < 1.0) {
+        // 🚀 PERF: Cache previous title too
+        final prevCacheKey = '${cluster.id}_semprev_$previousTitle';
+        var prevTp = _cachedTitlePainters[prevCacheKey];
+        if (prevTp == null) {
+          prevTp = TextPainter(
+            text: TextSpan(
+              text: previousTitle,
+              style: TextStyle(
+                color: Colors.white.withValues(
+                    alpha: 0.85 * fade * (1.0 - titleOpacity)),
+                fontSize: 12.0,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+                height: 1.25,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            ellipsis: '…',
+          )..layout(maxWidth: clampedMaxW);
+          _cachedTitlePainters[prevCacheKey] = prevTp;
+        }
+        prevTp.paint(canvas, Offset(
+          contentStartX + iconTp.width + 4.0,
+          barCenter.dy - prevTp.height / 2,
+        ));
+      }
+
+      // ⭐ Star badge for top-20%
       if (isTopNode) {
-        // 🚀 PERF: Reuse _softGlowPaint (already has blur) instead of modifying _p
-        _softGlowPaint.color = const Color(0xFFFFD700).withValues(alpha: 0.15 * fade);
-        canvas.drawCircle(
-          Offset(center.dx + nodeRadius * 0.7, center.dy - nodeRadius * 0.7),
-          8.0, _softGlowPaint,
-        );
+        _softGlowPaint.color = const Color(0xFFFFD700).withValues(
+            alpha: 0.20 * fade);
+        final starPos = Offset(barRect.right - 12, barCenter.dy);
+        canvas.drawCircle(starPos, 7.0, _softGlowPaint);
 
-        // Star icon (cached)
         const starKey = '__star_badge__';
         var starTp = _cachedTitlePainters[starKey];
         if (starTp == null) {
           starTp = TextPainter(
             text: const TextSpan(
               text: '⭐',
-              style: TextStyle(fontSize: 10.0),
+              style: TextStyle(fontSize: 9.0),
             ),
             textDirection: TextDirection.ltr,
           )..layout();
           _cachedTitlePainters[starKey] = starTp;
         }
         starTp.paint(canvas, Offset(
-          center.dx + nodeRadius * 0.7 - starTp.width / 2,
-          center.dy - nodeRadius * 0.7 - starTp.height / 2,
+          starPos.dx - starTp.width / 2,
+          starPos.dy - starTp.height / 2,
         ));
       }
-      final (displayTitle, titleOpacity) =
-          semanticController!.getCrossfadeTitle(cluster.id);
-      final previousTitle = semanticController!.previousTitles[cluster.id];
-
-      // Paint PREVIOUS title (fading out) if mid-transition
-      if (previousTitle != null && titleOpacity < 1.0) {
-        final prevStyle = TextStyle(
-          color: darkTextColor.withValues(alpha: 0.92 * fade * (1.0 - titleOpacity)),
-          fontSize: 13.0,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.3,
-          height: 1.2,
-        );
-        final prevTp = TextPainter(
-          text: TextSpan(text: previousTitle, style: prevStyle),
-          textDirection: TextDirection.ltr,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          ellipsis: '…',
-        );
-        prevTp.layout(maxWidth: constrainedWidth);
-        prevTp.paint(
-          canvas,
-          Offset(center.dx - prevTp.width / 2, center.dy - prevTp.height / 2 + 4),
-        );
-      }
-
-      // Paint CURRENT title (fading in, or fully visible)
-      final titleStyle = TextStyle(
-        color: darkTextColor.withValues(alpha: 0.92 * fade * titleOpacity),
-        fontSize: 13.0,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.3,
-        height: 1.2,
-      );
-      final tp = TextPainter(
-        text: TextSpan(text: displayTitle, style: titleStyle),
-        textDirection: TextDirection.ltr,
-        textAlign: TextAlign.center,
-        maxLines: 2,
-        ellipsis: '…',
-      );
-      tp.layout(maxWidth: constrainedWidth);
-      tp.paint(
-        canvas,
-        Offset(center.dx - tp.width / 2, center.dy - tp.height / 2 + 4),
-      );
 
       canvas.restore();
 
-      // ── 7. Stats mini-badges orbiting the node ──
+      // ── 7. Stats mini-badges ──
       if (stats != null && (stats.totalElements > 1 || connCount > 0)) {
         _paintSemanticStatBadges(
-          canvas, center, nodeRadius, stats, connCount, color, fade,
-          inverseScale,
+          canvas, center, nodeRect, stats, connCount, color, fade,
+          inverseScale, badgeScale,
         );
       }
     }
   }
 
-  /// Paint small orbiting stat badges around a semantic node.
+  /// Paint stat badges along the bottom edge of a semantic node.
   void _paintSemanticStatBadges(
     Canvas canvas,
     Offset center,
-    double nodeRadius,
+    Rect nodeRect,
     ClusterStats stats,
     int connCount,
     Color color,
     double fade,
     double inverseScale,
+    double badgeScale,
   ) {
     final badges = <(String, String)>[]; // (icon, value)
     if (stats.strokeCount > 0) {
@@ -3786,77 +3849,85 @@ class KnowledgeFlowPainter extends CustomPainter {
     }
     if (badges.isEmpty) return;
 
-    // Slow orbit animation
-    final orbitOffset = animationTime * 0.15;
-    final orbitRadius = nodeRadius + 24.0 * inverseScale;
-    final angleStep = (2 * math.pi) / badges.length;
+    // 🚀 PERF: Compute HSL once for all badges, not per-badge
+    final badgeHsl = HSLColor.fromColor(color);
+    final badgeDark = badgeHsl.withLightness(0.20).toColor();
+    final badgeTextColor = badgeDark.withValues(alpha: 0.90 * fade);
+    final pillBgColor = Color.lerp(color, const Color(0xFF0D1117), 0.6)!
+        .withValues(alpha: 0.80 * fade);
+    final pillBorderColor = color.withValues(alpha: 0.35 * fade);
 
-    for (int i = 0; i < badges.length; i++) {
-      final angle = angleStep * i + orbitOffset - math.pi / 2;
-      final badgeCenter = Offset(
-        center.dx + math.cos(angle) * orbitRadius,
-        center.dy + math.sin(angle) * orbitRadius,
-      );
+    final badgeSpacing = 6.0 * inverseScale;
+    // 🚀 PERF: Measure using cached TextPainters
+    double totalW = 0;
+    final widths = <double>[];
+    final heights = <double>[];
+    final painters = <TextPainter>[];
+
+    for (final badge in badges) {
+      final text = '${badge.$1} ${badge.$2}';
+      final cacheKey = '__badge_${text}__';
+      var tp = _cachedTitlePainters[cacheKey];
+      if (tp == null) {
+        tp = TextPainter(
+          text: TextSpan(
+            text: text,
+            style: TextStyle(
+              color: badgeTextColor,
+              fontSize: 11.0,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        _cachedTitlePainters[cacheKey] = tp;
+      }
+      final pillW = tp.width + 10;
+      final pillH = tp.height + 6;
+      painters.add(tp);
+      widths.add(pillW);
+      heights.add(pillH);
+      totalW += pillW;
+    }
+    totalW += (painters.length - 1) * badgeSpacing;
+
+    var x = center.dx - totalW / 2;
+    final y = nodeRect.bottom + 6.0 * inverseScale;
+
+    for (int i = 0; i < painters.length; i++) {
+      final pillW = widths[i];
+      final pillH = heights[i];
+      final badgeCenter = Offset(x + pillW / 2, y + pillH / 2);
 
       canvas.save();
       canvas.translate(badgeCenter.dx, badgeCenter.dy);
-      canvas.scale(inverseScale * 0.55);
+      canvas.scale(badgeScale);
       canvas.translate(-badgeCenter.dx, -badgeCenter.dy);
 
-      // Dark text for white canvas
-      final badgeHsl = HSLColor.fromColor(color);
-      final badgeDark = badgeHsl.withLightness(0.20).toColor();
-
-      final badgeText = '${badges[i].$1} ${badges[i].$2}';
-      final badgeTp = TextPainter(
-        text: TextSpan(
-          text: badgeText,
-          style: TextStyle(
-            color: badgeDark.withValues(alpha: 0.90 * fade),
-            fontSize: 11.0,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-
-      final pillW = badgeTp.width + 10;
-      final pillH = badgeTp.height + 6;
       final pillRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: badgeCenter,
-          width: pillW,
-          height: pillH,
-        ),
+        Rect.fromCenter(center: badgeCenter, width: pillW, height: pillH),
         Radius.circular(pillH / 2),
       );
 
-      // Frosted pill background
       _p
         ..style = PaintingStyle.fill
         ..shader = null
         ..maskFilter = null
-        ..color = Color.lerp(color, const Color(0xFF0D1117), 0.6)!
-            .withValues(alpha: 0.80 * fade);
+        ..color = pillBgColor;
       canvas.drawRRect(pillRect, _p);
-
-      // Border
       _p
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.6
-        ..color = color.withValues(alpha: 0.35 * fade);
+        ..color = pillBorderColor;
       canvas.drawRRect(pillRect, _p);
 
-      // Text
-      badgeTp.paint(
-        canvas,
-        Offset(
-          badgeCenter.dx - badgeTp.width / 2,
-          badgeCenter.dy - badgeTp.height / 2,
-        ),
-      );
+      painters[i].paint(canvas, Offset(
+        badgeCenter.dx - painters[i].width / 2,
+        badgeCenter.dy - painters[i].height / 2,
+      ));
 
       canvas.restore();
+      x += pillW + badgeSpacing;
     }
   }
 

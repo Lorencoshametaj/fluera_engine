@@ -1,7 +1,9 @@
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/models/shape_type.dart';
 import './content_bounds_tracker.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -25,7 +27,7 @@ import './content_bounds_tracker.dart';
 
 /// When the number of stroke regions exceeds this, merge them into a
 /// spatial grid instead of drawing each individually.
-const int _kMergeThreshold = 50;
+const int _kMergeThreshold = 200;
 
 /// Adaptive grid resolution based on stroke count.
 /// More strokes → finer grid for better spatial fidelity.
@@ -177,7 +179,7 @@ class MinimapContentPainter extends CustomPainter {
       }
     }
 
-    // ── Non-stroke regions ─────────────────────────────────────────────────
+    // ── Non-stroke regions (with distinctive visual glyphs) ────────────────
     for (final region in otherRegions) {
       final r = _worldToMinimap(
         region.bounds,
@@ -189,12 +191,24 @@ class MinimapContentPainter extends CustomPainter {
       final drawRect = Rect.fromLTWH(
         r.left,
         r.top,
-        r.width < 1.5 ? 1.5 : r.width,
-        r.height < 1.5 ? 1.5 : r.height,
+        r.width < 3.0 ? 3.0 : r.width,
+        r.height < 3.0 ? 3.0 : r.height,
       );
-      _nodePaint.color =
-          _nodeColors[region.nodeType] ?? const Color(0xCC8E8E93);
-      canvas.drawRect(drawRect, _nodePaint);
+
+      switch (region.nodeType) {
+        case ContentNodeType.text:
+          _paintTextGlyph(canvas, drawRect);
+        case ContentNodeType.image:
+          _paintImageGlyph(canvas, drawRect);
+        case ContentNodeType.pdf:
+          _paintPdfGlyph(canvas, drawRect);
+        case ContentNodeType.shape:
+          _paintShapeGlyph(canvas, drawRect, region.shapeType);
+        default:
+          _nodePaint.color =
+              _nodeColors[region.nodeType] ?? const Color(0xCC8E8E93);
+          canvas.drawRect(drawRect, _nodePaint);
+      }
     }
 
     // ── Stroke regions ─────────────────────────────────────────────────────
@@ -277,8 +291,8 @@ class MinimapContentPainter extends CustomPainter {
 
         final color =
             region.strokeColor ?? _nodeColors[ContentNodeType.stroke]!;
-        _strokePathPaint.color = color.withValues(alpha: 0.85);
-        _strokePathPaint.strokeWidth = (scale * 3.0).clamp(0.5, 2.5);
+        _strokePathPaint.color = color.withValues(alpha: 0.9);
+        _strokePathPaint.strokeWidth = (scale * 12.0).clamp(2.5, 5.0);
         canvas.drawPath(_reusablePath, _strokePathPaint);
       } else {
         // Fallback: dot at center.
@@ -291,7 +305,7 @@ class MinimapContentPainter extends CustomPainter {
           offsetY,
           expandedBounds,
         );
-        canvas.drawCircle(center, 1.0, _nodePaint);
+        canvas.drawCircle(center, 3.0, _nodePaint);
       }
     }
   }
@@ -348,10 +362,13 @@ class MinimapContentPainter extends CustomPainter {
         offsetY,
         expandedBounds,
       );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(r, const Radius.circular(1.5)),
-        _nodePaint,
-      );
+      final rr = RRect.fromRectAndRadius(r, const Radius.circular(1.5));
+      canvas.drawRRect(rr, _nodePaint);
+
+      // Subtle border for cell separation
+      _strokePathPaint.color = baseColor.withValues(alpha: 0.15);
+      _strokePathPaint.strokeWidth = 0.5;
+      canvas.drawRRect(rr, _strokePathPaint);
     }
   }
 
@@ -360,6 +377,243 @@ class MinimapContentPainter extends CustomPainter {
       contentBounds != oldDelegate.contentBounds ||
       canvasBackground != oldDelegate.canvasBackground ||
       _regionFingerprint(regions) != _regionFingerprint(oldDelegate.regions);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // VISUAL GLYPHS — distinctive representations for non-stroke content
+  // ════════════════════════════════════════════════════════════════════════════
+
+  static final Paint _glyphLinePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round;
+
+  /// 📝 Text glyph: horizontal lines mimicking text layout.
+  void _paintTextGlyph(Canvas canvas, Rect r) {
+    final color = _nodeColors[ContentNodeType.text]!;
+
+    // Background fill (subtle)
+    _nodePaint.color = color.withValues(alpha: 0.12);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(r, const Radius.circular(1.0)),
+      _nodePaint,
+    );
+
+    // Horizontal lines (text representation)
+    _glyphLinePaint.color = color.withValues(alpha: 0.8);
+    _glyphLinePaint.strokeWidth = 1.0;
+    final lineCount = (r.height / 3.0).floor().clamp(1, 6);
+    final lineSpacing = r.height / (lineCount + 1);
+    final inset = r.width * 0.15;
+    for (int i = 1; i <= lineCount; i++) {
+      final y = r.top + lineSpacing * i;
+      // Last line shorter (mimics ragged text)
+      final rightInset = i == lineCount ? r.width * 0.35 : inset;
+      canvas.drawLine(
+        Offset(r.left + inset, y),
+        Offset(r.right - rightInset, y),
+        _glyphLinePaint,
+      );
+    }
+  }
+
+  /// 🖼️ Image glyph: filled rect with diagonal cross and small mountain icon.
+  void _paintImageGlyph(Canvas canvas, Rect r) {
+    final color = _nodeColors[ContentNodeType.image]!;
+
+    // Background fill
+    _nodePaint.color = color.withValues(alpha: 0.18);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(r, const Radius.circular(1.0)),
+      _nodePaint,
+    );
+
+    // Border
+    _glyphLinePaint.color = color.withValues(alpha: 0.6);
+    _glyphLinePaint.strokeWidth = 0.8;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(r, const Radius.circular(1.0)),
+      _glyphLinePaint,
+    );
+
+    // Diagonal cross (image placeholder)
+    _glyphLinePaint.color = color.withValues(alpha: 0.45);
+    _glyphLinePaint.strokeWidth = 0.8;
+    canvas.drawLine(r.topLeft, r.bottomRight, _glyphLinePaint);
+    canvas.drawLine(r.topRight, r.bottomLeft, _glyphLinePaint);
+
+    // Small "mountain" triangle in bottom-left quadrant
+    if (r.width > 4 && r.height > 4) {
+      _reusablePath.reset();
+      final mtnLeft = r.left + r.width * 0.15;
+      final mtnRight = r.left + r.width * 0.65;
+      final mtnBottom = r.bottom - r.height * 0.2;
+      final mtnPeak = r.top + r.height * 0.35;
+      _reusablePath.moveTo(mtnLeft, mtnBottom);
+      _reusablePath.lineTo((mtnLeft + mtnRight) * 0.4, mtnPeak);
+      _reusablePath.lineTo(mtnRight, mtnBottom);
+      _reusablePath.close();
+      _nodePaint.color = color.withValues(alpha: 0.45);
+      canvas.drawPath(_reusablePath, _nodePaint);
+    }
+  }
+
+  /// 📄 PDF glyph: page with folded corner.
+  void _paintPdfGlyph(Canvas canvas, Rect r) {
+    final color = _nodeColors[ContentNodeType.pdf]!;
+    final foldSize = (r.width * 0.25).clamp(1.0, 4.0);
+
+    // Page body (with cut corner)
+    _reusablePath.reset();
+    _reusablePath.moveTo(r.left, r.top);
+    _reusablePath.lineTo(r.right - foldSize, r.top);
+    _reusablePath.lineTo(r.right, r.top + foldSize);
+    _reusablePath.lineTo(r.right, r.bottom);
+    _reusablePath.lineTo(r.left, r.bottom);
+    _reusablePath.close();
+
+    _nodePaint.color = color.withValues(alpha: 0.2);
+    canvas.drawPath(_reusablePath, _nodePaint);
+
+    // Border
+    _glyphLinePaint.color = color.withValues(alpha: 0.7);
+    _glyphLinePaint.strokeWidth = 0.8;
+    canvas.drawPath(_reusablePath, _glyphLinePaint);
+
+    // Fold triangle
+    _reusablePath.reset();
+    _reusablePath.moveTo(r.right - foldSize, r.top);
+    _reusablePath.lineTo(r.right - foldSize, r.top + foldSize);
+    _reusablePath.lineTo(r.right, r.top + foldSize);
+    _reusablePath.close();
+    _nodePaint.color = color.withValues(alpha: 0.4);
+    canvas.drawPath(_reusablePath, _nodePaint);
+
+    // Text lines inside page
+    if (r.height > 5) {
+      _glyphLinePaint.color = color.withValues(alpha: 0.45);
+      _glyphLinePaint.strokeWidth = 0.7;
+      final lineCount = (r.height / 3.5).floor().clamp(1, 5);
+      final startY = r.top + foldSize + 1.5;
+      final availableH = r.bottom - startY - 1.5;
+      if (availableH > 2) {
+        final spacing = availableH / (lineCount + 1);
+        for (int i = 1; i <= lineCount; i++) {
+          final y = startY + spacing * i;
+          canvas.drawLine(
+            Offset(r.left + 1.5, y),
+            Offset(r.right - 1.5, y),
+            _glyphLinePaint,
+          );
+        }
+      }
+    }
+  }
+
+  /// 🔷 Shape glyph: renders the actual shape outline.
+  void _paintShapeGlyph(Canvas canvas, Rect r, ShapeType? shapeType) {
+    final color = _nodeColors[ContentNodeType.shape]!;
+    _glyphLinePaint.color = color.withValues(alpha: 0.8);
+    _glyphLinePaint.strokeWidth = 1.2;
+
+    switch (shapeType) {
+      case ShapeType.circle:
+        _nodePaint.color = color.withValues(alpha: 0.1);
+        canvas.drawOval(r, _nodePaint);
+        canvas.drawOval(r, _glyphLinePaint);
+
+      case ShapeType.rectangle:
+        _nodePaint.color = color.withValues(alpha: 0.1);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r, const Radius.circular(0.5)),
+          _nodePaint,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r, const Radius.circular(0.5)),
+          _glyphLinePaint,
+        );
+
+      case ShapeType.triangle:
+        _reusablePath.reset();
+        _reusablePath.moveTo(r.center.dx, r.top);
+        _reusablePath.lineTo(r.right, r.bottom);
+        _reusablePath.lineTo(r.left, r.bottom);
+        _reusablePath.close();
+        _nodePaint.color = color.withValues(alpha: 0.1);
+        canvas.drawPath(_reusablePath, _nodePaint);
+        canvas.drawPath(_reusablePath, _glyphLinePaint);
+
+      case ShapeType.line:
+        canvas.drawLine(r.topLeft, r.bottomRight, _glyphLinePaint);
+
+      case ShapeType.arrow:
+        canvas.drawLine(r.centerLeft, r.centerRight, _glyphLinePaint);
+        // Arrowhead
+        final headSize = math.min(r.width * 0.3, 3.0);
+        canvas.drawLine(
+          r.centerRight,
+          Offset(r.right - headSize, r.center.dy - headSize * 0.6),
+          _glyphLinePaint,
+        );
+        canvas.drawLine(
+          r.centerRight,
+          Offset(r.right - headSize, r.center.dy + headSize * 0.6),
+          _glyphLinePaint,
+        );
+
+      case ShapeType.diamond:
+        _reusablePath.reset();
+        _reusablePath.moveTo(r.center.dx, r.top);
+        _reusablePath.lineTo(r.right, r.center.dy);
+        _reusablePath.lineTo(r.center.dx, r.bottom);
+        _reusablePath.lineTo(r.left, r.center.dy);
+        _reusablePath.close();
+        _nodePaint.color = color.withValues(alpha: 0.1);
+        canvas.drawPath(_reusablePath, _nodePaint);
+        canvas.drawPath(_reusablePath, _glyphLinePaint);
+
+      case ShapeType.star:
+        _paintStarGlyph(canvas, r, color);
+
+      default:
+        // Freehand, pentagon, hexagon, heart, etc. → outlined rect
+        _nodePaint.color = color.withValues(alpha: 0.12);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r, const Radius.circular(1.0)),
+          _nodePaint,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r, const Radius.circular(1.0)),
+          _glyphLinePaint,
+        );
+    }
+  }
+
+  /// ⭐ Star glyph: 5-pointed star outline.
+  void _paintStarGlyph(Canvas canvas, Rect r, Color color) {
+    final cx = r.center.dx;
+    final cy = r.center.dy;
+    final outerR = math.min(r.width, r.height) / 2;
+    final innerR = outerR * 0.4;
+
+    _reusablePath.reset();
+    for (int i = 0; i < 10; i++) {
+      final radius = i.isEven ? outerR : innerR;
+      final angle = (i * math.pi / 5) - math.pi / 2;
+      final px = cx + radius * math.cos(angle);
+      final py = cy + radius * math.sin(angle);
+      if (i == 0) {
+        _reusablePath.moveTo(px, py);
+      } else {
+        _reusablePath.lineTo(px, py);
+      }
+    }
+    _reusablePath.close();
+
+    _nodePaint.color = color.withValues(alpha: 0.1);
+    canvas.drawPath(_reusablePath, _nodePaint);
+    _glyphLinePaint.color = color.withValues(alpha: 0.8);
+    _glyphLinePaint.strokeWidth = 0.8;
+    canvas.drawPath(_reusablePath, _glyphLinePaint);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -382,16 +636,26 @@ class MinimapViewportPainter extends CustomPainter {
 
   static final Paint _viewportStrokePaint =
       Paint()
-        ..color = _neonCyan.withValues(alpha: 0.5)
+        ..color = _neonCyan.withValues(alpha: 0.65)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
+        ..strokeWidth = 1.5;
 
   static final Paint _viewportFillPaint =
-      Paint()..color = _neonCyan.withValues(alpha: 0.05);
+      Paint()..color = _neonCyan.withValues(alpha: 0.08);
+
+  static final Paint _viewportGlowPaint =
+      Paint()
+        ..color = _neonCyan.withValues(alpha: 0.12)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+
+  static final Paint _dimOverlayPaint =
+      Paint()..color = const Color(0x30000000);
 
   static final Paint _cornerDotPaint =
       Paint()
-        ..color = _neonCyan.withValues(alpha: 0.6)
+        ..color = _neonCyan.withValues(alpha: 0.75)
         ..style = PaintingStyle.fill;
 
   MinimapViewportPainter({
@@ -424,14 +688,24 @@ class MinimapViewportPainter extends CustomPainter {
       expandedBounds,
     );
 
-    // Faint fill
+    // ── Dim everything outside viewport (subtle focus effect) ──
+    // Save layer, draw full dim, then cut out the viewport area.
+    canvas.saveLayer(bgRect, Paint());
+    canvas.drawRect(bgRect, _dimOverlayPaint);
+    canvas.drawRect(vr, Paint()..blendMode = BlendMode.clear);
+    canvas.restore();
+
+    // ── Outer glow (blurred halo) ──
+    canvas.drawRect(vr, _viewportGlowPaint);
+
+    // ── Bright fill ──
     canvas.drawRect(vr, _viewportFillPaint);
 
-    // Thin cyan outline
+    // ── Sharp cyan border ──
     canvas.drawRect(vr, _viewportStrokePaint);
 
-    // Small corner dots
-    const dotR = 1.5;
+    // ── Corner dots (navigation anchors) ──
+    const dotR = 2.0;
     canvas.drawCircle(vr.topLeft, dotR, _cornerDotPaint);
     canvas.drawCircle(vr.topRight, dotR, _cornerDotPaint);
     canvas.drawCircle(vr.bottomLeft, dotR, _cornerDotPaint);
@@ -559,7 +833,7 @@ class MinimapLiveStrokePainter extends CustomPainter {
     }
 
     _liveStrokePaint.color = strokeColor.withValues(alpha: 0.9);
-    _liveStrokePaint.strokeWidth = (scale * 3.5).clamp(0.8, 3.0);
+    _liveStrokePaint.strokeWidth = (scale * 12.0).clamp(2.5, 5.0);
     canvas.drawPath(_livePath, _liveStrokePaint);
   }
 

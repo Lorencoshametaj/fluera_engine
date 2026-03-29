@@ -983,6 +983,27 @@ extension on _FlueraCanvasScreenState {
       }
     }
 
+    // 🔮 INK PREDICTION: feed stroke for word autocomplete (non-blocking)
+    if (_toolController.inkPredictionEnabled &&
+        _effectivePenType != ProPenType.technicalPen &&
+        !_effectiveIsEraser) {
+      final predPoints = List<ProDrawingPoint>.from(finalPoints);
+      final canvasEnd = finalPoints.last.position;
+      // Position bubble below the writing, not on top
+      final belowEnd = Offset(canvasEnd.dx, canvasEnd.dy + 30);
+      final predAnchor = _canvasController.canvasToScreen(belowEnd);
+      InkPredictionService.instance
+          .feedStroke(predPoints, canvasAnchor: canvasEnd)
+          .then((prediction) {
+        if (prediction != null && prediction.isNotEmpty && mounted &&
+            InkPredictionService.instance.strokeCount >= 3) {
+          _showPredictionBubble(prediction, predAnchor);
+        } else if (prediction == null && mounted) {
+          _dismissPredictionBubble();
+        }
+      });
+    }
+
     // 🎤 NOTIFICA ESTERNA (per Sync Recording) - PRE-CREATION
     // Salviamo i tempi prima che vengano persi/resetati
     final strokeEndTime = DateTime.now();

@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import '../../core/models/shape_type.dart';
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/models/canvas_layer.dart';
@@ -35,7 +37,7 @@ class ContentBoundsTracker {
 
   /// Maximum points kept per stroke for minimap polyline.
   /// Higher = more detail but more memory; 8 is enough for a good silhouette.
-  static const int _kMaxMinimapPoints = 8;
+  static const int _kMaxMinimapPoints = 12;
 
   /// Hash of the last content state — used to skip redundant rebuilds.
   /// Computed from element counts (strokes, shapes, texts, images, nodes).
@@ -82,7 +84,11 @@ class ContentBoundsTracker {
         if (b.isEmpty || !b.isFinite) continue;
         combined = combined == null ? b : combined.expandToInclude(b);
         regionList.add(
-          ContentRegion(bounds: b, nodeType: ContentNodeType.shape),
+          ContentRegion(
+            bounds: b,
+            nodeType: ContentNodeType.shape,
+            shapeType: shape.type,
+          ),
         );
       }
 
@@ -90,8 +96,15 @@ class ContentBoundsTracker {
         final b = text.getBounds();
         if (b.isEmpty || !b.isFinite) continue;
         combined = combined == null ? b : combined.expandToInclude(b);
+        // Approximate line count from height / fontSize for text glyph.
+        final fontSize = text.fontSize > 0 ? text.fontSize : 16.0;
+        final approxLines = (b.height / (fontSize * 1.4)).round().clamp(1, 8);
         regionList.add(
-          ContentRegion(bounds: b, nodeType: ContentNodeType.text),
+          ContentRegion(
+            bounds: b,
+            nodeType: ContentNodeType.text,
+            approxLineCount: approxLines,
+          ),
         );
       }
 
@@ -213,10 +226,20 @@ class ContentRegion {
   /// Null for non-stroke regions.
   final Color? strokeColor;
 
+  /// Shape type for shape regions (line, rect, circle, etc.).
+  /// Null for non-shape regions.
+  final ShapeType? shapeType;
+
+  /// Approximate number of text lines (for text glyph rendering).
+  /// Null for non-text regions.
+  final int? approxLineCount;
+
   const ContentRegion({
     required this.bounds,
     required this.nodeType,
     this.minimapPolyline,
     this.strokeColor,
+    this.shapeType,
+    this.approxLineCount,
   });
 }

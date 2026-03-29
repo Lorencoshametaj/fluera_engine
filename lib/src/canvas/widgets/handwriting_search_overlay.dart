@@ -80,6 +80,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
   StreamSubscription? _indexSub;
   int _shownCount = 8; // Pagination: how many results to show
   int _indexedCount = 0; // Number of indexed strokes
+  int _instantSearchGen = 0; // 🚀 v2.1: Race condition guard
 
   /// Recent search history (persistent via SQLite).
   static List<String> _recentSearches = [];
@@ -145,8 +146,30 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
     final delay = len <= 2 ? 500 : 200;
     _debounce = Timer(Duration(milliseconds: delay), _performSearch);
 
-    // Fetch suggestions immediately (lightweight query)
+    // 🚀 v2.1: Instant search preview (< 50ms, no debounce)
+    // Generation counter prevents stale results from overriding newer ones
     final text = _controller.text.trim();
+    if (text.isNotEmpty) {
+      final gen = ++_instantSearchGen;
+      HandwritingIndexService.instance
+          .searchInstant(
+            text,
+            canvasId: _searchAllCanvases ? null : widget.canvasId,
+          )
+          .then((instantResults) {
+        // Only apply if this is still the latest generation
+        if (mounted && gen == _instantSearchGen &&
+            _results.isEmpty && instantResults.isNotEmpty) {
+          setState(() {
+            _results = instantResults;
+            _activeResultIndex = 0;
+          });
+          widget.onResultsChanged(instantResults);
+        }
+      });
+    }
+
+    // Fetch suggestions immediately (lightweight query)
     if (text.isNotEmpty && text.length >= 2) {
       HandwritingIndexService.instance
           .getSuggestions(

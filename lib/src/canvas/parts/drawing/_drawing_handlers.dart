@@ -17,6 +17,9 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
+    // ✍️ SMART INK: Auto-dismiss overlay on any new touch interaction
+    if (isSmartInkActive) dismissSmartInk();
+
     // 🔍 OVERVIEW GUARD: Block drawing when zoomed out below 50%.
     // At this scale strokes would be tiny and unreadable; the user is in
     // overview/navigation mode, not writing mode.

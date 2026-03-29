@@ -1,12 +1,13 @@
 
 import '../drawing/models/pro_drawing_point.dart';
 import 'ink_recognition_engine.dart';
-import 'mlkit_ink_engine.dart';
+import 'myscript_ink_engine.dart';
 import 'language_detection_service.dart';
 
 // Re-export so consumers don't need to import ink_recognition_engine.dart
 export 'ink_recognition_engine.dart'
     show InkRecognitionEngine, InkRecognitionContext, InkCandidate;
+export 'myscript_ink_engine.dart' show MyScriptInkEngine;
 
 /// ✍️ Digital Ink Recognition Service
 ///
@@ -31,8 +32,8 @@ class DigitalInkService {
 
   // ── Engine ────────────────────────────────────────────────────────────────
 
-  /// The active ink recognition engine. Defaults to ML Kit.
-  InkRecognitionEngine _engine = MlKitInkEngine();
+  /// The active ink recognition engine. Defaults to MyScript iink.
+  InkRecognitionEngine _engine = MyScriptInkEngine();
 
   /// The current recognition engine.
   InkRecognitionEngine get engine => _engine;

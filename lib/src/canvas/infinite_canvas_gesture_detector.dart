@@ -1101,6 +1101,9 @@ class _InfiniteCanvasGestureDetectorState
 
     // Only se siamo all'ultimo dito e stiamo disegnando
     if (_pointerCount == 0) {
+      // 🛡️ Clear stale multi-point timestamps so they don't
+      // contaminate the next gesture's palm rejection check.
+      HandednessSettings.instance.clearRecentFingerDownTimestamps();
       // 🧠 SEMANTIC TAP: If the tap was consumed at pointer-down, skip all cleanup
       if (_semanticTapConsumed) {
         _semanticTapConsumed = false;

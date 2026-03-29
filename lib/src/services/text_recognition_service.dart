@@ -12,7 +12,7 @@ export 'ocr_engine.dart' show OcrTextBlock, OcrResult, OcrEngine;
 /// Service for recognizing text in images.
 ///
 /// Delegates to a pluggable [OcrEngine] backend.
-/// Default engine: [MlKitOcrEngine] (Google ML Kit, Android/iOS).
+/// Default engine: [MyScriptOcrEngine] (MyScript iink SDK, Android/iOS).
 ///
 /// To swap engine:
 /// ```dart
@@ -22,8 +22,8 @@ class TextRecognitionService {
   TextRecognitionService._();
   static final instance = TextRecognitionService._();
 
-  /// The active OCR engine. Defaults to ML Kit.
-  OcrEngine _engine = MlKitOcrEngine();
+  /// The active OCR engine. Defaults to MyScript iink.
+  OcrEngine _engine = MyScriptOcrEngine();
 
   bool _isProcessing = false;
 

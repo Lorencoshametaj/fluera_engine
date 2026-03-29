@@ -158,16 +158,9 @@ extension on _FlueraCanvasScreenState {
       _loadSavedRecordings(),
     ]);
 
-    // 6. 🐛 FIX: Pre-warm Digital Ink Recognition engine AFTER splash.
-    // Loading libdigitalink.so + TFLite model (~1s) inside Future.wait
-    // overlaps with shader/texture/SQLite init, raising peak memory ~50MB.
-    // Deferring to post-splash keeps peak memory lower while still
-    // completing before the user starts drawing (500ms head start).
+    // 6. 🧮 Pre-warm recognition engine AFTER splash.
     Future.delayed(const Duration(milliseconds: 500), () {
-      final inkService = DigitalInkService.instance;
-      if (inkService.isAvailable && !inkService.isReady) {
-        inkService.init();
-      }
+      DigitalInkService.instance.init();
     });
 
     // 🚀 PHASE 5: Removed post-Future.wait yield — splash is now inside the
@@ -573,6 +566,28 @@ extension on _FlueraCanvasScreenState {
         // optimization can be re-enabled once the stub lifecycle is robust.
         await _applyCanvasData(data, skipStrokes: false);
 
+        // 🔍 v2.1: Background delta reindex — index any un-indexed strokes
+        // that were restored from storage. Fire-and-forget (non-blocking).
+        if (HandwritingIndexService.instance.isInitialized) {
+          final allStrokes = <({String id, List<ProDrawingPoint> points, ui.Rect bounds})>[];
+          for (final layer in _layerController.layers) {
+            for (final stroke in layer.strokes) {
+              if (stroke.points.length >= 5) {
+                allStrokes.add((
+                  id: stroke.id,
+                  points: stroke.points,
+                  bounds: stroke.bounds,
+                ));
+              }
+            }
+          }
+          if (allStrokes.isNotEmpty) {
+            HandwritingIndexService.instance
+                .deltaReindex(_canvasId, allStrokes)
+                .catchError((_) {}); // fire-and-forget
+          }
+        }
+
         // ☁️ Download images/PDFs that are in cloud but missing locally
         // (runs in background — non-blocking)
         downloadMissingAssets();
@@ -733,6 +748,10 @@ extension on _FlueraCanvasScreenState {
               ),
             )
             .toList(),
+      );
+      // 📝 Seed dictionary with canvas context on restore
+      WordCompletionDictionary.instance.updateCanvasContext(
+        _digitalTextElements.map((e) => e.plainText).toList(),
       );
     }
     if (imageJson != null) {

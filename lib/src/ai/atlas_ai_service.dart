@@ -169,6 +169,53 @@ class GeminiProvider implements AiProvider {
     }
   }
 
+  @override
+  Stream<String> askChatStream(
+    String conversationHistory,
+    String userMessage,
+    String canvasContext,
+  ) async* {
+    if (!_initialized || _streamModel == null) {
+      throw StateError('Atlas not initialized. Call initialize() first.');
+    }
+
+    final langCode = ui.PlatformDispatcher.instance.locale.languageCode;
+    const langMap = {
+      'it': 'Italian', 'en': 'English', 'es': 'Spanish',
+      'fr': 'French', 'de': 'German', 'pt': 'Portuguese',
+      'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese',
+    };
+    final langName = langMap[langCode] ?? 'English';
+
+    final prompt = '''
+You are ATLAS, the student's personal AI tutor and study companion.
+You have access to the student's handwritten notes, audio transcripts, and PDF content.
+ALWAYS ground your answers in the student's actual notes when possible.
+When referencing a specific note, mention it naturally.
+Respond in $langName. Be warm, concise, and pedagogically effective.
+
+$canvasContext
+
+$conversationHistory
+
+STUDENT: $userMessage
+
+ATLAS:''';
+
+    try {
+      final responses = _streamModel!.generateContentStream(
+        [Content.text(prompt)],
+      );
+      await for (final response in responses) {
+        if (response.text != null && response.text!.isNotEmpty) {
+          yield response.text!;
+        }
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // 🎓 EXAM MODE — Question generation
   // ---------------------------------------------------------------------------

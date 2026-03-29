@@ -2503,6 +2503,15 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                               _startExamSession();
                             },
                           ),
+                          ListTile(
+                            leading: const Text('💬', style: TextStyle(fontSize: 22)),
+                            title: const Text('Chat with Notes', style: TextStyle(color: Color(0xFF69F0AE), fontWeight: FontWeight.w600)),
+                            subtitle: Text('Chatta con Atlas sui tuoi appunti', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _startChatWithNotes();
+                            },
+                          ),
                           const SizedBox(height: 8),
                         ]),
                       ),

@@ -96,10 +96,15 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
   late final Animation<double> _fadeAnim;
 
   String? _recognizedText;
+  String _detectedType = 'text'; // 'math' or 'text'
   List<InkCandidate> _candidates = const [];
   bool _isLoading = true;
   int _selectedCandidateIndex = 0;
   bool _copied = false;
+
+  // ── Result cache (avoids re-recognition for same strokes) ──────────
+  static final Map<int, _CachedResult> _cache = {};
+  int get _cacheKey => Object.hashAll(widget.strokeIds);
 
   @override
   void initState() {
@@ -128,9 +133,19 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
     super.dispose();
   }
 
-  /// Load recognition: first check index, then live-recognize if needed.
+  /// Load recognition: check cache → index → live recognition.
   Future<void> _loadRecognition() async {
-    // Try index first (instant — already recognized during batch indexing)
+    // ── Check cache first ──────────────────────────────────────────────
+    final cached = _cache[_cacheKey];
+    if (cached != null) {
+      _recognizedText = cached.text;
+      _detectedType = cached.detectedType;
+      _candidates = cached.candidates;
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    // ── Try index (instant) ────────────────────────────────────────────
     final indexService = HandwritingIndexService.instance;
     if (indexService.isInitialized && widget.strokeIds.isNotEmpty) {
       final textMap = await indexService.getTextMapForStrokes(
@@ -138,18 +153,15 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
         widget.strokeIds,
       );
       if (textMap.isNotEmpty) {
-        // Concatenate recognized text from all grouped strokes
         _recognizedText = textMap.values.join(' ').trim();
       }
     }
 
-    // Live-recognize for candidates (even if indexed, to get alternatives)
-    // Use multi-stroke recognition to get the whole word/phrase
+    // ── Live recognition ──────────────────────────────────────────────
     final inkService = DigitalInkService.instance;
     final totalPoints = widget.allStrokeSets.fold<int>(
         0, (sum, s) => sum + s.length);
     if (inkService.isAvailable && totalPoints >= 5) {
-      // 🧠 PreContext: feed ML Kit the last ~20 chars for better predictions
       String? preContext;
       if (indexService.isInitialized) {
         preContext = await indexService.getPreContext(widget.canvasId);
@@ -166,12 +178,35 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
       if (candidates.isNotEmpty) {
         _candidates = candidates;
         _recognizedText ??= candidates.first.text;
+
+        // Detect type from result content
+        final text = _recognizedText ?? '';
+        _detectedType = _looksLikeMath(text) ? 'math' : 'text';
       }
+    }
+
+    // ── Cache result ──────────────────────────────────────────────────
+    if (_recognizedText != null) {
+      _cache[_cacheKey] = _CachedResult(
+        text: _recognizedText!,
+        detectedType: _detectedType,
+        candidates: _candidates,
+      );
+      // Cap cache at 50 entries
+      if (_cache.length > 50) _cache.remove(_cache.keys.first);
     }
 
     if (mounted) {
       setState(() => _isLoading = false);
     }
+  }
+
+  /// Heuristic: does this look like a math expression?
+  static bool _looksLikeMath(String s) {
+    return s.contains('^{') || s.contains('_{') ||
+        s.contains(r'\frac') || s.contains(r'\sqrt') ||
+        s.contains(r'\sum') || s.contains(r'\int') ||
+        RegExp(r'[\^_{}\\]').hasMatch(s);
   }
 
   void _dismiss() {
@@ -187,6 +222,7 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
 
   void _copyToClipboard() {
     if (_recognizedText == null) return;
+    // Smart copy: raw LaTeX for math, plain text for text
     Clipboard.setData(ClipboardData(text: _recognizedText!));
     HapticFeedback.lightImpact();
     setState(() => _copied = true);
@@ -295,6 +331,30 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
                         color: subtleColor, letterSpacing: 0.5,
                       ),
                     ),
+                    if (!_isLoading && _recognizedText != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (_detectedType == 'math'
+                              ? const Color(0xFFFF9800)
+                              : const Color(0xFF4CAF50)
+                          ).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _detectedType == 'math' ? '𝑓(x)' : 'Aa',
+                          style: TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w700,
+                            color: _detectedType == 'math'
+                                ? const Color(0xFFFF9800)
+                                : const Color(0xFF4CAF50),
+                          ),
+                        ),
+                      ),
+                    ],
                     const Spacer(),
                     GestureDetector(
                       onTap: _dismiss,
@@ -335,10 +395,15 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
                             ),
                           )
                         : Text(
-                            _recognizedText!,
+                            _detectedType == 'math'
+                                ? _latexToUnicode(_recognizedText!)
+                                : _recognizedText!,
                             style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.w500,
+                              fontSize: _detectedType == 'math' ? 24 : 20,
+                              fontWeight: FontWeight.w500,
                               color: textColor, height: 1.3,
+                              fontFamily: _detectedType == 'math'
+                                  ? 'serif' : null,
                             ),
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
@@ -478,4 +543,93 @@ class _ActionButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Cached recognition result to avoid re-processing same strokes.
+class _CachedResult {
+  final String text;
+  final String detectedType;
+  final List<InkCandidate> candidates;
+
+  const _CachedResult({
+    required this.text,
+    required this.detectedType,
+    required this.candidates,
+  });
+}
+
+/// Convert common LaTeX to readable Unicode math text.
+///
+/// Examples:
+///   x^{2}+1  →  x²+1
+///   \frac{a}{b}  →  a/b
+///   \sqrt{x}  →  √x
+String _latexToUnicode(String latex) {
+  var s = latex;
+
+  // Superscripts
+  const superMap = {
+    '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+    '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    'n': 'ⁿ', 'i': 'ⁱ', '+': '⁺', '-': '⁻', '=': '⁼',
+    '(': '⁽', ')': '⁾', 'a': 'ᵃ', 'b': 'ᵇ', 'c': 'ᶜ',
+    'd': 'ᵈ', 'e': 'ᵉ', 'k': 'ᵏ', 'm': 'ᵐ', 'x': 'ˣ',
+  };
+
+  // Subscripts
+  const subMap = {
+    '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+    '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+    'a': 'ₐ', 'e': 'ₑ', 'i': 'ᵢ', 'n': 'ₙ', 'x': 'ₓ',
+    '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+  };
+
+  // Replace ^{...} with Unicode superscripts
+  s = s.replaceAllMapped(RegExp(r'\^{([^}]*)}'), (m) {
+    return m[1]!.split('').map((c) => superMap[c] ?? c).join();
+  });
+  s = s.replaceAllMapped(RegExp(r'\^(.)'), (m) {
+    return superMap[m[1]!] ?? '^${m[1]}';
+  });
+
+  // Replace _{...} with Unicode subscripts
+  s = s.replaceAllMapped(RegExp(r'_{([^}]*)}'), (m) {
+    return m[1]!.split('').map((c) => subMap[c] ?? c).join();
+  });
+  s = s.replaceAllMapped(RegExp(r'_(.)'), (m) {
+    return subMap[m[1]!] ?? '_${m[1]}';
+  });
+
+  // Common commands
+  s = s.replaceAllMapped(RegExp(r'\\frac{([^}]*)}{([^}]*)}'), (m) =>
+      '${m[1]}⁄${m[2]}');
+  s = s.replaceAllMapped(RegExp(r'\\sqrt{([^}]*)}'), (m) => '√${m[1]}');
+  s = s.replaceAll(r'\sqrt', '√');
+  s = s.replaceAll(r'\pi', 'π');
+  s = s.replaceAll(r'\alpha', 'α');
+  s = s.replaceAll(r'\beta', 'β');
+  s = s.replaceAll(r'\gamma', 'γ');
+  s = s.replaceAll(r'\delta', 'δ');
+  s = s.replaceAll(r'\theta', 'θ');
+  s = s.replaceAll(r'\lambda', 'λ');
+  s = s.replaceAll(r'\mu', 'μ');
+  s = s.replaceAll(r'\sigma', 'σ');
+  s = s.replaceAll(r'\omega', 'ω');
+  s = s.replaceAll(r'\infty', '∞');
+  s = s.replaceAll(r'\sum', '∑');
+  s = s.replaceAll(r'\int', '∫');
+  s = s.replaceAll(r'\prod', '∏');
+  s = s.replaceAll(r'\times', '×');
+  s = s.replaceAll(r'\div', '÷');
+  s = s.replaceAll(r'\pm', '±');
+  s = s.replaceAll(r'\leq', '≤');
+  s = s.replaceAll(r'\geq', '≥');
+  s = s.replaceAll(r'\neq', '≠');
+  s = s.replaceAll(r'\approx', '≈');
+  s = s.replaceAll(r'\cdot', '·');
+
+  // Clean up remaining braces and backslashes
+  s = s.replaceAll(RegExp(r'[{}]'), '');
+
+  return s;
 }

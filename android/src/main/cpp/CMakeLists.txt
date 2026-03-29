@@ -10,7 +10,7 @@ add_library(fluera_rnnoise SHARED
     ${RNNOISE_DIR}/src/nnet.c
     ${RNNOISE_DIR}/src/nnet_default.c
     ${RNNOISE_DIR}/src/rnn.c
-    ${RNNOISE_DIR}/src/rnnoise_data.c
+    ${RNNOISE_DIR}/src/rnnoise_data_little.c
     ${RNNOISE_DIR}/src/rnnoise_tables.c
     ${RNNOISE_DIR}/src/pitch.c
     ${RNNOISE_DIR}/src/kiss_fft.c

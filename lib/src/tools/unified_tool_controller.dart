@@ -158,7 +158,7 @@ class UnifiedToolController extends ChangeNotifier {
 
   /// 🔷 Shape recognition mode — when enabled, freehand strokes are
   /// analyzed on pointer-up and replaced with perfect geometric shapes.
-  bool _shapeRecognitionEnabled = false;
+  bool _shapeRecognitionEnabled = true;
   bool get shapeRecognitionEnabled => _shapeRecognitionEnabled;
 
   /// 🔷 Shape recognition sensitivity level.
@@ -169,8 +169,13 @@ class UnifiedToolController extends ChangeNotifier {
 
   /// 🔷 Ghost suggestion mode — when enabled, recognized shapes are
   /// shown as a semi-transparent preview before auto-accepting.
-  bool _ghostSuggestionMode = false;
+  bool _ghostSuggestionMode = true;
   bool get ghostSuggestionMode => _ghostSuggestionMode;
+
+  /// 🔮 Ink prediction mode — when enabled, freehand strokes are sent
+  /// incrementally to MyScript for real-time word autocomplete.
+  bool _inkPredictionEnabled = true;
+  bool get inkPredictionEnabled => _inkPredictionEnabled;
 
   /// 🔀 Multi-stroke buffer — accumulates recent unrecognized strokes
   /// and tries to combine them into a single shape.
@@ -429,6 +434,12 @@ class UnifiedToolController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 🔮 Toggle ink prediction mode
+  void toggleInkPrediction() {
+    _inkPredictionEnabled = !_inkPredictionEnabled;
+    notifyListeners();
+  }
+
   /// Reset to drawing mode (deselect everything)
   void resetToDrawingMode() {
     _activeToolId = null;
@@ -480,6 +491,7 @@ class UnifiedToolController extends ChangeNotifier {
     'shapeRecognitionEnabled': _shapeRecognitionEnabled,
     'shapeRecognitionSensitivity': _shapeRecognitionSensitivity.index,
     'ghostSuggestionMode': _ghostSuggestionMode,
+    'inkPredictionEnabled': _inkPredictionEnabled,
   };
 
   void fromJson(Map<String, dynamic> json) {
@@ -504,6 +516,7 @@ class UnifiedToolController extends ChangeNotifier {
           ShapeRecognitionSensitivity.values.length - 1,
         )];
     _ghostSuggestionMode = json['ghostSuggestionMode'] ?? false;
+    _inkPredictionEnabled = json['inkPredictionEnabled'] ?? true;
     notifyListeners();
   }
 

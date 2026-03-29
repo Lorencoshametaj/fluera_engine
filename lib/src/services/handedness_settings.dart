@@ -230,6 +230,13 @@ class HandednessSettings {
     return _recentFingerDownTimestamps.length >= 2;
   }
 
+  /// 🛡️ Clear stale multi-point timestamps at gesture end.
+  /// Prevents ghost timestamps from a previous gesture from
+  /// contaminating the next gesture's palm rejection check.
+  void clearRecentFingerDownTimestamps() {
+    _recentFingerDownTimestamps.clear();
+  }
+
   // ========================================================================
   // AUTO-DETECT HANDEDNESS
   // ========================================================================
@@ -331,12 +338,9 @@ class HandednessSettings {
       return true;
     }
 
-    // ── 👆 FEATURE 2: MULTI-POINT DETECTION ──
-    // 2+ non-stylus touches within 80ms = palm landing
-    if (registerFingerDown()) {
-      _recordRejection(position, PalmRejectionReason.multiPoint, radiusMajor);
-      return true;
-    }
+    // 👆 FEATURE 2: MULTI-POINT DETECTION — moved to END of this method.
+    // Previously here, but rejected-by-velocity touches still registered
+    // timestamps that cascade-rejected the next finger (pan freeze bug).
 
     // ── 🐌 FEATURE 3: VELOCITY-BASED ──
     // Palm lands with near-zero velocity. Intentional touches have speed > 0.
@@ -371,6 +375,17 @@ class HandednessSettings {
         _recordRejection(position, PalmRejectionReason.staticZone, radiusMajor);
         return true;
       }
+    }
+
+    // ── 👆 FEATURE 2: MULTI-POINT DETECTION ──
+    // 🐛 FIX: Moved to END so that touches rejected by velocity/area/zone
+    // checks above do NOT register a timestamp. Previously, a rejected
+    // first-finger registered a timestamp, causing the second finger
+    // (arriving within 80ms for pan) to be auto-rejected as "multi-point
+    // palm", preventing _pointerCount from reaching 2 and blocking pan.
+    if (registerFingerDown()) {
+      _recordRejection(position, PalmRejectionReason.multiPoint, radiusMajor);
+      return true;
     }
 
     return false;

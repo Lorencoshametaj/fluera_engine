@@ -52,6 +52,25 @@ abstract class AiProvider {
     }
   }
 
+  /// Multi-turn chat streaming — yields partial text chunks for
+  /// conversational Q&A grounded in the user's notes.
+  ///
+  /// [conversationHistory] — previous messages formatted as role: text pairs.
+  /// [userMessage] — the new question from the user.
+  /// [canvasContext] — structured note context (OCR, titles, transcripts).
+  ///
+  /// Default implementation falls back to [askAtlasStream].
+  Stream<String> askChatStream(
+    String conversationHistory,
+    String userMessage,
+    String canvasContext,
+  ) async* {
+    yield* askAtlasStream(
+      '$conversationHistory\n\nSTUDENT: $userMessage',
+      const [],
+    );
+  }
+
   /// Release resources held by this provider.
   void dispose();
 }

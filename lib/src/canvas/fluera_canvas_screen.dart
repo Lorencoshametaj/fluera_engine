@@ -11,8 +11,12 @@ import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
 import './ai/proactive_analysis_model.dart'; // 💡 Proactive knowledge gap data models
 import './ai/exam_session_controller.dart';   // 🎓 Exam Mode session controller
+import './ai/chat_session_controller.dart';   // 💬 Chat with Notes controller
+import './ai/chat_session_model.dart';        // 💬 Chat data models
 import './ai/fsrs_scheduler.dart';             // 🧠 FSRS adaptive spaced repetition
 import './overlays/exam_overlay.dart';         // 🎓 Exam Mode fullscreen overlay
+import './overlays/chat_overlay.dart';         // 💬 Chat with Notes overlay
+import '../ai/chat_context_builder.dart';      // 💬 Chat context builder
 import './widgets/proactive_cluster_dot.dart'; // 💡 Animated gap indicator dot
 import '../platform/native_notifications.dart'; // 🔔 Native notifications for SR reminders
 
@@ -125,6 +129,10 @@ import '../dialogs/image_editor_crop.dart';
 import '../services/image_service.dart';
 import '../services/adaptive_debouncer_service.dart';
 import '../services/digital_ink_service.dart';
+import '../services/ink_prediction_service.dart';
+import '../services/word_completion_dictionary.dart';
+import '../canvas/overlays/ink_prediction_bubble.dart';
+import '../canvas/overlays/ghost_ink_painter.dart';
 import '../services/text_recognition_service.dart';
 import '../dialogs/handwriting_confirmation_dialog.dart';
 import '../dialogs/ocr_scan_dialog.dart';
@@ -369,6 +377,7 @@ part './parts/_semantic_titles.dart';
 part './parts/_radial_expansion.dart';
 part './parts/_proactive_analysis.dart'; // 💡 Proactive knowledge gap analysis
 part './parts/_smart_ink.dart'; // ✍️ Smart Ink — tap-to-reveal handwriting
+part './parts/_chat_with_notes.dart'; // 💬 Chat with Notes — conversational AI
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -686,6 +695,40 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   final ValueNotifier<_GhostSuggestionData?> _ghostSuggestion = ValueNotifier(
     null,
   );
+
+  /// 🔮 Ink prediction bubble data (null = hidden)
+  _InkPredictionBubbleData? _activePredictionBubble;
+
+  /// 🔮 Show a prediction bubble at the given screen position.
+  void _showPredictionBubble(InkPrediction prediction, Offset screenPos) {
+    // Dismiss any existing prediction bubble first
+    _activePredictionBubble = _InkPredictionBubbleData(
+      prediction: prediction,
+      anchor: screenPos,
+      strokeCount: InkPredictionService.instance.strokeCount,
+    );
+    _uiRebuildNotifier.value++;
+  }
+
+  /// 🔮 Dismiss the prediction bubble.
+  void _dismissPredictionBubble() {
+    if (_activePredictionBubble == null) return;
+    _activePredictionBubble = null;
+    _uiRebuildNotifier.value++;
+  }
+
+  /// 🔮 Clear prediction when tool switches away from freehand pen.
+  void _onToolChangeForPrediction() {
+    // Only clear if we have an active prediction
+    if (_activePredictionBubble == null &&
+        !InkPredictionService.instance.hasAccumulatedInk) return;
+
+    // If switching to eraser, lasso, or pan → prediction no longer relevant
+    if (_effectiveIsEraser || _effectiveIsLasso || _effectiveIsPanMode) {
+      _dismissPredictionBubble();
+      InkPredictionService.instance.clear();
+    }
+  }
 
   /// Canvas infinito controller
   late final InfiniteCanvasController _canvasController;
@@ -1628,6 +1671,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   void initState() {
     super.initState();
 
+    // 🌍 Auto-detect dictionary language from device locale
+    final deviceLocale = WidgetsBinding.instance.platformDispatcher.locale;
+    WordCompletionDictionary.instance.setLanguageFromCode(
+      deviceLocale.languageCode,
+    );
+    // 💾 Load persisted learned words from disk
+    WordCompletionDictionary.instance.loadUserFrequency();
+
     // 🔄 Load wheel mode preference from disk
     _WheelModePref.load().then((_) {
       if (mounted) setState(() {});
@@ -1646,6 +1697,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // ── Tool state controller (replaces Riverpod) ──────────────────────────
     _toolController = UnifiedToolController();
     _toolController.addListener(_syncHoverState);
+    _toolController.addListener(_onToolChangeForPrediction);
     _syncHoverState(); // Initial sync
 
     // ✨ Shader init, isolate spawn, texture preload — all moved to
@@ -2347,6 +2399,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _toolSystemBridge?.dispose();
     _unifiedToolController?.dispose();
     _toolController.removeListener(_syncHoverState);
+    _toolController.removeListener(_onToolChangeForPrediction);
     _toolController.dispose();
 
     // 🚀 PERSISTENT ISOLATE: Do NOT kill the isolate here — it's a singleton

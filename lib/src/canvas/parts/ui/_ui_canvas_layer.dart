@@ -518,7 +518,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   // After zoom settles (300ms), trigger DrawingPainter rebuild
                   // which starts progressive tile-by-tile LOD rendering.
                   final s = _canvasController.scale;
-                  final tier = s < 0.25 ? 2 : (s < 0.5 ? 1 : 0);
+                  final tier = DrawingPainter.computeLodTier(s);
                   if (tier != _lastWidgetLodTier) {
                     _lastWidgetLodTier = tier;
                     _lodDebounceTimer?.cancel();

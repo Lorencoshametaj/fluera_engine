@@ -878,6 +878,81 @@ extension on _FlueraCanvasScreenState {
 
               // 👻 Ghost shape suggestion overlay
               _buildGhostSuggestionOverlay(),
+              // 🔮 Ghost ink — predicted text rendered directly on canvas
+              if (_activePredictionBubble != null)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: GhostInkPainter(
+                          text: _activePredictionBubble!.prediction.label,
+                          position: _canvasController.screenToCanvas(
+                            _activePredictionBubble!.anchor,
+                          ),
+                          canvasScale: _canvasController.scale,
+                          opacity: 0.25,
+                          color: _effectiveSelectedColor,
+                          isRtl: InkPredictionService.instance.writingDirection ==
+                              WritingDirection.rtl,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 🔮 Ink prediction bubble (word autocomplete)
+              if (_activePredictionBubble != null)
+                InkPredictionBubble(
+                  key: const ValueKey('ink_prediction_bubble'),
+                  anchor: _activePredictionBubble!.anchor,
+                  prediction: _activePredictionBubble!.prediction,
+                  writingDirection:
+                      InkPredictionService.instance.writingDirection,
+                  writtenPrefix: InkPredictionService.instance.lastPrediction?.label,
+                  onAccept: (label) {
+                    HapticFeedback.lightImpact();
+                    final anchor = _activePredictionBubble!.anchor;
+                    final strokeCount = _activePredictionBubble!.strokeCount;
+                    _dismissPredictionBubble();
+                    InkPredictionService.instance.acceptPrediction();
+
+                    // 🧠 Boost accepted word in dictionary for future predictions
+                    WordCompletionDictionary.instance.boost(label);
+                    // 🔗 Set bigram context for next prediction
+                    WordCompletionDictionary.instance.setPreviousWord(label);
+
+                    // 🔮 Remove the handwritten strokes that were recognized
+                    for (int i = 0; i < strokeCount; i++) {
+                      _layerController.undo();
+                    }
+
+                    // Insert digital text at the position of the removed strokes
+                    final canvasPos = _canvasController.screenToCanvas(anchor);
+                    final newElement = DigitalTextElement(
+                      id: generateUid(),
+                      text: label,
+                      position: canvasPos,
+                      color: _effectiveSelectedColor,
+                      fontSize: 24.0,
+                      scale: 1.0,
+                      createdAt: DateTime.now(),
+                    );
+                    setState(() {
+                      _digitalTextElements.add(newElement);
+                    });
+                    _layerController.addText(newElement);
+                    _autoSaveCanvas();
+
+                    // 📝 Update canvas context for topic-aware predictions
+                    WordCompletionDictionary.instance.updateCanvasContext(
+                      _digitalTextElements.map((e) => e.plainText).toList(),
+                    );
+                  },
+                  onDismiss: () {
+                    _dismissPredictionBubble();
+                    InkPredictionService.instance.clear();
+                  },
+                ),
 
               // ➡️ Next-dot hint — pulsing arrow toward nearest ready dot (3s auto-dismiss)
               if (_nextDotHintTarget != null)

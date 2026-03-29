@@ -7,6 +7,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import '../utils/key_value_store.dart';
 import './liquid_canvas_config.dart';
+import '../rendering/lod_config.dart';
 
 /// 🎬 A single keyframe in a multi-phase camera animation.
 ///
@@ -321,21 +322,7 @@ class InfiniteCanvasController extends ChangeNotifier {
   /// Check if zoom crossed an LOD tier boundary and fire callback.
   /// Uses hysteresis to prevent flickering at boundaries.
   void _checkLodTier() {
-    // Hysteresis: different thresholds for zooming in vs out.
-    // Zooming OUT uses lower thresholds → tier change happens later.
-    // Zooming IN uses higher thresholds → tier change happens later.
-    // This prevents rapid toggling at the boundary.
-    final int tier;
-    if (_lastLodTier == 2) {
-      // Currently in sections-only mode → need to zoom IN past 0.30 to exit
-      tier = _scale < 0.30 ? 2 : (_scale < 0.5 ? 1 : 0);
-    } else if (_lastLodTier == 0) {
-      // Currently in full quality → need to zoom OUT past 0.45 to exit
-      tier = _scale < 0.25 ? 2 : (_scale < 0.45 ? 1 : 0);
-    } else {
-      // Tier 1 (batched) → standard thresholds
-      tier = _scale < 0.25 ? 2 : (_scale < 0.5 ? 1 : 0);
-    }
+    final tier = computeLodTier(_scale, _lastLodTier);
     if (tier != _lastLodTier) {
       // 📳 GRADUATED HAPTIC: different feedback for direction & magnitude
       final tierDelta = (tier - _lastLodTier).abs();

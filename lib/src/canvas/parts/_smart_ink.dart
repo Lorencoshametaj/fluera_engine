@@ -190,17 +190,63 @@ extension FlueraSmartInkExtension on _FlueraCanvasScreenState {
     final tappedIdx = tappedLine.indexOf(tappedStroke);
     final tappedRoot = find(tappedIdx);
 
-    final group = <ProStroke>[];
+    final lineGroup = <ProStroke>[];
     for (int i = 0; i < tappedLine.length; i++) {
       if (find(i) == tappedRoot) {
-        group.add(tappedLine[i]);
+        lineGroup.add(tappedLine[i]);
       }
     }
 
-    // Sort left-to-right for natural reading order
-    group.sort((a, b) =>
+    if (lineGroup.length <= 1) return lineGroup;
+
+    // ── Pass 3: Word boundary detection ───────────────────────────────
+    // Split the line group into words by detecting large horizontal gaps.
+    // A "word gap" is significantly larger than the typical inter-letter gap.
+
+    // Sort left-to-right by center X
+    lineGroup.sort((a, b) =>
         boundsMap[a]!.center.dx.compareTo(boundsMap[b]!.center.dx));
-    return group;
+
+    // Compute horizontal gaps between consecutive strokes
+    final gaps = <double>[];
+    for (int i = 0; i < lineGroup.length - 1; i++) {
+      final rightEdge = boundsMap[lineGroup[i]]!.right;
+      final leftEdge = boundsMap[lineGroup[i + 1]]!.left;
+      gaps.add(leftEdge - rightEdge); // negative = overlapping
+    }
+
+    if (gaps.isEmpty) return lineGroup;
+
+    // Compute median gap and median stroke width
+    final sortedGaps = gaps.toList()..sort();
+    final medianGap = sortedGaps[sortedGaps.length ~/ 2];
+    final widths = lineGroup.map((s) => boundsMap[s]!.width).toList()..sort();
+    final medianWidth = widths[widths.length ~/ 2];
+
+    // Word gap threshold: max of (2× median gap, 0.8× median stroke width)
+    // This adapts to both loose and tight handwriting styles
+    final wordGapThreshold = [medianGap * 2.0, medianWidth * 0.8]
+        .reduce((a, b) => a > b ? a : b)
+        .clamp(medianHeight * 0.3, medianHeight * 3.0);
+
+    // Split into words at large gaps
+    final words = <List<ProStroke>>[<ProStroke>[lineGroup.first]];
+    for (int i = 0; i < gaps.length; i++) {
+      if (gaps[i] > wordGapThreshold) {
+        // Word boundary detected
+        words.add(<ProStroke>[lineGroup[i + 1]]);
+      } else {
+        words.last.add(lineGroup[i + 1]);
+      }
+    }
+
+    // Return the word containing the tapped stroke
+    for (final word in words) {
+      if (word.contains(tappedStroke)) return word;
+    }
+
+    // Fallback (shouldn't happen)
+    return lineGroup;
   }
 
   /// Compute bounding rect of a stroke.

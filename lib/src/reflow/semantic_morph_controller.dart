@@ -218,17 +218,15 @@ class SemanticMorphController {
       final hasAiTitle = clusterTexts[cluster.id]?.isNotEmpty == true;
       if (cluster.strokeIds.length < 20 && !hasAiTitle) continue;
 
-      final center = cluster.centroid;
-      // Node radius matches _paintSemanticNodes computation × importance × inverseScale
-      final importance = clusterImportance[cluster.id] ?? 0.5;
-      final importanceScale = 0.7 + importance * 0.6;
-      final baseR = (20.0 + cluster.elementCount.clamp(0, 50) * 0.8) * importanceScale * inverseScale;
-      // 20% larger for easier tap
-      final hitRadius = baseR * 1.2;
+      final bounds = cluster.bounds;
+      if (bounds.isEmpty || !bounds.isFinite) continue;
 
-      final dx = canvasPoint.dx - center.dx;
-      final dy = canvasPoint.dy - center.dy;
-      if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+      final importance = clusterImportance[cluster.id] ?? 0.5;
+      final nodePadding = (10.0 + importance * 6.0) * inverseScale;
+      // 20% extra for easier tap targeting
+      final hitRect = bounds.inflate(nodePadding * 1.2);
+
+      if (hitRect.contains(canvasPoint)) {
         return cluster.id;
       }
     }
