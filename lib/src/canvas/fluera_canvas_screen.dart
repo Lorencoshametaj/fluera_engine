@@ -139,6 +139,12 @@ import '../rendering/canvas/grammar_painter.dart';
 import '../canvas/overlays/spellcheck_popup.dart';
 import '../canvas/parts/ui/spellcheck_context_menu.dart';
 import '../canvas/parts/ui/grammar_settings_sheet.dart';
+import '../canvas/parts/ui/dictionary_lookup_sheet.dart';
+import '../services/dictionary_lookup_service.dart';
+import '../services/ai_grammar_service.dart';
+import '../services/reading_level_service.dart';
+import '../canvas/parts/ui/reading_level_sheet.dart';
+import '../canvas/parts/ui/synonym_popup.dart';
 import '../canvas/overlays/ink_prediction_bubble.dart';
 import '../canvas/overlays/ghost_ink_painter.dart';
 import '../services/text_recognition_service.dart';
@@ -2102,7 +2108,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         final saveData = _buildSaveData();
         final cloudData = saveData.toJson();
         cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
-        _syncEngine!.flush(_canvasId, _sanitizeForFirestore(cloudData));
+        _syncEngine!.flush(_canvasId, cloudData);
       }
     } else if (state == AppLifecycleState.inactive) {
       // 🚀 APP SWITCHER: App partially visible — suspend non-essential work

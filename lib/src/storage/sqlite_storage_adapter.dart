@@ -43,7 +43,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 12;
+const int _kSchemaVersion = 13;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -76,6 +76,38 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   /// Optional custom database path. If null, uses the default sqflite path.
   final String? databasePath;
 
+  /// 🔐 Current user ID for per-user database isolation.
+  /// Each user gets a separate SQLite file for 100% local security.
+  String? _currentUserId;
+
+  @override
+  String? get currentUserId => _currentUserId;
+
+  @override
+  set currentUserId(String? userId) {
+    if (userId == _currentUserId) return;
+    _currentUserId = userId;
+    // Close current DB and re-initialize with user-specific file
+    _switchDatabase();
+  }
+
+  /// 🔐 Close current DB and open a user-specific one.
+  Future<void> _switchDatabase() async {
+    await _db?.close();
+    _db = null;
+    await initialize();
+  }
+
+  /// Get the database filename for the current user.
+  /// Each user gets their own file: `fluera_canvas_<full_uuid>.db`
+  /// Guest/anonymous: `fluera_canvas.db`
+  String get _userDatabaseName {
+    if (_currentUserId == null) return _kDatabaseName;
+    // Use FULL user UUID (dashes removed) for guaranteed uniqueness
+    final safeId = _currentUserId!.replaceAll('-', '');
+    return 'fluera_canvas_$safeId.db';
+  }
+
   /// Creates a new SQLite storage adapter.
   ///
   /// [databasePath] — optional custom path for the database file.
@@ -103,15 +135,14 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     }
     final factory = databaseFactoryFfi;
 
-    // Use path_provider for a reliable directory on all platforms.
-    // The FFI factory's getDatabasesPath() can fail on Android.
+    // 🔐 Per-user database file
     String path;
     if (databasePath != null) {
       path = databasePath!;
     } else {
       final appDir = await getSafeDocumentsDirectory();
       if (appDir == null) return; // Web: no filesystem
-      path = p.join(appDir.path, _kDatabaseName);
+      path = p.join(appDir.path, _userDatabaseName);
     }
 
     _db = await factory.openDatabase(
@@ -135,6 +166,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     await db.execute('''
       CREATE TABLE canvases (
         canvas_id     TEXT PRIMARY KEY,
+        user_id       TEXT,
         title         TEXT,
         paper_type    TEXT NOT NULL DEFAULT 'blank',
         background_color TEXT,
@@ -157,9 +189,14 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       )
     ''');
 
+    await db.execute(
+      'CREATE INDEX idx_canvases_user ON canvases(user_id)',
+    );
+
     await db.execute('''
       CREATE TABLE folders (
         folder_id       TEXT PRIMARY KEY,
+        user_id         TEXT,
         name            TEXT NOT NULL,
         parent_folder_id TEXT,
         color           TEXT NOT NULL DEFAULT '0xFF6750A4',
@@ -167,6 +204,10 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         updated_at      INTEGER NOT NULL
       )
     ''');
+
+    await db.execute(
+      'CREATE INDEX idx_folders_user ON folders(user_id)',
+    );
 
     await db.execute('''
       CREATE TABLE canvas_layers (
@@ -282,6 +323,21 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       } catch (_) {
         // Column may already exist in fresh databases.
       }
+    }
+    if (oldVersion < 13) {
+      // 🔐 User isolation: add user_id to canvases and folders.
+      try {
+        await db.execute('ALTER TABLE canvases ADD COLUMN user_id TEXT');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_canvases_user ON canvases(user_id)',
+        );
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE folders ADD COLUMN user_id TEXT');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id)',
+        );
+      } catch (_) {}
     }
   }
 
@@ -801,6 +857,22 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   Future<List<CanvasMetadata>> listCanvases({String? folderId}) async {
     final db = _ensureInitialized();
 
+    // 🔐 Build WHERE clause with user_id filtering
+    final conditions = <String>[];
+    final args = <dynamic>[];
+
+    if (_currentUserId != null) {
+      conditions.add('user_id = ?');
+      args.add(_currentUserId);
+    }
+
+    if (folderId != null) {
+      conditions.add('folder_id = ?');
+      args.add(folderId);
+    } else {
+      conditions.add('folder_id IS NULL');
+    }
+
     final rows = await db.query(
       'canvases',
       columns: [
@@ -814,8 +886,8 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         'created_at',
         'updated_at',
       ],
-      where: folderId != null ? 'folder_id = ?' : 'folder_id IS NULL',
-      whereArgs: folderId != null ? [folderId] : null,
+      where: conditions.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
       orderBy: 'updated_at DESC',
     );
 
@@ -910,12 +982,13 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     await db.rawInsert(
       '''
       INSERT INTO canvases (
-        canvas_id, title, paper_type, background_color,
+        canvas_id, user_id, title, paper_type, background_color,
         folder_id, layer_count, stroke_count, created_at, updated_at, schema_version
-      ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
     ''',
       [
         id,
+        _currentUserId,
         options.title,
         options.paperType.storageKey,
         '0x${options.backgroundColor.value.toRadixString(16).padLeft(8, '0')}',
@@ -943,6 +1016,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.insert('folders', {
       'folder_id': id,
+      'user_id': _currentUserId,
       'name': name,
       'parent_folder_id': parentFolderId,
       'color': '0x${color.value.toRadixString(16).padLeft(8, '0')}',
@@ -1003,13 +1077,27 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   @override
   Future<List<FolderMetadata>> listFolders({String? parentFolderId}) async {
     final db = _ensureInitialized();
+
+    // 🔐 Build WHERE clause with user_id filtering
+    final conditions = <String>[];
+    final args = <dynamic>[];
+
+    if (_currentUserId != null) {
+      conditions.add('user_id = ?');
+      args.add(_currentUserId);
+    }
+
+    if (parentFolderId != null) {
+      conditions.add('parent_folder_id = ?');
+      args.add(parentFolderId);
+    } else {
+      conditions.add('parent_folder_id IS NULL');
+    }
+
     final rows = await db.query(
       'folders',
-      where:
-          parentFolderId != null
-              ? 'parent_folder_id = ?'
-              : 'parent_folder_id IS NULL',
-      whereArgs: parentFolderId != null ? [parentFolderId] : null,
+      where: conditions.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
       orderBy: 'name ASC',
     );
 

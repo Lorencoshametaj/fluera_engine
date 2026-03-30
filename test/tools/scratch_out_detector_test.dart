@@ -8,13 +8,13 @@ void main() {
   group('ScratchOutDetector', () {
     /// Helper: Generate a horizontal zigzag pattern.
     /// Creates points that zigzag up and down along the x axis.
-    /// Uses fast timestamps (5ms intervals) to exceed speed threshold.
+    /// Uses fast timestamps (3ms intervals) to exceed speed threshold (1.5 px/ms).
     List<ProDrawingPoint> _makeHorizontalZigzag({
       int zigzags = 6,
       double width = 200.0,
       double height = 40.0,
       int pointsPerSeg = 8,
-      int msPerPoint = 5,
+      int msPerPoint = 3,
     }) {
       final points = <ProDrawingPoint>[];
       final totalSegs = zigzags * 2;
@@ -57,7 +57,7 @@ void main() {
       double width = 40.0,
       double height = 200.0,
       int pointsPerSeg = 8,
-      int msPerPoint = 5,
+      int msPerPoint = 3,
     }) {
       final points = <ProDrawingPoint>[];
       final totalSegs = zigzags * 2;
@@ -240,13 +240,13 @@ void main() {
       int ts = 1000;
       const zigzags = 6;
       const totalSegs = zigzags * 2;
-      const segLen = 20.0;
+      const segLen = 25.0;
 
       for (int seg = 0; seg <= totalSegs; seg++) {
         // Diagonal advance: move along (1,1) direction
         final along = seg * segLen;
-        // Perpendicular oscillation: alternate ±15px on (-1,1) axis
-        final perpOffset = (seg % 2 == 0) ? -15.0 : 15.0;
+        // Perpendicular oscillation: alternate ±20px on (-1,1) axis
+        final perpOffset = (seg % 2 == 0) ? -20.0 : 20.0;
         final x = along / math.sqrt(2) + perpOffset / math.sqrt(2);
         final y = along / math.sqrt(2) - perpOffset / math.sqrt(2);
 
@@ -260,7 +260,7 @@ void main() {
           final prev = points.last.position;
           for (int i = 1; i <= 8; i++) {
             final t = i / 8.0;
-            ts += 5; // Fast timestamps to exceed speed threshold
+            ts += 3; // Fast timestamps to exceed speed threshold
             points.add(ProDrawingPoint(
               position: Offset(
                 prev.dx + (x - prev.dx) * t,

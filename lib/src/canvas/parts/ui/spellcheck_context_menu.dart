@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../services/spellcheck_service.dart';
-import '../../../services/grammar_check_service.dart';
 import '../../../services/personal_dictionary_service.dart';
 
 // =============================================================================
@@ -36,6 +35,8 @@ class SpellcheckContextMenu extends StatelessWidget {
   final void Function(String correction) onApplyCorrection;
   final VoidCallback? onIgnore;
   final VoidCallback? onAddToDictionary;
+  final VoidCallback? onLookUp;
+  final VoidCallback? onSynonyms;
 
   const SpellcheckContextMenu({
     super.key,
@@ -48,6 +49,8 @@ class SpellcheckContextMenu extends StatelessWidget {
     required this.onApplyCorrection,
     this.onIgnore,
     this.onAddToDictionary,
+    this.onLookUp,
+    this.onSynonyms,
   });
 
   @override
@@ -201,6 +204,30 @@ class SpellcheckContextMenu extends StatelessWidget {
                   HapticFeedback.mediumImpact();
                   PersonalDictionaryService.instance.addWord(word);
                   onAddToDictionary!();
+                },
+              ),
+
+            // Look Up action
+            if (onLookUp != null)
+              _ActionTile(
+                icon: Icons.menu_book_outlined,
+                label: 'Look Up',
+                isDark: isDark,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  onLookUp!();
+                },
+              ),
+
+            // Synonyms action
+            if (onSynonyms != null)
+              _ActionTile(
+                icon: Icons.swap_horiz_rounded,
+                label: 'Synonyms',
+                isDark: isDark,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  onSynonyms!();
                 },
               ),
 

@@ -137,6 +137,63 @@ class MockCloudAdapter implements FlueraCloudStorageAdapter {
         )
         .toList();
   }
+
+  // ─── Image element metadata (no-op for tests) ──────────────────────
+
+  @override
+  Future<void> syncImageElements(
+    String canvasId,
+    List<Map<String, dynamic>> elements,
+  ) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> loadImageElements(
+    String canvasId,
+  ) async => [];
+
+  @override
+  Future<int> cleanOrphanedAssets(
+    String canvasId,
+    Set<String> knownAssetIds,
+  ) async => 0;
+
+  @override
+  Future<void> syncPdfElements(
+    String canvasId,
+    List<Map<String, dynamic>> elements,
+  ) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> loadPdfElements(
+    String canvasId,
+  ) async => [];
+
+  @override
+  Future<void> syncRecordingElements(
+    String canvasId,
+    List<Map<String, dynamic>> elements,
+  ) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> loadRecordingElements(
+    String canvasId,
+  ) async => [];
+
+  @override
+  Future<int> getStorageUsageBytes() async => 0;
+
+  @override
+  int get storageQuotaBytes => 0;
+
+  @override
+  Future<Map<String, Map<String, int>>> getStorageUsageBreakdown() async => {
+    'images': {'bytes': 0, 'count': 0},
+    'pdfs': {'bytes': 0, 'count': 0},
+    'recordings': {'bytes': 0, 'count': 0},
+  };
+
+  @override
+  Future<List<Map<String, dynamic>>> getPerCanvasStorage() async => [];
 }
 
 void main() {

@@ -122,6 +122,8 @@ extension on _FlueraCanvasScreenState {
   /// 🚀 Upload image to cloud in background with retry, cancellation, and offline queue.
   ///
   /// Features:
+  /// - **Thumbnail**: generates 300px preview from already-resized bytes (1 decode)
+  /// - **Parallel upload**: full + thumbnail uploaded concurrently via Future.wait
   /// - **Cancellation**: checks `_pendingUploads` at each retry; if image is deleted, bails.
   /// - **Offline queue**: failed uploads queued in `_offlineUploadQueue` for later retry.
   /// - **MIME detection**: correct Content-Type from magic bytes.
@@ -134,12 +136,18 @@ extension on _FlueraCanvasScreenState {
     // #7: Track pending upload for cancellation
     _pendingUploads.add(imageId);
     String? storageUrl;
+    String? thumbnailUrl;
 
     // 🔍 Detect actual MIME type (JPEG vs PNG vs WebP)
     final mimeType = ImageMemoryManager.detectMimeType(imageBytes);
 
     // 📐 Resize large images before upload (max 4096px)
     final uploadBytes = await ImageMemoryManager.resizeForUpload(imageBytes);
+
+    // 🖼️ Generate 300px thumbnail from ALREADY-RESIZED bytes (no extra decode!)
+    final thumbBytes = await ImageMemoryManager.generateThumbnailBytes(
+      uploadBytes,
+    );
 
     // 🔄 Retry with exponential backoff (3 attempts)
     for (int attempt = 1; attempt <= 3; attempt++) {
@@ -149,13 +157,28 @@ extension on _FlueraCanvasScreenState {
       }
 
       try {
-        storageUrl = await _syncEngine!.adapter.uploadAsset(
+        // ⚡ Parallel upload: full image + thumbnail concurrently
+        final fullFuture = _syncEngine!.adapter.uploadAsset(
           _canvasId,
           imageId,
           uploadBytes,
           mimeType: mimeType,
           onProgress: (progress) {},
         );
+
+        final thumbFuture = (thumbBytes != null)
+            ? _syncEngine!.adapter.uploadAsset(
+                _canvasId,
+                '${imageId}_thumb',
+                thumbBytes,
+                mimeType: 'image/png',
+              ).catchError((_) => '') // Non-critical
+            : Future.value('');
+
+        final results = await Future.wait([fullFuture, thumbFuture]);
+        storageUrl = results[0];
+        thumbnailUrl = results[1].isNotEmpty ? results[1] : null;
+
         break;
       } catch (e) {
         if (attempt < 3) {
@@ -180,10 +203,13 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-    // Update the ImageElement with the storageUrl
+    // Update the ImageElement with storageUrl + thumbnailUrl
     final idx = _imageElements.indexWhere((e) => e.id == imageId);
     if (idx != -1) {
-      final updated = _imageElements[idx].copyWith(storageUrl: storageUrl);
+      final updated = _imageElements[idx].copyWith(
+        storageUrl: storageUrl,
+        thumbnailUrl: thumbnailUrl,
+      );
       setState(() {
         _imageElements[idx] = updated;
       });
@@ -331,6 +357,16 @@ extension on _FlueraCanvasScreenState {
 
     // 🔄 Sync: notify delta tracker
     _layerController.removeImage(imageId);
+
+    // 🗑️ Cloud: delete orphaned assets from Supabase Storage
+    if (_syncEngine != null) {
+      Future(() async {
+        try {
+          await _syncEngine!.adapter.deleteAsset(_canvasId, imageId);
+          await _syncEngine!.adapter.deleteAsset(_canvasId, '${imageId}_thumb');
+        } catch (_) {} // Best-effort cleanup
+      });
+    }
 
     // 🔴 RT: Broadcast removal to collaborators
     if (broadcast) {

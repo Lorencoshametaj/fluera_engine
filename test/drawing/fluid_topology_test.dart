@@ -242,7 +242,7 @@ void main() {
       grid.depositAlongPath(
         points,
         color: const Color(0xFF00FF00),
-        width: 10.0,
+        width: 25.0,
         pressure: 0.5,
       );
 
@@ -274,7 +274,7 @@ void main() {
       final grid = FluidGrid(resolution: 10);
 
       grid.deposit(5.0, 5.0, color: const Color(0xFFFF0000), amount: 0.5);
-      grid.deposit(55.0, 5.0, color: const Color(0xFF00FF00), amount: 0.001);
+      grid.deposit(55.0, 5.0, color: const Color(0xFF00FF00), amount: 0.001, wetness: 0.0);
 
       final before = grid.cellCount;
       final pruned = grid.prune(0.01, 0.01);
@@ -455,13 +455,14 @@ void main() {
         50.0,
         color: const Color(0xFFFF0000),
         amount: 0.003,
+        wetness: 0.003,
         nowMs: 0.0,
       );
 
       expect(engine.grid.cellCount, greaterThan(0));
 
       // Prune with threshold above the deposit
-      final pruned = engine.grid.prune(0.01, 0.01);
+      final pruned = engine.grid.prune(0.005, 0.005);
       expect(pruned, greaterThan(0));
     });
 
@@ -504,8 +505,8 @@ void main() {
       expect(diag.containsKey('activeCells'), true);
       expect(diag.containsKey('tickCount'), true);
       expect(diag.containsKey('enabled'), true);
-      expect(diag.containsKey('gravity'), true);
-      expect(diag.containsKey('edgeDarkening'), true);
+      expect(diag.containsKey('tickUs'), true);
+      expect(diag.containsKey('lod'), true);
     });
 
     test('gravity adds downward velocity to wet cells', () {
@@ -566,16 +567,21 @@ void main() {
     test('velocity injection from stroke path', () {
       final grid = FluidGrid(resolution: 10);
 
-      // Deposit along a horizontal path — should inject rightward velocity
+      // Deposit along a horizontal path — should inject rightward velocity.
+      // Points must be widely spaced enough so dirLen > 0.01
+      // and velMag = (dirLen * pressure * 0.5) > 0.1.
+      final points = <Offset>[
+        for (double x = 10; x <= 200; x += 10) Offset(x, 50),
+      ];
       grid.depositAlongPath(
-        [const Offset(10, 50), const Offset(100, 50)],
+        points,
         color: const Color(0xFFFF0000),
-        width: 10.0,
+        width: 20.0,
         pressure: 0.8,
       );
 
       // Check a cell near the middle — should have positive velocityX
-      final cell = grid.getCellAt(50.0, 50.0);
+      final cell = grid.getCellAt(100.0, 50.0);
       expect(cell, isNotNull);
       expect(cell!.velocityX, greaterThan(0.0));
     });

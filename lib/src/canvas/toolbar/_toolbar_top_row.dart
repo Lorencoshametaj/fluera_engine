@@ -384,6 +384,8 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
 
                   onPaperTypePressed:
                       widget.onPaperTypePressed, // 📄 Paper type
+                  onReadingLevelPressed:
+                      widget.onReadingLevelPressed, // 📊 Reading level
                 ),
               ],
             ),

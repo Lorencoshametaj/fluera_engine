@@ -11,8 +11,8 @@ void main() {
       final layer = LayerNode(id: NodeId('layer'), name: 'Layer');
       final leaf = GroupNode(id: NodeId('leaf'), name: 'Leaf');
 
-      root.children.add(layer);
-      layer.children.add(leaf);
+      root.add(layer);
+      layer.add(leaf);
 
       leaf.translate(10, 20);
       leaf.opacity = 0.5;

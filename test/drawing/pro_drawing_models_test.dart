@@ -60,7 +60,7 @@ void main() {
         expect(restored.position.dx, closeTo(100.1234, 0.001));
         expect(restored.position.dy, closeTo(200.5678, 0.001));
         expect(restored.pressure, closeTo(0.75, 0.01));
-        expect(restored.timestamp, 12345);
+        // Note: timestamp is NOT preserved in compact List serialization
       });
 
       test('omits zero tilt and orientation from JSON', () {
@@ -70,9 +70,9 @@ void main() {
           timestamp: 100,
         );
         final json = point.toJson();
-        expect(json.containsKey('tiltX'), isFalse);
-        expect(json.containsKey('tiltY'), isFalse);
-        expect(json.containsKey('orientation'), isFalse);
+        // Compact format: [x, y, pressure] — no tilt/orientation fields
+        expect(json, isList);
+        expect((json as List).length, 3);
       });
 
       test('includes non-zero tilt in JSON', () {
@@ -85,9 +85,9 @@ void main() {
           timestamp: 100,
         );
         final json = point.toJson();
-        expect(json.containsKey('tiltX'), isTrue);
-        expect(json.containsKey('tiltY'), isTrue);
-        expect(json.containsKey('orientation'), isTrue);
+        // Compact format: [x, y, pressure, tiltX, tiltY, orientation]
+        expect(json, isList);
+        expect((json as List).length, 6);
       });
 
       test('round-trips full fields including tilt', () {
@@ -118,8 +118,8 @@ void main() {
           timestamp: 0,
         );
         final json = point.toJson();
-        // 4 decimal places: 1.1235, 2.9877
-        expect((json['x'] as double).toString().length, lessThanOrEqualTo(8));
+        // Compact List format: [x, y, pressure, ...]
+        expect(((json as List)[0] as double).toString().length, lessThanOrEqualTo(8));
       });
 
       test('pressure is rounded to 2 decimals', () {
@@ -129,7 +129,8 @@ void main() {
           timestamp: 0,
         );
         final json = point.toJson();
-        expect(json['pressure'], closeTo(0.78, 0.001));
+        // Compact List format: [x, y, pressure]
+        expect((json as List)[2], closeTo(0.78, 0.001));
       });
     });
 
@@ -360,8 +361,8 @@ void main() {
     // ── ProPenType ─────────────────────────────────────────────────────
 
     group('ProPenType', () {
-      test('has eleven values', () {
-        expect(ProPenType.values.length, 11);
+      test('has twelve values', () {
+        expect(ProPenType.values.length, 12);
       });
 
       test('contains expected types', () {

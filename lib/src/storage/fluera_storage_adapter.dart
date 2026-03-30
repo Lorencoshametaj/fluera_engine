@@ -156,6 +156,13 @@ class FolderMetadata {
 /// )
 /// ```
 abstract class FlueraStorageAdapter {
+  /// 🔐 Current user ID for data isolation.
+  ///
+  /// When set, storage operations are scoped to this user.
+  /// When null, all data is visible (legacy / offline mode).
+  String? get currentUserId => null;
+  set currentUserId(String? userId) {}
+
   /// Initialize the storage backend (create DB, run migrations, etc.).
   ///
   /// Must be called before any other method. Safe to call multiple times.

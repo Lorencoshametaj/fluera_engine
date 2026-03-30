@@ -99,10 +99,10 @@ void main() {
     });
 
     test('oscillates with period ~1000px', () {
-      // Half period should be approximately opposite sign
-      final a = OrganicNoise.breathingModulation(0.0);
-      final b = OrganicNoise.breathingModulation(500.0);
-      // b should be roughly at the peak/trough relative to a
+      // Quarter period (~250px) should reach peak (sin(π/2) ≈ 1)
+      final a = OrganicNoise.breathingModulation(0.0);   // sin(0) ≈ 0
+      final b = OrganicNoise.breathingModulation(250.0);  // sin(π/2) ≈ 1
+      // b should be near peak relative to a
       expect((a - b).abs(), greaterThan(0.5));
     });
   });

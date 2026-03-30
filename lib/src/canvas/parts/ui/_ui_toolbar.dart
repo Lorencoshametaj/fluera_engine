@@ -134,6 +134,23 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
           onClear: _clear,
           onSettings: _showSettings,
           onPaperTypePressed: _showPaperTypePicker,
+          onReadingLevelPressed: () {
+            // 📊 Gather all digital text from canvas elements
+            final allText = _digitalTextElements
+                .map((e) => e.plainText)
+                .where((t) => t.trim().isNotEmpty)
+                .join('. ');
+            if (allText.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('No text found on canvas — write something first!'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+              return;
+            }
+            ReadingLevelSheet.show(context, allText);
+          },
           onBrushSettingsPressed: (anchorRect) {
             // 🎛️ Long-press → Show brush characteristics popup
             if (!mounted) return;

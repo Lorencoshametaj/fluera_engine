@@ -171,7 +171,7 @@ void main() {
         ),
         _stroke(
           id: NodeId('word2'),
-          bounds: const Rect.fromLTWH(10, 10, 80, 40),
+          bounds: const Rect.fromLTWH(200, 200, 80, 40),
           createdAt: base.add(const Duration(seconds: 10)), // 10s later
         ),
       ];

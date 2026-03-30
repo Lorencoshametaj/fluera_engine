@@ -496,7 +496,7 @@ class ImageMemoryManager {
 
   // ======================= RESIZE FOR UPLOAD =======================
 
-  /// 📐 Resize image bytes for cloud upload (max 4096px, re-encode as PNG).
+  /// 📐 Resize image bytes for cloud upload (max 4096px).
   ///
   /// Photos from modern phones can be 20MP+ (5000x4000). Uploading at full
   /// resolution wastes bandwidth and storage. This caps at [maxDimension]
@@ -549,6 +549,57 @@ class ImageMemoryManager {
       return resized;
     } catch (e) {
       return bytes;
+    }
+  }
+
+  // ======================= THUMBNAIL GENERATION =======================
+
+  /// 🖼️ Generate a small thumbnail (300px max) for cloud preview.
+  ///
+  /// Used during sync: thumbnails download ~95% faster than full images,
+  /// providing instant visual context while full-res loads in background.
+  ///
+  /// Returns PNG bytes of the resized thumbnail, or null on failure.
+  static Future<Uint8List?> generateThumbnailBytes(
+    Uint8List sourceBytes, {
+    int maxDimension = 300,
+  }) async {
+    try {
+      final codec = await ui.instantiateImageCodec(sourceBytes);
+      final frame = await codec.getNextFrame();
+      final w = frame.image.width;
+      final h = frame.image.height;
+      frame.image.dispose();
+      codec.dispose();
+
+      // Already tiny — no thumbnail needed
+      if (w <= maxDimension && h <= maxDimension) return null;
+
+      int targetW, targetH;
+      if (w >= h) {
+        targetW = maxDimension;
+        targetH = (h * maxDimension / w).round();
+      } else {
+        targetH = maxDimension;
+        targetW = (w * maxDimension / h).round();
+      }
+
+      final thumbCodec = await ui.instantiateImageCodec(
+        sourceBytes,
+        targetWidth: targetW,
+        targetHeight: targetH,
+      );
+      final thumbFrame = await thumbCodec.getNextFrame();
+      thumbCodec.dispose();
+
+      final byteData = await thumbFrame.image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      thumbFrame.image.dispose();
+
+      return byteData?.buffer.asUint8List();
+    } catch (_) {
+      return null;
     }
   }
 

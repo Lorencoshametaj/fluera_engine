@@ -511,7 +511,11 @@ class SceneGraph with SceneGraphObservable implements TransformBridge {
   void _registerSubtree(CanvasNode node) {
     _nodeIndex[node.id] = node;
     node.ownerGraph = this;
-    spatialIndex.insert(node);
+    // Only insert leaf nodes into the spatial index — GroupNodes are
+    // containers and their bounds are derived from children.
+    if (node is! GroupNode) {
+      spatialIndex.insert(node);
+    }
     dirtyTracker.registerNode(node);
     if (node is GroupNode) {
       for (final child in node.children) {

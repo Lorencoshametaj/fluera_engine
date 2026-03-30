@@ -396,7 +396,90 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       );
     }
 
-    // 📡 Broadcast to collaborators
+    // ☁️ Always upload PDF to Supabase Storage when cloud sync is available
+    if (_syncEngine != null) {
+      final firstPageSize = pageModels.first.originalSize;
+
+      final uploadFuture = Future(() async {
+        bool uploaded = false;
+
+        // 🔄 Retry with exponential backoff (3 attempts)
+        for (int attempt = 1; attempt <= 3; attempt++) {
+          try {
+            // ⚡ Parallel: upload PDF + thumbnail concurrently
+            final pdfFuture = _syncEngine!.adapter.uploadAsset(
+              _canvasId,
+              docId,
+              bytes,
+              mimeType: 'application/pdf',
+              onProgress: (p) {
+                _realtimeEngine?.broadcastPdfProgress(
+                  documentId: docId,
+                  progress: p * 0.6,
+                );
+              },
+            );
+
+            final thumbFuture = _renderPdfThumbnailBytes(
+              provider, firstPageSize,
+            ).then((thumbBytes) {
+              if (thumbBytes == null) return '';
+              return _syncEngine!.adapter.uploadAsset(
+                _canvasId,
+                '${docId}_thumb',
+                thumbBytes,
+                mimeType: 'image/png',
+              );
+            }).catchError((_) => ''); // Thumbnail is non-critical
+
+            await Future.wait([pdfFuture, thumbFuture]);
+            uploaded = true;
+            break;
+          } catch (e) {
+            if (attempt < 3) {
+              await Future.delayed(Duration(seconds: attempt));
+            }
+          }
+        }
+
+        // 📶 Queue for offline retry if all attempts failed
+        if (!uploaded) {
+          _offlinePdfUploadQueue[docId] = _OfflinePdfUploadEntry(
+            docId: docId,
+            bytes: bytes,
+            provider: provider,
+            pageSize: firstPageSize,
+          );
+        } else {
+          // Drain any previously queued offline uploads
+          _drainOfflinePdfQueue();
+        }
+
+        // 📊 Sync PDF metadata to dedicated table
+        if (uploaded && _syncEngine != null) {
+          try {
+            _syncEngine!.adapter.syncPdfElements(_canvasId, [
+              {
+                'id': docId,
+                'storageUrl': '', // Storage URL from upload
+                'pageCount': pageModels.length,
+                'position': {'dx': position?.dx ?? 0, 'dy': position?.dy ?? 0},
+                'scale': 1.0,
+                'pageIndex': 0,
+                'fileName': docId,
+                'fileSizeBytes': bytes.length,
+              },
+            ]);
+          } catch (_) {} // Non-critical
+        }
+
+        _activePdfUploads.remove(docId);
+      });
+
+      _activePdfUploads[docId] = uploadFuture;
+    }
+
+    // 📡 Broadcast to collaborators (realtime only)
     if (broadcast && _realtimeEngine != null) {
       final firstPageSize =
           pageModels.firstOrNull?.originalSize ?? const Size(595, 842);
@@ -438,28 +521,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         thumbnailBase64: thumbnailBase64,
       );
 
-      // Phase 2: Background upload + gzip broadcast (fire-and-forget)
-      final uploadFuture = Future(() async {
-        bool uploadOk = false;
-
-        if (_syncEngine != null) {
-          try {
-            await _syncEngine!.adapter.uploadAsset(
-              _canvasId,
-              docId,
-              bytes,
-              mimeType: 'application/pdf',
-              onProgress: (p) {
-                _realtimeEngine?.broadcastPdfProgress(
-                  documentId: docId,
-                  progress: p * 0.7,
-                );
-              },
-            );
-            uploadOk = true;
-          } catch (e) {}
-        }
-
+      // Phase 2: gzip broadcast for inline transfer (fire-and-forget)
+      Future(() async {
         try {
           String? b64;
           if (bytes.length <= 10 * 1024 * 1024) {
@@ -484,15 +547,9 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
             pdfBytesBase64: b64,
           );
         } catch (e) {
-          if (!uploadOk) {
-            _realtimeEngine?.broadcastPdfLoadingFailed(documentId: docId);
-          }
+          _realtimeEngine?.broadcastPdfLoadingFailed(documentId: docId);
         }
-
-        _activePdfUploads.remove(docId);
       });
-
-      _activePdfUploads[docId] = uploadFuture;
     }
   }
 
@@ -558,8 +615,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         // Check if the PDF file still exists on disk
         if (kIsWeb) continue; // No local file on web
         final pdfFile = File(filePath);
-        if (!await pdfFile.exists()) {
-          // ☁️ Try downloading from cloud
+        if (!await pdfFile.exists() || await pdfFile.length() == 0) {
+          // ☁️ Try downloading from cloud (handles missing + corrupted files)
           if (_syncEngine != null) {
             try {
               final cloudBytes = await _syncEngine!.adapter.downloadAsset(
@@ -699,7 +756,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // Check if the PDF file still exists on disk
     if (kIsWeb) return;
     final pdfFile = File(filePath);
-    if (!await pdfFile.exists()) {
+    if (!await pdfFile.exists() || await pdfFile.length() == 0) {
       // ☁️ Try downloading from cloud
       if (_syncEngine != null) {
         try {
@@ -773,6 +830,76 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     // Auto-select last restored PDF
     _activePdfDocumentId = docId;
+  }
+
+  // ---------------------------------------------------------------------------
+  // PDF thumbnail rendering for cloud upload
+  // ---------------------------------------------------------------------------
+
+  /// 🖼️ Render page 1 of a PDF as PNG bytes (200px wide) for cloud thumbnail.
+  ///
+  /// Used during upload to create a lightweight preview that syncs ~95% faster
+  /// than the full PDF on new-device restore.
+  Future<Uint8List?> _renderPdfThumbnailBytes(
+    NativeFlueraPdfProvider provider,
+    Size pageSize,
+  ) async {
+    try {
+      final thumbScale = 200.0 / pageSize.width;
+      final thumbImage = await provider.renderPage(
+        pageIndex: 0,
+        scale: thumbScale,
+        targetSize: Size(200, 200 * pageSize.height / pageSize.width),
+      );
+      if (thumbImage == null) return null;
+
+      final byteData = await thumbImage.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      thumbImage.dispose();
+      return byteData?.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PDF offline upload queue
+  // ---------------------------------------------------------------------------
+
+  /// 📶 Offline PDF upload queue — failed uploads queued for retry.
+  static final Map<String, _OfflinePdfUploadEntry> _offlinePdfUploadQueue = {};
+
+  /// 📶 Drain the offline PDF retry queue (called after a successful upload).
+  Future<void> _drainOfflinePdfQueue() async {
+    if (_offlinePdfUploadQueue.isEmpty || _syncEngine == null) return;
+
+    final entries = Map.of(_offlinePdfUploadQueue);
+    _offlinePdfUploadQueue.clear();
+
+    for (final entry in entries.values) {
+      if (!mounted) break;
+      try {
+        final pdfFuture = _syncEngine!.adapter.uploadAsset(
+          _canvasId, entry.docId, entry.bytes,
+          mimeType: 'application/pdf',
+        );
+        final thumbFuture = _renderPdfThumbnailBytes(
+          entry.provider, entry.pageSize,
+        ).then((tb) {
+          if (tb == null) return '';
+          return _syncEngine!.adapter.uploadAsset(
+            _canvasId, '${entry.docId}_thumb', tb,
+            mimeType: 'image/png',
+          );
+        }).catchError((_) => '');
+
+        await Future.wait([pdfFuture, thumbFuture]);
+      } catch (_) {
+        // Re-queue if still failing
+        _offlinePdfUploadQueue[entry.docId] = entry;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1324,6 +1451,17 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     // 6️⃣ Cancel any active upload for this PDF
     _activePdfUploads.remove(documentId);
+    _offlinePdfUploadQueue.remove(documentId);
+
+    // 🗑️ Cloud: delete orphaned PDF + thumbnail from Supabase Storage
+    if (_syncEngine != null) {
+      Future(() async {
+        try {
+          await _syncEngine!.adapter.deleteAsset(_canvasId, documentId);
+          await _syncEngine!.adapter.deleteAsset(_canvasId, '${documentId}_thumb');
+        } catch (_) {} // Best-effort cleanup
+      });
+    }
 
     // 7️⃣ Broadcast to collaborators
     if (broadcast && _realtimeEngine != null) {
@@ -1386,4 +1524,19 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       },
     );
   }
+}
+
+/// 📶 Queued PDF upload entry for offline retry.
+class _OfflinePdfUploadEntry {
+  final String docId;
+  final Uint8List bytes;
+  final NativeFlueraPdfProvider provider;
+  final Size pageSize;
+
+  const _OfflinePdfUploadEntry({
+    required this.docId,
+    required this.bytes,
+    required this.provider,
+    required this.pageSize,
+  });
 }

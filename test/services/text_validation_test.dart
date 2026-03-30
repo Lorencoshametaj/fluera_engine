@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fluera_engine/src/services/grammar_check_service.dart';
 import 'package:fluera_engine/src/services/language_detection_service.dart';
 import 'package:fluera_engine/src/services/word_completion_dictionary.dart';
+import 'package:fluera_engine/src/services/ai_grammar_service.dart';
+import 'package:fluera_engine/src/services/reading_level_service.dart';
 
 // =============================================================================
 // 📝 Unit tests for Grammar Check, Language Detection, and Spellcheck
@@ -464,6 +466,319 @@ void main() {
       final str = segment.toString();
       expect(str, contains('it'));
       expect(str, contains('85'));
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AI GRAMMAR SERVICE TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  group('AiGrammarService', () {
+    group('Model classes', () {
+      test('AiGrammarError creates correctly', () {
+        const error = AiGrammarError(
+          original: 'should of',
+          correction: 'should have',
+          message: 'Use "should have" instead of "should of"',
+          startIndex: 5,
+          endIndex: 14,
+          severity: AiGrammarSeverity.error,
+        );
+        expect(error.original, equals('should of'));
+        expect(error.correction, equals('should have'));
+        expect(error.startIndex, equals(5));
+        expect(error.endIndex, equals(14));
+        expect(error.severity, equals(AiGrammarSeverity.error));
+      });
+
+      test('AiGrammarError.toGrammarError converts correctly', () {
+        const aiError = AiGrammarError(
+          original: 'teh',
+          correction: 'the',
+          message: 'Common typo',
+          startIndex: 0,
+          endIndex: 3,
+          severity: AiGrammarSeverity.error,
+        );
+        final grammarError = aiError.toGrammarError();
+        expect(grammarError.ruleId, equals('ai_grammar'));
+        expect(grammarError.message, equals('Common typo'));
+        expect(grammarError.suggestion, equals('the'));
+        expect(grammarError.startIndex, equals(0));
+        expect(grammarError.endIndex, equals(3));
+        expect(grammarError.severity, equals(GrammarSeverity.error));
+      });
+
+      test('AiGrammarError severity maps info for non-errors', () {
+        const aiError = AiGrammarError(
+          original: 'test',
+          message: 'Suggestion',
+          startIndex: 0,
+          endIndex: 4,
+          severity: AiGrammarSeverity.suggestion,
+        );
+        final grammarError = aiError.toGrammarError();
+        expect(grammarError.severity, equals(GrammarSeverity.info));
+      });
+
+      test('AiGrammarResult hasErrors works', () {
+        const resultEmpty = AiGrammarResult(text: 'test', errors: []);
+        expect(resultEmpty.hasErrors, isFalse);
+
+        const resultWithErrors = AiGrammarResult(
+          text: 'test',
+          errors: [
+            AiGrammarError(
+              original: 'test',
+              message: 'Error',
+              startIndex: 0,
+              endIndex: 4,
+            ),
+          ],
+        );
+        expect(resultWithErrors.hasErrors, isTrue);
+      });
+    });
+
+    group('Merge logic', () {
+      test('merges AI errors with rule errors', () {
+        const ruleErrors = [
+          GrammarError(
+            message: 'Rule error',
+            startIndex: 0,
+            endIndex: 5,
+            ruleId: 'test_rule',
+          ),
+        ];
+        const aiErrors = [
+          AiGrammarError(
+            original: 'other',
+            message: 'AI error',
+            startIndex: 10,
+            endIndex: 15,
+          ),
+        ];
+
+        final merged = AiGrammarService.mergeErrors(ruleErrors, aiErrors);
+        expect(merged.length, equals(2));
+        expect(merged[0].startIndex, equals(0)); // Rule first (sorted)
+        expect(merged[1].startIndex, equals(10)); // AI second
+      });
+
+      test('deduplicates overlapping errors', () {
+        const ruleErrors = [
+          GrammarError(
+            message: 'Rule found this',
+            startIndex: 5,
+            endIndex: 10,
+            ruleId: 'test_rule',
+          ),
+        ];
+        const aiErrors = [
+          AiGrammarError(
+            original: 'overlap',
+            message: 'AI also found this',
+            startIndex: 7,
+            endIndex: 12,
+          ),
+        ];
+
+        final merged = AiGrammarService.mergeErrors(ruleErrors, aiErrors);
+        // AI error overlaps with rule error → should be deduplicated
+        expect(merged.length, equals(1));
+        expect(merged.first.ruleId, equals('test_rule'));
+      });
+
+      test('empty AI errors returns only rule errors', () {
+        const ruleErrors = [
+          GrammarError(
+            message: 'Rule',
+            startIndex: 0,
+            endIndex: 5,
+            ruleId: 'test',
+          ),
+        ];
+        const aiErrors = <AiGrammarError>[];
+
+        final merged = AiGrammarService.mergeErrors(ruleErrors, aiErrors);
+        expect(merged.length, equals(1));
+      });
+
+      test('empty rule errors returns only AI errors', () {
+        const ruleErrors = <GrammarError>[];
+        const aiErrors = [
+          AiGrammarError(
+            original: 'test',
+            message: 'AI error',
+            startIndex: 0,
+            endIndex: 4,
+          ),
+        ];
+
+        final merged = AiGrammarService.mergeErrors(ruleErrors, aiErrors);
+        expect(merged.length, equals(1));
+        expect(merged.first.ruleId, equals('ai_grammar'));
+      });
+
+      test('merged results are sorted by position', () {
+        const ruleErrors = [
+          GrammarError(
+            message: 'Late',
+            startIndex: 20,
+            endIndex: 25,
+            ruleId: 'rule',
+          ),
+        ];
+        const aiErrors = [
+          AiGrammarError(
+            original: 'early',
+            message: 'Early error',
+            startIndex: 0,
+            endIndex: 5,
+          ),
+        ];
+
+        final merged = AiGrammarService.mergeErrors(ruleErrors, aiErrors);
+        expect(merged.length, equals(2));
+        expect(merged[0].startIndex, equals(0)); // AI first (position 0)
+        expect(merged[1].startIndex, equals(20)); // Rule second (position 20)
+      });
+    });
+
+    group('Service state', () {
+      test('service starts uninitialized', () {
+        // Without calling initialize, enabled should be false
+        final service = AiGrammarService.instance;
+        // enabled = _enabled && _initialized, _initialized starts false
+        expect(service.enabled, isFalse);
+      });
+
+      test('setEnabled toggles the flag', () {
+        AiGrammarService.instance.setEnabled(false);
+        expect(AiGrammarService.instance.enabled, isFalse);
+        AiGrammarService.instance.setEnabled(true);
+        // Still false because not initialized
+        expect(AiGrammarService.instance.enabled, isFalse);
+      });
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // READING LEVEL SERVICE TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  group('ReadingLevelService', () {
+    late ReadingLevelService service;
+
+    setUp(() {
+      service = ReadingLevelService.instance;
+    });
+
+    test('analyzes simple English text', () {
+      final result = service.analyze(
+        'The cat sat on the mat. The dog ran fast.',
+        languageCode: 'en',
+      );
+      expect(result.wordCount, greaterThan(0));
+      expect(result.sentenceCount, equals(2));
+      expect(result.fleschReadingEase, greaterThan(50)); // Simple text
+      expect(result.difficulty, isIn([
+        ReadingDifficulty.veryEasy,
+        ReadingDifficulty.easy,
+      ]));
+    });
+
+    test('analyzes Italian text with Gulpease', () {
+      final result = service.analyze(
+        'Il gatto è sul tavolo. Il cane corre veloce.',
+        languageCode: 'it',
+      );
+      expect(result.wordCount, greaterThan(0));
+      expect(result.gulpease, greaterThan(0));
+      expect(result.gulpease, lessThanOrEqualTo(100));
+      expect(result.languageCode, equals('it'));
+    });
+
+    test('empty text returns empty result', () {
+      final result = service.analyze('', languageCode: 'en');
+      expect(result.wordCount, equals(0));
+      expect(result.fleschReadingEase, equals(100));
+      expect(result.difficulty, equals(ReadingDifficulty.veryEasy));
+    });
+
+    test('complex text scores lower readability', () {
+      final simple = service.analyze(
+        'The cat sat. The dog ran. The sun is hot.',
+        languageCode: 'en',
+      );
+      final complex = service.analyze(
+        'The implementation of sophisticated algorithmic paradigms necessitates '
+        'comprehensive understanding of computational complexity theory and '
+        'its multifaceted implications for distributed systems architecture.',
+        languageCode: 'en',
+      );
+      expect(complex.fleschReadingEase,
+          lessThan(simple.fleschReadingEase));
+      expect(complex.fleschKincaidGrade,
+          greaterThan(simple.fleschKincaidGrade));
+    });
+
+    test('Flesch Reading Ease is within 0–100', () {
+      final result = service.analyze(
+        'Hello world. This is a test.',
+        languageCode: 'en',
+      );
+      expect(result.fleschReadingEase, greaterThanOrEqualTo(0));
+      expect(result.fleschReadingEase, lessThanOrEqualTo(100));
+    });
+
+    test('grade label returns reasonable values', () {
+      final result = service.analyze(
+        'The cat sat on the mat.',
+        languageCode: 'en',
+      );
+      expect(result.gradeLabel, isNotEmpty);
+      expect(result.gradeLabelIT, isNotEmpty);
+    });
+
+    test('difficulty label and emoji exist', () {
+      final result = service.analyze(
+        'Simple text here.',
+        languageCode: 'en',
+      );
+      expect(result.difficultyLabel, isNotEmpty);
+      expect(result.difficultyEmoji, isNotEmpty);
+      expect(result.difficultyLabelIT, isNotEmpty);
+    });
+
+    test('statistics are calculated correctly', () {
+      final result = service.analyze(
+        'Hello world.',
+        languageCode: 'en',
+      );
+      expect(result.wordCount, equals(2));
+      expect(result.sentenceCount, equals(1));
+      expect(result.avgWordsPerSentence, equals(2.0));
+      expect(result.characterCount, greaterThan(0));
+      expect(result.syllableCount, greaterThan(0));
+    });
+
+    test('ARI is non-negative', () {
+      final result = service.analyze(
+        'This is a simple sentence. And another one here.',
+        languageCode: 'en',
+      );
+      expect(result.ari, greaterThanOrEqualTo(0));
+    });
+
+    test('Italian difficulty uses Gulpease', () {
+      // Very simple Italian text should be easy
+      final result = service.analyze(
+        'Il gatto è qui. Il cane è là. La casa è grande.',
+        languageCode: 'it',
+      );
+      // Gulpease for very short sentences should be high
+      expect(result.gulpease, greaterThan(40));
     });
   });
 }

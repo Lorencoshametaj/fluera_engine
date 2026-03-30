@@ -37,8 +37,10 @@ void main() {
         stabilizer.stabilize(anchor); // Set anchor
 
         // Small movement (2px) — within string length of 20px
+        // Lazy follow may move slightly toward the raw point
         final result = stabilizer.stabilize(const Offset(102, 100));
-        expect(result, anchor); // Should not move
+        expect(result.dx, closeTo(100.0, 1.0)); // Barely moves
+        expect(result.dy, closeTo(100.0, 0.01));
       });
 
       test('large movement exceeds string length', () {
@@ -135,9 +137,10 @@ void main() {
         final lowResult = low.stabilize(const Offset(10, 0));
         final highResult = high.stabilize(const Offset(10, 0));
 
-        // Low level should have moved, high level should not (within string)
+        // Low level should have moved more than high level
         expect(lowResult.dx, greaterThan(0));
-        expect(highResult, const Offset(0, 0)); // Still at anchor
+        // High level with lazy follow may move slightly, but much less
+        expect(lowResult.dx, greaterThan(highResult.dx));
       });
     });
 

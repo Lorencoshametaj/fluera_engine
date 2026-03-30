@@ -200,57 +200,13 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       // 🖼️ 1.5: Capture viewport snapshot for next splash screen (fire-and-forget)
       _captureCanvasSnapshot(saveData.canvasId);
 
-      // 2️⃣ Cloud save (via FlueraSyncEngine — has its own debounce + retry)
-      // 🚀 PERF: Skip ENTIRELY when sync engine is in permanent error state.
-      if (_syncEngine != null &&
-          _syncEngine!.state.value != FlueraSyncState.error) {
-        final cloudAdapter = _syncEngine!.adapter;
-
-        if (cloudAdapter.supportsStrokeSharding) {
-          // 🚀 SHARDED PATH — avoid full layer JSON serialization!
-          // Only serialize metadata (layers without strokes). Stroke JSON is
-          // built per-stroke from ProStroke objects, avoiding a 1MB+ temporary
-          // allocation that was causing massive GC pressure on the UI thread.
-          final cloudData = saveData.toJson();
-
-          // Build layer metadata WITHOUT strokes (light — ~50KB)
-          // 🚀 Uses toJsonMetadataOnly() — NEVER allocates stroke JSON.
-          final strippedLayers =
-              saveData.layers
-                  .map((layer) => layer.toJsonMetadataOnly())
-                  .toList();
-          cloudData['layers'] = strippedLayers;
-
-          _syncEngine!.requestSave(
-            _canvasId,
-            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
-          );
-
-          // Build stroke tuples directly from layer data
-          final strokeTuples = <(String, Map<String, dynamic>)>[];
-          for (final layer in saveData.layers) {
-            for (final stroke in layer.strokes) {
-              strokeTuples.add((
-                layer.id,
-                _FlueraCanvasScreenState._sanitizeForFirestore(stroke.toJson()),
-              ));
-            }
-          }
-          if (strokeTuples.isNotEmpty) {
-            cloudAdapter
-                .saveStrokes(_canvasId, strokeTuples)
-                .catchError((e) {});
-          }
-        } else {
-          // Legacy: save everything in one document
-          final cloudData = saveData.toJson();
-          cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
-          _syncEngine!.requestSave(
-            _canvasId,
-            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
-          );
-        }
-      }
+      // 2️⃣ Cloud save — DISABLED during active editing for cost optimisation.
+      // Canvas data is pushed to the cloud ONLY on:
+      //   • Canvas exit (dispose → _performSave → flush)
+      //   • App background (didChangeAppLifecycleState → flush)
+      // This avoids uploading large JSONB payloads every ~5s, cutting
+      // Supabase bandwidth by ~99% for heavy canvases.
+      // See: forceFirebaseSync() for manual trigger if needed.
     } catch (e, st) {
       debugPrint('💾 [SAVE-DEBUG] ❌ Save FAILED: $e');
       debugPrint('💾 [SAVE-DEBUG] ❌ Stack: $st');
@@ -328,42 +284,27 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       _layerController.clearDirtyLayerIds();
 
       // Cloud save (immediate, no debounce)
-      // 🚀 FIX: Use sharded path when supported — forceFirebaseSync was
-      // previously bypassing sharding, saving ALL data in one document
-      // which exceeds Firestore's 1MB limit with 300+ strokes.
       if (_syncEngine != null) {
         final cloudAdapter = _syncEngine!.adapter;
         final cloudData = saveData.toJson();
 
         if (cloudAdapter.supportsStrokeSharding) {
-          // 🚀 Use toJsonMetadataOnly() — skips stroke serialization entirely
           cloudData['layers'] =
               saveData.layers.map((l) => l.toJsonMetadataOnly()).toList();
-          await _syncEngine!.flush(
-            _canvasId,
-            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
-          );
+          await _syncEngine!.flush(_canvasId, cloudData);
 
-          // Build stroke tuples directly from ProStroke objects (no full toJson)
           final strokeTuples = <(String, Map<String, dynamic>)>[];
           for (final layer in saveData.layers) {
             for (final stroke in layer.strokes) {
-              strokeTuples.add((
-                layer.id,
-                _FlueraCanvasScreenState._sanitizeForFirestore(stroke.toJson()),
-              ));
+              strokeTuples.add((layer.id, stroke.toJson()));
             }
           }
           if (strokeTuples.isNotEmpty) {
             await cloudAdapter.saveStrokes(_canvasId, strokeTuples);
           }
         } else {
-          // Legacy: save everything in one document
           cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
-          await _syncEngine!.flush(
-            _canvasId,
-            _FlueraCanvasScreenState._sanitizeForFirestore(cloudData),
-          );
+          await _syncEngine!.flush(_canvasId, cloudData);
         }
       }
     } catch (e) {}
@@ -371,30 +312,86 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
 
   /// ☁️ Download missing image assets from cloud storage.
   ///
-  /// Called after loading canvas data from cloud. Downloads are run
-  /// in parallel (max 4 concurrent) for faster batch loading.
+  /// Called after loading canvas data from cloud. Downloads use a
+  /// semaphore-based pool (max 4 concurrent) with page-priority sorting
+  /// so images on the current page appear first.
   Future<void> downloadMissingAssets() async {
     if (_syncEngine == null) return;
 
-    // 🚀 FIX #7: Collect all download tasks, run in parallel batches
-    final downloadTasks = <Future<void>>[];
+    // Collect all download tasks with page info for priority sorting
+    final downloadEntries = <({String id, String path, int page})>[];
 
     for (final img in _imageElements) {
       if (img.storageUrl == null || img.storageUrl!.isEmpty) continue;
 
-      // Check if local file already exists
+      // Check if local file already exists and is valid
       if (!kIsWeb) {
         final localFile = File(img.imagePath);
-        if (await localFile.exists()) continue;
+        // Skip if file exists AND has data (zero-byte = corrupted/interrupted)
+        if (await localFile.exists() && await localFile.length() > 0) continue;
       }
 
-      downloadTasks.add(_downloadSingleAsset(img.id, img.imagePath));
+      downloadEntries.add((
+        id: img.id,
+        path: img.imagePath,
+        page: img.pageIndex,
+      ));
     }
 
-    if (downloadTasks.isEmpty) return;
+    if (downloadEntries.isEmpty) return;
 
-    // Run all downloads in parallel (network handles concurrency)
-    await Future.wait(downloadTasks);
+    // 🚀 Sort: current page first, then by page index
+    // This gives immediate visual context for the active view
+    downloadEntries.sort((a, b) => a.page.compareTo(b.page));
+
+    // ⚡ Parallel pool: max 4 concurrent downloads to avoid
+    // network saturation while still being much faster than serial.
+    const maxParallel = 4;
+    for (int i = 0; i < downloadEntries.length; i += maxParallel) {
+      final batch = downloadEntries.skip(i).take(maxParallel);
+      await Future.wait(
+        batch.map((e) => _downloadSingleAsset(e.id, e.path)),
+      );
+    }
+  }
+
+  /// 🧹 Clean orphaned assets from cloud storage (fire-and-forget).
+  ///
+  /// Collects all known asset IDs from images, PDFs, and recordings,
+  /// then asks the adapter to delete any cloud files not in the known set.
+  /// Runs once after canvas load to reclaim storage from crash-orphaned files.
+  void _cleanOrphanedCloudAssets() {
+    if (_syncEngine == null) return;
+
+    Future(() async {
+      try {
+        final knownIds = <String>{};
+
+        // Image assets + thumbnails
+        for (final img in _imageElements) {
+          knownIds.add(img.id);
+          knownIds.add('${img.id}_thumb');
+        }
+
+        // PDF assets + thumbnails
+        for (final docId in _pdfPainters.keys) {
+          knownIds.add(docId);
+          knownIds.add('${docId}_thumb');
+        }
+
+        // Voice recordings + strokes + chunks
+        for (final rec in _syncedRecordings) {
+          knownIds.add('recording_${rec.id}');
+          knownIds.add('strokes_${rec.id}');
+          // Include possible chunks (up to 50)
+          for (int i = 0; i < 50; i++) {
+            knownIds.add('recording_${rec.id}_chunk_$i');
+          }
+        }
+
+        await _syncEngine!.adapter.cleanOrphanedAssets(_canvasId, knownIds);
+      } catch (_) {} // Best-effort, non-blocking
+    });
   }
 
   /// Download a single asset from cloud and save locally.

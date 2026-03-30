@@ -109,6 +109,16 @@ abstract class FlueraCloudStorageAdapter {
   /// for backward compatibility — override in concrete adapters.
   Future<void> deleteAsset(String canvasId, String assetId) async {}
 
+  /// 🧹 Clean orphaned assets from cloud storage.
+  ///
+  /// Compares all files in the canvas folder against [knownAssetIds].
+  /// Deletes any files NOT in the known set. Returns count of deleted files.
+  /// Default: no-op for backward compatibility.
+  Future<int> cleanOrphanedAssets(
+    String canvasId,
+    Set<String> knownAssetIds,
+  ) async => 0;
+
   /// Delete all assets for a canvas (called when canvas is deleted).
   ///
   /// No-op if no assets exist.
@@ -163,6 +173,106 @@ abstract class FlueraCloudStorageAdapter {
 
   /// Delete all strokes for a canvas (called on canvas delete).
   Future<void> deleteStrokes(String canvasId) async {}
+
+  // ─── Image Element Metadata (Optional) ──────────────────────────────
+
+  /// Sync image element metadata to a dedicated table.
+  ///
+  /// Override in adapters that support a separate `image_elements` table
+  /// for per-image incremental sync and metadata queries.
+  /// Default: no-op for backward compatibility.
+  Future<void> syncImageElements(
+    String canvasId,
+    List<Map<String, dynamic>> elements,
+  ) async {}
+
+  /// Load image element metadata from a dedicated table.
+  ///
+  /// Returns a list of image element maps, or empty if not supported.
+  Future<List<Map<String, dynamic>>> loadImageElements(
+    String canvasId,
+  ) async => [];
+
+  // ─── PDF Element Metadata (Optional) ────────────────────────────────
+
+  /// Sync PDF document metadata to a dedicated table.
+  ///
+  /// Override in adapters that support a separate `pdf_elements` table.
+  /// Default: no-op for backward compatibility.
+  Future<void> syncPdfElements(
+    String canvasId,
+    List<Map<String, dynamic>> elements,
+  ) async {}
+
+  /// Load PDF document metadata from a dedicated table.
+  Future<List<Map<String, dynamic>>> loadPdfElements(
+    String canvasId,
+  ) async => [];
+
+  // ─── Recording Element Metadata (Optional) ──────────────────────────
+
+  /// Sync recording metadata to a dedicated table.
+  ///
+  /// Override in adapters that support a separate `recording_elements` table.
+  /// Default: no-op for backward compatibility.
+  Future<void> syncRecordingElements(
+    String canvasId,
+    List<Map<String, dynamic>> elements,
+  ) async {}
+
+  /// Load recording metadata from a dedicated table.
+  Future<List<Map<String, dynamic>>> loadRecordingElements(
+    String canvasId,
+  ) async => [];
+
+  // ─── Storage Quota (Optional) ───────────────────────────────────────
+
+  /// Get the total storage bytes used by the current user.
+  ///
+  /// Override in adapters that support server-side quota calculation.
+  /// Default: returns 0 (no quota tracking).
+  Future<int> getStorageUsageBytes() async => 0;
+
+  /// Maximum storage bytes allowed per user.
+  ///
+  /// Set to 0 to disable quota enforcement. Override per tier:
+  /// - Essential: 500 MB (524_288_000)
+  /// - Plus: 5 GB (5_368_709_120)
+  /// - Pro: 50 GB (53_687_091_200)
+  int get storageQuotaBytes => 0;
+
+  /// Get detailed storage usage breakdown by category.
+  ///
+  /// Returns a map with keys: `images`, `pdfs`, `recordings`.
+  /// Each value has `bytes` (int) and `count` (int).
+  Future<Map<String, Map<String, int>>> getStorageUsageBreakdown() async => {
+    'images': {'bytes': 0, 'count': 0},
+    'pdfs': {'bytes': 0, 'count': 0},
+    'recordings': {'bytes': 0, 'count': 0},
+  };
+
+  /// Get per-canvas storage breakdown.
+  ///
+  /// Returns a list of maps with: `canvasId`, `title`, `totalBytes`,
+  /// `imageCount`, `pdfCount`, `recordingCount`. Sorted by totalBytes desc.
+  Future<List<Map<String, dynamic>>> getPerCanvasStorage() async => [];
+}
+
+/// Exception thrown when a user exceeds their storage quota.
+class StorageQuotaExceededException implements Exception {
+  final int usedBytes;
+  final int quotaBytes;
+
+  const StorageQuotaExceededException({
+    required this.usedBytes,
+    required this.quotaBytes,
+  });
+
+  @override
+  String toString() =>
+      'StorageQuotaExceededException: $usedBytes / $quotaBytes bytes '
+      '(${(usedBytes / 1024 / 1024).toStringAsFixed(1)} MB / '
+      '${(quotaBytes / 1024 / 1024).toStringAsFixed(0)} MB)';
 }
 
 // =============================================================================

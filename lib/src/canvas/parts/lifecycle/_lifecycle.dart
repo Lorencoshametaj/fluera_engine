@@ -591,6 +591,7 @@ extension on _FlueraCanvasScreenState {
         // ☁️ Download images/PDFs that are in cloud but missing locally
         // (runs in background — non-blocking)
         downloadMissingAssets();
+        _cleanOrphanedCloudAssets(); // 🧹 Reclaim orphaned cloud storage
       }
     } catch (e, st) {
       debugPrint('❌ _loadCanvasData EXCEPTION: $e\n$st');

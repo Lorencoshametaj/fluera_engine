@@ -127,15 +127,15 @@ void main() {
       expect(cloned.opacity, 0.7);
     });
 
-    test('clone id is a valid UUID v4 format', () {
+    test('clone id is a valid hex-32 format', () {
       final original = testStrokeNode();
       final cloned = original.clone();
-      // UUID v4 format: 8-4-4-4-12 hex characters
+      // 32-char hex string (no dashes)
       expect(
         cloned.id,
         matches(
           RegExp(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+            r'^[0-9a-f]{32}$',
           ),
         ),
       );

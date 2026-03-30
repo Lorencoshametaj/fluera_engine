@@ -117,6 +117,8 @@ void main() {
         after.difference(before).inMilliseconds,
         greaterThanOrEqualTo(150), // Allow some tolerance
       );
+      // Allow stream delivery to complete
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(received, hasLength(1));
 
       await sub.cancel();

@@ -19,6 +19,7 @@ class ToolbarSettingsDropdown extends StatefulWidget {
   final ValueChanged<String>? onNoteTitleChanged;
 
   final VoidCallback? onPaperTypePressed;
+  final VoidCallback? onReadingLevelPressed;
 
   const ToolbarSettingsDropdown({
     super.key,
@@ -30,6 +31,7 @@ class ToolbarSettingsDropdown extends StatefulWidget {
     this.onNoteTitleChanged,
 
     this.onPaperTypePressed,
+    this.onReadingLevelPressed,
   });
 
   @override
@@ -251,6 +253,48 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
                 ],
               ),
             ),
+            // 📊 Reading Level
+            if (widget.onReadingLevelPressed != null) ...[
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
+                value: 'reading_level',
+                height: 48,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.analytics_outlined,
+                      size: 20,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Reading Level',
+                        style: TextStyle(fontSize: 14, color: cs.onSurface),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'NEW',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.teal,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
       onSelected: (String value) {
         switch (value) {
@@ -283,6 +327,9 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
             break;
           case 'brush_testing':
             _openBrushTestingLab(context);
+            break;
+          case 'reading_level':
+            widget.onReadingLevelPressed?.call();
             break;
         }
       },

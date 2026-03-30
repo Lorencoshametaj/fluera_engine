@@ -209,9 +209,11 @@ void main() {
       await scope.initializeModules();
 
       expect(scope.drawingModule, isNotNull);
-      expect(scope.tabularModule, isNotNull);
-      expect(scope.latexModule, isNotNull);
       expect(scope.pdfModule, isNotNull);
+      expect(scope.audioModule, isNotNull);
+      // TabularModule and LaTeXModule are add-on packages, not registered by default
+      expect(scope.tabularModule, isNull);
+      expect(scope.latexModule, isNull);
     });
 
     test('sets modulesInitialized flag', () async {

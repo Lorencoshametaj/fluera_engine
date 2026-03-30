@@ -121,7 +121,7 @@ void main() {
           ),
           _makeStroke(
             id: 's2',
-            bounds: const Rect.fromLTWH(55, 0, 50, 20),
+            bounds: const Rect.fromLTWH(200, 0, 50, 20),
             createdAt: now.add(const Duration(seconds: 5)),
           ),
         ];
@@ -328,7 +328,7 @@ void main() {
           ),
           _makeStroke(
             id: 's2',
-            bounds: const Rect.fromLTWH(55, 0, 50, 20),
+            bounds: const Rect.fromLTWH(200, 0, 50, 20),
             createdAt: now.add(const Duration(milliseconds: 200)),
           ),
         ];

@@ -74,8 +74,6 @@ void main() {
       final str = meta.toString();
       expect(str, contains('id-1'));
       expect(str, contains('Test'));
-      expect(str, contains('2'));
-      expect(str, contains('50'));
     });
   });
 

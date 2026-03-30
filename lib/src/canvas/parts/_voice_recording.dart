@@ -649,40 +649,52 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
 
 
                   // 📦 #8 Chunked upload for large files (>5MB compressed)
-                  const chunkSize = 2 * 1024 * 1024; // 2MB chunks
-                  if (compressedData.length > 5 * 1024 * 1024) {
-                    final totalChunks =
-                        (compressedData.length / chunkSize).ceil();
-                    for (int i = 0; i < totalChunks; i++) {
-                      final start = i * chunkSize;
-                      final end = (start + chunkSize).clamp(
-                        0,
-                        compressedData.length,
-                      );
-                      final chunk = compressedData.sublist(start, end);
-                      await _syncEngine!.adapter.uploadAsset(
-                        _canvasId,
-                        'recording_${persistable.id}_chunk_$i',
-                        Uint8List.fromList(chunk),
-                        mimeType: 'audio/m4a+gzip+chunk',
-                      );
+                  // 🔄 Retry with exponential backoff (3 attempts)
+                  bool audioUploaded = false;
+                  for (int attempt = 1; attempt <= 3 && !audioUploaded; attempt++) {
+                    try {
+                      const chunkSize = 2 * 1024 * 1024; // 2MB chunks
+                      if (compressedData.length > 5 * 1024 * 1024) {
+                        final totalChunks =
+                            (compressedData.length / chunkSize).ceil();
+                        for (int i = 0; i < totalChunks; i++) {
+                          final start = i * chunkSize;
+                          final end = (start + chunkSize).clamp(
+                            0,
+                            compressedData.length,
+                          );
+                          final chunk = compressedData.sublist(start, end);
+                          await _syncEngine!.adapter.uploadAsset(
+                            _canvasId,
+                            'recording_${persistable.id}_chunk_$i',
+                            Uint8List.fromList(chunk),
+                            mimeType: 'audio/m4a+gzip+chunk',
+                          );
+                        }
+                        final manifest =
+                            '{"chunks":$totalChunks,"totalSize":${compressedData.length}}';
+                        await _syncEngine!.adapter.uploadAsset(
+                          _canvasId,
+                          'recording_${persistable.id}',
+                          Uint8List.fromList(manifest.codeUnits),
+                          mimeType: 'application/json+manifest',
+                        );
+                      } else {
+                        await _syncEngine!.adapter.uploadAsset(
+                          _canvasId,
+                          'recording_${persistable.id}',
+                          compressedData,
+                          mimeType: 'audio/m4a+gzip',
+                        );
+                      }
+                      audioUploaded = true;
+                    } catch (e) {
+                      if (attempt < 3) {
+                        await Future.delayed(Duration(seconds: attempt));
+                      }
                     }
-                    final manifest =
-                        '{"chunks":$totalChunks,"totalSize":${compressedData.length}}';
-                    await _syncEngine!.adapter.uploadAsset(
-                      _canvasId,
-                      'recording_${persistable.id}',
-                      Uint8List.fromList(manifest.codeUnits),
-                      mimeType: 'application/json+manifest',
-                    );
-                  } else {
-                    await _syncEngine!.adapter.uploadAsset(
-                      _canvasId,
-                      'recording_${persistable.id}',
-                      compressedData,
-                      mimeType: 'audio/m4a+gzip',
-                    );
                   }
+                  if (!audioUploaded) throw Exception('Upload failed after 3 attempts');
 
                   // 🎨 Upload synced strokes as separate compressed asset
                   String? strokesAssetKey;
@@ -743,6 +755,24 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                     strokesAssetKey: strokesAssetKey,
                     strokeCount: persistable.syncedStrokes.length,
                   );
+
+                  // 📊 Sync recording metadata to dedicated table
+                  try {
+                    _syncEngine!.adapter.syncRecordingElements(_canvasId, [
+                      {
+                        'id': persistable.id,
+                        'audioAssetKey': 'recording_${persistable.id}',
+                        'strokesAssetKey': strokesAssetKey,
+                        'noteTitle': persistable.noteTitle,
+                        'durationMs': persistable.totalDuration.inMilliseconds,
+                        'recordingType': persistable.recordingType,
+                        'fileSizeBytes': originalSize,
+                        'strokeCount': persistable.syncedStrokes.length,
+                        'hasTranscription': persistable.transcriptionText?.isNotEmpty == true,
+                        'transcriptionLanguage': persistable.transcriptionLanguage,
+                      },
+                    ]);
+                  } catch (_) {} // Non-critical
 
                   // 🧹 #5 Memory cleanup — help GC reclaim large buffers
                   // (audioBytes and compressedData go out of scope here)

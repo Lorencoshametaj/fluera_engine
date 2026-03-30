@@ -6,6 +6,7 @@ import 'package:fluera_engine/src/core/models/pdf_document_model.dart';
 import 'package:fluera_engine/src/core/models/pdf_text_rect.dart';
 import 'package:fluera_engine/src/core/nodes/pdf_page_node.dart';
 import 'package:fluera_engine/src/core/nodes/pdf_document_node.dart';
+import 'package:fluera_engine/src/core/nodes/pdf_preview_card_node.dart';
 import 'package:fluera_engine/src/core/scene_graph/canvas_node_factory.dart';
 
 void main() {
@@ -354,14 +355,13 @@ void main() {
       expect(json['nodeType'], 'pdfDocument');
       expect((json['children'] as List).length, 2);
 
-      final restored = CanvasNodeFactory.fromJson(json) as PdfDocumentNode;
+      // Factory now migrates pdfDocument → PdfPreviewCardNode
+      final restored = CanvasNodeFactory.fromJson(json) as PdfPreviewCardNode;
       expect(restored.id, 'pdf-doc-1');
       expect(restored.documentModel.sourceHash, 'abc123');
       expect(restored.documentModel.gridColumns, 3);
       expect(restored.documentModel.timelineRef, 'timeline-x');
       expect(restored.name, 'My PDF');
-      expect(restored.children.length, 2);
-      expect(restored.children.first, isA<PdfPageNode>());
     });
 
     test('performGridLayout positions locked pages', () {
