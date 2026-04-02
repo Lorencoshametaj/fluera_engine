@@ -2462,6 +2462,14 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         _enterExportMode();
                         HapticFeedback.mediumImpact();
                         break;
+                      case RadialToolItem.multiview:
+                        _launchAdvancedSplitView();
+                        HapticFeedback.mediumImpact();
+                        break;
+                      case RadialToolItem.recall:
+                        showRecallZoneSelector();
+                        HapticFeedback.mediumImpact();
+                        break;
                     }
                   }
                   break;

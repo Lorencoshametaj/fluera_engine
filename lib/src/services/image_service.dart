@@ -48,7 +48,7 @@ class ImageService {
         final l10n = FlueraLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(l10n.proCanvas_errorLoadingImage(e.toString())),
+            content: Text(l10n.proCanvas_errorLoadingImageDetail(e.toString())),
             backgroundColor: Colors.red,
           ),
         );

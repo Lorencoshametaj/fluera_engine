@@ -29,6 +29,7 @@ import 'package:sqflite_common/sqflite.dart' show Sqflite;
 import 'package:path/path.dart' as p;
 
 import 'fluera_storage_adapter.dart';
+import 'section_summary.dart';
 import 'canvas_creation_options.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
@@ -43,7 +44,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 13;
+const int _kSchemaVersion = 14;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -181,6 +182,9 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         connections_json TEXT,
         semantic_titles_json TEXT,
         snapshot_png   BLOB,
+        sections_json  TEXT,
+        content_bounds_json TEXT,
+        last_viewport_json TEXT,
         schema_version INTEGER NOT NULL DEFAULT 1,
         layer_count   INTEGER NOT NULL DEFAULT 0,
         stroke_count  INTEGER NOT NULL DEFAULT 0,
@@ -336,6 +340,22 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         await db.execute('ALTER TABLE folders ADD COLUMN user_id TEXT');
         await db.execute(
           'CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id)',
+        );
+      } catch (_) {}
+    }
+    if (oldVersion < 14) {
+      // 📐 Workspace Hub: section summaries, content bounds, last viewport.
+      try {
+        await db.execute('ALTER TABLE canvases ADD COLUMN sections_json TEXT');
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN content_bounds_json TEXT',
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN last_viewport_json TEXT',
         );
       } catch (_) {}
     }
@@ -885,6 +905,9 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         'stroke_count',
         'created_at',
         'updated_at',
+        'sections_json',
+        'content_bounds_json',
+        'last_viewport_json',
       ],
       where: conditions.join(' AND '),
       whereArgs: args.isEmpty ? null : args,
@@ -892,6 +915,47 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     );
 
     return rows.map((row) {
+      // 📐 Parse section summaries
+      List<SectionSummary> sections = const [];
+      final sectionsStr = row['sections_json'] as String?;
+      if (sectionsStr != null) {
+        try {
+          final list = jsonDecode(sectionsStr) as List<dynamic>;
+          sections = list
+              .map((s) => SectionSummary.fromJson(s as Map<String, dynamic>))
+              .toList();
+        } catch (_) {}
+      }
+
+      // 📐 Parse content bounds
+      Rect? contentBounds;
+      final boundsStr = row['content_bounds_json'] as String?;
+      if (boundsStr != null) {
+        try {
+          final b = jsonDecode(boundsStr) as Map<String, dynamic>;
+          contentBounds = Rect.fromLTRB(
+            (b['left'] as num).toDouble(),
+            (b['top'] as num).toDouble(),
+            (b['right'] as num).toDouble(),
+            (b['bottom'] as num).toDouble(),
+          );
+        } catch (_) {}
+      }
+
+      // 📐 Parse last viewport
+      ({double dx, double dy, double scale})? lastViewport;
+      final vpStr = row['last_viewport_json'] as String?;
+      if (vpStr != null) {
+        try {
+          final v = jsonDecode(vpStr) as Map<String, dynamic>;
+          lastViewport = (
+            dx: (v['dx'] as num).toDouble(),
+            dy: (v['dy'] as num).toDouble(),
+            scale: (v['scale'] as num).toDouble(),
+          );
+        } catch (_) {}
+      }
+
       return CanvasMetadata(
         canvasId: row['canvas_id'] as String,
         title: row['title'] as String?,
@@ -906,6 +970,9 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         updatedAt: DateTime.fromMillisecondsSinceEpoch(
           row['updated_at'] as int,
         ),
+        sections: sections,
+        contentBounds: contentBounds,
+        lastViewport: lastViewport,
       );
     }).toList();
   }
@@ -1178,5 +1245,88 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       );
     }
     return db;
+  }
+
+  // ===========================================================================
+  // 📐 SECTION SUMMARIES (WORKSPACE HUB)
+  // ===========================================================================
+
+  @override
+  Future<void> saveSectionSummaries(
+    String canvasId, {
+    required List<SectionSummary> sections,
+    Rect? contentBounds,
+    ({double dx, double dy, double scale})? lastViewport,
+  }) async {
+    final db = _ensureInitialized();
+
+    final updates = <String, dynamic>{};
+
+    // Sections JSON
+    updates['sections_json'] = sections.isNotEmpty
+        ? jsonEncode(sections.map((s) => s.toJson()).toList())
+        : null;
+
+    // Content bounds JSON
+    if (contentBounds != null && contentBounds != Rect.zero) {
+      updates['content_bounds_json'] = jsonEncode({
+        'left': contentBounds.left,
+        'top': contentBounds.top,
+        'right': contentBounds.right,
+        'bottom': contentBounds.bottom,
+      });
+    }
+
+    // Last viewport JSON
+    if (lastViewport != null) {
+      updates['last_viewport_json'] = jsonEncode({
+        'dx': lastViewport.dx,
+        'dy': lastViewport.dy,
+        'scale': lastViewport.scale,
+      });
+    }
+
+    if (updates.isNotEmpty) {
+      try {
+        await db.update(
+          'canvases',
+          updates,
+          where: 'canvas_id = ?',
+          whereArgs: [canvasId],
+        );
+      } catch (_) {
+        // Columns may not exist if migration hasn't run — safe to ignore.
+      }
+    }
+  }
+
+  // ===========================================================================
+  // 📐 VIEWPORT RESTORE (ENGINE-INTERNAL)
+  // ===========================================================================
+
+  @override
+  Future<({double dx, double dy, double scale})?> loadLastViewport(
+    String canvasId,
+  ) async {
+    final db = _ensureInitialized();
+    try {
+      final rows = await db.query(
+        'canvases',
+        columns: ['last_viewport_json'],
+        where: 'canvas_id = ?',
+        whereArgs: [canvasId],
+      );
+      if (rows.isEmpty) return null;
+      final vpStr = rows.first['last_viewport_json'] as String?;
+      if (vpStr == null) return null;
+      final v = jsonDecode(vpStr) as Map<String, dynamic>;
+      return (
+        dx: (v['dx'] as num).toDouble(),
+        dy: (v['dy'] as num).toDouble(),
+        scale: (v['scale'] as num).toDouble(),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }

@@ -17,6 +17,16 @@ import '../drawing/models/pro_drawing_point.dart';
 class MultiviewToolPalette extends StatelessWidget {
   final UnifiedToolController toolController;
 
+  // OPT #3: Cache shadow & radius to avoid per-build allocation
+  static const _shadow = [
+    BoxShadow(
+      color: Color(0x14000000),
+      blurRadius: 12,
+      offset: Offset(0, -2),
+    ),
+  ];
+  static const _borderRadius = BorderRadius.all(Radius.circular(16));
+
   const MultiviewToolPalette({super.key, required this.toolController});
 
   @override
@@ -40,18 +50,12 @@ class MultiviewToolPalette extends StatelessWidget {
             isDark
                 ? cs.surfaceContainerHighest.withValues(alpha: 0.95)
                 : cs.surfaceContainerLow.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: _borderRadius,
         border: Border.all(
           color: cs.outlineVariant.withValues(alpha: 0.3),
           width: 0.5,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        boxShadow: _shadow,
       ),
       child: Row(
         children: [

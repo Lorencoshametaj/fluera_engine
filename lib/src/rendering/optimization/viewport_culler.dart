@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
@@ -168,24 +169,47 @@ class ViewportCuller {
     double canvasScale, {
     double rotation = 0.0,
   }) {
-    // Transform screen coordinates in canvas coordinates
-    // Remove l'offset e scala inversa
-    final topLeft = (-canvasOffset) / canvasScale;
-    final bottomRight = Offset(
-      topLeft.dx + (screenSize.width / canvasScale),
-      topLeft.dy + (screenSize.height / canvasScale),
-    );
-
-    var viewport = Rect.fromPoints(topLeft, bottomRight);
-
-    // When rotated, the axis-aligned viewport needs to be larger
-    // to cover the diagonal of the rotated screen
-    if (rotation != 0.0) {
-      final diagonal = viewport.longestSide * 0.42; // ~sin(45°) * side
-      viewport = viewport.inflate(diagonal);
+    if (rotation == 0.0) {
+      // Fast path: no rotation — original math
+      final topLeft = (-canvasOffset) / canvasScale;
+      final bottomRight = Offset(
+        topLeft.dx + (screenSize.width / canvasScale),
+        topLeft.dy + (screenSize.height / canvasScale),
+      );
+      return Rect.fromPoints(topLeft, bottomRight);
     }
 
-    return viewport;
+    // 🌀 ROTATION-AWARE: Transform all 4 screen corners to canvas space.
+    // The rendering transform is: translate(offset) → rotate(θ) → scale(s)
+    // Inverse: undo scale → undo rotate → undo translate
+    //   canvasPoint = rotate(-θ, (screenPoint - offset)) / scale
+    final cosR = math.cos(-rotation);
+    final sinR = math.sin(-rotation);
+
+    Offset screenToCanvas(double sx, double sy) {
+      final tx = sx - canvasOffset.dx;
+      final ty = sy - canvasOffset.dy;
+      final rx = tx * cosR - ty * sinR;
+      final ry = tx * sinR + ty * cosR;
+      return Offset(rx / canvasScale, ry / canvasScale);
+    }
+
+    // Transform all 4 screen corners
+    final c0 = screenToCanvas(0, 0);
+    final c1 = screenToCanvas(screenSize.width, 0);
+    final c2 = screenToCanvas(screenSize.width, screenSize.height);
+    final c3 = screenToCanvas(0, screenSize.height);
+
+    // Axis-aligned bounding box of the rotated viewport in canvas space
+    double minX = c0.dx, maxX = c0.dx, minY = c0.dy, maxY = c0.dy;
+    for (final c in [c1, c2, c3]) {
+      if (c.dx < minX) minX = c.dx;
+      if (c.dx > maxX) maxX = c.dx;
+      if (c.dy < minY) minY = c.dy;
+      if (c.dy > maxY) maxY = c.dy;
+    }
+
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   /// 🔍 ADAPTIVE LOD: Skip strokes that are too small to be visible.

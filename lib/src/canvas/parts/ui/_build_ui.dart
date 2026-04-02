@@ -188,33 +188,93 @@ extension on _FlueraCanvasScreenState {
                       children: [
                         RepaintBoundary(
                           key: _canvasRepaintBoundaryKey,
-                          child: _buildCanvasArea(context),
-                        ),
-
-                        // ✛ Navigation: Origin crosshair at (0,0)
-                        Positioned.fill(
-                          child: OriginCrosshair(
-                            controller: _canvasController,
-                            viewportSize: MediaQuery.of(context).size,
-                            canvasBackground: _canvasBackgroundColor,
+                          child: ValueListenableBuilder<int>(
+                            valueListenable: _multiviewVersionNotifier,
+                            builder: (context, _, __) =>
+                                _buildCanvasArea(context),
                           ),
                         ),
 
-                        // 🧭 Navigation: Content Radar (directional indicators)
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            ignoring: false,
-                            child: ContentRadarOverlay(
-                              controller: _canvasController,
-                              boundsTracker: _contentBoundsTracker,
-                              viewportSize: MediaQuery.of(context).size,
-                              canvasBackground: _canvasBackgroundColor,
-                            ),
+                        // 🚀 P99 FIX: Hide navigation overlays during active drawing.
+                        // These widgets listen to _canvasController via AnimatedBuilder,
+                        // triggering rebuilds on every pan/zoom frame. During drawing,
+                        // the user isn't navigating — suppress to save 0.5–2ms.
+                        ValueListenableBuilder<bool>(
+                          valueListenable: _isDrawingNotifier,
+                          builder: (context, isDrawing, child) {
+                            if (isDrawing) return const SizedBox.shrink();
+                            return child!;
+                          },
+                          child: Stack(
+                            children: [
+                              // ✛ Navigation: Origin crosshair at (0,0)
+                              Positioned.fill(
+                                child: OriginCrosshair(
+                                  controller: _canvasController,
+                                  viewportSize: MediaQuery.of(context).size,
+                                  canvasBackground: _canvasBackgroundColor,
+                                ),
+                              ),
+
+                              // 🧭 Navigation: Content Radar (directional indicators)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  ignoring: false,
+                                  child: ContentRadarOverlay(
+                                    controller: _canvasController,
+                                    boundsTracker: _contentBoundsTracker,
+                                    viewportSize: MediaQuery.of(context).size,
+                                    canvasBackground: _canvasBackgroundColor,
+                                  ),
+                                ),
+                              ),
+
+                              // 🔍 Navigation: Zoom Level Indicator (bottom-left)
+                              Positioned(
+                                bottom: 16,
+                                left: 16,
+                                child: ZoomLevelIndicator(
+                                  controller: _canvasController,
+                                  viewportSize: MediaQuery.of(context).size,
+                                  canvasBackground: _canvasBackgroundColor,
+                                  showGridActive: _showDotGrid,
+                                  onLongPress: () {
+                                    setState(() => _showDotGrid = !_showDotGrid);
+                                  },
+                                  isMinimapVisible: _showMinimap,
+                                  onToggleMinimap: () {
+                                    setState(() => _showMinimap = !_showMinimap);
+                                  },
+                                  onToggleRotationLock: () {
+                                    HapticFeedback.selectionClick();
+                                    _canvasController.rotationLocked =
+                                        !_canvasController.rotationLocked;
+                                  },
+                                ),
+                              ),
+
+                              // ↩ Navigation: "Return to content" FAB (centered, bottom)
+                              Positioned(
+                                bottom: 24,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: ReturnToContentFab(
+                                    controller: _canvasController,
+                                    boundsTracker: _contentBoundsTracker,
+                                    layerController: _layerController,
+                                    viewportSize: MediaQuery.of(context).size,
+                                    canvasBackground: _canvasBackgroundColor,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
 
                         // 🗺️ Navigation: Minimap (bottom-right)
                         // Auto-hides when no content exists on the canvas.
+                        // NOTE: Minimap handles its own drawing state via isDrawing param.
                         Positioned(
                           bottom: 0,
                           right: 0,
@@ -235,46 +295,6 @@ extension on _FlueraCanvasScreenState {
                                 remoteCursors: _realtimeEngine?.remoteCursors,
                               );
                             },
-                          ),
-                        ),
-
-                        // 🔍 Navigation: Zoom Level Indicator (bottom-left)
-                        Positioned(
-                          bottom: 16,
-                          left: 16,
-                          child: ZoomLevelIndicator(
-                            controller: _canvasController,
-                            viewportSize: MediaQuery.of(context).size,
-                            canvasBackground: _canvasBackgroundColor,
-                            showGridActive: _showDotGrid,
-                            onLongPress: () {
-                              setState(() => _showDotGrid = !_showDotGrid);
-                            },
-                            isMinimapVisible: _showMinimap,
-                            onToggleMinimap: () {
-                              setState(() => _showMinimap = !_showMinimap);
-                            },
-                            onToggleRotationLock: () {
-                              HapticFeedback.selectionClick();
-                              _canvasController.rotationLocked =
-                                  !_canvasController.rotationLocked;
-                            },
-                          ),
-                        ),
-
-                        // ↩ Navigation: "Return to content" FAB (centered, bottom)
-                        Positioned(
-                          bottom: 24,
-                          left: 0,
-                          right: 0,
-                          child: Center(
-                            child: ReturnToContentFab(
-                              controller: _canvasController,
-                              boundsTracker: _contentBoundsTracker,
-                              layerController: _layerController,
-                              viewportSize: MediaQuery.of(context).size,
-                              canvasBackground: _canvasBackgroundColor,
-                            ),
                           ),
                         ),
 
@@ -439,6 +459,11 @@ extension on _FlueraCanvasScreenState {
                   ),
                 ),
 
+
+              // 🧠 RECALL MODE: Step 2 overlays (zone selector, blur, peek,
+              // comparison, missed markers, summary).
+              // Gated by LearningStepController.isRecallModeAllowed.
+              ...buildRecallModeOverlays(context),
 
               // 📲 Echo Search: Swipe-down from top edge to activate
               if (!_isEchoSearchMode)
@@ -777,7 +802,9 @@ extension on _FlueraCanvasScreenState {
               _buildShapeRecognitionToast(),
 
               // 💡 PROACTIVE GAP DOTS — appear near clusters when AI has analyzed them
-              // Driven by _uiRebuildNotifier so they update when analysis completes.
+              // 🧠 P1-26: Only rendered when proactive analysis is allowed (Step 4+).
+              // During Step 1 (notes) these are completely hidden.
+              if (_learningStepController.isProactiveAnalysisAllowed)
               ..._proactiveCache.entries
                   .where((e) =>
                       e.value.status == ProactiveStatus.ready ||

@@ -256,6 +256,34 @@ abstract class FlueraCloudStorageAdapter {
   /// Returns a list of maps with: `canvasId`, `title`, `totalBytes`,
   /// `imageCount`, `pdfCount`, `recordingCount`. Sorted by totalBytes desc.
   Future<List<Map<String, dynamic>>> getPerCanvasStorage() async => [];
+
+  /// Get the user's current storage tier and quota from the server.
+  ///
+  /// Returns `{'tier': 'free', 'quotaBytes': 52428800}` or similar.
+  Future<Map<String, dynamic>> getUserTier() async => {
+    'tier': 'free',
+    'quotaBytes': 52428800, // 50 MB
+  };
+
+  // ─── Realtime Sync ──────────────────────────────────────────────
+
+  /// Stream of canvas IDs that were changed remotely (UPDATE on `canvases`).
+  ///
+  /// Listeners receive the canvas ID whenever another device saves changes.
+  /// Default: empty stream (no realtime support).
+  Stream<String> onCanvasChanged() => const Stream<String>.empty();
+
+  /// Stream of gallery-level changes (INSERT/DELETE on `canvases`).
+  ///
+  /// Each event is a map with `{'type': 'INSERT'|'DELETE', 'canvasId': '...'}`.
+  /// Default: empty stream (no realtime support).
+  Stream<Map<String, dynamic>> onGalleryChanged() =>
+      const Stream<Map<String, dynamic>>.empty();
+
+  /// Dispose all Realtime channel subscriptions.
+  ///
+  /// Call this on logout / app shutdown.
+  void disposeRealtime() {}
 }
 
 /// Exception thrown when a user exceeds their storage quota.
@@ -373,6 +401,7 @@ class FlueraSyncEngine {
     try {
       await _adapter.saveCanvas(canvasId, data);
       _retryCount = 0;
+      _lastSaveTimestamp = DateTime.now().millisecondsSinceEpoch;
       state.value = FlueraSyncState.idle;
       EngineLogger.info('☁️ Cloud sync completed for $canvasId');
     } catch (e) {
@@ -465,10 +494,63 @@ class FlueraSyncEngine {
   /// Whether there is a pending offline save waiting to be replayed.
   bool get hasOfflinePending => _offlinePendingData != null;
 
+  // ─── Realtime Subscription ──────────────────────────────────────
+
+  /// Notifies UI when a remote change is detected for the active canvas.
+  ///
+  /// Value is the canvas ID that changed, or null when no change pending.
+  final ValueNotifier<String?> remoteChange = ValueNotifier(null);
+
+  StreamSubscription<String>? _realtimeSub;
+  String? _subscribedCanvasId;
+
+  /// Timestamp of last local save — used to ignore self-triggered events.
+  int _lastSaveTimestamp = 0;
+
+  /// Subscribe to Realtime changes for a specific canvas.
+  ///
+  /// Call this when a canvas is opened. Remote changes will be emitted
+  /// via [remoteChange], letting the UI offer a reload.
+  void subscribeToCanvas(String canvasId) {
+    unsubscribeFromCanvas();
+    _subscribedCanvasId = canvasId;
+
+    _realtimeSub = _adapter.onCanvasChanged().listen((changedId) {
+      if (changedId != _subscribedCanvasId) return;
+
+      // Ignore self-saves: if we saved within the last 5s, skip
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastSaveTimestamp < 5000) {
+        EngineLogger.info(
+          '🔄 Ignoring self-triggered Realtime event for $changedId',
+        );
+        return;
+      }
+
+      EngineLogger.info('🔄 Remote change detected for canvas $changedId');
+      remoteChange.value = changedId;
+    });
+
+    EngineLogger.info('🔄 Subscribed to Realtime for canvas $canvasId');
+  }
+
+  /// Unsubscribe from Realtime changes.
+  ///
+  /// Call this when leaving a canvas.
+  void unsubscribeFromCanvas() {
+    _realtimeSub?.cancel();
+    _realtimeSub = null;
+    _subscribedCanvasId = null;
+    remoteChange.value = null;
+  }
+
   /// Dispose resources.
   void dispose() {
+    unsubscribeFromCanvas();
+    _adapter.disposeRealtime();
     _debounceTimer?.cancel();
     state.dispose();
     lastError.dispose();
+    remoteChange.dispose();
   }
 }

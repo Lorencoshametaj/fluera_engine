@@ -222,10 +222,13 @@ class _InfiniteCanvasGestureDetectorState
   double _rotationVelocity = 0.0;
   double? _lastSnappedAngle; // Track snap detent to avoid repeated haptics
   bool _rotationUnlocked = false; // Requires intentional rotation to activate
+  bool _gestureClassified = false; // True once we've decided zoom vs rotate
+  bool _zoomDominant = false; // True = zoom-only gesture, rotation suppressed
 
   // 🌀 ROTATION: Deadzone to prevent accidental rotation during zoom/pan.
   // The user must rotate at least ~3° before rotation activates.
   static const double _rotationDeadzone = 0.05; // ~3° in radians
+  static const double _rotationDeadzoneZoomDominant = 0.20; // ~11° when zoom dominates
   static const double _maxAngularVelocity = 3.0; // Cap spin speed (rad/s)
 
   // ✂️ SPACE-SPLIT: Two-finger spread tracking
@@ -1236,18 +1239,26 @@ class _InfiniteCanvasGestureDetectorState
             widget.onDrawCancel?.call();
           }
 
-          HapticFeedback.mediumImpact();
-
-          // Discrete zoom levels: 1x → 2x → 3x → back to 1x
+          // 🏎️ SMART ZOOM CYCLE: 1x → 2x → 4x → 1x
+          // Each step doubles the scale (feels natural and proportional).
+          // If already past 2x, jump straight back to 1x (no confusion).
           final currentScale = widget.controller.scale;
           double targetScale;
-          if (currentScale < 1.8) {
+          if (currentScale < 1.5) {
             targetScale = 2.0;
-          } else if (currentScale < 2.8) {
-            targetScale = 3.0;
+          } else if (currentScale < 3.0) {
+            targetScale = 4.0;
           } else {
             targetScale = 1.0;
           }
+
+          // 📳 Graduated haptic: zoom-in = medium, zoom-out (reset) = light
+          if (targetScale > currentScale) {
+            HapticFeedback.mediumImpact(); // Zooming in — decisive
+          } else {
+            HapticFeedback.lightImpact(); // Zooming out — gentle
+          }
+
           widget.controller.animateZoomTo(targetScale, event.localPosition);
 
           // Discard the first tap's dot silently (if drawing mode created one)
@@ -1509,6 +1520,8 @@ class _InfiniteCanvasGestureDetectorState
     _initialRotation = widget.controller.rotation;
     _lastGestureRotation = 0.0;
     _rotationUnlocked = false; // Reset deadzone for new gesture
+    _gestureClassified = false; // Reset dominant gesture classifier
+    _zoomDominant = false;
 
     // 🌀 TWO-FINGER DOUBLE-TAP: Detect rapid 2-finger taps to reset view
     if (_pointerCount >= 2) {
@@ -1666,11 +1679,32 @@ class _InfiniteCanvasGestureDetectorState
     // 🌊 LIQUID: Allow elastic overshoot for zoom (raw, unclamped scale)
     final rawScale = _initialScale * details.scale;
 
-    // 🌀 ROTATION: Track rotation from gesture with deadzone.
-    // Rotation is suppressed until the user exceeds ~3° to prevent
-    // accidental rotation during fast zoom/pan gestures.
+    // 🎯 DOMINANT GESTURE CLASSIFIER: Decide zoom vs rotate early.
+    // Once classified, the gesture stays locked to prevent mixing.
+    // Like Apple Maps: the system decides what you meant and commits.
+    if (!_gestureClassified) {
+      final scaleChange = (details.scale - 1.0).abs();
+      final rotChange = details.rotation.abs();
+
+      // Classify when either signal is strong enough
+      if (scaleChange > 0.08 || rotChange > _rotationDeadzone) {
+        _gestureClassified = true;
+        // If scale moved significantly MORE than rotation → zoom-only
+        // Ratio: scale must be 2.5x stronger than rotation to suppress
+        if (scaleChange > 0.08 && scaleChange > rotChange * 2.5) {
+          _zoomDominant = true;
+        }
+      }
+    }
+
+    // 🌀 ROTATION: Track rotation from gesture with adaptive deadzone.
+    // When zoom-dominant, rotation requires a much larger intentional twist
+    // (~11° instead of ~3°) to activate — prevents accidental rotation.
+    final effectiveDeadzone = _zoomDominant
+        ? _rotationDeadzoneZoomDominant
+        : _rotationDeadzone;
     double newRotation;
-    if (_rotationUnlocked || details.rotation.abs() > _rotationDeadzone) {
+    if (_rotationUnlocked || details.rotation.abs() > effectiveDeadzone) {
       _rotationUnlocked = true;
       newRotation = _initialRotation + details.rotation;
     } else {
@@ -1680,13 +1714,16 @@ class _InfiniteCanvasGestureDetectorState
     // 🌀 MAGNETIC SNAP: Add resistance near snap angles (like Procreate)
     // When close to a snap angle, dampen the rotation delta to create
     // a "sticky" feel. The user must push harder to break free.
+    // 🏠 GRAVITY WELL: 0° has a wider, stronger zone — the "home" position.
     final snapAngle = widget.controller.checkSnapAngle(newRotation);
     if (snapAngle != null && !widget.controller.rotationLocked) {
       final distFromSnap = (newRotation - snapAngle).abs();
-      final snapThreshold = 0.18; // ~10° magnetic zone (wide detent)
-      // Cubic dampening: very strong near center, fades at edges
+      final isHomeAngle = snapAngle == 0.0 || snapAngle.abs() < 0.001;
+      // 🏠 0° gets a wider zone (15° vs 10°) and quadratic dampening (harder)
+      final snapThreshold = isHomeAngle ? 0.26 : 0.18; // ~15° vs ~10°
       final t = (distFromSnap / snapThreshold).clamp(0.0, 1.0);
-      final dampening = t * t * t; // 0 at center, 1 at edge
+      // 🏠 Quadratic for 0° (harder to escape), cubic for others (softer)
+      final dampening = isHomeAngle ? t * t : t * t * t;
       newRotation = snapAngle + (newRotation - snapAngle) * dampening;
     }
 
@@ -1747,11 +1784,24 @@ class _InfiniteCanvasGestureDetectorState
       elastic: true,
     );
 
-    // 🌀 SNAP HAPTIC: Fire haptic when crossing a snap angle detent
+    // 🌀 SNAP HAPTIC: Two-tier feedback system.
+    // Cardinal angles (0°, 90°, 180°, 270°) = always strong (mechanical detent)
+    // Intermediate angles (45°, 135°, etc.) = velocity-proportional
     if (!widget.controller.rotationLocked) {
       final snapAngle = widget.controller.checkSnapAngle(newRotation);
       if (snapAngle != null && snapAngle != _lastSnappedAngle) {
-        HapticFeedback.lightImpact();
+        // 📐 Cardinal angle check: 0°, ±90°, ±180°
+        final isCardinal = snapAngle.abs() < 0.001 ||
+            (snapAngle.abs() - math.pi / 2).abs() < 0.001 ||
+            (snapAngle.abs() - math.pi).abs() < 0.001;
+
+        if (isCardinal) {
+          HapticFeedback.mediumImpact(); // Cardinal — always strong
+        } else if (_rotationVelocity.abs() > 1.5) {
+          HapticFeedback.lightImpact(); // Fast intermediate — standard
+        } else {
+          HapticFeedback.selectionClick(); // Slow intermediate — subtle
+        }
         _lastSnappedAngle = snapAngle;
       } else if (snapAngle == null) {
         _lastSnappedAngle = null;

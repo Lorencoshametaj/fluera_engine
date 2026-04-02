@@ -7,10 +7,12 @@
 // ============================================================================
 
 import 'dart:typed_data';
+import 'dart:ui';
 import 'package:flutter/painting.dart';
 
 import '../core/models/canvas_layer.dart';
 import 'canvas_creation_options.dart';
+import 'section_summary.dart';
 
 /// Metadata for a stored canvas (used for listing / browsing).
 class CanvasMetadata {
@@ -44,6 +46,17 @@ class CanvasMetadata {
   /// Total number of strokes across all layers.
   final int strokeCount;
 
+  /// Sections in this canvas (extracted from scene graph on save).
+  final List<SectionSummary> sections;
+
+  /// Total content bounding box in canvas world space.
+  /// Null if the canvas has no content yet.
+  final Rect? contentBounds;
+
+  /// Last viewport state (camera position + zoom) when the user left.
+  /// Used for "continue where you left off" with exact camera position.
+  final ({double dx, double dy, double scale})? lastViewport;
+
   const CanvasMetadata({
     required this.canvasId,
     this.title,
@@ -54,6 +67,9 @@ class CanvasMetadata {
     this.parentFolderId,
     this.layerCount = 0,
     this.strokeCount = 0,
+    this.sections = const [],
+    this.contentBounds,
+    this.lastViewport,
   });
 
   /// Serialize to JSON.
@@ -67,10 +83,52 @@ class CanvasMetadata {
     if (parentFolderId != null) 'parentFolderId': parentFolderId,
     'layerCount': layerCount,
     'strokeCount': strokeCount,
+    if (sections.isNotEmpty)
+      'sections': sections.map((s) => s.toJson()).toList(),
+    if (contentBounds != null)
+      'contentBounds': {
+        'left': contentBounds!.left,
+        'top': contentBounds!.top,
+        'right': contentBounds!.right,
+        'bottom': contentBounds!.bottom,
+      },
+    if (lastViewport != null)
+      'lastViewport': {
+        'dx': lastViewport!.dx,
+        'dy': lastViewport!.dy,
+        'scale': lastViewport!.scale,
+      },
   };
 
   /// Deserialize from JSON.
   factory CanvasMetadata.fromJson(Map<String, dynamic> json) {
+    // Parse sections
+    final sectionsJson = json['sections'] as List<dynamic>?;
+    final sections = sectionsJson
+        ?.map((s) => SectionSummary.fromJson(s as Map<String, dynamic>))
+        .toList() ?? const [];
+
+    // Parse content bounds
+    final boundsJson = json['contentBounds'] as Map<String, dynamic>?;
+    final contentBounds = boundsJson != null
+        ? Rect.fromLTRB(
+            (boundsJson['left'] as num).toDouble(),
+            (boundsJson['top'] as num).toDouble(),
+            (boundsJson['right'] as num).toDouble(),
+            (boundsJson['bottom'] as num).toDouble(),
+          )
+        : null;
+
+    // Parse last viewport
+    final vpJson = json['lastViewport'] as Map<String, dynamic>?;
+    final lastViewport = vpJson != null
+        ? (
+            dx: (vpJson['dx'] as num).toDouble(),
+            dy: (vpJson['dy'] as num).toDouble(),
+            scale: (vpJson['scale'] as num).toDouble(),
+          )
+        : null;
+
     return CanvasMetadata(
       canvasId: json['canvasId'] as String,
       title: json['title'] as String?,
@@ -81,6 +139,9 @@ class CanvasMetadata {
       parentFolderId: json['parentFolderId'] as String?,
       layerCount: json['layerCount'] as int? ?? 0,
       strokeCount: json['strokeCount'] as int? ?? 0,
+      sections: sections,
+      contentBounds: contentBounds,
+      lastViewport: lastViewport,
     );
   }
 
@@ -276,4 +337,31 @@ abstract class FlueraStorageAdapter {
   /// snapshot exists. This is loaded during the splash screen pipeline
   /// and should be fast (sub-millisecond for SQLite BLOB reads).
   Future<Uint8List?> loadSnapshot(String canvasId) async => null;
+
+  // ─────────────────────── SECTION METADATA ─────────────────────────────────
+
+  /// Save pre-computed section summaries for a canvas.
+  ///
+  /// Called during auto-save to persist lightweight section metadata
+  /// that the gallery can query without loading the full canvas JSON.
+  /// Also persists content bounds and last viewport state.
+  ///
+  /// Default: no-op (gallery falls back to metadata without sections).
+  Future<void> saveSectionSummaries(
+    String canvasId, {
+    required List<SectionSummary> sections,
+    Rect? contentBounds,
+    ({double dx, double dy, double scale})? lastViewport,
+  }) async {}
+
+  /// Load the last saved viewport state for a canvas.
+  ///
+  /// Returns the camera position + zoom when the user last left the canvas,
+  /// enabling self-contained "continue where you left off" without relying
+  /// on the host app to pass in initialViewport.
+  ///
+  /// Default: returns null (no stored viewport).
+  Future<({double dx, double dy, double scale})?> loadLastViewport(
+    String canvasId,
+  ) async => null;
 }

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -151,42 +149,55 @@ class ZoomLevelIndicator extends StatelessWidget {
 
         // Build the Row children list
         final children = <Widget>[
-          // ── Zoom % ──
-          Text(
-            zoomText,
-            style: const TextStyle(
-              color: _primaryText,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              fontFamily: 'monospace',
-              letterSpacing: 0.3,
+          // ── Zoom % + Coords (tappable for zoom presets) ──
+          GestureDetector(
+            onTap: () => _showPresets(context),
+            onLongPress: () {
+              HapticFeedback.lightImpact();
+              onLongPress?.call();
+            },
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  zoomText,
+                  style: const TextStyle(
+                    color: _primaryText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'monospace',
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                // ── Coordinates (hidden on narrow screens) ──
+                if (showCoords) ...[
+                  _separator(0.15),
+                  Text(
+                    coordText,
+                    style: const TextStyle(
+                      color: _secondaryText,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      fontFamily: 'monospace',
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+                // ── Grid indicator (hidden on very narrow) ──
+                if (showIcons && onLongPress != null) ...[
+                  _separator(0.12),
+                  Icon(
+                    Icons.grid_4x4_rounded,
+                    size: 11,
+                    color: showGridActive
+                        ? _neonCyan.withValues(alpha: 0.7)
+                        : _secondaryText.withValues(alpha: 0.4),
+                  ),
+                ],
+              ],
             ),
           ),
-          // ── Coordinates (hidden on narrow screens) ──
-          if (showCoords) ...[
-            _separator(0.15),
-            Text(
-              coordText,
-              style: const TextStyle(
-                color: _secondaryText,
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                fontFamily: 'monospace',
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
-          // ── Grid indicator (hidden on very narrow) ──
-          if (showIcons && onLongPress != null) ...[
-            _separator(0.12),
-            Icon(
-              Icons.grid_4x4_rounded,
-              size: 11,
-              color: showGridActive
-                  ? _neonCyan.withValues(alpha: 0.7)
-                  : _secondaryText.withValues(alpha: 0.4),
-            ),
-          ],
           // ── Minimap toggle (hidden on very narrow) ──
           if (showIcons && onToggleMinimap != null) ...[
             _separator(0.12),
@@ -276,29 +287,22 @@ class ZoomLevelIndicator extends StatelessWidget {
 
         return ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxW),
-          child: GestureDetector(
-            onTap: () => _showPresets(context),
-            onLongPress: () {
-              HapticFeedback.lightImpact();
-              onLongPress?.call();
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: _glassBase,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _neonCyan.withValues(alpha: 0.2),
-                  width: 0.5,
-                ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: _glassBase,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _neonCyan.withValues(alpha: 0.2),
+                width: 0.5,
               ),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: children,
-                ),
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: children,
               ),
             ),
           ),

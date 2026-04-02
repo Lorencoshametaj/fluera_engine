@@ -176,6 +176,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   // 🔧 Advanced Split callback
   final VoidCallback? onAdvancedSplitPressed; // Advanced Split Configuretion
   final VoidCallback? onTimeTravelPressed; // ⏱️ Time Travel
+  final VoidCallback? onRecallModePressed; // 🧠 Recall Mode (Step 2)
   final VoidCallback? onBranchExplorerPressed; // 🌿 Branch Explorer
   final String? activeBranchName; // 🌿 Currently active branch
   final VoidCallback? onPaperTypePressed; // 📄 Paper type picker
@@ -383,6 +384,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     // 🔧 Advanced Split callback
     this.onAdvancedSplitPressed,
     this.onTimeTravelPressed, // ⏱️ Time Travel
+    this.onRecallModePressed, // 🧠 Recall Mode (Step 2)
     this.onBranchExplorerPressed, // 🌿 Branch Explorer
     this.activeBranchName, // 🌿 Active branch name
     this.onPaperTypePressed, // 📄 Paper type picker

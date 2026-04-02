@@ -645,6 +645,33 @@ extension on _FlueraCanvasScreenState {
           _isLoading = false;
         });
 
+        // 📐 Apply initial viewport — self-contained restore (P1-19).
+        //
+        // Priority:
+        //   1. widget.initialViewport (from Canvas Hub / host app)
+        //   2. Engine-internal lastViewport from storage (self-contained)
+        //   3. Default (origin, scale 1.0) — no-op
+        if (widget.initialViewport != null) {
+          final vp = widget.initialViewport!;
+          _canvasController.setOffset(Offset(vp.dx, vp.dy));
+          _canvasController.setScale(vp.scale);
+        } else {
+          // 🧠 P1-19: Self-contained viewport restore from engine storage.
+          // Load the last saved viewport without depending on the host app.
+          try {
+            final adapter = _config.storageAdapter;
+            if (adapter != null) {
+              final vp = await adapter.loadLastViewport(_canvasId);
+              if (vp != null) {
+                _canvasController.setOffset(Offset(vp.dx, vp.dy));
+                _canvasController.setScale(vp.scale);
+              }
+            }
+          } catch (_) {
+            // Non-critical — canvas opens at default position.
+          }
+        }
+
         // 🏎️ PERF: Flush cold-start frames from the P99 rolling window.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;

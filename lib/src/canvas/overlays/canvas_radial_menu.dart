@@ -92,7 +92,9 @@ enum RadialToolItem {
   lasso('Lasso', Icons.content_cut_rounded),
   ruler('Ruler', Icons.straighten_rounded),
   search('Search', Icons.search_rounded),
-  export('Export', Icons.ios_share_rounded);
+  export('Export', Icons.ios_share_rounded),
+  multiview('Multiview', Icons.grid_view_rounded),
+  recall('Recall', Icons.psychology_rounded);
 
   const RadialToolItem(this.label, this.icon);
   final String label;
@@ -341,6 +343,16 @@ class CanvasRadialMenuState extends State<CanvasRadialMenu>
   void initState() {
     super.initState();
     _effectiveCenter = widget.center;
+
+    // 🔧 Clamp to screen bounds once MediaQuery is available (not in initState)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ss = widget.screenSize == Size.zero
+          ? MediaQuery.of(context).size : widget.screenSize;
+      _effectiveCenter = _clamp(widget.center, ss);
+      _screenSize = ss;
+      _sf = (ss.shortestSide / 500).clamp(0.72, 1.0);
+    });
 
     _ticker = createTicker(_onTick)..start();
 
@@ -678,7 +690,12 @@ class CanvasRadialMenuState extends State<CanvasRadialMenu>
   Widget build(BuildContext context) {
     final ss = widget.screenSize == Size.zero
         ? MediaQuery.of(context).size : widget.screenSize;
-    _effectiveCenter = _clamp(widget.center, ss);
+    // 🔧 FIX: Do NOT overwrite _effectiveCenter on every build.
+    // The clamped center is set once in initState's postFrameCallback.
+    // Re-clamping here caused the menu to visually shift on parent rebuilds.
+    if (_screenSize == Size.zero) {
+      _effectiveCenter = _clamp(widget.center, ss);
+    }
     _screenSize = ss;
 
     // Responsive scale: 0.72 on small phones → 1.0 on tablets

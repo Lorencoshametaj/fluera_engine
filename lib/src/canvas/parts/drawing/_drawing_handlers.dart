@@ -722,7 +722,22 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-
+    // 🧠 P1-05: VIRGIN ZONE HAPTIC — subtle feedback on first stroke in empty area.
+    // During Step 1, if the user starts drawing in a zone with no nearby content,
+    // fire a light haptic to confirm the canvas is alive and ready.
+    if (_learningStepController.currentStep == LearningStep.step1Notes) {
+      final activeLayer = _layerController.activeLayer;
+      if (activeLayer != null) {
+        final zoneRadius = 200.0 / _canvasController.scale; // 200px in screen space
+        final hasNearbyContent = activeLayer.strokes.any((s) {
+          if (s.bounds.isEmpty) return false;
+          return s.bounds.inflate(zoneRadius).contains(canvasPosition);
+        });
+        if (!hasNearbyContent) {
+          HapticFeedback.lightImpact();
+        }
+      }
+    }
     // 🔥 VULKAN: Initialize native overlay on first freehand stroke
     if (!_vulkanOverlayActive) {
       _initVulkanOverlayIfNeeded();

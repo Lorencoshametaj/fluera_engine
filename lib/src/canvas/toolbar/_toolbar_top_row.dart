@@ -127,6 +127,56 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                     ),
                     const SizedBox(width: 4),
                   ],
+                  // 🧠 Recall Mode button (Step 2)
+                  if (widget.onRecallModePressed != null) ...[
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.mediumImpact();
+                        widget.onRecallModePressed!();
+                      },
+                      child: Container(
+                        height: 30,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFF6C63FF).withValues(alpha: 0.15),
+                              const Color(0xFF8B5CF6).withValues(alpha: 0.08),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFF6C63FF).withValues(alpha: 0.25),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.psychology_rounded,
+                              size: 14,
+                              color: isDark
+                                  ? const Color(0xFF9D92FF)
+                                  : const Color(0xFF6C63FF),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Recall',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: isDark
+                                    ? const Color(0xFF9D92FF)
+                                    : const Color(0xFF6C63FF),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   // 🌿 Branch Explorer / Active branch indicator
                   if (widget.onBranchExplorerPressed != null) ...[
                     GestureDetector(

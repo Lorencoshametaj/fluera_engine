@@ -117,6 +117,10 @@ class KnowledgeFlowPainter extends CustomPainter {
   /// 📅 Spaced repetition schedule (concept → FSRS card data).
   final Map<String, SrsCardData> reviewSchedule;
 
+  /// 🚀 P99 FIX: Whether the canvas is actively being panned/zoomed.
+  /// When true, paint() early-returns and shouldRepaint suppresses animation diffs.
+  final bool isPanning;
+
   // LOD thresholds
   static const double _lodLevel1Min = 0.15;
   static const double _lodLevel1Max = 0.5;
@@ -181,12 +185,18 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.proactiveGaps = const {},
     this.proactiveScan = const {},
     this.reviewSchedule = const {},
+    this.isPanning = false,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (!enabled || !controller.enabled) return;
     if (clusters.isEmpty && controller.connections.isEmpty) return;
+
+    // 🚀 P99 FIX: During pan/zoom, shouldRepaint returns false so this
+    // method is NOT called. The GPU raster cache from the last idle frame
+    // persists. DO NOT early-return here — that would produce an empty
+    // canvas and invalidate the raster cache (causes 24ms regression).
 
     final lod = _getLodLevel();
     final fade = _computeFade();
@@ -364,34 +374,35 @@ class KnowledgeFlowPainter extends CustomPainter {
     for (double a = -extent; a < extent; a += arrowSpacing) {
       if (isH) {
         // Arrows pointing RIGHT (+X)
-        final path = Path()
-          ..moveTo(pos + scaledArrow * 0.5 + drift, a - scaledArrow)
-          ..lineTo(pos + scaledArrow * 0.5 + drift, a + scaledArrow)
-          ..lineTo(pos + scaledArrow * 2.5 + drift, a)
-          ..close();
-        canvas.drawPath(path, _p);
+        // 🚀 P99 FIX: Reuse _reusePath instead of allocating Path() per arrow
+        _reusePath.reset();
+        _reusePath.moveTo(pos + scaledArrow * 0.5 + drift, a - scaledArrow);
+        _reusePath.lineTo(pos + scaledArrow * 0.5 + drift, a + scaledArrow);
+        _reusePath.lineTo(pos + scaledArrow * 2.5 + drift, a);
+        _reusePath.close();
+        canvas.drawPath(_reusePath, _p);
         // Arrows pointing LEFT (-X)
-        final path2 = Path()
-          ..moveTo(pos - scaledArrow * 0.5 - drift, a - scaledArrow)
-          ..lineTo(pos - scaledArrow * 0.5 - drift, a + scaledArrow)
-          ..lineTo(pos - scaledArrow * 2.5 - drift, a)
-          ..close();
-        canvas.drawPath(path2, _p);
+        _reusePath.reset();
+        _reusePath.moveTo(pos - scaledArrow * 0.5 - drift, a - scaledArrow);
+        _reusePath.lineTo(pos - scaledArrow * 0.5 - drift, a + scaledArrow);
+        _reusePath.lineTo(pos - scaledArrow * 2.5 - drift, a);
+        _reusePath.close();
+        canvas.drawPath(_reusePath, _p);
       } else {
         // Arrows pointing DOWN (+Y)
-        final path = Path()
-          ..moveTo(a - scaledArrow, pos + scaledArrow * 0.5 + drift)
-          ..lineTo(a + scaledArrow, pos + scaledArrow * 0.5 + drift)
-          ..lineTo(a, pos + scaledArrow * 2.5 + drift)
-          ..close();
-        canvas.drawPath(path, _p);
+        _reusePath.reset();
+        _reusePath.moveTo(a - scaledArrow, pos + scaledArrow * 0.5 + drift);
+        _reusePath.lineTo(a + scaledArrow, pos + scaledArrow * 0.5 + drift);
+        _reusePath.lineTo(a, pos + scaledArrow * 2.5 + drift);
+        _reusePath.close();
+        canvas.drawPath(_reusePath, _p);
         // Arrows pointing UP (-Y)
-        final path2 = Path()
-          ..moveTo(a - scaledArrow, pos - scaledArrow * 0.5 - drift)
-          ..lineTo(a + scaledArrow, pos - scaledArrow * 0.5 - drift)
-          ..lineTo(a, pos - scaledArrow * 2.5 - drift)
-          ..close();
-        canvas.drawPath(path2, _p);
+        _reusePath.reset();
+        _reusePath.moveTo(a - scaledArrow, pos - scaledArrow * 0.5 - drift);
+        _reusePath.lineTo(a + scaledArrow, pos - scaledArrow * 0.5 - drift);
+        _reusePath.lineTo(a, pos - scaledArrow * 2.5 - drift);
+        _reusePath.close();
+        canvas.drawPath(_reusePath, _p);
       }
     }
   }
@@ -550,9 +561,13 @@ class KnowledgeFlowPainter extends CustomPainter {
       final glowAlpha = (0.06 + pulse * 0.08) * fade;
 
       // Wide blurred "light thread" — the ambient network glow
-      final glowPath = Path()
-        ..moveTo(srcPt.dx, srcPt.dy)
-        ..quadraticBezierTo(cp.dx, cp.dy, tgtPt.dx, tgtPt.dy);
+      // 🚀 P99 FIX: Reuse _reusePath instead of allocating Path() per connection.
+      // 🚀 P99 FIX: Use Color.lerp instead of LinearGradient.createShader() —
+      // at LOD 2 (~6% opacity), the gradient is imperceptible.
+      _reusePath.reset();
+      _reusePath.moveTo(srcPt.dx, srcPt.dy);
+      _reusePath.quadraticBezierTo(cp.dx, cp.dy, tgtPt.dx, tgtPt.dy);
+      final blendedColor = Color.lerp(srcColor, tgtColor, 0.5)!;
 
       // Layer 1: Very wide ambient glow
       _p
@@ -560,25 +575,16 @@ class KnowledgeFlowPainter extends CustomPainter {
         ..strokeWidth = 18.0
         ..strokeCap = StrokeCap.round
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12.0)
-        ..shader = LinearGradient(
-          colors: [
-            srcColor.withValues(alpha: glowAlpha * 0.7),
-            tgtColor.withValues(alpha: glowAlpha * 0.7),
-          ],
-        ).createShader(Rect.fromPoints(srcPt, tgtPt));
-      canvas.drawPath(glowPath, _p);
+        ..shader = null
+        ..color = blendedColor.withValues(alpha: glowAlpha * 0.7);
+      canvas.drawPath(_reusePath, _p);
 
       // Layer 2: Narrower, brighter core glow
       _p
         ..strokeWidth = 8.0
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0)
-        ..shader = LinearGradient(
-          colors: [
-            srcColor.withValues(alpha: glowAlpha * 1.2),
-            tgtColor.withValues(alpha: glowAlpha * 1.2),
-          ],
-        ).createShader(Rect.fromPoints(srcPt, tgtPt));
-      canvas.drawPath(glowPath, _p);
+        ..color = blendedColor.withValues(alpha: glowAlpha * 1.2);
+      canvas.drawPath(_reusePath, _p);
 
       _p
         ..maskFilter = null
@@ -903,12 +909,8 @@ class KnowledgeFlowPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0
         ..strokeCap = StrokeCap.round
-        ..shader = LinearGradient(
-          colors: [
-            srcColor.withValues(alpha: 0.06),
-            tgtColor.withValues(alpha: 0.06),
-          ],
-        ).createShader(Rect.fromPoints(srcPt, tgtPt));
+        ..shader = null
+        ..color = Color.lerp(srcColor, tgtColor, 0.5)!.withValues(alpha: 0.06);
 
       final path = controller.computeBezierPath(
         source: srcPt,
@@ -4267,17 +4269,28 @@ class KnowledgeFlowPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(KnowledgeFlowPainter oldDelegate) =>
-      clusters != oldDelegate.clusters ||
-      canvasScale != oldDelegate.canvasScale ||
-      enabled != oldDelegate.enabled ||
-      dragSourcePoint != oldDelegate.dragSourcePoint ||
-      dragCurrentPoint != oldDelegate.dragCurrentPoint ||
-      snapTargetClusterId != oldDelegate.snapTargetClusterId ||
-      selectedConnectionId != oldDelegate.selectedConnectionId ||
-      animationTime != oldDelegate.animationTime ||
-      semanticMorphProgress != oldDelegate.semanticMorphProgress ||
-      flightProgress != oldDelegate.flightProgress ||
-      flightSourceClusterId != oldDelegate.flightSourceClusterId ||
-      landingPulseProgress != oldDelegate.landingPulseProgress;
+  bool shouldRepaint(KnowledgeFlowPainter oldDelegate) {
+    // 🚀 P99 FIX: Suppress ALL repaints during active pan/zoom.
+    // The Transform widget handles visual movement via GPU compositing.
+    // The raster cache from the last idle frame persists = 0ms raster cost.
+    // On gesture END (isPanning: true→false), the state change triggers
+    // a full repaint at the correct scale/LOD.
+    if (isPanning && oldDelegate.isPanning) return false;
+
+    // Gesture boundary: isPanning changed → force repaint
+    if (isPanning != oldDelegate.isPanning) return true;
+
+    return clusters != oldDelegate.clusters ||
+        canvasScale != oldDelegate.canvasScale ||
+        enabled != oldDelegate.enabled ||
+        animationTime != oldDelegate.animationTime ||
+        dragSourcePoint != oldDelegate.dragSourcePoint ||
+        dragCurrentPoint != oldDelegate.dragCurrentPoint ||
+        snapTargetClusterId != oldDelegate.snapTargetClusterId ||
+        selectedConnectionId != oldDelegate.selectedConnectionId ||
+        semanticMorphProgress != oldDelegate.semanticMorphProgress ||
+        flightProgress != oldDelegate.flightProgress ||
+        flightSourceClusterId != oldDelegate.flightSourceClusterId ||
+        landingPulseProgress != oldDelegate.landingPulseProgress;
+  }
 }

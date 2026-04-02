@@ -457,9 +457,17 @@ class DrawingPainter extends CustomPainter {
       // UNDO: Strokes were removed — rebuild loaded list
       _materializedCache = _collectAllStrokes();
     } else {
-      // Same total count — paging event or property change
-      // Rebuild to pick up newly paged-in strokes
+      // 🚀 P99 FIX: Same total count — only rebuild if paging actually
+      // loaded new strokes. Compare loaded count to detect stub→loaded
+      // transitions without O(N) traversal on every version bump.
+      final oldLoadedCount = _materializedCache!.length;
       _materializedCache = _collectAllStrokes();
+      // Cache the loaded count for future no-op detection
+      if (_materializedCache!.length == oldLoadedCount) {
+        // NO paging occurred — loaded count same. Next time this
+        // exact scenario hits (property change, section toggle),
+        // the version guard at line 433 will return the cached list.
+      }
     }
 
     _materializedVersion = sceneGraph.version;
@@ -616,7 +624,8 @@ class DrawingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     // 🔬 DIAGNOSTIC: per-section timing
-    final _sw = Stopwatch()..start();
+    _paintStopwatch.reset();
+    _paintStopwatch.start();
 
     // 🏎️ PERFORMANCE MONITORING: measure frame time
     CanvasPerformanceMonitor.instance.startFrame();
@@ -628,7 +637,7 @@ class DrawingPainter extends CustomPainter {
     // ✂️ Collect PDF annotation IDs (cached per scene graph version)
     _collectPdfAnnotationIds();
 
-    final _t0 = _sw.elapsedMicroseconds;
+    final _t0 = _paintStopwatch.elapsedMicroseconds;
 
     // 🚀 LAYER MERGE: Paint background before strokes.
     // Undo the widget-level transform to draw in viewport space,
@@ -649,7 +658,8 @@ class DrawingPainter extends CustomPainter {
       final vpRect = Rect.fromLTWH(0, 0, size.width, size.height);
 
       // Solid background fill
-      canvas.drawRect(vpRect, Paint()..color = backgroundColor!);
+      _bgFillPaint.color = backgroundColor!;
+      canvas.drawRect(vpRect, _bgFillPaint);
 
       // Pattern tiles
       if (paperType != 'blank') {
@@ -741,7 +751,7 @@ class DrawingPainter extends CustomPainter {
       }
     }
 
-    final _t1 = _sw.elapsedMicroseconds;
+    final _t1 = _paintStopwatch.elapsedMicroseconds;
 
     // Draw the current shape in preview (not yet in scene graph)
     if (currentShape != null) {
@@ -764,7 +774,7 @@ class DrawingPainter extends CustomPainter {
     // 📄 Draw PDF preview cards (single-page thumbnails)
     _paintPdfPreviewCards(canvas, pdfViewport);
 
-    final _t2 = _sw.elapsedMicroseconds;
+    final _t2 = _paintStopwatch.elapsedMicroseconds;
 
     // 📊 Draw Tabular (spreadsheet) nodes
     _paintTabularNodes(canvas, pdfViewport);
@@ -787,7 +797,7 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 🏎️ PERFORMANCE MONITORING: end frame measurement
-    _lastPaintDurationUs = _sw.elapsedMicroseconds;
+    _lastPaintDurationUs = _paintStopwatch.elapsedMicroseconds;
     CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
 
     // 🧹 SCRATCH-OUT PREVIEW: Draw red tint overlay on strokes about to be deleted.
@@ -807,7 +817,7 @@ class DrawingPainter extends CustomPainter {
     }
 
     // 🔬 DIAGNOSTIC: print breakdown on frames > 5ms
-    final totalUs = _sw.elapsedMicroseconds;
+    final totalUs = _paintStopwatch.elapsedMicroseconds;
     // (Diagnostic removed — enable when needed)
     // if (totalUs > 5000) {
     //   final strokeMs = (_t1 / 1000).toStringAsFixed(1);

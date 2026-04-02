@@ -499,6 +499,7 @@ export 'src/config/advanced_split_layout.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/fluera_storage_adapter.dart';
+export 'src/storage/section_summary.dart';
 export 'src/storage/canvas_creation_options.dart';
 export 'src/storage/fluera_cloud_adapter.dart';
 export 'src/storage/sqlite_storage_adapter.dart';

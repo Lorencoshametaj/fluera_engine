@@ -14,6 +14,8 @@ import './ai/exam_session_controller.dart';   // 🎓 Exam Mode session controll
 import './ai/chat_session_controller.dart';   // 💬 Chat with Notes controller
 import './ai/chat_session_model.dart';        // 💬 Chat data models
 import './ai/fsrs_scheduler.dart';             // 🧠 FSRS adaptive spaced repetition
+import './ai/learning_step_controller.dart';   // 🧠 12-step cognitive cycle state machine
+import './ai/flow_guard.dart';                 // 🛡️ Flow protection during active writing
 import './overlays/exam_overlay.dart';         // 🎓 Exam Mode fullscreen overlay
 import './overlays/chat_overlay.dart';         // 💬 Chat with Notes overlay
 import '../ai/chat_context_builder.dart';      // 💬 Chat context builder
@@ -168,6 +170,7 @@ import '../collaboration/conflict_resolution.dart';
 import '../collaboration/widgets/conflict_resolution_dialog.dart';
 import '../multiview/multiview_orchestrator.dart';
 import '../config/advanced_split_layout.dart';
+import '../config/wheel_mode_pref.dart';
 import '../config/split_panel_content.dart';
 import './overlays/canvas_viewport_overlay.dart';
 import '../time_travel/services/time_travel_recorder.dart';
@@ -194,6 +197,7 @@ import '../tools/pdf_page_drag_controller.dart';
 // ── SDK Config (Dependency Inversion) ──────────────────────────────────────
 import './fluera_canvas_config.dart';
 import '../storage/sqlite_storage_adapter.dart';
+import '../storage/section_summary.dart';
 import '../storage/save_isolate_service.dart';
 import '../rendering/gpu/vulkan_stroke_overlay_service.dart';
 import '../rendering/gpu/webgpu_overlay_view.dart';
@@ -344,6 +348,17 @@ import './overlays/image_adjustment_panel.dart';
 import './overlays/token_export_dialog.dart';
 import './overlays/conscious_debug_overlay.dart';
 
+// ─── Recall Mode (Step 2) ──────────────────────────────────────────────────
+import './ai/recall/recall_mode_controller.dart';
+import './ai/recall/recall_session_model.dart';
+import './ai/recall/recall_persistence_service.dart';
+import './ai/recall/recall_mode_overlay.dart';
+import './ai/recall/recall_peek_overlay.dart';
+import './ai/recall/recall_comparison_overlay.dart';
+import './ai/recall/recall_summary_overlay.dart';
+import './ai/recall/recall_missed_marker.dart';
+import './ai/recall/recall_zone_selector.dart';
+
 // ============================================================================
 // PART FILES
 // ============================================================================
@@ -393,6 +408,7 @@ part './parts/_proactive_analysis.dart'; // 💡 Proactive knowledge gap analysi
 part './parts/_smart_ink.dart'; // ✍️ Smart Ink — tap-to-reveal handwriting
 part './parts/_chat_with_notes.dart'; // 💬 Chat with Notes — conversational AI
 part './parts/_spellcheck.dart'; // 🔍 Spellcheck — in-canvas spell checking
+part './parts/_recall_mode.dart'; // 🧠 Recall Mode — Step 2 reconstruction
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -449,39 +465,8 @@ class _StrokeNotifier extends ValueNotifier<List<ProDrawingPoint>> {
 }
 
 /// 🔄 Cross-session wheel mode preference.
-/// Persists to a tiny file in the app documents directory.
-class _WheelModePref {
-  static bool _enabled = false;
-  static bool _loaded = false;
-
-  static bool get enabled => _enabled;
-  static set enabled(bool v) {
-    _enabled = v;
-    _save();
-  }
-
-  /// Load from disk (fire-and-forget, safe to call multiple times).
-  static Future<void> load() async {
-    if (_loaded) return;
-    _loaded = true;
-    try {
-      final dir = await getSafeDocumentsDirectory();
-      if (dir == null) return;
-      final f = File('${dir.path}/.fluera_wheel_pref');
-      if (await f.exists()) {
-        _enabled = (await f.readAsString()).trim() == '1';
-      }
-    } catch (_) {}
-  }
-
-  static void _save() {
-    getSafeDocumentsDirectory().then((dir) {
-      if (dir == null) return;
-      File('${dir.path}/.fluera_wheel_pref')
-          .writeAsString(_enabled ? '1' : '0');
-    }).catchError((_) {});
-  }
-}
+/// Now delegated to [WheelModePref] in config/wheel_mode_pref.dart.
+typedef _WheelModePref = WheelModePref;
 
 /// 🎨 FLUERA CANVAS SCREEN — SDK-level Professional Canvas
 ///
@@ -532,6 +517,13 @@ class FlueraCanvasScreen extends StatefulWidget {
   final void Function(ProStroke stroke, DateTime startTime, DateTime endTime)?
   onExternalStrokeAdded;
 
+  /// 📐 Initial camera position for entry-with-position.
+  ///
+  /// When provided, the canvas opens at this viewport instead of the
+  /// default or last-saved viewport. Used by the Canvas Hub when the
+  /// user taps a specific section to enter.
+  final ({double dx, double dy, double scale})? initialViewport;
+
   const FlueraCanvasScreen({
     super.key,
     required this.config,
@@ -545,6 +537,7 @@ class FlueraCanvasScreen extends StatefulWidget {
     this.externalPlaybackController,
     this.playbackPageIndex,
     this.onExternalStrokeAdded,
+    this.initialViewport,
   });
 
   @override
@@ -648,6 +641,31 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// Notifier to indicate when the user is drawing
   final ValueNotifier<bool> _isDrawingNotifier = ValueNotifier(false);
+
+  // ============================================================================
+  // 🧠 COGNITIVE LEARNING CYCLE (Passo 1-12)
+  // ============================================================================
+
+  /// 🧠 Learning step controller — gates AI subsystems by current step.
+  /// Default: Step 1 (Appunti a Mano) — AI dormant, zero distractions.
+  late final LearningStepController _learningStepController;
+
+  /// 🛡️ Flow guard — suppresses non-critical overlays during active writing
+  /// and for 2 seconds after the last stroke (P1-25).
+  late final FlowGuard _flowGuard;
+
+  /// 🧠 Recall Mode controller — manages Step 2 recall session state.
+  late final RecallModeController _recallModeController;
+
+  /// 💾 Recall Mode persistence — saves/loads recall session history.
+  final RecallPersistenceService _recallPersistenceService =
+      RecallPersistenceService();
+
+  /// 🧠 Recall Mode: zone selector overlay visible.
+  bool _showRecallZoneSelector = false;
+
+  /// 🧠 Recall Mode: summary overlay visible.
+  bool _showRecallSummary = false;
 
   /// 🚀 PERFORMANCE: Tratto corrente con notifier ottimizzato
   final _StrokeNotifier _currentStrokeNotifier = _StrokeNotifier();
@@ -1614,7 +1632,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // ============================================================================
 
   bool _isMultiviewActive = false;
+  bool _isMultiviewTransitioning = false; // 🚀 2-phase transition flag
   AdvancedSplitLayout? _multiviewLayout;
+  // 🚀 Targeted rebuild: only the canvas area repaints, not the entire screen
+  final ValueNotifier<int> _multiviewVersionNotifier = ValueNotifier<int>(0);
 
   List<ProStroke> _pendingRecoveryStrokes = [];
   List<GeometricShape> _pendingRecoveryShapes = [];
@@ -1747,6 +1768,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // ☁️ Initialize cloud sync engine (if adapter provided)
     if (_config.cloudAdapter != null) {
       _syncEngine = FlueraSyncEngine(adapter: _config.cloudAdapter!);
+
+      // 🔄 REALTIME: Subscribe to remote canvas changes (multi-device sync)
+      _syncEngine!.subscribeToCanvas(_canvasId);
+      _syncEngine!.remoteChange.addListener(_onRemoteCanvasChange);
     }
 
     // Initialize layer controller
@@ -2010,6 +2035,25 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       StrokePointPool.instance.initialize();
       PathPool.instance.initialize();
 
+      // 🧠 COGNITIVE CYCLE: Initialize learning step controller + flow guard.
+      _learningStepController = LearningStepController(
+        initialStep: LearningStep.step1Notes,
+      );
+      _flowGuard = FlowGuard();
+
+      // 🧠 RECALL MODE: Initialize Step 2 controller.
+      _recallModeController = RecallModeController();
+
+      // 🛡️ Wire FlowGuard to drawing state changes.
+      // When drawing starts → protect flow. When drawing ends → start cooldown.
+      _isDrawingNotifier.addListener(() {
+        if (_isDrawingNotifier.value) {
+          _flowGuard.onDrawingStarted();
+        } else {
+          _flowGuard.onDrawingEnded();
+        }
+      });
+
       // 🧠 CONSCIOUS ARCHITECTURE: Register subsystems + start idle timer.
       _initConsciousArchitecture();
 
@@ -2017,17 +2061,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // textures, data load). The loading overlay is shown until complete.
       _initializeCanvas();
 
-      // 🖐️ HANDEDNESS: Load persisted palm rejection settings
-      HandednessSettings.instance.load().then((_) {
-        // 🚀 FEATURE 7: First-launch onboarding — auto-show settings sheet
-        Future.delayed(const Duration(seconds: 4), () {
-          if (mounted) {
-            HandednessSettingsSheet.showIfNeeded(context, onChanged: () {
-              if (mounted) setState(() {});
-            });
-          }
-        });
-      });
+      // 🖐️ HANDEDNESS: Load persisted palm rejection settings.
+      // 🧠 P1-09: Handedness onboarding overlay is DISABLED.
+      // The canvas must remain distraction-free — zero overlays at launch.
+      // Auto-calibration via stylus tracking handles handedness silently.
+      HandednessSettings.instance.load();
 
       // 🔥 VULKAN: Eagerly initialize so first stroke uses GPU overlay
       _initVulkanOverlayIfNeeded();
@@ -2300,6 +2338,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   @override
   void dispose() {
+    // 🔄 REALTIME: Unsubscribe from remote changes
+    _syncEngine?.unsubscribeFromCanvas();
+    _syncEngine?.remoteChange.removeListener(_onRemoteCanvasChange);
     // 🏎️ PERF MONITOR: Remove global overlay before disposing
     CanvasPerformanceMonitor.instance.removeGlobalOverlay();
     // 🔥 VULKAN: Release native GPU overlay resources
@@ -2316,6 +2357,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _thumbnailCache?.dispose();
     // 🧠 SEMANTIC TITLES: Release timers
     SemanticTitlesEngine.disposeSemanticTitleTimers();
+    // 🧠 RECALL MODE: Release controller (cancels peek timer).
+    _recallModeController.dispose();
 
     // 🚀 DISPOSE OPT: Remove listener FIRST to prevent _onLayerChanged
     // from firing during cleanup (cluster rebuilds on partial state).
@@ -2466,6 +2509,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
     // 🌟 Radial expansion cleanup
     _disposeRadialExpansion();
+
+    // 🧠 COGNITIVE CYCLE: Dispose learning step + flow guard controllers.
+    _learningStepController.dispose();
+    _flowGuard.dispose();
 
     super.dispose();
   }

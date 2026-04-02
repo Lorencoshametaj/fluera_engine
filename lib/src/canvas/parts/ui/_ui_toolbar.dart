@@ -510,6 +510,11 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   ? _openBranchExplorer
                   : null,
           activeBranchName: _activeBranchName,
+          // 🧠 Recall Mode (Step 2) — always visible; pressing auto-advances step
+          onRecallModePressed:
+              !_recallModeController.isActive
+                  ? showRecallZoneSelector
+                  : null,
           onAdvancedSplitPressed: () {
             // 🚀 Launch new advanced split system
             _launchAdvancedSplitView();

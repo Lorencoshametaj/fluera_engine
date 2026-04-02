@@ -194,6 +194,22 @@ class MockCloudAdapter implements FlueraCloudStorageAdapter {
 
   @override
   Future<List<Map<String, dynamic>>> getPerCanvasStorage() async => [];
+
+  @override
+  Future<Map<String, dynamic>> getUserTier() async => {
+    'tier': 'free',
+    'quotaBytes': 52428800,
+  };
+
+  @override
+  Stream<String> onCanvasChanged() => const Stream<String>.empty();
+
+  @override
+  Stream<Map<String, dynamic>> onGalleryChanged() =>
+      const Stream<Map<String, dynamic>>.empty();
+
+  @override
+  void disposeRealtime() {}
 }
 
 void main() {

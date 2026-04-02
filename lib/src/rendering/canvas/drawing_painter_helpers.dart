@@ -54,6 +54,12 @@ final Paint _debugBoundsPaint =
       Paint()..color = const Color(0x40FF0000);
 final Paint _tilePaint = Paint()..filterQuality = FilterQuality.low;
 
+// 🚀 P99 FIX: Static Stopwatch for paint() timing — avoids per-frame allocation.
+final Stopwatch _paintStopwatch = Stopwatch();
+
+// 🚀 P99 FIX: Static Paint for background fill — avoids per-frame allocation.
+final Paint _bgFillPaint = Paint();
+
   // 🏷️ Structured annotation render paints
 final Paint _annotHighlightPaint = Paint(); // I6: reuse for highlights
 final Paint _underlinePaint =

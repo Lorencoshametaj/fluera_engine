@@ -35,6 +35,11 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
   static const double _dividerThickness = 6.0;
   static const double _dividerHitArea = 20.0;
   static const double _minProportion = 0.15;
+  // OPT #5: static const for divider grab handle
+  static const _grabBorderRadius = BorderRadius.all(Radius.circular(1));
+
+  // OPT #2: Stopwatch is monotonic and allocation-free (vs DateTime.now())
+  final Stopwatch _hapticStopwatch = Stopwatch()..start();
 
   late Map<String, double> _proportions;
 
@@ -338,6 +343,7 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
   }) {
     final isVertical = axis == Axis.vertical;
     final cs = Theme.of(context).colorScheme;
+    final hitPadding = (_dividerHitArea - _dividerThickness) / 2;
 
     return MouseRegion(
       cursor:
@@ -345,21 +351,32 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
               ? SystemMouseCursors.resizeColumn
               : SystemMouseCursors.resizeRow,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onPanUpdate: (details) {
-          HapticFeedback.selectionClick();
+          // OPT #2: Stopwatch avoids DateTime.now() syscall allocation
+          if (_hapticStopwatch.elapsedMilliseconds > 100) {
+            HapticFeedback.selectionClick();
+            _hapticStopwatch.reset();
+          }
           onDrag(details.delta);
         },
-        child: Container(
-          width: isVertical ? _dividerThickness : double.infinity,
-          height: isVertical ? double.infinity : _dividerThickness,
-          color: cs.outlineVariant.withValues(alpha: 0.2),
-          child: Center(
-            child: Container(
-              width: isVertical ? 2 : 32,
-              height: isVertical ? 32 : 2,
-              decoration: BoxDecoration(
-                color: cs.outlineVariant.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(1),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isVertical ? hitPadding : 0,
+            vertical: isVertical ? 0 : hitPadding,
+          ),
+          child: Container(
+            width: isVertical ? _dividerThickness : double.infinity,
+            height: isVertical ? double.infinity : _dividerThickness,
+            color: cs.outlineVariant.withValues(alpha: 0.2),
+            child: Center(
+              child: Container(
+                width: isVertical ? 2 : 32,
+                height: isVertical ? 32 : 2,
+                decoration: BoxDecoration(
+                  color: cs.outlineVariant.withValues(alpha: 0.5),
+                  borderRadius: _grabBorderRadius, // OPT #5
+                ),
               ),
             ),
           ),

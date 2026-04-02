@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../canvas/infinite_canvas_controller.dart';
 import '../canvas/fluera_canvas_config.dart';
+import '../canvas/overlays/canvas_radial_menu.dart';
 import '../config/advanced_split_layout.dart';
 import '../config/split_panel_content.dart';
+import '../config/wheel_mode_pref.dart';
+import '../drawing/models/pro_drawing_point.dart';
 import '../layers/layer_controller.dart';
 import '../tools/unified_tool_controller.dart';
 import './multiview_state.dart';
@@ -69,6 +72,12 @@ class MultiviewOrchestrator extends StatefulWidget {
 
 class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
     with TickerProviderStateMixin {
+  // ── Constants ──────────────────────────────────────────────────────────────
+  static const _kAnimDuration = Duration(milliseconds: 350);
+  static const _kFitPadding = 1.1; // 10% padding for fit-to-content
+  static const _kMinScale = 0.1;
+  static const _kMaxScale = 5.0;
+
   // ── Shared state ───────────────────────────────────────────────────────────
   late final LayerController _layerController;
   late final UnifiedToolController _toolController;
@@ -76,14 +85,30 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
   // ── Per-panel state ────────────────────────────────────────────────────────
   final Map<int, InfiniteCanvasController> _panelControllers = {};
 
+  // ── Per-panel viewport sizes (updated by LayoutBuilder) ────────────────────
+  final Map<int, Size> _panelSizes = {};
+
   // ── Multiview session state ────────────────────────────────────────────────
   late MultiviewState _state;
 
   // ── Cross-panel cursor (canvas coords of active drawing position) ──────────
   final ValueNotifier<Offset?> _cursorPosition = ValueNotifier(null);
 
-  // ── Cinematic animation ───────────────────────────────────────────────────
-  late final AnimationController _viewportAnim;
+  // ── Cinematic animation (per-panel to avoid collisions) ────────────────────
+  final Map<int, AnimationController> _viewportAnims = {};
+  // OPT #4: Track current animation listeners to avoid leaks on rapid re-calls
+  final Map<int, VoidCallback> _viewportAnimListeners = {};
+
+  // ── Radial menu (toolwheel mode) ───────────────────────────────────────────
+  bool _showRadialMenu = false;
+  Offset _radialMenuCenter = Offset.zero;
+  final _radialMenuKey = GlobalKey<CanvasRadialMenuState>();
+
+  // ── Staggered panel init (prevents raster spike) ───────────────────────
+  int _readyPanelCount = 0;
+
+  // ── Entrance fade-in (masks first-time shader compilation) ──────────────
+  late final AnimationController _entranceAnim;
 
   @override
   void initState() {
@@ -103,19 +128,44 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
       _panelControllers[i] = c;
     }
 
-    _viewportAnim = AnimationController(
+    // 🚀 Stagger panel initialization: build 1 panel per frame to avoid
+    // rasterizing all BrushEngine painters in the same frame (≈16ms spike).
+    _staggerPanels();
+
+    // 🎦 Entrance fade-in: renders at opacity 0.01 on first frame so GPU
+    // actually paints widgets (compiling shader pipelines). At 0.01 the result
+    // is invisible to the human eye. RenderOpacity at exactly 0.0 skips
+    // painting entirely, so we MUST start above zero.
+    _entranceAnim = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 350),
+      duration: const Duration(milliseconds: 250),
+      value: 0.01, // 🚀 Start above zero to force first-frame paint
     );
+    _entranceAnim.forward(); // Start immediately (not in postFrameCallback)
+  }
+
+  void _staggerPanels() {
+    if (_readyPanelCount >= _state.panelCount) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _readyPanelCount++);
+      _staggerPanels(); // Schedule next panel
+    });
   }
 
   @override
   void dispose() {
-    _viewportAnim.dispose();
+    _entranceAnim.dispose();
+    for (final anim in _viewportAnims.values) {
+      anim.dispose();
+    }
     _cursorPosition.dispose();
+    _toolController.dispose();
     for (final controller in _panelControllers.values) {
       controller.dispose();
     }
+    // 🚀 Release GPU Picture cache to avoid memory leak
+    invalidateMultiviewPanelCache();
     super.dispose();
   }
 
@@ -123,8 +173,13 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return Stack(
-      children: [
+    // 🎦 FadeTransition masks first-time shader compilation:
+    // Frame 0: opacity=0, widgets paint (GPU compiles pipelines invisibly)
+    // Frame 1+: opacity fades to 1.0 (pipelines cached, no jank)
+    return FadeTransition(
+      opacity: _entranceAnim,
+      child: Stack(
+        children: [
         // ── Panel Grid (fills all available space) ──────────────────────
         Positioned.fill(
           child: MultiviewLayoutRenderer(
@@ -135,95 +190,117 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
           ),
         ),
 
-        // 🗺️ Minimap (bottom-left)
-        Positioned(
-          bottom: 8,
-          left: 8,
-          child: _MultiviewMinimap(
-            layerController: _layerController,
-            panelControllers: _panelControllers,
-            activePanelIndex: _state.activePanelIndex,
-            onNavigate: (canvasPos) {
-              final c = _panelControllers[_state.activePanelIndex];
-              if (c == null) return;
-              // Center the active panel's viewport on canvasPos
-              final screenSize = MediaQuery.of(context).size;
-              final panelW = screenSize.width / 2;
-              final panelH = screenSize.height / 2;
-              final newOffset = Offset(
-                panelW / 2 - canvasPos.dx * c.scale,
-                panelH / 2 - canvasPos.dy * c.scale,
-              );
-              c.updateTransform(offset: newOffset, scale: c.scale);
-            },
+        // 🗺️ Minimap (bottom-left) — deferred until panels ready to avoid
+        // minimap's first paint (stroke dot iteration) causing raster spike
+        if (_readyPanelCount >= _state.panelCount)
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 8,
+            left: 8,
+            child: _MultiviewMinimap(
+              layerController: _layerController,
+              panelControllers: _panelControllers,
+              activePanelIndex: _state.activePanelIndex,
+              panelSizes: _panelSizes, // OPT #3: pass real sizes
+              onNavigate: (canvasPos) {
+                final c = _panelControllers[_state.activePanelIndex];
+                if (c == null) return;
+                final panelSize = _panelSizes[_state.activePanelIndex];
+                final panelW = panelSize?.width ?? MediaQuery.of(context).size.width / 2;
+                final panelH = panelSize?.height ?? MediaQuery.of(context).size.height / 2;
+                final newOffset = Offset(
+                  panelW / 2 - canvasPos.dx * c.scale,
+                  panelH / 2 - canvasPos.dy * c.scale,
+                );
+                c.updateTransform(offset: newOffset, scale: c.scale);
+              },
+            ),
           ),
-        ),
 
-        // 🔧 Floating controls (top-right)
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Undo / Redo
-              ListenableBuilder(
-                listenable: _layerController,
-                builder: (context, _) {
-                  return _FloatingChip(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _ToolbarIconButton(
-                          icon: Icons.undo_rounded,
-                          tooltip: 'Undo',
-                          onPressed:
-                              _layerController.canUndo
-                                  ? () {
-                                    HapticFeedback.lightImpact();
-                                    _layerController.undo();
-                                  }
-                                  : () {},
-                          enabled: _layerController.canUndo,
-                        ),
-                        _ToolbarIconButton(
-                          icon: Icons.redo_rounded,
-                          tooltip: 'Redo',
-                          onPressed:
-                              _layerController.canRedo
-                                  ? () {
-                                    HapticFeedback.lightImpact();
-                                    _layerController.redo();
-                                  }
-                                  : () {},
-                          enabled: _layerController.canRedo,
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(width: 6),
-              // Layout selector
-              _FloatingChip(
-                child: _LayoutTypeSelector(
-                  currentType: _state.layout.type,
-                  onSelected: _changeLayout,
+        // 🔧 Floating controls (top-right) — deferred to avoid first-frame cost
+        // 🚀 P99 FIX: RepaintBoundary isolates undo/redo repaints from panel grid
+        if (_readyPanelCount >= _state.panelCount)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 8,
+            child: RepaintBoundary(
+              child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Undo / Redo
+                ListenableBuilder(
+                  listenable: _layerController,
+                  builder: (context, _) {
+                    return _FloatingChip(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _ToolbarIconButton(
+                            icon: Icons.undo_rounded,
+                            tooltip: 'Undo',
+                            onPressed:
+                                _layerController.canUndo
+                                    ? () {
+                                      HapticFeedback.lightImpact();
+                                      _layerController.undo();
+                                    }
+                                    : null,
+                            enabled: _layerController.canUndo,
+                          ),
+                          _ToolbarIconButton(
+                            icon: Icons.redo_rounded,
+                            tooltip: 'Redo',
+                            onPressed:
+                                _layerController.canRedo
+                                    ? () {
+                                      HapticFeedback.lightImpact();
+                                      _layerController.redo();
+                                    }
+                                    : null,
+                            enabled: _layerController.canRedo,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-              ),
-              const SizedBox(width: 6),
-              // Exit multiview
-              _FloatingChip(
-                child: _ToolbarIconButton(
-                  icon: Icons.close_rounded,
-                  tooltip: 'Exit Multiview',
-                  onPressed: widget.onExitMultiview,
+                const SizedBox(width: 6),
+                // Layout selector
+                _FloatingChip(
+                  child: _LayoutTypeSelector(
+                    currentType: _state.layout.type,
+                    onSelected: _changeLayout,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                // Exit multiview
+                _FloatingChip(
+                  child: _ToolbarIconButton(
+                    icon: Icons.close_rounded,
+                    tooltip: 'Exit Multiview',
+                    onPressed: widget.onExitMultiview,
+                  ),
+                ),
+              ],
+            ),
+            ),
           ),
-        ),
+
+        // 🎯 Radial menu (toolwheel mode)
+        if (_showRadialMenu)
+          Positioned.fill(
+            child: CanvasRadialMenu(
+              key: _radialMenuKey,
+              center: _radialMenuCenter,
+              currentBrushIndex: _toolController.penType.index,
+              currentColor: _toolController.color,
+              canUndo: _layerController.canUndo,
+              canRedo: _layerController.canRedo,
+              hasLastAction: _layerController.canUndo,
+              onResult: _handleRadialResult,
+            ),
+          ),
       ],
+      ),
     );
   }
 
@@ -236,18 +313,38 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
       final controller = _panelControllers[index];
       if (controller == null) return const SizedBox();
 
-      return MultiviewPanel(
-        key: ValueKey('multiview_panel_$index'),
-        layerController: _layerController,
-        toolController: _toolController,
-        canvasController: controller,
-        panelIndex: index,
-        isActive: index == _state.activePanelIndex,
-        onActivate: () => _setActivePanel(index),
-        cursorPosition: _cursorPosition,
-        onCursorMoved: (pos) => _cursorPosition.value = pos,
-        onDoubleTap: () => _fitToContent(index),
-        onLongPress: (pos) => _showPanelContextMenu(index, pos),
+      // 🚀 Stagger: show lightweight placeholder until this panel is ready
+      // NOTE: No CircularProgressIndicator — its gradient/arc shaders cause
+      // expensive first-time pipeline compilation on the GPU.
+      if (index >= _readyPanelCount) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            _panelSizes[index] = Size(constraints.maxWidth, constraints.maxHeight);
+            return Container(
+              color: Theme.of(context).colorScheme.surface,
+            );
+          },
+        );
+      }
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          // Track actual panel size for accurate fit-to-content & minimap nav
+          _panelSizes[index] = Size(constraints.maxWidth, constraints.maxHeight);
+          return MultiviewPanel(
+            key: ValueKey('multiview_panel_$index'),
+            layerController: _layerController,
+            toolController: _toolController,
+            canvasController: controller,
+            panelIndex: index,
+            isActive: index == _state.activePanelIndex,
+            onActivate: () => _setActivePanel(index),
+            cursorPosition: _cursorPosition,
+            onCursorMoved: (pos) => _cursorPosition.value = pos,
+            onDoubleTap: () => _fitToContent(index),
+            onLongPress: (pos) => _showPanelContextMenu(index, pos),
+          );
+        },
       );
     });
   }
@@ -256,7 +353,37 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
   // PANEL CONTEXT MENU (Long-press — touch-first UX)
   // ============================================================================
 
+  PopupMenuItem<String> _menuItem(
+    String value,
+    IconData icon,
+    String label,
+    ColorScheme cs,
+  ) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: cs.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Text(label, style: TextStyle(fontSize: 13, color: cs.onSurface)),
+        ],
+      ),
+    );
+  }
+
   void _showPanelContextMenu(int panelIndex, Offset globalPosition) {
+    // Branch: wheel mode → radial menu, toolbar mode → popup context menu
+    if (WheelModePref.enabled) {
+      _setActivePanel(panelIndex);
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _showRadialMenu = true;
+        _radialMenuCenter = globalPosition;
+      });
+      return;
+    }
+
     HapticFeedback.mediumImpact();
     final cs = Theme.of(context).colorScheme;
 
@@ -274,75 +401,17 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
         side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.3)),
       ),
       items: [
-        PopupMenuItem(
-          value: 'fit',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.fit_screen_rounded,
-                size: 18,
-                color: cs.onSurfaceVariant,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'Fit to Content',
-                style: TextStyle(fontSize: 13, color: cs.onSurface),
-              ),
-            ],
-          ),
+        _menuItem('fit', Icons.fit_screen_rounded, 'Fit to Content', cs),
+        _menuItem('reset', Icons.restart_alt_rounded, 'Reset Zoom', cs),
+        _menuItem(
+          'eraser',
+          _toolController.isEraserMode
+              ? Icons.edit_rounded
+              : Icons.auto_fix_high_rounded,
+          _toolController.isEraserMode ? 'Switch to Pen' : 'Switch to Eraser',
+          cs,
         ),
-        PopupMenuItem(
-          value: 'reset',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.restart_alt_rounded,
-                size: 18,
-                color: cs.onSurfaceVariant,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'Reset Zoom',
-                style: TextStyle(fontSize: 13, color: cs.onSurface),
-              ),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'eraser',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _toolController.isEraserMode
-                    ? Icons.edit_rounded
-                    : Icons.auto_fix_high_rounded,
-                size: 18,
-                color: cs.onSurfaceVariant,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                _toolController.isEraserMode
-                    ? 'Switch to Pen'
-                    : 'Switch to Eraser',
-                style: TextStyle(fontSize: 13, color: cs.onSurface),
-              ),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'undo',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.undo_rounded, size: 18, color: cs.onSurfaceVariant),
-              const SizedBox(width: 10),
-              Text('Undo', style: TextStyle(fontSize: 13, color: cs.onSurface)),
-            ],
-          ),
-        ),
+        _menuItem('undo', Icons.undo_rounded, 'Undo', cs),
       ],
     ).then((value) {
       if (value == null) return;
@@ -352,7 +421,7 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
         case 'reset':
           final c = _panelControllers[panelIndex];
           if (c != null) {
-            _animateToTransform(c, targetOffset: Offset.zero, targetScale: 1.0);
+            _animateToTransform(panelIndex, c, targetOffset: Offset.zero, targetScale: 1.0);
             HapticFeedback.lightImpact();
           }
         case 'eraser':
@@ -365,6 +434,72 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
           }
       }
     });
+  }
+
+  // ============================================================================
+  // RADIAL MENU RESULT HANDLER (toolwheel mode)
+  // ============================================================================
+
+  void _handleRadialResult(RadialMenuResult result) {
+    setState(() => _showRadialMenu = false);
+
+    // Quick-repeat: replay last undo
+    if (result.quickRepeat) {
+      if (_layerController.canUndo) {
+        _layerController.undo();
+        HapticFeedback.mediumImpact();
+      }
+      return;
+    }
+
+    if (result.item == null) return;
+
+    switch (result.item!) {
+      case RadialMenuItem.undo:
+        if (_layerController.canUndo) {
+          _layerController.undo();
+        } else if (_layerController.canRedo) {
+          _layerController.redo();
+        }
+        HapticFeedback.mediumImpact();
+
+      case RadialMenuItem.brush:
+        if (result.brushItem != null) {
+          final penType = ProPenType.values[
+            result.brushItem!.index.clamp(0, ProPenType.values.length - 1)
+          ];
+          _toolController.setPenType(penType);
+          _toolController.resetToDrawingMode();
+          HapticFeedback.selectionClick();
+        } else if (result.selectedColor != null) {
+          _toolController.setColor(result.selectedColor!);
+          HapticFeedback.selectionClick();
+        }
+
+      case RadialMenuItem.shape:
+        _toolController.toggleShapeRecognition();
+        HapticFeedback.selectionClick();
+
+      case RadialMenuItem.text:
+        _toolController.toggleDigitalTextMode();
+        HapticFeedback.selectionClick();
+
+      case RadialMenuItem.tools:
+        if (result.toolItem != null) {
+          switch (result.toolItem!) {
+            case RadialToolItem.lasso:
+              _toolController.toggleLassoMode();
+              HapticFeedback.selectionClick();
+            case RadialToolItem.multiview:
+              break; // Already in multiview — no-op
+            default:
+              break; // Other tools not applicable in multiview
+          }
+        }
+
+      default:
+        break; // Atlas, KnowledgeMap, Insert — not applicable in multiview
+    }
   }
 
   // ============================================================================
@@ -401,7 +536,7 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
       _panelControllers[i] = InfiniteCanvasController();
     }
 
-    // Remove excess controllers
+    // Remove excess controllers and associated state
     final toRemove = <int>[];
     for (final key in _panelControllers.keys) {
       if (key >= newType.panelCount) toRemove.add(key);
@@ -409,6 +544,9 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
     for (final key in toRemove) {
       _panelControllers[key]?.dispose();
       _panelControllers.remove(key);
+      _viewportAnims[key]?.dispose();
+      _viewportAnims.remove(key);
+      _panelSizes.remove(key);
     }
 
     setState(() {
@@ -431,14 +569,15 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
 
   void _resetAllViewports() {
     HapticFeedback.mediumImpact();
-    for (final controller in _panelControllers.values) {
+    for (final entry in _panelControllers.entries) {
       _animateToTransform(
-        controller,
+        entry.key,
+        entry.value,
         targetOffset: Offset.zero,
         targetScale: 1.0,
       );
-      if (controller.rotation != 0.0) {
-        controller.resetRotation();
+      if (entry.value.rotation != 0.0) {
+        entry.value.resetRotation();
       }
     }
   }
@@ -451,18 +590,21 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
     final controller = _panelControllers[panelIndex];
     if (controller == null) return;
 
-    final bounds = _computeContentBounds();
+    final bounds = computeContentBounds(_layerController);
     if (bounds == null || bounds.isEmpty) return;
 
-    // Get panel size (approximate — use screen width / panel count)
-    final screenSize = MediaQuery.of(context).size;
-    final panelW = screenSize.width / 2;
-    final panelH = screenSize.height / 2;
+    // Use actual panel size (tracked by LayoutBuilder), fallback to estimate
+    final panelSize = _panelSizes[panelIndex];
+    final panelW = panelSize?.width ?? MediaQuery.of(context).size.width / 2;
+    final panelH = panelSize?.height ?? MediaQuery.of(context).size.height / 2;
 
-    // Compute scale to fit content with 10% padding
-    final scaleX = panelW / (bounds.width * 1.1);
-    final scaleY = panelH / (bounds.height * 1.1);
-    final fitScale = (scaleX < scaleY ? scaleX : scaleY).clamp(0.1, 5.0);
+    // Compute scale to fit content with padding
+    final scaleX = panelW / (bounds.width * _kFitPadding);
+    final scaleY = panelH / (bounds.height * _kFitPadding);
+    final fitScale = (scaleX < scaleY ? scaleX : scaleY).clamp(
+      _kMinScale,
+      _kMaxScale,
+    );
 
     // Center content in viewport
     final centerX = bounds.center.dx;
@@ -473,6 +615,7 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
     );
 
     _animateToTransform(
+      panelIndex,
       controller,
       targetOffset: offset,
       targetScale: fitScale,
@@ -481,10 +624,11 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
   }
 
   // ============================================================================
-  // CINEMATIC VIEWPORT ANIMATION
+  // CINEMATIC VIEWPORT ANIMATION (per-panel controllers)
   // ============================================================================
 
   void _animateToTransform(
+    int panelIndex,
     InfiniteCanvasController controller, {
     required Offset targetOffset,
     required double targetScale,
@@ -498,25 +642,48 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
       return;
     }
 
-    _viewportAnim.stop();
-    _viewportAnim.reset();
+    // Get or create a per-panel AnimationController to avoid collisions
+    var anim = _viewportAnims[panelIndex];
+    if (anim == null) {
+      anim = AnimationController(vsync: this, duration: _kAnimDuration);
+      _viewportAnims[panelIndex] = anim;
+    }
+
+    // OPT #4: Remove previous listener to prevent closure leaks on rapid re-calls
+    final oldListener = _viewportAnimListeners[panelIndex];
+    if (oldListener != null) {
+      anim.removeListener(oldListener);
+    }
+
+    anim.stop();
+    anim.reset();
 
     void listener() {
-      final t = Curves.easeInOutCubic.transform(_viewportAnim.value);
+      final t = Curves.easeInOutCubic.transform(anim!.value);
       final lerpedOffset = Offset.lerp(startOffset, targetOffset, t)!;
       final lerpedScale = startScale + (targetScale - startScale) * t;
       controller.updateTransform(offset: lerpedOffset, scale: lerpedScale);
     }
 
-    _viewportAnim.addListener(listener);
-    _viewportAnim.forward().then((_) {
-      _viewportAnim.removeListener(listener);
+    _viewportAnimListeners[panelIndex] = listener;
+    anim.addListener(listener);
+    anim.forward().then((_) {
+      // OPT #5: Guard against dispose during animation
+      if (!mounted) return;
+      anim!.removeListener(listener);
+      _viewportAnimListeners.remove(panelIndex);
     });
   }
 
-  Rect? _computeContentBounds() {
+  // ============================================================================
+  // SHARED UTILITY — Content bounds computation
+  // ============================================================================
+
+  /// Computes the bounding rect of all strokes and shapes across all layers.
+  /// Returns null if the canvas is empty.
+  static Rect? computeContentBounds(LayerController lc) {
     Rect? bounds;
-    for (final layer in _layerController.layers) {
+    for (final layer in lc.layers) {
       for (final stroke in layer.strokes) {
         if (stroke.points.isEmpty) continue;
         final sb = stroke.bounds;
@@ -535,9 +702,16 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
 // FLOATING CHIP — Semi-transparent container for floating overlays
 // =============================================================================
 
+/// OPT #6: Caches decoration to avoid per-build allocation of BoxDecoration + BoxShadow list.
 class _FloatingChip extends StatelessWidget {
   final Widget child;
   const _FloatingChip({required this.child});
+
+  // Shadow list is theme-independent — safe to cache as static const
+  static const _shadow = [
+    BoxShadow(color: Color(0x0F000000), blurRadius: 6),
+  ];
+  static const _borderRadius = BorderRadius.all(Radius.circular(10));
 
   @override
   Widget build(BuildContext context) {
@@ -545,14 +719,12 @@ class _FloatingChip extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: cs.surface.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: _borderRadius,
         border: Border.all(
           color: cs.outlineVariant.withValues(alpha: 0.3),
           width: 0.5,
         ),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 6),
-        ],
+        boxShadow: _shadow,
       ),
       child: child,
     );
@@ -566,13 +738,13 @@ class _FloatingChip extends StatelessWidget {
 class _ToolbarIconButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final bool enabled;
 
   const _ToolbarIconButton({
     required this.icon,
     required this.tooltip,
-    required this.onPressed,
+    this.onPressed,
     this.enabled = true,
   });
 
@@ -716,6 +888,7 @@ class _MultiviewMinimap extends StatefulWidget {
   final LayerController layerController;
   final Map<int, InfiniteCanvasController> panelControllers;
   final int activePanelIndex;
+  final Map<int, Size> panelSizes; // OPT #3: real panel sizes
   final void Function(Offset canvasPosition) onNavigate;
 
   static const double _width = 140;
@@ -733,6 +906,7 @@ class _MultiviewMinimap extends StatefulWidget {
     required this.panelControllers,
     required this.activePanelIndex,
     required this.onNavigate,
+    this.panelSizes = const {},
   });
 
   @override
@@ -745,6 +919,29 @@ class _MultiviewMinimapState extends State<_MultiviewMinimap> {
   double _mapScale = 1.0;
   double _mapOffsetX = 0.0;
   double _mapOffsetY = 0.0;
+
+  // Cached merged listenable to avoid per-build allocation
+  late Listenable _mergedListenable;
+
+  @override
+  void initState() {
+    super.initState();
+    _mergedListenable = _createMergedListenable();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MultiviewMinimap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.layerController != widget.layerController ||
+        oldWidget.panelControllers != widget.panelControllers) {
+      _mergedListenable = _createMergedListenable();
+    }
+  }
+
+  Listenable _createMergedListenable() => Listenable.merge([
+    widget.layerController,
+    ...widget.panelControllers.values,
+  ]);
 
   /// Convert a local position on the minimap widget to canvas coordinates.
   Offset _minimapToCanvas(Offset localPos) {
@@ -764,13 +961,8 @@ class _MultiviewMinimapState extends State<_MultiviewMinimap> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    final listenables = <Listenable>[
-      widget.layerController,
-      ...widget.panelControllers.values,
-    ];
-
     return ListenableBuilder(
-      listenable: Listenable.merge(listenables),
+      listenable: _mergedListenable,
       builder: (context, _) {
         // Pre-calculate mapping for gesture conversion
         _updateMapping();
@@ -802,10 +994,16 @@ class _MultiviewMinimapState extends State<_MultiviewMinimap> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: CustomPaint(
+                // OPT #2: Pass pre-computed mapping to painter (avoids double computation)
                 painter: _MinimapPainter(
                   layerController: widget.layerController,
                   panelControllers: widget.panelControllers,
                   activePanelIndex: widget.activePanelIndex,
+                  panelSizes: widget.panelSizes, // OPT #3
+                  mappedBounds: _contentBounds,
+                  mapScale: _mapScale,
+                  mapOffsetX: _mapOffsetX,
+                  mapOffsetY: _mapOffsetY,
                 ),
               ),
             ),
@@ -815,32 +1013,21 @@ class _MultiviewMinimapState extends State<_MultiviewMinimap> {
     );
   }
 
-  /// Keep mapping in sync with what _MinimapPainter computes.
+  /// Keep mapping in sync — single source of truth for gesture conversion.
   void _updateMapping() {
-    Rect? contentBounds;
-    for (final layer in widget.layerController.layers) {
-      for (final stroke in layer.strokes) {
-        if (stroke.points.isEmpty) continue;
-        contentBounds =
-            contentBounds?.expandToInclude(stroke.bounds) ?? stroke.bounds;
-      }
-      for (final shape in layer.shapes) {
-        final sr = Rect.fromPoints(shape.startPoint, shape.endPoint);
-        contentBounds = contentBounds?.expandToInclude(sr) ?? sr;
-      }
-    }
+    Rect? contentBounds =
+        _MultiviewOrchestratorState.computeContentBounds(widget.layerController);
     contentBounds ??= const Rect.fromLTWH(-500, -500, 1000, 1000);
 
     for (final entry in widget.panelControllers.entries) {
       final c = entry.value;
       if (c.scale <= 0) continue;
+      // OPT #3: Use real panel sizes instead of hardcoded estimates
+      final ps = widget.panelSizes[entry.key];
+      final vpW = (ps?.width ?? _MultiviewMinimap._width * 3) / c.scale;
+      final vpH = (ps?.height ?? _MultiviewMinimap._height * 3) / c.scale;
       final vpTopLeft = Offset(-c.offset.dx / c.scale, -c.offset.dy / c.scale);
-      final vpRect = Rect.fromLTWH(
-        vpTopLeft.dx,
-        vpTopLeft.dy,
-        _MultiviewMinimap._width * 3 / c.scale,
-        _MultiviewMinimap._height * 3 / c.scale,
-      );
+      final vpRect = Rect.fromLTWH(vpTopLeft.dx, vpTopLeft.dy, vpW, vpH);
       contentBounds = contentBounds!.expandToInclude(vpRect);
     }
 
@@ -854,90 +1041,60 @@ class _MultiviewMinimapState extends State<_MultiviewMinimap> {
   }
 }
 
+/// OPT #1/#2/#3: Pre-allocated Paints, uses pre-computed mapping, real panel sizes.
 class _MinimapPainter extends CustomPainter {
   final LayerController layerController;
   final Map<int, InfiniteCanvasController> panelControllers;
   final int activePanelIndex;
+  final Map<int, Size> panelSizes;
+  // OPT #2: Pre-computed mapping from _updateMapping()
+  final Rect mappedBounds;
+  final double mapScale;
+  final double mapOffsetX;
+  final double mapOffsetY;
+
+  // OPT #1: Pre-allocated static Paints
+  static final Paint _dotPaint = Paint()
+    ..color = const Color(0x55000000)
+    ..strokeWidth = 1.5
+    ..strokeCap = StrokeCap.round;
+  static final Paint _vpFillPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _vpBorderPaint = Paint()..style = PaintingStyle.stroke;
 
   _MinimapPainter({
     required this.layerController,
     required this.panelControllers,
     required this.activePanelIndex,
+    required this.panelSizes,
+    required this.mappedBounds,
+    required this.mapScale,
+    required this.mapOffsetX,
+    required this.mapOffsetY,
   });
+
+  Offset _mapPoint(double x, double y) => Offset(
+    mapOffsetX + (x - mappedBounds.left) * mapScale,
+    mapOffsetY + (y - mappedBounds.top) * mapScale,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 1. Compute content bounds
-    Rect? contentBounds;
-    for (final layer in layerController.layers) {
-      for (final stroke in layer.strokes) {
-        if (stroke.points.isEmpty) continue;
-        final sb = stroke.bounds;
-        contentBounds = contentBounds?.expandToInclude(sb) ?? sb;
-      }
-      for (final shape in layer.shapes) {
-        final sr = Rect.fromPoints(shape.startPoint, shape.endPoint);
-        contentBounds = contentBounds?.expandToInclude(sr) ?? sr;
-      }
-    }
-
-    if (contentBounds == null || contentBounds.isEmpty) {
-      // Empty canvas — just show viewport indicators
-      contentBounds = const Rect.fromLTWH(-500, -500, 1000, 1000);
-    }
-
-    // 2. Expand bounds to include all viewports
-    for (final entry in panelControllers.entries) {
-      final c = entry.value;
-      final scale = c.scale;
-      if (scale <= 0) continue;
-      final vpTopLeft = Offset(-c.offset.dx / scale, -c.offset.dy / scale);
-      final vpRect = Rect.fromLTWH(
-        vpTopLeft.dx,
-        vpTopLeft.dy,
-        size.width * 3 / scale,
-        size.height * 3 / scale,
-      );
-      contentBounds = contentBounds!.expandToInclude(vpRect);
-    }
-
-    // 3. Map from content coords to minimap coords
-    final cb = contentBounds!.inflate(contentBounds.shortestSide * 0.1);
-    final scaleX = size.width / cb.width;
-    final scaleY = size.height / cb.height;
-    final mapScale = scaleX < scaleY ? scaleX : scaleY;
-
-    final offsetX = (size.width - cb.width * mapScale) / 2;
-    final offsetY = (size.height - cb.height * mapScale) / 2;
-
-    Offset mapPoint(double x, double y) => Offset(
-      offsetX + (x - cb.left) * mapScale,
-      offsetY + (y - cb.top) * mapScale,
-    );
-
-    // 4. Draw content dots (simplified strokes)
-    final dotPaint =
-        Paint()
-          ..color = const Color(0x55000000)
-          ..strokeWidth = 1.5
-          ..strokeCap = StrokeCap.round;
-
+    // 1. Draw content dots (simplified strokes)
     for (final layer in layerController.layers) {
       if (!layer.isVisible) continue;
       for (final stroke in layer.strokes) {
         if (stroke.points.isEmpty) continue;
-        // Draw simplified representation (first + last + middle points)
         final pts = stroke.points;
         final indices = [0, pts.length ~/ 2, pts.length - 1];
         for (final i in indices) {
           if (i >= pts.length) continue;
-          final p = mapPoint(pts[i].position.dx, pts[i].position.dy);
-          canvas.drawCircle(p, 0.8, dotPaint);
+          final p = _mapPoint(pts[i].position.dx, pts[i].position.dy);
+          canvas.drawCircle(p, 0.8, _dotPaint);
         }
       }
     }
 
-    // 5. Draw viewport rectangles for each panel
+    // 2. Draw viewport rectangles for each panel
     for (final entry in panelControllers.entries) {
       final idx = entry.key;
       final c = entry.value;
@@ -945,32 +1102,26 @@ class _MinimapPainter extends CustomPainter {
       if (scale <= 0) continue;
 
       final vpTopLeft = Offset(-c.offset.dx / scale, -c.offset.dy / scale);
-      // Use approximate panel size (screen / 2)
-      final vpW = 400 / scale;
-      final vpH = 300 / scale;
+      // OPT #3: Use real panel sizes instead of hardcoded 400x300
+      final ps = panelSizes[idx];
+      final vpW = (ps?.width ?? 400) / scale;
+      final vpH = (ps?.height ?? 300) / scale;
 
-      final topLeft = mapPoint(vpTopLeft.dx, vpTopLeft.dy);
-      final bottomRight = mapPoint(vpTopLeft.dx + vpW, vpTopLeft.dy + vpH);
+      final topLeft = _mapPoint(vpTopLeft.dx, vpTopLeft.dy);
+      final bottomRight = _mapPoint(vpTopLeft.dx + vpW, vpTopLeft.dy + vpH);
 
-      final color =
-          _MultiviewMinimap._panelColors[idx %
-              _MultiviewMinimap._panelColors.length];
+      final color = _MultiviewMinimap._panelColors[
+          idx % _MultiviewMinimap._panelColors.length];
       final isActive = idx == activePanelIndex;
 
-      final vpPaint =
-          Paint()
-            ..color = color.withValues(alpha: isActive ? 0.3 : 0.15)
-            ..style = PaintingStyle.fill;
-
-      final vpBorderPaint =
-          Paint()
-            ..color = color.withValues(alpha: isActive ? 0.9 : 0.5)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = isActive ? 1.5 : 0.8;
+      _vpFillPaint.color = color.withValues(alpha: isActive ? 0.3 : 0.15);
+      _vpBorderPaint
+        ..color = color.withValues(alpha: isActive ? 0.9 : 0.5)
+        ..strokeWidth = isActive ? 1.5 : 0.8;
 
       final vpRect = Rect.fromPoints(topLeft, bottomRight);
-      canvas.drawRect(vpRect, vpPaint);
-      canvas.drawRect(vpRect, vpBorderPaint);
+      canvas.drawRect(vpRect, _vpFillPaint);
+      canvas.drawRect(vpRect, _vpBorderPaint);
     }
   }
 

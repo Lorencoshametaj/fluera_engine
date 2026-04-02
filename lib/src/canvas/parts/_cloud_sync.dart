@@ -14,6 +14,55 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
   /// Lock flag to prevent overlapping save operations from piling up.
   static bool _saveInProgress = false;
 
+  /// 🔄 Guard: prevent duplicate remote change banners.
+  static bool _remoteChangeBannerShown = false;
+
+  /// 🔄 REALTIME: Called when another device saves this canvas.
+  ///
+  /// Shows a non-intrusive SnackBar prompting the user to reload.
+  void _onRemoteCanvasChange() {
+    final changedId = _syncEngine?.remoteChange.value;
+    if (changedId == null || !mounted || _remoteChangeBannerShown) return;
+    _remoteChangeBannerShown = true;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.sync_rounded, color: Colors.white, size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'This canvas was updated on another device',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF7C4DFF),
+        duration: const Duration(seconds: 10),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        action: SnackBarAction(
+          label: 'Reload',
+          textColor: Colors.white,
+          onPressed: () {
+            _remoteChangeBannerShown = false;
+            _syncEngine?.remoteChange.value = null;
+            // Pop and re-enter to reload from cloud safely
+            if (mounted) Navigator.of(context).pop('remote_update');
+          },
+        ),
+        onVisible: () {
+          // Reset guard when banner auto-dismisses
+          Future.delayed(const Duration(seconds: 10), () {
+            _remoteChangeBannerShown = false;
+          });
+        },
+      ),
+    );
+  }
+
   /// 🎛️ Build a JSON string for variable state persistence.
   String? _buildVariablesJsonString(FlueraCanvasSaveData saveData) {
     final colls = saveData.variableCollectionsJson;
@@ -199,6 +248,9 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
 
       // 🖼️ 1.5: Capture viewport snapshot for next splash screen (fire-and-forget)
       _captureCanvasSnapshot(saveData.canvasId);
+
+      // 📐 1.6: Save section summaries, content bounds, and last viewport
+      _saveSectionMetadata(saveData.canvasId);
 
       // 2️⃣ Cloud save — DISABLED during active editing for cost optimisation.
       // Canvas data is pushed to the cloud ONLY on:
@@ -480,5 +532,61 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
     } catch (e) {
       // Non-critical — swallow errors silently
     }
+  }
+
+  /// 📐 Save section summaries, content bounds, and last viewport state.
+  ///
+  /// Extracts `SectionNode` data from the scene graph and persists
+  /// lightweight `SectionSummary` objects alongside the current viewport
+  /// and content bounds. This data powers the gallery's Canvas Hub
+  /// without requiring the full canvas JSON to be loaded.
+  ///
+  /// Runs fire-and-forget after each auto-save (same pattern as snapshot).
+  void _saveSectionMetadata(String canvasId) {
+    Future(() async {
+      try {
+        final adapter = _config.storageAdapter;
+        if (adapter == null) return;
+
+        // Extract sections from scene graph
+        final sections = <SectionSummary>[];
+        for (final layer in _layerController.sceneGraph.layers) {
+          for (final child in layer.children) {
+            if (child is SectionNode && child.isVisible) {
+              final tx = child.worldTransform.getTranslation();
+              sections.add(SectionSummary(
+                id: child.id.value,
+                name: child.sectionName,
+                x: tx.x,
+                y: tx.y,
+                width: child.sectionSize.width,
+                height: child.sectionSize.height,
+                bgColor: child.backgroundColor?.toARGB32(),
+                preset: child.preset?.name,
+              ));
+            }
+          }
+        }
+
+        // Content bounds from tracker
+        final contentBounds = _contentBoundsTracker.bounds.value;
+
+        // Current viewport state
+        final lastViewport = (
+          dx: _canvasController.offset.dx,
+          dy: _canvasController.offset.dy,
+          scale: _canvasController.scale,
+        );
+
+        await adapter.saveSectionSummaries(
+          canvasId,
+          sections: sections,
+          contentBounds: contentBounds,
+          lastViewport: lastViewport,
+        );
+      } catch (_) {
+        // Non-critical — gallery will work without section data.
+      }
+    });
   }
 }

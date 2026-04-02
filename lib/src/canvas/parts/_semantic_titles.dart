@@ -33,6 +33,10 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
   /// - Populates `_clusterTextCache` which feeds into `SemanticMorphController`
   /// - Debounced at 800ms to avoid thrashing during pinch-zoom
   void _scheduleSemanticOcr() {
+    // 🧠 P1-26: No background AI processing during Step 1-2.
+    // Semantic titles are only generated from Step 3+ (Socratic).
+    if (!_learningStepController.isSemanticTitleAllowed) return;
+
     _semanticOcrDebounce?.cancel();
     _semanticOcrDebounce = Timer(const Duration(milliseconds: 800), () {
       if (mounted) _recognizeClusterTextsForSemanticTitles();
@@ -156,6 +160,9 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
   /// 🤖 Schedule AI title generation for clusters with recognized text.
   /// Debounced at 2s to batch multiple cluster changes.
   void _scheduleAiTitleGeneration() {
+    // 🧠 P1-26: No AI title generation during Step 1-2.
+    if (!_learningStepController.isSemanticTitleAllowed) return;
+
     _semanticAiDebounce?.cancel();
     _semanticAiDebounce = Timer(const Duration(seconds: 2), () {
       if (mounted) _requestAiSemanticTitles();

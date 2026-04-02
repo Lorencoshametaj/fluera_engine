@@ -19,6 +19,13 @@ extension ProactiveAnalysisWiring on _FlueraCanvasScreenState {
   // ── TRIGGER ──────────────────────────────────────────────────────────
 
   void _scheduleProactiveAnalysis() {
+    // 🧠 P1-26: No background AI analysis during Step 1 (notes) and Step 2 (recall).
+    // Proactive gap analysis is only allowed from Step 4+ (elaboration).
+    if (!_learningStepController.isProactiveAnalysisAllowed) return;
+
+    // 🛡️ P1-25: Don't trigger analysis during active writing flow.
+    if (_flowGuard.isFlowProtected) return;
+
     _proactiveDebounceTimer?.cancel();
     _proactiveDebounceTimer = Timer(const Duration(milliseconds: 2000), () {
       if (mounted) _runProactiveAnalysisForVisibleClusters();

@@ -156,6 +156,11 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
   static const double _fixedTotalSize = (_radius + _gestureZoneOuter + 55) * 2;
   static const double _fixedOffset = _fixedTotalSize / 2 - _radius - 12;
 
+  // Interactive hit radius — only touches within this distance from the
+  // disc centre are captured.  Everything outside falls through to the
+  // canvas gesture layer underneath.
+  static const double _hitRadius = _radius + _gestureZoneOuter; // 52 px
+
   @override
   Widget build(BuildContext context) {
     return Positioned(
@@ -164,58 +169,78 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
       child: SizedBox(
         width: _fixedTotalSize,
         height: _fixedTotalSize,
-        child: GestureDetector(
-          // PAN = color gesture (auto-detected: angular=hue, vertical=saturation)
-          onPanStart: _onGestureStart,
-          onPanUpdate: _onGestureUpdate,
-          onPanEnd: _onGestureEnd,
-          // LONG-PRESS + DRAG = reposition
-          onLongPressStart: (d) {
-            _isDragging = true;
-            _lastDragGlobal = d.globalPosition;
-            HapticFeedback.mediumImpact();
-          },
-          onLongPressMoveUpdate: (d) {
-            if (_isDragging && _lastDragGlobal != null) {
-              final delta = d.globalPosition - _lastDragGlobal!;
-              _lastDragGlobal = d.globalPosition;
-              final screenSize = MediaQuery.of(context).size;
-              setState(() {
-                _position = Offset(
-                  (_position.dx - delta.dx).clamp(0, screenSize.width - 60),
-                  (_position.dy - delta.dy).clamp(0, screenSize.height - 60),
-                );
-              });
-            }
-          },
-          onLongPressEnd: (_) {
-            _isDragging = false;
-            _lastDragGlobal = null;
-          },
-          // Double-tap opens ProColorPicker (advanced editing)
-          onDoubleTap: () {
-            HapticFeedback.mediumImpact();
-            widget.onExpand?.call();
-          },
-          child: CustomPaint(
-            painter: _HudReadoutPainter(
-              color: _isHueGesture ? _hsv.toColor() : widget.color,
-              glowPhase: _glowPhase,
-              scanAngle: _scanAngle,
-              changePulse: _changePulse,
-              radius: _radius,
-              hueRingT: _hueRingT,
-              currentHue: _hsv.hue,
-              currentValue: _hsv.value,
-              currentSaturation: _hsv.saturation,
-              recentColors: widget.recentColors,
-              isSaturationMode: _isSatGesture,
-              isSizeMode: _isSizeGesture,
-              strokeSize: _isSizeGesture ? _liveStrokeSize : widget.strokeSize,
-              particles: _particles,
-              particleT: _particleT,
+        child: Stack(
+          children: [
+            // Visual layer — full size for hue ring, particles, glows.
+            // IgnorePointer so it never steals touches.
+            IgnorePointer(
+              child: CustomPaint(
+                size: const Size(_fixedTotalSize, _fixedTotalSize),
+                painter: _HudReadoutPainter(
+                  color: _isHueGesture ? _hsv.toColor() : widget.color,
+                  glowPhase: _glowPhase,
+                  scanAngle: _scanAngle,
+                  changePulse: _changePulse,
+                  radius: _radius,
+                  hueRingT: _hueRingT,
+                  currentHue: _hsv.hue,
+                  currentValue: _hsv.value,
+                  currentSaturation: _hsv.saturation,
+                  recentColors: widget.recentColors,
+                  isSaturationMode: _isSatGesture,
+                  isSizeMode: _isSizeGesture,
+                  strokeSize: _isSizeGesture ? _liveStrokeSize : widget.strokeSize,
+                  particles: _particles,
+                  particleT: _particleT,
+                ),
+              ),
             ),
-          ),
+
+            // Gesture layer — small circular target centred on the disc.
+            Center(
+              child: ClipOval(
+                child: SizedBox(
+                  width: _hitRadius * 2,
+                  height: _hitRadius * 2,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    // PAN = color gesture (angular=hue, vertical=saturation, horizontal=size)
+                    onPanStart: _onGestureStart,
+                    onPanUpdate: _onGestureUpdate,
+                    onPanEnd: _onGestureEnd,
+                    // LONG-PRESS + DRAG = reposition
+                    onLongPressStart: (d) {
+                      _isDragging = true;
+                      _lastDragGlobal = d.globalPosition;
+                      HapticFeedback.mediumImpact();
+                    },
+                    onLongPressMoveUpdate: (d) {
+                      if (_isDragging && _lastDragGlobal != null) {
+                        final delta = d.globalPosition - _lastDragGlobal!;
+                        _lastDragGlobal = d.globalPosition;
+                        final screenSize = MediaQuery.of(context).size;
+                        setState(() {
+                          _position = Offset(
+                            (_position.dx - delta.dx).clamp(0, screenSize.width - 60),
+                            (_position.dy - delta.dy).clamp(0, screenSize.height - 60),
+                          );
+                        });
+                      }
+                    },
+                    onLongPressEnd: (_) {
+                      _isDragging = false;
+                      _lastDragGlobal = null;
+                    },
+                    // Double-tap opens ProColorPicker (advanced editing)
+                    onDoubleTap: () {
+                      HapticFeedback.mediumImpact();
+                      widget.onExpand?.call();
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -269,7 +294,7 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
   }
 
   void _updateColorFromPosition(Offset local) {
-    const center = Offset(_fixedTotalSize / 2, _fixedTotalSize / 2);
+    const center = Offset(_hitRadius, _hitRadius);
     final dx = local.dx - center.dx;
     final dy = local.dy - center.dy;
     final dist = math.sqrt(dx * dx + dy * dy);

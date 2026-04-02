@@ -190,6 +190,33 @@ extension on _FlueraCanvasScreenState {
     // #7: Remove from pending set
     _pendingUploads.remove(imageId);
 
+    // 📊 Sync image metadata to dedicated table (triggers server-side quota check)
+    if (storageUrl != null && _syncEngine != null) {
+      try {
+        _syncEngine!.adapter.syncImageElements(_canvasId, [
+          {
+            'id': imageId,
+            'storageUrl': storageUrl,
+            'thumbnailUrl': thumbnailUrl,
+            'position': {'dx': 0.0, 'dy': 0.0},
+            'scale': 1.0,
+            'rotation': 0.0,
+            'pageIndex': 0,
+            'brightness': 0.0,
+            'contrast': 0.0,
+            'saturation': 0.0,
+            'opacity': 1.0,
+            'hueShift': 0.0,
+            'temperature': 0.0,
+            'highlights': 0.0,
+            'shadows': 0.0,
+            'fade': 0.0,
+            'originalSizeBytes': uploadBytes.length,
+          },
+        ]);
+      } catch (_) {} // Non-critical for UX, server-side is the safety net
+    }
+
     if (!mounted) return;
 
     if (storageUrl == null) {

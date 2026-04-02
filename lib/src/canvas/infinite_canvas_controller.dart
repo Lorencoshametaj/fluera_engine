@@ -107,9 +107,9 @@ class InfiniteCanvasController extends ChangeNotifier {
     );
   }
 
-  // 🌀 Rotation lock (persisted)
+  // 🌀 Rotation lock (persisted — default: LOCKED for first-time users)
   static const String _rotationLockKey = 'fluera_rotation_locked';
-  bool _rotationLocked = false;
+  bool _rotationLocked = true; // 🔒 Locked by default — simpler first experience
   bool get rotationLocked => _rotationLocked;
   set rotationLocked(bool value) {
     _rotationLocked = value;
@@ -123,7 +123,7 @@ class InfiniteCanvasController extends ChangeNotifier {
   /// Load persisted rotation lock state. Call once after construction.
   Future<void> loadPersistedState() async {
     final prefs = await KeyValueStore.getInstance();
-    final locked = prefs.getBool(_rotationLockKey) ?? false;
+    final locked = prefs.getBool(_rotationLockKey) ?? true; // Default: locked
     if (locked != _rotationLocked) {
       _rotationLocked = locked;
       notifyListeners();
@@ -252,10 +252,16 @@ class InfiniteCanvasController extends ChangeNotifier {
   Offset get landingPulseCenter => _landingPulseCenter;
   double _diveProgressValue = 0.0;
 
-  /// 🚀 Whether the canvas is actively panning (user gesture or momentum).
-  /// Painters use this to skip expensive work during scroll.
+  /// 🚀 Whether the canvas is actively gesturing (pan/zoom/rotation)
+  /// or running any physics animation (momentum, spring-back).
+  /// Painters use this to skip expensive work during all gesture types.
   bool _isPanning = false;
-  bool get isPanning => _isPanning || _isMomentumActive;
+  bool get isPanning => _isPanning ||
+      _isMomentumActive ||
+      _isRotationMomentumActive ||
+      _isRotationSpringActive ||
+      _isZoomSpringActive ||
+      _isZoomMomentumActive;
   set isPanning(bool value) {
     final wasActive = _isPanning;
     _isPanning = value;
@@ -301,6 +307,7 @@ class InfiniteCanvasController extends ChangeNotifier {
     double? rotation,
     bool elastic = false,
   }) {
+    final oldScale = _scale;
     _offset = offset;
     if (rotation != null && !_rotationLocked) _rotation = rotation;
     if (elastic && _liquidConfig.enabled && _liquidConfig.enableElasticZoom) {
@@ -313,6 +320,13 @@ class InfiniteCanvasController extends ChangeNotifier {
     } else {
       _scale = scale.clamp(_minScale, _maxScale);
       _wasAtZoomLimit = false;
+    }
+
+    // 📐 1x CROSSING HAPTIC: Subtle click when zoom crosses 1.0x.
+    // Gives the user a tactile reference for "actual size".
+    if ((oldScale < 1.0 && _scale >= 1.0) ||
+        (oldScale > 1.0 && _scale <= 1.0)) {
+      HapticFeedback.selectionClick();
     }
 
     notifyListeners();
@@ -535,11 +549,13 @@ class InfiniteCanvasController extends ChangeNotifier {
     final clampedTarget = targetScale.clamp(_minScale, _maxScale);
     if ((_scale - clampedTarget).abs() < 0.001) return; // Already there
 
-    // Stiffer spring for intentional zoom (feels snappy, not floaty)
+    // 🏎️ Snappy spring with subtle micro-bounce for premium feel.
+    // Stiffer than spring-back (intentional zoom should feel decisive).
+    // Slightly underdamped (~0.54 ratio) for a tiny satisfying overshoot.
     const spring = SpringDescription(
       mass: 1.0,
-      stiffness: 180.0,
-      damping: 22.0,
+      stiffness: 220.0, // Fast arrival (was 180)
+      damping: 16.0,    // Underdamped (was 22) — micro-bounce on landing
     );
 
     _zoomSim = SpringSimulation(
@@ -852,7 +868,7 @@ class InfiniteCanvasController extends ChangeNotifier {
     final logVelocity = scaleVelocity / _scale; // Convert to log-space velocity
 
     _zoomMomentumSim = FrictionSimulation(
-      _liquidConfig.panFriction * 3.0, // Higher friction than pan
+      _liquidConfig.panFriction * 2.5, // 🏎️ Lower friction → longer, premium glide
       logScale,
       logVelocity,
     );
@@ -862,6 +878,24 @@ class InfiniteCanvasController extends ChangeNotifier {
     _zoomMomentumStartTime = 0;
     _lastTickTime = Duration.zero;
     _ensureTickerRunning();
+  }
+
+  // 📐 Clean scale levels for snap-to-grid on zoom settle
+  static const List<double> _cleanScales = [
+    0.1, 0.15, 0.2, 0.25, 0.33, 0.5, 0.67, 0.75,
+    1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0,
+  ];
+  static const double _cleanScaleSnapThreshold = 0.04; // 4% tolerance
+
+  /// Check if scale is near a "clean" level (1.0x, 0.5x, 2.0x, etc.)
+  /// Returns the clean scale if within threshold, null otherwise.
+  double? _checkCleanScale(double scale) {
+    for (final clean in _cleanScales) {
+      if ((scale - clean).abs() / clean < _cleanScaleSnapThreshold) {
+        return clean;
+      }
+    }
+    return null;
   }
 
   // — Rotation spring state (for animated reset / snap) —
@@ -874,7 +908,8 @@ class InfiniteCanvasController extends ChangeNotifier {
   }
 
   /// Animate rotation to a target angle with a spring.
-  void _animateRotationTo(double targetRotation) {
+  /// [initialVelocity] allows seamless handoff from momentum → spring.
+  void _animateRotationTo(double targetRotation, {double initialVelocity = 0.0}) {
     if (_ticker == null) return;
     if ((_rotation - targetRotation).abs() < 0.001) {
       _rotation = targetRotation;
@@ -882,17 +917,20 @@ class InfiniteCanvasController extends ChangeNotifier {
       return;
     }
 
+    // 🏎️ Slightly underdamped: creates a subtle micro-bounce before settling.
+    // Feels alive — like a precision mechanical detent, not a dead stop.
+    // Critical damping would be ~34.6 (2 * √(1 * 300)); 18 is about 0.52 ratio.
     final spring = SpringDescription(
       mass: 1.0,
       stiffness: 300.0,
-      damping: 22.0,
+      damping: 18.0, // Underdamped (was 22) — ~1 subtle overshoot then settle
     );
 
     _rotationSpring = SpringSimulation(
       spring,
       _rotation, // current
       targetRotation, // target
-      0.0, // initial velocity
+      initialVelocity, // carry momentum velocity for seamless handoff
     );
 
     _rotationSpringTarget = targetRotation;
@@ -1061,13 +1099,23 @@ class InfiniteCanvasController extends ChangeNotifier {
       needsNotify = true;
 
       // Stop conditions: very slow, or past limits (let spring-back handle)
-      if (logVelocity < 0.01 || newScale < _minScale || newScale > _maxScale) {
+      // 🏎️ Raised threshold from 0.01 to 0.03 — stops cleaner, no "crawling"
+      if (logVelocity < 0.03 || newScale < _minScale || newScale > _maxScale) {
         _isZoomMomentumActive = false;
         _zoomMomentumSim = null;
 
         // If past limits, trigger spring-back for seamless elastic bounce
         if (newScale < _minScale || newScale > _maxScale) {
           startZoomSpringBack(_zoomMomentumFocalPoint);
+        } else {
+          // 📐 CLEAN SCALE SNAP: If settled near a round level, snap to it.
+          // Gives a Figma-quality "landing on grid" feel.
+          final cleanScale = _checkCleanScale(_scale);
+          if (cleanScale != null && cleanScale != _scale) {
+            // Use zoom spring to animate to exact clean scale
+            animateZoomTo(cleanScale, _zoomMomentumFocalPoint);
+            HapticFeedback.selectionClick(); // Subtle confirm
+          }
         }
       }
     }
@@ -1079,17 +1127,30 @@ class InfiniteCanvasController extends ChangeNotifier {
       final newRotation = _rotationSim!.x(_rotationMomentumStartTime);
       final angularV = _rotationSim!.dx(_rotationMomentumStartTime).abs();
 
-      if (angularV < 0.001) {
-        // Check if we're near a snap angle when momentum ends
+      // 🧲 MID-FLING MAGNETIC CATCH: When momentum slows enough near a
+      // snap angle, "catch" it with a spring animation instead of waiting
+      // for full stop. Creates a ball-bearing detent feel.
+      if (angularV < 0.3 && angularV > 0.001) {
         final snapAngle = checkSnapAngle(newRotation);
         if (snapAngle != null) {
-          _rotation = snapAngle;
-        } else {
-          _rotation = newRotation;
+          _rotation = newRotation; // Set current position
+          _isRotationMomentumActive = false;
+          _rotationSim = null;
+          // 🏎️ Spring to exact snap angle with carried velocity (seamless handoff)
+          final direction = (snapAngle - newRotation).sign;
+          _animateRotationTo(snapAngle, initialVelocity: direction * angularV);
+          HapticFeedback.selectionClick(); // Subtle confirm
+          needsNotify = true;
+          // Skip to next section — spring will handle the rest
         }
+      }
+
+      // Normal stop: momentum fully exhausted
+      if (_isRotationMomentumActive && angularV < 0.001) {
+        _rotation = newRotation;
         _isRotationMomentumActive = false;
         _rotationSim = null;
-      } else {
+      } else if (_isRotationMomentumActive) {
         _rotation = newRotation;
       }
       needsNotify = true;

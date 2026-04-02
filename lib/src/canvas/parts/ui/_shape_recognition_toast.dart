@@ -92,6 +92,12 @@ extension ShapeRecognitionFeedbackUI on _FlueraCanvasScreenState {
 
   /// Show a recognition toast for the given result.
   void _showShapeRecognitionToast(ShapeRecognitionResult result) {
+    // 🧠 P1-26: No shape recognition popups during Step 1 (notes).
+    if (!_learningStepController.isShapeRecognitionAllowed) return;
+
+    // 🛡️ P1-25: Don't show toast during active writing flow.
+    if (_flowGuard.isFlowProtected) return;
+
     final data = _ShapeRecognitionToastData.fromResult(result);
     _shapeRecognitionToast.value = data;
 

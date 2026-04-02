@@ -5,6 +5,15 @@ part of '../../fluera_canvas_screen.dart';
 extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
   /// Builds the canvas area: background + drawings + gesture detector + overlays.
   Widget _buildCanvasArea(BuildContext context) {
+    // 🚀 Phase 1 of 2-phase transition: lightweight blank surface
+    // This frame ONLY disposes the old canvas tree (DrawingPainter, Vulkan,
+    // overlays). The multiview orchestrator is created in the NEXT frame.
+    if (_isMultiviewTransitioning) {
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+      );
+    }
+
     // 🖥️ Multiview mode — replace single canvas with split panels
     if (_isMultiviewActive && _multiviewLayout != null) {
       return MultiviewOrchestrator(
@@ -16,10 +25,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
         initialOffset: _canvasController.offset,
         initialScale: _canvasController.scale,
         onExitMultiview: () {
-          setState(() {
-            _isMultiviewActive = false;
-            _multiviewLayout = null;
-          });
+          _isMultiviewActive = false;
+          _multiviewLayout = null;
+          _multiviewVersionNotifier.value++;
         },
       );
     }
@@ -115,6 +123,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                             proactiveGaps: _proactiveGapsCache,
                             proactiveScan: _proactiveScanCache,
                             reviewSchedule: _reviewSchedule,
+                            isPanning: _canvasController.isPanning,
                           ),
                           size: Size.infinite,
                         ),
