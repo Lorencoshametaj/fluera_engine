@@ -83,6 +83,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
   LatexEditorMode _mode = LatexEditorMode.keyboard;
 
   bool _isRecognizing = false;
+  /// Incremented to signal the ink overlay to clear its strokes.
+  final ValueNotifier<int> _inkClearSignal = ValueNotifier(0);
   List<ConfidenceAnnotation> _confidenceAnnotations = [];
   List<LatexValidationError> _validationErrors = [];
 
@@ -401,6 +403,9 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         _confidenceAnnotations = annotations;
         _isRecognizing = false;
       });
+      // Signal the ink overlay to clear its strokes — prevents
+      // re-sending old strokes on the next auto-recognize cycle.
+      _inkClearSignal.value++;
       _pushUndoSnapshot();
     } on LatexRecognitionException catch (e) {
       setState(() => _isRecognizing = false);
@@ -1698,8 +1703,13 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         children: [
           Expanded(
             child: LatexInkOverlay(
+              clearSignal: _inkClearSignal,
               onStrokesComplete: _handleStrokesComplete,
-              enabled: !_isRecognizing,
+              ghostLatex: _sourceController.text.isNotEmpty
+                  ? _sourceController.text
+                  : null,
+              ghostFontSize: _fontSize,
+              ghostColor: _color,
             ),
           ),
           const SizedBox(height: 8),

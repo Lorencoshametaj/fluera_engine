@@ -609,15 +609,23 @@ class RecallModeController extends ChangeNotifier {
 // =============================================================================
 
 /// A "non ricordo" marker placed by the student (P2-14, P2-15).
+///
+/// [confidence] is the student's metacognitive self-assessment (1-5):
+/// how sure they are that they SHOULD know this (Ipercorrezione §4).
 class RecallMissedMarker {
   final String id;
   final Offset position;
   final DateTime createdAt;
 
-  const RecallMissedMarker({
+  /// Metacognitive confidence (1-5). Null if not yet assessed.
+  /// High confidence + no recall = strongest Ipercorrezione signal.
+  int? confidence;
+
+  RecallMissedMarker({
     required this.id,
     required this.position,
     required this.createdAt,
+    this.confidence,
   });
 }
 

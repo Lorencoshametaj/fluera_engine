@@ -568,6 +568,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         eraserPreviewIds: _eraserPreviewIds,
                         scratchOutPreviewIds: _scratchOutPreviewIds,
                         scratchOutDissolveMap: _scratchOutDissolveMap,
+                        recallHiddenIds: _recallOriginalStrokeIds,
                         controller:
                             _canvasController, // 🚀 viewport-level mode (for culling)
                         pdfPainters: _pdfPainters,

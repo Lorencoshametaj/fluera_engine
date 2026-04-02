@@ -68,9 +68,9 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
         await debugFile.writeAsBytes(png);
       } catch (_) {}
 
-      // 4. Recognize via HME CTC model
+      // 4. Recognize via MyScript + HME dual-backend
       if (FlueraCanvasLatexHandler._latexRecognizer == null) {
-        FlueraCanvasLatexHandler._latexRecognizer = HmeLatexRecognizer();
+        FlueraCanvasLatexHandler._latexRecognizer = MyScriptLatexBridge();
         await FlueraCanvasLatexHandler._latexRecognizer!.initialize();
       }
       final recognizer = FlueraCanvasLatexHandler._latexRecognizer!;

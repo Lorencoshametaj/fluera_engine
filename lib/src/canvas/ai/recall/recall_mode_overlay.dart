@@ -220,6 +220,26 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
             ),
           ),
 
+          // Missed marker count (live).
+          if (widget.controller.missedMarkers.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF3B30).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '❓ ${widget.controller.missedMarkers.length}',
+                style: const TextStyle(
+                  color: Color(0xFFFF6B6B),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+
           // Free → Spatial toggle (P2-41).
           if (widget.controller.isFreeRecall) ...[
             const SizedBox(width: 8),

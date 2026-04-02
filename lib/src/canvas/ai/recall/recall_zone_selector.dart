@@ -336,9 +336,18 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
       }
 
       // Count clusters in zone.
+      debugPrint('🔍 Zone selector: zone=$zone (${zone.width.toInt()}x${zone.height.toInt()})');
+      debugPrint('🔍 Total clusters: ${widget.allClusters.length}');
+      for (final c in widget.allClusters) {
+        final overlaps = zone.overlaps(c.bounds);
+        final contains = zone.contains(c.centroid);
+        debugPrint('  📦 ${c.id.substring(0, 8)} bounds=${c.bounds} '
+            'centroid=${c.centroid} overlaps=$overlaps contains=$contains');
+      }
       final count = widget.allClusters
           .where((c) => zone.overlaps(c.bounds) || zone.contains(c.centroid))
           .length;
+      debugPrint('🔍 Matched: $count clusters');
 
       HapticFeedback.mediumImpact();
       setState(() {
@@ -520,30 +529,281 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
             width: selected ? 1.5 : 0.5,
           ),
         ),
-        child: Column(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: selected ? Colors.white : Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.white60,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.7)
+                        : Colors.white.withValues(alpha: 0.3),
+                    fontSize: 10,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: selected
-                    ? Colors.white.withValues(alpha: 0.7)
-                    : Colors.white.withValues(alpha: 0.3),
-                fontSize: 10,
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                _showModeInfo(context, mode);
+              },
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: selected
+                      ? Colors.white.withValues(alpha: 0.20)
+                      : Colors.white.withValues(alpha: 0.08),
+                ),
+                child: Center(
+                  child: Text(
+                    'i',
+                    style: TextStyle(
+                      color: selected
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.5),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MODE INFO POPUP
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _showModeInfo(BuildContext context, RecallPhase mode) {
+    final isFree = mode == RecallPhase.freeRecall;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (_) => Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D0D1A),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border.all(
+            color: const Color(0xFF6C63FF).withValues(alpha: 0.15),
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle bar.
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Title.
+                Text(
+                  isFree ? '🧠 Free Recall' : '📍 Spatial Recall',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+
+                // Difficulty badge.
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isFree
+                        ? const Color(0xFFFF9500).withValues(alpha: 0.15)
+                        : const Color(0xFF30D158).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    isFree ? 'Difficoltà alta' : 'Difficoltà media',
+                    style: TextStyle(
+                      color: isFree
+                          ? const Color(0xFFFF9500)
+                          : const Color(0xFF30D158),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Description.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isFree ? 'Come funziona:' : 'Come funziona:',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _infoRow(
+                        isFree ? '📝' : '🔵',
+                        isFree
+                            ? 'Il canvas diventa completamente vuoto — nessun indizio visivo.'
+                            : 'Le posizioni dei nodi appaiono come sagome colorate sfocate.',
+                      ),
+                      const SizedBox(height: 6),
+                      _infoRow(
+                        '✍️',
+                        'Riscrivi il contenuto dalla memoria, nella posizione che ricordi.',
+                      ),
+                      const SizedBox(height: 6),
+                      _infoRow(
+                        isFree ? '💡' : '👁',
+                        isFree
+                            ? 'Puoi passare a Spatial Recall in qualsiasi momento premendo "Indizi".'
+                            : 'Puoi sbirciare un nodo con un long-press (tempo progressivamente più breve).',
+                      ),
+                      const SizedBox(height: 6),
+                      _infoRow(
+                        '🔍',
+                        'Al termine, vedrai un confronto visivo tra originale e ricostruzione.',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Science note.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF6C63FF).withValues(alpha: 0.08),
+                        const Color(0xFF8B5CF6).withValues(alpha: 0.04),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFF6C63FF).withValues(alpha: 0.12),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('🎓', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isFree
+                              ? 'Il Free Recall è la tecnica di memoria più potente. '
+                                'Tentare di ricordare senza indizi crea "difficoltà desiderabili" '
+                                'che rafforzano le connessioni neurali fino a 3× di più rispetto '
+                                'alla semplice rilettura.'
+                              : 'Lo Spatial Recall sfrutta la memoria spaziale: il cervello '
+                                'ricorda meglio le informazioni quando può associarle a una '
+                                'posizione fisica. Le sagome ti danno un ancoraggio visivo '
+                                'senza rivelare il contenuto.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.55),
+                            fontSize: 11,
+                            height: 1.45,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Close button.
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Ho capito',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white60,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(String emoji, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 13)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.65),
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

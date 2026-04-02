@@ -36,6 +36,12 @@ class RecallSummaryOverlay extends StatefulWidget {
   /// Called to repeat the recall session.
   final VoidCallback onRepeat;
 
+  /// Called to delete reconstruction strokes from the canvas.
+  final VoidCallback? onDeleteReconstruction;
+
+  /// Whether there are reconstruction strokes that can be deleted.
+  final bool hasReconstructionStrokes;
+
   const RecallSummaryOverlay({
     super.key,
     required this.controller,
@@ -43,6 +49,8 @@ class RecallSummaryOverlay extends StatefulWidget {
     required this.onStartSocratic,
     required this.onDismiss,
     required this.onRepeat,
+    this.onDeleteReconstruction,
+    this.hasReconstructionStrokes = false,
   });
 
   @override
@@ -475,6 +483,38 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
             ),
           ],
         ),
+
+        // Delete reconstruction strokes button.
+        if (widget.hasReconstructionStrokes && widget.onDeleteReconstruction != null) ...[
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () {
+              HapticFeedback.mediumImpact();
+              widget.onDeleteReconstruction!();
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF3B30).withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFFF3B30).withValues(alpha: 0.15),
+                  width: 0.5,
+                ),
+              ),
+              child: const Text(
+                '🧹 Cancella tentativo dal canvas',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFFFF6B6B),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

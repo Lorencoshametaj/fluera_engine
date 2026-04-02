@@ -5,13 +5,13 @@ part of '../fluera_canvas_screen.dart';
 /// Shows [LatexEditorSheet] as a bottom sheet, handles node creation
 /// via the command history system, and wires up the ML recognizer warm-up.
 extension FlueraCanvasLatexHandler on _FlueraCanvasScreenState {
-  /// Lazily-initialized OCR recognizer for camera mode.
-  static HmeLatexRecognizer? _latexRecognizer;
+  /// Lazily-initialized dual-backend recognizer (MyScript + HME fallback).
+  static MyScriptLatexBridge? _latexRecognizer;
 
-  /// Get or create the HmeLatexRecognizer (singleton per session).
-  Future<HmeLatexRecognizer> _getLatexRecognizer() async {
+  /// Get or create the MyScriptLatexBridge (singleton per session).
+  Future<MyScriptLatexBridge> _getLatexRecognizer() async {
     if (_latexRecognizer == null) {
-      _latexRecognizer = HmeLatexRecognizer();
+      _latexRecognizer = MyScriptLatexBridge();
       await _latexRecognizer!.initialize();
     }
     return _latexRecognizer!;

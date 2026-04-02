@@ -117,8 +117,9 @@ class ShapeRecognizer {
     final sampled = _subsample(smoothed, 64);
     final bounds = _computeBounds(sampled);
 
-    // Minimum size check — ignore tiny gestures (< 20px longest side)
-    if (bounds.longestSide < 20) {
+    // Minimum size check — ignore tiny gestures (< 40px longest side)
+    // Keeps handwriting strokes from entering shape pipeline at all
+    if (bounds.longestSide < 40) {
       return ShapeRecognitionResult(confidence: 0.0, boundingBox: bounds);
     }
 
@@ -260,12 +261,19 @@ class ShapeRecognizer {
 
     final straightness = directDistance / pathLength;
 
-    // Must be reasonably long
+    // Must be reasonably long (relative to bounding box)
     if (directDistance < bounds.longestSide * 0.5) return 0.0;
 
-    // Map straightness [0.90, 1.0] → confidence [0.0, 1.0]
-    if (straightness < 0.90) return 0.0;
-    return ((straightness - 0.90) / 0.10).clamp(0.0, 1.0);
+    // 🛡️ MINIMUM ABSOLUTE LENGTH — prevent short handwriting strokes
+    // (e.g. letter 'i', 'l', accents, diacritics) from triggering line
+    // recognition. Typical handwriting strokes are 20-60px; a deliberate
+    // geometric line is significantly longer.
+    if (directDistance < 80.0) return 0.0;
+
+    // Map straightness [0.93, 1.0] → confidence [0.0, 1.0]
+    // Raised from 0.90 to reduce false positives from natural writing
+    if (straightness < 0.93) return 0.0;
+    return ((straightness - 0.93) / 0.07).clamp(0.0, 1.0);
   }
 
   /// Test if the stroke is an arrow (straight stem + V-shaped head).

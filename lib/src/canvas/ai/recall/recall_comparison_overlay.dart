@@ -37,6 +37,12 @@ class RecallComparisonOverlay extends StatefulWidget {
   /// Called when user wants to start Step 3 (Socratic).
   final VoidCallback onStartSocratic;
 
+  /// Toggle between original and reconstruction views.
+  final VoidCallback onToggleView;
+
+  /// Whether currently showing originals (true) or reconstruction (false).
+  final bool showingOriginals;
+
   const RecallComparisonOverlay({
     super.key,
     required this.controller,
@@ -44,6 +50,8 @@ class RecallComparisonOverlay extends StatefulWidget {
     required this.onNavigateToGap,
     required this.onShowSummary,
     required this.onStartSocratic,
+    required this.onToggleView,
+    this.showingOriginals = true,
   });
 
   @override
@@ -340,6 +348,49 @@ class _RecallComparisonOverlayState extends State<RecallComparisonOverlay>
             ),
 
           const Spacer(),
+
+          // 🧠 Toggle: split view ↔ reconstruction only
+          GestureDetector(
+            onTap: widget.onToggleView,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: widget.showingOriginals
+                    ? const Color(0xFF007AFF).withValues(alpha: 0.2)
+                    : const Color(0xFF30D158).withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: widget.showingOriginals
+                      ? const Color(0xFF007AFF).withValues(alpha: 0.5)
+                      : const Color(0xFF30D158).withValues(alpha: 0.5),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    widget.showingOriginals
+                        ? Icons.compare_rounded
+                        : Icons.edit_rounded,
+                    color: Colors.white70,
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    widget.showingOriginals ? 'Confronto' : 'Tentativo',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 8),
 
           // Show summary.
           GestureDetector(

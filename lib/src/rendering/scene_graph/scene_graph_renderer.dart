@@ -97,6 +97,12 @@ class SceneGraphRenderer {
   /// [DrawingPainter._paintPdfPage] instead).
   Set<String>? skipStrokeIds;
 
+  /// 🧠 Recall mode: stroke IDs to completely hide during recall.
+  ///
+  /// Unlike [skipStrokeIds] (per-frame, cleared after paint), this persists
+  /// for the duration of recall mode. Strokes in this set are not rendered.
+  Set<String>? recallHiddenIds;
+
   /// When true, PDF page and document nodes are skipped during rendering.
   ///
   /// Set by [DrawingPainter] to prevent PDF pages from being baked into
@@ -440,6 +446,9 @@ class SceneGraphRenderer {
     // Skip strokes that belong to a PDF page — they are rendered
     // clipped inside _paintPdfPage instead of the global pass.
     if (skipStrokeIds != null && skipStrokeIds!.contains(stroke.id)) return;
+
+    // 🧠 Recall mode: completely hide original strokes.
+    if (recallHiddenIds != null && recallHiddenIds!.contains(stroke.id)) return;
 
     // Adaptive LOD: skip sub-pixel strokes at low zoom.
     if (_currentScale < 0.5) {

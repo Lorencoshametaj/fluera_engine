@@ -120,6 +120,10 @@ class DrawingPainter extends CustomPainter {
   /// doesn't always see -1 on the new delegate → infinite repaint loop.
   static int _cachedSceneVersion = -1;
 
+  /// 🧠 Recall mode: cached count of hidden strokes. When this changes,
+  /// all caches are invalidated so the renderer rebuilds without the hidden strokes.
+  static int _cachedRecallHiddenCount = 0;
+
   /// Viewport used when the current stroke cache was built.
   /// If the real viewport moves outside this area, the cache is invalidated
   /// so that newly-visible strokes are rendered.
@@ -317,6 +321,11 @@ class DrawingPainter extends CustomPainter {
   // 🧹 Scratch-out dissolve: strokeId → opacity (1.0 → 0.0 during animation)
   final Map<String, double> scratchOutDissolveMap;
 
+  // 🧠 Recall mode: stroke IDs to completely hide during recall.
+  // These strokes are skipped from rendering entirely (no ghost, no tint).
+  // New strokes drawn during recall are NOT in this set → remain visible.
+  final Set<String> recallHiddenIds;
+
   // 🚀 Viewport-level controller: when set, painter applies transform itself
   // and repaints every pan/zoom frame (O(1) via cache hit)
   final InfiniteCanvasController? controller;
@@ -402,6 +411,7 @@ class DrawingPainter extends CustomPainter {
     this.eraserPreviewIds = const {}, // 🎯 Eraser preview
     this.scratchOutPreviewIds = const {}, // 🧹 Scratch-out preview
     this.scratchOutDissolveMap = const {}, // 🧹 Scratch-out dissolve
+    this.recallHiddenIds = const {}, // 🧠 Recall hidden strokes
     this.controller, // 🚀 Viewport-level mode
     required this.sceneGraph, // 🌲 Scene graph source (sole source of truth)
     this.pdfPainters = const {}, // 📄 PDF page painters
@@ -636,6 +646,10 @@ class DrawingPainter extends CustomPainter {
 
     // ✂️ Collect PDF annotation IDs (cached per scene graph version)
     _collectPdfAnnotationIds();
+
+    // 🧠 Recall mode: pass hidden stroke IDs to the delegate renderer.
+    _delegateRenderer.recallHiddenIds =
+        recallHiddenIds.isNotEmpty ? recallHiddenIds : null;
 
     final _t0 = _paintStopwatch.elapsedMicroseconds;
 
@@ -1033,6 +1047,14 @@ class DrawingPainter extends CustomPainter {
         _tileCache.invalidateAll();
       }
       _cachedSceneVersion = sceneGraph.version;
+    }
+
+    // 🧠 Cache invalidation: recall mode hidden set changed
+    if (recallHiddenIds.length != _cachedRecallHiddenCount) {
+      _cachedRecallHiddenCount = recallHiddenIds.length;
+      _strokeCache.invalidateCache();
+      _tileCache.invalidateAll();
+      invalidateLayerCaches();
     }
 
     // Cache invalidation: undo/delete (stroke count decreased)
@@ -2952,6 +2974,7 @@ class DrawingPainter extends CustomPainter {
         oldDelegate.eraserPreviewIds != eraserPreviewIds ||
         oldDelegate.scratchOutPreviewIds != scratchOutPreviewIds ||
         oldDelegate.scratchOutDissolveMap != scratchOutDissolveMap ||
+        oldDelegate.recallHiddenIds != recallHiddenIds ||
         oldDelegate.pdfLayoutVersion != pdfLayoutVersion ||
         // 🚀 LAYER MERGE: background now drawn inside this painter
         oldDelegate.paperType != paperType ||

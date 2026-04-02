@@ -110,7 +110,7 @@ import '../tools/flood_fill/flood_fill_tool.dart';
 import '../tools/pen/pen_tool.dart';
 import '../tools/echo_search_controller.dart';
 import '../tools/shape/shape_recognizer.dart';
-import '../platform/hme_latex_recognizer.dart';
+import '../platform/myscript_latex_bridge.dart';
 import '../platform/ink_rasterizer.dart';
 import '../platform/latex_recognition_bridge.dart';
 import '../core/latex/ink_stroke_data.dart';
@@ -648,14 +648,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🧠 Learning step controller — gates AI subsystems by current step.
   /// Default: Step 1 (Appunti a Mano) — AI dormant, zero distractions.
-  late final LearningStepController _learningStepController;
+  final LearningStepController _learningStepController =
+      LearningStepController(initialStep: LearningStep.step1Notes);
 
   /// 🛡️ Flow guard — suppresses non-critical overlays during active writing
   /// and for 2 seconds after the last stroke (P1-25).
-  late final FlowGuard _flowGuard;
+  final FlowGuard _flowGuard = FlowGuard();
 
   /// 🧠 Recall Mode controller — manages Step 2 recall session state.
-  late final RecallModeController _recallModeController;
+  final RecallModeController _recallModeController = RecallModeController();
 
   /// 💾 Recall Mode persistence — saves/loads recall session history.
   final RecallPersistenceService _recallPersistenceService =
@@ -666,6 +667,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🧠 Recall Mode: summary overlay visible.
   bool _showRecallSummary = false;
+
+  /// 🧠 Recall Mode: stroke IDs that existed BEFORE recall activation.
+  /// Used by the zone mask to distinguish original content (hidden) from
+  /// new content drawn during recall (visible through mask holes).
+  Set<String> _recallOriginalStrokeIds = const {};
+  Set<String> _recallNewStrokeIds = const {};
+  bool _recallShowingOriginals = true; // Toggle for comparison view
+  Rect _recallReconstructionZone = Rect.zero; // Adjacent zone for writing
+  List<Offset> _recallBlankMarkers = []; // "Non ricordo" markers
 
   /// 🚀 PERFORMANCE: Tratto corrente con notifier ottimizzato
   final _StrokeNotifier _currentStrokeNotifier = _StrokeNotifier();
@@ -2036,13 +2046,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       PathPool.instance.initialize();
 
       // 🧠 COGNITIVE CYCLE: Initialize learning step controller + flow guard.
-      _learningStepController = LearningStepController(
-        initialStep: LearningStep.step1Notes,
-      );
-      _flowGuard = FlowGuard();
+
 
       // 🧠 RECALL MODE: Initialize Step 2 controller.
-      _recallModeController = RecallModeController();
+
 
       // 🛡️ Wire FlowGuard to drawing state changes.
       // When drawing starts → protect flow. When drawing ends → start cooldown.

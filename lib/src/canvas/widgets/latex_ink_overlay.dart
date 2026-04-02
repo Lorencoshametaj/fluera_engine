@@ -37,6 +37,9 @@ class LatexInkOverlay extends StatefulWidget {
   /// Font size for ghost rendering.
   final double ghostFontSize;
 
+  /// Signal to clear all strokes. Increment the value to trigger a clear.
+  final ValueNotifier<int>? clearSignal;
+
   /// Color for ghost rendering.
   final Color ghostColor;
 
@@ -49,6 +52,7 @@ class LatexInkOverlay extends StatefulWidget {
     this.ghostLatex,
     this.ghostFontSize = 24.0,
     this.ghostColor = Colors.white,
+    this.clearSignal,
   });
 
   @override
@@ -58,11 +62,21 @@ class LatexInkOverlay extends StatefulWidget {
 class _LatexInkOverlayState extends State<LatexInkOverlay>
     with SingleTickerProviderStateMixin {
   final List<InkStroke> _strokes = [];
-  List<InkPoint> _currentPoints = [];
+  final List<InkPoint> _currentPoints = [];
   bool _isDrawing = false;
 
   late final AnimationController _glowController;
   late final Animation<double> _glowAnimation;
+
+  // 🚀 PERFORMANCE: Lightweight repaint trigger for the ink trail.
+  // Incremented on every pointer-move to repaint ONLY the CustomPaint,
+  // without rebuilding the entire widget tree via setState.
+  final ValueNotifier<int> _inkRepaintNotifier = ValueNotifier(0);
+
+  // 🚀 PERFORMANCE: Cached painter — created once, survives rebuilds.
+  // Holds mutable list references (_strokes, _currentPoints) so paint()
+  // always sees the latest data without needing a new painter instance.
+  _InkTrailPainter? _cachedInkPainter;
 
   // E17: Auto-recognize timer
   Timer? _autoRecognizeTimer;
@@ -79,11 +93,39 @@ class _LatexInkOverlayState extends State<LatexInkOverlay>
       parent: _glowController,
       curve: Curves.easeOutCubic,
     );
+    widget.clearSignal?.addListener(_onClearSignal);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Create the cached painter lazily (needs Theme.of which requires context)
+    _cachedInkPainter ??= _InkTrailPainter(
+      strokes: _strokes,
+      currentPoints: _currentPoints,
+      strokeColor: Theme.of(context).colorScheme.primary,
+      repaint: _inkRepaintNotifier,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant LatexInkOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.clearSignal != widget.clearSignal) {
+      oldWidget.clearSignal?.removeListener(_onClearSignal);
+      widget.clearSignal?.addListener(_onClearSignal);
+    }
+  }
+
+  void _onClearSignal() {
+    clear();
   }
 
   @override
   void dispose() {
+    widget.clearSignal?.removeListener(_onClearSignal);
     _autoRecognizeTimer?.cancel();
+    _inkRepaintNotifier.dispose();
     _glowController.dispose();
     super.dispose();
   }
@@ -93,32 +135,38 @@ class _LatexInkOverlayState extends State<LatexInkOverlay>
     // E17: Cancel any pending auto-recognize when starting a new stroke
     _autoRecognizeTimer?.cancel();
 
-    setState(() {
-      _isDrawing = true;
-      _currentPoints = [
-        InkPoint(
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
-          pressure: event.pressure,
-          timestamp: event.timeStamp.inMilliseconds,
-        ),
-      ];
-    });
+    _isDrawing = true;
+    // 🚀 CRITICAL: clear + add, NOT reassign! The cached painter holds
+    // a reference to this list. Reassigning would leave it painting
+    // from a stale, empty list — causing the "frozen stroke" bug.
+    _currentPoints.clear();
+    _currentPoints.add(
+      InkPoint(
+        x: event.localPosition.dx,
+        y: event.localPosition.dy,
+        pressure: event.pressure,
+        timestamp: event.timeStamp.inMilliseconds,
+      ),
+    );
+    // setState only for border glow transition (structural change)
+    setState(() {});
     _glowController.forward();
   }
 
   void _onPointerMove(PointerMoveEvent event) {
     if (!_isDrawing || !widget.enabled) return;
-    setState(() {
-      _currentPoints.add(
-        InkPoint(
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
-          pressure: event.pressure,
-          timestamp: event.timeStamp.inMilliseconds,
-        ),
-      );
-    });
+
+    // 🚀 NO setState — just mutate the list and trigger a repaint
+    // of only the ink trail CustomPaint via ValueNotifier.
+    _currentPoints.add(
+      InkPoint(
+        x: event.localPosition.dx,
+        y: event.localPosition.dy,
+        pressure: event.pressure,
+        timestamp: event.timeStamp.inMilliseconds,
+      ),
+    );
+    _inkRepaintNotifier.value++;
 
     // Notify live changes
     widget.onStrokesChanged?.call(
@@ -128,13 +176,14 @@ class _LatexInkOverlayState extends State<LatexInkOverlay>
 
   void _onPointerUp(PointerUpEvent event) {
     if (!_isDrawing) return;
-    setState(() {
-      _isDrawing = false;
-      if (_currentPoints.length >= 2) {
-        _strokes.add(InkStroke(List.from(_currentPoints)));
-      }
-      _currentPoints = [];
-    });
+    _isDrawing = false;
+    if (_currentPoints.length >= 2) {
+      _strokes.add(InkStroke(List.from(_currentPoints)));
+    }
+    _currentPoints.clear(); // 🚀 clear, NOT reassign
+    // setState for structural changes (undo button visibility, border)
+    setState(() {});
+    _inkRepaintNotifier.value++;
     _glowController.reverse();
 
     // E17: Start auto-recognize timer instead of immediate callback
@@ -152,6 +201,7 @@ class _LatexInkOverlayState extends State<LatexInkOverlay>
     setState(() {
       _strokes.removeLast();
     });
+    _inkRepaintNotifier.value++;
 
     // E17: Restart auto-recognize timer after undo
     _autoRecognizeTimer?.cancel();
@@ -170,6 +220,7 @@ class _LatexInkOverlayState extends State<LatexInkOverlay>
       _strokes.clear();
       _currentPoints.clear();
     });
+    _inkRepaintNotifier.value++;
   }
 
   @override
@@ -198,23 +249,35 @@ class _LatexInkOverlayState extends State<LatexInkOverlay>
             onPointerDown: _onPointerDown,
             onPointerMove: _onPointerMove,
             onPointerUp: _onPointerUp,
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: _InkTrailPainter(
-                  strokes: _strokes,
-                  currentPoints: _currentPoints,
-                  strokeColor: cs.primary,
-                ),
-                foregroundPainter:
-                    widget.ghostLatex != null && widget.ghostLatex!.isNotEmpty
-                        ? _GhostLatexPainter(
+            child: Stack(
+              children: [
+                // Ghost LaTeX preview — separate RepaintBoundary so it
+                // only repaints when the LaTeX source changes, NOT on
+                // every pointer move during ink drawing.
+                if (widget.ghostLatex != null && widget.ghostLatex!.isNotEmpty)
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: _GhostLatexPainter(
                           latexSource: widget.ghostLatex!,
                           fontSize: widget.ghostFontSize,
                           color: widget.ghostColor.withValues(alpha: 0.35),
-                        )
-                        : null,
-                child: const SizedBox.expand(),
-              ),
+                        ),
+                      ),
+                    ),
+                  ),
+                // Live ink trail — CACHED painter, driven by repaint Listenable.
+                // The painter persists across widget rebuilds. Only paint()
+                // is called when _inkRepaintNotifier fires — ZERO allocations.
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: _cachedInkPainter!,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -331,6 +394,10 @@ class _LatexInkOverlayState extends State<LatexInkOverlay>
 }
 
 /// Paints live ink trails during drawing.
+///
+/// 🚀 PERFORMANCE: Uses [repaint] Listenable for zero-rebuild repaints.
+/// [shouldRepaint] always returns false — repaints are driven exclusively
+/// by the ValueNotifier, so no widget tree allocation occurs per frame.
 class _InkTrailPainter extends CustomPainter {
   final List<InkStroke> strokes;
   final List<InkPoint> currentPoints;
@@ -340,7 +407,8 @@ class _InkTrailPainter extends CustomPainter {
     required this.strokes,
     required this.currentPoints,
     required this.strokeColor,
-  });
+    required Listenable repaint,
+  }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -374,17 +442,24 @@ class _InkTrailPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _InkTrailPainter old) =>
-      strokes.length != old.strokes.length ||
-      currentPoints.length != old.currentPoints.length;
+  bool shouldRepaint(covariant _InkTrailPainter old) => false;
 }
 
 /// R5: Ghost rendering painter — draws a semi-transparent LaTeX preview
 /// over the ink strokes during handwriting recognition.
+///
+/// PERFORMANCE: Parse + layout results are cached. The expensive
+/// `LatexParser.parse()` + `LatexLayoutEngine.layout()` only run when
+/// `shouldRepaint` returns true (i.e., when latexSource changes).
 class _GhostLatexPainter extends CustomPainter {
   final String latexSource;
   final double fontSize;
   final Color color;
+
+  // Cached layout result — computed lazily on first paint, reused after.
+  List<LatexDrawCommand>? _cachedCommands;
+  Size? _cachedSize;
+  String? _cachedSource;
 
   _GhostLatexPainter({
     required this.latexSource,
@@ -392,8 +467,9 @@ class _GhostLatexPainter extends CustomPainter {
     required this.color,
   });
 
-  @override
-  void paint(Canvas canvas, Size size) {
+  void _ensureLayout() {
+    if (_cachedSource == latexSource) return;
+    _cachedSource = latexSource;
     try {
       final ast = LatexParser.parse(latexSource);
       final result = LatexLayoutEngine.layout(
@@ -401,74 +477,83 @@ class _GhostLatexPainter extends CustomPainter {
         fontSize: fontSize,
         color: color,
       );
-
-      if (result.commands.isEmpty) return;
-
-      // Center the ghost rendering in the available space
-      final dx = (size.width - result.size.width) / 2;
-      final dy = (size.height - result.size.height) / 2;
-
-      canvas.save();
-      canvas.translate(dx, dy);
-
-      for (final cmd in result.commands) {
-        switch (cmd) {
-          case GlyphDrawCommand():
-            final style = TextStyle(
-              fontSize: cmd.fontSize,
-              color: cmd.color,
-              fontStyle: cmd.italic ? FontStyle.italic : FontStyle.normal,
-              fontWeight: cmd.bold ? FontWeight.bold : FontWeight.normal,
-              fontFamily: (cmd.fontFamily != null && cmd.fontFamily!.isNotEmpty) ? cmd.fontFamily : null,
-            );
-            final tp = TextPainter(
-              text: TextSpan(text: cmd.text, style: style),
-              textDirection: TextDirection.ltr,
-            )..layout();
-            tp.paint(canvas, Offset(cmd.x, cmd.y));
-
-          case LineDrawCommand():
-            canvas.drawLine(
-              Offset(cmd.x1, cmd.y1),
-              Offset(cmd.x2, cmd.y2),
-              Paint()
-                ..color = cmd.color
-                ..strokeWidth = cmd.thickness
-                ..isAntiAlias = true,
-            );
-
-          case PathDrawCommand():
-            if (cmd.points.isEmpty) continue;
-            final path =
-                Path()..moveTo(cmd.points.first.dx, cmd.points.first.dy);
-            for (int i = 1; i < cmd.points.length; i++) {
-              path.lineTo(cmd.points[i].dx, cmd.points[i].dy);
-            }
-            if (cmd.closed) path.close();
-            canvas.drawPath(
-              path,
-              Paint()
-                ..color = cmd.color
-                ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
-                ..strokeWidth = cmd.strokeWidth
-                ..isAntiAlias = true,
-            );
-
-          case RectDrawCommand():
-            canvas.drawRect(
-              Rect.fromLTWH(cmd.x, cmd.y, cmd.width, cmd.height),
-              Paint()
-                ..color = cmd.color
-                ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
-                ..isAntiAlias = true,
-            );
-        }
-      }
-
-      canvas.restore();
+      _cachedCommands = result.commands;
+      _cachedSize = result.size;
     } catch (_) {
-      // Silently ignore parse/layout errors in ghost rendering
+      _cachedCommands = null;
+      _cachedSize = null;
     }
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _ensureLayout();
+    final commands = _cachedCommands;
+    final layoutSize = _cachedSize;
+    if (commands == null || commands.isEmpty || layoutSize == null) return;
+
+    // Center the ghost rendering in the available space
+    final dx = (size.width - layoutSize.width) / 2;
+    final dy = (size.height - layoutSize.height) / 2;
+
+    canvas.save();
+    canvas.translate(dx, dy);
+
+    for (final cmd in commands) {
+      switch (cmd) {
+        case GlyphDrawCommand():
+          final style = TextStyle(
+            fontSize: cmd.fontSize,
+            color: cmd.color,
+            fontStyle: cmd.italic ? FontStyle.italic : FontStyle.normal,
+            fontWeight: cmd.bold ? FontWeight.bold : FontWeight.normal,
+            fontFamily: (cmd.fontFamily != null && cmd.fontFamily!.isNotEmpty) ? cmd.fontFamily : null,
+          );
+          final tp = TextPainter(
+            text: TextSpan(text: cmd.text, style: style),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          tp.paint(canvas, Offset(cmd.x, cmd.y));
+
+        case LineDrawCommand():
+          canvas.drawLine(
+            Offset(cmd.x1, cmd.y1),
+            Offset(cmd.x2, cmd.y2),
+            Paint()
+              ..color = cmd.color
+              ..strokeWidth = cmd.thickness
+              ..isAntiAlias = true,
+          );
+
+        case PathDrawCommand():
+          if (cmd.points.isEmpty) continue;
+          final path =
+              Path()..moveTo(cmd.points.first.dx, cmd.points.first.dy);
+          for (int i = 1; i < cmd.points.length; i++) {
+            path.lineTo(cmd.points[i].dx, cmd.points[i].dy);
+          }
+          if (cmd.closed) path.close();
+          canvas.drawPath(
+            path,
+            Paint()
+              ..color = cmd.color
+              ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
+              ..strokeWidth = cmd.strokeWidth
+              ..isAntiAlias = true,
+          );
+
+        case RectDrawCommand():
+          canvas.drawRect(
+            Rect.fromLTWH(cmd.x, cmd.y, cmd.width, cmd.height),
+            Paint()
+              ..color = cmd.color
+              ..style = cmd.filled ? PaintingStyle.fill : PaintingStyle.stroke
+              ..isAntiAlias = true,
+          );
+      }
+    }
+
+    canvas.restore();
   }
 
   @override

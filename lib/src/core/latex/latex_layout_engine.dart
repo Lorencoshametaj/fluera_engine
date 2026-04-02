@@ -55,7 +55,8 @@ class LatexLayoutEngine {
     );
   }
 
-  LatexLayoutEngine._({String? mathFontFamily}) : _mathFontFamily = mathFontFamily;
+  LatexLayoutEngine._({String? mathFontFamily})
+    : _mathFontFamily = mathFontFamily;
 
   final List<LatexDrawCommand> _commands = [];
 
@@ -128,7 +129,8 @@ class LatexLayoutEngine {
   static const double _thickSpace = 5.0 / 18.0;
 
   /// Space between big-operator glyph and inline limits (sub/superscript).
-  static const double _bigOpLimitKern = 0.04;
+  /// Integrals need enough clearance so limits don't overlap the S-curve.
+  static const double _bigOpLimitKern = 0.14;
 
   // ---------------------------------------------------------------------------
   // Core Layout
@@ -255,17 +257,22 @@ class LatexLayoutEngine {
       if (i < childBoxes.length - 1) {
         final child = node.children[i];
         final next = node.children[i + 1];
-        final childIsOp = child is LatexSymbol &&
+        final childIsOp =
+            child is LatexSymbol &&
             (_isBinaryOperator(child.value) ||
                 _isRelationalOperator(child.value));
-        final nextIsOp = next is LatexSymbol &&
+        final nextIsOp =
+            next is LatexSymbol &&
             (_isBinaryOperator(next.value) ||
                 _isRelationalOperator(next.value));
 
         // K: Detect unary minus — a binary operator at position 0 or
         // immediately after another operator is unary (prefix), so we
         // skip its left spacing.
-        if (nextIsOp && next is LatexSymbol && next.value == '-' && (i == 0 || childIsOp)) {
+        if (nextIsOp &&
+            next is LatexSymbol &&
+            next.value == '-' &&
+            (i == 0 || childIsOp)) {
         } else if (!childIsOp && !nextIsOp) {
           totalWidth += fs * _atomSpacing;
         }
@@ -347,7 +354,8 @@ class LatexLayoutEngine {
 
     // Cramped style: when superscript is itself a superscript (nested),
     // use a slightly smaller scale to avoid oversized towers.
-    final isNested = node.exponent is LatexSuperscript ||
+    final isNested =
+        node.exponent is LatexSuperscript ||
         node.exponent is LatexSubSuperscript;
     final supScale = isNested ? _scriptScale * 0.85 : _scriptScale;
     final supBox = _layout(node.exponent, fs * supScale, color);
@@ -489,29 +497,34 @@ class LatexLayoutEngine {
     //   The serif sits at ~62 % height so it is clearly visible but leaves
     //   enough room for the V sweep. The downstroke angle and upstroke angle
     //   intentionally differ (TeX's radical is NOT symmetric).
-    // Radical shape — smooth Bézier curve through control points
-    // for a fluid, professional √ symbol.
+    // Radical shape — classic TeX Computer Modern √ as clean polyline.
+    // NOT smooth — the radical must have crisp angles at the kink and vee:
+    //   P0: small horizontal tail (serif)
+    //   P1: kink where serif meets downstroke
+    //   P2: bottom of the V (lowest point)
+    //   P3: top-right where upstroke meets vinculum
+    //
+    // The upstroke MUST arrive exactly at (symbolWidth, 0) to align
+    // perfectly with the vinculum bar.
     _commands.add(
       PathDrawCommand(
         points: [
-          Offset(0, symHeight * 0.62),                      // P0: serif left
-          Offset(tailWidth * 0.5, symHeight * 0.60),        // P1: serif curve
-          Offset(tailWidth, symHeight * 0.57),              // P2: kink
-          Offset(tailWidth + veeWidth * 0.5, symHeight * 0.85), // P3: midway down
-          Offset(tailWidth + veeWidth, symHeight),          // P4: V bottom
-          Offset(tailWidth + veeWidth + (symbolWidth - tailWidth - veeWidth) * 0.3, symHeight * 0.35), // P5: upstroke mid
-          Offset(symbolWidth, barThickness / 2),            // P6: top
+          Offset(0, symHeight * 0.62), // P0: tail start
+          Offset(tailWidth, symHeight * 0.58), // P1: kink
+          Offset(tailWidth + veeWidth, symHeight), // P2: vee bottom
+          Offset(symbolWidth, 0), // P3: top (vinculum join)
         ],
         strokeWidth: strokeWidth,
         color: color,
-        smooth: true,
+        smooth: false, // crisp corners, NOT curved
       ),
     );
 
-    // Vinculum (horizontal bar over radicand).
+    // Vinculum (horizontal bar over radicand) — starts exactly at the
+    // radical's top-right corner for a seamless join.
     _commands.add(
       LineDrawCommand(
-        x1: symbolWidth - strokeWidth * 0.25,
+        x1: symbolWidth - strokeWidth * 0.5,
         y1: barThickness / 2,
         x2: symbolWidth + radBox.width + overhang,
         y2: barThickness / 2,
@@ -561,11 +574,13 @@ class LatexLayoutEngine {
         node.operator == '∭' ||
         node.operator == '∮';
 
+    final isSummation = node.operator == '∑';
+
     double opWidth;
 
     if (isIntegral) {
-      opWidth = opSize * 0.32;
-      final strokeW = fs * _fractionBarThickness * 2.2;
+      opWidth = opSize * 0.38;
+      final strokeW = fs * _fractionBarThickness * 2.0;
       final h = opSize;
       final w = opWidth;
 
@@ -574,25 +589,34 @@ class LatexLayoutEngine {
         '∭' => 3,
         _ => 1,
       };
-      final spacing = count > 1 ? w * 0.6 : 0.0;
+      final spacing = count > 1 ? w * 0.55 : 0.0;
 
       for (int n = 0; n < count; n++) {
         final dx = n * spacing;
-        // Integral ∫ — smooth Bézier curve for fluid S-shape.
+        // Integral ∫ — TeX Computer Modern style S-curve:
+        //   Top serif curls right, body slants slightly right going down,
+        //   bottom serif curls left. Classic mathematical typesetting.
         _commands.add(
           PathDrawCommand(
             points: [
-              Offset(dx + w * 0.70, h * 0.02),
-              Offset(dx + w * 0.55, 0),
-              Offset(dx + w * 0.45, h * 0.05),
-              Offset(dx + w * 0.48, h * 0.25),
-              Offset(dx + w * 0.48, h * 0.45),
-              Offset(dx + w * 0.50, h * 0.50),
-              Offset(dx + w * 0.52, h * 0.55),
-              Offset(dx + w * 0.52, h * 0.75),
-              Offset(dx + w * 0.55, h * 0.95),
-              Offset(dx + w * 0.45, h),
-              Offset(dx + w * 0.30, h * 0.98),
+              // Top serif (curls right)
+              Offset(dx + w * 0.72, h * 0.01), // serif tip (right)
+              Offset(dx + w * 0.60, 0), // serif peak
+              Offset(dx + w * 0.48, h * 0.03), // serif join
+              // Upper body (slight rightward lean)
+              Offset(dx + w * 0.44, h * 0.12),
+              Offset(dx + w * 0.42, h * 0.30),
+              // Center body (straight vertical section)
+              Offset(dx + w * 0.44, h * 0.45),
+              Offset(dx + w * 0.50, h * 0.55),
+              Offset(dx + w * 0.56, h * 0.65),
+              // Lower body (slight leftward lean)
+              Offset(dx + w * 0.58, h * 0.80),
+              Offset(dx + w * 0.56, h * 0.90),
+              // Bottom serif (curls left)
+              Offset(dx + w * 0.52, h * 0.97), // serif join
+              Offset(dx + w * 0.40, h), // serif peak
+              Offset(dx + w * 0.28, h * 0.98), // serif tip (left)
             ],
             strokeWidth: strokeW,
             color: color,
@@ -624,6 +648,35 @@ class LatexLayoutEngine {
       }
 
       if (count > 1) opWidth = w + spacing * (count - 1);
+    } else if (isSummation) {
+      // 🚀 PERFORMANCE & ACCURACY: Draw ∑ via exact crisp Path geometry, not a font glyph.
+      // This completely eliminates font side-bearing metric issues, ensuring the
+      // visual vertexes of the sigma are perfectly horizontally centered so lower
+      // bounds like 'n=0' align correctly.
+      final h = opSize * 0.85; // A bit shorter than full opSize
+      opWidth = opSize * 0.75;
+      final strokeW = fs * _fractionBarThickness * 1.5;
+      _commands.add(
+        PathDrawCommand(
+          points: [
+            Offset(opWidth * 0.90, 0), // Top right serif
+            Offset(opWidth * 0.10, 0), // Top left corner
+            Offset(opWidth * 0.55, h * 0.5), // Middle peak (center-ish)
+            Offset(opWidth * 0.10, h), // Bottom left corner
+            Offset(opWidth * 0.90, h), // Bottom right serif
+          ],
+          strokeWidth: strokeW,
+          color: color,
+          smooth: false, // Sigma has crisp sharp angles
+        ),
+      );
+      // Small visual vertical offset to center the Sigma within opSize bounds
+      _offsetCommands(
+        _commands.length - 1,
+        _commands.length,
+        0,
+        (opSize - h) / 2,
+      );
     } else {
       opWidth = _measureTextWidth(node.operator, opSize);
       _commands.add(
@@ -652,75 +705,112 @@ class LatexLayoutEngine {
     final isInlineStyle = isIntegral;
 
     if (isInlineStyle) {
-      // Inline style (∫, ∬ …): limits as sub/superscript.
-      final opBaseline = opSize * _baselineFraction;
+      // Inline style (∫, ∬ …): limits as sub/superscript positioned
+      // at the TOP-RIGHT and BOTTOM-RIGHT of the integral, ensuring they
+      // sit visually distinct from the S-curve.
       final limX = opWidth + fs * _bigOpLimitKern;
       double totalWidth = limX;
-      double ascent = opBaseline;
-      double descent = opSize - opBaseline;
+
+      // Ensure superscript stays completely clearly spaced above the integral
+      // visual top body, so it doesn't get 'swallowed' inside.
+      final topY = 0.0;
+      // Lower limit sits significantly lower so its own bottom aligns roughly
+      // with the integral's bottom.
+      final botY = opSize;
+
+      double minY = 0.0;
+      double maxY = opSize;
 
       if (node.upper != null) {
         final supBox = _layout(node.upper!, fs * _scriptScale, color);
-        final supShift = fs * _superscriptShift;
-        final supY = opBaseline - supShift - supBox.height;
+        // Sup runs from topY - supBox.height, ensuring it's mostly ABOVE the
+        // integral's visual body.
+        final supY = topY - supBox.height * 0.60;
         _offsetCommands(supBox.commandStart, supBox.commandEnd, limX, supY);
         totalWidth = limX + supBox.width;
-        if (-supY > ascent) ascent = -supY;
+        if (supY < minY) minY = supY;
       }
 
       if (node.lower != null) {
         final subBox = _layout(node.lower!, fs * _scriptScale, color);
-        final subY = opBaseline + fs * _subscriptShift - subBox.baseline;
+        // Sub top sits near the lower part of the integral, pushing it further down.
+        final subY = botY - subBox.height * 0.40;
         _offsetCommands(subBox.commandStart, subBox.commandEnd, limX, subY);
         final scriptW = node.upper != null ? (totalWidth - limX) : subBox.width;
         totalWidth = limX + (scriptW > subBox.width ? scriptW : subBox.width);
-        final subBottom = subY + subBox.height - opBaseline;
-        if (subBottom > descent) descent = subBottom;
+        if (subY + subBox.height > maxY) maxY = subY + subBox.height;
       }
+
+      // If upper limit extended above the integral, shift everything down
+      if (minY < 0) {
+        _offsetCommands(cmdStart, _commands.length, 0, -minY);
+        maxY -= minY;
+      }
+
+      final totalHeight = maxY;
+      final baseline = (minY < 0 ? -minY : 0) + opSize * _baselineFraction;
 
       return _LayoutBox(
         width: totalWidth + fs * _thickSpace,
-        height: ascent + descent,
-        baseline: ascent,
+        height: totalHeight,
+        baseline: baseline,
         commandStart: cmdStart,
         commandEnd: _commands.length,
       );
     }
 
     // Display style (∑, ∏ …): limits centered above/below.
-    double upperHeight = 0;
-    double lowerHeight = 0;
     double maxWidth = opWidth;
-    final gap = fs * 0.12;
+    // TeX BigOpSpacing: tight gap between operator and limits.
+    final gap = fs * 0.06;
 
     _LayoutBox? upperBox;
     _LayoutBox? lowerBox;
 
     if (node.upper != null) {
       upperBox = _layout(node.upper!, fs * _scriptScale, color);
-      upperHeight = upperBox.height + gap;
       if (upperBox.width > maxWidth) maxWidth = upperBox.width;
     }
 
     if (node.lower != null) {
       lowerBox = _layout(node.lower!, fs * _scriptScale, color);
-      lowerHeight = lowerBox.height + gap;
       if (lowerBox.width > maxWidth) maxWidth = lowerBox.width;
     }
+
+    // 🚀 CRITICAL SPACING FIX:
+    // A LayoutBox for text (like '∞') has internal whitespace (descent space)
+    // BELOW its visible baseline. If we just add gap to height, it floats too far up.
+    // Instead, we reserve space relative to the VISIBLE gap.
+    final upperDescent =
+        upperBox != null ? (upperBox.height - upperBox.baseline) : 0.0;
+
+    // total physical Y-space reserved for upper limit box:
+    final upperHeight =
+        upperBox != null ? (upperBox.height - upperDescent + gap) : 0.0;
+    final lowerHeight = lowerBox != null ? (lowerBox.height + gap) : 0.0;
 
     final totalHeight = upperHeight + opSize + lowerHeight;
     final baseline = upperHeight + opSize * _baselineFraction;
 
+    // Center operator horizontally
     final opX = (maxWidth - opWidth) / 2;
     _offsetCommands(cmdStart, cmdStart + 1, opX, upperHeight);
 
     if (upperBox != null) {
       final ux = (maxWidth - upperBox.width) / 2;
-      _offsetCommands(upperBox.commandStart, upperBox.commandEnd, ux, 0);
+      // Position upper limit physically. Because upperHeight excludes the descent,
+      // we offset the upper box such that its BASELINE aligns directly with upperHeight - gap.
+      // E.g. gap = 5, upperBox has 20 height, 15 baseline.
+      // upperHeight = 15 + 5 = 20.
+      // uy = upperHeight - gap - upperBox.baseline => 20 - 5 - 15 = 0.
+      // This means the visual bottom of ∞ touches exactly 'gap' pixels above the Sigma.
+      final uy = upperHeight - gap - upperBox.baseline;
+      _offsetCommands(upperBox.commandStart, upperBox.commandEnd, ux, uy);
     }
 
     if (lowerBox != null) {
       final lx = (maxWidth - lowerBox.width) / 2;
+      // Lower limit sits gap distance below the operator bottom edge.
       final ly = upperHeight + opSize + gap;
       _offsetCommands(lowerBox.commandStart, lowerBox.commandEnd, lx, ly);
     }
@@ -876,136 +966,147 @@ class LatexLayoutEngine {
     final w = width;
 
     switch (delim) {
-      case '(' :
+      case '(':
         // Left parenthesis: smooth arc from top to bottom.
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.85, y),
-            Offset(x + w * 0.55, y + h * 0.15),
-            Offset(x + w * 0.30, y + h * 0.35),
-            Offset(x + w * 0.25, y + h * 0.50),
-            Offset(x + w * 0.30, y + h * 0.65),
-            Offset(x + w * 0.55, y + h * 0.85),
-            Offset(x + w * 0.85, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-          smooth: true,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(x + w * 0.85, y),
+              Offset(x + w * 0.55, y + h * 0.15),
+              Offset(x + w * 0.30, y + h * 0.35),
+              Offset(x + w * 0.25, y + h * 0.50),
+              Offset(x + w * 0.30, y + h * 0.65),
+              Offset(x + w * 0.55, y + h * 0.85),
+              Offset(x + w * 0.85, y + h),
+            ],
+            strokeWidth: strokeW,
+            color: color,
+            smooth: true,
+          ),
+        );
       case ')':
         // Right parenthesis: mirror of left.
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.15, y),
-            Offset(x + w * 0.45, y + h * 0.15),
-            Offset(x + w * 0.70, y + h * 0.35),
-            Offset(x + w * 0.75, y + h * 0.50),
-            Offset(x + w * 0.70, y + h * 0.65),
-            Offset(x + w * 0.45, y + h * 0.85),
-            Offset(x + w * 0.15, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-          smooth: true,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(x + w * 0.15, y),
+              Offset(x + w * 0.45, y + h * 0.15),
+              Offset(x + w * 0.70, y + h * 0.35),
+              Offset(x + w * 0.75, y + h * 0.50),
+              Offset(x + w * 0.70, y + h * 0.65),
+              Offset(x + w * 0.45, y + h * 0.85),
+              Offset(x + w * 0.15, y + h),
+            ],
+            strokeWidth: strokeW,
+            color: color,
+            smooth: true,
+          ),
+        );
       case '[':
         // Left bracket: three straight lines (top, vertical, bottom).
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.75, y),
-            Offset(x + w * 0.30, y),
-            Offset(x + w * 0.30, y + h),
-            Offset(x + w * 0.75, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(x + w * 0.75, y),
+              Offset(x + w * 0.30, y),
+              Offset(x + w * 0.30, y + h),
+              Offset(x + w * 0.75, y + h),
+            ],
+            strokeWidth: strokeW,
+            color: color,
+          ),
+        );
       case ']':
         // Right bracket: mirror.
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.25, y),
-            Offset(x + w * 0.70, y),
-            Offset(x + w * 0.70, y + h),
-            Offset(x + w * 0.25, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(x + w * 0.25, y),
+              Offset(x + w * 0.70, y),
+              Offset(x + w * 0.70, y + h),
+              Offset(x + w * 0.25, y + h),
+            ],
+            strokeWidth: strokeW,
+            color: color,
+          ),
+        );
       case '{':
         // Left brace: smooth S-shape with center point.
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.80, y),
-            Offset(x + w * 0.55, y + h * 0.05),
-            Offset(x + w * 0.50, y + h * 0.20),
-            Offset(x + w * 0.50, y + h * 0.40),
-            Offset(x + w * 0.25, y + h * 0.50), // center cusp
-            Offset(x + w * 0.50, y + h * 0.60),
-            Offset(x + w * 0.50, y + h * 0.80),
-            Offset(x + w * 0.55, y + h * 0.95),
-            Offset(x + w * 0.80, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-          smooth: true,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(x + w * 0.80, y),
+              Offset(x + w * 0.55, y + h * 0.05),
+              Offset(x + w * 0.50, y + h * 0.20),
+              Offset(x + w * 0.50, y + h * 0.40),
+              Offset(x + w * 0.25, y + h * 0.50), // center cusp
+              Offset(x + w * 0.50, y + h * 0.60),
+              Offset(x + w * 0.50, y + h * 0.80),
+              Offset(x + w * 0.55, y + h * 0.95),
+              Offset(x + w * 0.80, y + h),
+            ],
+            strokeWidth: strokeW,
+            color: color,
+            smooth: true,
+          ),
+        );
       case '}':
         // Right brace: mirror of left.
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.20, y),
-            Offset(x + w * 0.45, y + h * 0.05),
-            Offset(x + w * 0.50, y + h * 0.20),
-            Offset(x + w * 0.50, y + h * 0.40),
-            Offset(x + w * 0.75, y + h * 0.50), // center cusp
-            Offset(x + w * 0.50, y + h * 0.60),
-            Offset(x + w * 0.50, y + h * 0.80),
-            Offset(x + w * 0.45, y + h * 0.95),
-            Offset(x + w * 0.20, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-          smooth: true,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(x + w * 0.20, y),
+              Offset(x + w * 0.45, y + h * 0.05),
+              Offset(x + w * 0.50, y + h * 0.20),
+              Offset(x + w * 0.50, y + h * 0.40),
+              Offset(x + w * 0.75, y + h * 0.50), // center cusp
+              Offset(x + w * 0.50, y + h * 0.60),
+              Offset(x + w * 0.50, y + h * 0.80),
+              Offset(x + w * 0.45, y + h * 0.95),
+              Offset(x + w * 0.20, y + h),
+            ],
+            strokeWidth: strokeW,
+            color: color,
+            smooth: true,
+          ),
+        );
       case '|':
         // Vertical bar: single line.
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.50, y),
-            Offset(x + w * 0.50, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [Offset(x + w * 0.50, y), Offset(x + w * 0.50, y + h)],
+            strokeWidth: strokeW,
+            color: color,
+          ),
+        );
       case '‖':
         // Double vertical bar.
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.35, y),
-            Offset(x + w * 0.35, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-        ));
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(x + w * 0.65, y),
-            Offset(x + w * 0.65, y + h),
-          ],
-          strokeWidth: strokeW,
-          color: color,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [Offset(x + w * 0.35, y), Offset(x + w * 0.35, y + h)],
+            strokeWidth: strokeW,
+            color: color,
+          ),
+        );
+        _commands.add(
+          PathDrawCommand(
+            points: [Offset(x + w * 0.65, y), Offset(x + w * 0.65, y + h)],
+            strokeWidth: strokeW,
+            color: color,
+          ),
+        );
       default:
         // Unsupported delimiter — fall back to glyph.
-        _commands.add(GlyphDrawCommand(
-          text: delim,
-          x: x,
-          y: y,
-          fontSize: height,
-          color: color,
-          fontFamily: _mathFontFamily,
-        ));
+        _commands.add(
+          GlyphDrawCommand(
+            text: delim,
+            x: x,
+            y: y,
+            fontSize: height,
+            color: color,
+            fontFamily: _mathFontFamily,
+          ),
+        );
     }
   }
 
@@ -1027,7 +1128,15 @@ class LatexLayoutEngine {
 
     if (node.open.isNotEmpty) {
       if (usePathDelim) {
-        _addPathDelimiter(node.open, 0, vertOffset, delimWidth, delimHeight, fs, color);
+        _addPathDelimiter(
+          node.open,
+          0,
+          vertOffset,
+          delimWidth,
+          delimHeight,
+          fs,
+          color,
+        );
       } else {
         _commands.add(
           GlyphDrawCommand(
@@ -1051,7 +1160,15 @@ class LatexLayoutEngine {
 
     if (node.close.isNotEmpty) {
       if (usePathDelim) {
-        _addPathDelimiter(node.close, delimWidth + bodyBox.width, vertOffset, delimWidth, delimHeight, fs, color);
+        _addPathDelimiter(
+          node.close,
+          delimWidth + bodyBox.width,
+          vertOffset,
+          delimWidth,
+          delimHeight,
+          fs,
+          color,
+        );
       } else {
         _commands.add(
           GlyphDrawCommand(
@@ -1179,12 +1296,16 @@ class LatexLayoutEngine {
       final lineThickness = fs * _fractionBarThickness;
       final lineY = baseBox.height + lineGap;
 
-      _commands.add(LineDrawCommand(
-        x1: 0, y1: lineY,
-        x2: baseBox.width, y2: lineY,
-        thickness: lineThickness,
-        color: color,
-      ));
+      _commands.add(
+        LineDrawCommand(
+          x1: 0,
+          y1: lineY,
+          x2: baseBox.width,
+          y2: lineY,
+          thickness: lineThickness,
+          color: color,
+        ),
+      );
 
       return _LayoutBox(
         width: baseBox.width,
@@ -1296,9 +1417,10 @@ class LatexLayoutEngine {
       'lime' => const Color(0xFF88FF00),
       'teal' => const Color(0xFF008888),
       'violet' => const Color(0xFF8800CC),
-      _ => name.startsWith('#') && name.length == 7
-          ? Color(int.parse('FF${name.substring(1)}', radix: 16))
-          : const Color(0xFFFF4444), // fallback red for unknown
+      _ =>
+        name.startsWith('#') && name.length == 7
+            ? Color(int.parse('FF${name.substring(1)}', radix: 16))
+            : const Color(0xFFFF4444), // fallback red for unknown
     };
   }
 
@@ -1321,17 +1443,49 @@ class LatexLayoutEngine {
 
     // Draw rectangle border.
     // Top
-    _commands.add(LineDrawCommand(x1: 0, y1: 0, x2: totalWidth, y2: 0,
-        thickness: borderThickness, color: color));
+    _commands.add(
+      LineDrawCommand(
+        x1: 0,
+        y1: 0,
+        x2: totalWidth,
+        y2: 0,
+        thickness: borderThickness,
+        color: color,
+      ),
+    );
     // Bottom
-    _commands.add(LineDrawCommand(x1: 0, y1: totalHeight, x2: totalWidth, y2: totalHeight,
-        thickness: borderThickness, color: color));
+    _commands.add(
+      LineDrawCommand(
+        x1: 0,
+        y1: totalHeight,
+        x2: totalWidth,
+        y2: totalHeight,
+        thickness: borderThickness,
+        color: color,
+      ),
+    );
     // Left
-    _commands.add(LineDrawCommand(x1: 0, y1: 0, x2: 0, y2: totalHeight,
-        thickness: borderThickness, color: color));
+    _commands.add(
+      LineDrawCommand(
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: totalHeight,
+        thickness: borderThickness,
+        color: color,
+      ),
+    );
     // Right
-    _commands.add(LineDrawCommand(x1: totalWidth, y1: 0, x2: totalWidth, y2: totalHeight,
-        thickness: borderThickness, color: color));
+    _commands.add(
+      LineDrawCommand(
+        x1: totalWidth,
+        y1: 0,
+        x2: totalWidth,
+        y2: totalHeight,
+        thickness: borderThickness,
+        color: color,
+      ),
+    );
 
     return _LayoutBox(
       width: totalWidth,
@@ -1348,7 +1502,8 @@ class LatexLayoutEngine {
     final gap = fs * 0.10;
     final braceHeight = node.braceStyle == 'brace' ? fs * 0.18 : 0.0;
 
-    final maxWidth = bodyBox.width > annoBox.width ? bodyBox.width : annoBox.width;
+    final maxWidth =
+        bodyBox.width > annoBox.width ? bodyBox.width : annoBox.width;
 
     if (node.above) {
       // Annotation above: annotation → (brace) → body
@@ -1360,18 +1515,20 @@ class LatexLayoutEngine {
       if (node.braceStyle == 'brace') {
         // Draw a horizontal overbrace between annotation and body
         final braceY = annoBox.height + gap;
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(bodyX, braceY + braceHeight),
-            Offset(bodyX, braceY),
-            Offset(bodyX + bodyBox.width / 2, braceY - braceHeight * 0.3),
-            Offset(bodyX + bodyBox.width, braceY),
-            Offset(bodyX + bodyBox.width, braceY + braceHeight),
-          ],
-          strokeWidth: fs * _fractionBarThickness,
-          color: color,
-          smooth: true,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(bodyX, braceY + braceHeight),
+              Offset(bodyX, braceY),
+              Offset(bodyX + bodyBox.width / 2, braceY - braceHeight * 0.3),
+              Offset(bodyX + bodyBox.width, braceY),
+              Offset(bodyX + bodyBox.width, braceY + braceHeight),
+            ],
+            strokeWidth: fs * _fractionBarThickness,
+            color: color,
+            smooth: true,
+          ),
+        );
       }
 
       final bodyY = annoBox.height + gap + braceHeight + gap;
@@ -1394,18 +1551,20 @@ class LatexLayoutEngine {
 
       final braceY = bodyBox.height + gap;
       if (node.braceStyle == 'brace') {
-        _commands.add(PathDrawCommand(
-          points: [
-            Offset(bodyX, braceY),
-            Offset(bodyX, braceY + braceHeight),
-            Offset(bodyX + bodyBox.width / 2, braceY + braceHeight * 1.3),
-            Offset(bodyX + bodyBox.width, braceY + braceHeight),
-            Offset(bodyX + bodyBox.width, braceY),
-          ],
-          strokeWidth: fs * _fractionBarThickness,
-          color: color,
-          smooth: true,
-        ));
+        _commands.add(
+          PathDrawCommand(
+            points: [
+              Offset(bodyX, braceY),
+              Offset(bodyX, braceY + braceHeight),
+              Offset(bodyX + bodyBox.width / 2, braceY + braceHeight * 1.3),
+              Offset(bodyX + bodyBox.width, braceY + braceHeight),
+              Offset(bodyX + bodyBox.width, braceY),
+            ],
+            strokeWidth: fs * _fractionBarThickness,
+            color: color,
+            smooth: true,
+          ),
+        );
       }
 
       final annoY = braceY + braceHeight + gap;
@@ -1428,28 +1587,48 @@ class LatexLayoutEngine {
 
     switch (node.direction) {
       case 'forward': // diagonal /
-        _commands.add(LineDrawCommand(
-          x1: 0, y1: bodyBox.height,
-          x2: bodyBox.width, y2: 0,
-          thickness: strokeW, color: const Color(0xFFFF4444),
-        ));
+        _commands.add(
+          LineDrawCommand(
+            x1: 0,
+            y1: bodyBox.height,
+            x2: bodyBox.width,
+            y2: 0,
+            thickness: strokeW,
+            color: const Color(0xFFFF4444),
+          ),
+        );
       case 'back': // diagonal \
-        _commands.add(LineDrawCommand(
-          x1: 0, y1: 0,
-          x2: bodyBox.width, y2: bodyBox.height,
-          thickness: strokeW, color: const Color(0xFFFF4444),
-        ));
+        _commands.add(
+          LineDrawCommand(
+            x1: 0,
+            y1: 0,
+            x2: bodyBox.width,
+            y2: bodyBox.height,
+            thickness: strokeW,
+            color: const Color(0xFFFF4444),
+          ),
+        );
       case 'cross': // X
-        _commands.add(LineDrawCommand(
-          x1: 0, y1: bodyBox.height,
-          x2: bodyBox.width, y2: 0,
-          thickness: strokeW, color: const Color(0xFFFF4444),
-        ));
-        _commands.add(LineDrawCommand(
-          x1: 0, y1: 0,
-          x2: bodyBox.width, y2: bodyBox.height,
-          thickness: strokeW, color: const Color(0xFFFF4444),
-        ));
+        _commands.add(
+          LineDrawCommand(
+            x1: 0,
+            y1: bodyBox.height,
+            x2: bodyBox.width,
+            y2: 0,
+            thickness: strokeW,
+            color: const Color(0xFFFF4444),
+          ),
+        );
+        _commands.add(
+          LineDrawCommand(
+            x1: 0,
+            y1: 0,
+            x2: bodyBox.width,
+            y2: bodyBox.height,
+            thickness: strokeW,
+            color: const Color(0xFFFF4444),
+          ),
+        );
     }
 
     return _LayoutBox(
@@ -1491,7 +1670,10 @@ class LatexLayoutEngine {
     }
 
     // Compute column widths.
-    final numCols = cellBoxes.fold<int>(0, (mx, r) => r.length > mx ? r.length : mx);
+    final numCols = cellBoxes.fold<int>(
+      0,
+      (mx, r) => r.length > mx ? r.length : mx,
+    );
     final colWidths = List<double>.filled(numCols, 0);
     for (final row in cellBoxes) {
       for (var c = 0; c < row.length; c++) {
@@ -1510,9 +1692,11 @@ class LatexLayoutEngine {
     }
 
     // Total content dimensions.
-    final contentWidth = colWidths.fold<double>(0, (s, w) => s + w) +
+    final contentWidth =
+        colWidths.fold<double>(0, (s, w) => s + w) +
         (numCols > 1 ? (numCols - 1) * colGap : 0);
-    final contentHeight = rowHeights.fold<double>(0, (s, h) => s + h) +
+    final contentHeight =
+        rowHeights.fold<double>(0, (s, h) => s + h) +
         (rowHeights.length > 1 ? (rowHeights.length - 1) * rowGap : 0);
 
     // Position cells.
@@ -1536,14 +1720,19 @@ class LatexLayoutEngine {
       width: totalWidth,
       height: contentHeight,
       baseline: contentHeight / 2 + fs * _mathAxisOffset,
-      commandStart: cellBoxes.isNotEmpty && cellBoxes.first.isNotEmpty
-          ? cellBoxes.first.first.commandStart
-          : _commands.length - 1,
+      commandStart:
+          cellBoxes.isNotEmpty && cellBoxes.first.isNotEmpty
+              ? cellBoxes.first.first.commandStart
+              : _commands.length - 1,
       commandEnd: _commands.length,
     );
   }
 
-  _LayoutBox _layoutExtensibleArrow(LatexExtensibleArrow node, double fs, Color color) {
+  _LayoutBox _layoutExtensibleArrow(
+    LatexExtensibleArrow node,
+    double fs,
+    Color color,
+  ) {
     final cmdStart = _commands.length;
     final minWidth = fs * 2.0;
     final strokeW = fs * _fractionBarThickness;
@@ -1564,35 +1753,48 @@ class LatexLayoutEngine {
       if (belowBox != null) belowBox.width + fs * 0.4,
     ].fold<double>(0, (a, b) => a > b ? a : b);
 
-    final arrowY = (aboveBox != null ? aboveBox.height + fs * 0.08 : 0) + fs * 0.1;
+    final arrowY =
+        (aboveBox != null ? aboveBox.height + fs * 0.08 : 0) + fs * 0.1;
 
     // Draw arrow line.
-    _commands.add(LineDrawCommand(
-      x1: 0, y1: arrowY, x2: textWidth, y2: arrowY,
-      thickness: strokeW, color: color,
-    ));
+    _commands.add(
+      LineDrawCommand(
+        x1: 0,
+        y1: arrowY,
+        x2: textWidth,
+        y2: arrowY,
+        thickness: strokeW,
+        color: color,
+      ),
+    );
 
     // Draw arrowhead.
     final headSize = fs * 0.12;
     if (node.direction == 'right' || node.direction == 'both') {
-      _commands.add(PathDrawCommand(
-        points: [
-          Offset(textWidth - headSize, arrowY - headSize),
-          Offset(textWidth, arrowY),
-          Offset(textWidth - headSize, arrowY + headSize),
-        ],
-        strokeWidth: strokeW, color: color,
-      ));
+      _commands.add(
+        PathDrawCommand(
+          points: [
+            Offset(textWidth - headSize, arrowY - headSize),
+            Offset(textWidth, arrowY),
+            Offset(textWidth - headSize, arrowY + headSize),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+        ),
+      );
     }
     if (node.direction == 'left' || node.direction == 'both') {
-      _commands.add(PathDrawCommand(
-        points: [
-          Offset(headSize, arrowY - headSize),
-          Offset(0, arrowY),
-          Offset(headSize, arrowY + headSize),
-        ],
-        strokeWidth: strokeW, color: color,
-      ));
+      _commands.add(
+        PathDrawCommand(
+          points: [
+            Offset(headSize, arrowY - headSize),
+            Offset(0, arrowY),
+            Offset(headSize, arrowY + headSize),
+          ],
+          strokeWidth: strokeW,
+          color: color,
+        ),
+      );
     }
 
     // Position text above/below arrow.
@@ -1606,7 +1808,9 @@ class LatexLayoutEngine {
       _offsetCommands(belowBox.commandStart, belowBox.commandEnd, bx, by);
     }
 
-    final totalHeight = arrowY + fs * 0.1 +
+    final totalHeight =
+        arrowY +
+        fs * 0.1 +
         (belowBox != null ? belowBox.height + fs * 0.08 : 0);
 
     return _LayoutBox(
@@ -1637,7 +1841,10 @@ class LatexLayoutEngine {
     }
 
     // Determine max columns (typically 2: left & right of &).
-    final numCols = cellBoxes.fold<int>(0, (mx, r) => r.length > mx ? r.length : mx);
+    final numCols = cellBoxes.fold<int>(
+      0,
+      (mx, r) => r.length > mx ? r.length : mx,
+    );
 
     // Compute column widths.
     final colWidths = List<double>.filled(numCols, 0);
@@ -1658,7 +1865,8 @@ class LatexLayoutEngine {
     }
 
     // Total width.
-    final totalWidth = colWidths.fold<double>(0, (s, w) => s + w) +
+    final totalWidth =
+        colWidths.fold<double>(0, (s, w) => s + w) +
         (numCols > 1 ? (numCols - 1) * colGap : 0);
 
     // Position cells — right-align col 0 (before &), left-align col 1+ (after &).
@@ -1686,12 +1894,14 @@ class LatexLayoutEngine {
     return _LayoutBox(
       width: totalWidth,
       height: totalHeight,
-      baseline: rowHeights.isNotEmpty
-          ? rowHeights.first * _baselineFraction
-          : totalHeight / 2,
-      commandStart: cellBoxes.first.isNotEmpty
-          ? cellBoxes.first.first.commandStart
-          : _commands.length,
+      baseline:
+          rowHeights.isNotEmpty
+              ? rowHeights.first * _baselineFraction
+              : totalHeight / 2,
+      commandStart:
+          cellBoxes.first.isNotEmpty
+              ? cellBoxes.first.first.commandStart
+              : _commands.length,
       commandEnd: _commands.length,
     );
   }
@@ -1709,12 +1919,16 @@ class LatexLayoutEngine {
     final totalHeight = bodyBox.height + padding * 2;
 
     // Draw filled background rectangle.
-    _commands.add(RectDrawCommand(
-      x: 0, y: 0,
-      width: totalWidth, height: totalHeight,
-      color: bgColor,
-      filled: true,
-    ));
+    _commands.add(
+      RectDrawCommand(
+        x: 0,
+        y: 0,
+        width: totalWidth,
+        height: totalHeight,
+        color: bgColor,
+        filled: true,
+      ),
+    );
 
     return _LayoutBox(
       width: totalWidth,
@@ -1729,12 +1943,16 @@ class LatexLayoutEngine {
     final w = fs * node.widthEm;
     final h = fs * node.heightEm;
 
-    _commands.add(RectDrawCommand(
-      x: 0, y: 0,
-      width: w, height: h,
-      color: color,
-      filled: true,
-    ));
+    _commands.add(
+      RectDrawCommand(
+        x: 0,
+        y: 0,
+        width: w,
+        height: h,
+        color: color,
+        filled: true,
+      ),
+    );
 
     return _LayoutBox(
       width: w,
