@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/painting.dart';
 import './content_cluster.dart';
 import './knowledge_connection.dart';

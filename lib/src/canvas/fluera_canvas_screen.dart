@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'dart:ui'
+    show ImageFilter; // 🖊️ For _WheelPenPickerOverlay BackdropFilter
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/foundation.dart' show compute, kIsWeb, kReleaseMode;
@@ -10,20 +12,24 @@ import 'package:flutter/scheduler.dart' show Ticker;
 import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
 import './ai/proactive_analysis_model.dart'; // 💡 Proactive knowledge gap data models
-import './ai/exam_session_controller.dart';   // 🎓 Exam Mode session controller
-import './ai/chat_session_controller.dart';   // 💬 Chat with Notes controller
-import './ai/chat_session_model.dart';        // 💬 Chat data models
-import './ai/fsrs_scheduler.dart';             // 🧠 FSRS adaptive spaced repetition
-import './ai/learning_step_controller.dart';   // 🧠 12-step cognitive cycle state machine
-import './ai/flow_guard.dart';                 // 🛡️ Flow protection during active writing
-import './overlays/exam_overlay.dart';         // 🎓 Exam Mode fullscreen overlay
-import './overlays/chat_overlay.dart';         // 💬 Chat with Notes overlay
-import '../ai/chat_context_builder.dart';      // 💬 Chat context builder
+import '../core/scene_graph/content_origin.dart'; // 🏷️ Content provenance taxonomy (A20.3)
+import '../audio/pedagogical_sound_engine.dart'; // 🎵 Pedagogical sound effects (A13.4)
+import './ai/exam_session_controller.dart'; // 🎓 Exam Mode session controller
+import './ai/chat_session_controller.dart'; // 💬 Chat with Notes controller
+import './ai/ghost_map_controller.dart'; // 🗺️ Ghost Map — knowledge gap overlay
+import './ai/ghost_map_model.dart'; // 🗺️ Ghost Map data models
+import './ai/chat_session_model.dart'; // 💬 Chat data models
+import './ai/fsrs_scheduler.dart'; // 🧠 FSRS adaptive spaced repetition
+import './ai/learning_step_controller.dart'; // 🧠 12-step cognitive cycle state machine
+import './ai/flow_guard.dart'; // 🛡️ Flow protection during active writing
+import './overlays/exam_overlay.dart'; // 🎓 Exam Mode fullscreen overlay
+import './overlays/chat_overlay.dart'; // 💬 Chat with Notes overlay
+import '../ai/chat_context_builder.dart'; // 💬 Chat context builder
 import './widgets/proactive_cluster_dot.dart'; // 💡 Animated gap indicator dot
 import '../platform/native_notifications.dart'; // 🔔 Native notifications for SR reminders
+import '../l10n/fluera_localizations.dart'; // 🌍 L10n strings
 
 import 'package:flutter/services.dart';
-import 'package:flutter/semantics.dart';
 import '../utils/safe_path_provider.dart';
 import '../utils/platform_guard.dart';
 import '../utils/key_value_store.dart';
@@ -60,6 +66,7 @@ import '../rendering/canvas/origin_indicator_painter.dart';
 import '../rendering/canvas/implicit_section_painter.dart';
 import '../rendering/canvas/knowledge_flow_painter.dart';
 import '../rendering/canvas/cluster_thumbnail_cache.dart';
+import '../rendering/canvas/ghost_map_overlay_painter.dart';
 import '../reflow/knowledge_connection.dart';
 import '../reflow/knowledge_flow_controller.dart';
 import '../reflow/connection_suggestion_engine.dart';
@@ -70,6 +77,7 @@ import '../rendering/optimization/stroke_data_manager.dart';
 import '../drawing/services/stroke_persistence_service.dart';
 import '../rendering/canvas/image_painter.dart';
 import './toolbar/professional_canvas_toolbar.dart';
+import './toolbar/toolbar_brush_strip.dart'; // 🖊️ Reused by _WheelPenPickerOverlay
 import './overlays/eyedropper_overlay.dart';
 import './overlays/floating_color_disc.dart';
 import './overlays/action_flash_overlay.dart';
@@ -190,6 +198,7 @@ import './toolbar/menus/selection_actions_menu.dart';
 import './overlays/selection_context_halo.dart';
 import './toolbar/menus/image_action_button.dart';
 import './toolbar/image_contextual_toolbar.dart';
+import './toolbar/menus/latex_code_dialog.dart';
 import '../rendering/canvas/canvas_painters.dart';
 import '../dialogs/canvas_settings_dialog.dart';
 import '../tools/pdf_page_drag_controller.dart';
@@ -359,6 +368,42 @@ import './ai/recall/recall_summary_overlay.dart';
 import './ai/recall/recall_missed_marker.dart';
 import './ai/recall/recall_zone_selector.dart';
 
+// ─── Step Gate System (A15) ─────────────────────────────────────────────────
+import './ai/step_gate_controller.dart';
+
+// ─── SRS Blur on Return (Step 6/8) ─────────────────────────────────────────
+import './ai/srs_review_session.dart';
+import './ai/srs_stage_indicator.dart'; // 🌱→👻 5-stage mastery indicators
+import './widgets/srs_review_type_selector.dart'; // ⚡🧠 Micro vs Deep review
+import '../rendering/canvas/srs_blur_overlay_painter.dart';
+import '../rendering/canvas/passeggiata_overlay_painter.dart'; // 🚶 Passeggiata vignette
+import '../rendering/canvas/zeigarnik_pulse_painter.dart'; // 💛 Zeigarnik pulse
+import '../rendering/canvas/golden_shimmer_painter.dart'; // ⭐ Golden shimmer on mastered
+
+// ─── Fog of War (Step 10) ──────────────────────────────────────────────────
+import './ai/fog_of_war/fog_of_war_controller.dart';
+import './ai/fog_of_war/fog_of_war_model.dart';
+import '../rendering/canvas/fog_of_war_overlay_painter.dart';
+import './widgets/fog_of_war_info_screen.dart';
+import './widgets/ghost_map_info_screen.dart';
+
+// ─── Socratic Spatial (Step 3) ────────────────────────────────────────────────
+import './ai/socratic/socratic_controller.dart';
+import './ai/socratic/socratic_model.dart';
+import './widgets/socratic_bubble.dart';
+
+// ─── Cross-Zone Bridges (Step 9) ──────────────────────────────────────────────
+import './ai/cross_zone_bridge_controller.dart';
+
+// ─── P2P Collaboration (Passo 7) ──────────────────────────────────────────────
+import '../p2p/p2p_engine.dart';
+import '../p2p/p2p_session_state.dart';
+import '../p2p/fluera_p2p_connector.dart';
+import '../p2p/canvas_rasterizer.dart';
+import './overlays/p2p_session_overlay.dart';
+import './overlays/p2p_mode_selection_sheet.dart';
+import './overlays/p2p_invite_sheet.dart';
+
 // ============================================================================
 // PART FILES
 // ============================================================================
@@ -409,6 +454,17 @@ part './parts/_smart_ink.dart'; // ✍️ Smart Ink — tap-to-reveal handwritin
 part './parts/_chat_with_notes.dart'; // 💬 Chat with Notes — conversational AI
 part './parts/_spellcheck.dart'; // 🔍 Spellcheck — in-canvas spell checking
 part './parts/_recall_mode.dart'; // 🧠 Recall Mode — Step 2 reconstruction
+part './parts/_srs_blur.dart'; // 🧠 SRS Blur — Step 6/8 blur-on-return
+part './parts/_ghost_map.dart'; // 🗺️ Ghost Map — Step 4 core (trigger, OCR, tap)
+part './parts/_ghost_map_overlays.dart'; // 🗺️ Ghost Map — attempt, compare, explanation overlays
+part './parts/_ghost_map_lifecycle.dart'; // 🗺️ Ghost Map — dismiss, progress, navigation, Passo 3
+part './parts/_fog_of_war.dart'; // 🌫️ Fog of War — Step 10 exam preparation
+part './parts/_socratic_mode.dart'; // 🔶 Socratic Spatial — Step 3 interrogation
+part './parts/_passeggiata_mode.dart'; // 🚶 Passeggiata nel Palazzo — pre-exam contemplation
+part './parts/_zeigarnik_effect.dart'; // 💛 Zeigarnik — ambient pulse on incomplete nodes
+part './parts/_golden_shimmer.dart'; // ⭐ Golden Shimmer — ambient shimmer on mastered nodes
+part './parts/_cross_zone_bridges.dart'; // 🌉 Cross-Zone Bridges — Passo 9 cross-domain
+part './parts/_p2p_session.dart'; // 🤝 P2P Collaboration — Passo 7 session management
 
 // ✏️ Drawing
 part './parts/drawing/_drawing_handlers.dart';
@@ -648,8 +704,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🧠 Learning step controller — gates AI subsystems by current step.
   /// Default: Step 1 (Appunti a Mano) — AI dormant, zero distractions.
-  final LearningStepController _learningStepController =
-      LearningStepController(initialStep: LearningStep.step1Notes);
+  final LearningStepController _learningStepController = LearningStepController(
+    initialStep: LearningStep.step1Notes,
+  );
+
+  /// 🚦 Step gate controller — evaluates prerequisites for each step (A15).
+  /// Loaded from KeyValueStore on init, saved on step completion.
+  late StepGateController _stepGateController;
 
   /// 🛡️ Flow guard — suppresses non-critical overlays during active writing
   /// and for 2 seconds after the last stroke (P1-25).
@@ -661,6 +722,133 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 💾 Recall Mode persistence — saves/loads recall session history.
   final RecallPersistenceService _recallPersistenceService =
       RecallPersistenceService();
+
+  /// 🧠 SRS Blur: Review session controller for blur-on-return.
+  final SrsReviewSession _srsReviewSession = SrsReviewSession();
+
+  /// 🗺️ Ghost Map: Controller for AI-generated knowledge gap overlay.
+  late final GhostMapController _ghostMapController = GhostMapController(
+    provider: EngineScope.current.atlasProvider,
+  );
+
+  /// 🗺️ Ghost Map: Version notifier for painter repaint.
+  final ValueNotifier<int> _ghostMapVersionNotifier = ValueNotifier(0);
+
+  /// 🗺️ Ghost Map: Animation controller for pulsing effects.
+  AnimationController? _ghostMapAnimController;
+
+  /// 🗺️ Ghost Map: Current animation time (seconds) for painter.
+  double _ghostMapAnimTime = 0.0;
+
+  /// U-1: Monotonic timer for staggered entry animation.
+  final Stopwatch _ghostMapEntryTimer = Stopwatch();
+
+  /// U-2: Guard to prevent multiple auto-dismiss Future.delayed from stacking.
+  bool _ghostMapU2AutoDismissScheduled = false;
+
+  /// 🗺️ P4-24: Ghost Map overlay opacity for animated fade-out (1.0 = visible, 0.0 = hidden).
+  final ValueNotifier<double> _ghostMapOpacity = ValueNotifier(1.0);
+
+  /// Fix #18: Dedicated AnimationController for vsync-accurate fade-out.
+  AnimationController? _ghostMapFadeOutController;
+
+  /// Fix #25: Remember last pen mode preference across node taps.
+  bool _ghostMapLastPenMode = false;
+
+  /// O-4: Lazy-cached FlueraLocalizations — invalidated on didChangeDependencies.
+  /// Avoids repeated InheritedWidget lookups in hot rebuild paths.
+  late FlueraLocalizations _l10n;
+
+  /// 🌫️ Fog of War: Controller for fog overlay + mastery map.
+  final FogOfWarController _fogOfWarController = FogOfWarController();
+
+  /// 🌫️ Fog of War: Version notifier for painter repaint.
+  final ValueNotifier<int> _fogOfWarVersionNotifier = ValueNotifier(0);
+
+  /// 🌫️ Fog of War: Animation controller for fog effects (medium level).
+  AnimationController? _fogOfWarAnimController;
+
+  /// 🌫️ Fog of War: Animation controller for cinematic reveal (P10-18).
+  AnimationController? _fogOfWarRevealController;
+
+  /// 🌫️ Fog of War: Current animation time (seconds) for painter.
+  double _fogOfWarAnimTime = 0.0;
+
+  /// 🌫️ Fog of War: Pending fog level during zone selection (P10-02).
+  FogLevel? _pendingFogLevel;
+
+  /// 🌫️ Fog of War: Zone selection gesture tracking (P10-02).
+  Offset? _fogZoneStartPoint;
+  Offset? _fogZoneCurrentEndPoint;
+
+  /// 🗺️ Surgical Path (P10-24): Whether the guided review path is active.
+  bool _fogSurgicalPathActive = false;
+
+  /// 🗺️ Surgical Path: IDs of critical nodes already revisited by the student.
+  final Set<String> _fogSurgicalVisitedIds = {};
+
+  /// 🗺️ Surgical Path: Current index in the surgical plan node order.
+  int _fogSurgicalCurrentIndex = 0;
+
+  /// OPT-6: Debounce timer for mastery map zoom-back.
+  Timer? _fogZoomBackTimer;
+
+  /// 💡 Hint system: timer to fly back after showing hint.
+  Timer? _fogHintTimer;
+
+  /// 💡 Hint system: cooldown timestamp.
+  DateTime? _lastHintTime;
+
+  // 🔶 Socratic Spatial fields
+  final SocraticController _socraticController = SocraticController();
+  AnimationController? _socraticPulseController;
+  /// null = not generating, non-null = current phase label
+  String? _socraticGeneratingPhase;
+
+  // 🚶 Passeggiata nel Palazzo fields
+  /// Whether Passeggiata mode is currently active.
+  bool _isPasseggiataActive = false;
+
+  /// Whether SRS tracking is disabled (Passeggiata generates zero SRS data).
+  bool _isPasseggiataSrsDisabled = false;
+
+  /// Guided path waypoints (cluster centroids in canvas coordinates).
+  List<Offset> _passeggiataGuidedPath = const [];
+
+  /// Animation progress for the guided path [0.0 .. 1.0].
+  double _passeggiataPathProgress = 0.0;
+
+  /// Animation controller for the guided path.
+  AnimationController? _passeggiataAnimController;
+
+  // 💛 Zeigarnik Effect fields
+  /// Whether the Zeigarnik pulsing effect is enabled.
+  bool _zeigarnikEnabled = true;
+
+  /// Bounding rects of incomplete nodes (in canvas coordinates).
+  List<Rect> _zeigarnikIncompleteNodeBounds = const [];
+
+  /// Animation phase [0..2π] for the pulsing effect.
+  double _zeigarnikAnimPhase = 0.0;
+
+  /// Animation controller for the Zeigarnik pulse (4s period).
+  AnimationController? _zeigarnikAnimController;
+
+  // ⭐ Golden Shimmer fields (SRS Stage 4+ mastered nodes)
+  /// Whether the golden shimmer effect is enabled.
+  bool _goldenShimmerEnabled = true;
+
+  /// Bounding rects of mastered nodes (in canvas coordinates).
+  List<Rect> _goldenShimmerNodeBounds = const [];
+
+  /// Animation phase [0..2π] for the shimmer effect.
+  double _goldenShimmerAnimPhase = 0.0;
+
+  /// Animation controller for the golden shimmer (6s period).
+  AnimationController? _goldenShimmerAnimController;
+
+  /// 🌉 Cross-Zone Bridge controller (Passo 9, lazy-initialized).
+  CrossZoneBridgeController? _crossZoneBridgeController;
 
   /// 🧠 Recall Mode: zone selector overlay visible.
   bool _showRecallZoneSelector = false;
@@ -690,12 +878,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// their widget trees (~700+ widgets). Internal ListenableBuilder/
   /// ValueListenableBuilder handle canvas-specific repaints autonomously.
   late final Widget _backgroundLayerHost;
+
   /// 🎨 Notifier for background settings changes (paper type, color, surface).
   /// Incrementing this causes the background layer to rebuild with new values.
   final ValueNotifier<int> _backgroundVersionNotifier = ValueNotifier<int>(0);
   late final Widget _drawingLayerHost;
   late final Widget _imageLayerHost;
   late final Widget _gestureLayerHost;
+
   /// 🎯 Fires ONLY when gesture-affecting tool state changes (pan/stylus mode).
   /// Much more targeted than listening to the full _toolController.
   final _gestureRebuildNotifier = ValueNotifier<int>(0);
@@ -708,9 +898,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       VulkanStrokeOverlayService();
   int? _vulkanTextureId;
   bool _vulkanOverlayActive = false;
+
   /// 🔥 VULKAN HANDOFF: controls Texture widget opacity without setState.
   /// 0.0 = hidden (pen-up), 0.7 = marker brush, 1.0 = other brushes.
-  final ValueNotifier<double> _vulkanTextureOpacity = ValueNotifier<double>(1.0);
+  final ValueNotifier<double> _vulkanTextureOpacity = ValueNotifier<double>(
+    1.0,
+  );
 
   /// 🌐 WEBGPU: Web GPU stroke overlay (active only on web)
   bool _webGpuOverlayActive = false;
@@ -764,7 +957,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   void _onToolChangeForPrediction() {
     // Only clear if we have an active prediction
     if (_activePredictionBubble == null &&
-        !InkPredictionService.instance.hasAccumulatedInk) return;
+        !InkPredictionService.instance.hasAccumulatedInk)
+      return;
 
     // If switching to eraser, lasso, or pan → prediction no longer relevant
     if (_effectiveIsEraser || _effectiveIsLasso || _effectiveIsPanMode) {
@@ -785,7 +979,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 🎨 Phase 4C: Brush Preset Manager
   final BrushPresetManager _brushPresetManager = BrushPresetManager();
   bool _presetsLoaded = false;
-  String? _selectedPresetId;
+  String? _selectedPresetId = 'builtin_everyday_pen';
 
   // ============================================================================
   // 🎛️ GETTERS PER TOOL STATE (UnifiedToolController-native)
@@ -895,7 +1089,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Auto-scroll during drag
   Timer? _autoScrollTimer;
   final GlobalKey _canvasAreaKey = GlobalKey();
-  final GlobalKey<ActionFlashOverlayState> _actionFlashKey = GlobalKey<ActionFlashOverlayState>();
+  final GlobalKey<ActionFlashOverlayState> _actionFlashKey =
+      GlobalKey<ActionFlashOverlayState>();
   final List<Color> _recentColors = [];
   static const double _edgeScrollThreshold = 60.0; // 🏎️ Edge zone width
   static const double _scrollSpeed = 8.0; // 🏎️ Max scroll speed (px/frame)
@@ -951,13 +1146,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   // ✂️ SPACE-SPLIT: Controller for two-finger vertical spread gesture
   final SpaceSplitController _spaceSplitController = SpaceSplitController();
+
   /// ✂️ Snapshot of stroke positions before split — used for undo.
   Map<String, List<ProDrawingPoint>>? _preSplitStrokeSnapshot;
 
   // 🧠 KNOWLEDGE FLOW: Connection graph + particle animation
   KnowledgeFlowController? _knowledgeFlowController;
   Ticker? _knowledgeParticleTicker;
-  bool _particleTickerWasActive = false; // 🔮 Tracks ticker state across app lifecycle
+  bool _particleTickerWasActive =
+      false; // 🔮 Tracks ticker state across app lifecycle
   ClusterThumbnailCache? _thumbnailCache;
 
   // 🧠 SEMANTIC MORPHING: Zoom-out semantic view controller
@@ -1007,15 +1204,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   // 🌟 RADIAL EXPANSION: Gesture tracking (Minority Report flow)
   ContentCluster? _radialExpansionLongPressCluster; // cluster hit by long-press
-  String? _radialDraggedBubbleId;                  // bubble currently being dragged
-  Offset? _radialDragStartCanvas;                  // canvas pos when drag started
-  double _radialExpansionHapticThreshold = 0.0;    // haptic escalation tracking
+  String? _radialDraggedBubbleId; // bubble currently being dragged
+  Offset? _radialDragStartCanvas; // canvas pos when drag started
+  double _radialExpansionHapticThreshold = 0.0; // haptic escalation tracking
 
   // 💡 PROACTIVE KNOWLEDGE GAP: Background analysis state
   final Map<String, ProactiveAnalysisEntry> _proactiveCache = {};
-  Timer? _proactiveDebounceTimer;                  // 2s debounce after drawing stops
-  final Set<String> _proactiveRunning = {};         // per-cluster analysis lock
-  String? _activeExplainCardId;                    // current chip-explain card (single at a time)
+  Timer? _proactiveDebounceTimer; // 2s debounce after drawing stops
+  final Set<String> _proactiveRunning = {}; // per-cluster analysis lock
+  String? _activeExplainCardId; // current chip-explain card (single at a time)
 
   // 🚀 PERF: Cached maps rebuilt only when _proactiveCache mutates (not every paint frame)
   Map<String, List<String>> _proactiveGapsCache = const {};
@@ -1034,19 +1231,23 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   }
 
   // 📊 SESSION TRACKING
-  final List<String> _sessionExplored = [];         // concepts explored this session
-  final Set<String> _sessionMastered = {};          // concepts rated "lo so già"
-  final Map<String, SrsCardData> _reviewSchedule = {}; // FSRS spaced repetition: concept → card data
-  final Map<String, String> _conceptFailHistory = {}; // concept → last failed mode ('spiega'|'esempio')
-  final Set<String> _hiddenClusters = {};             // clusters hidden for retrieval practice
-  final Map<String, Map<String, dynamic>> _calibrationLog = {}; // metacognitive calibration
-  StreamSubscription<FNotificationTapEvent>? _notifSub; // notification tap handler
+  final List<String> _sessionExplored = []; // concepts explored this session
+  final Set<String> _sessionMastered = {}; // concepts rated "lo so già"
+  final Map<String, SrsCardData> _reviewSchedule =
+      {}; // FSRS spaced repetition: concept → card data
+  final Map<String, String> _conceptFailHistory =
+      {}; // concept → last failed mode ('spiega'|'esempio')
+  final Set<String> _hiddenClusters =
+      {}; // clusters hidden for retrieval practice
+  final Map<String, Map<String, dynamic>> _calibrationLog =
+      {}; // metacognitive calibration
+  StreamSubscription<FNotificationTapEvent>?
+  _notifSub; // notification tap handler
   Timer? _srNotifDebounce; // debounce for SR notification scheduling
 
   // ➡️ NEXT DOT HINT — transient arrow pointing to next ready dot after card dismiss
   Offset? _nextDotHintTarget;
   Timer? _nextDotHintTimer;
-
 
   // 🎯 RADIAL MENU: Context menu on long-press
   bool _showRadialMenu = false;
@@ -1058,7 +1259,6 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _atlasIsLoading = false;
   String? _atlasResponseText;
   String? _atlasLoadingPhase; // (C) Current loading phase description
-
 
   // 🌌 ATLAS VFX: Active visual effects
   final List<_AtlasVfxEntry> _atlasVfxEntries = [];
@@ -1082,14 +1282,49 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _wheelPillVisible = true;
   DateTime _wheelPillLastInteraction = DateTime.now();
 
+  /// 🖊️ PEN PICKER: transient overlay that expands from the dot on tap.
+  /// Zero canvas space used — appears on top as a floating overlay.
+  bool _penPickerVisible = false;
+
+  /// True while the picker exit animation is running (keeps widget in tree).
+  bool _penPickerDismissing = false;
+  Timer? _penPickerTimer;
+
+  /// Key to control the overlay animation controller for exit animation.
+  final _penPickerKey = GlobalKey<_WheelPenPickerOverlayState>();
+
+  /// 💬 Swipe HUD: briefly shows the preset name when cycling via swipe.
+  String? _swipeHudText;
+  Timer? _swipeHudTimer;
+
+  /// 🖊️ Stylus side button → cycle preset (Apple Pencil button / S-Pen button).
+  /// Subscribes to NativeStylusInput.stylusMetadataStream.
+  StreamSubscription<dynamic>? _stylusButtonSub;
+
+  /// Timestamp of the last button-triggered cycle — for 300ms debounce.
+  int _lastStylusButtonCycleMs = 0;
+
+  void _initStylusButtonListener() {
+    final stylus = EngineScope.current.nativeStylusInput;
+    if (!stylus.isStylusSupported) return;
+    _stylusButtonSub = stylus.stylusMetadataStream.listen((event) {
+      // Only fire when wheel mode is active and button is pressed
+      if (!_useRadialWheel || !event.isButtonPressed) return;
+      // 300ms debounce — hardware buttons can fire multiple events per press
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastStylusButtonCycleMs < 300) return;
+      _lastStylusButtonCycleMs = now;
+      _cyclePreset(forward: true);
+    });
+  }
+
   void _toggleWheelMode() {
     setState(() {
       _useRadialWheel = !_useRadialWheel;
       if (_showRadialMenu) _showRadialMenu = false;
 
-      _wheelModeToast = _useRadialWheel
-          ? 'Wheel mode — long-press to open'
-          : 'Toolbar mode';
+      _wheelModeToast =
+          _useRadialWheel ? 'Wheel mode — long-press to open' : 'Toolbar mode';
       _wheelModeToastVisible = true;
 
       _wheelPillVisible = true;
@@ -1102,7 +1337,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     });
 
     Future.delayed(const Duration(seconds: 4), () {
-      if (mounted && DateTime.now().difference(_wheelPillLastInteraction).inSeconds >= 4) {
+      if (mounted &&
+          DateTime.now().difference(_wheelPillLastInteraction).inSeconds >= 4) {
         setState(() => _wheelPillVisible = false);
       }
     });
@@ -1114,10 +1350,90 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       _wheelPillLastInteraction = DateTime.now();
     });
     Future.delayed(const Duration(seconds: 4), () {
-      if (mounted && DateTime.now().difference(_wheelPillLastInteraction).inSeconds >= 4) {
+      if (mounted &&
+          DateTime.now().difference(_wheelPillLastInteraction).inSeconds >= 4) {
         setState(() => _wheelPillVisible = false);
       }
     });
+  }
+
+  /// 🖊️ Toggle the transient pen picker overlay.
+  void _togglePenPicker() {
+    if (_penPickerDismissing) {
+      // Exit animation in progress — let it finish, then the user can tap again.
+      return;
+    }
+    if (_penPickerVisible) {
+      _closePenPicker();
+    } else {
+      _penPickerTimer?.cancel();
+      setState(() => _penPickerVisible = true);
+      _penPickerTimer = Timer(
+        const Duration(milliseconds: 2500),
+        _closePenPicker,
+      );
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  /// 🖊️ Close with exit animation (200ms), then remove from tree.
+  void _closePenPicker() {
+    _penPickerTimer?.cancel();
+    _penPickerTimer = null;
+    if (!_penPickerVisible || _penPickerDismissing) return;
+    _penPickerDismissing = true;
+    final keyState = _penPickerKey.currentState;
+    if (keyState != null) {
+      keyState.dismiss(
+        onDismissed: () {
+          if (mounted)
+            setState(() {
+              _penPickerVisible = false;
+              _penPickerDismissing = false;
+            });
+        },
+      );
+    } else {
+      setState(() {
+        _penPickerVisible = false;
+        _penPickerDismissing = false;
+      });
+    }
+  }
+
+  /// 🎨 Apply a brush preset — single source of truth.
+  void _applyBrushPreset(BrushPreset preset) {
+    _selectedPresetId = preset.id;
+    _brushSettings = preset.settings;
+    _toolController.setPenType(preset.penType);
+    _toolController.setStrokeWidth(preset.baseWidth);
+    _toolController.setColor(preset.color);
+    _toolController.resetToDrawingMode();
+    _digitalTextTool.deselectElement();
+    EngineScope.current.drawingModule?.brushSettingsService.updateSettings(
+      preset.settings,
+    );
+  }
+
+  /// Cycle through brush presets via swipe gesture on the indicator dot.
+  /// Shows a brief HUD with the preset name so the user knows what was selected.
+  /// [forward] true = next preset (swipe left), false = previous (swipe right).
+  void _cyclePreset({required bool forward}) {
+    final presets = _brushPresetManager.allPresets;
+    if (presets.isEmpty) return;
+    final cur = presets.indexWhere((p) => p.id == _selectedPresetId);
+    final safeIdx = cur < 0 ? 0 : cur;
+    final newIdx =
+        (safeIdx + (forward ? 1 : -1) + presets.length) % presets.length;
+    final preset = presets[newIdx];
+    _applyBrushPreset(preset);
+    HapticFeedback.selectionClick();
+    // Show swipe HUD with preset name for 1.2s
+    _swipeHudTimer?.cancel();
+    _swipeHudTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _swipeHudText = null);
+    });
+    setState(() => _swipeHudText = '${preset.icon}  ${preset.name}');
   }
 
   // === PHASE 3 TOOLS ===
@@ -1152,7 +1468,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 📝 Inline text editing state
   bool _isInlineEditing = false;
   DigitalTextElement? _inlineEditingElement;
-  DateTime? _inlineTextFinishedAt; // 🔒 Cooldown to prevent spurious re-creation
+  DateTime?
+  _inlineTextFinishedAt; // 🔒 Cooldown to prevent spurious re-creation
   final _inlineOverlayKey = GlobalKey<InlineTextOverlayState>();
 
   // 🔍 Spellcheck state
@@ -1199,7 +1516,6 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   EchoSearchController? _echoSearchController;
   bool _isEchoSearchMode = false;
 
-
   /// 🎨 Current text selection for rich text styling
   TextSelection? _inlineTextSelection;
 
@@ -1236,8 +1552,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 📈 FunctionGraphNode interaction state
   FunctionGraphNode? _selectedGraphNode;
   bool _isDraggingGraph = false;
-  bool _isMovingGraph = false; // Long-press initiated: drag moves graph position
-  bool _isDraggingGraphSlider = false; // Slider panel touch — blocks canvas processing
+  bool _isMovingGraph =
+      false; // Long-press initiated: drag moves graph position
+  bool _isDraggingGraphSlider =
+      false; // Slider panel touch — blocks canvas processing
   Offset? _graphDragStart;
   int _lastGraphTapTime = 0; // double-tap detection
   bool _isResizingGraph = false;
@@ -1268,8 +1586,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _isSelectionPinching = false;
   double _selectionPrevRotation = 0.0;
   double _selectionPrevScale = 1.0;
-  double _selectionAccumRotation = 0.0; // Total rotation in radians (for indicator + snap)
-  double _selectionAccumScale = 1.0; // Cumulative scale factor (for indicator + limits)
+  double _selectionAccumRotation =
+      0.0; // Total rotation in radians (for indicator + snap)
+  double _selectionAccumScale =
+      1.0; // Cumulative scale factor (for indicator + limits)
   double? _selectionLastSnapAngle; // Last snapped angle (for haptic dedup)
 
   /// 🌐 R-tree spatial index for O(log n) image viewport culling
@@ -1441,8 +1761,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Timer? _loadingPulseTimer;
   Timer? _suggestionDebounceTimer; // 💡 Debounced suggestion recomputation
   // 🔤 SEMANTIC CACHE: Avoid re-recognizing unchanged clusters
-  final Map<String, String> _clusterTextCache = {};        // clusterId → text
-  final Map<String, String> _clusterTextCacheKeys = {};    // clusterId → sorted strokeIds hash
+  final Map<String, String> _clusterTextCache = {}; // clusterId → text
+  final Map<String, String> _clusterTextCacheKeys =
+      {}; // clusterId → sorted strokeIds hash
   double _loadingPulseValue = 0.0;
 
   /// 🎤 Real-time listener for remote recordings
@@ -1510,28 +1831,38 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // ─── 🧹 SCRATCH-OUT State ─────────────────────────────────────────
   /// Bounds of the area being scratch-out deleted (for dissolve animation).
   Rect? _scratchOutBounds;
+
   /// Whether the scratch-out dissolve animation is playing.
   bool _scratchOutAnimating = false;
+
   /// Deleted stroke data for particle dissolve effect.
   List<_ScratchOutParticle> _scratchOutParticles = [];
+
   /// Set to true when draw is cancelled (zoom interrupt) — suppresses scratch-out.
   bool _drawWasCancelled = false;
+
   /// Timestamp of last _onDrawCancel — used to skip heavy init during zoom churn.
   int _lastDrawCancelMs = 0;
 
   // ─── 🧹 SCRATCH-OUT v5: Real-time preview + dissolve ──────────────
   /// Incremental scratch-out detector (O(1) per point).
   final ScratchOutAccumulator _scratchOutAccumulator = ScratchOutAccumulator();
+
   /// Stroke IDs currently highlighted as "will be deleted" (red tint preview).
   Set<String> _scratchOutPreviewIds = const {};
+
   /// Whether real-time scratch-out preview has been armed (first haptic fired).
   bool _scratchOutPreviewArmed = false;
+
   /// Last reversal count for progressive haptic dedup.
   int _scratchOutLastReversalCount = 0;
+
   /// Strokes dissolving: strokeId → remaining opacity (1.0 → 0.0 over 300ms).
   Map<String, double> _scratchOutDissolveMap = const {};
+
   /// Dissolve animation ticker (drives opacity decrease).
   Ticker? _scratchOutDissolveTicker;
+
   /// Dissolve start timestamp for animation progress.
   int _scratchOutDissolveStartMs = 0;
 
@@ -1693,7 +2024,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   // 📐 Technical Pen — Angle Snap State Machine
   Offset? _techAnchor; // Fixed anchor for current line segment
-  double? _techLockedAngle; // Locked direction angle (radians), null = undecided
+  double?
+  _techLockedAngle; // Locked direction angle (radians), null = undecided
   double? _techPrevRawAngle; // Previous raw angle for hysteresis
 
   // 📐 Technical Pen — Visual Overlay State (fed to _TechPenGuidePainter)
@@ -1702,12 +2034,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   double? _techSegmentLength; // Current segment length for display
 
   // 📐 Technical Pen — Other Feature State
-  bool _techNearStartPoint = false; // True when endpoint near start (close shape)
+  bool _techNearStartPoint =
+      false; // True when endpoint near start (close shape)
   Offset? _techStraightGhostEnd; // End of straightened ghost line
   Offset? _techLastGridCell; // Last grid cell for haptic dedup
-  double? _techLastStrokeAngleRad; // Angle of last completed stroke (for parallel/perp)
+  double?
+  _techLastStrokeAngleRad; // Angle of last completed stroke (for parallel/perp)
   List<Offset> _techMultiSegmentPoints = []; // Multi-segment tap points
-  List<Offset> _techIntersections = []; // Intersection points with existing strokes
+  List<Offset> _techIntersections =
+      []; // Intersection points with existing strokes
 
   // Section drag-to-move state
   SectionNode? _draggingSectionNode;
@@ -1722,6 +2057,32 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // Double-tap zoom-to-fit state
   SectionNode? _lastTappedSection;
   DateTime? _lastTapTime;
+
+  /// 📐 Currently focused section — shows inline quick-action handles
+  /// (add page below, add column right) on the canvas without opening dialogs.
+  SectionNode? _focusedSectionNode;
+
+  /// 🚀 PERF: Cached label counts — avoid O(n) layer scan every frame.
+  SectionNode? _lastCountedSection;
+  int _cachedPageCount = 1;
+  int _cachedColCount = 1;
+
+  /// 🔗 Nodes contained within a section being dragged.
+  /// Populated on drag start, moved with the section during drag,
+  /// cleared on drag end. Enables "content follows section" behavior.
+  List<CanvasNode>? _draggedSectionContents;
+
+  /// 🔗 Accumulated drag delta for batch stroke point translation.
+  /// During drag, localTransform is updated for bounds/queries.
+  /// At dragEnd, stroke points are rewritten with this total offset.
+  Offset _dragAccumulatedDelta = Offset.zero;
+
+  /// 🛡️ Set to true by section handle onTap/onPanStart to signal that this
+  /// pointer-up should NOT be processed by `_onDrawEnd` as a canvas tap.
+  /// The canvas `Listener` uses `HitTestBehavior.translucent`, receiving ALL
+  /// events even when an overlay widget consumes them. This flag lets handles
+  /// suppress double-processing.
+  bool _sectionHandleTapped = false;
 
   @override
   void initState() {
@@ -1744,8 +2105,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _loadSpacedRepetition().then((_) {
       _checkDueForReview();
       _checkRipasso24h(); // 🔄 24h Ebbinghaus trigger
+      _startSrsBlurSessionIfNeeded(); // 🧠 SRS blur-on-return
     });
     _loadSeenClusters(); // 👁️ Restore dismissed dots
+
+    // 🚦 Initialize step gate controller (A15) with persisted history.
+    _stepGateController = StepGateController();
+    _loadStepGateHistory();
 
     // 🔔 Listen for notification taps (SR review reminders)
     _setupNotificationTapHandler();
@@ -1754,6 +2120,16 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _toolController = UnifiedToolController();
     _toolController.addListener(_syncHoverState);
     _toolController.addListener(_onToolChangeForPrediction);
+
+    // 🖊️ Apply Everyday Pen as the default preset on canvas open
+    final everydayPreset = BrushPreset.defaultPresets.firstWhere(
+      (p) => p.id == 'builtin_everyday_pen',
+    );
+    _brushSettings = everydayPreset.settings;
+    _toolController.setPenType(everydayPreset.penType);
+    _toolController.setStrokeWidth(everydayPreset.baseWidth);
+    _toolController.setColor(everydayPreset.color);
+
     _syncHoverState(); // Initial sync
 
     // ✨ Shader init, isolate spawn, texture preload — all moved to
@@ -1847,11 +2223,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     )..addStatusListener((status) {
-        if (status == AnimationStatus.completed) {
-          _lassoRippleCenter = null;
-          _uiRebuildNotifier.value++;
-        }
-      });
+      if (status == AnimationStatus.completed) {
+        _lassoRippleCenter = null;
+        _uiRebuildNotifier.value++;
+      }
+    });
 
     // 🏗️ UNIFIED TOOL SYSTEM
     _unifiedToolController = UnifiedToolController();
@@ -1939,10 +2315,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
           _knowledgeParticleTicker!.isActive) {
         // Don't stop ticker if birth/dissolve animations are still running
         final nowMs = DateTime.now().millisecondsSinceEpoch;
-        final hasActiveAnimation = _knowledgeFlowController?.connections.any(
-          (c) => (c.createdAtMs > 0 && nowMs - c.createdAtMs < 2000) ||
-                 c.deletedAtMs > 0,
-        ) ?? false;
+        final hasActiveAnimation =
+            _knowledgeFlowController?.connections.any(
+              (c) =>
+                  (c.createdAtMs > 0 && nowMs - c.createdAtMs < 2000) ||
+                  c.deletedAtMs > 0,
+            ) ??
+            false;
         if (!hasActiveAnimation) {
           _knowledgeParticleTicker!.stop();
         }
@@ -1990,6 +2369,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
+      // 🖊️ Stylus side button → cycle preset (Apple Pencil / S-Pen)
+      _initStylusButtonListener();
+
       // Center canvas
       final size = MediaQuery.of(context).size;
       _canvasController.centerCanvas(size, canvasSize: _canvasSize);
@@ -2023,6 +2405,34 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         // Start particle animation only when connections exist
         // (started lazily when first connection is created)
 
+        // 🗺️ GHOST MAP: Animation ticker (controller is late final field)
+        _ghostMapAnimController = AnimationController(
+          vsync: this,
+          duration: const Duration(seconds: 4),
+        )..addListener(() {
+          _ghostMapAnimTime = _ghostMapAnimController!.value * 4.0;
+          _ghostMapController.version.value++;
+        });
+
+        // 🌫️ FOG OF WAR: Initialize animation controllers
+        _fogOfWarAnimController = AnimationController(
+          vsync: this,
+          duration: const Duration(seconds: 4),
+        )..addListener(() {
+          _fogOfWarAnimTime = _fogOfWarAnimController!.value * 4.0;
+          _fogOfWarVersionNotifier.value++;
+        });
+        _fogOfWarRevealController = AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 2500),
+        )..addListener(_onFogRevealTick);
+
+        // 🔶 SOCRATIC SPATIAL: Initialize pulse animation controller
+        _socraticPulseController = AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 2000),
+        );
+
         // 🌊 Auto-reflow: animated controller for stroke-commit reflow
         _animatedReflowController = AnimatedReflowController(
           reflowController: _lassoTool.reflowController!,
@@ -2047,19 +2457,28 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
       // 🧠 COGNITIVE CYCLE: Initialize learning step controller + flow guard.
 
-
       // 🧠 RECALL MODE: Initialize Step 2 controller.
-
 
       // 🛡️ Wire FlowGuard to drawing state changes.
       // When drawing starts → protect flow. When drawing ends → start cooldown.
       _isDrawingNotifier.addListener(() {
         if (_isDrawingNotifier.value) {
           _flowGuard.onDrawingStarted();
+          // 🎵 A13-05: Suppress sounds during active writing
+          PedagogicalSoundEngine.instance.suppressForWriting();
         } else {
           _flowGuard.onDrawingEnded();
+          // 🎵 A13-05: Resume sounds 2s after pen up (via FlowGuard cooldown)
+          Future.delayed(FlowGuard.cooldownDuration, () {
+            if (mounted && !_isDrawingNotifier.value) {
+              PedagogicalSoundEngine.instance.resumeFromWriting();
+            }
+          });
         }
       });
+
+      // 🎵 A13-06: Pre-load all sound effects at startup (≤2MB)
+      PedagogicalSoundEngine.instance.initialize();
 
       // 🧠 CONSCIOUS ARCHITECTURE: Register subsystems + start idle timer.
       _initConsciousArchitecture();
@@ -2100,9 +2519,20 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // 🔄 REAL-TIME COLLABORATION: Initialize sync + presence
       _initRealtimeCollaboration();
 
+      // 🤝 P2P COLLABORATION: Initialize P2P session listeners
+      initP2PSession();
+
       // ⏱️ TIME TRAVEL
       _initTimeTravelRecorder();
     });
+  }
+
+  // O-4: Cache l10n on dependency changes (locale switch, theme change).
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _l10n = FlueraLocalizations.of(context);
+    _ghostMapController.l10n = _l10n;
   }
 
   /// 🖼️ Decode image bytes with max dimension cap
@@ -2362,6 +2792,22 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _knowledgeParticleTicker?.dispose();
     _knowledgeFlowController?.dispose();
     _thumbnailCache?.dispose();
+    // 🗺️ GHOST MAP: Release controller + animation
+    _ghostMapAnimController?.dispose();
+    _ghostMapFadeOutController?.dispose(); // Fix #18
+    _ghostMapController.dispose();
+    _ghostMapVersionNotifier.dispose();
+    _ghostMapOpacity.dispose();
+    // 🌫️ FOG OF WAR: Release controller + animations
+    _fogOfWarRevealController?.dispose();
+    _fogOfWarAnimController?.dispose();
+    _fogOfWarController.dispose();
+    _fogOfWarVersionNotifier.dispose();
+    // 🔶 SOCRATIC SPATIAL: Release controller + animation
+    _socraticPulseController?.dispose();
+    _socraticController.dispose();
+    // 🌉 CROSS-ZONE BRIDGES: Release controller
+    _crossZoneBridgeController?.dispose();
     // 🧠 SEMANTIC TITLES: Release timers
     SemanticTitlesEngine.disposeSemanticTitleTimers();
     // 🧠 RECALL MODE: Release controller (cancels peek timer).
@@ -2410,6 +2856,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _disposeRealtimeCollaboration();
     _syncEngine?.dispose();
 
+    // 🤝 P2P SESSION
+    disposeP2PSession();
+
     // 🚀 ADAPTIVE DEBOUNCER
     AdaptiveDebouncerService.instance.flush();
 
@@ -2444,6 +2893,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _autoScrollTimer?.cancel();
     _imageEvictionTimer?.cancel();
     _metricsSubscription?.cancel();
+    _penPickerTimer?.cancel();
+    _swipeHudTimer?.cancel();
+    _stylusButtonSub?.cancel();
     // _layerController.removeListener already called at top of dispose
 
     _eraserPulseController.dispose();
@@ -2625,4 +3077,3 @@ class _EraserParticle {
     this.size = 3.0,
   });
 }
-

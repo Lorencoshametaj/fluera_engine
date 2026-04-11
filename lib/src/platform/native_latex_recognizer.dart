@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../core/latex/ink_stroke_data.dart';
 import 'latex_recognition_bridge.dart';
@@ -77,7 +76,7 @@ class NativeLatexRecognizer implements LatexRecognitionBridge {
       _modelAvailable = result?['available'] as bool? ?? false;
       _initialized = true;
       stopwatch.stop();
-    } on PlatformException catch (e) {
+    } on PlatformException {
       _initialized = true;
       _modelAvailable = false;
     } on MissingPluginException {

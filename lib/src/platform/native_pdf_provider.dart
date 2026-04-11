@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import '../canvas/fluera_canvas_config.dart';
 import '../core/models/ocr_result.dart';
 import '../core/models/pdf_text_rect.dart';

@@ -25,12 +25,12 @@ enum SectionPreset {
   desktop1080p(label: '1080p (Full HD)', width: 1920, height: 1080),
   desktop4k(label: '4K (UHD)', width: 3840, height: 2160),
 
-  // --- Paper ---
-  a4Portrait(label: 'A4 Portrait', width: 595, height: 842),
-  a4Landscape(label: 'A4 Landscape', width: 842, height: 595),
-  a3Portrait(label: 'A3 Portrait', width: 842, height: 1191),
-  letterPortrait(label: 'US Letter Portrait', width: 612, height: 792),
-  letterLandscape(label: 'US Letter Landscape', width: 792, height: 612),
+  // --- Paper (at 150 DPI screen equivalents — matches device preset scale) ---
+  a4Portrait(label: 'A4 Portrait', width: 1240, height: 1754),       // 210×297mm @150dpi
+  a4Landscape(label: 'A4 Landscape', width: 1754, height: 1240),
+  a3Portrait(label: 'A3 Portrait', width: 1754, height: 2480),       // 297×420mm @150dpi
+  letterPortrait(label: 'US Letter Portrait', width: 1275, height: 1650),   // 8.5×11in @150dpi
+  letterLandscape(label: 'US Letter Landscape', width: 1650, height: 1275),
 
   // --- Social ---
   instagramPost(label: 'Instagram Post', width: 1080, height: 1080),
@@ -100,6 +100,10 @@ class SectionNode extends GroupNode {
   /// Grid spacing in canvas units (only used when [showGrid] is true).
   double gridSpacing;
 
+  /// Grid type: 'grid' (square grid), 'ruled' (horizontal lines with margin),
+  /// 'dotted' (dot grid). Only used when [showGrid] is true.
+  String gridType;
+
   /// Optional preset this section was created from.
   SectionPreset? preset;
 
@@ -133,9 +137,10 @@ class SectionNode extends GroupNode {
     super.isLocked,
     this.sectionName = 'Section',
     this.sectionSize = const Size(800, 600),
-    this.backgroundColor,
+    this.backgroundColor = Colors.white,
     this.showGrid = false,
     this.gridSpacing = 20,
+    this.gridType = 'grid',
     this.preset,
     this.clipContent = false,
     this.borderColor = const Color(0xFFBDBDBD),
@@ -231,6 +236,7 @@ class SectionNode extends GroupNode {
     }
     json['showGrid'] = showGrid;
     json['gridSpacing'] = gridSpacing;
+    if (gridType != 'grid') json['gridType'] = gridType;
     if (preset != null && preset != SectionPreset.custom) {
       json['preset'] = preset!.name;
     }
@@ -275,6 +281,7 @@ class SectionNode extends GroupNode {
               : null,
       showGrid: json['showGrid'] as bool? ?? false,
       gridSpacing: (json['gridSpacing'] as num?)?.toDouble() ?? 20,
+      gridType: json['gridType'] as String? ?? 'grid',
       preset: resolvedPreset,
       clipContent: json['clipContent'] as bool? ?? false,
       borderColor:

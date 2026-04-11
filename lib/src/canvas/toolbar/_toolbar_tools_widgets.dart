@@ -681,8 +681,8 @@ class _FormulaBarFieldState extends State<_FormulaBarField> {
   }
 }
 
-/// 📊 Compact toolbar icon button with active state.
-class _ToolbarIconBtn extends StatelessWidget {
+/// 📊 Compact toolbar icon button with press-scale micro-animation and haptic.
+class _ToolbarIconBtn extends StatefulWidget {
   final IconData icon;
   final String tooltip;
   final bool isActive;
@@ -698,19 +698,73 @@ class _ToolbarIconBtn extends StatelessWidget {
   });
 
   @override
+  State<_ToolbarIconBtn> createState() => _ToolbarIconBtnState();
+}
+
+class _ToolbarIconBtnState extends State<_ToolbarIconBtn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: ToolbarTokens.animFast);
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.82,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: ToolbarTokens.curveActive));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return SizedBox(
-      width: 32,
-      height: 32,
-      child: IconButton(
-        icon: Icon(icon, size: 18, color: color),
-        tooltip: tooltip,
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
-        style: IconButton.styleFrom(
-          backgroundColor: isActive ? cs.primary.withValues(alpha: 0.15) : null,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    final enabled = widget.onPressed != null;
+    return GestureDetector(
+      onTapDown: enabled ? (_) => _ctrl.forward() : null,
+      onTapUp:
+          enabled
+              ? (_) {
+                _ctrl.reverse();
+                HapticFeedback.selectionClick();
+                widget.onPressed!();
+              }
+              : null,
+      onTapCancel: () => _ctrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder:
+            (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: AnimatedContainer(
+            duration: ToolbarTokens.animFast,
+            decoration: BoxDecoration(
+              color:
+                  widget.isActive
+                      ? cs.primary.withValues(alpha: 0.15)
+                      : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              widget.icon,
+              size: 18,
+              color:
+                  widget.color ??
+                  (widget.isActive
+                      ? cs.primary
+                      : (Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white70
+                          : Colors.black54)),
+            ),
+          ),
         ),
       ),
     );
@@ -790,8 +844,8 @@ class _ExcelGroup extends StatelessWidget {
   }
 }
 
-/// 📊 Excel toolbar button — 40×38 with 22px icon. Larger, easier to tap.
-class _ExcelBtn extends StatelessWidget {
+/// 📊 Excel toolbar button — press-scale + haptic, 40×38 with 22px icon.
+class _ExcelBtn extends StatefulWidget {
   final IconData icon;
   final String tooltip;
   final bool isDark;
@@ -809,35 +863,78 @@ class _ExcelBtn extends StatelessWidget {
   });
 
   @override
+  State<_ExcelBtn> createState() => _ExcelBtnState();
+}
+
+class _ExcelBtnState extends State<_ExcelBtn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: ToolbarTokens.animFast);
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.80,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: ToolbarTokens.curveActive));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final enabled = onPressed != null;
+    final enabled = widget.onPressed != null;
 
     Color iconColor;
     if (!enabled) {
       iconColor =
-          isDark
+          widget.isDark
               ? Colors.white.withValues(alpha: 0.20)
               : Colors.black.withValues(alpha: 0.20);
-    } else if (isDestructive) {
+    } else if (widget.isDestructive) {
       iconColor = cs.error;
-    } else if (isActive) {
+    } else if (widget.isActive) {
       iconColor = cs.primary;
     } else {
-      iconColor = isDark ? Colors.white70 : Colors.black54;
+      iconColor = widget.isDark ? Colors.white70 : Colors.black54;
     }
 
-    return SizedBox(
-      width: 40,
-      height: 38,
-      child: IconButton(
-        icon: Icon(icon, size: 22, color: iconColor),
-        tooltip: tooltip,
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
-        style: IconButton.styleFrom(
-          backgroundColor: isActive ? cs.primary.withValues(alpha: 0.12) : null,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    return GestureDetector(
+      onTapDown: enabled ? (_) => _ctrl.forward() : null,
+      onTapUp:
+          enabled
+              ? (_) {
+                _ctrl.reverse();
+                HapticFeedback.selectionClick();
+                widget.onPressed!();
+              }
+              : null,
+      onTapCancel: () => _ctrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder:
+            (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: SizedBox(
+          width: 40,
+          height: 38,
+          child: AnimatedContainer(
+            duration: ToolbarTokens.animFast,
+            decoration: BoxDecoration(
+              color:
+                  widget.isActive
+                      ? cs.primary.withValues(alpha: 0.12)
+                      : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(child: Icon(widget.icon, size: 22, color: iconColor)),
+          ),
         ),
       ),
     );
@@ -1211,8 +1308,8 @@ class _DesignChipGroup extends StatelessWidget {
   }
 }
 
-/// Single Material 3 action chip for the Design toolbar.
-class _DesignActionChip extends StatelessWidget {
+/// Single Material 3 action chip for the Design toolbar — with press-scale.
+class _DesignActionChip extends StatefulWidget {
   final IconData icon;
   final String label;
   final bool isDark;
@@ -1228,66 +1325,404 @@ class _DesignActionChip extends StatelessWidget {
   });
 
   @override
+  State<_DesignActionChip> createState() => _DesignActionChipState();
+}
+
+class _DesignActionChipState extends State<_DesignActionChip>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: ToolbarTokens.animFast);
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.85,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: ToolbarTokens.curveActive));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final activeColor = cs.primary;
-    final enabled = onTap != null;
+    final enabled = widget.onTap != null;
 
     return GestureDetector(
-      onTap:
+      onTapDown: enabled ? (_) => _ctrl.forward() : null,
+      onTapUp:
           enabled
-              ? () {
+              ? (_) {
+                _ctrl.reverse();
                 HapticFeedback.selectionClick();
-                onTap!();
+                widget.onTap!();
               }
               : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color:
-              isActive
-                  ? activeColor.withValues(alpha: isDark ? 0.25 : 0.12)
-                  : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          border:
-              isActive
-                  ? Border.all(
-                    color: activeColor.withValues(alpha: 0.5),
-                    width: 1.5,
-                  )
-                  : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color:
-                  !enabled
-                      ? cs.onSurface.withValues(alpha: 0.25)
-                      : isActive
-                      ? activeColor
-                      : (isDark ? Colors.white70 : Colors.black54),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+      onTapCancel: () => _ctrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder:
+            (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: AnimatedContainer(
+          duration: ToolbarTokens.animFast,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color:
+                widget.isActive
+                    ? activeColor.withValues(alpha: widget.isDark ? 0.25 : 0.12)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border:
+                widget.isActive
+                    ? Border.all(
+                      color: activeColor.withValues(alpha: 0.5),
+                      width: 1.5,
+                    )
+                    : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                widget.icon,
+                size: 18,
                 color:
                     !enabled
                         ? cs.onSurface.withValues(alpha: 0.25)
-                        : isActive
+                        : widget.isActive
                         ? activeColor
-                        : (isDark ? Colors.white54 : Colors.black45),
+                        : (widget.isDark ? Colors.white70 : Colors.black54),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight:
+                      widget.isActive ? FontWeight.w700 : FontWeight.w500,
+                  color:
+                      !enabled
+                          ? cs.onSurface.withValues(alpha: 0.25)
+                          : widget.isActive
+                          ? activeColor
+                          : (widget.isDark ? Colors.white54 : Colors.black45),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 🆕 ENTERPRISE UX WIDGETS — Round 2
+// =============================================================================
+
+/// Wraps a horizontally scrollable row with fade gradients on the edges.
+/// Signals to the user that more content is available — Linear/Figma style.
+class _FadedScrollRow extends StatefulWidget {
+  final EdgeInsets padding;
+  final List<Widget> children;
+  final double fadeWidth;
+
+  const _FadedScrollRow({
+    required this.children,
+    this.padding = const EdgeInsets.fromLTRB(10, 4, 10, 6),
+    this.fadeWidth = 24.0,
+  });
+
+  @override
+  State<_FadedScrollRow> createState() => _FadedScrollRowState();
+}
+
+class _FadedScrollRowState extends State<_FadedScrollRow> {
+  final _controller = ScrollController();
+  bool _showLeftFade = false;
+  bool _showRightFade = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onScroll);
+    // After first frame, check if scroll is needed
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onScroll();
+    });
+  }
+
+  void _onScroll() {
+    if (!mounted) return;
+    final pos = _controller.position;
+    setState(() {
+      _showLeftFade = pos.pixels > 4;
+      _showRightFade = pos.pixels < pos.maxScrollExtent - 4;
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onScroll);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseColor = isDark ? Colors.black : Colors.white;
+
+    return Stack(
+      children: [
+        // The scroll content
+        SingleChildScrollView(
+          controller: _controller,
+          scrollDirection: Axis.horizontal,
+          padding: widget.padding,
+          physics: const BouncingScrollPhysics(),
+          child: Row(children: widget.children),
+        ),
+        // Left fade gradient
+        if (_showLeftFade)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: widget.fadeWidth,
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: _showLeftFade ? 1 : 0,
+                duration: ToolbarTokens.animFast,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        baseColor.withValues(alpha: 0.9),
+                        baseColor.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
+          ),
+        // Right fade gradient
+        if (_showRightFade)
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: widget.fadeWidth,
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: _showRightFade ? 1 : 0,
+                duration: ToolbarTokens.animFast,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        baseColor.withValues(alpha: 0),
+                        baseColor.withValues(alpha: 0.9),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Mini pill shown when toolbar is collapsed — displays active tool + color.
+/// Tap to expand.
+class _CollapsedToolIndicator extends StatelessWidget {
+  final IconData toolIcon;
+  final Color penColor;
+  final double strokeWidth;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _CollapsedToolIndicator({
+    required this.toolIcon,
+    required this.penColor,
+    required this.strokeWidth,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = (isDark ? Colors.white : Colors.black).withValues(
+      alpha: 0.5,
+    );
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: ToolbarTokens.animNormal,
+        curve: ToolbarTokens.curveActive,
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Active tool icon
+            Icon(toolIcon, size: 14, color: textColor),
+            const SizedBox(width: 8),
+            // Color dot
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: penColor,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: (isDark ? Colors.white : Colors.black).withValues(
+                    alpha: 0.15,
+                  ),
+                  width: 0.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: penColor.withValues(alpha: 0.4),
+                    blurRadius: 4,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Width indicator
+            Text(
+              '${strokeWidth.round()}px',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: textColor,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Expand chevron
+            Icon(Icons.expand_less_rounded, size: 14, color: textColor),
           ],
         ),
       ),
     );
   }
+}
+
+/// Figma-style active dot — 4px circle that animates under the active tool.
+/// Wraps a child widget and places the dot at the bottom center.
+class _ActiveDotWrapper extends StatelessWidget {
+  final bool isActive;
+  final Color dotColor;
+  final Widget child;
+
+  const _ActiveDotWrapper({
+    required this.isActive,
+    required this.dotColor,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        child,
+        Positioned(
+          bottom: -4,
+          child: AnimatedOpacity(
+            opacity: isActive ? 1.0 : 0.0,
+            duration: ToolbarTokens.animFast,
+            child: AnimatedScale(
+              scale: isActive ? 1.0 : 0.0,
+              duration: ToolbarTokens.animNormal,
+              curve: ToolbarTokens.curveActive,
+              child: Container(
+                width: ToolbarTokens.activeDotSize,
+                height: ToolbarTokens.activeDotSize,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: dotColor.withValues(alpha: 0.6),
+                      blurRadius: 4,
+                      spreadRadius: 0,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Live stroke width preview — a short curved stroke painted with current
+/// pen color and width. Used in the width section of the main toolbar.
+class _StrokeWidthPreview extends StatelessWidget {
+  final Color color;
+  final double width;
+
+  const _StrokeWidthPreview({required this.color, required this.width});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 32,
+      child: CustomPaint(
+        painter: _StrokePreviewPainter(color: color, strokeWidth: width),
+      ),
+    );
+  }
+}
+
+class _StrokePreviewPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+
+  const _StrokePreviewPainter({required this.color, required this.strokeWidth});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint =
+        Paint()
+          ..color = color
+          ..strokeWidth = strokeWidth.clamp(1.0, 16.0)
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke;
+
+    final path = Path();
+    path.moveTo(size.width * 0.1, size.height * 0.65);
+    path.cubicTo(
+      size.width * 0.3,
+      size.height * 0.2,
+      size.width * 0.7,
+      size.height * 0.8,
+      size.width * 0.9,
+      size.height * 0.35,
+    );
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_StrokePreviewPainter old) =>
+      old.color != color || old.strokeWidth != strokeWidth;
 }

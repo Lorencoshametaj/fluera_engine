@@ -9,9 +9,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     // This frame ONLY disposes the old canvas tree (DrawingPainter, Vulkan,
     // overlays). The multiview orchestrator is created in the NEXT frame.
     if (_isMultiviewTransitioning) {
-      return ColoredBox(
-        color: Theme.of(context).colorScheme.surface,
-      );
+      return ColoredBox(color: Theme.of(context).colorScheme.surface);
     }
 
     // 🖥️ Multiview mode — replace single canvas with split panels
@@ -46,9 +44,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             builder: (context, child) {
               final morphT = _semanticMorphController?.morphProgress ?? 0.0;
               // Keep a faint ghost (0.15) to maintain spatial reference
-              final inkOpacity = morphT > 0.01
-                  ? (1.0 - morphT * 0.85).clamp(0.15, 1.0)
-                  : 1.0;
+              final inkOpacity =
+                  morphT > 0.01 ? (1.0 - morphT * 0.85).clamp(0.15, 1.0) : 1.0;
               if (inkOpacity >= 0.999) return child!;
               return Opacity(opacity: inkOpacity, child: child);
             },
@@ -57,80 +54,115 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           _imageLayerHost,
           // 🧠 KNOWLEDGE FLOW: Word underlines + connections + label pills
           // Must be AFTER drawing/image layers so it renders ON TOP of canvas content.
-          if (_knowledgeFlowController != null && (_clusterCache.isNotEmpty || _knowledgeFlowController!.connections.isNotEmpty))
+          if (_knowledgeFlowController != null &&
+              (_clusterCache.isNotEmpty ||
+                  _knowledgeFlowController!.connections.isNotEmpty))
             IgnorePointer(
               child: AnimatedBuilder(
-                  animation: _canvasController,
-                  builder: (context, _) {
-                    final m = Matrix4.identity()
-                      ..translate(
+                animation: _canvasController,
+                builder: (context, _) {
+                  final m =
+                      Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
                         _canvasController.offset.dy,
+                        0.0, 1.0,
                       );
-                    if (_canvasController.rotation != 0.0) {
-                      m.rotateZ(_canvasController.rotation);
-                    }
-                    m.scale(_canvasController.scale);
-                    // 🧠 SEMANTIC MORPHING: Update morph progress from scale
-                    _semanticMorphController?.updateFromScale(
-                      _canvasController.scale,
-                    );
-                    // 🃏 AUTO-DISMISS flashcard when leaving semantic view
-                    // (user zoomed back in above morphStartScale)
-                    if (_semanticMorphController != null &&
-                        !_semanticMorphController!.isActive &&
-                        _semanticMorphController!.flashcardClusterId != null) {
-                      _semanticMorphController!.flashcardClusterId = null;
-                    }
-                    return Transform(
-                      transform: m,
-                      child: ValueListenableBuilder<int>(
-                        valueListenable: _knowledgeFlowController!.version,
-                        builder: (_, __, ___) => CustomPaint(
-                          painter: KnowledgeFlowPainter(
-                            clusters: _clusterCache,
-                            controller: _knowledgeFlowController!,
-                            canvasScale: _canvasController.scale,
-                            showSuggestions: false,
-                            dragSourcePoint: _connectionDragSourcePoint,
-                            dragCurrentPoint: _connectionDragCurrentPoint,
-                            dragSourceClusterId: _connectionDragSourceClusterId,
-                            snapTargetClusterId: _connectionSnapTargetClusterId,
-                            animationTime: DateTime.now().millisecondsSinceEpoch % 10000 / 1000.0,
-                            clusterTexts: _clusterTextCache,
-                            selectedConnectionId: _editingLabelConnectionId,
-                            thumbnails: _thumbnailCache != null
-                                ? {for (final c in _clusterCache) if (_thumbnailCache!.hasThumbnail(c.id)) c.id: _thumbnailCache!.getThumbnail(c.id)!}
-                                : const {},
-                            semanticMorphProgress: _semanticMorphController?.morphProgress ?? 0.0,
-                            semanticController: _semanticMorphController,
-                            spaceSplitLineY: _spaceSplitController.isActive ? _spaceSplitController.splitLineY : null,
-                            spaceSplitSpreadProgress: _spaceSplitController.isActive
-                                ? (_spaceSplitController.spreadDistance / 200.0).clamp(0.0, 1.0)
-                                : 0.0,
-                            spaceSplitGhostDisplacements: _spaceSplitController.isActive
-                                ? _spaceSplitController.ghostDisplacements
-                                : const {},
-                            spaceSplitIsHorizontal: _spaceSplitController.isActive
-                                ? _spaceSplitController.axis == SplitAxis.horizontal
-                                : false,
-                            flightProgress: _canvasController.flightProgress,
-                            flightPhase: _canvasController.flightPhase,
-                            flightSourceClusterId: _canvasController.flightSourceClusterId,
-                            flightTargetClusterId: _canvasController.flightTargetClusterId,
-                            landingPulseProgress: _canvasController.landingPulseProgress,
-                            landingPulseCenter: _canvasController.landingPulseCenter,
-                            proactiveGaps: _proactiveGapsCache,
-                            proactiveScan: _proactiveScanCache,
-                            reviewSchedule: _reviewSchedule,
-                            isPanning: _canvasController.isPanning,
+                  if (_canvasController.rotation != 0.0) {
+                    m.rotateZ(_canvasController.rotation);
+                  }
+                  final _s1 = _canvasController.scale;
+                  m.scaleByDouble(_s1, _s1, 1.0, 1.0);
+                  // 🧠 SEMANTIC MORPHING: Update morph progress from scale
+                  _semanticMorphController?.updateFromScale(
+                    _canvasController.scale,
+                  );
+                  // 🃏 AUTO-DISMISS flashcard when leaving semantic view
+                  // (user zoomed back in above morphStartScale)
+                  if (_semanticMorphController != null &&
+                      !_semanticMorphController!.isActive &&
+                      _semanticMorphController!.flashcardClusterId != null) {
+                    _semanticMorphController!.flashcardClusterId = null;
+                  }
+                  return Transform(
+                    transform: m,
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _knowledgeFlowController!.version,
+                      builder:
+                          (_, __, ___) => CustomPaint(
+                            painter: KnowledgeFlowPainter(
+                              clusters: _clusterCache,
+                              controller: _knowledgeFlowController!,
+                              canvasScale: _canvasController.scale,
+                              showSuggestions: false,
+                              dragSourcePoint: _connectionDragSourcePoint,
+                              dragCurrentPoint: _connectionDragCurrentPoint,
+                              dragSourceClusterId:
+                                  _connectionDragSourceClusterId,
+                              snapTargetClusterId:
+                                  _connectionSnapTargetClusterId,
+                              animationTime:
+                                  DateTime.now().millisecondsSinceEpoch %
+                                  10000 /
+                                  1000.0,
+                              clusterTexts: _clusterTextCache,
+                              selectedConnectionId: _editingLabelConnectionId,
+                              thumbnails:
+                                  _thumbnailCache != null
+                                      ? {
+                                        for (final c in _clusterCache)
+                                          if (_thumbnailCache!.hasThumbnail(
+                                            c.id,
+                                          ))
+                                            c.id:
+                                                _thumbnailCache!.getThumbnail(
+                                                  c.id,
+                                                )!,
+                                      }
+                                      : const {},
+                              semanticMorphProgress:
+                                  _semanticMorphController?.morphProgress ??
+                                  0.0,
+                              semanticController: _semanticMorphController,
+                              spaceSplitLineY:
+                                  _spaceSplitController.isActive
+                                      ? _spaceSplitController.splitLineY
+                                      : null,
+                              spaceSplitSpreadProgress:
+                                  _spaceSplitController.isActive
+                                      ? (_spaceSplitController.spreadDistance /
+                                              200.0)
+                                          .clamp(0.0, 1.0)
+                                      : 0.0,
+                              spaceSplitGhostDisplacements:
+                                  _spaceSplitController.isActive
+                                      ? _spaceSplitController.ghostDisplacements
+                                      : const {},
+                              spaceSplitIsHorizontal:
+                                  _spaceSplitController.isActive
+                                      ? _spaceSplitController.axis ==
+                                          SplitAxis.horizontal
+                                      : false,
+                              flightProgress: _canvasController.flightProgress,
+                              flightPhase: _canvasController.flightPhase,
+                              flightSourceClusterId:
+                                  _canvasController.flightSourceClusterId,
+                              flightTargetClusterId:
+                                  _canvasController.flightTargetClusterId,
+                              landingPulseProgress:
+                                  _canvasController.landingPulseProgress,
+                              landingPulseCenter:
+                                  _canvasController.landingPulseCenter,
+                              proactiveGaps: _proactiveGapsCache,
+                              proactiveScan: _proactiveScanCache,
+                              reviewSchedule: _reviewSchedule,
+                              isPanning: _canvasController.isPanning,
+                            ),
+                            size: Size.infinite,
                           ),
-                          size: Size.infinite,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
+              ),
             ),
           // 🌟 RADIAL EXPANSION: Ghost bubbles + charging pulse
           // Renders AFTER knowledge flow so bubbles appear on top of connections.
@@ -139,17 +171,202 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             IgnorePointer(
               child: AnimatedBuilder(
                 animation: _canvasController,
-                builder: (context, _) => CustomPaint(
-                  painter: RadialExpansionPainter(
-                    controller: _radialExpansionController!,
-                    canvasOffset: _canvasController.offset,
-                    canvasScale: _canvasController.scale,
-                    animationTime: DateTime.now().millisecondsSinceEpoch % 10000 / 1000.0,
+                builder:
+                    (context, _) => CustomPaint(
+                      painter: RadialExpansionPainter(
+                        controller: _radialExpansionController!,
+                        canvasOffset: _canvasController.offset,
+                        canvasScale: _canvasController.scale,
+                        animationTime:
+                            DateTime.now().millisecondsSinceEpoch %
+                            10000 /
+                            1000.0,
+                      ),
+                      size: Size.infinite,
+                    ),
+              ),
+            ),
+          // 💛 ZEIGARNIK PULSE: Ambient amber glow on incomplete nodes.
+          // Rendered ABOVE radial expansion, BELOW SRS blur.
+          if (_zeigarnikEnabled &&
+              _zeigarnikIncompleteNodeBounds.isNotEmpty &&
+              _zeigarnikAnimController != null)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _canvasController,
+                builder: (context, _) {
+                  final zm = Matrix4.identity()
+                    ..translateByDouble(
+                      _canvasController.offset.dx,
+                      _canvasController.offset.dy,
+                      0.0, 1.0,
+                    );
+                  if (_canvasController.rotation != 0.0) {
+                    zm.rotateZ(_canvasController.rotation);
+                  }
+                  final zs = _canvasController.scale;
+                  zm.scaleByDouble(zs, zs, 1.0, 1.0);
+                  return Transform(
+                    transform: zm,
+                    child: CustomPaint(
+                      painter: ZeigarnikPulsePainter(
+                        incompleteNodeBounds: _zeigarnikIncompleteNodeBounds,
+                        animPhase: _zeigarnikAnimPhase,
+                        canvasScale: _canvasController.scale,
+                        isSuppressed: _flowGuard.isFlowProtected,
+                        isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                      ),
+                      size: Size.infinite,
+                    ),
+                  );
+                },
+              ),
+            ),
+          // ⭐ GOLDEN SHIMMER: Subtle golden glow on mastered nodes (SRS Stage 4+).
+          // Rendered AFTER Zeigarnik pulse, BEFORE SRS blur.
+          if (_goldenShimmerEnabled &&
+              _goldenShimmerNodeBounds.isNotEmpty &&
+              _goldenShimmerAnimController != null)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _canvasController,
+                builder: (context, _) {
+                  final gsM = Matrix4.identity()
+                    ..translateByDouble(
+                      _canvasController.offset.dx,
+                      _canvasController.offset.dy,
+                      0.0, 1.0,
+                    );
+                  if (_canvasController.rotation != 0.0) {
+                    gsM.rotateZ(_canvasController.rotation);
+                  }
+                  final gsS = _canvasController.scale;
+                  gsM.scaleByDouble(gsS, gsS, 1.0, 1.0);
+                  return Transform(
+                    transform: gsM,
+                    child: CustomPaint(
+                      painter: GoldenShimmerPainter(
+                        masteredNodeBounds: _goldenShimmerNodeBounds,
+                        animPhase: _goldenShimmerAnimPhase,
+                        canvasScale: _canvasController.scale,
+                        isSuppressed: _flowGuard.isFlowProtected,
+                        isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                      ),
+                      size: Size.infinite,
+                    ),
+                  );
+                },
+              ),
+            ),
+          // 🧠 SRS BLUR ON RETURN: Frosted overlay on due-for-review clusters.
+          // Rendered ABOVE strokes/knowledge flow, BELOW gesture layer.
+          if (_srsReviewSession.isActive)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _canvasController,
+                builder: (context, _) {
+                  final m =
+                      Matrix4.identity()..translateByDouble(
+                        _canvasController.offset.dx,
+                        _canvasController.offset.dy,
+                        0.0, 1.0,
+                      );
+                  if (_canvasController.rotation != 0.0) {
+                    m.rotateZ(_canvasController.rotation);
+                  }
+                  final _s2 = _canvasController.scale;
+                  m.scaleByDouble(_s2, _s2, 1.0, 1.0);
+                  return Transform(
+                    transform: m,
+                    child: ListenableBuilder(
+                      listenable: _srsReviewSession,
+                      builder: (_, __) => CustomPaint(
+                        painter: SrsBlurOverlayPainter(
+                          clusters: _clusterCache,
+                          blurredClusterIds: _srsReviewSession.blurredClusterIds,
+                          revealedClusterIds: _srsReviewSession.revealedClusterIds,
+                          revealResults: _srsReviewSession.revealResults,
+                          animationTime:
+                              DateTime.now().millisecondsSinceEpoch %
+                              10000 /
+                              1000.0,
+                          canvasScale: _canvasController.scale,
+                          isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                        ),
+                        size: Size.infinite,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          // 🗺️ GHOST MAP: AI-generated knowledge gap overlay.
+          // Rendered ABOVE SRS blur, BELOW gesture layer.
+          if (_ghostMapController.isActive)
+            IgnorePointer(
+              child: ValueListenableBuilder<double>(
+                valueListenable: _ghostMapOpacity,
+                builder: (context, opacity, _) => Opacity(
+                  opacity: opacity,
+                  child: AnimatedBuilder(
+                    animation: _canvasController,
+                    builder: (context, _) {
+                      final gmc = _ghostMapController;
+                      final gm = Matrix4.identity()
+                        ..translateByDouble(
+                          _canvasController.offset.dx,
+                          _canvasController.offset.dy,
+                          0.0, 1.0,
+                        );
+                      if (_canvasController.rotation != 0.0) {
+                        gm.rotateZ(_canvasController.rotation);
+                      }
+                      final gs = _canvasController.scale;
+                      gm.scaleByDouble(gs, gs, 1.0, 1.0);
+
+                      // 🚀 Compute viewport rect in canvas coordinates for culling
+                      final viewSize = MediaQuery.of(context).size;
+                      final viewportRect = Rect.fromLTWH(
+                        -_canvasController.offset.dx / gs,
+                        -_canvasController.offset.dy / gs,
+                        viewSize.width / gs,
+                        viewSize.height / gs,
+                      );
+
+                      return Transform(
+                        transform: gm,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: gmc.version,
+                          builder: (_, __, ___) => CustomPaint(
+                            painter: GhostMapOverlayPainter(
+                              result: gmc.result!,
+                              revealedNodeIds: gmc.revealedNodeIds,
+                              dismissedNodeIds: gmc.dismissedNodeIds,
+                              clusters: _clusterCache,
+                              canvasScale: gs,
+                              animationTime: _ghostMapAnimTime,
+                              isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                              viewportRect: viewportRect,
+                              // O-3: Use pre-cached Set from controller (avoids 60 alloc/sec)
+                              visibleMissingNodeIds: gmc.visibleMissingNodeIdsSet,
+                              // O-8: Localized painter labels
+                              labelTapToAttempt: _l10n.ghostMap_tapToAttempt,
+                              labelHypercorrection: _l10n.ghostMap_hypercorrectionLabel,
+                              labelBelowZPD: _l10n.ghostMap_belowZPDLabel,
+                              // U-1: Staggered entry animation
+                              entryProgress: _ghostMapEntryTimer.elapsedMilliseconds / 1000.0,
+                            ),
+                            size: Size.infinite,
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                  size: Size.infinite,
                 ),
               ),
             ),
+          // 🌫️ FOG OF WAR: PLACEHOLDER — moved below Vulkan texture.
+          // (The actual fog overlay is rendered AFTER the Vulkan texture — see below.)
           _gestureLayerHost,
           // 🔥 VULKAN: Native GPU stroke overlay
           // 🖍️ Flutter live stroke: ALWAYS in tree, placed BELOW Vulkan texture.
@@ -177,7 +394,65 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 if (opacity == 0.0) return const SizedBox.shrink();
                 return Opacity(opacity: opacity, child: child);
               },
-              child: IgnorePointer(child: Texture(textureId: _vulkanTextureId!)),
+              child: IgnorePointer(
+                child: Texture(textureId: _vulkanTextureId!),
+              ),
+            ),
+          // 🌫️ FOG OF WAR: Fog overlay + mastery heatmap.
+          // Rendered ABOVE Vulkan texture so fog actually hides strokes.
+          if (_fogOfWarController.isActive)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _canvasController,
+                builder: (context, _) {
+                  final fm = Matrix4.identity()
+                    ..translateByDouble(
+                      _canvasController.offset.dx,
+                      _canvasController.offset.dy,
+                      0.0, 1.0,
+                    );
+                  if (_canvasController.rotation != 0.0) {
+                    fm.rotateZ(_canvasController.rotation);
+                  }
+                  final fs = _canvasController.scale;
+                  fm.scaleByDouble(fs, fs, 1.0, 1.0);
+                  return Transform(
+                    transform: fm,
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _fogOfWarVersionNotifier,
+                      builder: (_, __, ___) {
+                        final screenSize = MediaQuery.sizeOf(context);
+                        final vpCenter = _canvasController.screenToCanvas(
+                          Offset(screenSize.width / 2, screenSize.height / 2),
+                        );
+                        final vpTL = _canvasController.screenToCanvas(Offset.zero);
+                        final vpBR = _canvasController.screenToCanvas(
+                          Offset(screenSize.width, screenSize.height),
+                        );
+                        return CustomPaint(
+                          painter: FogOfWarOverlayPainter(
+                            controller: _fogOfWarController,
+                            clusters: _clusterCache,
+                            canvasScale: _canvasController.scale,
+                            animationTime: _fogOfWarAnimTime,
+                            viewportCenterCanvas: vpCenter,
+                            viewportCanvasRect: Rect.fromPoints(vpTL, vpBR),
+                            isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                            isMuroRossoActive: _fogOfWarController.isMuroRossoActive,
+                            surgicalPathNodeIds: _fogSurgicalPathActive
+                                ? _fogOfWarController.surgicalPlanNodeIds
+                                : const [],
+                            surgicalVisitedIds: _fogSurgicalPathActive
+                                ? _fogSurgicalVisitedIds
+                                : const {},
+                          ),
+                          size: Size.infinite,
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
             ),
           _remoteLiveStrokesHost,
           _pdfPlaceholdersHost,
@@ -187,22 +462,20 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // so only this subtree rebuilds (not the entire widget tree).
           Positioned.fill(
             child: ValueListenableBuilder<int>(
-            valueListenable: _uiRebuildNotifier,
-            builder:
-                (context, _, __) {
-                  // 🚀 PERF: Determine if we're actively drawing freehand
-                  // (not eraser, not pan). When true, hide non-essential
-                  // overlays to reduce Impeller compositing layer count.
-                  final isActivelyDrawingFreehand =
-                      _isDrawingNotifier.value &&
-                      !_effectiveIsEraser &&
-                      !_effectiveIsPanMode;
+              valueListenable: _uiRebuildNotifier,
+              builder: (context, _, __) {
+                // 🚀 PERF: Determine if we're actively drawing freehand
+                // (not eraser, not pan). When true, hide non-essential
+                // overlays to reduce Impeller compositing layer count.
+                final isActivelyDrawingFreehand =
+                    _isDrawingNotifier.value &&
+                    !_effectiveIsEraser &&
+                    !_effectiveIsPanMode;
 
-                  return Stack(
-                   children: [
+                return Stack(
+                  children: [
                     // 🖊️ STYLUS HOVER: Hidden during active drawing (finger/pen is down)
-                    if (!isActivelyDrawingFreehand)
-                      const StylusHoverOverlay(),
+                    if (!isActivelyDrawingFreehand) const StylusHoverOverlay(),
                     // 📐 SECTION PREVIEW OVERLAY
                     if (_isSectionActive &&
                         _sectionStartPoint != null &&
@@ -213,6 +486,23 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                             painter: _SectionPreviewPainter(
                               startPoint: _sectionStartPoint!,
                               endPoint: _sectionCurrentEndPoint!,
+                              controller: _canvasController,
+                            ),
+                            size: Size.infinite,
+                          ),
+                        ),
+                      ),
+
+                    // 🌫️ FOG ZONE SELECTION PREVIEW (P10-02)
+                    if (_fogZoneStartPoint != null &&
+                        _fogZoneCurrentEndPoint != null &&
+                        _pendingFogLevel != null)
+                      IgnorePointer(
+                        child: RepaintBoundary(
+                          child: CustomPaint(
+                            painter: _FogZonePreviewPainter(
+                              startPoint: _fogZoneStartPoint!,
+                              endPoint: _fogZoneCurrentEndPoint!,
                               controller: _canvasController,
                             ),
                             size: Size.infinite,
@@ -253,9 +543,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                               controller: _canvasController,
                               color: _effectiveColor,
                               nearStartPoint: _techNearStartPoint,
-                              startPoint: (_currentStrokeNotifier.value.isNotEmpty)
-                                  ? _currentStrokeNotifier.value.first.position
-                                  : null,
+                              startPoint:
+                                  (_currentStrokeNotifier.value.isNotEmpty)
+                                      ? _currentStrokeNotifier
+                                          .value
+                                          .first
+                                          .position
+                                      : null,
                               straightGhostEnd: _techStraightGhostEnd,
                               intersections: _techIntersections,
                             ),
@@ -286,6 +580,22 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     if (_isSectionActive && !isActivelyDrawingFreehand)
                       _buildSectionNavigator(),
 
+                    // 📐 SECTION INLINE HANDLES — add page/column without dialogs
+                    // Wrapped in AnimatedBuilder so positions track pan/zoom.
+                    // Visible whenever a section is focused, regardless of
+                    // active tool — user should always be able to Page/Col/Move.
+                    if (_focusedSectionNode != null &&
+                        !isActivelyDrawingFreehand &&
+                        _sectionStartPoint == null)
+                      AnimatedBuilder(
+                        animation: _canvasController,
+                        builder: (context, _) {
+                          final handles = _buildSectionInlineHandles();
+                          if (handles.isEmpty) return const SizedBox.shrink();
+                          return Stack(children: handles);
+                        },
+                      ),
+
                     // 📌 RECORDING PINS OVERLAY — hidden during drawing
                     if ((_recordingPins.isNotEmpty || _isPinPlacementMode) &&
                         !isActivelyDrawingFreehand)
@@ -309,8 +619,6 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
 
                     // 🏗️ ERASER OVERLAYS
                     ..._buildEraserOverlays(context),
-
-
 
                     // 💥 SCRATCH-OUT PARTICLE DISSOLVE
                     if (_scratchOutAnimating && _scratchOutParticles.isNotEmpty)
@@ -446,7 +754,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                           // Track recent colors (deduped, max 6)
                           _recentColors.remove(c);
                           _recentColors.insert(0, c);
-                          if (_recentColors.length > 6) _recentColors.removeLast();
+                          if (_recentColors.length > 6)
+                            _recentColors.removeLast();
                           setState(() {});
                         },
                         onExpand: () async {
@@ -473,8 +782,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   ],
                 );
               },
-            ),  // close ValueListenableBuilder
-          ),  // close Positioned.fill
+            ), // close ValueListenableBuilder
+          ), // close Positioned.fill
         ],
       ),
     );
@@ -517,14 +826,16 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   // and only re-rasterized when strokes change (shouldRepaint).
                   // Pan/zoom only changes the Transform matrix → GPU compositing.
                   final m =
-                      Matrix4.identity()..translate(
+                      Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
                         _canvasController.offset.dy,
+                        0.0, 1.0,
                       );
                   if (_canvasController.rotation != 0.0) {
                     m.rotateZ(_canvasController.rotation);
                   }
-                  m.scale(_canvasController.scale);
+                  final _s3 = _canvasController.scale;
+                  m.scaleByDouble(_s3, _s3, 1.0, 1.0);
 
                   // 🚀 LOD DEBOUNCE: detect LOD tier change during zoom.
                   // After zoom settles (300ms), trigger DrawingPainter rebuild
@@ -640,14 +951,16 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 // and only re-rasterized when images change (shouldRepaint).
                 // Pan/zoom only changes the Transform matrix → GPU compositing.
                 final m =
-                    Matrix4.identity()..translate(
+                    Matrix4.identity()..translateByDouble(
                       _canvasController.offset.dx,
                       _canvasController.offset.dy,
+                      0.0, 1.0,
                     );
                 if (_canvasController.rotation != 0.0) {
                   m.rotateZ(_canvasController.rotation);
                 }
-                m.scale(_canvasController.scale);
+                final _s4 = _canvasController.scale;
+                m.scaleByDouble(_s4, _s4, 1.0, 1.0);
 
                 return Transform(transform: m, child: child);
               },
@@ -713,7 +1026,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       _layerController.discardLastAction();
                     },
             onLongPress: _isMultiPageEditMode ? null : _onLongPress,
-            onLongPressMoveUpdate: _isMultiPageEditMode ? null : _onLongPressMoveUpdate,
+            onLongPressMoveUpdate:
+                _isMultiPageEditMode ? null : _onLongPressMoveUpdate,
             onLongPressEnd: _isMultiPageEditMode ? null : _onLongPressEnd,
             onSpaceSplitStart: _onSpaceSplitStart,
             onSpaceSplitUpdate: _onSpaceSplitUpdate,
@@ -837,15 +1151,19 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       if (_knowledgeFlowController != null &&
                           _clusterCache.isNotEmpty) {
                         final scale = _canvasController.scale;
-                        final hitConn = _knowledgeFlowController!.hitTestConnection(
-                          canvasPos, _clusterCache, maxDistance: 20.0 / scale,
-                        );
+                        final hitConn = _knowledgeFlowController!
+                            .hitTestConnection(
+                              canvasPos,
+                              _clusterCache,
+                              maxDistance: 20.0 / scale,
+                            );
                         if (hitConn != null) {
-                          final midCanvas = _knowledgeFlowController!.getConnectionMidpoint(
-                            hitConn, _clusterCache,
-                          );
+                          final midCanvas = _knowledgeFlowController!
+                              .getConnectionMidpoint(hitConn, _clusterCache);
                           if (midCanvas != null) {
-                            final screenPos = _canvasController.canvasToScreen(midCanvas);
+                            final screenPos = _canvasController.canvasToScreen(
+                              midCanvas,
+                            );
                             setState(() {
                               _editingLabelConnectionId = hitConn.id;
                               _labelOverlayScreenPosition = screenPos;
@@ -863,24 +1181,28 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     ? false
                     : _effectiveIsStylusMode, // 🖊️ Disable stylus mode in multi-page edit
             // 🖐️ PALM REJECTION: compute exclusion zone from HandednessSettings
-            palmExclusionZone: HandednessSettings.instance.getPalmExclusionZone(viewportSize),
-            blockPanZoom: () =>
-                _digitalTextTool.isResizing ||
-                _digitalTextTool.isDragging ||
-                _imageTool.isResizing ||
-                _imageTool.isDragging ||
-                _imageTool.isRotating ||
-                _tabularTool.isDragging ||
-                _tabularTool.isResizing ||
-                _isDraggingGraph ||
-                _isResizingGraph ||
-                _isConnectionDragging || // 🧠 Block pan during connection drag
-                _isCurveDragging || // 🎨 Block pan during curve drag
-                _isDraggingGraphSlider ||
-                _lassoTool.isDragging || // 🔒 Block pan during lasso selection drag
-                _isSelectionPinching || // 🤏 Block pan during selection pinch transform
-                _imageTool
-                    .isHandleRotating, // 🌀 Block only during active manipulation
+            palmExclusionZone: HandednessSettings.instance.getPalmExclusionZone(
+              viewportSize,
+            ),
+            blockPanZoom:
+                () =>
+                    _digitalTextTool.isResizing ||
+                    _digitalTextTool.isDragging ||
+                    _imageTool.isResizing ||
+                    _imageTool.isDragging ||
+                    _imageTool.isRotating ||
+                    _tabularTool.isDragging ||
+                    _tabularTool.isResizing ||
+                    _isDraggingGraph ||
+                    _isResizingGraph ||
+                    _isConnectionDragging || // 🧠 Block pan during connection drag
+                    _isCurveDragging || // 🎨 Block pan during curve drag
+                    _isDraggingGraphSlider ||
+                    _lassoTool
+                        .isDragging || // 🔒 Block pan during lasso selection drag
+                    _isSelectionPinching || // 🤏 Block pan during selection pinch transform
+                    _imageTool
+                        .isHandleRotating, // 🌀 Block only during active manipulation
             // 📈 Graph pinch-to-viewport zoom+pan (Desmos-style)
             onBlockedScale: (scale, focalDelta) {
               final node = _selectedGraphNode;
@@ -897,16 +1219,26 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
               final factor = 1.0 / scale;
               final cx = (_graphPinchInitXMin + _graphPinchInitXMax) / 2;
               final cy = (_graphPinchInitYMin + _graphPinchInitYMax) / 2;
-              final hw = (_graphPinchInitXMax - _graphPinchInitXMin) / 2 * factor;
-              final hh = (_graphPinchInitYMax - _graphPinchInitYMin) / 2 * factor;
+              final hw =
+                  (_graphPinchInitXMax - _graphPinchInitXMin) / 2 * factor;
+              final hh =
+                  (_graphPinchInitYMax - _graphPinchInitYMin) / 2 * factor;
               node.xMin = cx - hw;
               node.xMax = cx + hw;
               node.yMin = cy - hh;
               node.yMax = cy + hh;
               // Pan: convert screen delta to graph-space delta
               final canvasScale = _canvasController.scale;
-              final dxGraph = -focalDelta.dx / canvasScale / node.graphWidth * (node.xMax - node.xMin);
-              final dyGraph = focalDelta.dy / canvasScale / node.graphHeight * (node.yMax - node.yMin);
+              final dxGraph =
+                  -focalDelta.dx /
+                  canvasScale /
+                  node.graphWidth *
+                  (node.xMax - node.xMin);
+              final dyGraph =
+                  focalDelta.dy /
+                  canvasScale /
+                  node.graphHeight *
+                  (node.yMax - node.yMin);
               node.xMin += dxGraph;
               node.xMax += dxGraph;
               node.yMin += dyGraph;
@@ -922,25 +1254,30 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             // pan mode or image selection changes — so we CANNOT rely on
             // conditional callbacks being set at build time.
             shouldRouteToImageRotation: (Offset screenFocalPoint) {
-                // Mid-rotation: route immediately (no per-frame hit-test needed)
-                if (_imageTool.isRotating) return true;
-                // Only route to image rotation if the image is ALREADY selected
-                // (via tap in pan mode). This preserves canvas zoom for unselected
-                // images, allowing image viewer mode to trigger.
-                final sel = _imageTool.selectedImage;
-                if (sel == null) return false;
-                final canvasPos = _canvasController.screenToCanvas(screenFocalPoint);
-                final image = _loadedImages[sel.imagePath];
-                if (image == null) return false;
-                final rawW = image.width.toDouble();
-                final rawH = image.height.toDouble();
-                final crop = sel.cropRect;
-                final imageSize = crop != null
-                    ? Size((crop.right - crop.left) * rawW,
-                           (crop.bottom - crop.top) * rawH)
-                    : Size(rawW, rawH);
-                return _imageTool.hitTest(sel, canvasPos, imageSize);
-              },
+              // Mid-rotation: route immediately (no per-frame hit-test needed)
+              if (_imageTool.isRotating) return true;
+              // Only route to image rotation if the image is ALREADY selected
+              // (via tap in pan mode). This preserves canvas zoom for unselected
+              // images, allowing image viewer mode to trigger.
+              final sel = _imageTool.selectedImage;
+              if (sel == null) return false;
+              final canvasPos = _canvasController.screenToCanvas(
+                screenFocalPoint,
+              );
+              final image = _loadedImages[sel.imagePath];
+              if (image == null) return false;
+              final rawW = image.width.toDouble();
+              final rawH = image.height.toDouble();
+              final crop = sel.cropRect;
+              final imageSize =
+                  crop != null
+                      ? Size(
+                        (crop.right - crop.left) * rawW,
+                        (crop.bottom - crop.top) * rawH,
+                      )
+                      : Size(rawW, rawH);
+              return _imageTool.hitTest(sel, canvasPos, imageSize);
+            },
             onImageScaleStart: _onImageScaleStart,
             onImageTransform: _onImageTransform,
             onImageScaleEnd: _onImageScaleEnd,
@@ -950,7 +1287,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
               if (!_lassoTool.hasSelection) {
                 return false;
               }
-              final canvasPos = _canvasController.screenToCanvas(screenFocalPoint);
+              final canvasPos = _canvasController.screenToCanvas(
+                screenFocalPoint,
+              );
               final inSel = _lassoTool.isPointInSelection(canvasPos);
               return inSel;
             },
@@ -972,7 +1311,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
               if (_semanticMorphController != null &&
                   _semanticMorphController!.isActive) {
                 if (_handleSemanticNodeTap(screenPoint)) return true;
-                final canvasPoint = _canvasController.screenToCanvas(screenPoint);
+                final canvasPoint = _canvasController.screenToCanvas(
+                  screenPoint,
+                );
                 if (_handleGhostConnectionTap(canvasPoint)) return true;
                 if (_handleGravityLineTap(screenPoint)) return true;
                 return false; // Let canvas handle it — don't touch radial in semantic mode
@@ -980,7 +1321,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
 
               // 🌟 RADIAL EXPANSION: intercept bubble taps in pan mode
               // (only when NOT in semantic view)
-              final canvasPointForRadial = _canvasController.screenToCanvas(screenPoint);
+              final canvasPointForRadial = _canvasController.screenToCanvas(
+                screenPoint,
+              );
               if (_handleRadialExpansionDrawStart(canvasPointForRadial)) {
                 // CRITICAL: onSingleTap never triggers _onDrawEnd.
                 // If a bubble was hit we must finalize immediately here.
@@ -1036,7 +1379,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                                     _canvasController.offset.dx,
                                     _canvasController.offset.dy,
                                     0.0,
-                                    0.0,
+                                    1.0,
                                   )
                                   ..scaleByDouble(
                                     _canvasController.scale,
@@ -1113,7 +1456,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
         // 🚀 PERF: When Vulkan handles the stroke (non-highlighter), skip
         // the entire CustomPaint + RepaintBoundary. Even with repaint: null,
         // the RPB creates a GPU compositing layer that costs ~0.5-1ms/frame.
-        if (_vulkanOverlayActive && _effectivePenType != ProPenType.highlighter) {
+        if (_vulkanOverlayActive &&
+            _effectivePenType != ProPenType.highlighter) {
           return const SizedBox.shrink();
         }
 
@@ -1134,7 +1478,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 controller: _canvasController, // 🚀 viewport-level mode
                 pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
                 surface: _activeSurface, // 🧬 Programmable materiality
-                useNativeOverlay: _vulkanOverlayActive, // 🔥 Skip Dart when Vulkan handles it
+                useNativeOverlay:
+                    _vulkanOverlayActive, // 🔥 Skip Dart when Vulkan handles it
               ),
               size: Size.infinite,
             ),
@@ -1232,6 +1577,260 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             ),
       ),
     );
+  }
+
+  // =========================================================================
+  // 📐 SECTION INLINE HANDLES — "+" buttons on focused section edges
+  // =========================================================================
+  // 🚀 PERF: Static regex — avoids per-frame RegExp allocation.
+  static final _sectionSuffixRe = RegExp(r'\s*[–-]\s*(Page|Col)\s*\d+$');
+
+  void _updateLabelCountsIfNeeded(SectionNode section) {
+    if (identical(_lastCountedSection, section)) return;
+    _lastCountedSection = section;
+    final baseName =
+        section.sectionName.replaceAll(_sectionSuffixRe, '').trim();
+    int pages = 1, cols = 1;
+    for (final layer in _layerController.sceneGraph.layers) {
+      for (final child in layer.children) {
+        if (child is SectionNode && child != section) {
+          final childBase =
+              child.sectionName.replaceAll(_sectionSuffixRe, '').trim();
+          if (childBase == baseName) {
+            child.sectionName.contains('Col') ? cols++ : pages++;
+          }
+        }
+      }
+    }
+    _cachedPageCount = pages;
+    _cachedColCount = cols;
+  }
+
+  /// Builds floating "+" buttons at the bottom-center and right-center
+  /// of the [_focusedSectionNode]. Tapping creates a new section instantly.
+  List<Widget> _buildSectionInlineHandles() {
+    final section = _focusedSectionNode;
+    if (section == null || !section.isVisible) return const [];
+
+    // 🚀 PERF: O(1) parent check — null parent means removed from graph.
+    if (section.parent == null) {
+      _focusedSectionNode = null;
+      _lastCountedSection = null;
+      return const [];
+    }
+
+    final scale = _canvasController.scale;
+
+    // 🔍 ZOOM-AWARE: Hide handles when section is too small on screen
+    // (< 50px visible width → user is in overview mode, not editing)
+    if (section.sectionSize.width * scale < 50.0) return const [];
+
+    final tx = section.worldTransform.getTranslation();
+    final w = section.sectionSize.width;
+    final h = section.sectionSize.height;
+    const gap = 200.0;
+
+    // 🚀 PERF: Single canvasToScreen call + arithmetic for all positions.
+    // canvasToScreen(p) = p * scale + panOffset, so for axis-aligned rects
+    // we compute TL once and derive the rest with screen-space deltas.
+    final ctl = _canvasController.canvasToScreen(Offset(tx.x, tx.y));
+    final sw = w * scale; // section width in screen px
+    final sh = h * scale; // section height in screen px
+    final sg = gap * scale; // gap in screen px
+
+    final bottomCenter = Offset(ctl.dx + sw / 2, ctl.dy + sh);
+    final rightCenter = Offset(ctl.dx + sw, ctl.dy + sh / 2);
+
+    // Ghost previews + focus rect — all derived from ctl
+    final ghostBottomRect = Rect.fromLTWH(ctl.dx, ctl.dy + sh + sg, sw, sh);
+    final ghostRightRect = Rect.fromLTWH(ctl.dx + sw + sg, ctl.dy, sw, sh);
+    final focusRect = Rect.fromLTWH(ctl.dx, ctl.dy, sw, sh);
+
+    const handleOffset = 24.0;
+    const handleSize = 44.0; // 44px minimum tap target (Apple HIG)
+
+    // 🚀 PERF: Only recompute label counts when focused section changes.
+    _updateLabelCountsIfNeeded(section);
+
+    // Theme-aware accent color
+    final accent = Theme.of(context).colorScheme.primary;
+
+    return [
+      // ── Visual overlays: focus highlight + ghost previews + connectors ──
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            painter: _SectionHandleConnectorPainter(
+              bottomStart: bottomCenter,
+              bottomEnd: Offset(
+                bottomCenter.dx,
+                bottomCenter.dy + handleOffset,
+              ),
+              rightStart: rightCenter,
+              rightEnd: Offset(rightCenter.dx + handleOffset, rightCenter.dy),
+              ghostBottomRect: ghostBottomRect,
+              ghostRightRect: ghostRightRect,
+              focusRect: focusRect,
+              accent: accent,
+              viewportSize: MediaQuery.of(context).size,
+            ),
+          ),
+        ),
+      ),
+      // ── Bottom center: Add Page Below ──
+      // 🚀 PERF: Transform.translate instead of Positioned.
+      // Positioned triggers Stack relayout (O(n)) every frame during pan/zoom.
+      // Transform.translate only triggers repaint (O(1)).
+      Transform.translate(
+        key: const ValueKey('section_handle_bottom'),
+        offset: Offset(
+          bottomCenter.dx - handleSize / 2,
+          bottomCenter.dy + handleOffset,
+        ),
+        child: _SectionInlineHandle(
+          icon: Icons.vertical_align_bottom_rounded,
+          label: 'Page ${_cachedPageCount + 1}',
+          accent: accent,
+          onTap: () {
+            _sectionHandleTapped = true;
+            HapticFeedback.selectionClick();
+            _appendSectionBelow(section);
+            _lastCountedSection = null;
+            final newSectionRect = Rect.fromLTWH(tx.x, tx.y + h + gap, w, h);
+            final vp = MediaQuery.of(context).size;
+            CameraActions.zoomToRect(_canvasController, newSectionRect, vp);
+          },
+        ),
+      ),
+      // ── Right center: Add Column Right ──
+      Transform.translate(
+        key: const ValueKey('section_handle_right'),
+        offset: Offset(
+          rightCenter.dx + handleOffset,
+          rightCenter.dy - handleSize / 2,
+        ),
+        child: _SectionInlineHandle(
+          icon: Icons.chevron_right_rounded,
+          label: 'Col ${_cachedColCount + 1}',
+          accent: accent,
+          onTap: () {
+            _sectionHandleTapped = true;
+            HapticFeedback.selectionClick();
+            _appendSectionRight(section);
+            _lastCountedSection = null;
+            final newSectionRect = Rect.fromLTWH(tx.x + w + gap, tx.y, w, h);
+            final vp = MediaQuery.of(context).size;
+            CameraActions.zoomToRect(_canvasController, newSectionRect, vp);
+          },
+        ),
+      ),
+      // ── Top-right: Delete section ──
+      Transform.translate(
+        key: const ValueKey('section_handle_delete'),
+        offset: Offset(ctl.dx + sw - 6, ctl.dy - 30),
+        child: _SectionDeleteHandle(
+          accent: accent,
+          onTap: () {
+            _sectionHandleTapped = true;
+            HapticFeedback.mediumImpact();
+            _deleteSection(section);
+          },
+        ),
+      ),
+      // ── Top-left: Move/Drag section ──
+      Transform.translate(
+        key: const ValueKey('section_handle_move'),
+        offset: Offset(ctl.dx - 6, ctl.dy - 30),
+        child: _SectionMoveHandle(
+          accent: accent,
+          onDragStart: () {
+            _sectionHandleTapped = true;
+            // 🔗 Collect all StrokeNodes whose center is INSIDE the section.
+            final sectionTx = section.worldTransform.getTranslation();
+            final sectionRect = Rect.fromLTWH(
+              sectionTx.x,
+              sectionTx.y,
+              section.sectionSize.width,
+              section.sectionSize.height,
+            );
+            _draggedSectionContents = <CanvasNode>[];
+            _dragAccumulatedDelta = Offset.zero;
+            final sceneGraph = _layerController.sceneGraph;
+            for (final layer in sceneGraph.layers) {
+              for (final child in layer.children) {
+                if (child is SectionNode) continue;
+                final nodeCenter = child.worldBounds.center;
+                if (sectionRect.contains(nodeCenter)) {
+                  _draggedSectionContents!.add(child);
+                }
+              }
+            }
+            debugPrint('[Section] ✥ Drag start: ${_draggedSectionContents!.length} contained nodes');
+          },
+          onDragUpdate: (delta) {
+            final canvasDelta = delta / scale;
+            // Move section (uses worldTransform → visual update)
+            final currentTx = section.worldTransform.getTranslation();
+            section.setPosition(
+              currentTx.x + canvasDelta.dx,
+              currentTx.y + canvasDelta.dy,
+            );
+            section.invalidateBoundsCache();
+            // Accumulate delta for stroke point translation at dragEnd.
+            // Also translate StrokeNode localTransform for immediate
+            // worldBounds update (R-Tree / tile queries), even though
+            // the renderer reads raw points.
+            _dragAccumulatedDelta += canvasDelta;
+            if (_draggedSectionContents != null) {
+              for (final node in _draggedSectionContents!) {
+                node.translate(canvasDelta.dx, canvasDelta.dy);
+              }
+            }
+            _layerController.sceneGraph.bumpVersion();
+            DrawingPainter.invalidateAllTiles();
+            _uiRebuildNotifier.value++;
+          },
+          onDragEnd: () {
+            // 🔗 Rewrite stroke points with translated positions.
+            // The renderer reads ProStroke.points directly (world coords),
+            // so localTransform changes alone have no visual effect.
+            final delta = _dragAccumulatedDelta;
+            if (_draggedSectionContents != null && delta != Offset.zero) {
+              for (final node in _draggedSectionContents!) {
+                if (node is StrokeNode) {
+                  final oldStroke = node.stroke;
+                  final newPoints = oldStroke.points.map((p) {
+                    return p.copyWith(
+                      position: p.position + delta,
+                    );
+                  }).toList();
+                  node.stroke = ProStroke(
+                    id: oldStroke.id,
+                    points: newPoints,
+                    color: oldStroke.color,
+                    baseWidth: oldStroke.baseWidth,
+                    penType: oldStroke.penType,
+                    createdAt: oldStroke.createdAt,
+                    settings: oldStroke.settings,
+                    engineVersion: oldStroke.engineVersion,
+                    referenceScale: oldStroke.referenceScale,
+                  );
+                  // Reset localTransform back to identity — points are
+                  // now in the correct world position.
+                  node.setPosition(0, 0);
+                }
+              }
+              _layerController.sceneGraph.bumpVersion();
+              DrawingPainter.invalidateAllTiles();
+            }
+            debugPrint('[Section] ✥ Drag end: translated ${_draggedSectionContents?.length ?? 0} nodes by $delta');
+            _draggedSectionContents = null;
+            _dragAccumulatedDelta = Offset.zero;
+            _autoSaveCanvas();
+          },
+        ),
+      ),
+    ];
   }
 
   /// 🗺️ Floating section navigator panel — lists all sections.
@@ -1395,6 +1994,417 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
   }
 }
 
+/// 📐 Paints dashed connector lines, ghost preview outlines, and focus highlight.
+class _SectionHandleConnectorPainter extends CustomPainter {
+  final Offset bottomStart;
+  final Offset bottomEnd;
+  final Offset rightStart;
+  final Offset rightEnd;
+  final Rect? ghostBottomRect;
+  final Rect? ghostRightRect;
+  final Rect? focusRect;
+  final Color accent;
+  final Size viewportSize;
+
+  const _SectionHandleConnectorPainter({
+    required this.bottomStart,
+    required this.bottomEnd,
+    required this.rightStart,
+    required this.rightEnd,
+    this.ghostBottomRect,
+    this.ghostRightRect,
+    this.focusRect,
+    required this.accent,
+    required this.viewportSize,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final linePaint =
+        Paint()
+          ..color = accent.withValues(alpha: 0.4)
+          ..strokeWidth = 1.5
+          ..style = PaintingStyle.stroke;
+
+    // ── Connector dashes from section edge to handle ──
+    _drawDashed(canvas, bottomStart, bottomEnd, linePaint);
+    _drawDashed(canvas, rightStart, rightEnd, linePaint);
+
+    // ── Focus highlight: subtle glow border on the focused section ──
+    if (focusRect != null && focusRect!.width > 0 && focusRect!.height > 0) {
+      final focusPaint =
+          Paint()
+            ..color = accent.withValues(alpha: 0.25)
+            ..strokeWidth = 2.0
+            ..style = PaintingStyle.stroke;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(focusRect!, const Radius.circular(4)),
+        focusPaint,
+      );
+    }
+
+    // ── Ghost preview: dashed outlines where new sections will land ──
+    // 🚀 PERF: Viewport culling — skip painting ghosts entirely off-screen.
+    final vpRect = Offset.zero & viewportSize;
+    final ghostPaint =
+        Paint()
+          ..color = accent.withValues(alpha: 0.15)
+          ..strokeWidth = 1.0
+          ..style = PaintingStyle.stroke;
+
+    if (ghostBottomRect != null &&
+        ghostBottomRect!.width > 10 &&
+        ghostBottomRect!.height > 10 &&
+        ghostBottomRect!.overlaps(vpRect)) {
+      _drawDashedRect(canvas, ghostBottomRect!, ghostPaint);
+    }
+    if (ghostRightRect != null &&
+        ghostRightRect!.width > 10 &&
+        ghostRightRect!.height > 10 &&
+        ghostRightRect!.overlaps(vpRect)) {
+      _drawDashedRect(canvas, ghostRightRect!, ghostPaint);
+    }
+  }
+
+  void _drawDashed(Canvas canvas, Offset start, Offset end, Paint paint) {
+    final dx = end.dx - start.dx;
+    final dy = end.dy - start.dy;
+    final distance = Offset(dx, dy).distance;
+    if (distance < 1) return;
+
+    const dashLen = 4.0;
+    const gapLen = 3.0;
+    final unitX = dx / distance;
+    final unitY = dy / distance;
+
+    double drawn = 0;
+    while (drawn < distance) {
+      final segEnd = (drawn + dashLen).clamp(0.0, distance);
+      canvas.drawLine(
+        Offset(start.dx + unitX * drawn, start.dy + unitY * drawn),
+        Offset(start.dx + unitX * segEnd, start.dy + unitY * segEnd),
+        paint,
+      );
+      drawn += dashLen + gapLen;
+    }
+  }
+
+  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(6));
+    // Approximate dashed rrect with individual edge dashes
+    _drawDashed(canvas, rect.topLeft, rect.topRight, paint);
+    _drawDashed(canvas, rect.topRight, rect.bottomRight, paint);
+    _drawDashed(canvas, rect.bottomRight, rect.bottomLeft, paint);
+    _drawDashed(canvas, rect.bottomLeft, rect.topLeft, paint);
+    // Fill with very subtle tint
+    final fillPaint =
+        Paint()
+          ..color = accent.withValues(alpha: 0.04)
+          ..style = PaintingStyle.fill;
+    canvas.drawRRect(rrect, fillPaint);
+  }
+
+  @override
+  bool shouldRepaint(_SectionHandleConnectorPainter old) =>
+      bottomStart != old.bottomStart ||
+      bottomEnd != old.bottomEnd ||
+      rightStart != old.rightStart ||
+      rightEnd != old.rightEnd ||
+      ghostBottomRect != old.ghostBottomRect ||
+      ghostRightRect != old.ghostRightRect ||
+      focusRect != old.focusRect ||
+      accent != old.accent ||
+      viewportSize != old.viewportSize;
+}
+
+/// 📐 Inline section quick-action handle — small "+" button with label.
+class _SectionInlineHandle extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color accent;
+
+  const _SectionInlineHandle({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.accent,
+  });
+
+  @override
+  State<_SectionInlineHandle> createState() => _SectionInlineHandleState();
+}
+
+class _SectionInlineHandleState extends State<_SectionInlineHandle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _anim;
+  late final CurvedAnimation _curvedAnim;
+  bool _pressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..forward();
+    _curvedAnim = CurvedAnimation(parent: _anim, curve: Curves.easeOutBack);
+  }
+
+  @override
+  void dispose() {
+    _curvedAnim.dispose();
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _curvedAnim,
+      builder: (context, child) {
+        final t = _curvedAnim.value;
+        return Transform.scale(
+          scale: t,
+          child: Opacity(opacity: t.clamp(0.0, 1.0), child: child),
+        );
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          widget.onTap();
+        },
+        onTapCancel: () => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed ? 0.88 : 1.0,
+          duration: const Duration(milliseconds: 100),
+          child: _buildPill(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPill() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: widget.accent.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: widget.accent.withValues(alpha: 0.35),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(widget.icon, size: 16, color: Colors.white),
+          const SizedBox(width: 4),
+          Text(
+            widget.label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 🗑️ Compact delete handle for focused sections — small ✕ pill.
+class _SectionDeleteHandle extends StatefulWidget {
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _SectionDeleteHandle({required this.accent, required this.onTap});
+
+  @override
+  State<_SectionDeleteHandle> createState() => _SectionDeleteHandleState();
+}
+
+class _SectionDeleteHandleState extends State<_SectionDeleteHandle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _anim;
+  late final CurvedAnimation _curvedAnim;
+  bool _pressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    )..forward();
+    _curvedAnim = CurvedAnimation(parent: _anim, curve: Curves.easeOutBack);
+  }
+
+  @override
+  void dispose() {
+    _curvedAnim.dispose();
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _curvedAnim,
+      builder: (context, child) {
+        final t = _curvedAnim.value;
+        return Transform.scale(
+          scale: t,
+          child: Opacity(opacity: t.clamp(0.0, 1.0), child: child),
+        );
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          widget.onTap();
+        },
+        onTapCancel: () => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed ? 0.85 : 1.0,
+          duration: const Duration(milliseconds: 80),
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: Colors.red.shade600.withValues(alpha: 0.85),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.red.shade900.withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.close_rounded,
+              size: 14,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ✥ Draggable move handle for focused sections — small drag icon.
+class _SectionMoveHandle extends StatefulWidget {
+  final Color accent;
+  final VoidCallback onDragStart;
+  final ValueChanged<Offset> onDragUpdate;
+  final VoidCallback onDragEnd;
+
+  const _SectionMoveHandle({
+    required this.accent,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+  });
+
+  @override
+  State<_SectionMoveHandle> createState() => _SectionMoveHandleState();
+}
+
+class _SectionMoveHandleState extends State<_SectionMoveHandle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _anim;
+  late final CurvedAnimation _curvedAnim;
+  bool _dragging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    )..forward();
+    _curvedAnim = CurvedAnimation(parent: _anim, curve: Curves.easeOutBack);
+  }
+
+  @override
+  void dispose() {
+    _curvedAnim.dispose();
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _curvedAnim,
+      builder: (context, child) {
+        final t = _curvedAnim.value;
+        return Transform.scale(
+          scale: t,
+          child: Opacity(opacity: t.clamp(0.0, 1.0), child: child),
+        );
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (_) {
+          setState(() => _dragging = true);
+          HapticFeedback.selectionClick();
+          widget.onDragStart();
+        },
+        onPanUpdate: (details) {
+          widget.onDragUpdate(details.delta);
+        },
+        onPanEnd: (_) {
+          setState(() => _dragging = false);
+          widget.onDragEnd();
+        },
+        onPanCancel: () {
+          setState(() => _dragging = false);
+        },
+        child: AnimatedScale(
+          scale: _dragging ? 1.15 : 1.0,
+          duration: const Duration(milliseconds: 80),
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: widget.accent.withValues(alpha: 0.85),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: widget.accent.withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.drag_indicator_rounded,
+              size: 14,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 💥 Particle data for scratch-out dissolve effect.
 class _ScratchOutParticle {
   final Offset position;
@@ -1411,7 +2421,6 @@ class _ScratchOutParticle {
 }
 
 /// 🔴 Real-time preview overlay: highlights strokes that would be deleted.
-
 
 /// 💥 Particle dissolve effect — colored particles fly out from deleted area.
 class _ScratchOutParticleWidget extends StatefulWidget {
@@ -1520,9 +2529,10 @@ class _ScratchOutParticlePainter extends CustomPainter {
         final centerScreen = canvasController.canvasToScreen(
           particles.first.position,
         );
-        final badgePaint = Paint()
-          ..color = Colors.red.withValues(alpha: badgeOpacity * 0.85)
-          ..style = PaintingStyle.fill;
+        final badgePaint =
+            Paint()
+              ..color = Colors.red.withValues(alpha: badgeOpacity * 0.85)
+              ..style = PaintingStyle.fill;
         final badgeRect = RRect.fromRectAndRadius(
           Rect.fromCenter(
             center: Offset(centerScreen.dx, centerScreen.dy - 30),

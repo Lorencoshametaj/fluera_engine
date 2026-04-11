@@ -5,7 +5,6 @@ part of '../../fluera_canvas_screen.dart';
 // ═══════════════════════════════════════════════════════════════════════════
 
 extension on _FlueraCanvasScreenState {
-
   // ===========================================================================
   // 📐 SECTION SELECTION — Find and edit existing sections
   // ===========================================================================
@@ -414,6 +413,17 @@ extension on _FlueraCanvasScreenState {
                               },
                             ),
                             const SizedBox(width: 8),
+                            // Add Below — append equal-size section directly below
+                            _sectionActionChip(
+                              icon: Icons.add_box_outlined,
+                              label: 'Add Below',
+                              textColor: textColor,
+                              onTap: () {
+                                Navigator.of(ctx).pop();
+                                _appendSectionBelow(section);
+                              },
+                            ),
+                            const SizedBox(width: 8),
                             // Duplicate
                             _sectionActionChip(
                               icon: Icons.copy_rounded,
@@ -663,6 +673,7 @@ extension on _FlueraCanvasScreenState {
     sceneGraph.bumpVersion();
     DrawingPainter.invalidateAllTiles();
     HapticFeedback.heavyImpact();
+    if (_focusedSectionNode == section) _focusedSectionNode = null;
     _layerController.notifyListeners();
     _uiRebuildNotifier.value++;
     _autoSaveCanvas();
@@ -732,7 +743,7 @@ extension on _FlueraCanvasScreenState {
       ],
     };
 
-    Color? selectedColor;
+    Color? selectedColor = Colors.white;
     SectionPreset? selectedPreset;
     bool showAllPresets = false;
     bool showGrid = false;
@@ -1324,6 +1335,74 @@ extension on _FlueraCanvasScreenState {
     );
   }
 
+  /// Append a new section of equal size directly below [section].
+  ///
+  /// Useful for building multi-page course structures: each tap appends
+  /// a fresh "Part N" page immediately below the current one.
+  void _appendSectionBelow(SectionNode section) {
+    final tx = section.worldTransform.getTranslation();
+    const gap = 200.0; // canvas units — same as course-structure seeding
+
+    // Strip an existing "– Part N" suffix and auto-increment.
+    final base =
+        section.sectionName
+            .replaceAll(RegExp(r'\s*[–-]\s*Part \d+$'), '')
+            .trim();
+
+    // Count siblings sharing the same base name to derive the next index.
+    final sceneGraph = _layerController.sceneGraph;
+    int existingCount = 1; // current section counts as Part 1
+    for (final layer in sceneGraph.layers) {
+      for (final child in layer.children) {
+        if (child is SectionNode && child != section) {
+          final childBase =
+              child.sectionName
+                  .replaceAll(RegExp(r'\s*[–-]\s*Part \d+$'), '')
+                  .trim();
+          if (childBase == base) existingCount++;
+        }
+      }
+    }
+    final newName = '$base – Part ${existingCount + 1}';
+
+    final newSection = SectionNode(
+      id: NodeId(generateUid()),
+      sectionName: newName,
+      sectionSize: section.sectionSize,
+      backgroundColor: section.backgroundColor,
+      showGrid: section.showGrid,
+      gridSpacing: section.gridSpacing,
+      gridType: section.gridType,
+      preset: section.preset,
+      clipContent: section.clipContent,
+      borderColor: section.borderColor,
+      borderWidth: section.borderWidth,
+      subdivisionRows: section.subdivisionRows,
+      subdivisionColumns: section.subdivisionColumns,
+      subdivisionColor: section.subdivisionColor,
+      cornerRadius: section.cornerRadius,
+    );
+    // Place directly below: same X, Y = original.y + height + gap
+    newSection.setPosition(tx.x, tx.y + section.sectionSize.height + gap);
+
+    for (final layer in sceneGraph.layers) {
+      if (layer.children.contains(section)) {
+        layer.add(newSection);
+        break;
+      }
+    }
+
+    sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    debugPrint('[Section] ➕ appendBelow: "${newSection.sectionName}" size=${newSection.sectionSize} gridType=${newSection.gridType} pos=(${tx.x}, ${tx.y + section.sectionSize.height + gap}) sceneV=${sceneGraph.version}');
+    HapticFeedback.mediumImpact();
+    _sectionCounter++;
+    _focusedSectionNode = newSection;
+    _layerController.notifyListeners();
+    _uiRebuildNotifier.value++;
+    _autoSaveCanvas();
+  }
+
   /// Duplicate a section with a 20px offset.
   void _duplicateSection(SectionNode section) {
     final tx = section.worldTransform.getTranslation();
@@ -1336,6 +1415,7 @@ extension on _FlueraCanvasScreenState {
       backgroundColor: section.backgroundColor,
       showGrid: section.showGrid,
       gridSpacing: section.gridSpacing,
+      gridType: section.gridType,
       preset: section.preset,
       clipContent: section.clipContent,
       borderColor: section.borderColor,
@@ -1445,7 +1525,7 @@ extension on _FlueraCanvasScreenState {
               onChanged(v);
               HapticFeedback.selectionClick();
             },
-            activeColor: const Color(0xFF2196F3),
+            activeThumbColor: const Color(0xFF2196F3),
           ),
         ),
       ],
@@ -1551,6 +1631,8 @@ extension on _FlueraCanvasScreenState {
     int subdivisionRows = 1,
     int subdivisionColumns = 1,
     double cornerRadius = 0,
+    double gridSpacing = 20,
+    String gridType = 'grid',
   }) {
     final effectiveSize =
         preset != null
@@ -1561,8 +1643,10 @@ extension on _FlueraCanvasScreenState {
       id: NodeId(generateUid()),
       sectionName: name,
       sectionSize: effectiveSize,
-      backgroundColor: backgroundColor,
+      backgroundColor: backgroundColor ?? Colors.white,
       showGrid: showGrid,
+      gridSpacing: gridSpacing,
+      gridType: gridType,
       clipContent: clipContent,
       preset: preset,
       subdivisionRows: subdivisionRows,
@@ -1580,8 +1664,74 @@ extension on _FlueraCanvasScreenState {
     }
 
     _sectionCounter++;
+    _focusedSectionNode = section;
     DrawingPainter.invalidateAllTiles();
+    debugPrint('[Section] 🆕 commitSection: "$name" size=$effectiveSize gridType=$gridType pos=(${sectionRect.left}, ${sectionRect.top}) sceneV=${sceneGraph.version}');
     HapticFeedback.mediumImpact();
+    _uiRebuildNotifier.value++;
+    _autoSaveCanvas();
+  }
+
+  /// Append a new section to the right of [section] (same height, add column).
+  /// Mirrors [_appendSectionBelow] but places horizontally.
+  void _appendSectionRight(SectionNode section) {
+    final tx = section.worldTransform.getTranslation();
+    const gap = 200.0;
+
+    final base =
+        section.sectionName
+            .replaceAll(RegExp(r'\s*[–-]\s*Col \d+$'), '')
+            .trim();
+
+    final sceneGraph = _layerController.sceneGraph;
+    int existingCount = 1;
+    for (final layer in sceneGraph.layers) {
+      for (final child in layer.children) {
+        if (child is SectionNode && child != section) {
+          final childBase =
+              child.sectionName
+                  .replaceAll(RegExp(r'\s*[–-]\s*Col \d+$'), '')
+                  .trim();
+          if (childBase == base) existingCount++;
+        }
+      }
+    }
+    final newName = '$base – Col ${existingCount + 1}';
+
+    final newSection = SectionNode(
+      id: NodeId(generateUid()),
+      sectionName: newName,
+      sectionSize: section.sectionSize,
+      backgroundColor: section.backgroundColor,
+      showGrid: section.showGrid,
+      gridSpacing: section.gridSpacing,
+      gridType: section.gridType,
+      preset: section.preset,
+      clipContent: section.clipContent,
+      borderColor: section.borderColor,
+      borderWidth: section.borderWidth,
+      subdivisionRows: section.subdivisionRows,
+      subdivisionColumns: section.subdivisionColumns,
+      subdivisionColor: section.subdivisionColor,
+      cornerRadius: section.cornerRadius,
+    );
+    // Place directly right: same Y, X = original.x + width + gap
+    newSection.setPosition(tx.x + section.sectionSize.width + gap, tx.y);
+
+    for (final layer in sceneGraph.layers) {
+      if (layer.children.contains(section)) {
+        layer.add(newSection);
+        break;
+      }
+    }
+
+    sceneGraph.bumpVersion();
+    DrawingPainter.invalidateAllTiles();
+    debugPrint('[Section] ➕ appendRight: "${newSection.sectionName}" size=${newSection.sectionSize} gridType=${newSection.gridType} pos=(${tx.x + section.sectionSize.width + gap}, ${tx.y}) sceneV=${sceneGraph.version}');
+    HapticFeedback.mediumImpact();
+    _sectionCounter++;
+    _focusedSectionNode = newSection;
+    _layerController.notifyListeners();
     _uiRebuildNotifier.value++;
     _autoSaveCanvas();
   }

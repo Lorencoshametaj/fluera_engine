@@ -25,6 +25,12 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
     // Guard: don't open if already active.
     if (_recallModeController.isActive) return;
 
+    // 🚦 A15: Step prerequisite gate for Step 2.
+    if (!_checkStepGate(LearningStep.step2Recall,
+        onProceed: showRecallZoneSelector)) {
+      return;
+    }
+
     // Auto-advance to Step 2 if in Step 1.
     if (_learningStepController.currentStep == LearningStep.step1Notes) {
       _learningStepController.setStep(LearningStep.step2Recall);
@@ -100,6 +106,9 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
       sessionCount: sessionCount,
     );
 
+    // 🎵 A13.4: "Sipario che scende" — low 200Hz tone on recall activation
+    PedagogicalSoundEngine.instance.play(PedagogicalSound.recallActivation);
+
     // 📸 Snapshot all current stroke IDs — anything added after this
     // point is "new" (drawn during recall) and should remain visible.
     _recallOriginalStrokeIds = _layerController
@@ -153,6 +162,9 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
         _canvasId,
         session,
       );
+      // 🚦 A15: Record Step 2 completion.
+      _stepGateController.recordStepCompletion(LearningStep.step2Recall);
+      _saveStepGateHistory();
     }
 
     _recallModeController.deactivate();

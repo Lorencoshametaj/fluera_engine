@@ -327,7 +327,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             Switch.adaptive(
               value: _timerEnabled,
               onChanged: (v) => setState(() => _timerEnabled = v),
-              activeColor: _cyan,
+              activeThumbColor: _cyan,
             ),
           ]),
 

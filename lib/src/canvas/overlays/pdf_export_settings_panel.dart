@@ -1,6 +1,5 @@
 library pdf_export_settings_panel;
 
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../export/export_pipeline.dart';

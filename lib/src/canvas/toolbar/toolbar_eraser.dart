@@ -152,7 +152,8 @@ class ToolbarEraseModeToggle extends StatelessWidget {
                       : const Color(0xFFFFEBEE),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: isDark ? const Color(0xFFC62828) : const Color(0xFFEF9A9A),
+                color:
+                    isDark ? const Color(0xFFC62828) : const Color(0xFFEF9A9A),
               ),
             ),
             child: Icon(
@@ -188,9 +189,13 @@ class ToolbarEraserSizeSlider extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color:
-            isDark ? const Color(0xFFB71C1C).withValues(alpha: 0.3) : const Color(0xFFFFEBEE),
+            isDark
+                ? const Color(0xFFB71C1C).withValues(alpha: 0.3)
+                : const Color(0xFFFFEBEE),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: isDark ? const Color(0xFFC62828) : const Color(0xFFEF9A9A)),
+        border: Border.all(
+          color: isDark ? const Color(0xFFC62828) : const Color(0xFFEF9A9A),
+        ),
       ),
       child: Row(
         children: [
@@ -205,9 +210,12 @@ class ToolbarEraserSizeSlider extends StatelessWidget {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                 trackHeight: 3,
-                activeTrackColor: isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350),
-                inactiveTrackColor: isDark ? const Color(0xFFB71C1C) : const Color(0xFFFFCDD2),
-                thumbColor: isDark ? const Color(0xFFEF9A9A) : const Color(0xFFE53935),
+                activeTrackColor:
+                    isDark ? const Color(0xFFE57373) : const Color(0xFFEF5350),
+                inactiveTrackColor:
+                    isDark ? const Color(0xFFB71C1C) : const Color(0xFFFFCDD2),
+                thumbColor:
+                    isDark ? const Color(0xFFEF9A9A) : const Color(0xFFE53935),
               ),
               child: Slider(
                 value: radius,

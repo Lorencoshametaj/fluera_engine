@@ -517,7 +517,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
               if (!await recordingsDir.exists()) {
                 await recordingsDir.create(recursive: true);
               }
-              final fileName = audioPath!.split('/').last;
+              final fileName = audioPath.split('/').last;
               final persistentPath = '${recordingsDir.path}/$fileName';
               final tempFile = File(audioPath);
               if (await tempFile.exists()) {
@@ -1822,7 +1822,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                                                           ? Icons.draw_rounded
                                                           : Icons.mic_rounded,
                                                       hasStrokes
-                                                          ? '${synced!.syncedStrokes.length} strokes'
+                                                          ? '${synced.syncedStrokes.length} strokes'
                                                           : 'Audio only',
                                                       hasStrokes
                                                           ? cs.tertiaryContainer
@@ -2770,7 +2770,6 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
     HapticFeedback.lightImpact();
 
     final provider = _voiceRecordingProvider;
-    if (provider == null) return;
 
     // Load the synchronized recording from storage
     SynchronizedRecording? synced;
@@ -2785,7 +2784,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       _startSyncedPlayback(synced);
     } else if (synced?.audioPath != null) {
       // Audio-only playback
-      _startAudioPlayback(synced!.audioPath!, pin.label, provider);
+      _startAudioPlayback(synced!.audioPath, pin.label, provider);
     }
   }
 

@@ -6,6 +6,7 @@ import '../../core/nodes/pdf_document_node.dart';
 import '../../core/models/pdf_page_model.dart';
 import '../../core/models/pdf_document_model.dart';
 import '../../canvas/fluera_canvas_config.dart';
+import '../../core/scene_graph/content_origin.dart';
 
 /// 📥 Controller for importing PDF documents onto the canvas.
 ///
@@ -103,6 +104,12 @@ class PdfImportController {
 
     // Perform initial grid layout
     docNode.performGridLayout();
+
+    // 🏷️ Tag all nodes as imported content (A20.3)
+    docNode.contentOrigin = ContentOrigin.imported;
+    for (final page in pageNodes) {
+      page.contentOrigin = ContentOrigin.imported;
+    }
 
     return docNode;
   }

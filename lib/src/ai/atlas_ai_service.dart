@@ -1,9 +1,12 @@
+import 'dart:async' show TimeoutException;
 import 'dart:convert';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'ai_provider.dart';
 import 'atlas_action.dart';
 import '../canvas/ai/exam_session_model.dart';
+import '../canvas/ai/ghost_map_model.dart';
 
 /// Google Gemini implementation of [AiProvider].
 ///
@@ -16,6 +19,7 @@ import '../canvas/ai/exam_session_model.dart';
 class GeminiProvider implements AiProvider {
   GenerativeModel? _model;
   GenerativeModel? _streamModel; // For streaming (no JSON constraint)
+  GenerativeModel? _ghostMapModel; // 🗺️ Ghost Map — low temperature for accuracy
   bool _initialized = false;
 
   /// The API key to use for Gemini.
@@ -53,6 +57,23 @@ class GeminiProvider implements AiProvider {
         responseMimeType: 'application/json',
       ),
       systemInstruction: Content.system(_systemPrompt),
+    );
+
+    // 🗺️ Ghost Map model — low temperature (0.3) for factual accuracy (A3-02).
+    // The reference concept map MUST be correct — creativity is harmful here.
+    _ghostMapModel = GenerativeModel(
+      model: 'gemini-3.1-flash-lite-preview',
+      apiKey: key,
+      generationConfig: GenerationConfig(
+        responseMimeType: 'application/json',
+        temperature: 0.3,
+      ),
+      systemInstruction: Content.system(
+        'You are Atlas, an AI tutor embedded in Fluera — a cognitive learning engine. '
+        'Your role is to analyze student handwritten notes and identify knowledge gaps. '
+        'You must be factually accurate, domain-specific, and pedagogically constructive. '
+        'Always respond in Italian. Never invent facts. Keep concepts and explanations concise.',
+      ),
     );
 
     // Streaming model — no JSON constraint, for real-time text output
@@ -140,6 +161,26 @@ class GeminiProvider implements AiProvider {
     }
 
     return const AtlasResponse.empty();
+  }
+
+  /// 🔶 Free-text prompt — sends raw text, returns raw text.
+  /// Used for Socratic questions, breadcrumbs, and other non-structured prompts.
+  /// Uses _streamModel (no JSON constraint, no canvas system prompt).
+  @override
+  Future<String> askFreeText(String prompt) async {
+    if (!_initialized || _streamModel == null) {
+      throw StateError('Atlas non inizializzato. Chiama initialize() prima.');
+    }
+
+    try {
+      final response = await _streamModel!.generateContent([Content.text(prompt)]);
+      final text = response.text?.trim() ?? '';
+      debugPrint('🔶 askFreeText response: $text');
+      return text;
+    } catch (e) {
+      debugPrint('⚠️ askFreeText error: $e');
+      return '';
+    }
   }
 
   @override
@@ -495,10 +536,419 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
     return result;
   }
 
+  // ---------------------------------------------------------------------------
+  // 🗺️ GHOST MAP — Knowledge gap analysis
+  // ---------------------------------------------------------------------------
+
+  /// Analyze student notes and generate a Ghost Map overlay with missing
+  /// concepts, weak spots, and correct assessments.
+  ///
+  /// [clusterTexts] — clusterId → OCR recognized text.
+  /// [clusterTitles] — clusterId → AI-generated semantic title.
+  /// [clusterPositions] — clusterId → centroid position on canvas.
+  /// [clusterSizes] — clusterId → bounds width/height.
+  /// [existingConnections] — current knowledge graph edges.
+  Future<GhostMapResult> generateGhostMap({
+    required Map<String, String> clusterTexts,
+    Map<String, String> clusterTitles = const {},
+    Map<String, Map<String, double>> clusterPositions = const {},
+    Map<String, Map<String, double>> clusterSizes = const {},
+    List<Map<String, String>> existingConnections = const [],
+    Map<String, Map<String, dynamic>> socraticContext = const {},
+    String language = 'Italian',
+  }) async {
+    if (!_initialized || _model == null) {
+      throw StateError('Atlas non inizializzato. Chiama initialize() prima.');
+    }
+
+    // Filter low-quality OCR clusters + sanitize input
+    final validTexts = <String, String>{};
+    for (final entry in clusterTexts.entries) {
+      final text = entry.value.trim();
+      if (text.length < 3) continue;
+      final alphaCount = RegExp(r'[a-zA-Z0-9]').allMatches(text).length;
+      if (alphaCount / text.length < 0.35) continue;
+      // 🔒 SEC-01: Sanitize input — strip XML/HTML tags and prompt injection markers
+      validTexts[entry.key] = _sanitizeInput(text);
+    }
+
+    if (validTexts.isEmpty) {
+      return GhostMapResult.empty();
+    }
+
+    // Build compact representation with labels (hide internal IDs)
+    final entries = validTexts.entries.take(10).toList();
+    final labelToId = <String, String>{};
+    final idToLabel = <String, String>{};
+    final parts = <String>[];
+
+    for (int i = 0; i < entries.length; i++) {
+      final label = 'nodo_${i + 1}';
+      labelToId[label] = entries[i].key;
+      idToLabel[entries[i].key] = label;
+      final text = entries[i].value.trim();
+      final truncated = text.length > 300 ? text.substring(0, 300) : text;
+      final title = clusterTitles[entries[i].key];
+      final pos = clusterPositions[entries[i].key];
+      final posStr = pos != null
+          ? ' (x: ${pos['x']?.round()}, y: ${pos['y']?.round()})'
+          : '';
+
+      parts.add('[[Nodo ${i + 1}${title != null ? ": $title" : ""}]]$posStr\n$truncated');
+    }
+    final notesSummary = parts.join('\n\n---\n\n');
+
+    // Build existing connections in label form
+    final connParts = <String>[];
+    for (final conn in existingConnections) {
+      final src = idToLabel[conn['source'] ?? ''];
+      final tgt = idToLabel[conn['target'] ?? ''];
+      if (src != null && tgt != null) {
+        connParts.add('$src → $tgt${conn['label'] != null ? " (${conn['label']})" : ""}');
+      }
+    }
+    final connSummary = connParts.isEmpty ? 'Nessuna connessione' : connParts.join('\n');
+
+    // 🗺️ P4-21/22/23: Build Passo 3 Socratic context section
+    String socraticSection = '';
+    if (socraticContext.isNotEmpty) {
+      final socraticParts = <String>[];
+      for (final entry in entries) {
+        final label = idToLabel[entry.key];
+        final sData = socraticContext[entry.key];
+        if (label == null || sData == null) continue;
+
+        final parts = <String>[];
+        final confidence = sData['confidence'] as int?;
+        if (confidence != null) parts.add('confidenza: $confidence/5');
+        if (sData['isHypercorrection'] == true) parts.add('⚡ IPERCORREZIONE (era sicuro ma sbagliato)');
+        if (sData['isBelowZPD'] == true) parts.add('📚 SOTTO ZPD (concetto troppo avanzato)');
+        if (sData['wasCorrect'] == true) parts.add('✅ risposta corretta');
+        if (sData['wasWrong'] == true) parts.add('❌ risposta errata');
+        final breadcrumbs = sData['breadcrumbsUsed'] as int?;
+        if (breadcrumbs != null && breadcrumbs > 0) parts.add('indizi usati: $breadcrumbs/3');
+
+        if (parts.isNotEmpty) {
+          socraticParts.add('$label: ${parts.join(", ")}');
+        }
+      }
+      if (socraticParts.isNotEmpty) {
+        socraticSection = '''
+
+<SOCRATIC_SESSION_DATA>
+Dati dalla sessione Socratica (Passo 3) — queste informazioni descrivono le PRESTAZIONI REALI dello studente:
+${socraticParts.join('\n')}
+
+Usa questi dati per:
+- Nodi con ⚡ IPERCORREZIONE: genera missing/weak nodes con MASSIMA PRIORITÀ (l'errore sicuro ha il maggior potenziale di apprendimento)
+- Nodi con 📚 SOTTO ZPD: genera concepts più semplici come prerequisiti, non lo stesso concetto
+- Nodi con ❌ + alta confidenza: concentrati su PERCHÉ l'errore, non solo COSA manca
+- Nodi con ✅ + alta confidenza: confermali come "corretto" con spiegazione di rinforzo
+</SOCRATIC_SESSION_DATA>''';
+      }
+    }
+
+    // Compute bounding box for positioning hints
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (final pos in clusterPositions.values) {
+      final x = pos['x'] ?? 0;
+      final y = pos['y'] ?? 0;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    final areaWidth = (maxX - minX).isFinite ? (maxX - minX).clamp(200, 5000) : 800;
+    final areaHeight = (maxY - minY).isFinite ? (maxY - minY).clamp(200, 3000) : 600;
+    final centerX = minX.isFinite ? ((minX + maxX) / 2).round() : 400;
+    final centerY = minY.isFinite ? ((minY + maxY) / 2).round() : 300;
+
+    final prompt = '''
+<ROLE>
+You are Atlas, a cognitive tutor embedded in a note-taking app for university students. Your expertise: Bloom's Taxonomy, spaced repetition, and concept mapping. You analyze handwritten notes (received via OCR) to find knowledge gaps.
+</ROLE>
+
+<CRITICAL_FIRST_STEP>
+The input text comes from handwriting OCR and WILL contain errors, garbled fragments, and misspellings. You MUST first reconstruct what the student actually wrote before analyzing.
+
+Example OCR errors you will encounter:
+- "SCIGNZ' ATO" → "scienziato"
+- "Ii GENE" → "il genio" or "il gene"
+- "RELHIVITA" → "relatività"
+- "rFu+1v+A'" → (garbled, skip this fragment)
+
+Strategy: Focus on RECOGNIZABLE KEYWORDS. If you can identify ≥1 meaningful word in a cluster, use it. Skip fragments that are 100% unintelligible.
+</CRITICAL_FIRST_STEP>
+
+<TASK>
+Analyze the student's reconstructed notes and generate a Ghost Map:
+
+1. **MISSING** ("mancante") — Key concepts the student SHOULD know for this topic but did NOT write. These are the most valuable: they reveal blind spots.
+2. **WEAK** ("debole") — Concepts the student mentioned but incompletely or incorrectly.
+3. **CORRECT** ("corretto") — Concepts the student got right. Include 2-3 of the most important ones to provide positive reinforcement.
+
+Think step-by-step:
+(a) Reconstruct the OCR text into the student's actual intended words
+(b) Identify the subject/topic and academic level
+(c) List the 5-10 key concepts a complete understanding requires
+(d) Compare against what the student wrote
+(e) Output the top 2-5 gaps as ghost nodes + 2-3 correct confirmations
+</TASK>
+
+<CONSTRAINTS>
+1. LANGUAGE: Detect the language from the notes content. All output fields MUST be in that same language. Do NOT default to English.
+2. CONCISENESS: "concetto" ≤ 8 words. "spiegazione" ≤ 15 words. These appear in small UI bubbles.
+3. SPECIFICITY: Missing concepts must be specific to the student's topic. "Newton" + "scienziato" → suggest "Tre leggi del moto", NOT "la scienza è importante".
+4. POSITIONING: Place ghost nodes BELOW or BESIDE existing nodes, NEVER above them (the top area is covered by the toolbar). Canvas area: x ${(centerX - areaWidth ~/ 2)}..${(centerX + areaWidth ~/ 2)}, y ${(centerY)}..${(centerY + areaHeight)}. Offset ≥ 150px from existing nodes. Prefer y values LARGER than existing nodes' y values.
+5. COUNT: 2-5 "mancante" nodes, 0-2 "debole" nodes, 2-3 "corretto" nodes. Never more than 10 total.
+6. CROSS-DOMAIN (P4-34/35/36): If the student's notes connect multiple disciplines (e.g., physics+math, biology+chemistry), include 1-2 missing connections labeled "cross_dominio": true that bridge different knowledge domains. These encourage Transfer (far transfer between fields).
+</CONSTRAINTS>
+
+<STUDENT_NOTES>
+$notesSummary
+</STUDENT_NOTES>
+
+<EXISTING_CONNECTIONS>
+$connSummary
+</EXISTING_CONNECTIONS>
+$socraticSection
+
+<FEW_SHOT_EXAMPLE>
+Input notes: "[[Nodo 1: Fisica]] NEWTON É UN- SCIGNZ' ATO" + "[[Nodo 2]] Ii GENE"
+
+Good output:
+{
+  "ricostruzione": "Lo studente ha scritto: (1) 'Newton è uno scienziato' (2) 'Il genio'. Argomento: Isaac Newton, livello universitario.",
+  "valutazione": "Lo studente sa chi è Newton ma non ha scritto nulla sulle sue scoperte o leggi.",
+  "nodi": [
+    {"id": "ghost_1", "stato": "mancante", "concetto": "Tre leggi del moto", "spiegazione": "Fondamento della meccanica classica newtoniana", "nodo_correlato": "nodo_1", "x": 600, "y": 250},
+    {"id": "ghost_2", "stato": "mancante", "concetto": "Legge di gravitazione universale", "spiegazione": "F = Gm₁m₂/r², scoperta chiave di Newton", "nodo_correlato": "nodo_1", "x": 400, "y": 450},
+    {"id": "ghost_3", "stato": "mancante", "concetto": "Calcolo infinitesimale", "spiegazione": "Newton co-inventò il calcolo con Leibniz", "nodo_correlato": "nodo_1", "x": 800, "y": 350},
+    {"id": "ghost_4", "stato": "debole", "concetto": "Identità di Newton", "spiegazione": "Solo 'scienziato' è troppo generico, manca il contesto storico", "nodo_correlato": "nodo_1", "x": 500, "y": 150}
+  ],
+  "connessioni_mancanti": [
+    {"id": "gconn_1", "sorgente": "ghost_1", "destinazione": "ghost_2", "etichetta": "derivano da", "spiegazione": "Le leggi del moto sono il fondamento della gravitazione"}
+  ]
+}
+</FEW_SHOT_EXAMPLE>
+
+<OUTPUT_FORMAT>
+Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
+{
+  "ricostruzione": "1-2 sentences: what the student ACTUALLY wrote (reconstructed from OCR) + detected topic + academic level",
+  "valutazione": "1 sentence overall assessment of the student's understanding",
+  "nodi": [
+    {
+      "id": "ghost_N",
+      "stato": "mancante|debole|corretto",
+      "concetto": "≤8 words, the concept name",
+      "spiegazione": "≤15 words, why it matters",
+      "nodo_correlato": "nodo_N or null",
+      "x": 500,
+      "y": 300
+    }
+  ],
+  "connessioni_mancanti": [
+    {
+      "id": "gconn_N",
+      "sorgente": "nodo_N or ghost_N",
+      "destinazione": "nodo_N or ghost_N",
+      "etichetta": "≤4 words",
+      "spiegazione": "≤10 words",
+      "cross_dominio": false
+    }
+  ]
+}
+</OUTPUT_FORMAT>''';
+
+    try {
+      // 🗺️ Use dedicated ghost map model (temperature 0.3) with 12s timeout (A3-03)
+      final ghostModel = _ghostMapModel ?? _model!;
+      final response = await ghostModel
+          .generateContent([Content.text(prompt)])
+          .timeout(
+            const Duration(seconds: 12),
+            onTimeout: () => throw TimeoutException(
+              'Ghost Map generation exceeded 12s timeout',
+            ),
+          );
+      if (response.text == null) return GhostMapResult.empty();
+
+      final raw = response.text!
+          .replaceAll('```json', '')
+          .replaceAll('```', '')
+          .trim();
+
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+
+      // Log AI's OCR reconstruction for debugging
+      final ricostruzione = json['ricostruzione'] as String?;
+      final valutazione = json['valutazione'] as String?;
+      if (ricostruzione != null) debugPrint('🗺️ Atlas ricostruzione: $ricostruzione');
+      if (valutazione != null) debugPrint('🗺️ Atlas valutazione: $valutazione');
+
+      // Parse nodes
+      final nodiList = json['nodi'] as List<dynamic>? ?? [];
+      // 🔒 SEC-04: Hard cap on node count to prevent resource exhaustion
+      if (nodiList.length > 15) {
+        debugPrint('🗺️ SEC: AI returned ${nodiList.length} nodes, capping at 15');
+      }
+      final nodes = <GhostNode>[];
+      for (final n in nodiList.take(15)) {
+        if (n is! Map<String, dynamic>) continue;
+        final statusStr = n['stato'] as String? ?? 'mancante';
+        final status = statusStr == 'debole'
+            ? GhostNodeStatus.weak
+            : statusStr == 'corretto'
+                ? GhostNodeStatus.correct
+                : GhostNodeStatus.missing;
+
+        // Resolve nodo_correlato label → real cluster ID
+        final relatedLabel = n['nodo_correlato'] as String?;
+        final relatedClusterId = relatedLabel != null
+            ? labelToId[relatedLabel]
+            : null;
+
+        // 🔒 SEC-02: Clamp AI-suggested positions to prevent extreme coordinates
+        double nodeX = ((n['x'] as num?)?.toDouble() ??
+            (relatedClusterId != null
+                ? (clusterPositions[relatedClusterId]?['x'] ?? centerX.toDouble()) + 180
+                : centerX.toDouble()))
+            .clamp(-50000.0, 50000.0);
+        double nodeY = ((n['y'] as num?)?.toDouble() ??
+            (relatedClusterId != null
+                ? (clusterPositions[relatedClusterId]?['y'] ?? centerY.toDouble()) + 100
+                : centerY.toDouble()))
+            .clamp(-50000.0, 50000.0);
+
+        // 🗺️ Force missing nodes BELOW existing clusters so they don't
+        // hide behind the toolbar at the top of the screen.
+        if (status == GhostNodeStatus.missing) {
+          double refY = centerY.toDouble();
+          double refH = 80;
+          if (relatedClusterId != null) {
+            refY = clusterPositions[relatedClusterId]?['y'] ?? refY;
+            refH = clusterSizes[relatedClusterId]?['h'] ?? refH;
+          }
+          final clampMinY = refY + refH + 30;
+          if (nodeY < clampMinY) nodeY = clampMinY;
+        }
+
+        // For weak/correct nodes, snap position to the related cluster
+        if (status != GhostNodeStatus.missing && relatedClusterId != null) {
+          final relPos = clusterPositions[relatedClusterId];
+          if (relPos != null) {
+            nodeX = relPos['x'] ?? nodeX;
+            nodeY = relPos['y'] ?? nodeY;
+          }
+        }
+
+        // 🔒 SEC-03: Clamp string lengths to prevent UI overflow
+        final concept = _clampString(n['concetto'] as String? ?? '', 80)!;
+        final explanation = _clampString(n['spiegazione'] as String?, 200);
+
+        nodes.add(GhostNode(
+          id: n['id'] as String? ?? 'ghost_${nodes.length}',
+          concept: concept,
+          estimatedPosition: ui.Offset(nodeX, nodeY),
+          estimatedSize: status == GhostNodeStatus.missing
+              ? const ui.Size(220, 90)
+              : (clusterSizes[relatedClusterId] != null
+                  ? ui.Size(
+                      clusterSizes[relatedClusterId]!['w'] ?? 200,
+                      clusterSizes[relatedClusterId]!['h'] ?? 80,
+                    )
+                  : const ui.Size(200, 80)),
+          status: status,
+          relatedClusterId: relatedClusterId,
+          explanation: explanation,
+        ));
+      }
+
+      // Parse connections
+      final connList = json['connessioni_mancanti'] as List<dynamic>? ?? [];
+      final connections = <GhostConnection>[];
+      // 🔒 SEC-04b: Hard cap on connection count
+      for (final c in connList.take(20)) {
+        if (c is! Map<String, dynamic>) continue;
+        // Resolve labels → real IDs (or keep ghost IDs as-is)
+        final srcLabel = c['sorgente'] as String? ?? '';
+        final tgtLabel = c['destinazione'] as String? ?? '';
+        final srcId = labelToId[srcLabel] ?? srcLabel;
+        final tgtId = labelToId[tgtLabel] ?? tgtLabel;
+
+        // 🔒 SEC-06: Reject self-loops
+        if (srcId == tgtId) continue;
+
+        connections.add(GhostConnection(
+          id: c['id'] as String? ?? 'gconn_${connections.length}',
+          sourceId: srcId,
+          targetId: tgtId,
+          label: _clampString(c['etichetta'] as String?, 50),
+          explanation: _clampString(c['spiegazione'] as String?, 150),
+          isCrossDomain: c['cross_dominio'] == true,
+        ));
+      }
+
+      return GhostMapResult(
+        nodes: nodes,
+        connections: connections,
+        summary: json['valutazione'] as String? ?? '',
+      );
+    } on TimeoutException {
+      debugPrint('🗺️ Ghost Map generation timed out (12s)');
+      return GhostMapResult.empty();
+    } catch (e) {
+      debugPrint('🗺️ Ghost Map generation error: $e');
+      return GhostMapResult.empty();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Security helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// 🔒 SEC-01: Sanitize user input before injecting into AI prompt.
+  ///
+  /// Defenses:
+  /// - Strip HTML/XML tags (prevent prompt structure manipulation)
+  /// - Remove common prompt injection markers (<ROLE>, <SYSTEM>, etc.)
+  /// - Remove control characters (prevent terminal escape sequences)
+  /// - Truncate to 500 chars (OCR text shouldn't be longer)
+  static String _sanitizeInput(String text) {
+    var sanitized = text
+        // Strip HTML/XML tags
+        .replaceAll(RegExp(r'<[^>]*>'), '')
+        // Remove prompt injection markers (case-insensitive)
+        .replaceAll(RegExp(
+          r'</?(?:ROLE|SYSTEM|TASK|CONSTRAINTS|OUTPUT_FORMAT|CRITICAL|INSTRUCTIONS?|IGNORE)[^>]*>',
+          caseSensitive: false,
+        ), '')
+        // Remove control characters (except newline/tab)
+        .replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'), '')
+        .trim();
+
+    // Truncate to 500 chars per cluster
+    if (sanitized.length > 500) {
+      sanitized = sanitized.substring(0, 500);
+    }
+
+    return sanitized;
+  }
+
+  /// 🔒 SEC-03: Clamp a string to a maximum length, appending '…' if truncated.
+  static String? _clampString(String? text, int maxLength) {
+    if (text == null) return null;
+    if (text.length <= maxLength) return text;
+    return '${text.substring(0, maxLength - 1)}…';
+  }
+
   @override
   void dispose() {
     _model = null;
     _streamModel = null;
+    _ghostMapModel = null;
     _initialized = false;
   }
 

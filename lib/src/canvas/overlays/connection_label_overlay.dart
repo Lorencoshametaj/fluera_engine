@@ -525,9 +525,9 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
 
 /// Compare colors ignoring minor floating-point differences
 bool _colorEquals(Color a, Color b) =>
-    (a.red - b.red).abs() < 2 &&
-    (a.green - b.green).abs() < 2 &&
-    (a.blue - b.blue).abs() < 2;
+    ((a.r - b.r) * 255).abs() < 2 &&
+    ((a.g - b.g) * 255).abs() < 2 &&
+    ((a.b - b.b) * 255).abs() < 2;
 
 /// Icon for each connection type.
 IconData _typeIcon(ConnectionType type) {

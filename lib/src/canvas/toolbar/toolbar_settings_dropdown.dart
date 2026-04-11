@@ -210,7 +210,9 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.deepPurple.withValues(alpha: 0.12),
+                                color: Colors.deepPurple.withValues(
+                                  alpha: 0.12,
+                                ),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: const Text(

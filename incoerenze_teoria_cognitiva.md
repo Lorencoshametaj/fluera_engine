@@ -1,0 +1,1 @@
+- 2.4 Lo studente deve poter scrivere a qualsiasi **scala**, però io ho impementato un blocco dal dezoom 70%

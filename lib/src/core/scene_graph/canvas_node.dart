@@ -8,6 +8,7 @@ import './node_id.dart';
 import './node_visitor.dart';
 import './transform_bridge.dart';
 import './frozen_node_view.dart';
+import './content_origin.dart';
 
 /// Base class for all elements in the scene graph.
 ///
@@ -70,6 +71,12 @@ abstract class CanvasNode {
   /// with the specified role, label, and other semantic properties.
   AccessibilityInfo? accessibilityInfo;
 
+  /// Content provenance tag (A20.3).
+  ///
+  /// Tracks whether this node was handwritten, imported, or AI-generated.
+  /// Defaults to [ContentOrigin.handwriting] (student-authored).
+  ContentOrigin contentOrigin;
+
   /// Baseline offset for text alignment (distance from top of bounds to baseline).
   ///
   /// When non-null, this value is used by [FrameNode] to align children
@@ -109,6 +116,7 @@ abstract class CanvasNode {
     this.isLocked = false,
     this.parent,
     List<NodeEffect>? effects,
+    this.contentOrigin = ContentOrigin.handwriting,
   }) : assert(id.isNotEmpty, 'Node ID must not be empty'),
        localTransform = localTransform ?? Matrix4.identity(),
        _opacity = opacity.clamp(0.0, 1.0),
@@ -328,6 +336,9 @@ abstract class CanvasNode {
     if (accessibilityInfo != null) {
       json['a11y'] = accessibilityInfo!.toJson();
     }
+    if (contentOrigin != ContentOrigin.handwriting) {
+      json['contentOrigin'] = contentOrigin.name;
+    }
 
     return json;
   }
@@ -365,6 +376,12 @@ abstract class CanvasNode {
     if (json['a11y'] != null) {
       node.accessibilityInfo = AccessibilityInfo.fromJson(
         json['a11y'] as Map<String, dynamic>,
+      );
+    }
+    if (json['contentOrigin'] != null) {
+      node.contentOrigin = ContentOrigin.values.firstWhere(
+        (e) => e.name == json['contentOrigin'],
+        orElse: () => ContentOrigin.handwriting,
       );
     }
   }

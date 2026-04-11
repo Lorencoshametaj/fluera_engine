@@ -11,6 +11,13 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🌫️ FOG OF WAR ZONE SELECTION (P10-02): Track rectangle endpoint.
+    if (_fogZoneStartPoint != null && _pendingFogLevel != null) {
+      _fogZoneCurrentEndPoint = canvasPosition;
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
     // 🌟 RADIAL EXPANSION: Elastic drag for drag-to-confirm gesture
     if (_radialDraggedBubbleId != null) {
       updateRadialBubbleDrag(canvasPosition);

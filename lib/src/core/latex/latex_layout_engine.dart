@@ -270,7 +270,6 @@ class LatexLayoutEngine {
         // immediately after another operator is unary (prefix), so we
         // skip its left spacing.
         if (nextIsOp &&
-            next is LatexSymbol &&
             next.value == '-' &&
             (i == 0 || childIsOp)) {
         } else if (!childIsOp && !nextIsOp) {

@@ -465,6 +465,32 @@ extension on _FlueraCanvasScreenState {
               // Gated by LearningStepController.isRecallModeAllowed.
               ...buildRecallModeOverlays(context),
 
+              // 🌫️ FOG OF WAR: Step 10 overlays (end session button, mastery map controls).
+              ...buildFogOfWarOverlays(context),
+
+              // 🔶 SOCRATIC SPATIAL: Step 3 overlays (question bubbles, confidence, breadcrumbs).
+              ...buildSocraticOverlays(context),
+
+              // 🗺️ GHOST MAP: Step 4 overlays (navigation bar, progress indicator).
+              ...buildGhostMapOverlays(context),
+
+              // 🤝 P2P COLLABORATION: Passo 7 overlay (ghost cursor, laser, markers, status pill).
+              buildP2POverlay(),
+
+              // 🤝 P2P COLLABORATION: Floating action button (bottom-right, above minimap).
+              ValueListenableBuilder<bool>(
+                valueListenable: _isDrawingNotifier,
+                builder: (_, isDrawing, child) {
+                  if (isDrawing) return const SizedBox.shrink();
+                  return child!;
+                },
+                child: Positioned(
+                  bottom: 80,
+                  right: 16,
+                  child: buildP2PToolbarButton(),
+                ),
+              ),
+
               // 📲 Echo Search: Swipe-down from top edge to activate
               if (!_isEchoSearchMode)
                 _buildEchoSearchSwipeZone(),
@@ -1085,21 +1111,150 @@ extension on _FlueraCanvasScreenState {
                 ),
               ),
 
-              // 🔘 Small dot indicator (visible when pill is hidden)
-              if (!_wheelPillVisible)
+              // 🖊️ Pen indicator dot
+              // Only shown when the wheel pill has faded out — avoids visual overlap
+              // since the pill is positioned at right:16 and the dot at right:23.
+              // • Tap  → open transient pen picker
+              // • Swipe left/right → instantly cycle presets (<50ms, no picker)
+              // • Long-press → brush settings dialog
+              if (_useRadialWheel && !_wheelPillVisible)
                 Positioned(
-                  top: _useRadialWheel ? 22 : null,
-                  bottom: _useRadialWheel ? null : 88,
+                  top: 22,
+                  right: 23,
+                  child: GestureDetector(
+                    onTap: _togglePenPicker,
+                    onLongPress: () {
+                      // 🎛️ Long-press → Open brush settings (same as toolbar long-press)
+                      HapticFeedback.mediumImpact();
+                      if (!mounted) return;
+                      ProBrushSettingsDialog.show(
+                        context,
+                        settings: _brushSettings,
+                        currentBrush: _effectivePenType,
+                        anchorRect: const Rect.fromLTWH(0, 0, 0, 0),
+                        currentColor: _effectiveColor,
+                        currentWidth: _effectiveWidth,
+                        onSettingsChanged: (newSettings) {
+                          _brushSettings = newSettings;
+                          _drawingHandler.stabilizerLevel = newSettings.stabilizerLevel;
+                          EngineScope.current.drawingModule?.brushSettingsService
+                              .updateSettings(newSettings);
+                        },
+                      );
+                    },
+                    // ✅ Swipe left = next preset, right = previous — ultra fast, no picker
+                    onHorizontalDragEnd: (details) {
+                      if (details.primaryVelocity == null) return;
+                      // Ignore tiny accidental drags
+                      if (details.primaryVelocity!.abs() < 80) return;
+                      _cyclePreset(forward: details.primaryVelocity! < 0);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      width: _penPickerVisible ? 18 : 14,
+                      height: _penPickerVisible ? 18 : 14,
+                      decoration: BoxDecoration(
+                        color: _effectiveSelectedColor.withValues(alpha: 0.85),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _penPickerVisible
+                              ? Colors.white.withValues(alpha: 0.7)
+                              : Colors.white.withValues(alpha: 0.35),
+                          width: _penPickerVisible ? 2.0 : 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _effectiveSelectedColor.withValues(
+                              alpha: _penPickerVisible ? 0.6 : 0.35,
+                            ),
+                            blurRadius: _penPickerVisible ? 10 : 6,
+                            spreadRadius: _penPickerVisible ? 2 : 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else if (!_wheelPillVisible)
+                // ⚙️ Non-wheel mode: standard small dot to re-show the pill
+                Positioned(
+                  bottom: 88,
                   right: 22,
                   child: GestureDetector(
                     onTap: _showWheelPill,
                     child: Container(
                       width: 10, height: 10,
                       decoration: BoxDecoration(
-                        color: _useRadialWheel
-                            ? const Color(0xFF1E88E5).withValues(alpha: 0.7)
-                            : Colors.white.withValues(alpha: 0.3),
+                        color: Colors.white.withValues(alpha: 0.3),
                         shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 🖊️ Transient pen picker overlay (zero layout space)
+              // • Entry: fade+scale in 200ms
+              // • Exit: fade+scale OUT 200ms via dismiss()+GlobalKey (not instant pop)
+              // • Auto-dismiss: 2.5s or on selection
+              if (_useRadialWheel && _penPickerVisible)
+                Positioned(
+                  top: 10,
+                  right: 44,
+                  child: _WheelPenPickerOverlay(
+                    key: _penPickerKey,
+                    presets: _brushPresetManager.allPresets,
+                    selectedPresetId: _selectedPresetId,
+                    currentColor: _effectiveSelectedColor,
+                    // Reset auto-dismiss when user scrolls/browses the picker
+                    onResetTimer: () {
+                      _penPickerTimer?.cancel();
+                      _penPickerTimer = Timer(const Duration(milliseconds: 2500), _closePenPicker);
+                    },
+                    onPresetSelected: (preset) {
+                      // ✅ Single source of truth: _applyBrushPreset
+                      _applyBrushPreset(preset);
+                      _closePenPicker();
+                      setState(() {});
+                    },
+                  ),
+                ),
+
+              // 💬 Swipe HUD: shows selected preset name when cycling via swipe.
+              // Appears to the left of the dot, auto-hides after 1.2s.
+              // IgnorePointer: never consumes gestures meant for the canvas.
+              if (_useRadialWheel && _swipeHudText != null)
+                Positioned(
+                  top: 14,
+                  right: 46,
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: _swipeHudText != null ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 180),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.72),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: _effectiveSelectedColor.withValues(alpha: 0.4),
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              _swipeHudText ?? '',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1469,6 +1624,131 @@ extension on _FlueraCanvasScreenState {
             ],
           ),
         ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// 🖊️ _WheelPenPickerOverlay — Transient floating pen preset picker
+// ============================================================================
+// Used by the pen indicator dot in wheel mode. Appears above the canvas with
+// zero layout impact (always inside a Positioned/Stack). Glassmorphism style.
+// Same ToolbarBrushPill used by the toolbar for consistent UX.
+// ============================================================================
+
+class _WheelPenPickerOverlay extends StatefulWidget {
+  final List<BrushPreset> presets;
+  final String? selectedPresetId;
+  final Color currentColor;
+  final ValueChanged<BrushPreset> onPresetSelected;
+  /// Called when the user interacts with the picker without selecting —
+  /// allows the parent to reset the auto-dismiss timer.
+  final VoidCallback? onResetTimer;
+
+  _WheelPenPickerOverlay({
+    super.key,
+    required this.presets,
+    required this.selectedPresetId,
+    required this.currentColor,
+    required this.onPresetSelected,
+    this.onResetTimer,
+  });
+
+  @override
+  State<_WheelPenPickerOverlay> createState() => _WheelPenPickerOverlayState();
+}
+
+class _WheelPenPickerOverlayState extends State<_WheelPenPickerOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _fadeScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _fadeScale = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  /// Play the exit animation, then call [onDismissed] when complete.
+  /// Called by the parent via GlobalKey before removing from tree.
+  void dismiss({required VoidCallback onDismissed}) {
+    _ctrl.reverse().then((_) => onDismissed());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return FadeTransition(
+      opacity: _fadeScale,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 0.88, end: 1.0).animate(_fadeScale),
+        alignment: Alignment.topRight,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: Container(
+              // Max width: don't overflow left edge on small tablets
+              constraints: const BoxConstraints(maxWidth: 380),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+              decoration: BoxDecoration(
+                color: (isDark ? const Color(0xFF1C1C1E) : Colors.white)
+                    .withValues(alpha: 0.82),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: widget.currentColor.withValues(alpha: 0.3),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.22),
+                    blurRadius: 20,
+                    offset: const Offset(0, 6),
+                  ),
+                  BoxShadow(
+                    color: widget.currentColor.withValues(alpha: 0.10),
+                    blurRadius: 14,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              // ✅ Scrollable: supports many user presets without overflow
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                // Reset dismiss timer any time the user scrolls/touches
+                child: GestureDetector(
+                  onPanDown: (_) => widget.onResetTimer?.call(),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: widget.presets.map((preset) {
+                      return ToolbarBrushPill(
+                        preset: preset,
+                        isSelected: widget.selectedPresetId == preset.id,
+                        isPenActive: true,
+                        isDark: isDark,
+                        onTap: () => widget.onPresetSelected(preset),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

@@ -183,6 +183,27 @@ class InlineTextOverlayState extends State<InlineTextOverlay>
   /// Public accessor for current text.
   String get currentText => _controller.text;
 
+  /// Inserts [text] at the current cursor position (or replaces selection).
+  /// Used by the Math symbol strip to inject symbols into the active field.
+  void insertText(String text) {
+    final sel = _controller.selection;
+    final current = _controller.text;
+    if (!sel.isValid) {
+      // No valid selection — just append
+      _controller.text = current + text;
+      _controller.selection = TextSelection.collapsed(
+        offset: _controller.text.length,
+      );
+    } else {
+      final newText = sel.textBefore(current) + text + sel.textAfter(current);
+      _controller.value = _controller.value.copyWith(
+        text: newText,
+        selection: TextSelection.collapsed(offset: sel.start + text.length),
+      );
+    }
+    _focusNode.requestFocus();
+  }
+
   @override
   void didUpdateWidget(covariant InlineTextOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);

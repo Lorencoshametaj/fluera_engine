@@ -225,6 +225,21 @@ class KnowledgeFlowController {
       isGhost: isGhost,
     );
 
+    // Auto-classify cross-zone connections (P9-05):
+    // If both anchors are set and spatially distant, mark as cross-zone.
+    if (sourceAnchor != null && targetAnchor != null) {
+      final dx = sourceAnchor.dx - targetAnchor.dx;
+      final dy = sourceAnchor.dy - targetAnchor.dy;
+      final dist = math.sqrt(dx * dx + dy * dy);
+      if (dist > KnowledgeConnection.crossZoneDistanceThreshold) {
+        connection.isCrossZone = true;
+        // Apply golden color if no explicit color was provided
+        if (color == null) {
+          connection.color = KnowledgeConnection.crossZoneColor;
+        }
+      }
+    }
+
     _connections.add(connection);
     _pushUndo(_ConnectionAction(
       type: _ActionType.add,
@@ -461,6 +476,41 @@ class KnowledgeFlowController {
     selectConnection(conn.id);
     return conn;
   }
+
+  // ===========================================================================
+  // 🌉 CROSS-ZONE BRIDGES (Passo 9)
+  // ===========================================================================
+
+  /// Get all active cross-zone bridge connections (P9-05).
+  ///
+  /// Returns only non-ghost, non-deleted bridges. For ghost bridges
+  /// (AI suggestions pending acceptance), filter with `isGhost == true`.
+  List<KnowledgeConnection> getCrossZoneBridges({bool includeGhosts = false}) {
+    return _connections
+        .where((c) =>
+            c.isCrossZone &&
+            c.deletedAtMs == 0 &&
+            (includeGhosts || !c.isGhost))
+        .toList();
+  }
+
+  /// Navigate to the next cross-zone bridge (cycles through bridges only).
+  ///
+  /// Returns the bridge and selects it for highlight.
+  /// Returns null if no cross-zone bridges exist.
+  KnowledgeConnection? navigateToNextBridge(int currentIndex) {
+    final bridges = getCrossZoneBridges();
+    if (bridges.isEmpty) return null;
+    final idx = (currentIndex + 1) % bridges.length;
+    final bridge = bridges[idx];
+    selectConnection(bridge.id);
+    return bridge;
+  }
+
+  /// Count cross-zone bridges (for toolbar badge).
+  int get crossZoneBridgeCount =>
+      _connections.where((c) => c.isCrossZone && c.deletedAtMs == 0 && !c.isGhost).length;
+
 
   /// Apply an operation to all multi-selected connections.
   void applyToMultiSelected({

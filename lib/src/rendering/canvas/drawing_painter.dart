@@ -4,7 +4,6 @@ import '../lod_config.dart' as lod;
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import '../../drawing/models/surface_material.dart';
 import '../../services/canvas_performance_monitor.dart';
 import 'package:flutter/scheduler.dart';
 import 'dart:math' as math;
@@ -255,6 +254,11 @@ class DrawingPainter extends CustomPainter {
     _renderIndexNodeCount = 0;
   }
   static List<ProStroke>? _lastMaterializedStrokes;
+
+  /// 🔒 Track the last SceneGraph identity to detect canvas switches.
+  /// Static R-Tree/tile caches persist across DrawingPainter instances,
+  /// so we must force a full rebuild when the underlying sceneGraph changes.
+  static SceneGraph? _lastSceneGraph;
 
   /// 📊 Total stroke count (including stubs) for R-Tree sync.
   /// _materializedCache only holds loaded (non-stub) strokes;
@@ -515,6 +519,19 @@ class DrawingPainter extends CustomPainter {
   /// - Undo/delete → remove O(k log N) instead of rebuild O(N log N)
   /// - Full rebuild only on first build
   void _ensureRenderIndex() {
+    // 🔒 CANVAS SWITCH DETECTION: If the sceneGraph object itself changed
+    // (user opened a different canvas), force a full rebuild. Static caches
+    // contain nodes from the old canvas that must be replaced.
+    if (!identical(sceneGraph, _lastSceneGraph)) {
+      debugPrint('[RTree] 🔄 CANVAS SWITCH DETECTED — old sceneGraph ≠ new. Forcing full reset.');
+      _lastSceneGraph = sceneGraph;
+      _renderIndexVersion = -1;
+      _renderIndexNodeCount = 0;
+      _lastMaterializedStrokes = null;
+      _renderIndex.rebuild(const []);
+      // Also clear tile cache — old tiles belong to the previous canvas.
+      _tileCache.invalidateAll();
+    }
     if (_renderIndexVersion == sceneGraph.version) return;
 
     final currentStrokes = _effectiveStrokes;
@@ -530,6 +547,8 @@ class DrawingPainter extends CustomPainter {
         _collectLeafNodes(layer, nodes);
       }
       _renderIndex.rebuild(nodes);
+      final sectionCount = nodes.where((n) => n is SectionNode).length;
+      debugPrint('[RTree] 🏗️ FULL REBUILD (version=-1): ${nodes.length} nodes ($sectionCount sections, ${nodes.length - sectionCount} strokes)');
       _renderIndexNodeCount = newCount;
 
       // 🌲 Dual-write: persist R-Tree to SQLite (fire-and-forget)
@@ -591,12 +610,19 @@ class DrawingPainter extends CustomPainter {
         _renderIndexNodeCount = newCount;
       }
     } else if (newCount == oldCount) {
-      // 🚀 P99 FIX #6: version changed but stroke count same (section/shape/
-      // visibility toggle). The R-Tree only indexes SPATIAL positions — if
-      // stroke count is identical, bounds haven't changed. Skip the expensive
-      // O(N log N) full rebuild. Non-stroke nodes (shapes, sections) are
-      // rendered via the scene graph renderer directly, not the R-Tree.
-      // Just bump version to avoid re-entering this branch next frame.
+      // Version changed but stroke count is identical.
+      // This happens when a non-stroke node (SectionNode, ShapeNode, etc.)
+      // is added, removed, or modified. ALWAYS rebuild the R-Tree —
+      // these operations are infrequent so the O(N log N) cost is acceptable,
+      // and skipping can cause sections to vanish from tile queries.
+      final nodes = <CanvasNode>[];
+      for (final layer in sceneGraph.layers) {
+        if (!layer.isVisible) continue;
+        _collectLeafNodes(layer, nodes);
+      }
+      _renderIndex.rebuild(nodes);
+      final sectionCount = nodes.where((n) => n is SectionNode).length;
+      debugPrint('[RTree] 🔁 SAME-COUNT REBUILD (v${_renderIndexVersion}→${sceneGraph.version}, strokes=$newCount): ${nodes.length} nodes ($sectionCount sections)');
       _renderIndexNodeCount = newCount;
     } else {
       // Fallback: version changed, count changed but not simple add/remove.
@@ -996,12 +1022,18 @@ class DrawingPainter extends CustomPainter {
     Rect viewport, {
     bool isDirtyClipped = false,
   }) {
-    // 🚀 PERF: Skip ALL rendering when canvas has no strokes.
-    // Saves 14ms+ on cold first paint (avoids cache invalidation,
-    // LOD tier computation, RenderPlan compilation, scene graph traversal).
+    // 🚀 PERF: Skip ALL rendering when canvas has no strokes AND no non-stroke
+    // visual content (SectionNode, ShapeNode, ImageNode, etc.).
+    // ⚠️ Do NOT skip when sections exist — they are GroupNodes with no strokes
+    // but MUST be rendered via the SceneGraphRenderer tile path.
     if (_effectiveStrokes.isEmpty && eraserPreviewIds.isEmpty) {
-      _triggerPagingIfNeeded(viewport);
-      return;
+      final hasNonStrokeContent = sceneGraph.layers.any(
+        (l) => l.isVisible && l.children.any((c) => c is! StrokeNode),
+      );
+      if (!hasNonStrokeContent) {
+        _triggerPagingIfNeeded(viewport);
+        return;
+      }
     }
 
     // 🎨 PER-LAYER BLEND MODE: if any scene graph layer has non-default
@@ -1286,6 +1318,11 @@ class DrawingPainter extends CustomPainter {
           // (0.25), causing scale 0.22 to render polylines instead of
           // bounding boxes even though it's in tier 2.
           if (_cachedLodTier >= 2) {
+            // 🎯 Z-ORDER: Sections first
+            for (final node in visibleNodes) {
+              if (node is! SectionNode) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
             final thumbBatches = <int, ui.Path>{};
             for (final node in visibleNodes) {
               if (node is StrokeNode) {
@@ -1293,7 +1330,7 @@ class DrawingPainter extends CustomPainter {
                 final b = node.stroke.bounds;
                 if (b.isEmpty || b.longestSide * effectiveScale < 3.0) continue;
                 final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
-                final colorKey = node.stroke.color.value;
+                final colorKey = node.stroke.color.toARGB32();
                 final path = thumbBatches.putIfAbsent(
                   colorKey,
                   () => ui.Path(),
@@ -1301,6 +1338,7 @@ class DrawingPainter extends CustomPainter {
                 path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
                 continue;
               }
+              if (node is SectionNode) continue; // Already rendered
               if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
               _delegateRenderer.renderNode(recCanvas, node, tileBounds);
             }
@@ -1342,8 +1380,12 @@ class DrawingPainter extends CustomPainter {
             }
           } else if (_cachedLodTier >= 1) {
             // 🎨 TIER 2: Color-batched simplified polylines
-            // (MUST match the normal tile cache path — previously used full-
-            //  quality renderNode here, causing strokes to persist at 10-30%.)
+            // 🎯 Z-ORDER: Render sections/non-stroke FIRST
+            for (final node in visibleNodes) {
+              if (node is StrokeNode) continue;
+              if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
             final strokeOpacity =
                 effectiveScale < 0.3
                     ? ((effectiveScale - 0.2) / 0.1).clamp(0.0, 1.0)
@@ -1352,11 +1394,7 @@ class DrawingPainter extends CustomPainter {
             final step = (1.0 / effectiveScale).ceil().clamp(3, 10);
 
             for (final node in visibleNodes) {
-              if (node is! StrokeNode) {
-                if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
-                _delegateRenderer.renderNode(recCanvas, node, tileBounds);
-                continue;
-              }
+              if (node is! StrokeNode) continue;
               if (node.stroke.isStub || node.stroke.isFill) continue;
               final stroke = node.stroke;
               final points = stroke.points;
@@ -1364,7 +1402,7 @@ class DrawingPainter extends CustomPainter {
               final screenSize = stroke.bounds.longestSide * effectiveScale;
               if (screenSize < 4.0) continue;
 
-              final colorKey = stroke.color.value;
+              final colorKey = stroke.color.toARGB32();
               final batch = batches.putIfAbsent(
                 colorKey,
                 () => _ColorBatch(ui.Path(), stroke.color, stroke.baseWidth),
@@ -1398,7 +1436,13 @@ class DrawingPainter extends CustomPainter {
               recCanvas.drawPath(batch.path, _lodBatchPaint);
             }
           } else {
+            // 🎯 Z-ORDER: Sections first, then everything else
             for (final node in visibleNodes) {
+              if (node is! SectionNode) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
+            for (final node in visibleNodes) {
+              if (node is SectionNode) continue;
               if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
               if (node is StrokeNode && node.stroke.isStub) continue;
               _delegateRenderer.renderNode(recCanvas, node, tileBounds);
@@ -1614,8 +1658,13 @@ class DrawingPainter extends CustomPainter {
       if (renderScale < 0.2) {
         // 🏷️ TIER 1: Sections + color-batched content thumbnails
         // O(colors) draw calls instead of O(N) per stroke.
-        final thumbBatches = <int, ui.Path>{};
+        // 🎯 Z-ORDER: Render sections FIRST (background), then strokes on top.
+        for (final node in visibleNodes) {
+          if (node is! SectionNode) continue;
+          _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+        }
 
+        final thumbBatches = <int, ui.Path>{};
         for (final node in visibleNodes) {
           if (node is StrokeNode) {
             if (node.stroke.isStub || node.stroke.isFill) continue;
@@ -1623,11 +1672,12 @@ class DrawingPainter extends CustomPainter {
             // Aggressive cull: skip strokes < 3px on screen
             if (b.isEmpty || b.longestSide * renderScale < 3.0) continue;
             final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
-            final colorKey = node.stroke.color.value;
+            final colorKey = node.stroke.color.toARGB32();
             final path = thumbBatches.putIfAbsent(colorKey, () => ui.Path());
             path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
             continue;
           }
+          if (node is SectionNode) continue; // Already rendered above
           if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
         }
@@ -1672,6 +1722,14 @@ class DrawingPainter extends CustomPainter {
       } else if (renderScale < 0.5) {
         // 🎨 TIER 2: Color-batched simplified polylines
         // Smooth fade near the 0.2 boundary (0.2–0.3 = transition zone)
+
+        // 🎯 Z-ORDER: Render sections/non-stroke nodes FIRST (background)
+        for (final node in visibleNodes) {
+          if (node is StrokeNode) continue;
+          if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
+          _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+        }
+
         final strokeOpacity =
             effectiveScale < 0.3
                 ? ((effectiveScale - 0.2) / 0.1).clamp(0.0, 1.0)
@@ -1692,7 +1750,7 @@ class DrawingPainter extends CustomPainter {
           final screenSize = stroke.bounds.longestSide * effectiveScale;
           if (screenSize < 4.0) continue;
 
-          final colorKey = stroke.color.value;
+          final colorKey = stroke.color.toARGB32();
           final batch = batches.putIfAbsent(
             colorKey,
             () => _ColorBatch(ui.Path(), stroke.color, stroke.baseWidth),
@@ -1730,15 +1788,16 @@ class DrawingPainter extends CustomPainter {
           recCanvas.drawPath(batch.path, _lodBatchPaint);
         }
 
-        // Also render non-stroke nodes (shapes, images, etc.)
-        for (final node in visibleNodes) {
-          if (node is StrokeNode) continue;
-          if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
-          _delegateRenderer.renderNode(recCanvas, node, tileBounds);
-        }
+        // 🎯 Z-ORDER: Sections were already rendered BEFORE strokes (see below).
       } else {
         // 🖌️ TIER 3: Full quality per-node rendering
+        // 🎯 Z-ORDER: Render sections FIRST (background), then everything else.
         for (final node in visibleNodes) {
+          if (node is! SectionNode) continue;
+          _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+        }
+        for (final node in visibleNodes) {
+          if (node is SectionNode) continue; // Already rendered
           if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
           if (node is StrokeNode && node.stroke.isStub) continue;
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
@@ -1813,7 +1872,13 @@ class DrawingPainter extends CustomPainter {
 
           final recorder = ui.PictureRecorder();
           final recCanvas = Canvas(recorder);
+          // 🎯 Z-ORDER: Sections first, then everything else
           for (final node in visibleNodes) {
+            if (node is! SectionNode) continue;
+            _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+          }
+          for (final node in visibleNodes) {
+            if (node is SectionNode) continue;
             if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
             if (node is StrokeNode && node.stroke.isStub) continue;
             _delegateRenderer.renderNode(recCanvas, node, tileBounds);
@@ -3048,6 +3113,10 @@ class DrawingPainter extends CustomPainter {
   static void invalidateAllTiles() {
     _tileCache.invalidateAll();
     invalidateLayerCaches();
+    // NOTE: Do NOT call invalidateRenderIndex() here.
+    // Canvas switches are handled by the _lastSceneGraph identity check
+    // in _ensureRenderIndex(). Calling it here causes excessive full
+    // R-Tree rebuilds on every stroke/undo/section operation.
     // Also invalidate the vectorial stroke cache — needed when
     // selection moves change localTransform without adding/removing strokes.
     if (EngineScope.hasScope) {

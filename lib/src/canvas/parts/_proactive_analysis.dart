@@ -1221,12 +1221,17 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
         // Snooze the review by 1 hour
         final existing = _reviewSchedule[concept] ?? SrsCardData.newCard();
         _reviewSchedule[concept] = SrsCardData(
-          repetitions: existing.repetitions,
-          easiness: existing.easiness,
-          interval: existing.interval,
+          stability: existing.stability,
+          difficulty: existing.difficulty,
+          elapsedDays: existing.elapsedDays,
+          scheduledDays: existing.scheduledDays,
+          reps: existing.reps,
+          lapses: existing.lapses,
+          state: existing.state,
           nextReview: DateTime.now().add(const Duration(hours: 1)),
           lastReview: existing.lastReview,
-          lapses: existing.lapses,
+          desiredRetention: existing.desiredRetention,
+          recentResults: existing.recentResults,
         );
         _saveSpacedRepetition();
         debugPrint('⏰ Snoozed "$concept" for 1h');
@@ -1419,6 +1424,153 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
       _scheduleReviewNotifications();
     } catch (e) {
       debugPrint('⚠️ SR save error: $e');
+    }
+  }
+
+  /// 🚦 KV key for step gate history, scoped per canvas.
+  String get _stepGateKey => 'step_gate_$_canvasId';
+
+  /// Load step gate history from KeyValueStore into [_stepGateController].
+  Future<void> _loadStepGateHistory() async {
+    try {
+      final kv = await KeyValueStore.getInstance();
+      final raw = kv.getString(_stepGateKey);
+      if (raw == null || raw.isEmpty) return;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      _stepGateController = StepGateController.fromJson(json);
+      debugPrint('🚦 Step gate: loaded ${_stepGateController.stepHistory.length} step records');
+    } catch (e) {
+      debugPrint('⚠️ Step gate load error: $e');
+    }
+  }
+
+  /// Persist step gate history to KeyValueStore.
+  Future<void> _saveStepGateHistory() async {
+    try {
+      final kv = await KeyValueStore.getInstance();
+      await kv.setString(_stepGateKey, jsonEncode(_stepGateController.toJson()));
+    } catch (e) {
+      debugPrint('⚠️ Step gate save error: $e');
+    }
+  }
+
+  /// 🚦 Build a [ZoneContext] from the current canvas state for gate evaluation.
+  ZoneContext _buildZoneContext() {
+    // Node count: total content clusters visible
+    final nodeCount = _clusterCache.length;
+
+    // Socratic questions answered
+    final socraticAnswered = _socraticController.allQuestions
+        .where((q) => q.isResolved)
+        .length;
+
+    // Last Step 1/2 timestamp
+    final step1Record = _stepGateController.lastCompleted(LearningStep.step1Notes);
+    final step2Record = _stepGateController.lastCompleted(LearningStep.step2Recall);
+    DateTime? lastStep1Or2;
+    if (step1Record != null && step2Record != null) {
+      lastStep1Or2 = step1Record.isAfter(step2Record) ? step1Record : step2Record;
+    } else {
+      lastStep1Or2 = step1Record ?? step2Record;
+    }
+
+    // Due node count for SRS
+    final dueCount = _reviewSchedule.entries
+        .where((e) => e.value.nextReview.isBefore(DateTime.now()))
+        .length;
+
+    // Next review date
+    DateTime? nextReview;
+    if (_reviewSchedule.isNotEmpty) {
+      final dates = _reviewSchedule.values.map((v) => v.nextReview).toList()
+        ..sort();
+      nextReview = dates.first;
+    }
+
+    // Stage ≥2 ratio for Fog of War gate
+    double stageGte2Ratio = 0.0;
+    if (_reviewSchedule.isNotEmpty) {
+      final atStage2OrHigher = _reviewSchedule.values
+          .where((card) => stageFromCard(card).index >= SrsStage.growing.index)
+          .length;
+      stageGte2Ratio = atStage2OrHigher / _reviewSchedule.length;
+    }
+
+    return ZoneContext(
+      nodeCount: nodeCount,
+      socraticQuestionsAnswered: socraticAnswered,
+      lastStep1Or2: lastStep1Or2,
+      hasInternet: true, // TODO: check connectivity when available
+      dueNodeCount: dueCount,
+      nextReviewDate: nextReview,
+      zonesWithEnoughNodes: 0, // Deferred: cross-canvas metadata not available
+      stageGte2Ratio: stageGte2Ratio,
+    );
+  }
+
+  /// 🚦 Helper to check a step gate and show SnackBar if needed.
+  ///
+  /// Returns `true` if the step can proceed (either open, or soft gate
+  /// already shown, or soft gate bypassed). Returns `false` if the step
+  /// is hard-blocked.
+  ///
+  /// For soft gates, shows the SnackBar with "Procedi comunque" action
+  /// that calls [onProceed] when tapped.
+  bool _checkStepGate(LearningStep step, {VoidCallback? onProceed}) {
+    final context = _buildZoneContext();
+    final gate = _stepGateController.evaluateGate(step, context: context);
+
+    switch (gate.type) {
+      case StepGateType.open:
+      case StepGateType.automatic:
+        return true;
+
+      case StepGateType.soft:
+        // A15-02: Show only once per session.
+        if (_stepGateController.wasGateShownThisSession(step)) {
+          return true; // Already shown, let them proceed.
+        }
+        _stepGateController.markGateShown(step);
+
+        if (mounted) {
+          ScaffoldMessenger.of(this.context).showSnackBar(
+            SnackBar(
+              content: Text(gate.message!),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+              duration: const Duration(seconds: 5),
+              backgroundColor: const Color(0xFFE65100),
+              action: SnackBarAction(
+                label: gate.proceedLabel!,
+                textColor: Colors.white,
+                onPressed: () {
+                  onProceed?.call();
+                },
+              ),
+            ),
+          );
+        }
+        return false; // Don't proceed immediately — wait for bypass tap.
+
+      case StepGateType.hard:
+        if (mounted) {
+          ScaffoldMessenger.of(this.context).showSnackBar(
+            SnackBar(
+              content: Text(gate.message!),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+              duration: const Duration(seconds: 4),
+              backgroundColor: const Color(0xFF546E7A),
+            ),
+          );
+        }
+        return false; // Hard block — cannot proceed.
     }
   }
 

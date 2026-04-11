@@ -63,24 +63,24 @@ class RadialExpansionPainter extends CustomPainter {
     final ringRadius = 30.0 + progress * 55.0;
 
     canvas.drawCircle(src, ringRadius, Paint()
-      ..color = _neonCyan.withOpacity((0.4 + 0.4 * math.sin(t * 8)) * progress)
+      ..color = _neonCyan.withValues(alpha: (0.4 + 0.4 * math.sin(t * 8)) * progress)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.5);
 
     canvas.drawCircle(src, 28.0, Paint()
-      ..shader = ui.Gradient.radial(src, 28.0, [_neonCyan.withOpacity(0.25 * progress), Colors.transparent]));
+      ..shader = ui.Gradient.radial(src, 28.0, [_neonCyan.withValues(alpha: 0.25 * progress), Colors.transparent]));
 
     if (progress > 0.1) {
       final rect = Rect.fromCircle(center: src, radius: ringRadius - 4);
       canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * progress, false,
-        Paint()..color = _neonCyan.withOpacity(0.7 * progress)..style = PaintingStyle.stroke..strokeWidth = 3.0..strokeCap = StrokeCap.round);
+        Paint()..color = _neonCyan.withValues(alpha: 0.7 * progress)..style = PaintingStyle.stroke..strokeWidth = 3.0..strokeCap = StrokeCap.round);
     }
 
     if (progress >= 0.95) {
       for (int i = 0; i < 6; i++) {
         final a = (2 * math.pi / 6) * i + t * 3;
         canvas.drawCircle(Offset(src.dx + ringRadius * math.cos(a), src.dy + ringRadius * math.sin(a)), 3.5,
-          Paint()..color = _neonGold.withOpacity(0.8));
+          Paint()..color = _neonGold.withValues(alpha: 0.8));
       }
     }
   }
@@ -93,10 +93,10 @@ class RadialExpansionPainter extends CustomPainter {
       final p = animationTime * 2.5 + (2 * math.pi / dotCount) * i;
       final dp = Offset(src.dx + orbitR * math.cos(p), src.dy + orbitR * math.sin(p));
       canvas.drawCircle(dp, 4.5,
-        Paint()..color = _neonCyan.withOpacity((0.2 + 0.8 * ((i + 1) / dotCount)).clamp(0, 1)));
+        Paint()..color = _neonCyan.withValues(alpha: (0.2 + 0.8 * ((i + 1) / dotCount)).clamp(0, 1)));
     }
     canvas.drawCircle(src, 12.0, Paint()
-      ..shader = ui.Gradient.radial(src, 12.0, [_neonCyan.withOpacity(0.3), Colors.transparent]));
+      ..shader = ui.Gradient.radial(src, 12.0, [_neonCyan.withValues(alpha: 0.3), Colors.transparent]));
   }
 
   // ── Source active ring (during presenting) ─────────────────────────────────
@@ -108,18 +108,18 @@ class RadialExpansionPainter extends CustomPainter {
     final r1 = 22.0 + breathe * 8.0;
 
     canvas.drawCircle(src, r1, Paint()
-      ..color = _neonCyan.withOpacity(0.12 + 0.08 * breathe)
+      ..color = _neonCyan.withValues(alpha: 0.12 + 0.08 * breathe)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0);
 
     // Inner solid glow
     canvas.drawCircle(src, 14.0, Paint()
-      ..shader = ui.Gradient.radial(src, 14.0, [_neonCyan.withOpacity(0.2 + 0.1 * breathe), Colors.transparent]));
+      ..shader = ui.Gradient.radial(src, 14.0, [_neonCyan.withValues(alpha: 0.2 + 0.1 * breathe), Colors.transparent]));
 
     // Rotating orbit dot
     final dotA = t * 1.5;
     canvas.drawCircle(Offset(src.dx + r1 * math.cos(dotA), src.dy + r1 * math.sin(dotA)), 3.0,
-      Paint()..color = _neonCyan.withOpacity(0.9));
+      Paint()..color = _neonCyan.withValues(alpha: 0.9));
   }
 
   // ── Presenting phase ───────────────────────────────────────────────────────
@@ -130,13 +130,13 @@ class RadialExpansionPainter extends CustomPainter {
       if (beam.opacity <= 0.01) continue;
       final beamEnd = Offset.lerp(beam.from, beam.to, beam.progress.clamp(0.0, 1.0))!;
       canvas.drawLine(beam.from, beamEnd, Paint()
-        ..color = _neonCyan.withOpacity((beam.opacity * 0.75).clamp(0.0, 1.0))
+        ..color = _neonCyan.withValues(alpha: (beam.opacity * 0.75).clamp(0.0, 1.0))
         ..strokeWidth = 2.0
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round);
       // Secondary glow beam
       canvas.drawLine(beam.from, beamEnd, Paint()
-        ..color = _neonCyan.withOpacity((beam.opacity * 0.25).clamp(0.0, 1.0))
+        ..color = _neonCyan.withValues(alpha: (beam.opacity * 0.25).clamp(0.0, 1.0))
         ..strokeWidth = 5.0
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round);
@@ -147,7 +147,7 @@ class RadialExpansionPainter extends CustomPainter {
     for (final p in controller.particles) {
       if (p.opacity <= 0.01) continue;
       final color = particleColors[p.colorIndex % particleColors.length]
-          .withOpacity(p.opacity.clamp(0.0, 1.0));
+          .withValues(alpha: p.opacity.clamp(0.0, 1.0));
       canvas.drawCircle(p.position, p.size, Paint()..color = color);
     }
 
@@ -193,7 +193,7 @@ class RadialExpansionPainter extends CustomPainter {
       final trailPos = Offset.lerp(from, to, t.clamp(0, 1))!;
       final trailOpacity = opacity * (1.0 - s / steps) * 0.5;
       final r = 5.0 - s * 0.7;
-      if (r > 0.5) canvas.drawCircle(trailPos, r, Paint()..color = accent.withOpacity(trailOpacity.clamp(0, 1)));
+      if (r > 0.5) canvas.drawCircle(trailPos, r, Paint()..color = accent.withValues(alpha: trailOpacity.clamp(0, 1)));
     }
   }
 
@@ -203,7 +203,7 @@ class RadialExpansionPainter extends CustomPainter {
     final dist = dir.distance;
     if (dist < 1) return;
     final norm = dir / dist;
-    final paint = Paint()..color = color.withOpacity(opacity.clamp(0, 1))..strokeWidth = 1.5..style = PaintingStyle.stroke;
+    final paint = Paint()..color = color.withValues(alpha: opacity.clamp(0, 1))..strokeWidth = 1.5..style = PaintingStyle.stroke;
     const dashLen = 8.0, gapLen = 6.0;
     double d = 22.0;
     while (d < dist - 22.0) {
@@ -215,7 +215,7 @@ class RadialExpansionPainter extends CustomPainter {
 
   void _drawElasticLine(Canvas canvas, Offset anchor, Offset dragged, Color accent, GhostBubble bubble) {
     final stretchFraction = (bubble.dragOffset.distance / (RadialExpansionController.innerOrbitRadius * 0.8)).clamp(0.0, 1.0);
-    final color = Color.lerp(accent, _neonCyan, stretchFraction)!.withOpacity(0.7 + 0.3 * stretchFraction);
+    final color = Color.lerp(accent, _neonCyan, stretchFraction)!.withValues(alpha: 0.7 + 0.3 * stretchFraction);
     canvas.drawLine(anchor, dragged, Paint()
       ..color = color..strokeWidth = 1.5 + stretchFraction * 1.5..style = PaintingStyle.stroke..strokeCap = StrokeCap.round);
   }
@@ -229,13 +229,13 @@ class RadialExpansionPainter extends CustomPainter {
 
     if (isOutward && dragDist >= confirmThreshold * 0.6) {
       final f = ((dragDist - confirmThreshold * 0.6) / (confirmThreshold * 0.4)).clamp(0.0, 1.0);
-      canvas.drawCircle(pos, 34.0 + f * 8.0, Paint()..color = _neonCyan.withOpacity(0.6 * f)..style = PaintingStyle.stroke..strokeWidth = 2.5);
+      canvas.drawCircle(pos, 34.0 + f * 8.0, Paint()..color = _neonCyan.withValues(alpha: 0.6 * f)..style = PaintingStyle.stroke..strokeWidth = 2.5);
       if (f > 0.6) {
         final path = Path()..moveTo(pos.dx - 10, pos.dy)..lineTo(pos.dx - 2, pos.dy + 8)..lineTo(pos.dx + 12, pos.dy - 8);
-        canvas.drawPath(path, Paint()..color = _neonCyan.withOpacity(f)..strokeWidth = 2.5..strokeCap = StrokeCap.round..style = PaintingStyle.stroke);
+        canvas.drawPath(path, Paint()..color = _neonCyan.withValues(alpha: f)..strokeWidth = 2.5..strokeCap = StrokeCap.round..style = PaintingStyle.stroke);
       }
     } else if (!isOutward && dragDist > 20) {
-      canvas.drawCircle(pos, 30.0, Paint()..color = _neonPink.withOpacity(0.5)..style = PaintingStyle.stroke..strokeWidth = 2.0);
+      canvas.drawCircle(pos, 30.0, Paint()..color = _neonPink.withValues(alpha: 0.5)..style = PaintingStyle.stroke..strokeWidth = 2.0);
     }
   }
 
@@ -249,9 +249,9 @@ class RadialExpansionPainter extends CustomPainter {
     // ✨ Confirming: expanding spark ring
     if (bubble.state == GhostBubbleState.confirming) {
       final ex = 1.0 + (1.0 - opacity) * 2.5;
-      canvas.drawCircle(floatPos, 32.0 * ex, Paint()..color = accent.withOpacity((opacity * 0.8).clamp(0, 1))..style = PaintingStyle.stroke..strokeWidth = 3.0);
-      canvas.drawCircle(floatPos, 46.0 * ex, Paint()..color = _neonCyan.withOpacity((opacity * 0.35).clamp(0, 1))..style = PaintingStyle.stroke..strokeWidth = 1.5);
-      final dotP = Paint()..color = accent.withOpacity((opacity * 0.9).clamp(0, 1));
+      canvas.drawCircle(floatPos, 32.0 * ex, Paint()..color = accent.withValues(alpha: (opacity * 0.8).clamp(0, 1))..style = PaintingStyle.stroke..strokeWidth = 3.0);
+      canvas.drawCircle(floatPos, 46.0 * ex, Paint()..color = _neonCyan.withValues(alpha: (opacity * 0.35).clamp(0, 1))..style = PaintingStyle.stroke..strokeWidth = 1.5);
+      final dotP = Paint()..color = accent.withValues(alpha: (opacity * 0.9).clamp(0, 1));
       for (int i = 0; i < 8; i++) {
         final a = (2 * math.pi / 8) * i;
         final sr = 44.0 * ex;
@@ -269,20 +269,20 @@ class RadialExpansionPainter extends CustomPainter {
 
     // Outer glow
     canvas.drawCircle(Offset.zero, glowR, Paint()
-      ..shader = ui.Gradient.radial(Offset.zero, glowR, [accent.withOpacity(0.18 * opacity), Colors.transparent]));
+      ..shader = ui.Gradient.radial(Offset.zero, glowR, [accent.withValues(alpha: 0.18 * opacity), Colors.transparent]));
 
     // Glass body
     canvas.drawCircle(Offset.zero, r, Paint()
       ..shader = ui.Gradient.radial(const Offset(-8, -8), r * 1.2,
-        [_bubbleGrad[0].withOpacity(opacity * 0.95), _bubbleGrad[1].withOpacity(opacity * 0.85)]));
+        [_bubbleGrad[0].withValues(alpha: opacity * 0.95), _bubbleGrad[1].withValues(alpha: opacity * 0.85)]));
 
     // Accent border
     canvas.drawCircle(Offset.zero, r, Paint()
-      ..color = accent.withOpacity(opacity * 0.9)..style = PaintingStyle.stroke..strokeWidth = 1.8);
+      ..color = accent.withValues(alpha: opacity * 0.9)..style = PaintingStyle.stroke..strokeWidth = 1.8);
 
     // Specular
     canvas.drawCircle(Offset(-r * 0.28, -r * 0.28), r * 0.18, Paint()
-      ..color = Colors.white.withOpacity(0.08 * opacity));
+      ..color = Colors.white.withValues(alpha: 0.08 * opacity));
 
     _drawBubbleLabel(canvas, bubble.label, opacity.toDouble(), accent, r);
     canvas.restore();
@@ -303,7 +303,7 @@ class RadialExpansionPainter extends CustomPainter {
     void drawLine(String text, double y) {
       if (text.isEmpty) return;
       final tp = TextPainter(
-        text: TextSpan(text: text, style: TextStyle(color: _glassWhite.withOpacity(opacity), fontSize: fontSize, fontWeight: FontWeight.w600, letterSpacing: 0.3, height: 1.2)),
+        text: TextSpan(text: text, style: TextStyle(color: _glassWhite.withValues(alpha: opacity), fontSize: fontSize, fontWeight: FontWeight.w600, letterSpacing: 0.3, height: 1.2)),
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: maxW);
       tp.paint(canvas, Offset(-tp.width / 2, y));

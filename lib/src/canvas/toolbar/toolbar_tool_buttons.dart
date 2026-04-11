@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
+import 'toolbar_tokens.dart';
 
 // ============================================================================
 // TOOLBAR TOOL BUTTONS — Pan, Stylus, Lasso, Ruler, PenTool, Text, Image
+//
+// All active-state colors are sourced from ToolbarTokens for visual
+// consistency. Do NOT use raw Colors.* values here.
 // ============================================================================
 
 /// Reusable toggle button for toolbar tools.
-/// Each tool has its own accent color and icon.
+/// Each tool has its own semantic accent color from [ToolbarTokens].
 class _ToolToggleButton extends StatelessWidget {
   final bool isActive;
   final VoidCallback onTap;
   final bool isDark;
   final IconData icon;
   final Color activeColor;
+  final String? tooltip;
 
   const _ToolToggleButton({
     required this.isActive,
@@ -19,48 +24,59 @@ class _ToolToggleButton extends StatelessWidget {
     required this.isDark,
     required this.icon,
     required this.activeColor,
+    this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Material(
+    final child = Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        borderRadius: BorderRadius.circular(ToolbarTokens.radius),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(
+            horizontal: ToolbarTokens.buttonPadH,
+            vertical: ToolbarTokens.buttonPadV,
+          ),
           decoration: BoxDecoration(
             color:
                 isActive
-                    ? activeColor.withValues(alpha: isDark ? 0.25 : 0.08)
+                    ? ToolbarTokens.activeBackground(
+                      activeColor,
+                      isDark: isDark,
+                    )
                     : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(ToolbarTokens.radius),
             border:
                 isActive
                     ? Border.all(
-                      color: activeColor.withValues(alpha: 0.5),
-                      width: 2,
+                      color: ToolbarTokens.activeBorder(activeColor),
+                      width: 1.5,
                     )
                     : null,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color:
-                    isActive
-                        ? activeColor
-                        : cs.onSurface.withValues(alpha: 0.6),
-              ),
-            ],
+          child: Icon(
+            icon,
+            size: ToolbarTokens.iconSize,
+            color:
+                isActive ? activeColor : cs.onSurface.withValues(alpha: 0.55),
           ),
         ),
       ),
     );
+
+    if (tooltip != null) {
+      return Tooltip(
+        message: tooltip!,
+        waitDuration: ToolbarTokens.tooltipDelay,
+        child: child,
+      );
+    }
+    return child;
   }
 }
 
@@ -84,7 +100,8 @@ class ToolbarPanModeButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.pan_tool_rounded,
-      activeColor: Colors.orange,
+      activeColor: ToolbarTokens.panActive,
+      tooltip: 'Pan Mode',
     );
   }
 }
@@ -104,12 +121,14 @@ class ToolbarStylusModeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     return _ToolToggleButton(
       isActive: isActive,
       onTap: onTap,
       isDark: isDark,
       icon: Icons.edit_outlined,
-      activeColor: Colors.blue,
+      activeColor: primary,
+      tooltip: 'Stylus Only Mode',
     );
   }
 }
@@ -134,7 +153,8 @@ class ToolbarLassoButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.gesture_rounded,
-      activeColor: Colors.purple,
+      activeColor: ToolbarTokens.lassoActive,
+      tooltip: 'Lasso Selection',
     );
   }
 }
@@ -159,7 +179,8 @@ class ToolbarRulerButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.straighten,
-      activeColor: Colors.amber,
+      activeColor: ToolbarTokens.rulerActive,
+      tooltip: 'Ruler',
     );
   }
 }
@@ -184,7 +205,8 @@ class ToolbarMinimapButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.map_outlined,
-      activeColor: Colors.teal,
+      activeColor: ToolbarTokens.minimapActive,
+      tooltip: 'Minimap',
     );
   }
 }
@@ -204,12 +226,14 @@ class ToolbarPenToolButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     return _ToolToggleButton(
       isActive: isActive,
       onTap: onTap,
       isDark: isDark,
       icon: Icons.timeline_rounded,
-      activeColor: Colors.teal,
+      activeColor: primary,
+      tooltip: 'Vector Pen Tool',
     );
   }
 }
@@ -234,7 +258,8 @@ class ToolbarDigitalTextButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.text_fields_rounded,
-      activeColor: Colors.deepPurple,
+      activeColor: ToolbarTokens.textActive,
+      tooltip: 'Digital Text',
     );
   }
 }
@@ -259,7 +284,8 @@ class ToolbarImagePickerButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.image_rounded,
-      activeColor: Colors.green,
+      activeColor: ToolbarTokens.mediaActive,
+      tooltip: 'Insert Image',
     );
   }
 }
@@ -284,7 +310,8 @@ class ToolbarLatexButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.functions_rounded,
-      activeColor: Colors.teal,
+      activeColor: ToolbarTokens.latexActive,
+      tooltip: 'LaTeX / Math Editor',
     );
   }
 }
@@ -309,7 +336,8 @@ class ToolbarTabularButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.grid_on_rounded,
-      activeColor: Colors.indigo,
+      activeColor: ToolbarTokens.lassoActive,
+      tooltip: 'Spreadsheet',
     );
   }
 }
@@ -344,52 +372,57 @@ class ToolbarShapeRecognitionButton extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     // Sensitivity dot color
     final dotColor = switch (sensitivityIndex) {
-      0 => Colors.red,
-      1 => Colors.amber,
-      _ => Colors.green,
+      0 => const Color(0xFFDC2626), // red
+      1 => const Color(0xFFD97706), // amber
+      _ => const Color(0xFF16A34A), // green
     };
-    return GestureDetector(
-      onLongPress: onLongPress,
-      onDoubleTap: onDoubleTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          _ToolToggleButton(
-            isActive: isActive,
-            onTap: onTap,
-            isDark: isDark,
-            icon: Icons.auto_fix_high_rounded,
-            activeColor: Colors.indigo,
-          ),
-          // Sensitivity dot (top-right)
-          if (isActive)
-            Positioned(
-              right: 4,
-              top: 2,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: dotColor,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: cs.surface, width: 1.5),
+    return Tooltip(
+      message:
+          'Shape Recognition${isActive ? ' (${['Low', 'Medium', 'High'][sensitivityIndex]})' : ''}',
+      waitDuration: ToolbarTokens.tooltipDelay,
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        onDoubleTap: onDoubleTap,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            _ToolToggleButton(
+              isActive: isActive,
+              onTap: onTap,
+              isDark: isDark,
+              icon: Icons.auto_fix_high_rounded,
+              activeColor: ToolbarTokens.shapeRecognitionActive,
+            ),
+            // Sensitivity dot (top-right)
+            if (isActive)
+              Positioned(
+                right: 4,
+                top: 2,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: dotColor,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: cs.surface, width: 1.5),
+                  ),
                 ),
               ),
-            ),
-          // Ghost mode indicator (top-left)
-          if (isActive && ghostEnabled)
-            Positioned(
-              left: 4,
-              top: 1,
-              child: Text(
-                '👻',
-                style: TextStyle(
-                  fontSize: 10,
-                  shadows: [Shadow(color: cs.surface, blurRadius: 2)],
+            // Ghost mode indicator (top-left)
+            if (isActive && ghostEnabled)
+              Positioned(
+                left: 4,
+                top: 1,
+                child: Text(
+                  '👻',
+                  style: TextStyle(
+                    fontSize: 10,
+                    shadows: [Shadow(color: cs.surface, blurRadius: 2)],
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -415,7 +448,8 @@ class ToolbarSectionButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.dashboard_outlined,
-      activeColor: const Color(0xFF2196F3),
+      activeColor: ToolbarTokens.sectionActive,
+      tooltip: 'Section / Artboard',
     );
   }
 }
@@ -440,7 +474,8 @@ class ToolbarSearchButton extends StatelessWidget {
       onTap: onTap,
       isDark: isDark,
       icon: Icons.search_rounded,
-      activeColor: Colors.cyan,
+      activeColor: ToolbarTokens.searchActive,
+      tooltip: 'Search Handwriting',
     );
   }
 }

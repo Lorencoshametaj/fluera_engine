@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -6,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import '../core/latex/ink_stroke_data.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../services/digital_ink_service.dart';
-import '../services/myscript_ink_engine.dart';
 import 'hme_latex_recognizer.dart';
 import 'latex_recognition_bridge.dart';
 

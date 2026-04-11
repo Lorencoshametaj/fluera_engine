@@ -73,7 +73,7 @@ extension FlueraCanvasLatexHandler on _FlueraCanvasScreenState {
                 _autoSaveCanvas();
 
                 // ✨ P5: Animated insertion (scale 0.85 → 1.0 with elastic ease)
-                graphNode.localTransform.scale(0.85);
+                graphNode.localTransform.scaleByDouble(0.85, 0.85, 0.85, 1.0);
                 _layerController.sceneGraph.bumpVersion();
 
                 // Animate over ~400ms using frame callbacks
@@ -98,7 +98,7 @@ extension FlueraCanvasLatexHandler on _FlueraCanvasScreenState {
                     0,
                   );
                   if (effectiveScale != 1.0) {
-                    graphNode.localTransform.scale(effectiveScale);
+                    graphNode.localTransform.scaleByDouble(effectiveScale, effectiveScale, effectiveScale, 1.0);
                   }
                   _layerController.sceneGraph.bumpVersion();
                   DrawingPainter.invalidateAllTiles();

@@ -18,14 +18,14 @@
 
 import 'dart:convert';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import '../utils/safe_path_provider.dart';
+import 'encrypted_database_provider.dart';
 import 'sqflite_stub_web.dart'
     if (dart.library.ffi) 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:sqflite_common/sqflite.dart' show Sqflite;
+// sqflite_common imported via conditional import above.
 import 'package:path/path.dart' as p;
 
 import 'fluera_storage_adapter.dart';
@@ -109,11 +109,20 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     return 'fluera_canvas_$safeId.db';
   }
 
+  /// 🔐 Optional encryption provider for at-rest encryption (Art. 32).
+  /// If provided, the database is opened with SQLCipher encryption.
+  final EncryptedDatabaseProvider? encryptionProvider;
+
   /// Creates a new SQLite storage adapter.
   ///
   /// [databasePath] — optional custom path for the database file.
   /// If null, the database is created in the default sqflite directory.
-  SqliteStorageAdapter({this.databasePath});
+  /// [encryptionProvider] — optional encryption provider for SQLCipher.
+  SqliteStorageAdapter({this.databasePath, this.encryptionProvider});
+
+  /// Whether the database is encrypted.
+  bool get isEncrypted =>
+      encryptionProvider != null && encryptionProvider!.isEncryptionEnabled;
 
   /// Whether the adapter has been initialized.
   bool get isInitialized => _db != null;
@@ -153,6 +162,15 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
         onOpen: (db) async {
+          // 🔐 SQLCipher: PRAGMA key MUST be the first statement
+          if (encryptionProvider != null) {
+            final config = encryptionProvider!.getConfig(
+              databaseName: _userDatabaseName,
+            );
+            for (final pragma in config.pragmaStatements) {
+              await db.execute(pragma);
+            }
+          }
           // Enable WAL mode for better concurrent performance
           await db.execute('PRAGMA journal_mode=WAL');
           // Enable foreign keys
@@ -1046,6 +1064,8 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     final id = options.resolveCanvasId();
     final now = DateTime.now().millisecondsSinceEpoch;
     final db = _ensureInitialized();
+
+    // 1. Insert canvas metadata row (always)
     await db.rawInsert(
       '''
       INSERT INTO canvases (
@@ -1058,15 +1078,126 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         _currentUserId,
         options.title,
         options.paperType.storageKey,
-        '0x${options.backgroundColor.value.toRadixString(16).padLeft(8, '0')}',
+        '0x${options.backgroundColor.toARGB32().toRadixString(16).padLeft(8, '0')}',
         options.folderId,
         now,
         now,
         kCurrentSchemaVersion,
       ],
     );
+
+    // 2. 📐 Pre-seed initial sections when requested
+    if (options.initialSections.isNotEmpty) {
+      // A4 at 150 DPI screen equivalent — looks like a real notebook page.
+      // 595pt A4 (72 DPI PDF) → ×2.083 → 1240 canvas units ≈ A4 at 150 DPI.
+      // At 0.3× zoom on a phone (393px wide), section fills ~95% of the screen.
+      const sectionW = 1240.0; // A4 Portrait width  — feels like a real page
+      const sectionH = 1754.0; // A4 Portrait height (1240 × √2 ≈ 1754)
+      const gap     = 200.0;   // comfortable breathing room between sections
+
+      // Create one empty binary layer to anchor the section nodes
+      final layerId = 'layer_$now';
+      final emptyLayer = CanvasLayer(
+        id: layerId,
+        name: 'Layer',
+        strokes: const [],
+        shapes: const [],
+        texts: const [],
+        images: const [],
+      );
+      final encodedLayer = BinaryCanvasFormat.encode([emptyLayer]);
+
+      await db.rawInsert(
+        'INSERT INTO canvas_layers (canvas_id, layer_id, layer_index, layer_data) '
+        'VALUES (?, ?, 0, ?)',
+        [id, layerId, encodedLayer],
+      );
+      await db.update(
+        'canvases',
+        {'layer_count': 1},
+        where: 'canvas_id = ?',
+        whereArgs: [id],
+      );
+
+      // Build SectionNode JSON entries for scene_nodes_json
+      final sceneNodes = <Map<String, dynamic>>[];
+      final sectionSummaries = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < options.initialSections.length; i++) {
+        final name = options.initialSections[i].trim();
+        if (name.isEmpty) continue;
+
+        final y = i * (sectionH + gap);
+        final nodeId = 'section_${now}_$i';
+
+        // Only include transform if not at origin (matrix4 column-major storage)
+        final transform = i == 0
+            ? null
+            : [
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0,   y, 0.0, 1.0,
+              ];
+
+        sceneNodes.add({
+          'layerId': layerId,
+          'node': <String, dynamic>{
+            'id': nodeId,
+            'name': name,
+            'nodeType': 'section',
+            'sectionName': name,
+            'sectionSize': {'width': sectionW, 'height': sectionH},
+            if (transform != null) 'transform': transform,
+            'backgroundColor': 0xFFFFFFFF,
+            'showGrid': false,
+            'gridSpacing': 20.0,
+            'clipContent': false,
+            'borderColor': 0xFFBDBDBD,
+            'borderWidth': 1.0,
+            'children': <dynamic>[],
+          },
+        });
+
+        // Pre-seed lightweight summary for gallery display
+        sectionSummaries.add({
+          'id': nodeId,
+          'name': name,
+          'x': 0.0,
+          'y': y,
+          'width': sectionW,
+          'height': sectionH,
+        });
+      }
+
+      // Save scene graph JSON (SectionNodes)
+      if (sceneNodes.isNotEmpty) {
+        try {
+          await db.update(
+            'canvases',
+            {'scene_nodes_json': jsonEncode(sceneNodes)},
+            where: 'canvas_id = ?',
+            whereArgs: [id],
+          );
+        } catch (_) {
+          // Column may not exist on old schema — safe to ignore.
+        }
+
+        // Pre-seed sections_json for immediate gallery minimap / section list
+        try {
+          await db.update(
+            'canvases',
+            {'sections_json': jsonEncode(sectionSummaries)},
+            where: 'canvas_id = ?',
+            whereArgs: [id],
+          );
+        } catch (_) {}
+      }
+    }
+
     return id;
   }
+
 
   // ===========================================================================
   // FOLDER OPERATIONS
@@ -1086,7 +1217,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       'user_id': _currentUserId,
       'name': name,
       'parent_folder_id': parentFolderId,
-      'color': '0x${color.value.toRadixString(16).padLeft(8, '0')}',
+      'color': '0x${color.toARGB32().toRadixString(16).padLeft(8, '0')}',
       'created_at': now,
       'updated_at': now,
     });

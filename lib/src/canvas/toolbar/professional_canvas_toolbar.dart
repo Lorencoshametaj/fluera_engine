@@ -1,5 +1,6 @@
 library professional_canvas_toolbar;
 
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,427 +37,276 @@ import 'toolbar_settings_dropdown.dart';
 import 'handedness_settings_sheet.dart'; // 🖐️ Handedness & palm rejection
 import 'toolbar_recording.dart';
 import 'toolbar_layout.dart';
-import 'toolbar_tab_bar.dart';
+import 'toolbar_tab_bar.dart'; // ToolbarTab enum is still used
+import 'toolbar_tokens.dart';
+import 'menus/latex_code_dialog.dart';
 
 part '_toolbar_top_row.dart';
 part '_toolbar_tools_area.dart';
 part '_toolbar_tools_widgets.dart';
+part '_toolbar_state.dart';
+part '_toolbar_callbacks.dart';
 
-/// 🎨 Toolbar professionale per uso quotidiano
-/// Design minimalista e funzionale con:
-/// - Compact status bar with essential info
-/// - Tools organized logically (type → color → width)
-/// - Quick actions always accessible
-/// - Scroll orizzontale smooth
-/// - Collapsible to maximize canvas
+// =============================================================================
+// 🎨 ProfessionalCanvasToolbar
+//
+// Enterprise-grade toolbar for the Fluera canvas.
+//
+// ## Architecture
+// The widget accepts two grouped data objects instead of 90+ individual params:
+//   - [ToolbarState]     — immutable snapshot of all boolean/value state
+//   - [ToolbarCallbacks] — all action callbacks grouped by domain
+//
+// Internally, getter-forwarding preserves `widget.xxx` access patterns so
+// that all part files (_toolbar_tools_area.dart, _toolbar_top_row.dart, etc.)
+// remain unchanged.
+//
+// ## Visual
+// - Contextual toolbar: tab auto-derives from canvas state (no visible tab bar)
+// - Collapsible to a thin strip via the chevron toggle
+// - Two layout modes: left-aligned pin (forceLeftAlign) and centered Material
+// =============================================================================
+
 class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
-  final ProPenType selectedPenType;
-  final Color selectedColor;
-  final double selectedWidth;
-  final double selectedOpacity;
-  final ShapeType selectedShapeType;
-  final int strokeCount;
-  final bool canUndo;
-  final bool canRedo;
-  final bool isEraserActive;
-  final bool isLassoActive;
-  final bool isDigitalTextActive;
-  final bool isImagePickerActive; // 🖼️ Pulsante immagini
-  final bool isRecordingActive; // � Pulsante registrazione
-  final bool isPanModeActive; // 🖐️ Modalità Pan
-  final bool isStylusModeActive; // 🖊️ Modalità Stylus
-  final bool isRulerActive; // 📏 Ruler/guide overlay
-  final bool isMinimapVisible; // 🗺️ Minimap overlay
-  final bool isSectionActive; // 📐 Section tool
-  final bool isPenToolActive; // ✏️ Vector Pen Tool
-  final bool isLatexActive; // 🧮 LaTeX editor
-  final bool isTabularActive; // 📊 Tabular spreadsheet
-  final bool hasTabularSelection; // 📊 A table is selected
-  final String? selectedCellRef; // 📊 e.g. "A1" — null if no cell selected
-  final String? selectedCellValue; // 📊 current cell display value
-  final void Function(int columns, int rows)?
-  onTabularCreate; // 📊 Create table
-  final void Function(String value)?
-  onCellValueSubmit; // 📊 Save cell + navigate down (Enter)
-  final void Function(String value)?
-  onCellTabSubmit; // 📊 Save cell + navigate right (Tab)
-  final VoidCallback? onTabularDelete; // 📊 Delete selected table
-  final VoidCallback? onInsertRow; // 📊 Insert row
-  final VoidCallback? onDeleteRow; // 📊 Delete row
-  final VoidCallback? onInsertColumn; // 📊 Insert column
-  final VoidCallback? onDeleteColumn; // 📊 Delete column
-  final VoidCallback? onMergeCells; // 📊 Merge selected cells
-  final VoidCallback? onUnmergeCells; // 📊 Unmerge selected cell
-  final VoidCallback? onCopySelection; // 📊 Copy cells
-  final VoidCallback? onCutSelection; // 📊 Cut cells
-  final VoidCallback? onPasteSelection; // 📊 Paste cells
-  final void Function(bool ascending)? onSortColumn; // 📊 Sort
-  final VoidCallback? onAutoFill; // 📊 Auto-fill down
-  final VoidCallback? onGenerateLatex; // 🧮 Excel-to-LaTeX Generation
-  final VoidCallback? onCopySelectionAsLatex; // 📋 Copy selection as LaTeX code
-  final VoidCallback? onGenerateChart; // 📊 TikZ Chart from Selection
-  final VoidCallback? onImportLatex; // 📥 Import LaTeX → Spreadsheet
-  final VoidCallback? onExportTex; // 📄 Export .tex File
-  // 🎨 Cell formatting
-  final CellFormat? selectedCellFormat; // Current cell format state
-  final bool hasRangeSelection; // Multi-cell range selected
-  final VoidCallback? onToggleBold;
-  final VoidCallback? onToggleItalic;
-  final ValueChanged<String>? onBorderPreset;
-  final void Function(CellAlignment)? onSetAlignment;
-  final void Function(Color)? onSetTextColor;
-  final void Function(Color)? onSetBackgroundColor;
-  final VoidCallback? onClearFormatting;
-  final VoidCallback? onClearCells;
-  final void Function(String csvText)? onImportCsv;
-  final VoidCallback? onExportCsv;
-  final bool hasFrozenRow; // Whether header row is frozen
-  final VoidCallback? onToggleFreezeRow;
-  final Duration recordingDuration;
-  final double recordingAmplitude; // 🎵 Live amplitude for waveform bars
-  /// 🚀 P99 FIX: Optional ValueListenables for recording state.
-  /// When provided, the recording button uses these to update independently
-  /// of the parent widget tree, eliminating full canvas rebuilds.
-  final ValueListenable<Duration>? recordingDurationNotifier;
-  final ValueListenable<double>? recordingAmplitudeNotifier;
-  final String? noteTitle;
-  // 🎨 Preset-based brush selection
-  final List<BrushPreset> brushPresets;
-  final String? selectedPresetId;
-  final ValueChanged<BrushPreset>? onPresetSelected;
-  final bool isImageEditingMode;
+  // ── Data objects (new enterprise API) ─────────────────────────────────────
+  final ToolbarState state;
+  final ToolbarCallbacks callbacks;
 
-  final ValueChanged<ProPenType> onPenTypeChanged;
-  final ValueChanged<Color> onColorChanged;
-  final ValueChanged<double> onWidthChanged;
-  final ValueChanged<double> onOpacityChanged;
-  final ValueChanged<ShapeType> onShapeTypeChanged;
-  final ValueChanged<String>? onNoteTitleChanged; // 🆕 Callback rinomina nota
-  final VoidCallback onUndo;
-  final VoidCallback onRedo;
-  final VoidCallback onClear;
-  final VoidCallback onSettings;
-  final void Function(Rect anchorRect)?
-  onBrushSettingsPressed; // 🎛️ Callback impostazioni pennello
-  final VoidCallback? onExportPressed; // 📤 Callback export canvas
-  final VoidCallback onLayersPressed;
-  final VoidCallback? onDualPagePressed;
-  final bool isDualPageMode;
-  final VoidCallback onEraserToggle;
-  final double eraserRadius;
-  final ValueChanged<double>? onEraserRadiusChanged;
-  final bool eraseWholeStroke;
-  final ValueChanged<bool>? onEraseWholeStrokeChanged;
-  final VoidCallback onLassoToggle;
-  final VoidCallback onDigitalTextToggle;
-  final VoidCallback onPanModeToggle; // 🖐️ Callback Pan Mode
-  final VoidCallback onStylusModeToggle; // 🖊️ Callback Stylus Mode
-  final VoidCallback? onRulerToggle; // 📏 Callback Ruler toggle
-  final VoidCallback? onMinimapToggle; // 🗺️ Callback Minimap toggle
-  final VoidCallback? onSectionToggle; // 📐 Callback Section toggle
-  final VoidCallback? onPenToolToggle; // ✏️ Callback Pen Tool toggle
-  final VoidCallback? onLatexToggle; // 🧮 Callback LaTeX toggle
-  final VoidCallback? onTabularToggle; // 📊 Callback Tabular toggle (compat)
-  // (onTabularCreate is the preferred callback for the Excel tab)
-  final VoidCallback onImagePickerPressed; // 🖼️ Callback immagini
-  final VoidCallback? onImageEditorPressed;
-  final VoidCallback? onExitImageEditMode; // ✅ Esci da edit mode
-  final VoidCallback onRecordingPressed; // � Callback registrazione
-  final VoidCallback
-  onViewRecordingsPressed; // 🎧 Callback visualizza registrazioni
-  final bool forceLeftAlign; // 🎯 Forza allineamento a sinistra
-  // 📐 Layout callbacks
-  final VoidCallback? onCanvasLayoutPressed; // Canvas solo
-  final VoidCallback? onHSplitLayoutPressed; // H-Split
-  final VoidCallback? onVSplitLayoutPressed; // V-Split
-  final VoidCallback? onCanvasOverlayPressed; // Canvas Overlay
-  // 🔄 Sync callback
-  final VoidCallback? onSyncToggle; // Toggle sync
-  final bool? isSyncEnabled; // Stato sync
-  // 🔧 Advanced Split callback
-  final VoidCallback? onAdvancedSplitPressed; // Advanced Split Configuretion
-  final VoidCallback? onTimeTravelPressed; // ⏱️ Time Travel
-  final VoidCallback? onRecallModePressed; // 🧠 Recall Mode (Step 2)
-  final VoidCallback? onBranchExplorerPressed; // 🌿 Branch Explorer
-  final String? activeBranchName; // 🌿 Currently active branch
-  final VoidCallback? onPaperTypePressed; // 📄 Paper type picker
-  final VoidCallback? onReadingLevelPressed; // 📊 Reading level analysis
-  final VoidCallback? onResetRotation; // 🌀 Reset canvas rotation to 0°
-  final VoidCallback? onToggleRotationLock; // 🌀 Toggle rotation lock
-  final bool isCanvasRotated; // 🌀 Whether canvas is currently rotated
-  final bool isRotationLocked; // 🌀 Whether rotation is locked
-  final bool shapeRecognitionEnabled; // 🔷 Shape recognition mode
-  final int shapeRecognitionSensitivityIndex; // 🔷 0=low, 1=medium, 2=high
-  final bool ghostSuggestionEnabled; // 👻 Ghost suggestion mode
-  final VoidCallback? onShapeRecognitionToggle; // 🔷 Shape recognition toggle
-  final VoidCallback?
-  onShapeRecognitionSensitivityCycle; // 🔷 Long-press to cycle sensitivity
-  final VoidCallback? onGhostSuggestionToggle; // 👻 Double-tap to toggle ghost
-  final VoidCallback? onSearchPressed; // 🔍 Handwriting search
-  final bool isSearchActive; // 🔍 Search overlay visible
-  final VoidCallback? onPdfImportPressed; // 📄 PDF import
-  final VoidCallback? onPdfCreateBlankPressed; // 📄 PDF create blank
-  // 📄 PDF active state — contextual tools appear when a PDF is loaded
-  final bool isPdfActive;
-  final PdfDocumentNode? pdfDocument;
-  final List<PdfDocumentNode> pdfDocuments; // 📄 All PDFs for multi-doc search
-  final PdfAnnotationController? pdfAnnotationController;
-  final PdfSearchController? pdfSearchController;
-  final CommandHistory? pdfCommandHistory;
-  final void Function(int selectedPageIndex)? onPdfInsertBlankPage;
-  final void Function(int)? onPdfDuplicatePage;
-  final void Function(int)? onPdfDeletePage;
-  final void Function(int oldIndex, int newIndex)? onPdfReorderPage;
-  final VoidCallback? onPdfNightModeToggle;
-  final void Function(int)? onPdfBookmarkToggle;
-  final void Function(int)? onPdfZoomToFit;
-  final VoidCallback? onPdfWatermarkToggle;
-  final void Function(int pageIndex, PdfStampType stamp)? onPdfAddStamp;
-  final void Function(int pageIndex)? onPdfChangeBackground;
-  final VoidCallback? onPdfPrint;
-  final VoidCallback? onPdfPresentation;
-  // TODO(future): onPdfSignature — digital signing requires QTSP, X.509, PAdES.
-  final void Function(PdfLayoutMode)? onPdfLayoutModeChanged;
-  final void Function(String, int)? onPdfGoToPage; // 🔍 Scroll to PDF page
-  final void Function(String documentId)?
-  onPdfDocumentChanged; // 📄 Switch active PDF
-  final VoidCallback?
-  onPdfLayoutChanged; // 📄 Notify canvas of PDF layout mutations
-  final VoidCallback? onPdfExport;
-  final VoidCallback? onPdfDeleteDocument; // 🗑️ Delete entire PDF
-  final int pdfSelectedPageIndex;
-  final bool showPdfPageNumbers;
-  final VoidCallback? onTogglePdfPageNumbers;
-  final ValueChanged<int>? onPdfPageIndexChanged;
+  // ── Layout config (not part of state/callbacks) ───────────────────────────
+  final bool forceLeftAlign;
+  final bool isFloating;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // 🎨 DESIGN TAB — Callbacks and state for Design toolbar features
-  // ─────────────────────────────────────────────────────────────────────────
-
-  // Prototype
-  final VoidCallback? onPrototypePlay;
-  final VoidCallback? onFlowLinkAdd;
-
-  // Animation
-  final VoidCallback? onAnimationTimeline;
-  final VoidCallback? onSmartAnimate;
-
-  // Inspect / Dev Handoff
-  final VoidCallback? onInspectToggle;
-  final bool isInspectActive;
-  final VoidCallback? onCodeGen;
-  final VoidCallback? onRedlineToggle;
-  final bool isRedlineActive;
-
-  // Responsive
-  final ValueChanged<String>? onBreakpointSelect;
-
-  // Quality
-  final VoidCallback? onSmartSnapToggle;
-  final bool isSmartSnapActive;
-  final VoidCallback? onDesignLint;
-  final VoidCallback? onStyleSystem;
-  final VoidCallback? onAccessibilityTree;
-
-  // Images
-  final VoidCallback? onImageAdjust;
-  final VoidCallback? onImageFillMode;
-
-  // Token Export
-  final ValueChanged<String>? onTokenExport;
-
-  /// ☁️ Cloud sync state notifier — drives the toolbar sync indicator.
+  /// ☁️ Cloud sync state notifier — drives toolbar sync indicator.
   final ValueListenable<FlueraSyncState>? cloudSyncState;
 
   const ProfessionalCanvasToolbar({
     super.key,
-    required this.selectedPenType,
-    required this.selectedColor,
-    required this.selectedWidth,
-    required this.selectedOpacity,
-    required this.selectedShapeType,
-    required this.strokeCount,
-    required this.canUndo,
-    required this.canRedo,
-    required this.isEraserActive,
-    required this.isLassoActive,
-    required this.isDigitalTextActive,
-    required this.isImagePickerActive,
-    required this.isRecordingActive,
-    required this.isPanModeActive,
-    required this.isStylusModeActive,
-    this.isRulerActive = false,
-    this.isMinimapVisible = true,
-    this.isSectionActive = false,
-    this.isPenToolActive = false,
-    this.isLatexActive = false,
-    this.isTabularActive = false,
-    this.hasTabularSelection = false,
-    this.selectedCellRef,
-    this.selectedCellValue,
-    this.onTabularCreate,
-    this.onCellValueSubmit,
-    this.onCellTabSubmit,
-    this.onTabularDelete,
-    this.onInsertRow,
-    this.onDeleteRow,
-    this.onInsertColumn,
-    this.onDeleteColumn,
-    this.onMergeCells,
-    this.onUnmergeCells,
-    this.onCopySelection,
-    this.onCutSelection,
-    this.onPasteSelection,
-    this.onSortColumn,
-    this.onAutoFill,
-    this.onGenerateLatex,
-    this.onCopySelectionAsLatex,
-    this.onGenerateChart,
-    this.onImportLatex,
-    this.onExportTex,
-    this.selectedCellFormat,
-    this.hasRangeSelection = false,
-    this.onToggleBold,
-    this.onToggleItalic,
-    this.onBorderPreset,
-    this.onSetAlignment,
-    this.onSetTextColor,
-    this.onSetBackgroundColor,
-    this.onClearFormatting,
-    this.onClearCells,
-    this.onImportCsv,
-    this.onExportCsv,
-    this.hasFrozenRow = false,
-    this.onToggleFreezeRow,
-    required this.recordingDuration,
-    this.recordingAmplitude = 0.0,
-    this.recordingDurationNotifier,
-    this.recordingAmplitudeNotifier,
-    this.isImageEditingMode = false,
-    this.noteTitle,
-    this.brushPresets = const [],
-    this.selectedPresetId,
-    this.onPresetSelected,
-    required this.onPenTypeChanged,
-    required this.onColorChanged,
-    required this.onWidthChanged,
-    required this.onOpacityChanged,
-    required this.onShapeTypeChanged,
-    this.onNoteTitleChanged,
-    required this.onUndo,
-    required this.onRedo,
-    required this.onClear,
-    required this.onSettings,
-    this.onBrushSettingsPressed, // 🎛️ Brush settings
-    this.onExportPressed, // 📤 Export canvas
-    required this.onLayersPressed,
-    this.onDualPagePressed,
-    this.isDualPageMode = false,
-    required this.onEraserToggle,
-    this.eraserRadius = 20.0,
-    this.onEraserRadiusChanged,
-    this.eraseWholeStroke = false,
-    this.onEraseWholeStrokeChanged,
-    required this.onLassoToggle,
-    required this.onDigitalTextToggle,
-    required this.onPanModeToggle,
-    required this.onStylusModeToggle,
-    this.onRulerToggle,
-    this.onMinimapToggle,
-    this.onSectionToggle,
-    this.onPenToolToggle,
-    this.onLatexToggle,
-    this.onTabularToggle,
-    required this.onImagePickerPressed,
-    this.onImageEditorPressed,
-    this.onExitImageEditMode, // ✅ Esci da edit mode
-    required this.onRecordingPressed,
-    required this.onViewRecordingsPressed,
-
+    required this.state,
+    required this.callbacks,
     this.forceLeftAlign = false,
-    this.onCanvasLayoutPressed,
-    this.onHSplitLayoutPressed,
-    this.onVSplitLayoutPressed,
-    this.onCanvasOverlayPressed,
-    // 🔄 Sync callback
-    this.onSyncToggle,
-    this.isSyncEnabled,
-    // 🔧 Advanced Split callback
-    this.onAdvancedSplitPressed,
-    this.onTimeTravelPressed, // ⏱️ Time Travel
-    this.onRecallModePressed, // 🧠 Recall Mode (Step 2)
-    this.onBranchExplorerPressed, // 🌿 Branch Explorer
-    this.activeBranchName, // 🌿 Active branch name
-    this.onPaperTypePressed, // 📄 Paper type picker
-    this.onReadingLevelPressed, // 📊 Reading level analysis
-    this.onResetRotation, // 🌀 Reset rotation
-    this.onToggleRotationLock, // 🌀 Toggle rotation lock
-    this.isCanvasRotated = false, // 🌀 Rotation state
-    this.isRotationLocked = false, // 🌀 Rotation lock state
-    this.shapeRecognitionEnabled = false, // 🔷 Shape recognition
-    this.shapeRecognitionSensitivityIndex = 1, // 🔷 Medium
-    this.ghostSuggestionEnabled = false, // 👻 Ghost mode
-    this.onShapeRecognitionToggle, // 🔷 Shape recognition toggle
-    this.onShapeRecognitionSensitivityCycle, // 🔷 Sensitivity cycle
-    this.onGhostSuggestionToggle, // 👻 Ghost toggle
-    this.onSearchPressed, // 🔍 Handwriting search
-    this.isSearchActive = false, // 🔍 Search overlay state
-    this.onPdfImportPressed, // 📄 PDF import
-    this.onPdfCreateBlankPressed, // 📄 PDF create blank
-    this.isPdfActive = false,
-    this.pdfDocument,
-    this.pdfDocuments = const [],
-    this.pdfAnnotationController,
-    this.pdfSearchController,
-    this.pdfCommandHistory,
-    this.onPdfInsertBlankPage,
-    this.onPdfDuplicatePage,
-    this.onPdfDeletePage,
-    this.onPdfReorderPage,
-    this.onPdfNightModeToggle,
-    this.onPdfBookmarkToggle,
-    this.onPdfZoomToFit,
-    this.onPdfWatermarkToggle,
-    this.onPdfAddStamp,
-    this.onPdfChangeBackground,
-    this.onPdfPrint,
-    this.onPdfPresentation,
-    this.onPdfLayoutModeChanged,
-    this.onPdfGoToPage, // 🔍 Scroll to page
-    this.onPdfDocumentChanged, // 📄 Switch active PDF
-    this.onPdfLayoutChanged, // 📄 Layout mutation callback
-    this.onPdfExport,
-    this.onPdfDeleteDocument, // 🗑️ Delete entire PDF
-    this.pdfSelectedPageIndex = 0,
-    this.showPdfPageNumbers = true,
-    this.onTogglePdfPageNumbers,
-    this.onPdfPageIndexChanged,
-    // 🎨 Design tab
-    this.onPrototypePlay,
-    this.onFlowLinkAdd,
-    this.onAnimationTimeline,
-    this.onSmartAnimate,
-    this.onInspectToggle,
-    this.isInspectActive = false,
-    this.onCodeGen,
-    this.onRedlineToggle,
-    this.isRedlineActive = false,
-    this.onBreakpointSelect,
-    this.onSmartSnapToggle,
-    this.isSmartSnapActive = false,
-    this.onDesignLint,
-    this.onStyleSystem,
-    this.onAccessibilityTree,
-    this.onImageAdjust,
-    this.onImageFillMode,
-    this.onTokenExport,
+    this.isFloating = false,
     this.cloudSyncState,
-    this.hideRecordingControlWhenActive = false,
-    this.isFloating = false, // 🏝️ Floating Island mode
   });
 
-  final bool hideRecordingControlWhenActive;
-  final bool isFloating;
+  // ==========================================================================
+  // 🔁 GETTER FORWARDERS
+  //
+  // These delegate widget.xxx → widget.state.xxx / widget.callbacks.xxx so
+  // that all internal part files work without modification.
+  // ==========================================================================
+
+  // ── ToolbarState forwarders ───────────────────────────────────────────────
+  ProPenType get selectedPenType => state.selectedPenType;
+  Color get selectedColor => state.selectedColor;
+  double get selectedWidth => state.selectedWidth;
+  double get selectedOpacity => state.selectedOpacity;
+  ShapeType get selectedShapeType => state.selectedShapeType;
+  int get strokeCount => state.strokeCount;
+  bool get canUndo => state.canUndo;
+  bool get canRedo => state.canRedo;
+  ValueListenable<int>? get undoRedoListenable => state.undoRedoListenable;
+  bool Function()? get computeCanUndo => state.computeCanUndo;
+  bool Function()? get computeCanRedo => state.computeCanRedo;
+  bool get isEraserActive => state.isEraserActive;
+  double get eraserRadius => state.eraserRadius;
+  bool get eraseWholeStroke => state.eraseWholeStroke;
+  bool get isLassoActive => state.isLassoActive;
+  bool get isDigitalTextActive => state.isDigitalTextActive;
+  bool get isImagePickerActive => state.isImagePickerActive;
+  bool get isRecordingActive => state.isRecordingActive;
+  bool get isPanModeActive => state.isPanModeActive;
+  bool get isStylusModeActive => state.isStylusModeActive;
+  bool get isRulerActive => state.isRulerActive;
+  bool get isMinimapVisible => state.isMinimapVisible;
+  bool get isSectionActive => state.isSectionActive;
+  bool get isDualPageMode => state.isDualPageMode;
+  bool get isPenToolActive => state.isPenToolActive;
+  bool get isLatexActive => state.isLatexActive;
+  bool get isImageEditingMode => state.isImageEditingMode;
+  List<BrushPreset> get brushPresets => state.brushPresets;
+  String? get selectedPresetId => state.selectedPresetId;
+  bool get isTabularActive => state.isTabularActive;
+  bool get hasTabularSelection => state.hasTabularSelection;
+  bool get hasRangeSelection => state.hasRangeSelection;
+  bool get hasFrozenRow => state.hasFrozenRow;
+  String? get selectedCellRef => state.selectedCellRef;
+  String? get selectedCellValue => state.selectedCellValue;
+  CellFormat? get selectedCellFormat => state.selectedCellFormat;
+  Duration get recordingDuration => state.recordingDuration;
+  double get recordingAmplitude => state.recordingAmplitude;
+  ValueListenable<Duration>? get recordingDurationNotifier =>
+      state.recordingDurationNotifier;
+  ValueListenable<double>? get recordingAmplitudeNotifier =>
+      state.recordingAmplitudeNotifier;
+  bool get hideRecordingControlWhenActive =>
+      state.hideRecordingControlWhenActive;
+  bool get isSearchActive => state.isSearchActive;
+  bool get isCanvasRotated => state.isCanvasRotated;
+  bool get isRotationLocked => state.isRotationLocked;
+  bool? get isSyncEnabled => state.isSyncEnabled;
+  String? get activeBranchName => state.activeBranchName;
+  String? get noteTitle => state.noteTitle;
+  bool get shapeRecognitionEnabled => state.shapeRecognitionEnabled;
+  int get shapeRecognitionSensitivityIndex =>
+      state.shapeRecognitionSensitivityIndex;
+  bool get ghostSuggestionEnabled => state.ghostSuggestionEnabled;
+  bool get isPdfActive => state.isPdfActive;
+  PdfDocumentNode? get pdfDocument => state.pdfDocument;
+  List<PdfDocumentNode> get pdfDocuments => state.pdfDocuments;
+  PdfAnnotationController? get pdfAnnotationController =>
+      state.pdfAnnotationController;
+  PdfSearchController? get pdfSearchController => state.pdfSearchController;
+  CommandHistory? get pdfCommandHistory => state.pdfCommandHistory;
+  int get pdfSelectedPageIndex => state.pdfSelectedPageIndex;
+  bool get showPdfPageNumbers => state.showPdfPageNumbers;
+  bool get isInspectActive => state.isInspectActive;
+  bool get isRedlineActive => state.isRedlineActive;
+  bool get isSmartSnapActive => state.isSmartSnapActive;
+
+  // ── ToolbarCallbacks forwarders ───────────────────────────────────────────
+  ValueChanged<ProPenType> get onPenTypeChanged => callbacks.onPenTypeChanged;
+  ValueChanged<Color> get onColorChanged => callbacks.onColorChanged;
+  ValueChanged<double> get onWidthChanged => callbacks.onWidthChanged;
+  ValueChanged<double> get onOpacityChanged => callbacks.onOpacityChanged;
+  ValueChanged<ShapeType> get onShapeTypeChanged =>
+      callbacks.onShapeTypeChanged;
+  VoidCallback get onUndo => callbacks.onUndo;
+  VoidCallback get onRedo => callbacks.onRedo;
+  VoidCallback get onClear => callbacks.onClear;
+  VoidCallback get onSettings => callbacks.onSettings;
+  VoidCallback get onLayersPressed => callbacks.onLayersPressed;
+  VoidCallback get onEraserToggle => callbacks.onEraserToggle;
+  VoidCallback get onLassoToggle => callbacks.onLassoToggle;
+  VoidCallback get onDigitalTextToggle => callbacks.onDigitalTextToggle;
+  VoidCallback get onPanModeToggle => callbacks.onPanModeToggle;
+  VoidCallback get onStylusModeToggle => callbacks.onStylusModeToggle;
+  VoidCallback get onImagePickerPressed => callbacks.onImagePickerPressed;
+  VoidCallback get onRecordingPressed => callbacks.onRecordingPressed;
+  VoidCallback get onViewRecordingsPressed => callbacks.onViewRecordingsPressed;
+  ValueChanged<double>? get onEraserRadiusChanged =>
+      callbacks.onEraserRadiusChanged;
+  ValueChanged<bool>? get onEraseWholeStrokeChanged =>
+      callbacks.onEraseWholeStrokeChanged;
+  void Function(Rect anchorRect)? get onBrushSettingsPressed =>
+      callbacks.onBrushSettingsPressed;
+  VoidCallback? get onExportPressed => callbacks.onExportPressed;
+  VoidCallback? get onDualPagePressed => callbacks.onDualPagePressed;
+  VoidCallback? get onRulerToggle => callbacks.onRulerToggle;
+  VoidCallback? get onMinimapToggle => callbacks.onMinimapToggle;
+  VoidCallback? get onSectionToggle => callbacks.onSectionToggle;
+  VoidCallback? get onPenToolToggle => callbacks.onPenToolToggle;
+  VoidCallback? get onLatexToggle => callbacks.onLatexToggle;
+  VoidCallback? get onTabularToggle => callbacks.onTabularToggle;
+  VoidCallback? get onImageEditorPressed => callbacks.onImageEditorPressed;
+  VoidCallback? get onExitImageEditMode => callbacks.onExitImageEditMode;
+  ValueChanged<String>? get onNoteTitleChanged => callbacks.onNoteTitleChanged;
+  ValueChanged<BrushPreset>? get onPresetSelected => callbacks.onPresetSelected;
+  VoidCallback? get onCanvasLayoutPressed => callbacks.onCanvasLayoutPressed;
+  VoidCallback? get onHSplitLayoutPressed => callbacks.onHSplitLayoutPressed;
+  VoidCallback? get onVSplitLayoutPressed => callbacks.onVSplitLayoutPressed;
+  VoidCallback? get onCanvasOverlayPressed => callbacks.onCanvasOverlayPressed;
+  VoidCallback? get onAdvancedSplitPressed => callbacks.onAdvancedSplitPressed;
+  VoidCallback? get onSyncToggle => callbacks.onSyncToggle;
+  VoidCallback? get onTimeTravelPressed => callbacks.onTimeTravelPressed;
+  VoidCallback? get onRecallModePressed => callbacks.onRecallModePressed;
+  VoidCallback? get onGhostMapPressed => callbacks.onGhostMapPressed;
+  VoidCallback? get onFogOfWarPressed => callbacks.onFogOfWarPressed;
+  VoidCallback? get onSocraticPressed => callbacks.onSocraticPressed;
+  VoidCallback? get onCrossZoneBridgesPressed =>
+      callbacks.onCrossZoneBridgesPressed;
+  VoidCallback? get onBranchExplorerPressed =>
+      callbacks.onBranchExplorerPressed;
+  VoidCallback? get onPaperTypePressed => callbacks.onPaperTypePressed;
+  VoidCallback? get onReadingLevelPressed => callbacks.onReadingLevelPressed;
+  VoidCallback? get onResetRotation => callbacks.onResetRotation;
+  VoidCallback? get onToggleRotationLock => callbacks.onToggleRotationLock;
+  VoidCallback? get onSearchPressed => callbacks.onSearchPressed;
+  VoidCallback? get onShapeRecognitionToggle =>
+      callbacks.onShapeRecognitionToggle;
+  VoidCallback? get onShapeRecognitionSensitivityCycle =>
+      callbacks.onShapeRecognitionSensitivityCycle;
+  VoidCallback? get onGhostSuggestionToggle =>
+      callbacks.onGhostSuggestionToggle;
+  VoidCallback? get onPdfImportPressed => callbacks.onPdfImportPressed;
+  VoidCallback? get onPdfCreateBlankPressed =>
+      callbacks.onPdfCreateBlankPressed;
+  void Function(int)? get onPdfInsertBlankPage =>
+      callbacks.onPdfInsertBlankPage;
+  void Function(int)? get onPdfDuplicatePage => callbacks.onPdfDuplicatePage;
+  void Function(int)? get onPdfDeletePage => callbacks.onPdfDeletePage;
+  void Function(int oldIndex, int newIndex)? get onPdfReorderPage =>
+      callbacks.onPdfReorderPage;
+  VoidCallback? get onPdfNightModeToggle => callbacks.onPdfNightModeToggle;
+  void Function(int)? get onPdfBookmarkToggle => callbacks.onPdfBookmarkToggle;
+  void Function(int)? get onPdfZoomToFit => callbacks.onPdfZoomToFit;
+  VoidCallback? get onPdfWatermarkToggle => callbacks.onPdfWatermarkToggle;
+  void Function(int pageIndex, PdfStampType stamp)? get onPdfAddStamp =>
+      callbacks.onPdfAddStamp;
+  void Function(int pageIndex)? get onPdfChangeBackground =>
+      callbacks.onPdfChangeBackground;
+  VoidCallback? get onPdfPrint => callbacks.onPdfPrint;
+  VoidCallback? get onPdfPresentation => callbacks.onPdfPresentation;
+  void Function(PdfLayoutMode)? get onPdfLayoutModeChanged =>
+      callbacks.onPdfLayoutModeChanged;
+  void Function(String, int)? get onPdfGoToPage => callbacks.onPdfGoToPage;
+  void Function(String documentId)? get onPdfDocumentChanged =>
+      callbacks.onPdfDocumentChanged;
+  VoidCallback? get onPdfLayoutChanged => callbacks.onPdfLayoutChanged;
+  VoidCallback? get onPdfExport => callbacks.onPdfExport;
+  VoidCallback? get onPdfDeleteDocument => callbacks.onPdfDeleteDocument;
+  VoidCallback? get onTogglePdfPageNumbers => callbacks.onTogglePdfPageNumbers;
+  ValueChanged<int>? get onPdfPageIndexChanged =>
+      callbacks.onPdfPageIndexChanged;
+  void Function(int columns, int rows)? get onTabularCreate =>
+      callbacks.onTabularCreate;
+  void Function(String value)? get onCellValueSubmit =>
+      callbacks.onCellValueSubmit;
+  void Function(String value)? get onCellTabSubmit => callbacks.onCellTabSubmit;
+  VoidCallback? get onTabularDelete => callbacks.onTabularDelete;
+  VoidCallback? get onInsertRow => callbacks.onInsertRow;
+  VoidCallback? get onDeleteRow => callbacks.onDeleteRow;
+  VoidCallback? get onInsertColumn => callbacks.onInsertColumn;
+  VoidCallback? get onDeleteColumn => callbacks.onDeleteColumn;
+  VoidCallback? get onMergeCells => callbacks.onMergeCells;
+  VoidCallback? get onUnmergeCells => callbacks.onUnmergeCells;
+  VoidCallback? get onCopySelection => callbacks.onCopySelection;
+  VoidCallback? get onCutSelection => callbacks.onCutSelection;
+  VoidCallback? get onPasteSelection => callbacks.onPasteSelection;
+  void Function(bool ascending)? get onSortColumn => callbacks.onSortColumn;
+  VoidCallback? get onAutoFill => callbacks.onAutoFill;
+  VoidCallback? get onGenerateLatex => callbacks.onGenerateLatex;
+  VoidCallback? get onCopySelectionAsLatex => callbacks.onCopySelectionAsLatex;
+  VoidCallback? get onGenerateChart => callbacks.onGenerateChart;
+  VoidCallback? get onImportLatex => callbacks.onImportLatex;
+  VoidCallback? get onExportTex => callbacks.onExportTex;
+  VoidCallback? get onToggleBold => callbacks.onToggleBold;
+  VoidCallback? get onToggleItalic => callbacks.onToggleItalic;
+  ValueChanged<String>? get onBorderPreset => callbacks.onBorderPreset;
+  void Function(CellAlignment)? get onSetAlignment => callbacks.onSetAlignment;
+  void Function(Color)? get onSetTextColor => callbacks.onSetTextColor;
+  void Function(Color)? get onSetBackgroundColor =>
+      callbacks.onSetBackgroundColor;
+  VoidCallback? get onClearFormatting => callbacks.onClearFormatting;
+  VoidCallback? get onClearCells => callbacks.onClearCells;
+  void Function(String csvText)? get onImportCsv => callbacks.onImportCsv;
+  VoidCallback? get onExportCsv => callbacks.onExportCsv;
+  VoidCallback? get onToggleFreezeRow => callbacks.onToggleFreezeRow;
+  VoidCallback? get onPrototypePlay => callbacks.onPrototypePlay;
+  VoidCallback? get onFlowLinkAdd => callbacks.onFlowLinkAdd;
+  VoidCallback? get onAnimationTimeline => callbacks.onAnimationTimeline;
+  VoidCallback? get onSmartAnimate => callbacks.onSmartAnimate;
+  VoidCallback? get onInspectToggle => callbacks.onInspectToggle;
+  VoidCallback? get onCodeGen => callbacks.onCodeGen;
+  VoidCallback? get onRedlineToggle => callbacks.onRedlineToggle;
+  ValueChanged<String>? get onBreakpointSelect => callbacks.onBreakpointSelect;
+  VoidCallback? get onSmartSnapToggle => callbacks.onSmartSnapToggle;
+  VoidCallback? get onDesignLint => callbacks.onDesignLint;
+  VoidCallback? get onStyleSystem => callbacks.onStyleSystem;
+  VoidCallback? get onAccessibilityTree => callbacks.onAccessibilityTree;
+  VoidCallback? get onImageAdjust => callbacks.onImageAdjust;
+  VoidCallback? get onImageFillMode => callbacks.onImageFillMode;
+  ValueChanged<String>? get onTokenExport => callbacks.onTokenExport;
+  ValueChanged<String>? get onInsertText => callbacks.onInsertText;
 
   @override
   ConsumerState<ProfessionalCanvasToolbar> createState() =>
@@ -467,19 +317,75 @@ class _ProfessionalCanvasToolbarState
     extends ConsumerState<ProfessionalCanvasToolbar> {
   bool _isToolsExpanded = true;
   bool _isShapesExpanded = false;
-  ToolbarTab _activeToolbarTab = ToolbarTab.main;
 
-  /// Tabs currently available based on canvas state.
+  /// Manual tab override — set when the user taps a tab chip.
+  /// Cleared automatically when the auto-context changes.
+  ToolbarTab? _manualTabOverride;
+  ToolbarTab? _lastAutoTab;
+
+  /// Which tabs are available in the current context.
   List<ToolbarTab> get _availableTabs {
-    final tabs = [ToolbarTab.main];
-    // Always show PDF tab — even without documents, the import button is there
-    tabs.add(ToolbarTab.pdf);
-    // V1: Excel hidden — re-enable post-launch
+    final tabs = <ToolbarTab>[ToolbarTab.main];
+
+    // PDF tab: only when a PDF document is loaded
+    if (widget.isPdfActive || widget.pdfDocuments.isNotEmpty) {
+      tabs.add(ToolbarTab.pdf);
+    }
+
+    // Scientific: always available (LaTeX, pen tool, shapes)
     tabs.add(ToolbarTab.scientific);
-    // tabs.add(ToolbarTab.excel);
+
+    // Excel: always available (can create new tables)
+    tabs.add(ToolbarTab.excel);
+
+    // Media: always available (digital text, images, recording)
     tabs.add(ToolbarTab.media);
-    // Design tab: SDK-only, not exposed in Looponia (see dev.md)
+
     return tabs;
+  }
+
+  /// Auto-derives the active toolbar tab from canvas state,
+  /// but respects manual override when set.
+  ToolbarTab get _computedTab {
+    final autoTab = _autoContextTab;
+
+    // If auto-context changed, clear manual override
+    if (_lastAutoTab != null && _lastAutoTab != autoTab) {
+      _manualTabOverride = null;
+    }
+    _lastAutoTab = autoTab;
+
+    // Manual override takes priority if it's in the available tabs
+    if (_manualTabOverride != null &&
+        _availableTabs.contains(_manualTabOverride)) {
+      return _manualTabOverride!;
+    }
+
+    return autoTab;
+  }
+
+  /// Pure auto-context tab derivation (no manual override).
+  ToolbarTab get _autoContextTab {
+    // 1. PDF: a document is loaded
+    if (widget.isPdfActive || widget.pdfDocuments.isNotEmpty) {
+      return ToolbarTab.pdf;
+    }
+    // 2. Math / LaTeX: editor is open or vector pen is active
+    if (widget.isLatexActive || widget.isPenToolActive) {
+      return ToolbarTab.scientific;
+    }
+    // 3. Spreadsheet: table is active or has selection
+    if (widget.isTabularActive || widget.hasTabularSelection) {
+      return ToolbarTab.excel;
+    }
+    // 4. Media: digital text, image picker, or active recording
+    if (widget.isDigitalTextActive ||
+        widget.isImagePickerActive ||
+        widget.isRecordingActive) {
+      return ToolbarTab.media;
+    }
+    // 5. Default: main drawing tools
+    return ToolbarTab.main;
   }
 
   // Customizable colors (6 slots)
@@ -530,9 +436,7 @@ class _ProfessionalCanvasToolbarState
     final saved = prefs.getStringList('color_history');
     if (saved != null && saved.isNotEmpty) {
       setState(() {
-        _colorHistory = saved
-            .map((s) => Color(int.parse(s)))
-            .toList();
+        _colorHistory = saved.map((s) => Color(int.parse(s))).toList();
       });
     }
   }
@@ -542,11 +446,14 @@ class _ProfessionalCanvasToolbarState
     setState(() {
       _colorHistory.removeWhere((c) => c.toARGB32() == color.toARGB32());
       _colorHistory.insert(0, color);
-      if (_colorHistory.length > 12) _colorHistory = _colorHistory.sublist(0, 12);
+      if (_colorHistory.length > 12)
+        _colorHistory = _colorHistory.sublist(0, 12);
     });
     final prefs = await KeyValueStore.getInstance();
-    await prefs.setStringList('color_history',
-        _colorHistory.map((c) => c.toARGB32().toString()).toList());
+    await prefs.setStringList(
+      'color_history',
+      _colorHistory.map((c) => c.toARGB32().toString()).toList(),
+    );
   }
 
   // Show pro color picker per slot specifico
@@ -574,104 +481,140 @@ class _ProfessionalCanvasToolbarState
   }
 
   @override
-  void didUpdateWidget(covariant ProfessionalCanvasToolbar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Auto-switch to PDF tab when first PDF is loaded
-    if (widget.pdfDocuments.isNotEmpty && oldWidget.pdfDocuments.isEmpty) {
-      setState(() => _activeToolbarTab = ToolbarTab.pdf);
-    }
-    // Auto-switch away from PDF tab when last PDF is removed
-    if (widget.pdfDocuments.isEmpty && _activeToolbarTab == ToolbarTab.pdf) {
-      setState(() => _activeToolbarTab = ToolbarTab.main);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Cache computed tab — avoids recomputing in _buildActiveToolbar
+    // (_computedTab getter traverses 5+ boolean conditions)
 
-    // Different background color in editing mode
-    final backgroundColor =
+    // 🎨 Glassmorphism surface colors
+    final Color bgBase =
         widget.isImageEditingMode
-            ? (isDark ? const Color(0xFF1A2F1A) : const Color(0xFFE8F5E8))
-            : (isDark ? const Color(0xFF1E1E1E) : Colors.white);
+            ? (isDark ? const Color(0xFF0F2210) : const Color(0xFFE8F5E8))
+            : (isDark ? const Color(0xFF111111) : Colors.white);
+    final double bgOpacity =
+        isDark
+            ? ToolbarTokens.surfaceOpacityDark
+            : ToolbarTokens.surfaceOpacityLight;
+    final backgroundColor = bgBase.withValues(alpha: bgOpacity);
 
-    // 🏝️ Floating Configuretion
+    // 🏝️ Floating Configuration
     final borderRadius =
         widget.isFloating ? BorderRadius.circular(24) : BorderRadius.zero;
-    final elevation = widget.isFloating ? 4.0 : 8.0;
-    final clipBehavior = widget.isFloating ? Clip.antiAlias : Clip.none;
+    final clipBehavior = widget.isFloating ? Clip.antiAlias : Clip.antiAlias;
+
+    // 🌫️ Glassmorphism shell
+    Widget _glassShell({required Widget child}) {
+      return ClipRRect(
+        borderRadius: borderRadius,
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(
+            sigmaX: ToolbarTokens.surfaceBlur,
+            sigmaY: ToolbarTokens.surfaceBlur,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: borderRadius,
+              border: Border(
+                top: BorderSide(
+                  color: (isDark ? Colors.white : Colors.black).withValues(
+                    alpha:
+                        isDark
+                            ? ToolbarTokens.surfaceBorderOpacityDark
+                            : ToolbarTokens.surfaceBorderOpacityLight,
+                  ),
+                  width: 0.5,
+                ),
+                bottom: BorderSide(
+                  color: (isDark ? Colors.white : Colors.black).withValues(
+                    alpha: isDark ? 0.06 : 0.04,
+                  ),
+                  width: 0.5,
+                ),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(
+                    alpha: ToolbarTokens.surfaceShadowOpacity,
+                  ),
+                  blurRadius: ToolbarTokens.surfaceShadowBlur,
+                  spreadRadius: ToolbarTokens.surfaceShadowSpread,
+                  offset: const Offset(0, 4),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 4,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        ),
+      );
+    }
+
+    // 📐 Collapsed/expanded content with spring animation
+    Widget _toolsArea() {
+      // Active tool icon for the mini indicator
+      IconData activeIcon = Icons.edit_rounded;
+      if (widget.isEraserActive)
+        activeIcon = Icons.auto_fix_high_rounded;
+      else if (widget.isLassoActive)
+        activeIcon = Icons.gesture_rounded;
+      else if (widget.isPanModeActive)
+        activeIcon = Icons.pan_tool_outlined;
+      else if (widget.isStylusModeActive)
+        activeIcon = Icons.draw_rounded;
+      else if (widget.isRulerActive)
+        activeIcon = Icons.straighten_rounded;
+      else if (widget.isLatexActive)
+        activeIcon = Icons.functions_rounded;
+
+      return AnimatedCrossFade(
+        duration: ToolbarTokens.animNormal,
+        sizeCurve: ToolbarTokens.curveCollapse,
+        firstCurve: Curves.easeOut,
+        secondCurve: Curves.easeIn,
+        crossFadeState:
+            _isToolsExpanded
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+        firstChild: _buildActiveToolbar(context, isDark),
+        secondChild: _CollapsedToolIndicator(
+          toolIcon: activeIcon,
+          penColor: widget.selectedColor,
+          strokeWidth: widget.selectedWidth,
+          isDark: isDark,
+          onTap: () {
+            HapticFeedback.lightImpact();
+            setState(() => _isToolsExpanded = true);
+          },
+        ),
+      );
+    }
 
     return widget.forceLeftAlign
         ? Align(
           alignment: Alignment.centerLeft,
-          child: Material(
-            color: backgroundColor,
-            elevation: elevation,
-            borderRadius: borderRadius,
-            clipBehavior: clipBehavior,
-            shadowColor: Colors.black.withValues(alpha: 0.3),
+          child: _glassShell(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top Row: Status Bar + Quick Actions
                 _buildTopRow(context, isDark),
-
-                // 🗂️ Tab Bar — switch between toolbar contexts
-                if (_isToolsExpanded)
-                  ToolbarTabBar(
-                    activeTab: _activeToolbarTab,
-                    availableTabs: _availableTabs,
-                    onTabChanged:
-                        (tab) => setState(() => _activeToolbarTab = tab),
-                    isDark: isDark,
-                  ),
-
-                // Tools Area (collapsible) — dispatched by active tab
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  child:
-                      _isToolsExpanded
-                          ? _buildActiveToolbar(context, isDark)
-                          : const SizedBox.shrink(),
-                ),
+                _toolsArea(),
               ],
             ),
           ),
         )
-        : Material(
-          color: backgroundColor,
-          elevation: elevation,
-          borderRadius: borderRadius,
-          clipBehavior: clipBehavior,
-          shadowColor: Colors.black.withValues(alpha: 0.3),
+        : _glassShell(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Top Row: Status Bar + Quick Actions
               _buildTopRow(context, isDark),
-
-              // 🗂️ Tab Bar — switch between toolbar contexts
-              if (_isToolsExpanded)
-                ToolbarTabBar(
-                  activeTab: _activeToolbarTab,
-                  availableTabs: _availableTabs,
-                  onTabChanged:
-                      (tab) => setState(() => _activeToolbarTab = tab),
-                  isDark: isDark,
-                ),
-
-              // Tools Area (collapsible) — dispatched by active tab
-              AnimatedSize(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                child:
-                    _isToolsExpanded
-                        ? _buildActiveToolbar(context, isDark)
-                        : const SizedBox.shrink(),
-              ),
+              _toolsArea(),
             ],
           ),
         );

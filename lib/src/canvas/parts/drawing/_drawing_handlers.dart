@@ -20,6 +20,29 @@ extension on _FlueraCanvasScreenState {
     // ✍️ SMART INK: Auto-dismiss overlay on any new touch interaction
     if (isSmartInkActive) dismissSmartInk();
 
+    // 🌫️ FOG OF WAR ZONE SELECTION (P10-02): Intercept draw to pick zone.
+    if (isFogZoneSelectionPending) {
+      _fogZoneStartPoint = canvasPosition;
+      _fogZoneCurrentEndPoint = canvasPosition;
+      _uiRebuildNotifier.value++;
+      return;
+    }
+
+    // 🌫️ FOG OF WAR: Intercept tap for fog node reveal + self-eval
+    if (_fogOfWarController.isActive) {
+      if (handleFogOfWarTap(canvasPosition)) return;
+    }
+
+    // 🧠 SRS BLUR: Intercept tap on blurred clusters for reveal
+    if (_srsReviewSession.isActive) {
+      if (handleSrsBlurTap(canvasPosition)) return;
+    }
+
+    // 🗺️ GHOST MAP: Intercept tap on ghost/weak nodes
+    if (_ghostMapController.isActive) {
+      if (handleGhostMapTap(canvasPosition)) return;
+    }
+
     // 🔍 OVERVIEW GUARD: Block drawing when zoomed out below 50%.
     // At this scale strokes would be tiny and unreadable; the user is in
     // overview/navigation mode, not writing mode.
@@ -86,6 +109,7 @@ extension on _FlueraCanvasScreenState {
       final hitSection = _findSectionAtPoint(canvasPosition);
       if (hitSection != null && !hitSection.isLocked) {
         _draggingSectionNode = hitSection;
+        _focusedSectionNode = hitSection; // Show inline handles
         final sectionPos = Offset(
           hitSection.worldTransform.getTranslation().x,
           hitSection.worldTransform.getTranslation().y,
@@ -98,6 +122,7 @@ extension on _FlueraCanvasScreenState {
       // 3. Otherwise, start drawing a new section
       _sectionStartPoint = canvasPosition;
       _sectionCurrentEndPoint = canvasPosition;
+      _focusedSectionNode = null; // Hide inline handles during new draw
       _uiRebuildNotifier.value++;
       return;
     }

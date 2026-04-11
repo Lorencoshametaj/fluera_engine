@@ -71,6 +71,16 @@ abstract class AiProvider {
     );
   }
 
+  /// Send a free-text prompt and get a plain text response.
+  ///
+  /// Unlike [askAtlas] which expects structured JSON actions,
+  /// this method sends raw text and returns raw text — ideal for
+  /// Socratic questions, breadcrumbs, and other non-structured prompts.
+  Future<String> askFreeText(String prompt) async {
+    final response = await askAtlas(prompt, const []);
+    return response.explanation ?? '';
+  }
+
   /// Release resources held by this provider.
   void dispose();
 }

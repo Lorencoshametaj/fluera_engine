@@ -313,7 +313,7 @@ abstract class FlueraStorageAdapter {
       'canvasId': id,
       'title': options.title,
       'paperType': options.paperType.storageKey,
-      'backgroundColorValue': options.backgroundColor.value,
+      'backgroundColorValue': options.backgroundColor.toARGB32(),
       'createdAt': now.millisecondsSinceEpoch,
       'updatedAt': now.millisecondsSinceEpoch,
       'layers': <Map<String, dynamic>>[],

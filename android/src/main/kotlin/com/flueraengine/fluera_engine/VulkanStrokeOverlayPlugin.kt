@@ -12,6 +12,12 @@ import io.flutter.view.TextureRegistry
  *
  * Uses SurfaceProducer (Impeller-compatible) for zero-copy GPU texture sharing.
  * Falls back to SurfaceTexture on older Flutter versions.
+ *
+ * 🛡️ Crash protection: all JNI calls are guarded by [nativeInitialized].
+ * surfaceProducer.release() is wrapped in try-catch because when VkStrokeRenderer::init
+ * fails on devices without Vulkan (e.g. emulators), the C++ layer already releases the
+ * ANativeWindow internally. A subsequent Kotlin-side release causes a null-ptr SIGSEGV
+ * in android::RefBase::incStrong via ImageReader.close / Surface.release.
  */
 class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
@@ -23,6 +29,12 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
     private var surfaceProducer: TextureRegistry.SurfaceProducer? = null
     private var surface: Surface? = null
     private var currentTextureId: Long = -1
+
+    /**
+     * 🛡️ True only after nativeInit() returns true. Guards every JNI call.
+     * Set back to false before any nativeDestroy() / destroyTexture().
+     */
+    private var nativeInitialized = false
 
     companion object {
         private var nativeLibLoaded = false
@@ -76,11 +88,10 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
                     return
                 }
 
-                // Clean up previous
+                // Clean up any previous state before creating a new surface
                 destroyTexture()
 
                 try {
-                    // Use SurfaceProducer (Impeller-compatible, Flutter 3.22+)
                     val producer = textureRegistry?.createSurfaceProducer()
                     if (producer == null) {
                         result.error("TEXTURE_FAILED", "createSurfaceProducer returned null", null)
@@ -94,12 +105,15 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
                     val producerSurface = producer.surface
                     surface = producerSurface
 
-                    // Initialize Vulkan renderer with the Surface
                     val success = nativeInit(producerSurface, width, height)
                     if (success) {
+                        nativeInitialized = true
                         android.util.Log.i("FlueraVk", "Vulkan renderer initialized, textureId=$currentTextureId")
                         result.success(currentTextureId)
                     } else {
+                        // nativeInit already released the Surface internally on failure —
+                        // destroyTexture() must not call nativeDestroy() again.
+                        // surfaceProducer.release() is try-catched for this reason.
                         destroyTexture()
                         result.error("VK_INIT_FAILED", "Vulkan init failed", null)
                     }
@@ -111,6 +125,8 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
             }
 
             "updateAndRender" -> {
+                if (!nativeInitialized) { result.success(null); return }
+
                 val points = call.argument<List<Number>>("points")
                 val color = (call.argument<Number>("color") ?: 0xFF000000L).toInt()
                 val width = (call.argument<Number>("width") ?: 2.0).toDouble()
@@ -128,7 +144,6 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
 
                 if (points != null && points.size >= 10) {
                     val needed = points.size
-                    // Reuse buffer when exact size matches, otherwise create new
                     if (reusableFloatBuffer == null || reusableFloatBuffer!!.size != needed) {
                         reusableFloatBuffer = FloatArray(needed)
                     }
@@ -144,12 +159,13 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
             }
 
             "setTransform" -> {
+                if (!nativeInitialized) { result.success(null); return }
+
                 val matrix = call.argument<List<Number>>("matrix")
                 if (matrix != null && matrix.size == 16) {
                     val floatArray = FloatArray(16) { matrix[it].toFloat() }
                     nativeSetTransform(floatArray)
                 }
-                // 🚀 Adaptive LOD: extract zoom level from args
                 val zoom = call.argument<Number>("zoomLevel")?.toFloat()
                 if (zoom != null) {
                     nativeSetZoomLevel(zoom)
@@ -158,12 +174,14 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
             }
 
             "trimMemory" -> {
+                if (!nativeInitialized) { result.success(null); return }
                 val level = call.argument<Number>("level")?.toInt() ?: 1
                 nativeTrimMemory(level)
                 result.success(null)
             }
 
             "clear" -> {
+                if (!nativeInitialized) { result.success(null); return }
                 nativeClear()
                 result.success(null)
             }
@@ -171,21 +189,22 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
             "resize" -> {
                 val w = (call.argument<Number>("width") ?: 1080).toInt()
                 val h = (call.argument<Number>("height") ?: 1920).toInt()
-
-                // Resize SurfaceProducer
                 surfaceProducer?.setSize(w, h)
-
-                val success = nativeResize(w, h)
-                result.success(success)
+                if (nativeInitialized) {
+                    val success = nativeResize(w, h)
+                    result.success(success)
+                } else {
+                    result.success(false)
+                }
             }
 
             "destroy" -> {
-                nativeDestroy()
                 destroyTexture()
                 result.success(null)
             }
 
             "getStats" -> {
+                if (!nativeInitialized) { result.success(null); return }
                 try {
                     val stats = nativeGetStats()
                     val deviceName = nativeGetDeviceName()
@@ -221,9 +240,28 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
         return nativeLibLoaded
     }
 
+    /**
+     * 🛡️ Safe teardown:
+     * 1. Calls nativeDestroy() only if the renderer was successfully initialized.
+     * 2. Wraps surfaceProducer.release() in try-catch — on Vulkan init failure the
+     *    C++ layer already released the ANativeWindow, so a second release would
+     *    SIGSEGV inside android::RefBase::incStrong / ImageReader.close.
+     */
     private fun destroyTexture() {
+        if (nativeInitialized) {
+            try {
+                nativeDestroy()
+            } catch (e: Exception) {
+                android.util.Log.w("FlueraVk", "nativeDestroy() exception: ${e.message}")
+            }
+            nativeInitialized = false
+        }
         surface = null
-        surfaceProducer?.release()
+        try {
+            surfaceProducer?.release()
+        } catch (e: Exception) {
+            android.util.Log.w("FlueraVk", "surfaceProducer.release() failed (Surface already released by native layer): ${e.message}")
+        }
         surfaceProducer = null
         currentTextureId = -1
         reusableFloatBuffer = null

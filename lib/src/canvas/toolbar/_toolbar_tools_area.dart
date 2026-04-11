@@ -11,31 +11,37 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   // --------------------------------------------------------------------------
 
   Widget _buildActiveToolbar(BuildContext context, bool isDark) {
+    final tab = _computedTab;
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
+      duration: ToolbarTokens.animNormal,
+      switchInCurve: ToolbarTokens.curveActive,
+      switchOutCurve: ToolbarTokens.curveDeactive,
       transitionBuilder: (child, animation) {
         return FadeTransition(
           opacity: animation,
           child: SlideTransition(
             position: Tween<Offset>(
-              begin: const Offset(0.05, 0),
+              begin: const Offset(0.04, 0),
               end: Offset.zero,
-            ).animate(animation),
+            ).animate(
+              CurvedAnimation(
+                parent: animation,
+                curve: ToolbarTokens.curveActive,
+              ),
+            ),
             child: child,
           ),
         );
       },
       child: KeyedSubtree(
-        key: ValueKey(_activeToolbarTab),
-        child: switch (_activeToolbarTab) {
-          ToolbarTab.main => _buildMainTools(context, isDark),
-          ToolbarTab.pdf => _buildPdfTools(context, isDark),
-          ToolbarTab.scientific => _buildScientificTools(context, isDark),
-          ToolbarTab.excel => _buildExcelTools(context, isDark),
-          ToolbarTab.media => _buildMediaTools(context, isDark),
-          ToolbarTab.design => _buildDesignTools(context, isDark),
+        key: ValueKey(tab),
+        child: switch (tab) {
+          ToolbarTab.main => _MainToolsPanel(state: this),
+          ToolbarTab.pdf => _PdfToolsPanel(state: this),
+          ToolbarTab.scientific => _ScientificToolsPanel(state: this),
+          ToolbarTab.excel => _ExcelToolsPanel(state: this),
+          ToolbarTab.media => _MediaToolsPanel(state: this),
+          ToolbarTab.design => _DesignToolsPanel(state: this),
         },
       ),
     );
@@ -67,13 +73,17 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               if (widget.onPenToolToggle != null &&
                   !widget.isImageEditingMode) ...[
                 const SizedBox(width: 12),
-                ToolbarPenToolButton(
+                _ActiveDotWrapper(
                   isActive: widget.isPenToolActive,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    widget.onPenToolToggle?.call();
-                  },
-                  isDark: isDark,
+                  dotColor: isDark ? Colors.white : Colors.black,
+                  child: ToolbarPenToolButton(
+                    isActive: widget.isPenToolActive,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onPenToolToggle?.call();
+                    },
+                    isDark: isDark,
+                  ),
                 ),
               ],
 
@@ -126,26 +136,34 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               // 📝 Digital Text
               if (!widget.isImageEditingMode) ...[
                 const SizedBox(width: 12),
-                ToolbarDigitalTextButton(
+                _ActiveDotWrapper(
                   isActive: widget.isDigitalTextActive,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    widget.onDigitalTextToggle();
-                  },
-                  isDark: isDark,
+                  dotColor: isDark ? Colors.white : Colors.black,
+                  child: ToolbarDigitalTextButton(
+                    isActive: widget.isDigitalTextActive,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onDigitalTextToggle();
+                    },
+                    isDark: isDark,
+                  ),
                 ),
               ],
 
               // 🗺️ Minimap
               if (!widget.isImageEditingMode) ...[
                 const SizedBox(width: 8),
-                ToolbarMinimapButton(
+                _ActiveDotWrapper(
                   isActive: widget.isMinimapVisible,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    widget.onMinimapToggle?.call();
-                  },
-                  isDark: isDark,
+                  dotColor: isDark ? Colors.white : Colors.black,
+                  child: ToolbarMinimapButton(
+                    isActive: widget.isMinimapVisible,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onMinimapToggle?.call();
+                    },
+                    isDark: isDark,
+                  ),
                 ),
               ],
 
@@ -153,13 +171,17 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               if (widget.onSectionToggle != null &&
                   !widget.isImageEditingMode) ...[
                 const SizedBox(width: 8),
-                ToolbarSectionButton(
+                _ActiveDotWrapper(
                   isActive: widget.isSectionActive,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    widget.onSectionToggle?.call();
-                  },
-                  isDark: isDark,
+                  dotColor: isDark ? Colors.white : Colors.black,
+                  child: ToolbarSectionButton(
+                    isActive: widget.isSectionActive,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onSectionToggle?.call();
+                    },
+                    isDark: isDark,
+                  ),
                 ),
               ],
 
@@ -167,13 +189,17 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               if (widget.onSearchPressed != null &&
                   !widget.isImageEditingMode) ...[
                 const SizedBox(width: 8),
-                ToolbarSearchButton(
+                _ActiveDotWrapper(
                   isActive: widget.isSearchActive,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    widget.onSearchPressed!();
-                  },
-                  isDark: isDark,
+                  dotColor: isDark ? Colors.white : Colors.black,
+                  child: ToolbarSearchButton(
+                    isActive: widget.isSearchActive,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onSearchPressed!();
+                    },
+                    isDark: isDark,
+                  ),
                 ),
               ],
 
@@ -1522,23 +1548,31 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
           ),
           const SizedBox(width: 12),
           // 🖐️ Pan Mode Button
-          ToolbarPanModeButton(
+          _ActiveDotWrapper(
             isActive: widget.isPanModeActive,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              widget.onPanModeToggle();
-            },
-            isDark: isDark,
+            dotColor: isDark ? Colors.white : Colors.black,
+            child: ToolbarPanModeButton(
+              isActive: widget.isPanModeActive,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                widget.onPanModeToggle();
+              },
+              isDark: isDark,
+            ),
           ),
           const SizedBox(width: 12),
           // 🖊️ Stylus Mode Button
-          ToolbarStylusModeButton(
+          _ActiveDotWrapper(
             isActive: widget.isStylusModeActive,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              widget.onStylusModeToggle();
-            },
-            isDark: isDark,
+            dotColor: isDark ? Colors.white : Colors.black,
+            child: ToolbarStylusModeButton(
+              isActive: widget.isStylusModeActive,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                widget.onStylusModeToggle();
+              },
+              isDark: isDark,
+            ),
           ),
           const SizedBox(width: 6),
           // 🖐️ Handedness & Palm Rejection Settings
@@ -1552,11 +1586,12 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   showModalBottomSheet(
                     context: context,
                     backgroundColor: Colors.transparent,
-                    builder: (_) => HandednessSettingsSheet(
-                      onChanged: () {
-                        if (mounted) setState(() {});
-                      },
-                    ),
+                    builder:
+                        (_) => HandednessSettingsSheet(
+                          onChanged: () {
+                            if (mounted) setState(() {});
+                          },
+                        ),
                   );
                 },
                 borderRadius: BorderRadius.circular(12),
@@ -1565,9 +1600,10 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   height: 36,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.05)
-                        : Colors.black.withValues(alpha: 0.04),
+                    color:
+                        isDark
+                            ? Colors.white.withValues(alpha: 0.05)
+                            : Colors.black.withValues(alpha: 0.04),
                   ),
                   child: Icon(
                     Icons.back_hand_rounded,
@@ -1579,13 +1615,17 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             ),
           ),
           const SizedBox(width: 12),
-          ToolbarEraserButton(
+          _ActiveDotWrapper(
             isActive: widget.isEraserActive,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              widget.onEraserToggle();
-            },
-            isDark: isDark,
+            dotColor: isDark ? Colors.pink.shade300 : Colors.pink.shade500,
+            child: ToolbarEraserButton(
+              isActive: widget.isEraserActive,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                widget.onEraserToggle();
+              },
+              isDark: isDark,
+            ),
           ),
           // 🎚️ Eraser size slider (appears when eraser is active)
           if (widget.isEraserActive &&
@@ -1609,13 +1649,17 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
           const SizedBox(width: 12),
           // Lasso hidden in editing mode
           if (!widget.isImageEditingMode) ...[
-            ToolbarLassoButton(
+            _ActiveDotWrapper(
               isActive: widget.isLassoActive,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                widget.onLassoToggle();
-              },
-              isDark: isDark,
+              dotColor: ToolbarTokens.lassoActive,
+              child: ToolbarLassoButton(
+                isActive: widget.isLassoActive,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.onLassoToggle();
+                },
+                isDark: isDark,
+              ),
             ),
           ],
         ],
@@ -1679,9 +1723,10 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.2)
-                          : Colors.black.withValues(alpha: 0.15),
+                      color:
+                          isDark
+                              ? Colors.white.withValues(alpha: 0.2)
+                              : Colors.black.withValues(alpha: 0.15),
                     ),
                   ),
                   child: Icon(
@@ -1703,10 +1748,20 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
       title: l10n.proCanvas_thickness,
       icon: Icons.line_weight,
       isDark: isDark,
-      child: ToolbarWidthSlider(
-        value: widget.selectedWidth,
-        onChanged: widget.onWidthChanged,
-        isDark: isDark,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StrokeWidthPreview(
+            color: widget.selectedColor,
+            width: widget.selectedWidth,
+          ),
+          const SizedBox(width: 8),
+          ToolbarWidthSlider(
+            value: widget.selectedWidth,
+            onChanged: widget.onWidthChanged,
+            isDark: isDark,
+          ),
+        ],
       ),
     );
   }
@@ -1836,5 +1891,114 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
         ),
       ),
     );
+  }
+}
+
+// =============================================================================
+// 🏗️ TAB PANEL WIDGETS
+// ─────────────────────────────────────────────────────────────────────────────
+// 🌫️ Scroll Edge Fade Decorator
+// Wraps any widget in a Stack with gradient overlays at left/right edges.
+// Signals to the user that the row is scrollable — Figma/Linear style.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ScrollFadeOverlay extends StatelessWidget {
+  final Widget child;
+  final double fadeWidth;
+
+  const _ScrollFadeOverlay({required this.child, this.fadeWidth = 22.0});
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (Rect bounds) {
+        // Prevent division by zero or errors if the box is too small.
+        final stop = (fadeWidth / bounds.width).clamp(0.0, 0.5);
+        return LinearGradient(
+          colors: const [
+            Colors.transparent,
+            Colors.white,
+            Colors.white,
+            Colors.transparent,
+          ],
+          stops: [
+            0.0,
+            stop,
+            1.0 - stop,
+            1.0,
+          ],
+        ).createShader(bounds);
+      },
+      child: child,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🏗️ TAB PANEL WIDGETS
+// Proper StatelessWidget classes — each tab is a proper node in Flutter's tree.
+// Each wraps its builder result in a _ScrollFadeOverlay for edge gradients.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MainToolsPanel extends StatelessWidget {
+  final _ProfessionalCanvasToolbarState state;
+  const _MainToolsPanel({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _ScrollFadeOverlay(child: state._buildMainTools(context, isDark));
+  }
+}
+
+class _PdfToolsPanel extends StatelessWidget {
+  final _ProfessionalCanvasToolbarState state;
+  const _PdfToolsPanel({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _ScrollFadeOverlay(child: state._buildPdfTools(context, isDark));
+  }
+}
+
+class _ScientificToolsPanel extends StatelessWidget {
+  final _ProfessionalCanvasToolbarState state;
+  const _ScientificToolsPanel({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _ScrollFadeOverlay(
+      child: state._buildScientificTools(context, isDark),
+    );
+  }
+}
+
+class _ExcelToolsPanel extends StatelessWidget {
+  final _ProfessionalCanvasToolbarState state;
+  const _ExcelToolsPanel({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _ScrollFadeOverlay(child: state._buildExcelTools(context, isDark));
+  }
+}
+
+class _MediaToolsPanel extends StatelessWidget {
+  final _ProfessionalCanvasToolbarState state;
+  const _MediaToolsPanel({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _ScrollFadeOverlay(child: state._buildMediaTools(context, isDark));
+  }
+}
+
+class _DesignToolsPanel extends StatelessWidget {
+  final _ProfessionalCanvasToolbarState state;
+  const _DesignToolsPanel({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _ScrollFadeOverlay(child: state._buildDesignTools(context, isDark));
   }
 }

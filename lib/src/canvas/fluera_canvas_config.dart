@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../storage/fluera_cloud_adapter.dart';
 import '../collaboration/fluera_realtime_adapter.dart';
+import '../p2p/fluera_p2p_connector.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/pdf_text_rect.dart';
@@ -17,6 +18,7 @@ import '../storage/fluera_storage_adapter.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../layers/fluera_layer_controller.dart';
 import '../audio/native_audio_models.dart';
+import 'ai/pedagogical_accessibility_config.dart';
 
 // =============================================================================
 // FLUERA CANVAS CONFIGURATION
@@ -164,6 +166,13 @@ class FlueraCanvasConfig {
   /// stroke broadcasting, element locking, and presence indicators.
   final FlueraRealtimeAdapter? realtimeAdapter;
 
+  /// 🤝 P2P collaboration connector (Passo 7).
+  ///
+  /// When provided, enables peer-to-peer collaboration with ghost cursors,
+  /// laser pointers, voice channels, and three collaboration modes
+  /// (Visit, Teaching, Duel). See [FlueraP2PConnector].
+  final FlueraP2PConnector? p2pConnector;
+
   /// Show canvas share dialog
   final void Function(BuildContext context, String canvasId)? onShareCanvas;
 
@@ -202,6 +211,19 @@ class FlueraCanvasConfig {
   final String? splashLogoAsset;
 
   // ===========================================================================
+  // ACCESSIBILITY (A11)
+  // ===========================================================================
+
+  /// Pedagogical accessibility configuration (♯ A11).
+  ///
+  /// Controls colorblind palette, icon redundancy, keyboard mode for
+  /// motor disabilities, and high-contrast blur. Host app stores these
+  /// preferences and injects them here.
+  ///
+  /// All accessibility features are ALWAYS FREE (A17-05).
+  final PedagogicalAccessibilityConfig accessibilityConfig;
+
+  // ===========================================================================
   // PDF VIEWER
   // ===========================================================================
 
@@ -238,12 +260,14 @@ class FlueraCanvasConfig {
     this.permissions,
     this.presence,
     this.realtimeAdapter,
+    this.p2pConnector,
     this.onShareCanvas,
     this.onShowExportDialog,
     this.onShowSettings,
     this.onPauseSyncCoordinator,
     this.onPauseAppListeners,
     this.splashLogoAsset,
+    this.accessibilityConfig = PedagogicalAccessibilityConfig.defaultConfig,
     this.pdfProvider,
     this.onPickPdfFile,
   });

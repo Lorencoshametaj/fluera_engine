@@ -6,6 +6,45 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🌫️ FOG OF WAR ZONE SELECTION (P10-02): Complete rectangle selection.
+    if (_fogZoneStartPoint != null && _pendingFogLevel != null) {
+      final start = _fogZoneStartPoint!;
+      final end = _fogZoneCurrentEndPoint ?? canvasPosition;
+      final zone = Rect.fromPoints(start, end);
+
+      _fogZoneStartPoint = null;
+      _fogZoneCurrentEndPoint = null;
+      _uiRebuildNotifier.value++;
+
+      // Minimum size check — need a meaningful rectangle.
+      if (zone.width >= 50 && zone.height >= 50) {
+        HapticFeedback.mediumImpact();
+        completeFogZoneSelection(zone);
+      } else {
+        // Too small — treat as cancel, show hint.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Area troppo piccola — trascina un rettangolo più grande'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 🛡️ SECTION HANDLE GUARD: A section handle (Page/Col/Delete/Move)
+    // was tapped. The canvas Listener receives this pointer-up too
+    // (HitTestBehavior.translucent). Skip all canvas processing.
+    if (_sectionHandleTapped) {
+      _sectionHandleTapped = false;
+      return;
+    }
+
     // 🌟 RADIAL EXPANSION: Finalize bubble drag-to-confirm gesture
     if (_radialDraggedBubbleId != null) {
       finalizeRadialBubbleDrag();
@@ -45,6 +84,23 @@ extension on _FlueraCanvasScreenState {
         _knowledgeFlowController!.toggleMultiSelect(pendingId);
         HapticFeedback.selectionClick();
         return;
+      }
+
+      // 🌉 CROSS-ZONE BRIDGE: If tapped connection is a ghost bridge
+      // suggestion, show Socratic accept/dismiss dialog instead of label editor.
+      if (_crossZoneBridgeController != null && _knowledgeFlowController != null) {
+        final conn = _knowledgeFlowController!.connections
+            .where((c) => c.id == pendingId)
+            .firstOrNull;
+        if (conn != null && conn.isGhost) {
+          final suggestion = _crossZoneBridgeController!
+              .findSuggestionForConnection(conn);
+          if (suggestion != null) {
+            HapticFeedback.mediumImpact();
+            _showBridgeSuggestionDialog(suggestion, pendingPos);
+            return;
+          }
+        }
       }
 
       // 👆 DOUBLE-TAP DETECTION: If same connection tapped within 300ms,
@@ -202,7 +258,8 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-    // 📐 SECTION MODE: Show customization dialog then commit
+    // 📐 SECTION MODE: Commit section immediately with defaults (no dialog)
+    // The user can tap the section name label or single-tap it to edit later.
     if (_isSectionActive && _sectionStartPoint != null) {
       final start = _sectionStartPoint!;
       final end = _sectionCurrentEndPoint ?? canvasPosition;
@@ -213,9 +270,21 @@ extension on _FlueraCanvasScreenState {
       _sectionCurrentEndPoint = null;
       _uiRebuildNotifier.value++;
 
-      // Minimum size check — if large enough, create new section
+      // Minimum size check — if large enough, create section instantly
       if (sectionRect.width >= 20 && sectionRect.height >= 20) {
-        _showSectionCustomizationSheet(sectionRect);
+        _commitSectionWithOptions(
+          sectionRect: sectionRect,
+          name: 'Section $_sectionCounter',
+        );
+
+        // 🚀 AUTO-SWITCH: Deactivate section tool → pen mode.
+        // The user just defined an area — now they want to WRITE in it.
+        _isSectionActive = false;
+        _focusedSectionNode = null;
+
+        // Zoom camera to the new section so it fills the viewport
+        final vp = MediaQuery.of(context).size;
+        CameraActions.zoomToRect(_canvasController, sectionRect, vp);
       } else {
         // Small gesture = tap — try to select an existing section
         final tappedSection = _findSectionAtPoint(canvasPosition);
@@ -245,11 +314,50 @@ extension on _FlueraCanvasScreenState {
               viewportSize,
             );
           } else {
-            // Single tap → edit sheet
+            // Single tap → focus section (shows inline handles) + edit sheet
             _lastTappedSection = tappedSection;
             _lastTapTime = now;
+            _focusedSectionNode = tappedSection;
             HapticFeedback.selectionClick();
             _showSectionEditSheet(tappedSection);
+          }
+        } else {
+          // Tap on empty canvas while section tool is active.
+          //
+          // 🛡️ GUARD: If a section is FOCUSED (inline handles visible),
+          // do NOT create a new section — the user might be tapping a
+          // handle (Page X, Col X, Delete) that is positioned OUTSIDE
+          // the section's bounds. Creating a new A4 page here would
+          // conflict with the handle's onTap and cause double-creation.
+          if (_focusedSectionNode != null) {
+            _focusedSectionNode = null;
+            _uiRebuildNotifier.value++;
+            debugPrint('[Section] 🔓 Unfocused section (tap on empty while focused)');
+          } else {
+            // 📓 TAP ON EMPTY CANVAS: Create a notebook-sized section (A4)
+            // centered on the tap point — instant page creation.
+            const defaultSize = Size(1240, 1754); // A4 Portrait @150dpi
+            final sectionRect = Rect.fromCenter(
+              center: canvasPosition,
+              width: defaultSize.width,
+              height: defaultSize.height,
+            );
+            _commitSectionWithOptions(
+              sectionRect: sectionRect,
+              name: 'Page $_sectionCounter',
+              preset: SectionPreset.a4Portrait,
+              showGrid: true,
+              gridSpacing: 40, // Natural handwriting line spacing
+              gridType: 'ruled', // Notebook ruled lines with margin
+              cornerRadius: 12, // Modern notebook look
+            );
+
+            // Auto-switch to pen mode for immediate writing
+            _isSectionActive = false;
+            _focusedSectionNode = null;
+
+            final vp = MediaQuery.of(context).size;
+            CameraActions.zoomToRect(_canvasController, sectionRect, vp);
           }
         }
       }

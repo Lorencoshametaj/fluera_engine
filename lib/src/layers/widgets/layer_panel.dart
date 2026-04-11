@@ -450,7 +450,7 @@ class LayerPanelState extends State<LayerPanel> with TickerProviderStateMixin {
               alignment: Alignment.center,
               transform:
                   Matrix4.identity()
-                    ..scale(scale)
+                    ..scaleByDouble(scale, scale, scale, 1.0)
                     ..rotateZ(rotation),
               child: Material(
                 elevation: 6 * animation.value,

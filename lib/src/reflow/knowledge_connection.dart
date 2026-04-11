@@ -12,6 +12,34 @@ enum ConnectionType {
   contradiction,
 }
 
+/// 🌉 Cross-zone bridge type (Passo 9, P9-05 types A/B/C).
+///
+/// Classifies the pedagogical nature of a cross-domain connection.
+enum CrossZoneBridgeType {
+  /// Type A: Structural similarity across domains.
+  /// e.g., "Supply/demand in economics ↔ predator/prey in ecology"
+  analogyStructural,
+
+  /// Type B: Shared underlying mechanism.
+  /// e.g., "Exponential growth in biology ↔ compound interest in finance"
+  sharedMechanism,
+
+  /// Type C: Complementary perspectives on the same phenomenon.
+  /// e.g., "Entropy in physics ↔ information theory in CS"
+  complementaryPerspective,
+}
+
+/// 💡 Who discovered this cross-zone bridge (P9-12).
+///
+/// Determines the visual icon: 💡 for student, 🤖 for AI.
+enum BridgeDiscoveryOrigin {
+  /// Student drew this bridge autonomously (icon: 💡)
+  student,
+
+  /// AI suggested this bridge and student accepted (icon: 🤖)
+  aiSuggested,
+}
+
 /// 🎨 Connection visual style — how the line is drawn.
 enum ConnectionStyle {
   /// Default smooth Bézier curve
@@ -127,6 +155,48 @@ class KnowledgeConnection {
   /// materialized by the user into solid connections.
   bool isGhost;
 
+  /// Whether this connection spans across different conceptual zones.
+  ///
+  /// Spec P9-05: Cross-zone connections render with golden color (#FFD700)
+  /// and 3px stroke width to visually distinguish them from intra-zone
+  /// connections. They remain prominent at all zoom levels.
+  ///
+  /// Determined by spatial distance between source and target anchors:
+  /// connections > [crossZoneDistanceThreshold] canvas units apart are
+  /// considered cross-zone.
+  bool isCrossZone;
+
+  // ===========================================================================
+  // 🌉 CROSS-ZONE BRIDGE METADATA (Passo 9)
+  // ===========================================================================
+
+  /// Bridge type classification (P9-05 types A/B/C).
+  /// Null for non-cross-zone connections.
+  CrossZoneBridgeType? bridgeType;
+
+  /// Who discovered this bridge (P9-12): student (💡) or AI (🤖).
+  /// Null for non-cross-zone connections.
+  BridgeDiscoveryOrigin? discoveredBy;
+
+  /// ID of the cluster containing the student's handwritten annotation
+  /// explaining this bridge (P9-06). Written at the midpoint of the arrow.
+  /// Null if the student hasn't annotated the bridge yet.
+  String? bridgeAnnotationClusterId;
+
+  /// The Socratic question that prompted this bridge (P9-09).
+  /// Stored for reference and session data. Null for student-discovered bridges.
+  String? bridgeSocraticQuestion;
+
+  /// Golden color for cross-zone bridges (spec P9-05).
+  static const Color crossZoneColor = Color(0xFFFFD700);
+
+  /// Stroke width for cross-zone bridges (spec P9-05: 3px).
+  static const double crossZoneStrokeWidth = 3.0;
+
+  /// Spatial distance threshold (canvas units) to classify as cross-zone.
+  /// Clusters > 800 units apart are considered different conceptual zones.
+  static const double crossZoneDistanceThreshold = 800.0;
+
   KnowledgeConnection({
     required this.id,
     required this.sourceClusterId,
@@ -143,6 +213,11 @@ class KnowledgeConnection {
     this.recordingTimestampMs,
     this.recordingId,
     this.isGhost = false,
+    this.isCrossZone = false,
+    this.bridgeType,
+    this.discoveredBy,
+    this.bridgeAnnotationClusterId,
+    this.bridgeSocraticQuestion,
     int? createdAt,
   }) : createdAtMs = createdAt ?? DateTime.now().millisecondsSinceEpoch,
        deletedAtMs = 0,
@@ -183,7 +258,7 @@ class KnowledgeConnection {
     'sourceClusterId': sourceClusterId,
     'targetClusterId': targetClusterId,
     if (label != null) 'label': label,
-    'color': color.value,
+    'color': color.toARGB32(),
     'curveStrength': curveStrength,
     'connectionType': connectionType.name,
     'connectionStyle': connectionStyle.name,
@@ -193,6 +268,14 @@ class KnowledgeConnection {
     if (recordingTimestampMs != null) 'recordingTimestampMs': recordingTimestampMs,
     if (recordingId != null) 'recordingId': recordingId,
     if (isGhost) 'isGhost': true,
+    if (isCrossZone) 'isCrossZone': true,
+    // 🌉 PASSO 9: Cross-zone bridge metadata
+    if (bridgeType != null) 'bridgeType': bridgeType!.name,
+    if (discoveredBy != null) 'discoveredBy': discoveredBy!.name,
+    if (bridgeAnnotationClusterId != null)
+      'bridgeAnnotationClusterId': bridgeAnnotationClusterId,
+    if (bridgeSocraticQuestion != null)
+      'bridgeSocraticQuestion': bridgeSocraticQuestion,
   };
 
   factory KnowledgeConnection.fromJson(Map<String, dynamic> json) {
@@ -211,6 +294,12 @@ class KnowledgeConnection {
       recordingTimestampMs: json['recordingTimestampMs'] as int?,
       recordingId: json['recordingId'] as String?,
       isGhost: json['isGhost'] as bool? ?? false,
+      isCrossZone: json['isCrossZone'] as bool? ?? false,
+      // 🌉 PASSO 9: Backward-compatible bridge fields
+      bridgeType: _parseBridgeType(json['bridgeType'] as String?),
+      discoveredBy: _parseDiscoveryOrigin(json['discoveredBy'] as String?),
+      bridgeAnnotationClusterId: json['bridgeAnnotationClusterId'] as String?,
+      bridgeSocraticQuestion: json['bridgeSocraticQuestion'] as String?,
       createdAt: 0, // No animation on reload
     );
   }
@@ -236,6 +325,22 @@ class KnowledgeConnection {
       (e) => e.name == name,
       orElse: () => ConnectionStyle.curved,
     );
+  }
+
+  /// Parse [CrossZoneBridgeType] from JSON (backward-compatible: null if absent).
+  static CrossZoneBridgeType? _parseBridgeType(String? name) {
+    if (name == null) return null;
+    return CrossZoneBridgeType.values
+        .where((e) => e.name == name)
+        .firstOrNull;
+  }
+
+  /// Parse [BridgeDiscoveryOrigin] from JSON (backward-compatible: null if absent).
+  static BridgeDiscoveryOrigin? _parseDiscoveryOrigin(String? name) {
+    if (name == null) return null;
+    return BridgeDiscoveryOrigin.values
+        .where((e) => e.name == name)
+        .firstOrNull;
   }
 
   @override

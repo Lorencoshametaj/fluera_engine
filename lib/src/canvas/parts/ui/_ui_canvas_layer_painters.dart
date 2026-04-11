@@ -444,6 +444,132 @@ class _SectionPreviewPainter extends CustomPainter {
       startPoint != oldDelegate.startPoint || endPoint != oldDelegate.endPoint;
 }
 
+/// 🌫️ P10-02: Paints a preview rectangle while dragging to select a fog zone.
+/// Uses a teal/fog accent to distinguish from section creation.
+class _FogZonePreviewPainter extends CustomPainter {
+  final Offset startPoint;
+  final Offset endPoint;
+  final InfiniteCanvasController controller;
+
+  _FogZonePreviewPainter({
+    required this.startPoint,
+    required this.endPoint,
+    required this.controller,
+  });
+
+  static const _fogColor = Color(0xFF607D8B); // Blue-grey fog theme
+  static const _dashLength = 8.0;
+  static const _dashGap = 5.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromPoints(startPoint, endPoint);
+    if (rect.width < 2 && rect.height < 2) return;
+
+    canvas.save();
+    canvas.translate(controller.offset.dx, controller.offset.dy);
+    canvas.scale(controller.scale);
+
+    final invScale = 1.0 / controller.scale;
+
+    // 1. Translucent fill (fog-like)
+    final fillPaint = Paint()
+      ..color = _fogColor.withValues(alpha: 0.08)
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(8 * invScale)),
+      fillPaint,
+    );
+
+    // 2. Dashed border
+    final borderPaint = Paint()
+      ..color = _fogColor.withValues(alpha: 0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5 * invScale;
+    _drawDashedRect(canvas, rect, borderPaint, invScale);
+
+    // 3. Corner dots
+    final dotPaint = Paint()..color = _fogColor;
+    final dotR = 3.0 * invScale;
+    for (final corner in [
+      rect.topLeft, rect.topRight,
+      rect.bottomLeft, rect.bottomRight,
+    ]) {
+      canvas.drawCircle(corner, dotR, dotPaint);
+    }
+
+    // 4. Label: "🌫️ Fog Zone"
+    final labelFontSize = 12.0 * invScale;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: '🌫️ Fog Zone',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: labelFontSize,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final labelX = rect.center.dx - tp.width / 2;
+    final labelY = rect.top - tp.height - 10.0 * invScale;
+
+    final padH = 8.0 * invScale;
+    final padV = 4.0 * invScale;
+    final labelRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        labelX - padH,
+        labelY - padV,
+        tp.width + padH * 2,
+        tp.height + padV * 2,
+      ),
+      Radius.circular(6.0 * invScale),
+    );
+    canvas.drawRRect(labelRect, Paint()..color = _fogColor.withValues(alpha: 0.85));
+    tp.paint(canvas, Offset(labelX, labelY));
+
+    canvas.restore();
+  }
+
+  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint, double invScale) {
+    final dash = _dashLength * invScale;
+    final gap = _dashGap * invScale;
+
+    void dashedLine(Offset a, Offset b) {
+      final delta = b - a;
+      final length = delta.distance;
+      if (length < 1) return;
+      final ux = delta.dx / length;
+      final uy = delta.dy / length;
+      double drawn = 0;
+      bool on = true;
+      while (drawn < length) {
+        final seg = on ? dash : gap;
+        final len = seg < (length - drawn) ? seg : (length - drawn);
+        if (on) {
+          canvas.drawLine(
+            Offset(a.dx + ux * drawn, a.dy + uy * drawn),
+            Offset(a.dx + ux * (drawn + len), a.dy + uy * (drawn + len)),
+            paint,
+          );
+        }
+        drawn += len;
+        on = !on;
+      }
+    }
+
+    dashedLine(rect.topLeft, rect.topRight);
+    dashedLine(rect.topRight, rect.bottomRight);
+    dashedLine(rect.bottomRight, rect.bottomLeft);
+    dashedLine(rect.bottomLeft, rect.topLeft);
+  }
+
+  @override
+  bool shouldRepaint(covariant _FogZonePreviewPainter oldDelegate) =>
+      startPoint != oldDelegate.startPoint || endPoint != oldDelegate.endPoint;
+}
+
 /// Highlight painter for section drag/resize visual feedback.
 class _SectionHighlightPainter extends CustomPainter {
   final SectionNode section;

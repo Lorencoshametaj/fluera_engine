@@ -47,9 +47,9 @@ class _CompactActionButtonState extends State<CompactActionButton> {
             margin: const EdgeInsets.only(left: 4),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: widget.color.withValues(alpha:  0.12),
+              color: widget.color.withValues(alpha: 0.12),
               border: Border.all(
-                color: widget.color.withValues(alpha:  0.3),
+                color: widget.color.withValues(alpha: 0.3),
                 width: 1.5,
               ),
             ),

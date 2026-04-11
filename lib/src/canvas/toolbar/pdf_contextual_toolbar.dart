@@ -13,7 +13,6 @@ import '../../tools/pdf/pdf_search_controller.dart';
 
 part 'pdf_toolbar_panels.dart';
 
-
 // =============================================================================
 // 📄 PDF TOOLBAR POPUPS — Anchored popup panels triggered from toolbar buttons
 // =============================================================================

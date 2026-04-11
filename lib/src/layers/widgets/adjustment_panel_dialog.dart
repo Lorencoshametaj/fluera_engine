@@ -865,7 +865,7 @@ class _AdjustmentPanelDialogState extends State<AdjustmentPanelDialog>
               _applyDebounced();
               HapticFeedback.selectionClick();
             },
-            activeColor: color,
+            activeThumbColor: color,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
         ],

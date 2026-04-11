@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'toolbar_tokens.dart';
 
 // =============================================================================
 // 🗂️ TOOLBAR TAB BAR — Navigable tab chips for multi-toolbar system
@@ -13,8 +14,8 @@ enum ToolbarTab {
   /// PDF tools: pages, search, annotate, layout, doc switcher
   pdf(Icons.picture_as_pdf_rounded, 'PDF'),
 
-  /// Scientific tools: LaTeX, pen tool, shape recognition, future: graphs
-  scientific(Icons.science_rounded, 'Science'),
+  /// Scientific / math tools: LaTeX, pen tool, shape recognition
+  scientific(Icons.functions_rounded, 'Math'),
 
   /// Excel / Spreadsheet tools: create tables, presets
   excel(Icons.table_chart_rounded, 'Excel'),
@@ -29,6 +30,19 @@ enum ToolbarTab {
 
   final IconData icon;
   final String label;
+}
+
+/// Extended description for each tab — shown in tooltip.
+extension _ToolbarTabTooltip on ToolbarTab {
+  String get tooltipMessage => switch (this) {
+    ToolbarTab.main => 'Drawing tools: brush, eraser, shapes, colors',
+    ToolbarTab.pdf => 'PDF tools: pages, annotate, search, layout',
+    ToolbarTab.scientific =>
+      'Math tools: LaTeX editor, pen tool, shape recognition',
+    ToolbarTab.excel => 'Spreadsheet tools: tables, formulas, CSV',
+    ToolbarTab.media => 'Media: images, digital text, audio recording',
+    ToolbarTab.design => 'Design tools: prototype, inspect, dev handoff',
+  };
 }
 
 /// Compact tab bar for switching between toolbar contexts.
@@ -54,7 +68,7 @@ class ToolbarTabBar extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     return Container(
-      height: 34,
+      height: ToolbarTokens.tabBarHeight,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         border: Border(
@@ -91,7 +105,7 @@ class ToolbarTabBar extends StatelessWidget {
   }
 }
 
-/// Individual tab chip with animated active state.
+/// Individual tab chip with animated active state and tooltip.
 class _ToolbarTabChip extends StatelessWidget {
   final ToolbarTab tab;
   final bool isActive;
@@ -111,45 +125,56 @@ class _ToolbarTabChip extends StatelessWidget {
     final activeColor = cs.primary;
     final inactiveColor = cs.onSurface.withValues(alpha: 0.5);
 
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color:
-              isActive
-                  ? activeColor.withValues(alpha: isDark ? 0.2 : 0.08)
-                  : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border:
-              isActive
-                  ? Border.all(
-                    color: activeColor.withValues(alpha: 0.4),
-                    width: 1.5,
-                  )
-                  : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              tab.icon,
-              size: 16,
-              color: isActive ? activeColor : inactiveColor,
+    return Tooltip(
+      message: tab.tooltipMessage,
+      waitDuration: ToolbarTokens.tooltipDelay,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(ToolbarTokens.tabRadius),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            padding: const EdgeInsets.symmetric(
+              horizontal: ToolbarTokens.tabChipPadH,
+              vertical: ToolbarTokens.tabChipPadV,
             ),
-            const SizedBox(width: 4),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                color: isActive ? activeColor : inactiveColor,
-              ),
-              child: Text(tab.label),
+            decoration: BoxDecoration(
+              color:
+                  isActive
+                      ? activeColor.withValues(alpha: isDark ? 0.18 : 0.08)
+                      : Colors.transparent,
+              borderRadius: BorderRadius.circular(ToolbarTokens.tabRadius),
+              border:
+                  isActive
+                      ? Border.all(
+                        color: activeColor.withValues(alpha: 0.35),
+                        width: 1.5,
+                      )
+                      : null,
             ),
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  tab.icon,
+                  size: ToolbarTokens.iconSizeSmall,
+                  color: isActive ? activeColor : inactiveColor,
+                ),
+                const SizedBox(width: 4),
+                AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 180),
+                  style: TextStyle(
+                    fontSize: ToolbarTokens.tabFontSize,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                    color: isActive ? activeColor : inactiveColor,
+                  ),
+                  child: Text(tab.label),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

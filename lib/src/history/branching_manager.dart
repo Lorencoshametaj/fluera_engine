@@ -450,10 +450,10 @@ class BranchingManager {
       if (!sourceChanged && !targetChanged) {
         // Neither changed → keep base (or target if available)
         merged.add(target ?? base);
-      } else if (sourceChanged && !targetChanged && source != null) {
+      } else if (sourceChanged && !targetChanged) {
         // Only source changed → take source's version
         merged.add(source);
-      } else if (!sourceChanged && targetChanged && target != null) {
+      } else if (!sourceChanged && targetChanged) {
         // Only target changed → keep target's version
         merged.add(target);
       } else if (source != null && target != null) {

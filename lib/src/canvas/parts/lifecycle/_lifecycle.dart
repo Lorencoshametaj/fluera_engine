@@ -1134,6 +1134,8 @@ extension on _FlueraCanvasScreenState {
         }
 
         _layerController.sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();     // 🎯 flush tile cache: sections/nodes just added
+        DrawingPainter.invalidateLayerCaches();  // 🎯 flush layer picture cache
         _layerController.notifyListeners();
         if (mounted) setState(() {});
       });

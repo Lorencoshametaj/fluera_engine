@@ -161,17 +161,14 @@ class MyScriptInkEngine implements InkRecognitionEngine {
       }
     }
 
-    // Scale so the largest dimension maps to ~300px at 96 DPI
-    final rawW = maxX - minX;
-    final rawH = maxY - minY;
-    final maxDim = rawW > rawH ? rawW : rawH;
-    final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
-    // Target size: 300px at 96 DPI ≈ 80mm — comfortable formula size
-    final scale = maxDim > 0 ? (300.0 / dpr) / maxDim : 1.0;
-
+    // ── Translate to origin — NO scaling ─────────────────────────────
+    // The prediction editor uses raw coordinates and produces accurate
+    // results. We match that approach: translate to origin (positive
+    // coords for MyScript) but preserve original proportions.
+    // MyScript's editor view is 10000×10000 — plenty of room.
     const padding = 10.0;
-    final offsetX = -minX * scale + padding;
-    final offsetY = -minY * scale + padding;
+    final offsetX = -minX + padding;
+    final offsetY = -minY + padding;
 
     // ── Generate synthetic timestamps ──────────────────────────────────
     int syntheticTime = 0;
@@ -184,8 +181,8 @@ class MyScriptInkEngine implements InkRecognitionEngine {
       double prevX = double.nan, prevY = double.nan;
 
       for (final point in stroke) {
-        final nx = point.position.dx * scale + offsetX;
-        final ny = point.position.dy * scale + offsetY;
+        final nx = point.position.dx + offsetX;
+        final ny = point.position.dy + offsetY;
         // Skip duplicate consecutive points (waste recognition compute)
         if (nx == prevX && ny == prevY) continue;
         prevX = nx;

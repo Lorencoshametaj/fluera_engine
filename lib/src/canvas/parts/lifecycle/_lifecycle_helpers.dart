@@ -193,6 +193,18 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
         }
       });
     }
+
+    // 💛 ZEIGARNIK: Refresh incomplete node bounds for ambient pulse.
+    refreshZeigarnikNodes();
+    if (_zeigarnikAnimController == null && _zeigarnikIncompleteNodeBounds.isNotEmpty) {
+      startZeigarnikEffect();
+    }
+
+    // ⭐ GOLDEN SHIMMER: Refresh mastered node bounds for ambient shimmer.
+    refreshGoldenShimmerNodes();
+    if (_goldenShimmerAnimController == null && _goldenShimmerNodeBounds.isNotEmpty) {
+      startGoldenShimmer();
+    }
   }
 
   /// 🔧 Update le liste cachate da _layerController

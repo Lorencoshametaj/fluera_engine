@@ -13,7 +13,10 @@ class HandednessSettingsSheet extends StatefulWidget {
   const HandednessSettingsSheet({super.key, this.onChanged});
 
   /// 🚀 FEATURE 7: Show on first launch (auto-triggered from canvas).
-  static Future<void> showIfNeeded(BuildContext context, {VoidCallback? onChanged}) async {
+  static Future<void> showIfNeeded(
+    BuildContext context, {
+    VoidCallback? onChanged,
+  }) async {
     if (HandednessSettings.instance.hasCompletedOnboarding) return;
     await showModalBottomSheet(
       context: context,
@@ -25,7 +28,8 @@ class HandednessSettingsSheet extends StatefulWidget {
   }
 
   @override
-  State<HandednessSettingsSheet> createState() => _HandednessSettingsSheetState();
+  State<HandednessSettingsSheet> createState() =>
+      _HandednessSettingsSheetState();
 }
 
 class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
@@ -92,8 +96,7 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
               // ── TITLE ──
               Row(
                 children: [
-                  Icon(Icons.back_hand_rounded,
-                      color: accent, size: 24),
+                  Icon(Icons.back_hand_rounded, color: accent, size: 24),
                   const SizedBox(width: 10),
                   Text(
                     'Handedness & Palm Rejection',
@@ -226,28 +229,56 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Grip Position',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: isDark ? Colors.white54 : Colors.black54,
-            )),
+        Text(
+          'Grip Position',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.white54 : Colors.black54,
+          ),
+        ),
         const SizedBox(height: 8),
-        Row(children: [
-          _buildGripOption(GripPosition.belowLeft, Alignment.bottomLeft, isDark, accent),
-          const SizedBox(width: 8),
-          _buildGripOption(GripPosition.belowRight, Alignment.bottomRight, isDark, accent),
-          const SizedBox(width: 8),
-          _buildGripOption(GripPosition.aboveLeft, Alignment.topLeft, isDark, accent),
-          const SizedBox(width: 8),
-          _buildGripOption(GripPosition.aboveRight, Alignment.topRight, isDark, accent),
-        ]),
+        Row(
+          children: [
+            _buildGripOption(
+              GripPosition.belowLeft,
+              Alignment.bottomLeft,
+              isDark,
+              accent,
+            ),
+            const SizedBox(width: 8),
+            _buildGripOption(
+              GripPosition.belowRight,
+              Alignment.bottomRight,
+              isDark,
+              accent,
+            ),
+            const SizedBox(width: 8),
+            _buildGripOption(
+              GripPosition.aboveLeft,
+              Alignment.topLeft,
+              isDark,
+              accent,
+            ),
+            const SizedBox(width: 8),
+            _buildGripOption(
+              GripPosition.aboveRight,
+              Alignment.topRight,
+              isDark,
+              accent,
+            ),
+          ],
+        ),
       ],
     );
   }
 
   Widget _buildGripOption(
-      GripPosition position, Alignment dotAlign, bool isDark, Color accent) {
+    GripPosition position,
+    Alignment dotAlign,
+    bool isDark,
+    Color accent,
+  ) {
     final isSelected = _settings.gripPosition == position;
     return Expanded(
       child: GestureDetector(
@@ -260,38 +291,52 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
           duration: const Duration(milliseconds: 200),
           height: 60,
           decoration: BoxDecoration(
-            color: isSelected
-                ? accent.withValues(alpha: 0.15)
-                : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.shade100),
+            color:
+                isSelected
+                    ? accent.withValues(alpha: 0.15)
+                    : (isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : Colors.grey.shade100),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-                color: isSelected ? accent : Colors.transparent, width: 2),
+              color: isSelected ? accent : Colors.transparent,
+              width: 2,
+            ),
           ),
-          child: Stack(children: [
-            // Palm zone indicator
-            Align(
-              alignment: dotAlign,
-              child: Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? accent.withValues(alpha: 0.4)
-                      : (isDark ? Colors.white12 : Colors.black12),
-                  borderRadius: _cornerRadius(dotAlign),
+          child: Stack(
+            children: [
+              // Palm zone indicator
+              Align(
+                alignment: dotAlign,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color:
+                        isSelected
+                            ? accent.withValues(alpha: 0.4)
+                            : (isDark ? Colors.white12 : Colors.black12),
+                    borderRadius: _cornerRadius(dotAlign),
+                  ),
                 ),
               ),
-            ),
-            // Pen indicator
-            Align(
-              alignment: _opposite(dotAlign),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(Icons.edit, size: 14,
-                    color: isSelected ? accent : (isDark ? Colors.white30 : Colors.black26)),
+              // Pen indicator
+              Align(
+                alignment: _opposite(dotAlign),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    Icons.edit,
+                    size: 14,
+                    color:
+                        isSelected
+                            ? accent
+                            : (isDark ? Colors.white30 : Colors.black26),
+                  ),
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ),
       ),
     );
@@ -302,33 +347,41 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
   // ════════════════════════════════════════════════════════════════════════
 
   Widget _buildPalmRejectionToggle(bool isDark, Color accent) {
-    return Row(children: [
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Palm Rejection',
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Palm Rejection',
                 style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: isDark ? Colors.white : Colors.black87)),
-            Text('Ignore accidental palm touches',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              Text(
+                'Ignore accidental palm touches',
                 style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white38 : Colors.black38)),
-          ],
+                  fontSize: 12,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      Switch.adaptive(
-        value: _settings.palmRejectionEnabled,
-        activeTrackColor: accent,
-        onChanged: (v) {
-          HapticFeedback.selectionClick();
-          setState(() => _settings.palmRejectionEnabled = v);
-          _onSettingChanged();
-        },
-      ),
-    ]);
+        Switch.adaptive(
+          value: _settings.palmRejectionEnabled,
+          activeTrackColor: accent,
+          onChanged: (v) {
+            HapticFeedback.selectionClick();
+            setState(() => _settings.palmRejectionEnabled = v);
+            _onSettingChanged();
+          },
+        ),
+      ],
+    );
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -339,16 +392,27 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text('Palm Zone Size',
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Palm Zone Size',
               style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: isDark ? Colors.white54 : Colors.black54)),
-          Text('${(_settings.palmZoneRatio * 100).round()}%',
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: isDark ? Colors.white54 : Colors.black54,
+              ),
+            ),
+            Text(
+              '${(_settings.palmZoneRatio * 100).round()}%',
               style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: accent)),
-        ]),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: accent,
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 4),
         SliderTheme(
           data: SliderThemeData(
@@ -383,43 +447,56 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
       height: 100,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.grey.shade50,
+        color:
+            isDark ? Colors.white.withValues(alpha: 0.03) : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-            color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06)),
+          color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06),
+        ),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final zone = _settings.getPalmExclusionZone(
-              Size(constraints.maxWidth, constraints.maxHeight));
-          return Stack(children: [
-            if (zone != Rect.zero)
-              Positioned(
-                left: zone.left,
-                top: zone.top,
-                width: zone.width,
-                height: zone.height,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                        color: Colors.red.withValues(alpha: 0.3), width: 1.5),
+            Size(constraints.maxWidth, constraints.maxHeight),
+          );
+          return Stack(
+            children: [
+              if (zone != Rect.zero)
+                Positioned(
+                  left: zone.left,
+                  top: zone.top,
+                  width: zone.width,
+                  height: zone.height,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: Colors.red.withValues(alpha: 0.3),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.do_not_touch_rounded,
+                        size: 20,
+                        color: Colors.red.withValues(alpha: 0.5),
+                      ),
+                    ),
                   ),
-                  child: Center(
-                    child: Icon(Icons.do_not_touch_rounded,
-                        size: 20, color: Colors.red.withValues(alpha: 0.5)),
+                ),
+              Center(
+                child: Text(
+                  'Palm rejection zone preview',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white24 : Colors.black26,
                   ),
                 ),
               ),
-            Center(
-              child: Text('Palm rejection zone preview',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: isDark ? Colors.white24 : Colors.black26)),
-            ),
-          ]);
+            ],
+          );
         },
       ),
     );
@@ -434,23 +511,46 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.green.shade50,
+        color:
+            isDark
+                ? Colors.white.withValues(alpha: 0.03)
+                : Colors.green.shade50,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Active Protection',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.greenAccent.shade200 : Colors.green.shade700)),
+          Text(
+            'Active Protection',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color:
+                  isDark ? Colors.greenAccent.shade200 : Colors.green.shade700,
+            ),
+          ),
           const SizedBox(height: 6),
-          _featureRow('🔴', 'Temporal rejection — blocks fingers during stylus use', isDark),
-          _featureRow('📐', 'Area analysis — detects large elliptical contacts', isDark),
-          _featureRow('🎯', 'Wrist guard — dynamic zone near pen position', isDark),
+          _featureRow(
+            '🔴',
+            'Temporal rejection — blocks fingers during stylus use',
+            isDark,
+          ),
+          _featureRow(
+            '📐',
+            'Area analysis — detects large elliptical contacts',
+            isDark,
+          ),
+          _featureRow(
+            '🎯',
+            'Wrist guard — dynamic zone near pen position',
+            isDark,
+          ),
           _featureRow('📍', 'Zone rejection — corner exclusion area', isDark),
-          _featureRow('📳', 'Haptic feedback — vibration on rejected touches', isDark),
+          _featureRow(
+            '📳',
+            'Haptic feedback — vibration on rejected touches',
+            isDark,
+          ),
         ],
       ),
     );
@@ -459,16 +559,21 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
   Widget _featureRow(String emoji, String text, bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(children: [
-        Text(emoji, style: const TextStyle(fontSize: 12)),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(text,
+      child: Row(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
               style: TextStyle(
-                  fontSize: 11,
-                  color: isDark ? Colors.white38 : Colors.black45)),
-        ),
-      ]),
+                fontSize: 11,
+                color: isDark ? Colors.white38 : Colors.black45,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -478,8 +583,10 @@ class _HandednessSettingsSheetState extends State<HandednessSettingsSheet>
 
   BorderRadius _cornerRadius(Alignment a) {
     const r = Radius.circular(10);
-    if (a == Alignment.bottomRight) return const BorderRadius.only(bottomRight: r);
-    if (a == Alignment.bottomLeft) return const BorderRadius.only(bottomLeft: r);
+    if (a == Alignment.bottomRight)
+      return const BorderRadius.only(bottomRight: r);
+    if (a == Alignment.bottomLeft)
+      return const BorderRadius.only(bottomLeft: r);
     if (a == Alignment.topRight) return const BorderRadius.only(topRight: r);
     return const BorderRadius.only(topLeft: r);
   }
@@ -523,29 +630,49 @@ class _OptionCard extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         decoration: BoxDecoration(
-          color: isSelected
-              ? accent.withValues(alpha: 0.15)
-              : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.shade100),
+          color:
+              isSelected
+                  ? accent.withValues(alpha: 0.15)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : Colors.grey.shade100),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-              color: isSelected ? accent : Colors.transparent, width: 2),
-        ),
-        child: Column(children: [
-          Transform(
-            alignment: Alignment.center,
-            transform: isMirrored
-                ? (Matrix4.identity()..setEntry(0, 0, -1.0))
-                : Matrix4.identity(),
-            child: Icon(icon, size: 32,
-                color: isSelected ? accent : (isDark ? Colors.white30 : Colors.black26)),
+            color: isSelected ? accent : Colors.transparent,
+            width: 2,
           ),
-          const SizedBox(height: 8),
-          Text(label,
+        ),
+        child: Column(
+          children: [
+            Transform(
+              alignment: Alignment.center,
+              transform:
+                  isMirrored
+                      ? (Matrix4.identity()..setEntry(0, 0, -1.0))
+                      : Matrix4.identity(),
+              child: Icon(
+                icon,
+                size: 32,
+                color:
+                    isSelected
+                        ? accent
+                        : (isDark ? Colors.white30 : Colors.black26),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
               style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                  color: isSelected ? accent : (isDark ? Colors.white54 : Colors.black54))),
-        ]),
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                color:
+                    isSelected
+                        ? accent
+                        : (isDark ? Colors.white54 : Colors.black54),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -581,13 +708,15 @@ class _HandIllustrationPainter extends CustomPainter {
     canvas.drawRRect(
       tabletRect,
       Paint()
-        ..color = isDark ? Colors.white.withValues(alpha: 0.08) : Colors.grey.shade200
+        ..color =
+            isDark ? Colors.white.withValues(alpha: 0.08) : Colors.grey.shade200
         ..style = PaintingStyle.fill,
     );
     canvas.drawRRect(
       tabletRect,
       Paint()
-        ..color = isDark ? Colors.white.withValues(alpha: 0.15) : Colors.grey.shade400
+        ..color =
+            isDark ? Colors.white.withValues(alpha: 0.15) : Colors.grey.shade400
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );
@@ -615,11 +744,7 @@ class _HandIllustrationPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round,
     );
     // Pen dot (tip)
-    canvas.drawCircle(
-      penPos,
-      3,
-      Paint()..color = accent,
-    );
+    canvas.drawCircle(penPos, 3, Paint()..color = accent);
 
     // Draw a wavy line (writing simulation)
     final path = Path();
@@ -642,16 +767,10 @@ class _HandIllustrationPainter extends CustomPainter {
     // Draw palm label
     final palmCenter = zoneRect.center;
     final textPainter = TextPainter(
-      text: TextSpan(
-        text: '🖐️',
-        style: const TextStyle(fontSize: 20),
-      ),
+      text: TextSpan(text: '🖐️', style: const TextStyle(fontSize: 20)),
       textDirection: TextDirection.ltr,
     )..layout();
-    textPainter.paint(
-      canvas,
-      Offset(palmCenter.dx - 10, palmCenter.dy - 10),
-    );
+    textPainter.paint(canvas, Offset(palmCenter.dx - 10, palmCenter.dy - 10));
   }
 
   Rect _getPalmZoneRect(double w, double h) {
@@ -665,11 +784,25 @@ class _HandIllustrationPainter extends CustomPainter {
     switch (gripPosition) {
       case GripPosition.belowRight:
         return Rect.fromLTWH(
-            tabletLeft + tabletW - zoneW, tabletTop + tabletH - zoneH, zoneW, zoneH);
+          tabletLeft + tabletW - zoneW,
+          tabletTop + tabletH - zoneH,
+          zoneW,
+          zoneH,
+        );
       case GripPosition.belowLeft:
-        return Rect.fromLTWH(tabletLeft, tabletTop + tabletH - zoneH, zoneW, zoneH);
+        return Rect.fromLTWH(
+          tabletLeft,
+          tabletTop + tabletH - zoneH,
+          zoneW,
+          zoneH,
+        );
       case GripPosition.aboveRight:
-        return Rect.fromLTWH(tabletLeft + tabletW - zoneW, tabletTop, zoneW, zoneH);
+        return Rect.fromLTWH(
+          tabletLeft + tabletW - zoneW,
+          tabletTop,
+          zoneW,
+          zoneH,
+        );
       case GripPosition.aboveLeft:
         return Rect.fromLTWH(tabletLeft, tabletTop, zoneW, zoneH);
     }

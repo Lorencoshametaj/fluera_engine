@@ -129,6 +129,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
       documentModel: documentModel,
       name: 'Blank Document',
     );
+    docNode.contentOrigin = ContentOrigin.imported;
 
     // 📡 Wire real-time broadcast callback
     if (_realtimeEngine != null) {
@@ -320,6 +321,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     );
     cardNode.fitToPageAspectRatio(targetWidth: 200);
     cardNode.setPosition(insertPosition.dx, insertPosition.dy);
+    cardNode.contentOrigin = ContentOrigin.imported;
 
     // 📄 Store provider and create LOD-aware painter
     _pdfProviders[docId] = provider;

@@ -281,7 +281,16 @@ abstract class FlueraLocalizations {
   String get proCanvas_hSplit;
   String get proCanvas_vSplit;
   String get proCanvas_splitPro;
+  String get proCanvas_canvasOverlay;
   String get proCanvas_shapes;
+
+  // Enterprise top-row actions
+  String get proCanvas_recall;
+  String get proCanvas_resetRotation;
+  String get proCanvas_lockRotation;
+  String get proCanvas_unlockRotation;
+  String get proCanvas_searchHandwriting;
+  String get proCanvas_closeSearch;
 
   // ---------------------------------------------------------------------------
   // PAPER MODE / CANVAS SETTINGS
@@ -329,7 +338,107 @@ abstract class FlueraLocalizations {
   String get pdf_textCopied;
   String get pdf_removePdf;
   String get pdf_autoFitGrid;
+
+  // PDF toolbar UI
+  String get pdf_tapToSelect;
+  String get pdf_createBlankDocument;
+  String get pdf_emptyA4Pages;
+  String get pdf_importNotAvailable;
+  String get pdf_navigate;
+  String get pdf_pages;
+  String get pdf_search;
+  String get pdf_layout;
+  String get pdf_view;
+  String get pdf_nightMode;
+  String get pdf_removeBookmark;
+  String get pdf_bookmarkPage;
+  String get pdf_zoomToFit;
+  String get pdf_annotate;
+  String get pdf_output;
+  String get pdf_export;
+  String get pdf_print;
+  String get pdf_present;
+  String get pdf_add;
+
+  // Tools
+  String get proCanvas_shapeRecognition;
+
+  // ---------------------------------------------------------------------------
+  // GHOST MAP (PASSO 4)
+  // ---------------------------------------------------------------------------
+  String get ghostMap_hypercorrectionDetected;
+  String get ghostMap_conceptToDeepen;
+  String get ghostMap_whatIsMissing;
+  String get ghostMap_typeText;
+  String get ghostMap_drawByHand;
+  String get ghostMap_rewriteCorrectConcept;
+  String get ghostMap_writeMissingConcept;
+  String get ghostMap_drawHereHint;
+  String get ghostMap_reveal;
+  String ghostMap_revealCountdown(int seconds);
+  String get ghostMap_compare;
+  String get ghostMap_recognizing;
+  String get ghostMap_ignoreNode;
+  String get ghostMap_nodeIgnored;
+  String get ghostMap_undo;
+  String get ghostMap_hypercorrectionTitle;
+  String get ghostMap_correctAttempt;
+  String get ghostMap_incorrectAttempt;
+  String get ghostMap_selfEvalQuestion;
+  String get ghostMap_selfEvalNo;
+  String get ghostMap_selfEvalYes;
+  String get ghostMap_connectionToReview;
+  String get ghostMap_belowZPD;
+  String get ghostMap_excellentMastery;
+  String get ghostMap_wellDone;
+  String get ghostMap_weakPoint;
+  String ghostMap_progressExplored(int revealed, int total);
+  String get ghostMap_closeGhostMap;
+  String get ghostMap_showMoreGaps;
+  String get ghostMap_ocrFailed;
+  String get ghostMap_hypercorrectionExplanation;
+  String get ghostMap_writeAtLeastTwoGroups;
+  String get ghostMap_trySocraticFirst;
+  String get ghostMap_belowZPDExplanation;
+  String get ghostMap_dismissGuidanceExcellent;
+  String get ghostMap_dismissGuidanceGood;
+  String get ghostMap_dismissGuidanceDefault;
+  String get ghostMap_proceedAnyway;
+  // O-8: Painter overlay labels
+  String get ghostMap_tapToAttempt;
+  String get ghostMap_hypercorrectionLabel;
+  String get ghostMap_belowZPDLabel;
+
+  // ─── L10n Pass 2: Remaining 22 strings ──────────────────────────────────
+  // Simple strings (no params)
+  String get ghostMap_loadingAnalyzing;
+  String get ghostMap_penModeHint;
+  String get ghostMap_ocrFallbackMessage;
+  String get ghostMap_atlasAnswer;
+  String get ghostMap_sleepConsolidation;
+  String get ghostMap_retryHint;
+  String get ghostMap_emptyResultError;
+  String get ghostMap_edgeCaseNearlyPerfect;
+  String get ghostMap_edgeCaseVeryIncomplete;
+  // Methods with int param
+  String ghostMap_activationGapsFound(int count);
+  String ghostMap_activationConfirmed(int count);
+  String ghostMap_activationHypercorrections(int count);
+  String ghostMap_confidenceLevel(int level);
+  String ghostMap_growthSuffix(int percent);
+  String ghostMap_rateLimitWait(int seconds);
+  String ghostMap_summaryCorrect(int count);
+  String ghostMap_summaryWeak(int count);
+  String ghostMap_summaryMissing(int count);
+  String ghostMap_summaryGrowth(int percent);
+  // Methods with two int params
+  String ghostMap_summaryAttempts(int correct, int total);
+  // Methods with String param
+  String ghostMap_activationHeader(String details);
+  String ghostMap_errorGeneric(String message);
+  String get ghostMap_yourAttempt;
 }
+
 
 // =============================================================================
 // Delegate

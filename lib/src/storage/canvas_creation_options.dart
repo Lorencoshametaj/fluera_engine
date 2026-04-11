@@ -233,12 +233,27 @@ class CanvasCreationOptions {
   /// Optional folder ID to create the canvas in.
   final String? folderId;
 
+  /// Optional list of initial section names to pre-create on the canvas.
+  ///
+  /// When non-empty, the storage adapter will create [SectionNode] objects
+  /// at A4 Portrait size (595 × 842), arranged vertically with 80px gap.
+  ///
+  /// Example:
+  /// ```dart
+  /// CanvasCreationOptions(
+  ///   title: 'Fisica I',
+  ///   initialSections: ['Cinematica', 'Dinamica', 'Termodinamica'],
+  /// )
+  /// ```
+  final List<String> initialSections;
+
   const CanvasCreationOptions({
     this.title,
     this.paperType = CanvasPaperType.blank,
     this.backgroundColor = const Color(0xFFFFFFFF),
     this.canvasId,
     this.folderId,
+    this.initialSections = const [],
   });
 
   /// Generate a canvas ID based on current timestamp.

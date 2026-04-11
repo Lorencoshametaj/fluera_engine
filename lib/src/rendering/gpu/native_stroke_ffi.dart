@@ -308,7 +308,7 @@ class NativeStrokeFfi {
 
     final writeCount = newCount > space ? space : newCount;
     // Access the ring data as floats
-    final dataPtr = ring.cast<Float>().elementAt(_ringDataStart);
+    final dataPtr = ring.cast<Float>() + _ringDataStart;
     for (int i = 0; i < writeCount; i++) {
       final pt = points[newStart + i];
       final idx = (head + i) % cap;
@@ -434,7 +434,7 @@ class NativeStrokeFfi {
 
   /// Write a double as float bits into an int32 ring buffer slot.
   void _ringSetFloat(Pointer<Int32> buf, int offset, double value) {
-    final floatPtr = buf.cast<Float>().elementAt(offset);
+    final floatPtr = buf.cast<Float>() + offset;
     floatPtr.value = value;
   }
 }

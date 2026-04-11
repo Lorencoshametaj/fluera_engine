@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/foundation.dart';
 import './reflow_controller.dart';
 
 /// 🌊 ANIMATED REFLOW CONTROLLER — Spring-animated content displacement.

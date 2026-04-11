@@ -29,15 +29,16 @@ Future<Color?> showProColorPicker({
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (ctx) => ProColorPicker(
-      currentColor: currentColor,
-      colorHistory: colorHistory,
-      onEyedropperRequested: () {
-        Navigator.pop(ctx);
-        onEyedropperRequested?.call();
-      },
-      onColorSelected: (c) => Navigator.pop(ctx, c),
-    ),
+    builder:
+        (ctx) => ProColorPicker(
+          currentColor: currentColor,
+          colorHistory: colorHistory,
+          onEyedropperRequested: () {
+            Navigator.pop(ctx);
+            onEyedropperRequested?.call();
+          },
+          onColorSelected: (c) => Navigator.pop(ctx, c),
+        ),
   );
 }
 
@@ -117,8 +118,9 @@ class _ProColorPickerState extends State<ProColorPicker>
     final g = (c.g * 255).round().clamp(0, 255);
     final b = (c.b * 255).round().clamp(0, 255);
     return '${r.toRadixString(16).padLeft(2, '0')}'
-        '${g.toRadixString(16).padLeft(2, '0')}'
-        '${b.toRadixString(16).padLeft(2, '0')}'.toUpperCase();
+            '${g.toRadixString(16).padLeft(2, '0')}'
+            '${b.toRadixString(16).padLeft(2, '0')}'
+        .toUpperCase();
   }
 
   static Color? _hexToColor(String hex) {
@@ -182,14 +184,26 @@ class _ProColorPickerState extends State<ProColorPicker>
               unselectedLabelColor: cs.onSurface.withValues(alpha: 0.5),
               indicatorColor: cs.primary,
               indicatorSize: TabBarIndicatorSize.label,
-              labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              labelStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
               unselectedLabelStyle: const TextStyle(fontSize: 12),
               dividerHeight: 0,
               tabs: const [
-                Tab(text: 'Disc', icon: Icon(Icons.radio_button_unchecked, size: 16)),
+                Tab(
+                  text: 'Disc',
+                  icon: Icon(Icons.radio_button_unchecked, size: 16),
+                ),
                 Tab(text: 'Sliders', icon: Icon(Icons.tune_rounded, size: 16)),
-                Tab(text: 'Palettes', icon: Icon(Icons.grid_view_rounded, size: 16)),
-                Tab(text: 'Harmony', icon: Icon(Icons.auto_awesome_rounded, size: 16)),
+                Tab(
+                  text: 'Palettes',
+                  icon: Icon(Icons.grid_view_rounded, size: 16),
+                ),
+                Tab(
+                  text: 'Harmony',
+                  icon: Icon(Icons.auto_awesome_rounded, size: 16),
+                ),
               ],
             ),
 
@@ -229,8 +243,11 @@ class _ProColorPickerState extends State<ProColorPicker>
           _CompareBox(color: _originalColor, label: 'Before'),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Icon(Icons.arrow_forward_rounded, size: 14,
-                color: cs.onSurface.withValues(alpha: 0.25)),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 14,
+              color: cs.onSurface.withValues(alpha: 0.25),
+            ),
           ),
           _CompareBox(color: _currentColor, label: 'After'),
 
@@ -242,35 +259,50 @@ class _ProColorPickerState extends State<ProColorPicker>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(colorName, style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w700,
-                  color: isDark ? Colors.white : Colors.black87,
-                )),
+                Text(
+                  colorName,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
                 Row(
                   children: [
-                    Text('#${_colorToHex(_currentColor)}', style: TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w500,
-                      fontFamily: 'monospace', letterSpacing: 0.8,
-                      color: isDark ? Colors.white38 : Colors.black38,
-                    )),
+                    Text(
+                      '#${_colorToHex(_currentColor)}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        fontFamily: 'monospace',
+                        letterSpacing: 0.8,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
+                    ),
                     const SizedBox(width: 4),
                     // Copy hex button
                     GestureDetector(
                       onTap: () {
-                        Clipboard.setData(ClipboardData(
-                            text: '#${_colorToHex(_currentColor)}'));
+                        Clipboard.setData(
+                          ClipboardData(text: '#${_colorToHex(_currentColor)}'),
+                        );
                         HapticFeedback.lightImpact();
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Copied #${_colorToHex(_currentColor)}'),
+                            content: Text(
+                              'Copied #${_colorToHex(_currentColor)}',
+                            ),
                             duration: const Duration(seconds: 1),
                             behavior: SnackBarBehavior.floating,
                             width: 200,
                           ),
                         );
                       },
-                      child: Icon(Icons.copy_rounded, size: 12,
-                          color: cs.onSurface.withValues(alpha: 0.3)),
+                      child: Icon(
+                        Icons.copy_rounded,
+                        size: 12,
+                        color: cs.onSurface.withValues(alpha: 0.3),
+                      ),
                     ),
                   ],
                 ),
@@ -322,7 +354,10 @@ class _ProColorPickerState extends State<ProColorPicker>
           Expanded(
             child: LayoutBuilder(
               builder: (ctx, constraints) {
-                final size = math.min(constraints.maxWidth, constraints.maxHeight);
+                final size = math.min(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                );
                 return Center(
                   child: SizedBox(
                     width: size,
@@ -345,7 +380,8 @@ class _ProColorPickerState extends State<ProColorPicker>
                             HapticFeedback.selectionClick();
                             _onHueRingPan(d.localPosition, size);
                           },
-                          onPanUpdate: (d) => _onHueRingPan(d.localPosition, size),
+                          onPanUpdate:
+                              (d) => _onHueRingPan(d.localPosition, size),
                           onPanEnd: (_) => _isDragging = false,
                           child: SizedBox(width: size, height: size),
                         ),
@@ -369,21 +405,34 @@ class _ProColorPickerState extends State<ProColorPicker>
                                         HapticFeedback.selectionClick();
                                         _onSvPan(d.localPosition, innerSize);
                                       },
-                                      onPanUpdate: (d) =>
-                                          _onSvPan(d.localPosition, innerSize),
+                                      onPanUpdate:
+                                          (d) => _onSvPan(
+                                            d.localPosition,
+                                            innerSize,
+                                          ),
                                       onPanEnd: (_) => _isDragging = false,
                                       child: ClipRRect(
                                         borderRadius: BorderRadius.circular(8),
                                         child: CustomPaint(
                                           size: Size(innerSize, innerSize),
-                                          painter: _SvSquarePainter(hue: _hsv.hue),
+                                          painter: _SvSquarePainter(
+                                            hue: _hsv.hue,
+                                          ),
                                           child: Stack(
                                             children: [
                                               Positioned(
-                                                left: _hsv.saturation * innerSize - 12,
-                                                top: (1 - _hsv.value) * innerSize - 12,
+                                                left:
+                                                    _hsv.saturation *
+                                                        innerSize -
+                                                    12,
+                                                top:
+                                                    (1 - _hsv.value) *
+                                                        innerSize -
+                                                    12,
                                                 child: _ThumbIndicator(
-                                                    color: _currentColor, size: 24),
+                                                  color: _currentColor,
+                                                  size: 24,
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -402,11 +451,14 @@ class _ProColorPickerState extends State<ProColorPicker>
                           bottom: 8,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
-                              color: (isDark
-                                  ? Colors.black.withValues(alpha: 0.7)
-                                  : Colors.white.withValues(alpha: 0.85)),
+                              color:
+                                  (isDark
+                                      ? Colors.black.withValues(alpha: 0.7)
+                                      : Colors.white.withValues(alpha: 0.85)),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -461,10 +513,14 @@ class _ProColorPickerState extends State<ProColorPicker>
   Widget _buildAlphaSlider(bool isDark) {
     return Row(
       children: [
-        Text('α', style: TextStyle(
-          fontSize: 13, fontWeight: FontWeight.w700,
-          color: isDark ? Colors.white54 : Colors.black45,
-        )),
+        Text(
+          'α',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white54 : Colors.black45,
+          ),
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Container(
@@ -472,7 +528,8 @@ class _ProColorPickerState extends State<ProColorPicker>
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: isDark ? Colors.white12 : Colors.black12),
+                color: isDark ? Colors.white12 : Colors.black12,
+              ),
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
@@ -512,7 +569,8 @@ class _ProColorPickerState extends State<ProColorPicker>
           child: Text(
             '${(_hsv.alpha * 100).round()}%',
             style: TextStyle(
-              fontSize: 11, fontWeight: FontWeight.w600,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
               color: isDark ? Colors.white54 : Colors.black45,
             ),
             textAlign: TextAlign.right,
@@ -550,12 +608,14 @@ class _ProColorPickerState extends State<ProColorPicker>
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 30, height: 30,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(
                   color: simColor,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: isDark ? Colors.white12 : Colors.black12),
+                    color: isDark ? Colors.white12 : Colors.black12,
+                  ),
                 ),
               ),
               const SizedBox(height: 2),
@@ -613,8 +673,10 @@ class _ProColorPickerState extends State<ProColorPicker>
               label: 'H',
               value: _hsv.hue / 360,
               gradient: LinearGradient(
-                colors: List.generate(7,
-                    (i) => HSVColor.fromAHSV(1, i * 60.0, 1, 1).toColor()),
+                colors: List.generate(
+                  7,
+                  (i) => HSVColor.fromAHSV(1, i * 60.0, 1, 1).toColor(),
+                ),
               ),
               onChanged: (v) => _updateColor(_hsv.withHue(v * 360)),
               displayValue: '${_hsv.hue.round()}°',
@@ -651,19 +713,31 @@ class _ProColorPickerState extends State<ProColorPicker>
               value: _currentColor.r,
               gradient: LinearGradient(
                 colors: [
-                  Color.fromARGB(255, 0,
-                      (_currentColor.g * 255).round(),
-                      (_currentColor.b * 255).round()),
-                  Color.fromARGB(255, 255,
-                      (_currentColor.g * 255).round(),
-                      (_currentColor.b * 255).round()),
+                  Color.fromARGB(
+                    255,
+                    0,
+                    (_currentColor.g * 255).round(),
+                    (_currentColor.b * 255).round(),
+                  ),
+                  Color.fromARGB(
+                    255,
+                    255,
+                    (_currentColor.g * 255).round(),
+                    (_currentColor.b * 255).round(),
+                  ),
                 ],
               ),
-              onChanged: (v) => _updateColor(HSVColor.fromColor(
-                Color.fromARGB(255, (v * 255).round(),
-                  (_currentColor.g * 255).round(),
-                  (_currentColor.b * 255).round()),
-              )),
+              onChanged:
+                  (v) => _updateColor(
+                    HSVColor.fromColor(
+                      Color.fromARGB(
+                        255,
+                        (v * 255).round(),
+                        (_currentColor.g * 255).round(),
+                        (_currentColor.b * 255).round(),
+                      ),
+                    ),
+                  ),
               displayValue: '${(_currentColor.r * 255).round()}',
             ),
             const SizedBox(height: 12),
@@ -672,19 +746,31 @@ class _ProColorPickerState extends State<ProColorPicker>
               value: _currentColor.g,
               gradient: LinearGradient(
                 colors: [
-                  Color.fromARGB(255,
-                      (_currentColor.r * 255).round(), 0,
-                      (_currentColor.b * 255).round()),
-                  Color.fromARGB(255,
-                      (_currentColor.r * 255).round(), 255,
-                      (_currentColor.b * 255).round()),
+                  Color.fromARGB(
+                    255,
+                    (_currentColor.r * 255).round(),
+                    0,
+                    (_currentColor.b * 255).round(),
+                  ),
+                  Color.fromARGB(
+                    255,
+                    (_currentColor.r * 255).round(),
+                    255,
+                    (_currentColor.b * 255).round(),
+                  ),
                 ],
               ),
-              onChanged: (v) => _updateColor(HSVColor.fromColor(
-                Color.fromARGB(255, (_currentColor.r * 255).round(),
-                  (v * 255).round(),
-                  (_currentColor.b * 255).round()),
-              )),
+              onChanged:
+                  (v) => _updateColor(
+                    HSVColor.fromColor(
+                      Color.fromARGB(
+                        255,
+                        (_currentColor.r * 255).round(),
+                        (v * 255).round(),
+                        (_currentColor.b * 255).round(),
+                      ),
+                    ),
+                  ),
               displayValue: '${(_currentColor.g * 255).round()}',
             ),
             const SizedBox(height: 12),
@@ -693,19 +779,31 @@ class _ProColorPickerState extends State<ProColorPicker>
               value: _currentColor.b,
               gradient: LinearGradient(
                 colors: [
-                  Color.fromARGB(255,
-                      (_currentColor.r * 255).round(),
-                      (_currentColor.g * 255).round(), 0),
-                  Color.fromARGB(255,
-                      (_currentColor.r * 255).round(),
-                      (_currentColor.g * 255).round(), 255),
+                  Color.fromARGB(
+                    255,
+                    (_currentColor.r * 255).round(),
+                    (_currentColor.g * 255).round(),
+                    0,
+                  ),
+                  Color.fromARGB(
+                    255,
+                    (_currentColor.r * 255).round(),
+                    (_currentColor.g * 255).round(),
+                    255,
+                  ),
                 ],
               ),
-              onChanged: (v) => _updateColor(HSVColor.fromColor(
-                Color.fromARGB(255, (_currentColor.r * 255).round(),
-                  (_currentColor.g * 255).round(),
-                  (v * 255).round()),
-              )),
+              onChanged:
+                  (v) => _updateColor(
+                    HSVColor.fromColor(
+                      Color.fromARGB(
+                        255,
+                        (_currentColor.r * 255).round(),
+                        (_currentColor.g * 255).round(),
+                        (v * 255).round(),
+                      ),
+                    ),
+                  ),
               displayValue: '${(_currentColor.b * 255).round()}',
             ),
           ] else if (_sliderMode == _SliderMode.hsl) ...[
@@ -718,11 +816,15 @@ class _ProColorPickerState extends State<ProColorPicker>
                     label: 'H',
                     value: hsl.hue / 360,
                     gradient: LinearGradient(
-                      colors: List.generate(7,
-                          (i) => HSVColor.fromAHSV(1, i * 60.0, 1, 1).toColor()),
+                      colors: List.generate(
+                        7,
+                        (i) => HSVColor.fromAHSV(1, i * 60.0, 1, 1).toColor(),
+                      ),
                     ),
-                    onChanged: (v) => _updateColor(HSVColor.fromColor(
-                        hsl.withHue(v * 360).toColor())),
+                    onChanged:
+                        (v) => _updateColor(
+                          HSVColor.fromColor(hsl.withHue(v * 360).toColor()),
+                        ),
                     displayValue: '${hsl.hue.round()}°',
                   ),
                   const SizedBox(height: 12),
@@ -735,8 +837,10 @@ class _ProColorPickerState extends State<ProColorPicker>
                         hsl.withSaturation(1).toColor(),
                       ],
                     ),
-                    onChanged: (v) => _updateColor(HSVColor.fromColor(
-                        hsl.withSaturation(v).toColor())),
+                    onChanged:
+                        (v) => _updateColor(
+                          HSVColor.fromColor(hsl.withSaturation(v).toColor()),
+                        ),
                     displayValue: '${(hsl.saturation * 100).round()}%',
                   ),
                   const SizedBox(height: 12),
@@ -750,8 +854,10 @@ class _ProColorPickerState extends State<ProColorPicker>
                         hsl.withLightness(1).toColor(),
                       ],
                     ),
-                    onChanged: (v) => _updateColor(HSVColor.fromColor(
-                        hsl.withLightness(v).toColor())),
+                    onChanged:
+                        (v) => _updateColor(
+                          HSVColor.fromColor(hsl.withLightness(v).toColor()),
+                        ),
                     displayValue: '${(hsl.lightness * 100).round()}%',
                   ),
                 ],
@@ -764,10 +870,14 @@ class _ProColorPickerState extends State<ProColorPicker>
           // Hex input row with copy button
           Row(
             children: [
-              Text('#', style: TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white54 : Colors.black45,
-              )),
+              Text(
+                '#',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white54 : Colors.black45,
+                ),
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: TextField(
@@ -783,11 +893,14 @@ class _ProColorPickerState extends State<ProColorPicker>
                   decoration: InputDecoration(
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(
-                        color: cs.outline.withValues(alpha: 0.3)),
+                        color: cs.outline.withValues(alpha: 0.3),
+                      ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -801,22 +914,30 @@ class _ProColorPickerState extends State<ProColorPicker>
                           icon: const Icon(Icons.copy_rounded, size: 16),
                           tooltip: 'Copy hex',
                           onPressed: () {
-                            Clipboard.setData(ClipboardData(
-                                text: '#${_hexController.text}'));
+                            Clipboard.setData(
+                              ClipboardData(text: '#${_hexController.text}'),
+                            );
                             HapticFeedback.lightImpact();
                           },
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(
-                            minWidth: 28, minHeight: 28),
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
                         ),
                         // Paste
                         IconButton(
-                          icon: const Icon(Icons.content_paste_rounded, size: 16),
+                          icon: const Icon(
+                            Icons.content_paste_rounded,
+                            size: 16,
+                          ),
                           tooltip: 'Paste hex',
                           onPressed: _pasteHex,
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(
-                            minWidth: 28, minHeight: 28),
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
                         ),
                       ],
                     ),
@@ -874,14 +995,18 @@ class _ProColorPickerState extends State<ProColorPicker>
             _PaletteSectionHeader(label: 'Recent', isDark: isDark),
             const SizedBox(height: 6),
             Wrap(
-              spacing: 6, runSpacing: 6,
-              children: widget.colorHistory.map((c) =>
-                _PaletteSwatch(
-                  color: c,
-                  isSelected: c.toARGB32() == _currentColor.toARGB32(),
-                  onTap: () => _updateColor(HSVColor.fromColor(c)),
-                ),
-              ).toList(),
+              spacing: 6,
+              runSpacing: 6,
+              children:
+                  widget.colorHistory
+                      .map(
+                        (c) => _PaletteSwatch(
+                          color: c,
+                          isSelected: c.toARGB32() == _currentColor.toARGB32(),
+                          onTap: () => _updateColor(HSVColor.fromColor(c)),
+                        ),
+                      )
+                      .toList(),
             ),
             const SizedBox(height: 16),
           ],
@@ -894,21 +1019,23 @@ class _ProColorPickerState extends State<ProColorPicker>
             ),
             const SizedBox(height: 6),
             Wrap(
-              spacing: 6, runSpacing: 6,
-              children: store.getPalette(paletteId)!.swatches.map((swatch) {
-                final c = Color.fromARGB(
-                  255,
-                  (swatch.r * 255).round().clamp(0, 255),
-                  (swatch.g * 255).round().clamp(0, 255),
-                  (swatch.b * 255).round().clamp(0, 255),
-                );
-                return _PaletteSwatch(
-                  color: c,
-                  isSelected: c.toARGB32() == _currentColor.toARGB32(),
-                  onTap: () => _updateColor(HSVColor.fromColor(c)),
-                  tooltip: swatch.name,
-                );
-              }).toList(),
+              spacing: 6,
+              runSpacing: 6,
+              children:
+                  store.getPalette(paletteId)!.swatches.map((swatch) {
+                    final c = Color.fromARGB(
+                      255,
+                      (swatch.r * 255).round().clamp(0, 255),
+                      (swatch.g * 255).round().clamp(0, 255),
+                      (swatch.b * 255).round().clamp(0, 255),
+                    );
+                    return _PaletteSwatch(
+                      color: c,
+                      isSelected: c.toARGB32() == _currentColor.toARGB32(),
+                      onTap: () => _updateColor(HSVColor.fromColor(c)),
+                      tooltip: swatch.name,
+                    );
+                  }).toList(),
             ),
             const SizedBox(height: 16),
           ],
@@ -932,25 +1059,27 @@ class _ProColorPickerState extends State<ProColorPicker>
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: _HarmonyMode.values.map((mode) {
-                final isActive = mode == _harmonyMode;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: ChoiceChip(
-                    label: Text(mode.label),
-                    selected: isActive,
-                    onSelected: (_) {
-                      HapticFeedback.selectionClick();
-                      setState(() => _harmonyMode = mode);
-                    },
-                    labelStyle: TextStyle(
-                      fontSize: 11,
-                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                );
-              }).toList(),
+              children:
+                  _HarmonyMode.values.map((mode) {
+                    final isActive = mode == _harmonyMode;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(mode.label),
+                        selected: isActive,
+                        onSelected: (_) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _harmonyMode = mode);
+                        },
+                        labelStyle: TextStyle(
+                          fontSize: 11,
+                          fontWeight:
+                              isActive ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    );
+                  }).toList(),
             ),
           ),
 
@@ -961,7 +1090,9 @@ class _ProColorPickerState extends State<ProColorPicker>
             child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final size = math.min(
-                    constraints.maxWidth, constraints.maxHeight);
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                );
                 return Center(
                   child: SizedBox(
                     width: size,
@@ -984,60 +1115,70 @@ class _ProColorPickerState extends State<ProColorPicker>
           // Harmony colors row with hex codes
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: harmonies.map((c) {
-              final isBase = c.toARGB32() == _currentColor.toARGB32();
-              return GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  _updateColor(HSVColor.fromColor(c));
-                },
-                onLongPress: () {
-                  // Copy harmony color hex on long press
-                  Clipboard.setData(ClipboardData(text: '#${_colorToHex(c)}'));
-                  HapticFeedback.mediumImpact();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Copied #${_colorToHex(c)}'),
-                      duration: const Duration(seconds: 1),
-                      behavior: SnackBarBehavior.floating,
-                      width: 200,
-                    ),
-                  );
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: isBase ? 52 : 42,
-                  height: isBase ? 52 : 42,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: c,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isBase ? cs.primary : (isDark ? Colors.white24 : Colors.black12),
-                      width: isBase ? 2.5 : 1,
-                    ),
-                    boxShadow: isBase
-                        ? [BoxShadow(
-                            color: c.withValues(alpha: 0.5),
-                            blurRadius: 8,
-                          )]
-                        : null,
-                  ),
-                  child: Center(
-                    child: Text(
-                      '#${_colorToHex(c).substring(0, 3)}',
-                      style: TextStyle(
-                        fontSize: 8,
-                        fontWeight: FontWeight.w600,
-                        color: c.computeLuminance() > 0.5
-                            ? Colors.black54
-                            : Colors.white70,
+            children:
+                harmonies.map((c) {
+                  final isBase = c.toARGB32() == _currentColor.toARGB32();
+                  return GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      _updateColor(HSVColor.fromColor(c));
+                    },
+                    onLongPress: () {
+                      // Copy harmony color hex on long press
+                      Clipboard.setData(
+                        ClipboardData(text: '#${_colorToHex(c)}'),
+                      );
+                      HapticFeedback.mediumImpact();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Copied #${_colorToHex(c)}'),
+                          duration: const Duration(seconds: 1),
+                          behavior: SnackBarBehavior.floating,
+                          width: 200,
+                        ),
+                      );
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: isBase ? 52 : 42,
+                      height: isBase ? 52 : 42,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: c,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color:
+                              isBase
+                                  ? cs.primary
+                                  : (isDark ? Colors.white24 : Colors.black12),
+                          width: isBase ? 2.5 : 1,
+                        ),
+                        boxShadow:
+                            isBase
+                                ? [
+                                  BoxShadow(
+                                    color: c.withValues(alpha: 0.5),
+                                    blurRadius: 8,
+                                  ),
+                                ]
+                                : null,
+                      ),
+                      child: Center(
+                        child: Text(
+                          '#${_colorToHex(c).substring(0, 3)}',
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w600,
+                            color:
+                                c.computeLuminance() > 0.5
+                                    ? Colors.black54
+                                    : Colors.white70,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              );
-            }).toList(),
+                  );
+                }).toList(),
           ),
         ],
       ),
@@ -1070,7 +1211,8 @@ class _ProColorPickerState extends State<ProColorPicker>
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: const Text('Cancel'),
             ),
@@ -1082,16 +1224,18 @@ class _ProColorPickerState extends State<ProColorPicker>
               onPressed: () {
                 HapticFeedback.mediumImpact();
                 // Convert to P3 if in wide-gamut mode
-                final output = _isP3Mode
-                    ? ColorManager.toDisplayP3(_currentColor)
-                    : _currentColor;
+                final output =
+                    _isP3Mode
+                        ? ColorManager.toDisplayP3(_currentColor)
+                        : _currentColor;
                 widget.onColorSelected(output);
               },
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 backgroundColor: cs.primary,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: const Text('Apply Color'),
             ),
@@ -1145,19 +1289,24 @@ class _TopBarAction extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: isActive
-            ? (activeColor ?? cs.primary).withValues(alpha: 0.12)
-            : Colors.transparent,
+        color:
+            isActive
+                ? (activeColor ?? cs.primary).withValues(alpha: 0.12)
+                : Colors.transparent,
         shape: const CircleBorder(),
         child: InkWell(
           onTap: onTap,
           customBorder: const CircleBorder(),
           child: Padding(
             padding: const EdgeInsets.all(6),
-            child: Icon(icon, size: 20,
-              color: isActive
-                  ? (activeColor ?? cs.primary)
-                  : cs.onSurface.withValues(alpha: 0.5)),
+            child: Icon(
+              icon,
+              size: 20,
+              color:
+                  isActive
+                      ? (activeColor ?? cs.primary)
+                      : cs.onSurface.withValues(alpha: 0.5),
+            ),
           ),
         ),
       ),
@@ -1177,22 +1326,29 @@ class _CompareBox extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 36, height: 36,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.white12
-                  : Colors.black12,
+              color:
+                  Theme.of(context).brightness == Brightness.dark
+                      ? Colors.white12
+                      : Colors.black12,
             ),
           ),
         ),
         const SizedBox(height: 2),
-        Text(label, style: TextStyle(
-          fontSize: 8,
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35),
-        )),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 8,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.35),
+          ),
+        ),
       ],
     );
   }
@@ -1208,18 +1364,23 @@ class _PaletteSectionHeader extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     children: [
       Container(
-        width: 3, height: 12,
+        width: 3,
+        height: 12,
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(2),
         ),
       ),
       const SizedBox(width: 6),
-      Text(label, style: TextStyle(
-        fontSize: 11, fontWeight: FontWeight.w700,
-        letterSpacing: 0.5,
-        color: isDark ? Colors.white38 : Colors.black38,
-      )),
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+          color: isDark ? Colors.white38 : Colors.black38,
+        ),
+      ),
     ],
   );
 }
@@ -1233,7 +1394,8 @@ class _ThumbIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: size, height: size,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: color,
@@ -1273,10 +1435,14 @@ class _GradientSlider extends StatelessWidget {
       children: [
         SizedBox(
           width: 18,
-          child: Text(label, style: TextStyle(
-            fontSize: 12, fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white54 : Colors.black45,
-          )),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white54 : Colors.black45,
+            ),
+          ),
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -1286,7 +1452,8 @@ class _GradientSlider extends StatelessWidget {
               gradient: gradient,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: isDark ? Colors.white12 : Colors.black12),
+                color: isDark ? Colors.white12 : Colors.black12,
+              ),
             ),
             child: SliderTheme(
               data: SliderThemeData(
@@ -1298,21 +1465,23 @@ class _GradientSlider extends StatelessWidget {
                 thumbColor: Colors.white,
                 overlayColor: Colors.white.withValues(alpha: 0.2),
               ),
-              child: Slider(
-                value: value.clamp(0.0, 1.0),
-                onChanged: onChanged,
-              ),
+              child: Slider(value: value.clamp(0.0, 1.0), onChanged: onChanged),
             ),
           ),
         ),
         const SizedBox(width: 8),
         SizedBox(
           width: 40,
-          child: Text(displayValue, style: TextStyle(
-            fontSize: 11, fontWeight: FontWeight.w600,
-            fontFamily: 'monospace',
-            color: isDark ? Colors.white54 : Colors.black45,
-          ), textAlign: TextAlign.right),
+          child: Text(
+            displayValue,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'monospace',
+              color: isDark ? Colors.white54 : Colors.black45,
+            ),
+            textAlign: TextAlign.right,
+          ),
         ),
       ],
     );
@@ -1352,16 +1521,27 @@ class _PaletteSwatch extends StatelessWidget {
             color: isSelected ? cs.primary : Colors.white24,
             width: isSelected ? 2.5 : 1,
           ),
-          boxShadow: isSelected
-              ? [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 6)]
-              : null,
+          boxShadow:
+              isSelected
+                  ? [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.5),
+                      blurRadius: 6,
+                    ),
+                  ]
+                  : null,
         ),
-        child: isSelected
-            ? Icon(Icons.check, size: 14,
-                color: color.computeLuminance() > 0.5
-                    ? Colors.black
-                    : Colors.white)
-            : null,
+        child:
+            isSelected
+                ? Icon(
+                  Icons.check,
+                  size: 14,
+                  color:
+                      color.computeLuminance() > 0.5
+                          ? Colors.black
+                          : Colors.white,
+                )
+                : null,
       ),
     );
     if (tooltip != null) {
@@ -1413,16 +1593,19 @@ class _HueRingPainter extends CustomPainter {
 
     // Draw hue ring with sweep gradient (anti-aliased)
     final gradient = SweepGradient(
-      colors: List.generate(13, (i) =>
-          HSVColor.fromAHSV(1, (i * 30.0) % 360, 1, 1).toColor()),
+      colors: List.generate(
+        13,
+        (i) => HSVColor.fromAHSV(1, (i * 30.0) % 360, 1, 1).toColor(),
+      ),
     );
 
     final rect = Rect.fromCircle(center: center, radius: outerRadius);
-    final paint = Paint()
-      ..shader = gradient.createShader(rect)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = ringWidth
-      ..isAntiAlias = true;
+    final paint =
+        Paint()
+          ..shader = gradient.createShader(rect)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = ringWidth
+          ..isAntiAlias = true;
 
     canvas.drawCircle(center, outerRadius - ringWidth / 2, paint);
 
@@ -1435,25 +1618,34 @@ class _HueRingPainter extends CustomPainter {
     );
 
     // Shadow
-    canvas.drawCircle(indicatorPos, ringWidth / 2 + 3,
-        Paint()
-          ..color = Colors.black.withValues(alpha: 0.25)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3)
-          ..isAntiAlias = true);
+    canvas.drawCircle(
+      indicatorPos,
+      ringWidth / 2 + 3,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3)
+        ..isAntiAlias = true,
+    );
 
     // White ring
-    canvas.drawCircle(indicatorPos, ringWidth / 2 + 2,
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3
-          ..isAntiAlias = true);
+    canvas.drawCircle(
+      indicatorPos,
+      ringWidth / 2 + 2,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..isAntiAlias = true,
+    );
 
     // Color fill
-    canvas.drawCircle(indicatorPos, ringWidth / 2 - 1,
-        Paint()
-          ..color = HSVColor.fromAHSV(1, selectedHue, 1, 1).toColor()
-          ..isAntiAlias = true);
+    canvas.drawCircle(
+      indicatorPos,
+      ringWidth / 2 - 1,
+      Paint()
+        ..color = HSVColor.fromAHSV(1, selectedHue, 1, 1).toColor()
+        ..isAntiAlias = true,
+    );
   }
 
   @override
@@ -1505,16 +1697,21 @@ class _HarmonyWheelPainter extends CustomPainter {
 
     // Background hue ring (faded, anti-aliased)
     final gradient = SweepGradient(
-      colors: List.generate(13, (i) =>
-          HSVColor.fromAHSV(0.35, (i * 30.0) % 360, 0.8, 0.9).toColor()),
+      colors: List.generate(
+        13,
+        (i) => HSVColor.fromAHSV(0.35, (i * 30.0) % 360, 0.8, 0.9).toColor(),
+      ),
     );
     final rect = Rect.fromCircle(center: center, radius: outerRadius);
-    canvas.drawCircle(center, outerRadius - ringWidth / 2,
+    canvas.drawCircle(
+      center,
+      outerRadius - ringWidth / 2,
       Paint()
         ..shader = gradient.createShader(rect)
         ..style = PaintingStyle.stroke
         ..strokeWidth = ringWidth
-        ..isAntiAlias = true);
+        ..isAntiAlias = true,
+    );
 
     // Draw lines between harmony colors
     final indicatorRadius = outerRadius - ringWidth / 2;
@@ -1522,24 +1719,28 @@ class _HarmonyWheelPainter extends CustomPainter {
     for (final c in colors) {
       final hsv = HSVColor.fromColor(c);
       final angle = hsv.hue * math.pi / 180 - math.pi / 2;
-      positions.add(Offset(
-        center.dx + indicatorRadius * math.cos(angle),
-        center.dy + indicatorRadius * math.sin(angle),
-      ));
+      positions.add(
+        Offset(
+          center.dx + indicatorRadius * math.cos(angle),
+          center.dy + indicatorRadius * math.sin(angle),
+        ),
+      );
     }
 
     if (positions.length >= 2) {
       // Glow line
-      final glowPaint = Paint()
-        ..color = Colors.white.withValues(alpha: 0.1)
-        ..strokeWidth = 4
-        ..style = PaintingStyle.stroke
-        ..isAntiAlias = true;
-      final linePaint = Paint()
-        ..color = Colors.white.withValues(alpha: 0.4)
-        ..strokeWidth = 1.5
-        ..style = PaintingStyle.stroke
-        ..isAntiAlias = true;
+      final glowPaint =
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.1)
+            ..strokeWidth = 4
+            ..style = PaintingStyle.stroke
+            ..isAntiAlias = true;
+      final linePaint =
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.4)
+            ..strokeWidth = 1.5
+            ..style = PaintingStyle.stroke
+            ..isAntiAlias = true;
       final path = Path()..moveTo(positions.first.dx, positions.first.dy);
       for (int i = 1; i < positions.length; i++) {
         path.lineTo(positions[i].dx, positions[i].dy);
@@ -1556,25 +1757,34 @@ class _HarmonyWheelPainter extends CustomPainter {
       final r = isBase ? ringWidth * 0.7 : ringWidth * 0.55;
 
       // Shadow
-      canvas.drawCircle(pos, r + 2,
-          Paint()
-            ..color = Colors.black.withValues(alpha: 0.2)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2)
-            ..isAntiAlias = true);
+      canvas.drawCircle(
+        pos,
+        r + 2,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.2)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2)
+          ..isAntiAlias = true,
+      );
 
       // White ring
-      canvas.drawCircle(pos, r + 2,
-          Paint()
-            ..color = Colors.white
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.5
-            ..isAntiAlias = true);
+      canvas.drawCircle(
+        pos,
+        r + 2,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..isAntiAlias = true,
+      );
 
       // Color fill
-      canvas.drawCircle(pos, r,
-          Paint()
-            ..color = colors[i]
-            ..isAntiAlias = true);
+      canvas.drawCircle(
+        pos,
+        r,
+        Paint()
+          ..color = colors[i]
+          ..isAntiAlias = true,
+      );
     }
   }
 

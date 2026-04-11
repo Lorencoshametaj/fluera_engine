@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import '../models/pro_brush_settings.dart';
 import '../models/pro_drawing_point.dart';
-import '../models/surface_material.dart';
 import '../models/wetness_state.dart';
 import '../../rendering/shaders/shader_brush_service.dart';
 import '../../core/engine_scope.dart';

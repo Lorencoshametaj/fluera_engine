@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../reflow/content_cluster.dart';
@@ -1014,7 +1013,10 @@ class KnowledgeFlowPainter extends CustomPainter {
       final cp = controller.getControlPoint(srcPt, tgtPt, animatedCurveStrength);
 
       // 🎨 Connection color — assigned from palette at creation, user-changeable
-      final connColor = conn.color;
+      // 🌉 CROSS-ZONE: Golden override for inter-zone bridges (P9-05)
+      final connColor = conn.isCrossZone
+          ? KnowledgeConnection.crossZoneColor
+          : conn.color;
       // Gradient flows from a bright tint to a deeper shade within the connection
       final gradStart = Color.lerp(connColor, Colors.white, 0.30)!;
       final gradEnd = Color.lerp(connColor, const Color(0xFF1A1A2E), 0.25)!;
@@ -1060,7 +1062,9 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       // 🔗 TYPE BONUS: causality connections are thicker + brighter
       final typeBonus = conn.connectionType == ConnectionType.causality ? 1.5 : 0.0;
-      final lineW = ((lod == 2 ? 3.5 : 2.5) + labelBonus + selectBonus + hubBonus + typeBonus) * dissolveScale;
+      // 🌉 CROSS-ZONE BONUS: 3px minimum stroke for inter-zone bridges (P9-05)
+      final crossZoneBonus = conn.isCrossZone ? 1.0 : 0.0;
+      final lineW = ((lod == 2 ? 3.5 : 2.5) + labelBonus + selectBonus + hubBonus + typeBonus + crossZoneBonus) * dissolveScale;
       final lineAlpha = ((lod == 2 ? 0.90 : 0.80) + (hasLabel ? 0.08 : 0.0) + birthFlash + traceFlash * 0.3 + ((isSelected || isMultiSelected) ? 0.15 : 0.0)).clamp(0.0, 1.0);
 
       // 🎨 TYPE COLOR: contradiction overrides with red tint
@@ -1351,6 +1355,128 @@ class KnowledgeFlowPainter extends CustomPainter {
           final shimmerPos3 = controller.pointOnQuadBezier(srcPt, cp, tgtPt, shimmerT3);
           _softGlowPaint.color = Colors.white.withValues(alpha: 0.35 * effectiveFade);
           canvas.drawCircle(shimmerPos3, shimmerSize * 0.3, _softGlowPaint);
+        }
+      }
+
+      // =================================================================
+      // 🌉 CROSS-ZONE BRIDGE ENHANCEMENTS (Passo 9, P9-05/12)
+      // =================================================================
+      if (conn.isCrossZone && !conn.isGhost && !isBirthAnimating) {
+        final midPt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, 0.5);
+
+        // --- Golden Shimmer Particles (P9-05: visible at all zoom levels) ---
+        // Extra golden particles flowing along the bridge, creating a
+        // "golden thread" effect that distinguishes cross-zone bridges
+        // from regular connections at every LOD level.
+        final goldenShimmerSize = lod == 2 ? 6.0 : 4.5;
+        for (int gs = 0; gs < 3; gs++) {
+          final gsT = ((animationTime * 0.18 + gs * 0.33 + connIndex * 0.2) % 1.0);
+          final gsPos = controller.pointOnQuadBezier(srcPt, cp, tgtPt, gsT);
+          // Golden core
+          final goldPulse = 0.7 + 0.3 * math.sin(animationTime * 2.5 + gs * 2.1);
+          _softGlowPaint.color = const Color(0xFFFFD700).withValues(
+            alpha: 0.50 * goldPulse * effectiveFade,
+          );
+          canvas.drawCircle(gsPos, goldenShimmerSize * 0.45, _softGlowPaint);
+          // White hot center
+          _softGlowPaint.color = Colors.white.withValues(
+            alpha: 0.30 * goldPulse * effectiveFade,
+          );
+          canvas.drawCircle(gsPos, goldenShimmerSize * 0.2, _softGlowPaint);
+        }
+
+        // --- Discovery Icon: 💡 (student) or 🤖 (AI suggested) (P9-12) ---
+        // Painted at t=0.35 along the curve (offset from midpoint label)
+        final iconT = 0.35;
+        final iconPos = controller.pointOnQuadBezier(srcPt, cp, tgtPt, iconT);
+        final iconText = conn.discoveredBy == BridgeDiscoveryOrigin.aiSuggested
+            ? '🤖'
+            : '💡';
+        final iconKey = '${conn.id}_bridgeIcon_$iconText';
+        final iconPainter = _cachedTitlePainters.putIfAbsent(iconKey, () {
+          final tp = TextPainter(
+            text: TextSpan(
+              text: iconText,
+              style: TextStyle(fontSize: lod == 2 ? 14.0 : 10.0),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          // Auto-prune cache
+          if (_cachedTitlePainters.length > 100) {
+            _cachedTitlePainters.remove(_cachedTitlePainters.keys.first);
+          }
+          return tp;
+        });
+        // Background pill for icon
+        final iconRect = Rect.fromCenter(
+          center: iconPos,
+          width: iconPainter.width + 8,
+          height: iconPainter.height + 6,
+        );
+        _p
+          ..style = PaintingStyle.fill
+          ..shader = null
+          ..maskFilter = null
+          ..color = const Color(0xDD1A1A2E);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(iconRect, const Radius.circular(6)),
+          _p,
+        );
+        iconPainter.paint(
+          canvas,
+          Offset(
+            iconPos.dx - iconPainter.width / 2,
+            iconPos.dy - iconPainter.height / 2,
+          ),
+        );
+
+        // --- Bridge Type Badge (A/B/C pill at t=0.65) ---
+        if (conn.bridgeType != null) {
+          final badgeT = 0.65;
+          final badgePos = controller.pointOnQuadBezier(srcPt, cp, tgtPt, badgeT);
+          final badgeLabel = switch (conn.bridgeType!) {
+            CrossZoneBridgeType.analogyStructural => 'A',
+            CrossZoneBridgeType.sharedMechanism => 'B',
+            CrossZoneBridgeType.complementaryPerspective => 'C',
+          };
+          final badgeKey = '${conn.id}_bridgeBadge_$badgeLabel';
+          final badgePainter = _cachedTitlePainters.putIfAbsent(badgeKey, () {
+            final tp = TextPainter(
+              text: TextSpan(
+                text: badgeLabel,
+                style: TextStyle(
+                  fontSize: lod == 2 ? 11.0 : 9.0,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1A1A2E),
+                ),
+              ),
+              textDirection: TextDirection.ltr,
+            )..layout();
+            if (_cachedTitlePainters.length > 100) {
+              _cachedTitlePainters.remove(_cachedTitlePainters.keys.first);
+            }
+            return tp;
+          });
+          final badgeRect = Rect.fromCenter(
+            center: badgePos,
+            width: badgePainter.width + 10,
+            height: badgePainter.height + 6,
+          );
+          // Golden pill background
+          _p
+            ..style = PaintingStyle.fill
+            ..color = const Color(0xFFFFD700).withValues(alpha: 0.90 * effectiveFade);
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(badgeRect, const Radius.circular(5)),
+            _p,
+          );
+          badgePainter.paint(
+            canvas,
+            Offset(
+              badgePos.dx - badgePainter.width / 2,
+              badgePos.dy - badgePainter.height / 2,
+            ),
+          );
         }
       }
 

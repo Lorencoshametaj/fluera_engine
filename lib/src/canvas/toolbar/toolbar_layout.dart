@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'toolbar_tokens.dart';
 
 // ============================================================================
-// TOOLBAR LAYOUT — Layout and Sync buttons
+// TOOLBAR LAYOUT — Layout buttons (legacy, used by forceLeftAlign mode)
+//
+// NOTE: In the standard 3-zone top row, layout buttons are rendered as
+// `_LayoutChip` widgets defined in `_toolbar_top_row.dart`.
+// `ToolbarLayoutButton` and `ToolbarSyncButton` are kept for compatibility
+// with the `forceLeftAlign` configuration and external consumers.
 // ============================================================================
 
 /// Layout button (Canvas, H-Split, V-Split, etc.)
@@ -24,23 +29,29 @@ class ToolbarLayoutButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
-      ),
+    return Tooltip(
+      message: label,
+      waitDuration: ToolbarTokens.tooltipDelay,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          borderRadius: BorderRadius.circular(ToolbarTokens.chipRadius),
+          child: Container(
+            height: ToolbarTokens.chipHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(ToolbarTokens.chipRadius),
+              border: Border.all(
+                color: color.withValues(alpha: 0.30),
+                width: 1,
+              ),
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 16, color: color),
+                Icon(icon, size: ToolbarTokens.iconSizeSmall, color: color),
                 const SizedBox(width: 4),
                 Text(
                   label,
@@ -59,7 +70,7 @@ class ToolbarLayoutButton extends StatelessWidget {
   }
 }
 
-/// Sync toggle button
+/// Sync toggle button (legacy — see `_SyncChip` for the new top-row version)
 class ToolbarSyncButton extends StatelessWidget {
   final VoidCallback onPressed;
   final bool isEnabled;
@@ -74,36 +85,45 @@ class ToolbarSyncButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeColor = isEnabled ? Colors.green : Colors.grey;
+    final color =
+        isEnabled
+            ? const Color(0xFF16A34A) // green-600
+            : (isDark ? Colors.white38 : Colors.black38);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: activeColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: activeColor.withValues(alpha: 0.3), width: 1),
-      ),
+    return Tooltip(
+      message: isEnabled ? 'Disable Sync' : 'Enable Sync',
+      waitDuration: ToolbarTokens.tooltipDelay,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          borderRadius: BorderRadius.circular(ToolbarTokens.chipRadius),
+          child: Container(
+            height: ToolbarTokens.chipHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(ToolbarTokens.chipRadius),
+              border: Border.all(
+                color: color.withValues(alpha: 0.30),
+                width: 1,
+              ),
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  isEnabled ? Icons.sync : Icons.sync_disabled,
-                  size: 16,
-                  color: activeColor,
+                  isEnabled ? Icons.sync_rounded : Icons.sync_disabled_rounded,
+                  size: ToolbarTokens.iconSizeSmall,
+                  color: color,
                 ),
                 const SizedBox(width: 4),
                 Text(
                   'Sync',
                   style: TextStyle(
                     fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: activeColor,
+                    fontWeight: FontWeight.w600,
+                    color: color,
                   ),
                 ),
               ],

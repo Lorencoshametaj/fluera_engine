@@ -1302,14 +1302,14 @@ class SceneGraphRenderer {
     // NO zoom-adaptive invScale — avoids stale values baked into tile cache.
     final sectionScale = (bounds.width / 400.0).clamp(0.3, 2.0);
 
-    // ── 1. Subtle drop shadow for depth ──
+    // ── 1. Drop shadow for depth (paper-on-desk effect) ──
     final cr = node.cornerRadius;
-    final shadowShift = 2.0 * sectionScale;
+    final shadowShift = 3.0 * sectionScale;
     final shadowRect = bounds.shift(Offset(shadowShift, shadowShift));
     final shadowPaint =
         Paint()
-          ..color = const Color(0x12000000)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4.0 * sectionScale);
+          ..color = const Color(0x28000000)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 8.0 * sectionScale);
     if (cr > 0) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(shadowRect, Radius.circular(cr)),
@@ -1334,25 +1334,74 @@ class SceneGraphRenderer {
 
     // ── 3. Internal grid ──
     if (node.showGrid && node.gridSpacing > 0) {
-      final gridPaint =
-          Paint()
-            ..color = const Color(0x1A000000)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 0.5;
+      if (node.gridType == 'ruled') {
+        // 📓 RULED: Horizontal lines only + red left margin (notebook style)
+        final linePaint =
+            Paint()
+              ..color = const Color(0x22448AFF) // Subtle blue
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 0.5;
+        for (
+          double y = node.gridSpacing;
+          y < bounds.height;
+          y += node.gridSpacing
+        ) {
+          canvas.drawLine(Offset(0, y), Offset(bounds.width, y), linePaint);
+        }
+        // Red left margin line
+        final marginPaint =
+            Paint()
+              ..color = const Color(0x44FF5252) // Subtle red
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.0;
+        final marginX = node.gridSpacing * 2; // 2 grid widths from left
+        canvas.drawLine(
+          Offset(marginX, 0),
+          Offset(marginX, bounds.height),
+          marginPaint,
+        );
+      } else if (node.gridType == 'dotted') {
+        // 🔵 DOTTED: Dot grid (bullet journal style)
+        final dotPaint =
+            Paint()
+              ..color = const Color(0x1A000000)
+              ..style = PaintingStyle.fill;
+        final dotRadius = 1.0;
+        for (
+          double y = node.gridSpacing;
+          y < bounds.height;
+          y += node.gridSpacing
+        ) {
+          for (
+            double x = node.gridSpacing;
+            x < bounds.width;
+            x += node.gridSpacing
+          ) {
+            canvas.drawCircle(Offset(x, y), dotRadius, dotPaint);
+          }
+        }
+      } else {
+        // ▦ GRID: Classic square grid
+        final gridPaint =
+            Paint()
+              ..color = const Color(0x1A000000)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 0.5;
 
-      for (
-        double x = node.gridSpacing;
-        x < bounds.width;
-        x += node.gridSpacing
-      ) {
-        canvas.drawLine(Offset(x, 0), Offset(x, bounds.height), gridPaint);
-      }
-      for (
-        double y = node.gridSpacing;
-        y < bounds.height;
-        y += node.gridSpacing
-      ) {
-        canvas.drawLine(Offset(0, y), Offset(bounds.width, y), gridPaint);
+        for (
+          double x = node.gridSpacing;
+          x < bounds.width;
+          x += node.gridSpacing
+        ) {
+          canvas.drawLine(Offset(x, 0), Offset(x, bounds.height), gridPaint);
+        }
+        for (
+          double y = node.gridSpacing;
+          y < bounds.height;
+          y += node.gridSpacing
+        ) {
+          canvas.drawLine(Offset(0, y), Offset(bounds.width, y), gridPaint);
+        }
       }
     }
 

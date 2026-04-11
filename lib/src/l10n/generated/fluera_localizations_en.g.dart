@@ -196,7 +196,15 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   @override String get proCanvas_hSplit => 'Horizontal Split';
   @override String get proCanvas_vSplit => 'Vertical Split';
   @override String get proCanvas_splitPro => 'Split Pro';
+  @override String get proCanvas_canvasOverlay => 'Canvas Overlay';
   @override String get proCanvas_shapes => 'Shapes';
+
+  @override String get proCanvas_recall => 'Recall';
+  @override String get proCanvas_resetRotation => 'Reset Rotation';
+  @override String get proCanvas_lockRotation => 'Lock Rotation';
+  @override String get proCanvas_unlockRotation => 'Unlock Rotation';
+  @override String get proCanvas_searchHandwriting => 'Search Handwriting';
+  @override String get proCanvas_closeSearch => 'Close Search';
 
   @override String get proCanvas_customizeYourSheet => 'Customize your sheet';
   @override String get proCanvas_backgroundColor => 'Background Color';
@@ -238,4 +246,101 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   @override String get pdf_textCopied => 'Text copied to clipboard';
   @override String get pdf_removePdf => 'Remove PDF';
   @override String get pdf_autoFitGrid => 'Auto-fit Grid';
+
+  // PDF toolbar UI
+  @override String get pdf_tapToSelect => 'Tap to select a PDF file';
+  @override String get pdf_createBlankDocument => 'Create Blank Document';
+  @override String get pdf_emptyA4Pages => 'Empty A4 pages to annotate';
+  @override String get pdf_importNotAvailable => 'PDF import not available';
+  @override String get pdf_navigate => 'Navigate';
+  @override String get pdf_pages => 'Pages';
+  @override String get pdf_search => 'Search PDF';
+  @override String get pdf_layout => 'Layout';
+  @override String get pdf_view => 'View';
+  @override String get pdf_nightMode => 'Night Mode';
+  @override String get pdf_removeBookmark => 'Remove Bookmark';
+  @override String get pdf_bookmarkPage => 'Bookmark Page';
+  @override String get pdf_zoomToFit => 'Zoom to Fit';
+  @override String get pdf_annotate => 'Annotate';
+  @override String get pdf_output => 'Output';
+  @override String get pdf_export => 'Export';
+  @override String get pdf_print => 'Print';
+  @override String get pdf_present => 'Present';
+  @override String get pdf_add => 'Add';
+
+  // Tools
+  @override String get proCanvas_shapeRecognition => 'Shape Recognition';
+
+  // Ghost Map (Passo 4)
+  @override String get ghostMap_hypercorrectionDetected => 'Hypercorrection detected!';
+  @override String get ghostMap_conceptToDeepen => 'Concept to deepen';
+  @override String get ghostMap_whatIsMissing => 'What\'s missing here?';
+  @override String get ghostMap_typeText => 'Type text';
+  @override String get ghostMap_drawByHand => 'Draw by hand';
+  @override String get ghostMap_rewriteCorrectConcept => 'Rewrite the correct concept...';
+  @override String get ghostMap_writeMissingConcept => 'Write the concept you think is missing...';
+  @override String get ghostMap_drawHereHint => 'Draw here with your finger or pen ✍️';
+  @override String get ghostMap_reveal => 'Reveal';
+  @override String ghostMap_revealCountdown(int seconds) => 'Reveal (${seconds}s)';
+  @override String get ghostMap_compare => 'Compare';
+  @override String get ghostMap_recognizing => 'Recognizing…';
+  @override String get ghostMap_ignoreNode => 'Ignore this node';
+  @override String get ghostMap_nodeIgnored => '🗺️ Node ignored';
+  @override String get ghostMap_undo => 'Undo';
+  @override String get ghostMap_hypercorrectionTitle => 'Hypercorrection detected';
+  @override String get ghostMap_correctAttempt => 'Great! You were close!';
+  @override String get ghostMap_incorrectAttempt => 'Here\'s what was missing';
+  @override String get ghostMap_selfEvalQuestion => 'Was your answer correct?';
+  @override String get ghostMap_selfEvalNo => 'No';
+  @override String get ghostMap_selfEvalYes => 'Yes!';
+  @override String get ghostMap_connectionToReview => 'Connection to review';
+  @override String get ghostMap_belowZPD => 'To deepen (outside ZPD)';
+  @override String get ghostMap_excellentMastery => 'Excellent — Mastery!';
+  @override String get ghostMap_wellDone => 'Well done!';
+  @override String get ghostMap_weakPoint => 'Weak point detected';
+  @override String ghostMap_progressExplored(int revealed, int total) => '$revealed/$total gaps explored';
+  @override String get ghostMap_closeGhostMap => 'Close Ghost Map';
+  @override String get ghostMap_showMoreGaps => 'Show more gaps';
+  @override String get ghostMap_ocrFailed => 'Handwriting recognition failed';
+  @override String get ghostMap_hypercorrectionExplanation =>
+      '⚡ You were very confident but got it wrong in Step 3. '
+      'This "cognitive shock" makes the correction 3× more effective! '
+      'Try writing the correct concept.';
+  @override String get ghostMap_writeAtLeastTwoGroups => 'Write at least 2 note groups for the Ghost Map 🗺️';
+  @override String get ghostMap_trySocraticFirst => 'Try questioning your notes first!';
+  @override String get ghostMap_belowZPDExplanation => '📚 This concept is beyond your current development zone. Focus on prerequisites first — you\'ll come back to it later.';
+  @override String get ghostMap_dismissGuidanceExcellent => '✍️ Great work! Now add the discovered concepts to your canvas — writing them by hand will consolidate them in memory.';
+  @override String get ghostMap_dismissGuidanceGood => '✍️ Now integrate what you discovered into the canvas. Every concept written by hand strengthens the memory trace.';
+  @override String get ghostMap_dismissGuidanceDefault => '✍️ Keep writing — Atlas is dormant. The canvas is all yours now.';
+  @override String get ghostMap_proceedAnyway => 'Proceed anyway';
+  // O-8: Painter overlay labels
+  @override String get ghostMap_tapToAttempt => 'Tap to attempt';
+  @override String get ghostMap_hypercorrectionLabel => 'Hypercorrection — you were sure!';
+  @override String get ghostMap_belowZPDLabel => 'To deepen later';
+
+  // ─── L10n Pass 2 ────────────────────────────────────────────────────────
+  @override String get ghostMap_loadingAnalyzing => '🌌 Atlas is analyzing your notes...';
+  @override String get ghostMap_penModeHint => 'Use the keyboard button to type text as an alternative';
+  @override String get ghostMap_ocrFallbackMessage => '✍️ Handwriting not recognized. Try writing more clearly or use text.';
+  @override String get ghostMap_atlasAnswer => '🎯 Atlas\'s answer';
+  @override String get ghostMap_sleepConsolidation => '🌙 Your canvas has grown. Now rest — sleep will consolidate everything.';
+  @override String get ghostMap_retryHint => '🔄 Retrying...';
+  @override String get ghostMap_emptyResultError => 'Not enough content found for the Ghost Map.';
+  @override String get ghostMap_edgeCaseNearlyPerfect => '🌟 Your canvas is almost complete! Just a few details to add.';
+  @override String get ghostMap_edgeCaseVeryIncomplete => '📖 I found several areas to explore. Let\'s start with the basics.';
+  @override String ghostMap_activationGapsFound(int count) => '$count gaps found';
+  @override String ghostMap_activationConfirmed(int count) => '$count confirmed ✅';
+  @override String ghostMap_activationHypercorrections(int count) => '$count hypercorrections ⚡';
+  @override String ghostMap_confidenceLevel(int level) => 'Confidence: $level/5';
+  @override String ghostMap_growthSuffix(int percent) => ' — Growth: $percent%';
+  @override String ghostMap_rateLimitWait(int seconds) => 'Wait ${seconds}s before regenerating.';
+  @override String ghostMap_summaryCorrect(int count) => '✅ $count correct';
+  @override String ghostMap_summaryWeak(int count) => '⚠️ $count to improve';
+  @override String ghostMap_summaryMissing(int count) => '❓ $count missing';
+  @override String ghostMap_summaryGrowth(int percent) => '📈 $percent% gaps filled';
+  @override String ghostMap_summaryAttempts(int correct, int total) => '🎯 $correct/$total attempts succeeded';
+  @override String ghostMap_activationHeader(String details) => '🗺️ Ghost Map active — $details';
+  @override String ghostMap_errorGeneric(String message) => 'Error: $message';
+  @override String get ghostMap_yourAttempt => '✍️ Your attempt';
 }
+

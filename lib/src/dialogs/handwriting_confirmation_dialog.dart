@@ -242,7 +242,7 @@ class _HandwritingConfirmationDialogState
                     ),
                     Switch.adaptive(
                       value: _deleteStrokes,
-                      activeColor: Colors.deepPurple,
+                      activeThumbColor: Colors.deepPurple,
                       onChanged: (v) => setState(() => _deleteStrokes = v),
                     ),
                   ],
