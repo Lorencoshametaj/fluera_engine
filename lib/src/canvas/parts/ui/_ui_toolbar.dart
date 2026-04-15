@@ -181,56 +181,71 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                 setState(() {});
               },
               onUndo: () {
+                // 🐛 FIX: Layer controller (strokes) takes priority over
+                // KnowledgeFlow connections. Previously KF was checked first,
+                // but cluster rebuilds after each undo push entries into the
+                // KF undo stack, causing it to "steal" subsequent undos.
+                if (_layerController.canUndo) {
+                  final strokesBefore =
+                      _isRecordingAudio && _recordingWithStrokes
+                          ? _layerController.activeLayer?.strokes.length ?? 0
+                          : 0;
+                  final lastStrokeId =
+                      (_isRecordingAudio &&
+                              _recordingWithStrokes &&
+                              _syncRecordingBuilder != null &&
+                              (strokesBefore > 0))
+                          ? _layerController.activeLayer?.strokes.last.id
+                          : null;
+                  final undoStrokeCount =
+                      _layerController.activeLayer?.strokes.length ?? 0;
+                  final undoStrokeId =
+                      undoStrokeCount > 0
+                          ? _layerController.activeLayer?.strokes.last.id
+                          : null;
+                  _layerController.undo();
+                  _undoRedoVersion.value++;
+                  if (lastStrokeId != null && _syncRecordingBuilder != null) {
+                    final strokesAfter =
+                        _layerController.activeLayer?.strokes.length ?? 0;
+                    if (strokesAfter < strokesBefore) {
+                      _syncRecordingBuilder!.removeStrokeById(lastStrokeId);
+                    }
+                  }
+                  if (undoStrokeId != null) {
+                    final strokesAfterUndo =
+                        _layerController.activeLayer?.strokes.length ?? 0;
+                    if (strokesAfterUndo < undoStrokeCount) {
+                      HandwritingIndexService.instance.removeStroke(
+                        _canvasId,
+                        undoStrokeId,
+                      );
+                    }
+                  }
+                  return;
+                }
+                // Fallback: undo KnowledgeFlow connection changes
                 if (_knowledgeFlowController != null &&
                     _knowledgeFlowController!.canUndo) {
                   _knowledgeFlowController!.undo();
+                  _undoRedoVersion.value++;
                   HapticFeedback.selectionClick();
-                  return;
-                }
-                final strokesBefore =
-                    _isRecordingAudio && _recordingWithStrokes
-                        ? _layerController.activeLayer?.strokes.length ?? 0
-                        : 0;
-                final lastStrokeId =
-                    (_isRecordingAudio &&
-                            _recordingWithStrokes &&
-                            _syncRecordingBuilder != null &&
-                            (strokesBefore > 0))
-                        ? _layerController.activeLayer?.strokes.last.id
-                        : null;
-                final undoStrokeCount =
-                    _layerController.activeLayer?.strokes.length ?? 0;
-                final undoStrokeId =
-                    undoStrokeCount > 0
-                        ? _layerController.activeLayer?.strokes.last.id
-                        : null;
-                _layerController.undo();
-                if (lastStrokeId != null && _syncRecordingBuilder != null) {
-                  final strokesAfter =
-                      _layerController.activeLayer?.strokes.length ?? 0;
-                  if (strokesAfter < strokesBefore) {
-                    _syncRecordingBuilder!.removeStrokeById(lastStrokeId);
-                  }
-                }
-                if (undoStrokeId != null) {
-                  final strokesAfterUndo =
-                      _layerController.activeLayer?.strokes.length ?? 0;
-                  if (strokesAfterUndo < undoStrokeCount) {
-                    HandwritingIndexService.instance.removeStroke(
-                      _canvasId,
-                      undoStrokeId,
-                    );
-                  }
                 }
               },
               onRedo: () {
+                // 🐛 FIX: Layer controller takes priority (same as undo above)
+                if (_layerController.canRedo) {
+                  _layerController.redo();
+                  _undoRedoVersion.value++;
+                  return;
+                }
+                // Fallback: redo KnowledgeFlow connection changes
                 if (_knowledgeFlowController != null &&
                     _knowledgeFlowController!.canRedo) {
                   _knowledgeFlowController!.redo();
+                  _undoRedoVersion.value++;
                   HapticFeedback.selectionClick();
-                  return;
                 }
-                _layerController.redo();
               },
               onClear: _clear,
               onSettings: _showSettings,
@@ -344,7 +359,8 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                 }
                 setState(() {});
               },
-              onLatexToggle: () {
+              // 🚀 v1 DEFER: LaTeX Recognition gated
+              onLatexToggle: V1FeatureGate.latexRecognition ? () {
                 _toolController.toggleLatexMode();
                 if (_toolController.isLatexMode) {
                   _digitalTextTool.deselectElement();
@@ -353,8 +369,9 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   _showLatexEditorSheet();
                 }
                 setState(() {});
-              },
-              onTabularToggle: () {
+              } : null,
+              // 🚀 v1 DEFER: Tabular gated
+              onTabularToggle: V1FeatureGate.tabular ? () {
                 _toolController.toggleTabularMode();
                 if (_toolController.isTabularMode) {
                   _digitalTextTool.deselectElement();
@@ -363,7 +380,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   _addTabularNode();
                 }
                 setState(() {});
-              },
+              } : null,
               // ── Canvas controls ─────────────────────────────────────────────
               onBrushSettingsPressed: (anchorRect) {
                 if (!mounted) return;
@@ -406,15 +423,18 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               onViewRecordingsPressed: () {
                 _showSavedRecordingsDialog();
               },
-              onAdvancedSplitPressed: () {
+              // 🚀 v1 DEFER: Multiview gated
+              onAdvancedSplitPressed: V1FeatureGate.multiview ? () {
                 _launchAdvancedSplitView();
-              },
+              } : null,
+              // 🚀 v1 DEFER: Time Travel gated
               onTimeTravelPressed:
-                  (_subscriptionTier == FlueraSubscriptionTier.pro)
+                  (V1FeatureGate.timeTravel && _subscriptionTier == FlueraSubscriptionTier.pro)
                       ? _enterTimeTravelMode
                       : null,
+              // 🚀 v1 DEFER: Branch Explorer (part of Time Travel)
               onBranchExplorerPressed:
-                  (_subscriptionTier == FlueraSubscriptionTier.pro)
+                  (V1FeatureGate.timeTravel && _subscriptionTier == FlueraSubscriptionTier.pro)
                       ? _openBranchExplorer
                       : null,
               onRecallModePressed:
@@ -440,7 +460,8 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   !_socraticController.isActive
                       ? showSocraticSetup
                       : dismissSocraticMode,
-              onCrossZoneBridgesPressed: canActivateCrossZoneBridges
+              // 🚀 v1 DEFER: Cross-Zone Bridges gated
+              onCrossZoneBridgesPressed: (V1FeatureGate.crossZoneBridges && canActivateCrossZoneBridges)
                   ? requestCrossZoneBridgeSuggestions
                   : null,
               onSearchPressed: () {

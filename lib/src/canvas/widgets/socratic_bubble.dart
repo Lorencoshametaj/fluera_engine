@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/generated/fluera_localizations.g.dart';
 import '../ai/socratic/socratic_model.dart';
 import 'socratic_info_screen.dart';
 
@@ -83,7 +84,22 @@ class _SocraticBubbleState extends State<SocraticBubble>
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
-    )..repeat(reverse: true);
+    );
+    // Only animate non-resolved bubbles to save GPU cycles.
+    if (!widget.question.isResolved) {
+      _pulseController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant SocraticBubble old) {
+    super.didUpdateWidget(old);
+    if (widget.question.isResolved && _pulseController.isAnimating) {
+      _pulseController.stop();
+      _pulseController.value = 0;
+    } else if (!widget.question.isResolved && !_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    }
   }
 
   @override
@@ -104,6 +120,15 @@ class _SocraticBubbleState extends State<SocraticBubble>
     SocraticBubbleStatus.belowZPD => _greyColor,
   };
 
+  String _localizedTypeLabel(FlueraLocalizations l10n, SocraticQuestionType type) {
+    return switch (type) {
+      SocraticQuestionType.lacuna    => l10n.socratic_typeLacuna,
+      SocraticQuestionType.challenge => l10n.socratic_typeChallenge,
+      SocraticQuestionType.depth     => l10n.socratic_typeDepth,
+      SocraticQuestionType.transfer  => l10n.socratic_typeTransfer,
+    };
+  }
+
   bool get _isResolved => widget.question.isResolved;
   bool get _isShock =>
       widget.question.status == SocraticBubbleStatus.wrongHighConf;
@@ -117,6 +142,8 @@ class _SocraticBubbleState extends State<SocraticBubble>
 
   @override
   Widget build(BuildContext context) {
+    // O11: Cache L10n lookup once for all sub-builders.
+    final l10n = FlueraLocalizations.of(context)!;
     final pos = widget.screenPosition;
     final color = _statusColor;
     final isActive = widget.isActiveQuestion && !_isResolved;
@@ -205,7 +232,7 @@ class _SocraticBubbleState extends State<SocraticBubble>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Header: type badge + skip button.
-                  _buildHeader(color),
+                  _buildHeader(l10n, color),
                   const SizedBox(height: 8),
 
                   // Question text (P3-10: only the question, never the answer).
@@ -227,20 +254,20 @@ class _SocraticBubbleState extends State<SocraticBubble>
                   // Status-specific UI.
                   if (_showConfidenceSlider) ...[
                     const SizedBox(height: 12),
-                    _buildConfidenceSlider(),
+                    _buildConfidenceSlider(l10n),
                   ],
 
                   if (_showSelfEval) ...[
                     const SizedBox(height: 12),
-                    _buildSelfEvalButtons(),
+                    _buildSelfEvalButtons(l10n),
                   ],
 
                   // Resolved status badge.
                   if (_isResolved) ...[
                     const SizedBox(height: 8),
-                    _buildStatusBadge(color),
+                    _buildStatusBadge(l10n, color),
                     const SizedBox(height: 8),
-                    _buildNextButton(),
+                    _buildNextButton(l10n),
                   ],
 
                   // Breadcrumb button (if available and not resolved).
@@ -248,7 +275,7 @@ class _SocraticBubbleState extends State<SocraticBubble>
                       widget.canRequestBreadcrumb &&
                       widget.isActiveQuestion) ...[
                     const SizedBox(height: 8),
-                    _buildBreadcrumbButton(),
+                    _buildBreadcrumbButton(l10n),
                   ],
                 ],
               ),
@@ -262,7 +289,7 @@ class _SocraticBubbleState extends State<SocraticBubble>
 
   // ── Header ─────────────────────────────────────────────────────────────
 
-  Widget _buildHeader(Color color) {
+  Widget _buildHeader(FlueraLocalizations l10n, Color color) {
     return Row(
       children: [
         // Question type badge.
@@ -273,7 +300,7 @@ class _SocraticBubbleState extends State<SocraticBubble>
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            widget.question.typeLabel,
+            _localizedTypeLabel(l10n, widget.question.type),
             style: TextStyle(
               color: color,
               fontSize: 10,
@@ -326,12 +353,12 @@ class _SocraticBubbleState extends State<SocraticBubble>
 
   // ── Confidence Slider (P3-17) ──────────────────────────────────────────
 
-  Widget _buildConfidenceSlider() {
+  Widget _buildConfidenceSlider(FlueraLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Quanto sei sicuro di poter rispondere? (1-5)',
+          l10n.socratic_confidencePrompt,
           style: TextStyle(
             color: _amberColor.withValues(alpha: 0.7),
             fontSize: 11,
@@ -394,12 +421,12 @@ class _SocraticBubbleState extends State<SocraticBubble>
 
   // ── Self-Eval Buttons (P3-20) ──────────────────────────────────────────
 
-  Widget _buildSelfEvalButtons() {
+  Widget _buildSelfEvalButtons(FlueraLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Pensa alla risposta, poi valutati onestamente:',
+          l10n.socratic_selfEvalPrompt,
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.5),
             fontSize: 10,
@@ -411,7 +438,7 @@ class _SocraticBubbleState extends State<SocraticBubble>
           children: [
             Expanded(
               child: _evalButton(
-                label: '❌ Non sapevo',
+                label: l10n.socratic_selfEvalWrong,
                 color: _redColor,
                 recalled: false,
               ),
@@ -419,7 +446,7 @@ class _SocraticBubbleState extends State<SocraticBubble>
             const SizedBox(width: 8),
             Expanded(
               child: _evalButton(
-                label: '✅ Sapevo',
+                label: l10n.socratic_selfEvalCorrect,
                 color: _greenColor,
                 recalled: true,
               ),
@@ -492,12 +519,12 @@ class _SocraticBubbleState extends State<SocraticBubble>
     );
   }
 
-  Widget _buildBreadcrumbButton() {
+  Widget _buildBreadcrumbButton(FlueraLocalizations l10n) {
     final label = switch (widget.breadcrumbsUsed) {
-      0 => 'Indizio',
-      1 => 'Altro indizio',
-      2 => 'Ultimo indizio',
-      _ => 'Esauriti',
+      0 => l10n.socratic_breadcrumbFirst,
+      1 => l10n.socratic_breadcrumbSecond,
+      2 => l10n.socratic_breadcrumbThird,
+      _ => l10n.socratic_breadcrumbExhausted,
     };
 
     return GestureDetector(
@@ -529,11 +556,13 @@ class _SocraticBubbleState extends State<SocraticBubble>
 
   // ── Next Button ────────────────────────────────────────────────────────
 
-  Widget _buildNextButton() {
+  Widget _buildNextButton(FlueraLocalizations l10n) {
     if (widget.onNext == null) return const SizedBox.shrink();
 
     final isLast = widget.currentIndex >= widget.totalQuestions - 1;
-    final label = isLast ? 'Fine sessione' : 'Avanti →';
+    final label = isLast
+        ? l10n.socratic_sessionEnd
+        : l10n.socratic_next;
 
     return GestureDetector(
       onTap: () {
@@ -571,62 +600,57 @@ class _SocraticBubbleState extends State<SocraticBubble>
 
   // ── Status Badge ───────────────────────────────────────────────────────
 
-  Widget _buildStatusBadge(Color color) {
+  Widget _buildStatusBadge(FlueraLocalizations l10n, Color color) {
     final q = widget.question;
     final conf = q.confidence ?? 3;
 
     // ── Determine feedback based on confidence × correctness ──────────
+
     final (String emoji, String title, String message, Color feedbackColor) =
         switch (q.status) {
       // ✅ Correct + HIGH confidence → brief reinforcement
       SocraticBubbleStatus.correct => (
         '💪',
-        'Solido!',
-        'Il tuo ricordo è stabile. Continua così.',
+        l10n.socratic_feedbackSolidTitle,
+        l10n.socratic_feedbackSolidMsg,
         _greenColor,
       ),
 
       // 🟢 Correct + LOW confidence → metacognitive calibration
       SocraticBubbleStatus.correctLowConf => (
         '🎯',
-        'Sapevi più di quanto pensassi!',
-        'La tua confidenza era ${conf}/5, ma hai risposto correttamente. '
-            'Questo concetto è più solido di quanto credi — fidati di più '
-            'del tuo ricordo.',
+        l10n.socratic_feedbackUnderestimatedTitle,
+        l10n.socratic_feedbackUnderestimatedMsg(conf),
         const Color(0xFF4CAF50),
       ),
 
       // 🟡 Wrong + LOW confidence → expected gap, gentle
       SocraticBubbleStatus.wrongLowConf => (
         '📌',
-        'Lacuna nota',
-        'Sapevi di non saperlo — è già consapevolezza. '
-            'Rileggi i tuoi appunti su questo argomento e ritornerà.',
+        l10n.socratic_feedbackKnownGapTitle,
+        l10n.socratic_feedbackKnownGapMsg,
         _amberColor,
       ),
 
       // ⚡ Wrong + HIGH confidence → HYPERCORRECTION (most powerful!)
       SocraticBubbleStatus.wrongHighConf => (
         '⚡',
-        'Momento di apprendimento!',
-        'Eri sicuro al ${conf}/5, ma c\'è qualcosa da rivedere. '
-            'Le ricerche mostrano che gli errori ad alta confidenza si '
-            'correggono MEGLIO — questo momento vale doppio. '
-            'Rileggi attentamente i tuoi appunti.',
+        l10n.socratic_feedbackHypercorrectionTitle,
+        l10n.socratic_feedbackHypercorrectionMsg(conf),
         _redColor,
       ),
 
       SocraticBubbleStatus.skipped => (
         '⏭️',
-        'Saltata',
+        l10n.socratic_feedbackSkippedTitle,
         '',
         Colors.grey,
       ),
 
       SocraticBubbleStatus.belowZPD => (
         '⬛',
-        'Fuori dalla tua zona',
-        'Questa domanda era fuori portata. Tornerà quando sarai pronto.',
+        l10n.socratic_feedbackBelowZPDTitle,
+        l10n.socratic_feedbackBelowZPDMsg,
         Colors.grey,
       ),
 

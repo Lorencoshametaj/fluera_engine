@@ -560,7 +560,9 @@ class _ProfessionalCanvasToolbarState
       // Active tool icon for the mini indicator
       IconData activeIcon = Icons.edit_rounded;
       if (widget.isEraserActive)
-        activeIcon = Icons.auto_fix_high_rounded;
+        activeIcon = widget.eraseWholeStroke
+            ? Icons.delete_sweep_rounded
+            : Icons.content_cut;
       else if (widget.isLassoActive)
         activeIcon = Icons.gesture_rounded;
       else if (widget.isPanModeActive)

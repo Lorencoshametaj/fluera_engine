@@ -382,7 +382,7 @@ class LayerPanelState extends State<LayerPanel> with TickerProviderStateMixin {
           Icon(Icons.layers_outlined, color: cs.primary, size: 14),
           const SizedBox(width: 4),
           Text(
-            FlueraLocalizations.of(context).proCanvas_layers,
+            FlueraLocalizations.of(context)!.proCanvas_layers,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
               color: cs.onSurface,
               fontWeight: FontWeight.w600,
@@ -753,7 +753,7 @@ class LayerPanelState extends State<LayerPanel> with TickerProviderStateMixin {
                         color: cs.surfaceContainerHighest,
                         elevation: 3,
                         itemBuilder: (ctx) {
-                          final l10n = FlueraLocalizations.of(ctx);
+                          final l10n = FlueraLocalizations.of(ctx)!;
                           return [
                             _buildMenuItem(
                               'rename',
@@ -1333,7 +1333,7 @@ class LayerPanelState extends State<LayerPanel> with TickerProviderStateMixin {
   }
 
   Widget _buildActions(ColorScheme cs) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(

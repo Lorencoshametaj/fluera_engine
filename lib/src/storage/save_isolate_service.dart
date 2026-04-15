@@ -28,6 +28,7 @@ import '../core/nodes/text_node.dart';
 import '../core/nodes/pdf_document_node.dart';
 import '../core/nodes/pdf_page_node.dart';
 import '../core/nodes/pdf_preview_card_node.dart';
+import '../core/scene_graph/canvas_node.dart';
 import '../export/binary_canvas_format.dart';
 
 /// Singleton service managing a long-lived background isolate for binary encoding.
@@ -93,6 +94,10 @@ class SaveIsolateService {
     final strippedCallbacks = _stripPdfCallbacks(layers);
     // 📝 Strip unsendable TextPainter caches from text nodes
     _stripTextLayoutCaches(layers);
+    // 🔗 Strip parent references to prevent the SceneGraph root from
+    // dragging the entire node tree (with potentially re-cached TextPainters
+    // in sibling layers) into the isolate message.
+    final strippedParents = _stripParentReferences(layers);
 
     // Send layers to the persistent isolate and wait for response
     final responsePort = ReceivePort();
@@ -105,6 +110,7 @@ class SaveIsolateService {
     _restorePdfCachedImages(strippedImages, layers);
     _restorePdfPreviewCardThumbnails(strippedThumbnails, layers);
     _restorePdfCallbacks(strippedCallbacks, layers);
+    _restoreParentReferences(strippedParents, layers);
     // Note: text caches are NOT restored — they rebuild lazily on next paint
 
     return result as List<Uint8List>;
@@ -257,12 +263,50 @@ class SaveIsolateService {
   /// Clear cached TextPainter from all DigitalTextElements in the tree.
   /// TextPainter contains native _Paragraph objects that cannot cross
   /// isolate boundaries. The cache rebuilds lazily on next paint.
+  ///
+  /// Uses [allDescendants] to recursively find TextNodes inside GroupNodes.
   static void _stripTextLayoutCaches(List<CanvasLayer> layers) {
     for (final layer in layers) {
-      for (final child in layer.node.children) {
-        if (child is TextNode) {
-          child.textElement.clearLayoutCache();
+      for (final node in layer.node.allDescendants) {
+        if (node is TextNode) {
+          node.textElement.clearLayoutCache();
         }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parent reference stripping (isolate safety)
+  // ---------------------------------------------------------------------------
+
+  /// Temporarily null out LayerNode.parent to prevent the SceneGraph root
+  /// from being dragged into the isolate message.
+  ///
+  /// The SceneGraph root holds ALL layers, and sibling layers may contain
+  /// TextNodes whose _cachedPainter has been rebuilt by a concurrent paint
+  /// frame between the strip and the send. Detaching parent prevents
+  /// the entire graph reachability.
+  static Map<String, CanvasNode?> _stripParentReferences(
+    List<CanvasLayer> layers,
+  ) {
+    final stripped = <String, CanvasNode?>{};
+    for (final layer in layers) {
+      stripped[layer.id] = layer.node.parent;
+      layer.node.parent = null;
+    }
+    return stripped;
+  }
+
+  /// Restore previously stripped parent references.
+  static void _restoreParentReferences(
+    Map<String, CanvasNode?> stripped,
+    List<CanvasLayer> layers,
+  ) {
+    if (stripped.isEmpty) return;
+    for (final layer in layers) {
+      final parent = stripped[layer.id];
+      if (parent != null && layer.node.parent == null) {
+        layer.node.parent = parent;
       }
     }
   }

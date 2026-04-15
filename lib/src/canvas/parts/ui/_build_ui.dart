@@ -440,6 +440,21 @@ extension on _FlueraCanvasScreenState {
                               },
                             ),
                           ),
+
+                        // 🧠 RECALL MODE: Step 2 overlays (zone selector,
+                        // blur, peek, comparison, missed markers, summary).
+                        // Lives in the INNER (Expanded) Stack so that
+                        // canvasToScreen() y-values — local to the canvas
+                        // widget which starts at toolbar-bottom — align with
+                        // the overlay's Positioned coordinate origin.
+                        Positioned.fill(
+                          child: AnimatedBuilder(
+                            animation: _canvasController,
+                            builder: (context, _) => Stack(
+                              children: buildRecallModeOverlays(context),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -460,36 +475,42 @@ extension on _FlueraCanvasScreenState {
                 ),
 
 
-              // 🧠 RECALL MODE: Step 2 overlays (zone selector, blur, peek,
-              // comparison, missed markers, summary).
-              // Gated by LearningStepController.isRecallModeAllowed.
-              ...buildRecallModeOverlays(context),
 
               // 🌫️ FOG OF WAR: Step 10 overlays (end session button, mastery map controls).
               ...buildFogOfWarOverlays(context),
 
               // 🔶 SOCRATIC SPATIAL: Step 3 overlays (question bubbles, confidence, breadcrumbs).
-              ...buildSocraticOverlays(context),
+              // A2: Scoped rebuild via ListenableBuilder — avoids full-tree setState.
+              ListenableBuilder(
+                listenable: _socraticController,
+                builder: (context, _) => Stack(
+                  children: buildSocraticOverlays(context),
+                ),
+              ),
 
               // 🗺️ GHOST MAP: Step 4 overlays (navigation bar, progress indicator).
               ...buildGhostMapOverlays(context),
 
               // 🤝 P2P COLLABORATION: Passo 7 overlay (ghost cursor, laser, markers, status pill).
-              buildP2POverlay(),
+              // 🚀 v1 DEFER: Collaboration gated
+              if (V1FeatureGate.collaboration)
+                buildP2POverlay(),
 
               // 🤝 P2P COLLABORATION: Floating action button (bottom-right, above minimap).
-              ValueListenableBuilder<bool>(
-                valueListenable: _isDrawingNotifier,
-                builder: (_, isDrawing, child) {
-                  if (isDrawing) return const SizedBox.shrink();
-                  return child!;
-                },
-                child: Positioned(
-                  bottom: 80,
-                  right: 16,
-                  child: buildP2PToolbarButton(),
+              // 🚀 v1 DEFER: Collaboration gated
+              if (V1FeatureGate.collaboration)
+                ValueListenableBuilder<bool>(
+                  valueListenable: _isDrawingNotifier,
+                  builder: (_, isDrawing, child) {
+                    if (isDrawing) return const SizedBox.shrink();
+                    return child!;
+                  },
+                  child: Positioned(
+                    bottom: 80,
+                    right: 16,
+                    child: buildP2PToolbarButton(),
+                  ),
                 ),
-              ),
 
               // 📲 Echo Search: Swipe-down from top edge to activate
               if (!_isEchoSearchMode)

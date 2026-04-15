@@ -22,6 +22,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../l10n/generated/fluera_localizations.g.dart';
 import '../../../reflow/content_cluster.dart';
 import 'fog_of_war_model.dart';
 
@@ -130,14 +131,17 @@ class FogOfWarController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Summary text (P10-22): "Hai ricostruito X su Y. Z non visitati."
+  /// Summary text (P10-22): localized version.
   ///
   /// Applies **Muro Rosso** emotional protection (§XI.4):
   /// When >70% of nodes are forgotten/blindspot, the language shifts
   /// from deficit-focused to metacognitive-constructive.
   ///
   /// Also includes slow recall analytics for fragile consolidation.
-  String get summaryText {
+  ///
+  /// [l10n] must be provided by the UI layer (which has BuildContext).
+  /// If null, falls back to the old hardcoded Italian strings.
+  String localizedSummaryText(FlueraLocalizations? l10n) {
     if (_session == null) return '';
     final s = _session!;
 
@@ -157,30 +161,41 @@ class FogOfWarController extends ChangeNotifier {
       // Protective messaging: focus on what was identified, not what failed.
       final parts = <String>[];
       if (s.recalledCount > 0) {
-        parts.add('✅ ${s.recalledCount} ${s.recalledCount == 1 ? "nodo è tuo" : "nodi sono tuoi"}');
+        parts.add(l10n?.fow_muroRossoNodesYours(s.recalledCount)
+            ?? '✅ ${s.recalledCount} nodi sono tuoi');
       }
-      parts.add('🎯 Hai identificato $failedCount zone precise da rafforzare');
-      parts.add('Ora sai esattamente dove lavorare');
+      parts.add(l10n?.fow_muroRossoPreciseZones(failedCount)
+          ?? '🎯 Hai identificato $failedCount zone precise da rafforzare');
+      parts.add(l10n?.fow_muroRossoNowYouKnow
+          ?? 'Ora sai esattamente dove lavorare');
 
       // Coaching: tactical suggestion.
-      String coaching = '💡 Prova a riscrivere a memoria i concetti '
-          'che ti sembravano più familiari — il Generation Effect '
-          'rafforzerà la traccia mnemonica.';
+      final coaching = l10n?.fow_muroRossoCoaching
+          ?? '💡 Prova a riscrivere a memoria i concetti '
+              'che ti sembravano più familiari — il Generation Effect '
+              'rafforzerà la traccia mnemonica.';
 
       return '${parts.join('. ')}.\n\n$coaching';
     }
 
     // Standard summary (P10-22).
-    final base = 'Hai ricostruito ${s.recalledCount} nodi su ${s.totalNodes}. '
-        '${s.forgottenCount} dimenticati. '
-        '${s.blindSpotCount} non visitati.';
+    final base = l10n?.fow_summaryStandard(
+          s.recalledCount, s.totalNodes, s.forgottenCount, s.blindSpotCount)
+        ?? 'Hai ricostruito ${s.recalledCount} nodi su ${s.totalNodes}. '
+            '${s.forgottenCount} dimenticati. '
+            '${s.blindSpotCount} non visitati.';
 
     // Append slow recall note if relevant.
     if (slowRecallCount > 0) {
-      return '$base\n⏱️ $slowRecallCount con recall lento (>8s) — consolidamento fragile.';
+      final slowNote = l10n?.fow_summarySlowRecall(slowRecallCount)
+          ?? '⏱️ $slowRecallCount con recall lento (>8s) — consolidamento fragile.';
+      return '$base\n$slowNote';
     }
     return base;
   }
+
+  /// Legacy getter — delegates to [localizedSummaryText] with no l10n.
+  String get summaryText => localizedSummaryText(null);
 
   /// Whether the Muro Rosso (§XI.4) emotional protection is active.
   ///
@@ -194,17 +209,20 @@ class FogOfWarController extends ChangeNotifier {
     return (failedCount / s.totalNodes) > 0.7;
   }
 
-  /// Fog level description for UI.
-  String get fogLevelLabel {
+  /// Fog level description for UI — localized.
+  String localizedFogLevelLabel(FlueraLocalizations? l10n) {
     switch (_fogLevel) {
       case FogLevel.light:
-        return 'Nebbia Leggera';
+        return l10n?.fow_fogLevelLight ?? 'Nebbia Leggera';
       case FogLevel.medium:
-        return 'Nebbia Media';
+        return l10n?.fow_fogLevelMedium ?? 'Nebbia Media';
       case FogLevel.total:
-        return 'Nebbia Totale';
+        return l10n?.fow_fogLevelTotal ?? 'Nebbia Totale';
     }
   }
+
+  /// Legacy getter — delegates to [localizedFogLevelLabel] with no l10n.
+  String get fogLevelLabel => localizedFogLevelLabel(null);
 
   // ─────────────────────────────────────────────────────────────────────────
   // ACTIVATION (P10-01, P10-02, P10-03)

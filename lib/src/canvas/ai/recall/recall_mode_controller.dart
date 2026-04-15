@@ -75,6 +75,8 @@ class _PeekCost {
 /// recallController.startComparison();
 /// ```
 class RecallModeController extends ChangeNotifier {
+  /// Minimum number of clusters required to activate Recall Mode (D1).
+  static const int minNodesForRecall = 5;
   // ─────────────────────────────────────────────────────────────────────────
   // STATE
   // ─────────────────────────────────────────────────────────────────────────
@@ -89,6 +91,10 @@ class RecallModeController extends ChangeNotifier {
 
   /// Original clusters within the selected zone (hidden during recall).
   List<ContentCluster> _originalClusters = const [];
+
+  /// O(1) lookup map for original clusters by ID.
+  /// Built once at activate() time to avoid O(n²) in CustomPainter hot path.
+  Map<String, ContentCluster> _originalClustersById = const {};
 
   /// Clusters reconstructed by the student (tracked during comparison).
   List<ContentCluster> _reconstructedClusters = const [];
@@ -141,6 +147,10 @@ class RecallModeController extends ChangeNotifier {
 
   /// Original clusters in the zone (for rendering blur/blobs).
   List<ContentCluster> get originalClusters => _originalClusters;
+
+  /// Pre-built O(1) lookup map — use this in CustomPainter hot paths
+  /// instead of iterating [originalClusters].
+  Map<String, ContentCluster> get originalClustersById => _originalClustersById;
 
   /// The currently peeked cluster ID.
   String? get activePeekClusterId => _activePeekClusterId;
@@ -215,9 +225,11 @@ class RecallModeController extends ChangeNotifier {
     int sessionCount = 0,
   }) {
     if (isActive) return;
+    if (clustersInZone.length < minNodesForRecall) return;
 
     _selectedZone = zone;
     _originalClusters = List.unmodifiable(clustersInZone);
+    _originalClustersById = {for (final c in clustersInZone) c.id: c};
     _zoneSessionCount = sessionCount;
 
     // Compute zone ID from bounds hash (deterministic).
@@ -263,6 +275,8 @@ class RecallModeController extends ChangeNotifier {
     _peekTimer?.cancel();
     _peekTimer = null;
     _activePeekClusterId = null;
+    _originalClusters = const [];
+    _originalClustersById = const {};
 
     _phase = RecallPhase.inactive;
     notifyListeners();
@@ -379,14 +393,25 @@ class RecallModeController extends ChangeNotifier {
   ///
   /// This is triggered by an EXPLICIT student action (never automatic).
   /// [reconstructedClusters] are the clusters the student produced.
-  void startComparison(List<ContentCluster> reconstructedClusters) {
+  /// [reconstructionZoneOffset] is the translation from original zone
+  /// to reconstruction zone (e.g. Offset(zone.width + 200, 0)).
+  /// [clusterTextMap] maps cluster IDs → recognized text (from HTR cache).
+  void startComparison(
+    List<ContentCluster> reconstructedClusters, {
+    Offset reconstructionZoneOffset = Offset.zero,
+    Map<String, String> clusterTextMap = const {},
+  }) {
     if (!isActive || isComparing) return;
 
     _reconstructedClusters = List.unmodifiable(reconstructedClusters);
     _sessionStopwatch.stop();
 
     // Auto-assign binary recall status for nodes (P2-46 fallback).
-    _autoAssignRecallStatus(reconstructedClusters);
+    _autoAssignRecallStatus(
+      reconstructedClusters,
+      reconstructionZoneOffset,
+      clusterTextMap,
+    );
 
     _phase = RecallPhase.comparison;
     _gapNavigationIndex = -1;
@@ -395,31 +420,196 @@ class RecallModeController extends ChangeNotifier {
 
   /// Auto-assign binary recall levels (P2-46).
   ///
-  /// Matching is spatial: if a reconstructed cluster overlaps with an original
-  /// cluster's area, it's considered "recalled" (level 5).
-  /// Original clusters with no matching reconstruction are "missed" (level 1).
-  void _autoAssignRecallStatus(List<ContentCluster> reconstructed) {
+  /// **DUAL MATCHING** with **1:1 greedy assignment**: each reconstructed
+  /// cluster matches AT MOST ONE original cluster (the best match).
+  /// This prevents a single reconstructed cluster near two originals
+  /// from matching both.
+  ///
+  /// Matching strategies (OR):
+  ///   1. **Spatial match**: normalized centroid distance < scaled threshold
+  ///   2. **Text match**: fuzzy HTR text similarity ≥ 60%
+  ///
+  /// Edge cases handled:
+  ///   - Short substring false positives ("ot" vs "ottica"): min 3 chars
+  ///   - Accented text: normalized before comparison
+  ///   - Large zones: threshold scales with zone diagonal (15%, clamped 100-400px)
+  ///   - Student writes word twice: greedy 1:1 prevents double-claim
+  ///   - Empty HTR text: falls back to spatial-only matching
+  ///   - Cluster splits: nearest sub-cluster matches, which is acceptable
+  void _autoAssignRecallStatus(
+    List<ContentCluster> reconstructed,
+    Offset reconstructionZoneOffset,
+    Map<String, String> clusterTextMap,
+  ) {
     if (_session == null) return;
 
-    for (final entry in _session!.nodeEntries.entries) {
-      if (entry.value.peeked) continue; // Peeked stays peeked.
+    // Build text lookup for reconstructed clusters (normalized).
+    final reconTexts = <String, String>{};
+    for (final rc in reconstructed) {
+      final text = clusterTextMap[rc.id];
+      if (text != null && text.trim().isNotEmpty) {
+        reconTexts[rc.id] = _normalizeText(text);
+      }
+    }
 
-      // Check if any reconstructed cluster spatially matches.
+    // ── Compute adaptive spatial threshold ──
+    // Scale with zone size: 15% of zone diagonal, clamped [200, 400] px.
+    // 200px minimum ensures small zones still match at reasonable distance.
+    double spatialThreshold = 200.0;
+    if (_selectedZone != null) {
+      final diag = _selectedZone!.size.longestSide;
+      spatialThreshold = (diag * 0.15).clamp(200.0, 400.0);
+    }
+
+    // ── Build candidate pairs with scores ──
+    final candidates = <({String origId, String reconId, double score})>[];
+
+    for (final entry in _session!.nodeEntries.entries) {
+      if (entry.value.peeked) continue;
+
       final originalCluster = _originalClusters
           .where((c) => c.id == entry.key)
           .firstOrNull;
       if (originalCluster == null) continue;
 
-      final matched = reconstructed.any((rc) {
-        // Generous overlap: if the reconstructed cluster's center is
-        // within 200px of the original cluster's center, consider it a match.
-        final distance = (rc.centroid - originalCluster.centroid).distance;
-        return distance < 200.0;
-      });
+      final originalText = _normalizeTextFromMap(clusterTextMap, originalCluster.id);
 
-      entry.value.recallLevel =
-          matched ? RecallLevel.perfect : RecallLevel.missed;
+      for (final rc in reconstructed) {
+        // Spatial distance.
+        final normalizedCentroid = rc.centroid - reconstructionZoneOffset;
+        final distance =
+            (normalizedCentroid - originalCluster.centroid).distance;
+
+        // Text similarity (0 = identical, higher = worse).
+        double textScore = double.infinity;
+        if (originalText != null && originalText.isNotEmpty) {
+          final reconText = reconTexts[rc.id];
+          if (reconText != null &&
+              reconText.isNotEmpty &&
+              _fuzzyTextMatch(originalText, reconText)) {
+            final maxLen = originalText.length > reconText.length
+                ? originalText.length
+                : reconText.length;
+            textScore = _levenshteinDistance(originalText, reconText).toDouble()
+                / maxLen * spatialThreshold; // Normalize to comparable scale
+          }
+        }
+
+        // Best of the two scores.
+        final bestScore = distance < textScore ? distance : textScore;
+
+        // Only add if at least one strategy matches.
+        if (distance < spatialThreshold || textScore < double.infinity) {
+          candidates.add((
+            origId: originalCluster.id,
+            reconId: rc.id,
+            score: bestScore,
+          ));
+        }
+      }
     }
+
+    // ── Greedy 1:1 assignment: best matches first ──
+    candidates.sort((a, b) => a.score.compareTo(b.score));
+
+    final matchedOriginals = <String>{};
+    final matchedRecons = <String>{};
+
+    for (final c in candidates) {
+      if (matchedOriginals.contains(c.origId)) continue;
+      if (matchedRecons.contains(c.reconId)) continue;
+
+      matchedOriginals.add(c.origId);
+      matchedRecons.add(c.reconId);
+    }
+
+    // ── Apply results ──
+    for (final entry in _session!.nodeEntries.entries) {
+      if (entry.value.peeked) continue;
+      final matched = matchedOriginals.contains(entry.key);
+      entry.value.recallLevel = matched
+          ? RecallLevel.perfect
+          : RecallLevel.missed;
+    }
+  }
+
+  /// Normalize text for comparison: lowercase, strip accents, collapse whitespace.
+  static String _normalizeText(String raw) {
+    var s = raw.trim().toLowerCase();
+    // Strip common diacritics (à→a, è→e, ù→u, etc.)
+    s = s
+        .replaceAll(RegExp('[àáâãä]'), 'a')
+        .replaceAll(RegExp('[èéêë]'), 'e')
+        .replaceAll(RegExp('[ìíîï]'), 'i')
+        .replaceAll(RegExp('[òóôõö]'), 'o')
+        .replaceAll(RegExp('[ùúûü]'), 'u')
+        .replaceAll(RegExp('[ñ]'), 'n')
+        .replaceAll(RegExp('[ç]'), 'c');
+    // Collapse whitespace.
+    s = s.replaceAll(RegExp(r'\s+'), ' ');
+    return s;
+  }
+
+  /// Normalize text from a cluster text map (returns null if empty).
+  static String? _normalizeTextFromMap(Map<String, String> map, String id) {
+    final raw = map[id];
+    if (raw == null || raw.trim().isEmpty) return null;
+    return _normalizeText(raw);
+  }
+
+  /// Fuzzy text matching for handwritten recall comparison.
+  ///
+  /// Returns true if the two texts are "similar enough" — accounting for
+  /// minor HTR recognition errors and spelling differences.
+  ///
+  /// Uses a multi-strategy approach:
+  ///   1. Exact match (after normalization)
+  ///   2. One string contains the other (min 3 chars to avoid false positives)
+  ///   3. Levenshtein-like ratio ≥ 60% (fuzzy)
+  static bool _fuzzyTextMatch(String a, String b) {
+    if (a == b) return true;
+    if (a.isEmpty || b.isEmpty) return false;
+
+    // Partial containment with minimum length guard.
+    // Prevents "f" matching "f=ma" or "ot" matching "ottica".
+    final shorter = a.length <= b.length ? a : b;
+    final longer = a.length > b.length ? a : b;
+    if (shorter.length >= 3 && longer.contains(shorter)) return true;
+
+    // Levenshtein distance ratio.
+    final maxLen = a.length > b.length ? a.length : b.length;
+    if (maxLen == 0) return true;
+    final dist = _levenshteinDistance(a, b);
+    final similarity = 1.0 - (dist / maxLen);
+    return similarity >= 0.6; // 60% similarity threshold
+  }
+
+  /// Compute Levenshtein distance between two strings.
+  static int _levenshteinDistance(String s, String t) {
+    final n = s.length;
+    final m = t.length;
+    if (n == 0) return m;
+    if (m == 0) return n;
+
+    // Use two rows instead of full matrix (memory optimization).
+    var prev = List<int>.generate(m + 1, (i) => i);
+    var curr = List<int>.filled(m + 1, 0);
+
+    for (var i = 1; i <= n; i++) {
+      curr[0] = i;
+      for (var j = 1; j <= m; j++) {
+        final cost = s[i - 1] == t[j - 1] ? 0 : 1;
+        curr[j] = [
+          prev[j] + 1,      // deletion
+          curr[j - 1] + 1,  // insertion
+          prev[j - 1] + cost, // substitution
+        ].reduce((a, b) => a < b ? a : b);
+      }
+      final temp = prev;
+      prev = curr;
+      curr = temp;
+    }
+    return prev[m];
   }
 
   /// Navigate to the next gap (missed node) in comparison (P2-28).
@@ -428,7 +618,8 @@ class RecallModeController extends ChangeNotifier {
   String? navigateToNextGap() {
     final gaps = gapClusterIds;
     if (gaps.isEmpty) return null;
-
+    // Clamp first: gap list may have shrunk since last navigation.
+    _gapNavigationIndex = _gapNavigationIndex.clamp(-1, gaps.length - 1);
     _gapNavigationIndex = (_gapNavigationIndex + 1) % gaps.length;
     notifyListeners();
     return gaps[_gapNavigationIndex];
@@ -438,7 +629,8 @@ class RecallModeController extends ChangeNotifier {
   String? navigateToPreviousGap() {
     final gaps = gapClusterIds;
     if (gaps.isEmpty) return null;
-
+    // Clamp first: gap list may have shrunk since last navigation.
+    _gapNavigationIndex = _gapNavigationIndex.clamp(0, gaps.length - 1);
     _gapNavigationIndex--;
     if (_gapNavigationIndex < 0) _gapNavigationIndex = gaps.length - 1;
     notifyListeners();
@@ -567,15 +759,6 @@ class RecallModeController extends ChangeNotifier {
   // ─────────────────────────────────────────────────────────────────────────
   // SUMMARY METRICS (P2-58, P2-59)
   // ─────────────────────────────────────────────────────────────────────────
-
-  /// Summary text for the positive message (P2-58).
-  ///
-  /// "Hai ricostruito 8 nodi su 12 dalla memoria!"
-  String get summaryText {
-    final recalled = _session?.recalledCount ?? 0;
-    final total = _session?.totalOriginalNodes ?? 0;
-    return 'Hai ricostruito $recalled nodi su $total dalla memoria!';
-  }
 
   /// Delta improvement vs previous session (P2-59).
   ///

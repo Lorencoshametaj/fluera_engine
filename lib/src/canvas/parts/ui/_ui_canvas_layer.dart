@@ -164,7 +164,53 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 },
               ),
             ),
-          // 🌟 RADIAL EXPANSION: Ghost bubbles + charging pulse
+          // 🧠 RECALL NODE OVERLAYS: Canvas-space status indicators.
+          // Mounted INSIDE the Transform stack (like KnowledgeFlowPainter)
+          // so they move in perfect lock-step with strokes during zoom.
+          // ALWAYS mounted (no conditional) — paint() returns early when not
+          // comparing. Conditional mount causes _ElementLifecycle.defunct
+          // assertions when the controller notifies during tree teardown.
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _canvasController,
+              builder: (context, _) {
+                final m =
+                    Matrix4.identity()..translateByDouble(
+                      _canvasController.offset.dx,
+                      _canvasController.offset.dy,
+                      0.0, 1.0,
+                    );
+                if (_canvasController.rotation != 0.0) {
+                  m.rotateZ(_canvasController.rotation);
+                }
+                final _s = _canvasController.scale;
+                m.scaleByDouble(_s, _s, 1.0, 1.0);
+                return Transform(
+                  transform: m,
+                  child: ListenableBuilder(
+                    listenable: _recallModeController,
+                    builder: (_, __) => CustomPaint(
+                      painter: RecallNodeOverlayPainter(
+                        controller: _recallModeController,
+                        animationTime:
+                            DateTime.now().millisecondsSinceEpoch %
+                            10000 /
+                            1000.0,
+                        originalZone: _recallModeController.selectedZone,
+                        reconstructionZone: _recallReconstructionZone,
+                        showingOriginals: _recallShowingOriginals,
+                        labelOriginalZone: _l10n.recall_zoneOriginal,
+                        labelAttemptZone: _l10n.recall_zoneAttempt,
+                        labelReconstruct: _l10n.recall_reconstructFromMemory,
+                        levelLabels: _recallLevelLabels, // cached in didChangeDependencies
+                      ),
+                      size: Size.infinite,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
           // Renders AFTER knowledge flow so bubbles appear on top of connections.
           if (_radialExpansionController != null &&
               _radialExpansionController!.phase != RadialExpansionPhase.idle)

@@ -45,7 +45,7 @@ class ImageService {
       return savedPath;
     } catch (e) {
       if (context.mounted) {
-        final l10n = FlueraLocalizations.of(context);
+        final l10n = FlueraLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(l10n.proCanvas_errorLoadingImageDetail(e.toString())),

@@ -1,0 +1,22 @@
+# ninja log v5
+0	32	1776158163464049042	CMakeFiles/fluera_rnnoise.dir/rnnoise_jni.c.o	6a91bdbff3740529
+1	41	1776158163474049042	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnn.c.o	ae191c0454777175
+1	63	1776158163493049042	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_tables.c.o	4208b3cc6f618e42
+2	79	1776158163510049042	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/parse_lpcnet_weights.c.o	b3b499b7213d0225
+1	81	1776158163513049042	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/celt_lpc.c.o	ee93718dc886d38a
+1	108	1776158163541049042	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/pitch.c.o	aa4e58bb0c17b559
+1	129	1776158163561049043	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/kiss_fft.c.o	d0352621eed7c3b8
+0	149	1776158163581049043	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/denoise.c.o	6fcf62d89d6bcb2
+0	255	1776158163686049044	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet.c.o	90a4d10c067fe574
+0	348	1776158163778049045	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/nnet_default.c.o	d30576ef5f48ad4
+2	1075	1776158164503049054	CMakeFiles/fluera_vk_stroke.dir/vk_jni_bridge.cpp.o	e875d88a00c3450b
+1	2024	1776158165446049066	CMakeFiles/fluera_vk_stroke.dir/vk_stroke_renderer.cpp.o	a293c4bc43aefd4c
+2024	2054	1776158165486049066	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_vk_stroke.so	8300647f3c0a1e2a
+1	2698	1776158166119049074	CMakeFiles/fluera_rnnoise.dir/rnnoise/src/rnnoise_data_little.c.o	bc388e057c2571a0
+2698	2722	1776158166154049074	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_rnnoise.so	77ea503e3cb4fb23
+3	42	1776166307710026950	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_rnnoise.so	77ea503e3cb4fb23
+3	50	1776166307720026950	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_vk_stroke.so	8300647f3c0a1e2a
+3	35	1776166852586033601	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_rnnoise.so	77ea503e3cb4fb23
+3	39	1776166852590033601	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_vk_stroke.so	8300647f3c0a1e2a
+2	23	1776167384021040088	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_rnnoise.so	77ea503e3cb4fb23
+2	32	1776167384029040088	/home/lorenzo/development/fluera/Fluera/build/fluera_engine/intermediates/cxx/RelWithDebInfo/603g5177/obj/x86_64/libfluera_vk_stroke.so	8300647f3c0a1e2a

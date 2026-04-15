@@ -123,7 +123,22 @@ class SocraticOutputFilter {
   /// Clear the violation log (e.g. on session end).
   static void clearLog() => _violationLog.clear();
 
-  // ── Prohibited patterns (A2-04) ───────────────────────────────────────
+  // ── Cached regexes and lookup table (O13/O14 optimization) ──────────
+
+  /// Cached interrogative regex — avoids per-call compilation.
+  static final _interrogativeRegex = RegExp(
+    r"^(?:cos['\u2019]?è|com['\u2019]?è|perch[eé]|quale|quali|quando|dove|chi|"
+    r"come|cosa|how|what|why|which|where|when|who)\b",
+    caseSensitive: false,
+  );
+
+  /// Ordered checks list — avoids Map allocation on every scanQuestion call.
+  static final _orderedChecks = <(OutputViolationType, List<RegExp>)>[
+    (OutputViolationType.directAnswer, _directAnswerPatterns),
+    (OutputViolationType.definition, _definitionPatterns),
+    (OutputViolationType.explanation, _explanationPatterns),
+    (OutputViolationType.declaration, _declarationPatterns),
+  ];
 
   /// Declarative patterns: "X è Y", "X is Y" — the LLM is stating a fact.
   static final List<RegExp> _declarationPatterns = [
@@ -183,21 +198,25 @@ class SocraticOutputFilter {
       return const OutputFilterResult.clean('');
     }
 
-    // Check each pattern category in order of severity.
-    final checks = <OutputViolationType, List<RegExp>>{
-      OutputViolationType.directAnswer: _directAnswerPatterns,
-      OutputViolationType.definition: _definitionPatterns,
-      OutputViolationType.explanation: _explanationPatterns,
-      OutputViolationType.declaration: _declarationPatterns,
-    };
+    // 🛡️ Detect interrogative sentences to avoid false positives on
+    // declaration patterns. Legitimate questions like "Cos'è il vantaggio?"
+    // START with a question word. But "La fotosintesi è un processo?" is
+    // a declaration with "?" appended — it should still be flagged.
+    final isInterrogative = _interrogativeRegex.hasMatch(text);
 
-    for (final entry in checks.entries) {
-      for (final pattern in entry.value) {
+    // Check each pattern category in order of severity.
+    for (final (type, patterns) in _orderedChecks) {
+      if (isInterrogative &&
+          type == OutputViolationType.declaration) {
+        continue;
+      }
+
+      for (final pattern in patterns) {
         final match = pattern.firstMatch(text);
         if (match != null) {
           final violation = OutputFilterResult.violation(
             output: text,
-            type: entry.key,
+            type: type,
             pattern: match.group(0) ?? pattern.pattern,
           );
           _logViolation(violation);

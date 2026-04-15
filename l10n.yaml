@@ -3,5 +3,4 @@ template-arb-file: app_en.arb
 output-localization-file: fluera_localizations.g.dart
 output-class: FlueraLocalizations
 output-dir: lib/src/l10n/generated
-synthetic-package: false
 nullable-getter: true

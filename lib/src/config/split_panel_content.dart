@@ -96,7 +96,7 @@ enum SplitPanelContentType {
 
   /// Localized display name
   String getDisplayName(BuildContext context) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     switch (this) {
       case SplitPanelContentType.canvas:
         return l10n.splitPanel_infiniteCanvas;
@@ -117,7 +117,7 @@ enum SplitPanelContentType {
 
   /// Descrizione dettagliata del type of contenuto
   String getDescription(BuildContext context) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     switch (this) {
       case SplitPanelContentType.canvas:
         return l10n.splitPanel_canvasDescription;

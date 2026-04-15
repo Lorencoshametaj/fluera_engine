@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/generated/fluera_localizations.g.dart';
+
 /// 🔶 Socratic Method info screen — explains how the feature works.
 ///
 /// Material Design 3 with dark theme, staggered animations, interactive
@@ -80,6 +82,8 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
 
   @override
   Widget build(BuildContext context) {
+    // A4: Resolve L10n once per build.
+    final l10n = FlueraLocalizations.of(context)!;
     return Theme(
       data: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -97,9 +101,9 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.of(context).pop(),
               ),
-              title: const Text(
-                'Metodo Socratico',
-                style: TextStyle(fontWeight: FontWeight.w700),
+              title: Text(
+                l10n.socraticInfo_title,
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               flexibleSpace: AnimatedBuilder(
                 animation: _gradientController,
@@ -129,75 +133,67 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               sliver: SliverList.list(
                 children: [
-                  _animated(0, _heroCard()),
+                  _animated(0, _heroCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(1, _sectionTitle('Come funziona')),
+                  _animated(1, _sectionTitle(l10n.socraticInfo_howItWorks)),
                   const SizedBox(height: 8),
-                  _animated(1, _flowCard()),
+                  _animated(1, _flowCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(2, _sectionTitle('4 tipi di domande')),
+                  _animated(2, _sectionTitle(l10n.socraticInfo_questionTypes)),
                   const SizedBox(height: 8),
                   _animated(2, _questionTypeCard(
-                    emoji: '🔍', title: 'Lacuna',
-                    subtitle: 'Recall 1-2',
-                    description:
-                        'Crea un "vuoto cognitivo" che senti il bisogno di colmare. '
-                        'Ti chiede cosa COLLEGA due concetti o cosa MANCA.',
+                    emoji: '🔍', title: l10n.socraticInfo_typeLacunaTitle,
+                    subtitle: l10n.socraticInfo_typeLacunaSubtitle,
+                    description: l10n.socraticInfo_typeLacunaBody,
                     color: const Color(0xFF42A5F5),
-                    principle: 'Zeigarnik Effect + Active Recall',
+                    principle: l10n.socraticInfo_typeLacunaPrinciple,
                   )),
                   const SizedBox(height: 8),
                   _animated(3, _questionTypeCard(
-                    emoji: '⚔️', title: 'Sfida',
-                    subtitle: 'Recall 3',
-                    description:
-                        'Presenta un controesempio per metterti in crisi. '
-                        'Ti forza a DIFENDERE o RIVEDERE la tua comprensione.',
+                    emoji: '⚔️', title: l10n.socraticInfo_typeChallengeTitle,
+                    subtitle: l10n.socraticInfo_typeChallengeSubtitle,
+                    description: l10n.socraticInfo_typeChallengeBody,
                     color: const Color(0xFFFF9800),
-                    principle: 'Desirable Difficulties (Bjork)',
+                    principle: l10n.socraticInfo_typeChallengePrinciple,
                   )),
                   const SizedBox(height: 8),
                   _animated(3, _questionTypeCard(
-                    emoji: '🔬', title: 'Profondità',
-                    subtitle: 'Recall 4',
-                    description:
-                        'Ti chiede il MECCANISMO, la CAUSA, il PRINCIPIO. '
-                        'Sposta dall\'encoding superficiale a quello profondo.',
+                    emoji: '🔬', title: l10n.socraticInfo_typeDepthTitle,
+                    subtitle: l10n.socraticInfo_typeDepthSubtitle,
+                    description: l10n.socraticInfo_typeDepthBody,
                     color: const Color(0xFF66BB6A),
-                    principle: 'Levels of Processing (Craik & Lockhart)',
+                    principle: l10n.socraticInfo_typeDepthPrinciple,
                   )),
                   const SizedBox(height: 8),
                   _animated(4, _questionTypeCard(
-                    emoji: '🌉', title: 'Transfer',
-                    subtitle: 'Recall 5',
-                    description:
-                        'Analogie con ALTRE materie o applicazioni in contesti NUOVI. '
-                        'Crea ponti tra domini per consolidare la conoscenza.',
+                    emoji: '🌉', title: l10n.socraticInfo_typeTransferTitle,
+                    subtitle: l10n.socraticInfo_typeTransferSubtitle,
+                    description: l10n.socraticInfo_typeTransferBody,
                     color: const Color(0xFFAB47BC),
-                    principle: 'Transfer Learning + Interleaving',
+                    principle: l10n.socraticInfo_typeTransferPrinciple,
                   )),
                   const SizedBox(height: 16),
 
-                  _animated(5, _sectionTitle('Prova la Confidenza')),
+                  _animated(5, _sectionTitle(l10n.socraticInfo_tryConfidence)),
                   const SizedBox(height: 8),
                   _animated(5, const _ConfidenceDemo()),
                   const SizedBox(height: 16),
 
-                  _animated(6, _sectionTitle('3 Indizi Progressivi')),
+                  _animated(6, _sectionTitle(l10n.socraticInfo_breadcrumbSection)),
                   const SizedBox(height: 8),
-                  _animated(6, _breadcrumbCard()),
+                  _animated(6, _breadcrumbCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(7, _sectionTitle('Ripetizione Spaziata (FSRS)')),
+                  _animated(7, _sectionTitle(l10n.socraticInfo_spacedRepetition)),
                   const SizedBox(height: 8),
-                  _animated(7, _fsrsCard()),
+                  _animated(7, _fsrsCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(8, _sectionTitle('Matrice di Feedback')),
+                  _animated(8, _sectionTitle(l10n.socraticInfo_feedbackMatrix)),
                   const SizedBox(height: 8),
-                  _animated(8, _feedbackMatrixCard()),
+                  _animated(8, _feedbackMatrixCard(l10n)),
                   const SizedBox(height: 24),
 
                   // CTA
@@ -207,8 +203,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
                   // Footer
                   Center(
                     child: Text(
-                      'Basato su ricerche di Butterfield & Metcalfe (2001),\n'
-                      'Bjork (1994), Craik & Lockhart (1972), Vygotsky (1978)',
+                      l10n.socraticInfo_references,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.3),
@@ -231,7 +226,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
   // WIDGETS
   // ════════════════════════════════════════════════════════════════════════
 
-  Widget _heroCard() {
+  Widget _heroCard(FlueraLocalizations l10n) {
     return Card(
       color: const Color(0xFF1A1A2E),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -240,14 +235,14 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Text('🔶', style: TextStyle(fontSize: 28)),
-                SizedBox(width: 12),
+                const Text('🔶', style: TextStyle(fontSize: 28)),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'L\'Interrogazione Socratica',
-                    style: TextStyle(
+                    l10n.socraticInfo_heroTitle,
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
                       color: Color(0xFFFFB300),
@@ -258,9 +253,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'Fluera analizza i tuoi appunti manoscritti e genera domande '
-              'calibrate sulla tua zona di sviluppo prossimale (ZPD). '
-              'Non ti dice le risposte — ti guida a trovarle da solo.',
+              l10n.socraticInfo_heroBody,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 14,
@@ -284,8 +277,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Il valore cognitivo sta nel TENTATIVO di retrieval, '
-                      'non nella risposta.',
+                      l10n.socraticInfo_whyItWorks,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.6),
                         fontSize: 12,
@@ -316,7 +308,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
     );
   }
 
-  Widget _flowCard() {
+  Widget _flowCard(FlueraLocalizations l10n) {
     return Card(
       color: const Color(0xFF1A1A2E),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -324,25 +316,19 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _flowStep('1', '✍️', 'Scrivi', 'Prendi appunti a mano sul canvas'),
+            _flowStep('1', '✍️', l10n.socraticInfo_flowStep1Title, l10n.socraticInfo_flowStep1Body),
             _flowDivider(),
-            _flowStep('2', '🤖', 'Analisi',
-                'Fluera riconosce il testo (OCR) e identifica la materia'),
+            _flowStep('2', '🤖', l10n.socraticInfo_flowStep2Title, l10n.socraticInfo_flowStep2Body),
             _flowDivider(),
-            _flowStep('3', '🔶', 'Domanda',
-                'Appare una bolla con la domanda socratica'),
+            _flowStep('3', '🔶', l10n.socraticInfo_flowStep3Title, l10n.socraticInfo_flowStep3Body),
             _flowDivider(),
-            _flowStep('4', '🎯', 'Confidenza',
-                'Dichiari quanto sei sicuro (1-5)'),
+            _flowStep('4', '🎯', l10n.socraticInfo_flowStep4Title, l10n.socraticInfo_flowStep4Body),
             _flowDivider(),
-            _flowStep(
-                '5', '🧠', 'Retrieval', 'Pensi alla risposta mentalmente'),
+            _flowStep('5', '🧠', l10n.socraticInfo_flowStep5Title, l10n.socraticInfo_flowStep5Body),
             _flowDivider(),
-            _flowStep('6', '✅', 'Auto-valutazione',
-                'Dichiari se sapevi o non sapevi'),
+            _flowStep('6', '✅', l10n.socraticInfo_flowStep6Title, l10n.socraticInfo_flowStep6Body),
             _flowDivider(),
-            _flowStep('7', '📊', 'Feedback',
-                'Insight personalizzato + FSRS aggiornato'),
+            _flowStep('7', '📊', l10n.socraticInfo_flowStep7Title, l10n.socraticInfo_flowStep7Body),
           ],
         ),
       ),
@@ -487,7 +473,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
 
   // Confidence demo is now a separate widget (_ConfidenceDemo) below.
 
-  Widget _breadcrumbCard() {
+  Widget _breadcrumbCard(FlueraLocalizations l10n) {
     return Card(
       color: const Color(0xFF1A1A2E),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -497,8 +483,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Se non riesci, puoi chiedere fino a 3 indizi progressivi '
-              '(scaffolding di Vygotsky):',
+              l10n.socraticInfo_breadcrumbIntro,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -507,25 +492,25 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
             ),
             const SizedBox(height: 12),
             _breadcrumbRow(
-              '1', '🌫️ L\'Eco Lontano',
-              'Direzione vaga — attiva il priming semantico',
+              '1', l10n.socraticInfo_breadcrumb1Title,
+              l10n.socraticInfo_breadcrumb1Body,
               const Color(0xFF78909C),
             ),
             const SizedBox(height: 8),
             _breadcrumbRow(
-              '2', '🛤️ Il Sentiero',
-              'Circoscrive il dominio — riduce lo spazio di ricerca',
+              '2', l10n.socraticInfo_breadcrumb2Title,
+              l10n.socraticInfo_breadcrumb2Body,
               const Color(0xFFFFB300),
             ),
             const SizedBox(height: 8),
             _breadcrumbRow(
-              '3', '🚪 La Soglia',
-              'Ultimo scaffolding — la risposta è a un passo',
+              '3', l10n.socraticInfo_breadcrumb3Title,
+              l10n.socraticInfo_breadcrumb3Body,
               const Color(0xFF66BB6A),
             ),
             const SizedBox(height: 12),
             Text(
-              'La risposta non viene MAI rivelata — nemmeno al livello 3.',
+              l10n.socraticInfo_breadcrumbNote,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.4),
                 fontSize: 11,
@@ -574,7 +559,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
     );
   }
 
-  Widget _fsrsCard() {
+  Widget _fsrsCard(FlueraLocalizations l10n) {
     return Card(
       color: const Color(0xFF1A1A2E),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -589,7 +574,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
                     size: 20, color: Color(0xFF42A5F5)),
                 const SizedBox(width: 8),
                 Text(
-                  'Ogni risultato viene salvato',
+                  l10n.socraticInfo_fsrsIntro,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 14,
@@ -599,16 +584,16 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
               ],
             ),
             const SizedBox(height: 12),
-            _fsrsRow('✅', 'Corretto', 'Intervallo si allunga',
+            _fsrsRow('✅', l10n.socraticInfo_fsrsCorrect, l10n.socraticInfo_fsrsCorrectEffect,
                 const Color(0xFF66BB6A)),
             const SizedBox(height: 6),
-            _fsrsRow('❌', 'Errore', 'Intervallo si accorcia',
+            _fsrsRow('❌', l10n.socraticInfo_fsrsWrong, l10n.socraticInfo_fsrsWrongEffect,
                 const Color(0xFFEF5350)),
             const SizedBox(height: 6),
-            _fsrsRow('⚡', 'Ipercorrezione', 'Penalità ridotta (shock = apprendimento)',
+            _fsrsRow('⚡', l10n.socraticInfo_fsrsHyper, l10n.socraticInfo_fsrsHyperEffect,
                 const Color(0xFFFF9800)),
             const SizedBox(height: 6),
-            _fsrsRow('💪', 'Alta conf. + corretto', 'Bonus intervallo (+30%)',
+            _fsrsRow('💪', l10n.socraticInfo_fsrsHighConf, l10n.socraticInfo_fsrsHighConfEffect,
                 const Color(0xFF42A5F5)),
           ],
         ),
@@ -632,7 +617,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
     );
   }
 
-  Widget _feedbackMatrixCard() {
+  Widget _feedbackMatrixCard(FlueraLocalizations l10n) {
     return Card(
       color: const Color(0xFF1A1A2E),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -642,24 +627,24 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Il feedback cambia in base a confidenza × correttezza:',
+              l10n.socraticInfo_matrixIntro,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
               ),
             ),
             const SizedBox(height: 12),
-            _matrixRow('💪', 'Sapevo + Alta conf.',
-                'Solido! Il ricordo è stabile.', const Color(0xFF66BB6A)),
+            _matrixRow('💪', l10n.socraticInfo_matrixSolid,
+                l10n.socraticInfo_matrixSolidMsg, const Color(0xFF66BB6A)),
             const SizedBox(height: 8),
-            _matrixRow('🎯', 'Sapevo + Bassa conf.',
-                'Sapevi più di quanto pensassi!', const Color(0xFF4CAF50)),
+            _matrixRow('🎯', l10n.socraticInfo_matrixSurprise,
+                l10n.socraticInfo_matrixSurpriseMsg, const Color(0xFF4CAF50)),
             const SizedBox(height: 8),
-            _matrixRow('📌', 'Non sapevo + Bassa conf.',
-                'Lacuna nota — è già consapevolezza.', const Color(0xFFFFB300)),
+            _matrixRow('📌', l10n.socraticInfo_matrixGap,
+                l10n.socraticInfo_matrixGapMsg, const Color(0xFFFFB300)),
             const SizedBox(height: 8),
-            _matrixRow('⚡', 'Non sapevo + Alta conf.',
-                'IPERCORREZIONE — vale doppio!', const Color(0xFFEF5350)),
+            _matrixRow('⚡', l10n.socraticInfo_matrixHyper,
+                l10n.socraticInfo_matrixHyperMsg, const Color(0xFFEF5350)),
           ],
         ),
       ),
@@ -704,7 +689,7 @@ class _SocraticInfoScreenState extends State<SocraticInfoScreen>
     return FilledButton.icon(
       onPressed: () => Navigator.of(context).pop(),
       icon: const Icon(Icons.arrow_back),
-      label: const Text('Torna al canvas e provalo!'),
+      label: Text(FlueraLocalizations.of(context)?.socraticInfo_ctaButton ?? 'Torna al canvas e provalo!'),
       style: FilledButton.styleFrom(
         backgroundColor: const Color(0xFFFFB300),
         foregroundColor: const Color(0xFF0A0A1A),
@@ -747,6 +732,7 @@ class _ConfidenceDemoState extends State<_ConfidenceDemo> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     return Card(
       color: const Color(0xFF1A1A2E),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -756,7 +742,7 @@ class _ConfidenceDemoState extends State<_ConfidenceDemo> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Tocca i cerchi per sentire la vibrazione progressiva:',
+              l10n.socraticInfo_confidencePromptDemo,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -838,7 +824,7 @@ class _ConfidenceDemoState extends State<_ConfidenceDemo> {
                           Expanded(
                             child: Text(
                               '${_labels[_selected]} — vibrazione '
-                              '${_selected >= 4 ? 'forte perché dichiari alta sicurezza' : _selected == 3 ? 'media — zona incerta' : 'leggera — sai di non sapere'}',
+                              '${_selected >= 4 ? l10n.socraticInfo_confidenceHigh : _selected == 3 ? l10n.socraticInfo_confidenceMedium : l10n.socraticInfo_confidenceLow}',
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.6),
                                 fontSize: 12,
@@ -866,8 +852,7 @@ class _ConfidenceDemoState extends State<_ConfidenceDemo> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Gli errori ad alta confidenza (⚡ ipercorrezione) '
-                      'producono le correzioni più DURATURE.',
+                      l10n.socraticInfo_hypercorrectionNote,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.6),
                         fontSize: 12,

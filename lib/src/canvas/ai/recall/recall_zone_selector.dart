@@ -20,6 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../reflow/content_cluster.dart';
+import '../../../l10n/generated/fluera_localizations.g.dart';
+import '../../infinite_canvas_controller.dart';
 import 'recall_session_model.dart';
 
 /// 📐 Zone selector overlay for recall mode activation.
@@ -31,7 +33,7 @@ class RecallZoneSelector extends StatefulWidget {
   final List<ContentCluster> allClusters;
 
   /// Canvas controller for coordinate transforms.
-  final dynamic canvasController;
+  final InfiniteCanvasController? canvasController;
 
   /// Called when a zone is selected and mode is chosen.
   final void Function(Rect zone, RecallPhase mode) onZoneSelected;
@@ -91,6 +93,7 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     return FadeTransition(
       opacity: _fadeAnim,
       child: Stack(
@@ -147,9 +150,9 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        '📐 Seleziona la zona da ricostruire',
-                        style: TextStyle(
+                      Text(
+                        l10n.recall_selectZone,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
@@ -186,9 +189,9 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                                 ),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Text(
-                                'Seleziona tutto',
-                                style: TextStyle(
+                              child: Text(
+                                l10n.recall_selectAll,
+                                style: const TextStyle(
                                   color: Color(0xFF6C63FF),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -251,34 +254,29 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
     if (controller == null) return const [];
 
     return widget.allClusters.map((cluster) {
-      try {
-        final screenPos =
-            (controller as dynamic).canvasToScreen(cluster.centroid) as Offset;
-        final scale = (controller as dynamic).scale as double;
-        final w = (cluster.bounds.width * scale).clamp(16.0, 200.0);
-        final h = (cluster.bounds.height * scale).clamp(12.0, 150.0);
+      final screenPos = controller.canvasToScreen(cluster.centroid);
+      final scale = controller.scale;
+      final w = (cluster.bounds.width * scale).clamp(16.0, 200.0);
+      final h = (cluster.bounds.height * scale).clamp(12.0, 150.0);
 
-        return Positioned(
-          left: screenPos.dx - w / 2,
-          top: screenPos.dy - h / 2,
-          child: IgnorePointer(
-            child: Container(
-              width: w,
-              height: h,
-              decoration: BoxDecoration(
-                color: const Color(0xFF6C63FF).withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: const Color(0xFF6C63FF).withValues(alpha: 0.20),
-                  width: 1.0,
-                ),
+      return Positioned(
+        left: screenPos.dx - w / 2,
+        top: screenPos.dy - h / 2,
+        child: IgnorePointer(
+          child: Container(
+            width: w,
+            height: h,
+            decoration: BoxDecoration(
+              color: const Color(0xFF6C63FF).withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.20),
+                width: 1.0,
               ),
             ),
           ),
-        );
-      } catch (_) {
-        return const SizedBox.shrink();
-      }
+        ),
+      );
     }).toList();
   }
 
@@ -318,50 +316,32 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
     final controller = widget.canvasController;
     if (controller == null) return;
 
-    try {
-      // Convert screen rect to canvas coordinates.
-      final canvasStart =
-          (controller as dynamic).screenToCanvas(_dragStart!) as Offset;
-      final canvasEnd =
-          (controller as dynamic).screenToCanvas(_dragCurrent!) as Offset;
+    // Convert screen rect to canvas coordinates.
+    final canvasStart = controller.screenToCanvas(_dragStart!);
+    final canvasEnd = controller.screenToCanvas(_dragCurrent!);
 
-      final zone = Rect.fromPoints(canvasStart, canvasEnd);
-      if (zone.width < 30 || zone.height < 30) {
-        // Too small — reset.
-        setState(() {
-          _dragStart = null;
-          _dragCurrent = null;
-        });
-        return;
-      }
-
-      // Count clusters in zone.
-      debugPrint('🔍 Zone selector: zone=$zone (${zone.width.toInt()}x${zone.height.toInt()})');
-      debugPrint('🔍 Total clusters: ${widget.allClusters.length}');
-      for (final c in widget.allClusters) {
-        final overlaps = zone.overlaps(c.bounds);
-        final contains = zone.contains(c.centroid);
-        debugPrint('  📦 ${c.id.substring(0, 8)} bounds=${c.bounds} '
-            'centroid=${c.centroid} overlaps=$overlaps contains=$contains');
-      }
-      final count = widget.allClusters
-          .where((c) => zone.overlaps(c.bounds) || zone.contains(c.centroid))
-          .length;
-      debugPrint('🔍 Matched: $count clusters');
-
-      HapticFeedback.mediumImpact();
-      setState(() {
-        _selectedZone = zone;
-        _clustersInZone = count;
-        _dragStart = null;
-        _dragCurrent = null;
-      });
-    } catch (_) {
+    final zone = Rect.fromPoints(canvasStart, canvasEnd);
+    if (zone.width < 30 || zone.height < 30) {
+      // Too small — reset.
       setState(() {
         _dragStart = null;
         _dragCurrent = null;
       });
+      return;
     }
+
+    // Count clusters in zone.
+    final count = widget.allClusters
+        .where((c) => zone.overlaps(c.bounds) || zone.contains(c.centroid))
+        .length;
+
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _selectedZone = zone;
+      _clustersInZone = count;
+      _dragStart = null;
+      _dragCurrent = null;
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -369,6 +349,7 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildConfirmationCard() {
+    final l10n = FlueraLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -391,7 +372,7 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
         children: [
           // Zone info.
           Text(
-            '$_clustersInZone nodi nella zona selezionata',
+            l10n.recall_nodesInZone(_clustersInZone),
             style: const TextStyle(
               color: Colors.white,
               fontSize: 14,
@@ -406,14 +387,14 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _modePill(
-                '🧠 Free Recall',
-                'Tela vuota',
+                l10n.recall_modeFree,
+                l10n.recall_modeDescFree,
                 RecallPhase.freeRecall,
               ),
               const SizedBox(width: 10),
               _modePill(
-                '📍 Spatial Recall',
-                'Sagome visibili',
+                l10n.recall_modeSpatial,
+                l10n.recall_modeDescSpatial,
                 RecallPhase.spatialRecall,
               ),
             ],
@@ -436,10 +417,10 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                       color: Colors.white.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
-                      'Annulla',
+                    child: Text(
+                      l10n.cancel,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white54,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
@@ -453,11 +434,13 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                 flex: 2,
                 child: GestureDetector(
                   onTap: () {
-                    if (_selectedZone == null || _clustersInZone == 0) return;
+                    if (_selectedZone == null || _clustersInZone < 5) return;
                     HapticFeedback.heavyImpact();
                     widget.onZoneSelected(_selectedZone!, _selectedMode);
                   },
-                  child: Container(
+                  child: Opacity(
+                    opacity: _clustersInZone >= 5 ? 1.0 : 0.4,
+                    child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
@@ -473,10 +456,10 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                         ),
                       ],
                     ),
-                    child: const Text(
-                      '🚀 Inizia ricostruzione',
+                    child: Text(
+                      '🚀 ${l10n.recall_startReconstruction}',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -485,14 +468,17 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                   ),
                 ),
               ),
+              ),
             ],
           ),
 
-          // Warning if no clusters.
-          if (_clustersInZone == 0) ...[
+          // Warning if not enough clusters.
+          if (_clustersInZone < 5) ...[
             const SizedBox(height: 8),
             Text(
-              'Nessun contenuto in questa zona',
+              _clustersInZone == 0
+                  ? l10n.recall_noContent
+                  : l10n.recall_notEnoughNodes(_clustersInZone),
               style: TextStyle(
                 color: const Color(0xFFFF9500).withValues(alpha: 0.7),
                 fontSize: 11,
@@ -596,6 +582,7 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
   // ─────────────────────────────────────────────────────────────────────────
 
   void _showModeInfo(BuildContext context, RecallPhase mode) {
+    final l10n = FlueraLocalizations.of(context)!;
     final isFree = mode == RecallPhase.freeRecall;
 
     showModalBottomSheet(
@@ -629,7 +616,9 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
 
                 // Title.
                 Text(
-                  isFree ? '🧠 Free Recall' : '📍 Spatial Recall',
+                  isFree
+                      ? l10n.recall_modeFree
+                      : l10n.recall_modeSpatial,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -651,7 +640,7 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    isFree ? 'Difficoltà alta' : 'Difficoltà media',
+                    isFree ? l10n.recall_difficultyHigh : l10n.recall_difficultyMedium,
                     style: TextStyle(
                       color: isFree
                           ? const Color(0xFFFF9500)
@@ -678,7 +667,7 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isFree ? 'Come funziona:' : 'Come funziona:',
+                        l10n.recall_howItWorks,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.7),
                           fontSize: 12,
@@ -689,25 +678,25 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                       _infoRow(
                         isFree ? '📝' : '🔵',
                         isFree
-                            ? 'Il canvas diventa completamente vuoto — nessun indizio visivo.'
-                            : 'Le posizioni dei nodi appaiono come sagome colorate sfocate.',
+                            ? l10n.recall_infoFreeBlank
+                            : l10n.recall_infoSpatialBlobs,
                       ),
                       const SizedBox(height: 6),
                       _infoRow(
                         '✍️',
-                        'Riscrivi il contenuto dalla memoria, nella posizione che ricordi.',
+                        l10n.recall_infoRewrite,
                       ),
                       const SizedBox(height: 6),
                       _infoRow(
                         isFree ? '💡' : '👁',
                         isFree
-                            ? 'Puoi passare a Spatial Recall in qualsiasi momento premendo "Indizi".'
-                            : 'Puoi sbirciare un nodo con un long-press (tempo progressivamente più breve).',
+                            ? l10n.recall_infoSwitchHint
+                            : l10n.recall_infoPeekHint,
                       ),
                       const SizedBox(height: 6),
                       _infoRow(
                         '🔍',
-                        'Al termine, vedrai un confronto visivo tra originale e ricostruzione.',
+                        l10n.recall_infoComparisonEnd,
                       ),
                     ],
                   ),
@@ -738,14 +727,8 @@ class _RecallZoneSelectorState extends State<RecallZoneSelector>
                       Expanded(
                         child: Text(
                           isFree
-                              ? 'Il Free Recall è la tecnica di memoria più potente. '
-                                'Tentare di ricordare senza indizi crea "difficoltà desiderabili" '
-                                'che rafforzano le connessioni neurali fino a 3× di più rispetto '
-                                'alla semplice rilettura.'
-                              : 'Lo Spatial Recall sfrutta la memoria spaziale: il cervello '
-                                'ricorda meglio le informazioni quando può associarle a una '
-                                'posizione fisica. Le sagome ti danno un ancoraggio visivo '
-                                'senza rivelare il contenuto.',
+                              ? l10n.recall_infoFreeExplanation
+                              : l10n.recall_infoSpatialExplanation,
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.55),
                             fontSize: 11,

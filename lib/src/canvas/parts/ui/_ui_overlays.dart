@@ -2470,6 +2470,21 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                         showRecallZoneSelector();
                         HapticFeedback.mediumImpact();
                         break;
+                      case RadialToolItem.layers:
+                        _layerPanelKey.currentState?.togglePanel();
+                        HapticFeedback.selectionClick();
+                        break;
+                      case RadialToolItem.eraserToggle:
+                        // Enable eraser mode and toggle between whole/partial
+                        if (!_toolController.isErasing) {
+                          _toolController.setEraserMode(true);
+                        } else {
+                          _eraserTool.eraseWholeStroke =
+                              !_eraserTool.eraseWholeStroke;
+                        }
+                        HapticFeedback.mediumImpact();
+                        setState(() {});
+                        break;
                     }
                   }
                   break;

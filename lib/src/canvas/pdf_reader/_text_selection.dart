@@ -85,8 +85,10 @@ extension _PdfTextSelectionMethods on _PdfReaderScreenState {
   }
 
   /// Handle long-press start in text selection mode.
+  ///
+  /// Word-level snap: expands the initial selection to cover the entire word
+  /// under the touch point (bounded by whitespace / punctuation).
   void _onTextSelectStart(int pageIndex, Offset localPos, Size pageDisplaySize) {
-    // Convert to normalized 0-1 coordinates
     final normX = localPos.dx / pageDisplaySize.width;
     final normY = localPos.dy / pageDisplaySize.height;
     final normPos = Offset(normX, normY);
@@ -98,16 +100,39 @@ extension _PdfTextSelectionMethods on _PdfReaderScreenState {
         setState(_clearTextSelection);
         return;
       }
+
+      // Word-level snap: expand selection to word boundaries
+      int wordStart = idx;
+      int wordEnd = idx;
+      while (wordStart > 0 && _isSameWord(rects[wordStart - 1], rects[wordStart])) {
+        wordStart--;
+      }
+      while (wordEnd < rects.length - 1 && _isSameWord(rects[wordEnd], rects[wordEnd + 1])) {
+        wordEnd++;
+      }
+
       setState(() {
         _selPageIdx = pageIndex;
         _selAnchor = idx;
-        _selStartIdx = idx;
-        _selEndIdx = idx;
-        _selSpans = [rects[idx]];
+        _selStartIdx = wordStart;
+        _selEndIdx = wordEnd;
+        _selSpans = rects.sublist(wordStart, wordEnd + 1);
       });
       _textOverlayRepaint.value++;
       HapticFeedback.selectionClick();
     });
+  }
+
+  /// Returns true if two adjacent rects belong to the same word
+  /// (same line, no whitespace between them).
+  bool _isSameWord(PdfTextRect a, PdfTextRect b) {
+    // Different lines → not same word
+    final lineH = a.rect.height;
+    if ((b.rect.top - a.rect.top).abs() > lineH * 0.5) return false;
+    // If either ends/starts with whitespace → word boundary
+    if (a.text.endsWith(' ') || a.text.endsWith('\n')) return false;
+    if (b.text.startsWith(' ') || b.text.startsWith('\n')) return false;
+    return true;
   }
 
   /// Handle drag update in text selection mode.
@@ -129,13 +154,13 @@ extension _PdfTextSelectionMethods on _PdfReaderScreenState {
       _selEndIdx = endIdx;
       _selSpans = rects.sublist(startIdx, endIdx + 1);
       _textOverlayRepaint.value++;
+      HapticFeedback.selectionClick();
     }
   }
 
   /// Handle release in text selection mode.
   void _onTextSelectEnd() {
     if (_selSpans.isNotEmpty) {
-      // Show copy context action
       HapticFeedback.lightImpact();
     }
   }
@@ -180,6 +205,87 @@ extension _PdfTextSelectionMethods on _PdfReaderScreenState {
       buf.write(_selSpans[i].text);
     }
     return buf.toString();
+  }
+
+  /// 🖍️ Create a permanent highlighter annotation over the selected text.
+  ///
+  /// Converts each selected PdfTextRect into a flat ProStroke rectangle
+  /// using the highlighter pen type with semi-transparent color.
+  void _highlightSelectedText() {
+    if (_selSpans.isEmpty || _selPageIdx < 0) return;
+    final pageIndex = _selPageIdx;
+    final page = widget.documentModel.pages[pageIndex];
+    final pageW = page.originalSize.width;
+    final pageH = page.originalSize.height;
+    final highlightColor = const Color(0x66FFEB3B); // semi-transparent yellow
+
+    // Group spans by line (same vertical position) to create one stroke per line
+    final lineGroups = <double, List<PdfTextRect>>{};
+    for (final span in _selSpans) {
+      // Quantize top to line groups (within 0.5% tolerance)
+      final lineKey = (span.rect.top * 200).roundToDouble() / 200;
+      lineGroups.putIfAbsent(lineKey, () => []).add(span);
+    }
+
+    final newStrokes = <ProStroke>[];
+    for (final line in lineGroups.values) {
+      // Compute bounding rect for this line group
+      double left = double.infinity, right = 0, top = double.infinity, bottom = 0;
+      for (final span in line) {
+        if (span.rect.left < left) left = span.rect.left;
+        if (span.rect.right > right) right = span.rect.right;
+        if (span.rect.top < top) top = span.rect.top;
+        if (span.rect.bottom > bottom) bottom = span.rect.bottom;
+      }
+
+      // Convert normalized 0-1 to page coordinates
+      final x1 = left * pageW;
+      final x2 = right * pageW;
+      final midY = (top + bottom) / 2 * pageH;
+      final strokeH = (bottom - top) * pageH;
+
+      // Create a horizontal line stroke through the middle of the text
+      final points = [
+        ProDrawingPoint(position: Offset(x1, midY), pressure: 0.5),
+        ProDrawingPoint(position: Offset(x2, midY), pressure: 0.5),
+      ];
+
+      newStrokes.add(ProStroke(
+        id: 'pdf_hl_${widget.documentId}_p${pageIndex}_${DateTime.now().millisecondsSinceEpoch}_${newStrokes.length}',
+        points: points,
+        color: highlightColor,
+        baseWidth: strokeH * 0.9,
+        penType: ProPenType.highlighter,
+        createdAt: DateTime.now(),
+      ));
+    }
+
+    if (newStrokes.isNotEmpty) {
+      setState(() {
+        final existing = _pageStrokes[pageIndex] ?? const [];
+        _pageStrokes[pageIndex] = [...existing, ...newStrokes];
+      });
+      _clearTextSelection();
+      HapticFeedback.mediumImpact();
+    }
+  }
+
+  /// 📤 Share selected text via the system share sheet.
+  void _shareSelectedText() {
+    final text = _selectedText;
+    if (text.isEmpty) return;
+    // Use Clipboard as a fallback since Share requires platform plugins
+    Clipboard.setData(ClipboardData(text: text));
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Copied — ready to share'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: const Color(0xFF2A2A4A),
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -254,6 +360,8 @@ extension _PdfTextSelectionMethods on _PdfReaderScreenState {
           mainAxisSize: MainAxisSize.min,
           children: [
             _ctxButton('Copy', Icons.copy_rounded, _copySelectedText),
+            _ctxButton('Highlight', Icons.highlight_rounded, _highlightSelectedText),
+            _ctxButton('Share', Icons.share_rounded, _shareSelectedText),
             _ctxButton('All', Icons.select_all_rounded, () {
               final rects = _pageTextRects[_selPageIdx];
               if (rects == null || rects.isEmpty) return;

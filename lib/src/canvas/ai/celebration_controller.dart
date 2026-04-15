@@ -137,9 +137,14 @@ class CelebrationController extends ChangeNotifier {
   ///
   /// Fires [CelebrationType.recallPerfect] when all ≥5 nodes were recalled.
   /// Fires [CelebrationType.firstRecall] on the very first successful recall.
+  ///
+  /// [solidMessage] and [firstRecallMessage] allow the caller to provide
+  /// localized strings via FlueraLocalizations (the controller has no context).
   void onRecallSessionComplete({
     required int remembered,
     required int total,
+    String? solidMessage,
+    String? firstRecallMessage,
   }) {
     if (!_hasEverRecalled && remembered > 0) {
       _hasEverRecalled = true;
@@ -147,7 +152,7 @@ class CelebrationController extends ChangeNotifier {
         type: CelebrationType.firstRecall,
         durationMs: 2000,
         color: const Color(0xFFFFA726), // Warm amber
-        message: 'Il primo ricordo è il più importante.',
+        message: firstRecallMessage ?? 'Il primo ricordo è il più importante.',
       ));
       return;
     }
@@ -157,7 +162,7 @@ class CelebrationController extends ChangeNotifier {
         type: CelebrationType.recallPerfect,
         durationMs: 1500,
         color: const Color(0xFF66BB6A), // Soft green
-        message: 'Solido.',
+        message: solidMessage ?? 'Solido.',
       ));
     }
   }

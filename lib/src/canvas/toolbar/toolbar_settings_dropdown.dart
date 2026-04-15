@@ -45,7 +45,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return PopupMenuButton<String>(
       icon: Icon(Icons.edit_note_rounded, color: cs.onSurface, size: 20),
       tooltip: l10n.proCanvas_writing,
@@ -340,7 +340,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
 
   void _showRenameNoteDialog(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     final TextEditingController controller = TextEditingController(
       text: widget.noteTitle ?? '',
     );
@@ -450,7 +450,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
 
   void _showFiltersDialog(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(l10n.toolbarAIFilters),
@@ -469,7 +469,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
 
   void _showOCRLanguageDialog(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
 
     showDialog(
       context: context,
@@ -644,7 +644,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
     required bool isDownloaded,
   }) {
     final cs = Theme.of(context).colorScheme;
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -724,7 +724,7 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
     String code,
     String language,
   ) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     showDialog(
       context: context,
       barrierDismissible: false,

@@ -10,6 +10,8 @@
 // Follows the same ChangeNotifier pattern as ExamSessionController.
 // ============================================================================
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../ai/ai_provider.dart';
@@ -28,6 +30,9 @@ import 'ghost_map_model.dart';
 /// 4. [dismiss] — Closes overlay, shows summary
 class GhostMapController extends ChangeNotifier {
   final AiProvider _provider;
+
+  /// O-10: Pre-compiled whitespace splitter — avoids RegExp recompilation per attempt.
+  static final RegExp _whitespace = RegExp(r'\s+');
 
   /// L10n instance injected from the widget layer.
   /// Updated via setter in didChangeDependencies.
@@ -143,6 +148,7 @@ class GhostMapController extends ChangeNotifier {
   void _invalidateCaches() {
     _cachedSummary = null;
     _visibleMissingIdsCache = null;
+    _activeNodesCache = null; // O-11
   }
 
   // ─── O-3: Visible missing IDs cache ───────────────────────────────────
@@ -280,6 +286,7 @@ class GhostMapController extends ChangeNotifier {
       GhostMapResult? apiResult;
       for (int attempt = 0; attempt < 2; attempt++) {
         try {
+          // O-13: 30s timeout prevents infinite loading if API hangs.
           apiResult = await gemini.generateGhostMap(
             clusterTexts: clusterTexts,
             clusterTitles: clusterTitles,
@@ -287,6 +294,11 @@ class GhostMapController extends ChangeNotifier {
             clusterSizes: clusterSizes,
             existingConnections: connMaps,
             socraticContext: socraticContext,
+          ).timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => throw TimeoutException(
+              'Ghost Map generation timed out after 30s',
+            ),
           );
           break; // Success — exit retry loop
         } catch (e) {
@@ -388,12 +400,12 @@ class GhostMapController extends ChangeNotifier {
     if (node != null) {
       final conceptWords = node.concept
           .toLowerCase()
-          .split(RegExp(r'\s+'))
+          .split(_whitespace) // O-10: static RegExp
           .where((w) => w.length > 3)
           .toSet();
       final userWords = userText
           .toLowerCase()
-          .split(RegExp(r'\s+'))
+          .split(_whitespace) // O-10: static RegExp
           .where((w) => w.length > 3)
           .toSet();
 
@@ -560,9 +572,14 @@ class GhostMapController extends ChangeNotifier {
   // Fix #15: Return unmodifiable set to prevent external mutation.
   Set<String> get dismissedNodeIds => Set.unmodifiable(_dismissedNodeIds);
 
+  // ─── O-11: Cached active nodes list ────────────────────────────────────
+  List<GhostNode>? _activeNodesCache;
+
   /// Active ghost nodes (excluding dismissed ones).
+  /// O-11: Cached — avoids re-filtering on every navigation/label call.
   List<GhostNode> get activeNodes =>
-      _result?.nodes.where((n) => !_dismissedNodeIds.contains(n.id)).toList() ?? [];
+      _activeNodesCache ??=
+          _result?.nodes.where((n) => !_dismissedNodeIds.contains(n.id)).toList() ?? [];
 
   // ───────────────────────────────────────────────────────────────────────────
   // P4-31/32: Progressive Chunking

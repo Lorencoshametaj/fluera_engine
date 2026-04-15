@@ -174,7 +174,7 @@ class UnifiedToolController extends ChangeNotifier {
 
   /// 🔮 Ink prediction mode — when enabled, freehand strokes are sent
   /// incrementally to MyScript for real-time word autocomplete.
-  bool _inkPredictionEnabled = true;
+  bool _inkPredictionEnabled = false; // v1: off by default — pure generation mode
   bool get inkPredictionEnabled => _inkPredictionEnabled;
 
   /// 🔀 Multi-stroke buffer — accumulates recent unrecognized strokes
@@ -516,7 +516,7 @@ class UnifiedToolController extends ChangeNotifier {
           ShapeRecognitionSensitivity.values.length - 1,
         )];
     _ghostSuggestionMode = json['ghostSuggestionMode'] ?? false;
-    _inkPredictionEnabled = json['inkPredictionEnabled'] ?? true;
+    _inkPredictionEnabled = json['inkPredictionEnabled'] ?? false;
     notifyListeners();
   }
 

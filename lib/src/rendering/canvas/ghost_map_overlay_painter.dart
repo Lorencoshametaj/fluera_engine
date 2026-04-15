@@ -120,6 +120,14 @@ class GhostMapOverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (result.nodes.isEmpty && result.connections.isEmpty) return;
 
+    // O-12: Defensive reset — clear residual state from previous frame/painter.
+    // Static Paint objects are shared; stale maskFilter/shader causes visual corruption.
+    _p
+      ..maskFilter = null
+      ..shader = null
+      ..style = PaintingStyle.fill
+      ..strokeWidth = 1.0;
+
     // Invalidate caches if needed
     _ensureCacheValid(canvasScale, isDarkMode);
     if (!identical(_lastDashResult, result)) {

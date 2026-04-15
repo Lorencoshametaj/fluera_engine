@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import '../../config/v1_feature_gate.dart';
 
 // =============================================================================
 // 🎯 RADIAL CONTEXT MENU v4 — Performance Optimized
@@ -94,12 +95,51 @@ enum RadialToolItem {
   search('Search', Icons.search_rounded),
   export('Export', Icons.ios_share_rounded),
   multiview('Multiview', Icons.grid_view_rounded),
-  recall('Recall', Icons.psychology_rounded);
+  recall('Recall', Icons.psychology_rounded),
+  layers('Layers', Icons.layers_rounded),
+  eraserToggle('Eraser', Icons.auto_fix_high_rounded);
 
   const RadialToolItem(this.label, this.icon);
   final String label;
   final IconData icon;
 }
+
+// =============================================================================
+// 🚀 v1 FILTERED SUB-RING LISTS — hides DEFER items from the radial wheel.
+// These are computed once at startup (const-gated, zero overhead).
+// When a V1FeatureGate flag flips to true, items automatically reappear.
+// =============================================================================
+
+/// Brushes visible in the radial wheel for v1.
+final List<RadialBrushItem> _v1BrushItems = RadialBrushItem.values.where((b) {
+  if (!V1FeatureGate.advancedBrushes) {
+    // Hide GPU shader brushes in v1
+    const deferred = {
+      RadialBrushItem.charcoal,
+      RadialBrushItem.watercolor,
+      RadialBrushItem.airbrush,
+      RadialBrushItem.oil,
+    };
+    return !deferred.contains(b);
+  }
+  return true;
+}).toList(growable: false);
+
+/// Insert items visible in the radial wheel for v1.
+final List<RadialInsertItem> _v1InsertItems = RadialInsertItem.values.where((i) {
+  if (!V1FeatureGate.latexRecognition && i == RadialInsertItem.latex) {
+    return false;
+  }
+  return true;
+}).toList(growable: false);
+
+/// Tool items visible in the radial wheel for v1.
+final List<RadialToolItem> _v1ToolItems = RadialToolItem.values.where((t) {
+  if (!V1FeatureGate.multiview && t == RadialToolItem.multiview) {
+    return false;
+  }
+  return true;
+}).toList(growable: false);
 
 class RadialMenuResult {
   final RadialMenuItem? item;
@@ -567,13 +607,13 @@ class CanvasRadialMenuState extends State<CanvasRadialMenu>
     if (_isSubRingOpen && _hoveredSubSector >= 0) {
       if (_subRingParent == RadialMenuItem.brush) {
         result = RadialMenuResult(item: RadialMenuItem.brush,
-            brushItem: RadialBrushItem.values[_hoveredSubSector % RadialBrushItem.values.length]);
+            brushItem: _v1BrushItems[_hoveredSubSector % _v1BrushItems.length]);
       } else if (_subRingParent == RadialMenuItem.insert) {
         result = RadialMenuResult(item: RadialMenuItem.insert,
-            insertItem: RadialInsertItem.values[_hoveredSubSector % RadialInsertItem.values.length]);
+            insertItem: _v1InsertItems[_hoveredSubSector % _v1InsertItems.length]);
       } else if (_subRingParent == RadialMenuItem.tools) {
         result = RadialMenuResult(item: RadialMenuItem.tools,
-            toolItem: RadialToolItem.values[_hoveredSubSector % RadialToolItem.values.length]);
+            toolItem: _v1ToolItems[_hoveredSubSector % _v1ToolItems.length]);
       } else {
         result = const RadialMenuResult.dismiss();
       }
@@ -656,9 +696,9 @@ class CanvasRadialMenuState extends State<CanvasRadialMenu>
     final isBrush = _subRingParent == RadialMenuItem.brush;
     final isInsert = _subRingParent == RadialMenuItem.insert;
     final isTools = _subRingParent == RadialMenuItem.tools;
-    final subCount = isBrush ? RadialBrushItem.values.length
-        : isInsert ? RadialInsertItem.values.length
-        : isTools ? RadialToolItem.values.length
+    final subCount = isBrush ? _v1BrushItems.length
+        : isInsert ? _v1InsertItems.length
+        : isTools ? _v1ToolItems.length
         : 0;
     final fanSpread = math.min(math.pi * 0.7, subCount * 0.32);
     final step = fanSpread / math.max(subCount - 1, 1);
@@ -1135,13 +1175,13 @@ class _PainterV4Opt extends CustomPainter {
         _paintBrushSub(c, cx, cy, bgR, i, h, sa);
       } else if (isInsert) {
         _paintIconSub(c, cx, cy, bgR, i, h, sa,
-            RadialInsertItem.values[i % RadialInsertItem.values.length].icon,
-            RadialInsertItem.values[i % RadialInsertItem.values.length].label,
+            _v1InsertItems[i % _v1InsertItems.length].icon,
+            _v1InsertItems[i % _v1InsertItems.length].label,
             subParent!.accent);
       } else if (isTools) {
         _paintIconSub(c, cx, cy, bgR, i, h, sa,
-            RadialToolItem.values[i % RadialToolItem.values.length].icon,
-            RadialToolItem.values[i % RadialToolItem.values.length].label,
+            _v1ToolItems[i % _v1ToolItems.length].icon,
+            _v1ToolItems[i % _v1ToolItems.length].label,
             subParent!.accent);
       } else {
         _paintColorSub(c, cx, cy, bgR, i, h, sa);
@@ -1165,8 +1205,8 @@ class _PainterV4Opt extends CustomPainter {
         : Color.fromARGB(sa ~/ 5, 130, 200, 255)
       ..style = PaintingStyle.stroke..strokeWidth = cur ? 2.5 : 0.6;
     c.drawCircle(Offset(x, y), r, _p);
-    if (i < RadialBrushItem.values.length) {
-      final tp = getIcon(RadialBrushItem.values[i].icon,
+    if (i < _v1BrushItems.length) {
+      final tp = getIcon(_v1BrushItems[i].icon,
           h ? Colors.white : Colors.white54, 17);
       tp.paint(c, Offset(x - tp.width / 2, y - tp.height / 2));
 
@@ -1271,12 +1311,12 @@ class _PainterV4Opt extends CustomPainter {
       String l = '';
       Color ac = const Color(0xFF64B5F6);
       if (subParent == RadialMenuItem.brush) {
-        l = RadialBrushItem.values[hoveredSub % RadialBrushItem.values.length].label;
+        l = _v1BrushItems[hoveredSub % _v1BrushItems.length].label;
       } else if (subParent == RadialMenuItem.insert) {
-        l = RadialInsertItem.values[hoveredSub % RadialInsertItem.values.length].label;
+        l = _v1InsertItems[hoveredSub % _v1InsertItems.length].label;
         ac = const Color(0xFFE8A84C);
       } else if (subParent == RadialMenuItem.tools) {
-        l = RadialToolItem.values[hoveredSub % RadialToolItem.values.length].label;
+        l = _v1ToolItems[hoveredSub % _v1ToolItems.length].label;
         ac = const Color(0xFF80CBC4);
       }
       if (l.isNotEmpty) {

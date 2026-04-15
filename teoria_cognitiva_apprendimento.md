@@ -35,6 +35,21 @@ L'apprendimento non è un travaso di informazioni, ma un processo di ricostruzio
 
 La sorpresa o lo "shock cognitivo" di scoprire di aver sbagliato mentre si era certi di avere ragione agisce da catalizzatore mnestico. Per questo è cruciale attivare la **Metacognizione** in un software educativo: forzare lo studente a scommettere su quanto è sicuro della sua risposta *prima* di fornirgli un feedback.
 
+#### Il Meccanismo Neurale: Perché lo Shock Funziona (Emozione e Memoria)
+
+L'Ipercorrezione non è un fenomeno "magico" — ha un substrato neurobiologico preciso. Cahill & McGaugh (1995) hanno dimostrato che l'**arousal emotivo** potenzia la formazione di memorie a lungo termine attraverso l'interazione **amigdala-ippocampo**:
+
+1. Lo studente sbaglia con alta confidenza → **shock emotivo** (sorpresa, imbarazzo, frustrazione)
+2. L'arousal emotivo attiva l'**amigdala** — la struttura cerebrale che processa le emozioni
+3. L'amigdala rilascia noradrenalina e attiva il sistema β-adrenergico
+4. Questo segnale **modula l'ippocampo**, potenziando la consolidazione della traccia mnemonica corretta
+5. Risultato: la correzione viene "taggata" come emotivamente saliente → memoria più duratura
+
+Questo spiega anche perché il **Productive Failure** (T4) funziona: il fallimento genera frustrazione → arousal emotivo → amigdala che "tagga" la successiva soluzione corretta come importante. E spiega perché la **rilettura passiva** (XI.10) non funziona: nessun arousal emotivo → nessun tagging amigdalare → traccia debole.
+
+> [!NOTE]
+> **L'emozione non è il nemico dello studio — è il suo alleato nascosto.** L'ansia paralizzante è distruttiva (Yerkes-Dodson §XI.8). Ma l'arousal moderato dello shock, della sorpresa, della curiosità soddisfatta — questi sono i segnali che dicono al cervello "questo è importante, ricordalo". Lo slider di confidenza (1-5) del Passo 3 è progettato per massimizzare questo meccanismo: più alta la confidenza pre-errore, più forte lo shock, più forte il tagging amigdalare, più duratura la correzione.
+
 ## 5. Difficoltà Desiderabili (Robert Bjork, 1994)
 
 Paradossalmente, le condizioni che rendono lo studio più fluido e semplice (es. leggere un libro con i concetti già evidenziati) causano uno scarso apprendimento a lungo termine, poiché anestetizzano l'attenzione. 
@@ -114,6 +129,24 @@ L'**Interleaving** costringe il cervello non solo a riuscire ad applicare una fo
 
 > [!TIP]
 > Nel game design di un sistema didattico o in un'interfaccia UI, le notifiche e il feedback non devono mai lodare i risultati ottenuti in maniera facile o le doti intellettive dello studente ("Ti riesce facile, sei bravissimo!"), ma esaltare unicamente lo sforzo duro, l'uso di strategie corrette e la perseveranza dinanzi agli scogli (es: "Oggi hai compiuto sforzi immensi su concetti difficili difendendo la sessione dallo scadere. Sei cresciuto").
+
+#### Self-Efficacy: "IO Posso Farcela" (Bandura, 1977)
+
+La **Self-Efficacy** di Albert Bandura è distinta dal Growth Mindset e lo complementa:
+
+- **Growth Mindset (Dweck):** "L'intelligenza è malleabile" — una credenza *generale* sulla natura delle capacità umane
+- **Self-Efficacy (Bandura):** "IO posso riuscire in QUESTO compito specifico" — una credenza *locale* sulla propria capacità in un dominio
+
+Uno studente può avere Growth Mindset ("l'intelligenza si allena") ma bassa Self-Efficacy in matematica ("io però in matematica non ce la faccio"). La ricerca mostra che la Self-Efficacy è il **predittore singolo più forte** del successo accademico — più del QI, più delle abitudini di studio, più del background socioeconomico (Bandura, 1997; Zimmerman, 2000).
+
+La Self-Efficacy si costruisce attraverso quattro fonti (dalle più potenti alle meno potenti):
+1. **Mastery Experiences:** Successi precedenti in task simili. Ogni nodo completato sul canvas, ogni domanda Socratica superata, ogni Fog of War rivelata è una mastery experience.
+2. **Vicarious Experiences:** Vedere qualcuno simile a te che ce la fa. L'Apprendimento Solidale (Parte IX) fornisce questo.
+3. **Verbal Persuasion:** Qualcuno ti dice "puoi farcela". L'IA deve calibrare il feedback per costruire Self-Efficacy senza scadere nella lode vacua.
+4. **Emotional/Physiological States:** Ansia e stress abbassano la Self-Efficacy. Il design calmo del canvas la protegge.
+
+> [!IMPORTANT]
+> **Design Principle per Fluera:** Il feedback dell'IA deve costruire Self-Efficacy senza sabotare il Growth Mindset. Mai "sei bravissimo" (loda il talento → Fixed Mindset). Mai "non ti preoccupare, è difficile per tutti" (abbassa la Self-Efficacy). La formula giusta è: **"Questo nodo era al limite della tua zona prossimale — e lo hai conquistato con il tuo sforzo"** (riconosce la difficoltà + attribuisce il successo allo sforzo + conferma la competenza crescente).
 
 ---
 
@@ -1360,6 +1393,19 @@ Ecco la sequenza completa, passo per passo, che massimizza il consolidamento att
 
 **Risultato:** Il canvas è ora annotato con le domande dell'IA e le risposte dello studente. I nodi hanno un "punteggio di confidenza" registrato.
 
+#### Il Pretesting Effect: Interrogare Prima di Insegnare (Richland, Kornell & Kao, 2009)
+
+Una variante potente del Passo 3 emerge dalla ricerca sul **Pretesting Effect**: tentare di rispondere a domande su materiale *non ancora studiato* migliora significativamente l'apprendimento successivo — anche quando le risposte sono sbagliate.
+
+Richland, Kornell & Kao (2009) hanno dimostrato che gli studenti che affrontano un pretest prima di leggere un testo performano meglio a un test finale rispetto a quelli che hanno avuto tempo di studio aggiuntivo al posto del pretest. Il meccanismo è una forma di **Productive Failure (T4) applicata al timing**:
+
+1. Le domande pre-studio **attivano le conoscenze pregresse** e creano uno "schema parziale" nella Working Memory
+2. Il fallimento crea **"bisogno di sapere"** — la curiosità direzionata che rende il materiale successivo più saliente
+3. Le domande funzionano come **segnali attentivi** — lo studente sa *cosa cercare* quando legge o ascolta
+
+> [!TIP]
+> **Implicazione per l'IA Socratica:** L'IA potrebbe offrire una modalità **"Anticipa"** — domande sul Passo 1 *prima* che lo studente vada a lezione. "Domani studierai la termodinamica. Secondo te, perché un cubo di ghiaccio si scioglie ma non si ricompone?" Lo studente tenta, fallisce, e il giorno dopo in aula è neurologicamente *preparato* a ricevere la risposta. Le domande pre-studio non sostituiscono il Passo 3 (post-studio) — lo potenziano.
+
 ---
 
 ### PASSO 4 — Il Confronto Centauro: Lo Specchio Critico
@@ -1510,6 +1556,15 @@ Studiare la stessa materia per 6 ore consecutive (massing) vs 2 ore per 3 giorni
 **Cosa fa l'IA:** Calibra gli intervalli. Propone connessioni cross-zona. Genera domande di ripasso sempre più profonde.
 
 **Risultato:** La curva dell'oblio (Ebbinghaus §1) viene progressivamente appiattita. Ogni ritorno consolida e aggiunge strati.
+
+#### Il Nome Scientifico di Ciò che Fai: Successive Relearning (Rawson & Dunlosky, 2011)
+
+Il Passo 8 implementa la strategia che Rawson & Dunlosky (2011) chiamano **Successive Relearning** — la combinazione sinergica di **Spaced Practice (§1)** + **Retrieval Practice (§2)** in cicli ripetuti a intervalli crescenti.
+
+La scoperta chiave: la sola Spaced Practice è efficace. Il solo Retrieval Practice è efficace. Ma la loro **combinazione** produce risultati **superadditivi** — superiori alla somma dei due effetti isolati. Il Passo 8 non è "ripasso" generico: è specificamente la strategia con l'evidence più forte nell'intera letteratura sull'apprendimento.
+
+> [!NOTE]
+> **Il Passo 8 è il cuore dell'efficacia di Fluera nel lungo periodo.** I Passi 1-4 costruiscono il Palazzo della Memoria. Il Passo 5 lo consolida. Ma è il Passo 8 — settimane, mesi di Successive Relearning — che lo rende permanente. Lo studente che fa i Passi 1-4 ma non il Passo 8 ha costruito un palazzo su argilla. Lo studente che li fa tutti ha costruito su granito.
 
 ---
 
@@ -2334,6 +2389,41 @@ Il canvas ha una relazione complessa con il Pomodoro:
 
 ---
 
+### XI.9b — La Procrastinazione: La "Quintessenziale" Disfunzione Autoregolatoria (Steel, 2007)
+
+> *Principi attivati: Metacognizione (T1), Self-Efficacy (§12), Zeigarnik (§7), Flow (§24)*
+
+La procrastinazione non è pigrizia. Piers Steel (2007), in una meta-analisi di quasi 700 correlazioni, la definisce come **"il ritardo volontario di un'azione prevista nonostante la consapevolezza che il ritardo causerà danni"** — una disfunzione autoregolatoria, non un difetto di carattere.
+
+Steel formalizza il fenomeno nella **Temporal Motivation Theory (TMT)**, con un'equazione elegante:
+
+```
+Motivazione = (Aspettativa × Valore) / (Impulsività × Ritardo)
+```
+
+| Variabile | Significato | Collegamento a Fluera |
+|---|---|---|
+| **Aspettativa (Expectancy)** | "Riuscirò in questo task?" — è la Self-Efficacy (§12) | Se lo studente non crede di poter capire il concetto, la Motivazione crolla → procrastina |
+| **Valore (Value)** | "Quanto è importante/piacevole per me?" | Se la materia è percepita come inutile, la Motivazione crolla → procrastina |
+| **Impulsività** | Sensibilità alla gratificazione immediata | Lo smartphone (XI.13) è la gratificazione immediata che compete con lo studio |
+| **Ritardo (Delay)** | Quanto è lontana la scadenza/ricompensa | L'esame tra 2 mesi è "lontano" → Motivazione bassa. L'esame tra 2 giorni → panic-cramming |
+
+**Il Paradosso della Maratona Notturna Spiegato:** Lo studente che procrastina per settimane e poi "studia tutto la notte prima" non è irrazionale — è *prevedibile* dalla TMT. Quando il Ritardo era grande (settimane), il denominatore era enorme → Motivazione ≈ 0. Quando il Ritardo si annulla (l'esame è domani), il denominatore si annulla → Motivazione esplode iperbolicamente. Il panic-cramming non è motivazione autentica — è il denominatore che si azzera.
+
+#### Come Fluera Combatte la Procrastinazione (Senza Timer)
+
+Fluera non ha un sistema anti-procrastinazione esplicito — ma diversi elementi del design **manipolano la TMT a favore dello studente**:
+
+1. **Aspettativa ↑:** La Self-Efficacy cresce ad ogni nodo completato (mastery experience, §12). Ogni Fog of War rivelata è una micro-vittoria che dice al cervello "ce la puoi fare".
+2. **Valore ↑:** L'Interesse cresce vedendo il canvas che si popola — il Palazzo della Memoria diventa "bello" e "mio", aumentando il valore emotivo del task.
+3. **Impulsività ↓:** Lo smartphone in un'altra stanza (XI.13) rimuove la fonte primaria di gratificazione immediata competitiva.
+4. **Ritardo ↓:** L'SRS (Passo 8) crea micro-scadenze ravvicinate ("rivedi oggi") che tengono il Ritardo sempre basso.
+
+> [!TIP]
+> **La regola dei 10 minuti (già in XI.9) è una manipolazione della TMT.** "Solo 10 minuti" riduce simultaneamente l'Aspettativa richiesta ("ce la faccio per 10 minuti") e il Ritardo percepito ("tra 10 minuti posso fermarmi"). Una volta dentro, l'Effetto Zeigarnik (§7) e il Flow (§24) prendono il sopravvento.
+
+---
+
 ### XI.10 — Le Strategie "Tossiche": Evidenziare, Sottolineare, Rileggere
 
 > *Principi attivati: Levels of Processing (§6), Illusion of Fluency (§11), Generation Effect (§3), Active Recall (§2)*
@@ -2397,6 +2487,30 @@ Il riassunto è l'unica delle tre tecniche che *potrebbe* funzionare — ma nell
 - **Riassunto generativo** (chiudere il libro e riscrivere con le proprie parole): questo È il Generation Effect (§3) — ed è estremamente efficace. Ma è anche molto più faticoso.
 
 La differenza tra un riassunto inutile e un riassunto potente è la stessa differenza tra rileggere e fare Active Recall: la **generazione autonoma**. Il Passo 2 di Fluera (ricostruzione senza guardare) è, tecnicamente, un riassunto generativo su canvas — la versione più potente possibile della tecnica.
+
+#### I Metodi "Classici" di Appunti: Cornell, SQ3R, e Perché il Canvas Li Supera
+
+Due metodi di apprendimento insegnati in quasi tutte le università meritano un position statement:
+
+**Il Metodo Cornell (Walter Pauk, 1950s):**
+Divide la pagina in tre zone: appunti (destra), cue/domande (sinistra), riassunto (fondo). Lo studente scrive appunti a destra, poi genera domande nella colonna sinistra, poi riassume in fondo.
+
+**SQ3R (Francis P. Robinson, 1946):**
+Survey → Question → Read → Recite → Review. Un protocollo di lettura attiva in 5 fasi.
+
+Entrambi sono **buoni** rispetto al nulla — perché incorporano elementi di Active Recall (le domande di Cornell) e elaborazione (la ricitazione di SQ3R). Ma entrambi hanno limitazioni che il canvas supera:
+
+| Aspetto | Cornell / SQ3R | Canvas Fluera |
+|---|---|---|
+| **Spazialità** | Lineare (righe, colonne) | 2D infinito — cognizione spaziale attiva (§22) |
+| **Connessioni** | Implicite (paragrafi sequenziali) | Esplicite (frecce, archi, cluster) |
+| **Multimodalità** | Solo testo/scrittura | 6 canali di codifica (§28) |
+| **Recall integrato** | Richiede disciplina esterna | Fog of War, Blur, Socratica — recall *by design* |
+| **Feedback** | Nessuno | IA Socratica, Ghost Map, slider confidenza |
+| **Scalabilità** | Una pagina = un concetto | Un canvas = un'intera triennale (Parte VIII) |
+
+> [!NOTE]
+> **Lo studente che arriva a Fluera conoscendo il Cornell non deve "disimparare" nulla.** Il Cornell è un ottimo punto di partenza — e le sue intuizioni (generare domande, riassumere con parole proprie) sono al cuore anche del metodo Fluera. Il canvas le amplifica aggiungendo la dimensione spaziale, l'IA, e la multimodalità. La transizione è naturale, non traumatica.
 
 #### 🖊️ Implicazione per il Canvas Fluera
 
@@ -2654,6 +2768,61 @@ Il replay neurale "riscrive" il canvas nel cervello. Domani, il Passo 6 troverà
 
 ---
 
+### XI.15 — L'Interesse e la Curiosità: Il Carburante Invisibile (Hidi & Renninger, 2006)
+
+> *Principi attivati: Autodeterminazione (T2), Flow (§24), Metacognizione (T1)*
+
+Hidi e Renninger (2006) hanno proposto un **modello a 4 fasi** dello sviluppo dell'interesse — e queste fasi spiegano perché alcuni studenti "si appassionano" a una materia e altri no:
+
+| Fase | Stato dell'Interesse | Motore | Esempio su Fluera |
+|---|---|---|---|
+| **1. Triggered Situational** | Attenzione catturata da stimolo esterno (novità, sorpresa) | Ambiente | Il professore racconta un aneddoto affascinante → lo studente scrive un nodo con entusiasmo |
+| **2. Maintained Situational** | Attenzione sostenuta attraverso coinvolgimento attivo | Task design | L'IA Socratica pone una domanda che lo studente *quasi* sa rispondere → curiosità direzionata |
+| **3. Emerging Individual** | Lo studente inizia a cercare attivamente informazioni | Curiosità interna | Lo studente esplora spontaneamente zone del canvas non assegnate dal professore |
+| **4. Well-Developed Individual** | Interesse stabile, auto-regolato, identitario | Identità | "Io sono uno che studia neuroscienze" — il canvas diventa espressione di sé |
+
+**Il ruolo della curiosità:** La curiosità è il motore della transizione dalla Fase 2 alla Fase 3. Loewenstein (1994) la descrive come il risultato di un **"information gap"** — la percezione di un divario tra ciò che sai e ciò che *vuoi* sapere. È exactamente ciò che il Passo 2 (ricostruzione) crea: lo studente vede i nodi vuoti (gap) e sente il bisogno di colmarli.
+
+#### 🖊️ Implicazione per il Canvas Fluera
+
+> [!NOTE]
+> **Il design del canvas è un acceleratore naturale di interesse:**
+> - **Fase 1 → 2:** L'IA Socratica mantiene l'attenzione attraverso la sfida calibrata (ZPD §19). Le domande dell'IA sono "trigger" progettati per trasformare l'attenzione situazionale in curiosità attiva.
+> - **Fase 2 → 3:** Il canvas che si popola crea un **senso di proprietà** ("questo l'ho costruito io") che alimenta il re-engagement spontaneo. L'Autodeterminazione (T2) è il motore: autonomia + competenza visibile.
+> - **Fase 3 → 4:** I Ponti Cross-Dominio (Passo 9) trasformano lo studio da obbligo a esplorazione — lo studente che scopre un collegamento tra termodinamica ed economia sta vivendo la Fase 4.
+>
+> **Il canvas NON può creare interesse dal nulla** — ma può **proteggere e amplificare** l'interesse che emerge. Un'interfaccia frustrante, un'IA invadente, un feedback che umilia possono uccidere un interesse nascente alla Fase 1. Il design calmo, rispettoso, e visivamente soddisfacente di Fluera è progettato per non sabotare mai la fragile transizione tra le fasi.
+
+---
+
+### XI.16 — La Memoria Contesto-Dipendente: Dove Studi Conta (Smith & Vela, 2001)
+
+> *Principi attivati: Encoding Specificity (Tulving, 1973), Transfer (T3), Desirable Difficulties (§5)*
+
+La meta-analisi di Smith & Vela (2001) conferma un principio contro-intuitivo sulla relazione tra ambiente di studio e memoria:
+
+**Il Principio di Base (Encoding Specificity):**
+La memoria funziona meglio quando le condizioni di recupero *corrispondono* alle condizioni di codifica. Se studi in biblioteca e fai l'esame in aula, il mismatch ambientale può ostacolare il retrieval — perché i "cue" contestuali (luce, suoni, odori, postura) che erano stati codificati insieme al materiale sono assenti.
+
+**Tuttavia — il Paradosso dello Studio Variato:**
+Bjork (1988) e altri hanno dimostrato che studiare **in ambienti diversi** può rendere le memorie più robuste e transferibili. Perché? Perché il cervello non associa il ricordo a *un singolo* contesto, ma lo rende **indipendente dal contesto** — più flessibile, più trasferibile (T3).
+
+| Strategia | Pro | Contro | Per chi |
+|---|---|---|---|
+| **Stesso posto sempre** | Cue contestuali forti, rituali stabili | Memoria legata a quel luogo specifico | Studenti che hanno un posto fisso e faranno l'esame lì vicino |
+| **Posti diversi** | Memorie più trasferibili, indipendenti dal contesto | Nessun effetto-rituale, richiede più sforzo | Studenti che vogliono massimizzare il Transfer (T3) |
+
+#### 🖊️ Implicazione per il Canvas Fluera
+
+Il canvas ha una proprietà unica rispetto al cambio di ambiente: **il canvas stesso È l'ambiente costante**. Lo studente che studia in biblioteca lunedì, al bar martedì, e a casa mercoledì cambia contesto fisico — ma il canvas che apre è lo **stesso identico spazio**. Le posizioni spaziali dei nodi, i colori, la geografia del Palazzo della Memoria sono costanti.
+
+Questo significa che il canvas agisce come **àncora contestuale portatile** — lo studente porta il proprio contesto con sé. Le Place Cells (§22) si attivano per le posizioni *sul canvas*, non per le posizioni *nella stanza*. Lo studente ottiene il meglio di entrambi i mondi: la costanza contextuale del canvas + la variazione dell'ambiente fisico.
+
+> [!TIP]
+> **Per lo studente:** Variare il luogo fisico di studio è una Desirable Difficulty (§5) che può migliorare il Transfer. Il canvas costante garantisce che il Palazzo della Memoria resta stabile indipendentemente da dove ti siedi. Porta il canvas in posti diversi — la biblioteca, il parco, il treno — e il tuo cervello imparerà che quei concetti non appartengono a un luogo, ma a *te*.
+
+---
+
 ### Il Muro dello Studente: Tabella Riepilogativa di Tutte le Strategie
 
 Questa tabella riassume *tutte* le strategie e abitudini di studio discusse nel documento. Lo studente può stamparla e appenderla davanti alla scrivania.
@@ -2675,6 +2844,9 @@ Questa tabella riassume *tutte* le strategie e abitudini di studio discusse nel 
 | **Nootropi / Smart drugs** | 🔴 DEBOLE | ❌ Confine etico | Nessuna pillola vale 20 min di Active Recall | Investi in sonno e studio, non in pillole. |
 | **Smartphone lontano (XI.13)** | 🟢 HIGH | ⚠️ Full-screen by design | Il telefono va in un'altra stanza | Distanza fisica = distanza cognitiva. |
 | **Sonno 7-8h (Passo 5)** | 🟢 HIGH | ⚠️ Lo studente deve dormire | Non-negoziabile | Studia → dormi. Mai il contrario. |
+| **Anti-procrastinazione (XI.9b)** | 🟢 HIGH | ⚠️ SRS come micro-scadenze | La TMT si combatte col design | Regola dei 10 minuti + smartphone lontano. |
+| **Coltivare l'interesse (XI.15)** | 🟡 MODERATA | ⚠️ Socratica come trigger | Il canvas protegge l'interesse fragile | Cerca connessioni personali col materiale. |
+| **Variare il luogo di studio (XI.16)** | 🟡 MODERATA | ⚠️ Canvas = àncora portatile | Il canvas è il contesto costante | Studia in posti diversi; il canvas ti segue. |
 
 ---
 

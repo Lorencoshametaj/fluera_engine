@@ -334,11 +334,13 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // 📄 Render page 1 thumbnail for the preview card
     try {
       final firstPageSize = pageModels.first.originalSize;
-      final thumbScale = 200.0 / firstPageSize.width;
+      final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+      final thumbW = 200.0 * dpr;
+      final thumbScale = thumbW / firstPageSize.width;
       final thumbImage = await provider.renderPage(
         pageIndex: 0,
         scale: thumbScale,
-        targetSize: Size(200, 200 * firstPageSize.height / firstPageSize.width),
+        targetSize: Size(thumbW, thumbW * firstPageSize.height / firstPageSize.width),
       );
       if (thumbImage != null) {
         cardNode.thumbnailImage = thumbImage;
@@ -807,13 +809,15 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // Render page 1 thumbnail for the preview card
     try {
       final firstPage = cardNode.documentModel.pages.first;
-      final thumbScale = 200.0 / firstPage.originalSize.width;
+      final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+      final thumbW = 200.0 * dpr;
+      final thumbScale = thumbW / firstPage.originalSize.width;
       final thumbImage = await provider.renderPage(
         pageIndex: 0,
         scale: thumbScale,
         targetSize: Size(
-          200,
-          200 * firstPage.originalSize.height / firstPage.originalSize.width,
+          thumbW,
+          thumbW * firstPage.originalSize.height / firstPage.originalSize.width,
         ),
       );
       if (thumbImage != null) {
@@ -1094,6 +1098,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     // Warm amber accent for PDF content
     const pdfAccent = Color(0xFFE8A84C);
 
+    // 🔖 Save canvas position to restore on return
+    final savedOffset = _canvasController.offset;
+    final savedScale = _canvasController.scale;
+
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: true,
@@ -1144,7 +1152,13 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
           );
         },
       ),
-    );
+    ).then((_) {
+      // 🔖 Restore canvas position after exiting PDF reader
+      if (mounted) {
+        _canvasController.setOffset(savedOffset);
+        _canvasController.setScale(savedScale);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1245,6 +1259,10 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     _pdfZoomEnterCooldown = true;
 
+    // 🔖 Save canvas position BEFORE any modifications
+    final savedOffset = _canvasController.offset;
+    final savedScale = _canvasController.scale;
+
     // 🛑 Stop all canvas animations BEFORE capturing coordinates.
     _canvasController.stopAnimation();
 
@@ -1321,9 +1339,20 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         },
       ),
     ).then((_) {
-      final currentScale = _canvasController.scale;
-      if (currentScale > 1.1) {
-        _canvasController.setScale(1.0);
+      // 🔖 Return to a comfortable zoom centered on the PDF card.
+      // The user was deeply zoomed in to trigger auto-enter, so restoring
+      // that extreme scale would be disorienting. Reset to 1.0 with the
+      // card centered in the viewport.
+      if (mounted) {
+        const targetScale = 1.0;
+        final vp = MediaQuery.sizeOf(context);
+        final center = cardNode.worldBounds.center;
+        final targetOffset = Offset(
+          vp.width / 2 - center.dx * targetScale,
+          vp.height / 2 - center.dy * targetScale,
+        );
+        _canvasController.setScale(targetScale);
+        _canvasController.setOffset(targetOffset);
       }
       Future.delayed(const Duration(milliseconds: 800), () {
         if (mounted) _pdfZoomEnterCooldown = false;
@@ -1338,13 +1367,15 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
     try {
       final firstPage = cardNode.documentModel.pages.first;
-      final thumbScale = 200.0 / firstPage.originalSize.width;
+      final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+      final thumbW = 200.0 * dpr;
+      final thumbScale = thumbW / firstPage.originalSize.width;
       final thumbImage = await provider.renderPage(
         pageIndex: 0,
         scale: thumbScale,
         targetSize: Size(
-          200,
-          200 * firstPage.originalSize.height / firstPage.originalSize.width,
+          thumbW,
+          thumbW * firstPage.originalSize.height / firstPage.originalSize.width,
         ),
       );
       if (thumbImage != null) {

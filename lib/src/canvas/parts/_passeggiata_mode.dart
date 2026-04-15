@@ -84,7 +84,9 @@ extension PasseggiataModeExtension on _FlueraCanvasScreenState {
   /// Whether the student can enter Passeggiata mode.
   ///
   /// Available from Step 6 onwards (after the first SRS return).
+  /// 🚀 v1 DEFER: Gated by V1FeatureGate.passeggiata
   bool get canEnterPasseggiata =>
+      V1FeatureGate.passeggiata &&
       _learningStepController.currentStep.index >=
       LearningStep.step5Consolidation.index;
 

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../ai/ai_provider.dart';
 import '../../ai/atlas_ai_service.dart';
 import '../../utils/safe_path_provider.dart';
+import '../../config/v1_feature_gate.dart'; // 🚀 v1 DEFER kill switches
 import 'exam_session_model.dart';
 
 /// 🎓 ATLAS EXAM MODE — Session controller.
@@ -63,6 +64,8 @@ class ExamSessionController extends ChangeNotifier {
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> startExam(Map<String, String> selectedClusters, {int count = 7}) async {
+    // 🚀 v1 DEFER: Exam Session gated
+    if (!V1FeatureGate.examSession) return;
     if (_isLoading) return;
     _isLoading = true;
     _error = null;

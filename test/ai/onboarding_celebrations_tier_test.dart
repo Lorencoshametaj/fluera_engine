@@ -197,29 +197,29 @@ void main() {
   group('TierGateController', () {
     test('Plus/Pro tier: unlimited access (A17-01)', () {
       final ctrl = TierGateController(tier: FlueraSubscriptionTier.plus);
-      final result = ctrl.checkFeature(GatedFeature.socraticQuestion);
+      final result = ctrl.checkFeature(GatedFeature.socraticSession);
       expect(result.allowed, isTrue);
       expect(result.remainingToday, isNull); // Unlimited
       ctrl.dispose();
     });
 
-    test('Free tier: 5 Socratic questions per day', () {
+    test('Free tier: 3 Socratic sessions per week', () {
       final ctrl = TierGateController(tier: FlueraSubscriptionTier.free);
 
-      // Should have 5 remaining.
-      var result = ctrl.checkFeature(GatedFeature.socraticQuestion);
+      // Should have 3 remaining this week.
+      var result = ctrl.checkFeature(GatedFeature.socraticSession);
       expect(result.allowed, isTrue);
-      expect(result.remainingToday, 5);
+      expect(result.remainingToday, 3);
 
-      // Use 5 questions.
-      for (int i = 0; i < 5; i++) {
-        ctrl.recordUsage(GatedFeature.socraticQuestion);
+      // Use 3 sessions.
+      for (int i = 0; i < 3; i++) {
+        ctrl.recordUsage(GatedFeature.socraticSession);
       }
 
-      // 6th question should be blocked.
-      result = ctrl.checkFeature(GatedFeature.socraticQuestion);
+      // 4th session should be blocked.
+      result = ctrl.checkFeature(GatedFeature.socraticSession);
       expect(result.allowed, isFalse);
-      expect(result.upgradeMessage, contains('5 domande'));
+      expect(result.upgradeMessage, contains('3 sessioni'));
 
       ctrl.dispose();
     });
@@ -253,24 +253,24 @@ void main() {
       final result =
           ctrl.checkFeature(GatedFeature.crossDomainInteractive);
       expect(result.allowed, isFalse);
-      expect(result.upgradeMessage, contains('Plus'));
+      expect(result.upgradeMessage, contains('Pro'));
       ctrl.dispose();
     });
 
-    test('daily reset clears counts', () {
+    test('weekly reset clears counts', () {
       final ctrl = TierGateController(tier: FlueraSubscriptionTier.free);
-      for (int i = 0; i < 5; i++) {
-        ctrl.recordUsage(GatedFeature.socraticQuestion);
+      for (int i = 0; i < 3; i++) {
+        ctrl.recordUsage(GatedFeature.socraticSession);
       }
       expect(
-        ctrl.checkFeature(GatedFeature.socraticQuestion).allowed,
+        ctrl.checkFeature(GatedFeature.socraticSession).allowed,
         isFalse,
       );
 
-      // Simulate daily reset.
-      ctrl.resetDaily();
+      // Simulate weekly reset.
+      ctrl.resetWeekly();
       expect(
-        ctrl.checkFeature(GatedFeature.socraticQuestion).allowed,
+        ctrl.checkFeature(GatedFeature.socraticSession).allowed,
         isTrue,
       );
       ctrl.dispose();
@@ -278,31 +278,31 @@ void main() {
 
     test('upgrade messages are in Italian (A17-03)', () {
       final ctrl = TierGateController(tier: FlueraSubscriptionTier.free);
-      for (int i = 0; i < 5; i++) {
-        ctrl.recordUsage(GatedFeature.socraticQuestion);
+      for (int i = 0; i < 3; i++) {
+        ctrl.recordUsage(GatedFeature.socraticSession);
       }
       final msg =
-          ctrl.checkFeature(GatedFeature.socraticQuestion).upgradeMessage!;
-      // Must be informative Italian, not English.
-      expect(msg, contains('gratuite'));
-      expect(msg, contains('Plus'));
+          ctrl.checkFeature(GatedFeature.socraticSession).upgradeMessage!;
+      // Must be informative Italian with pricing.
+      expect(msg, contains('sessioni socratiche'));
+      expect(msg, contains('Pro'));
       ctrl.dispose();
     });
 
     test('tier update unlocks features', () {
       final ctrl = TierGateController(tier: FlueraSubscriptionTier.free);
       for (int i = 0; i < 5; i++) {
-        ctrl.recordUsage(GatedFeature.socraticQuestion);
+        ctrl.recordUsage(GatedFeature.socraticSession);
       }
       expect(
-        ctrl.checkFeature(GatedFeature.socraticQuestion).allowed,
+        ctrl.checkFeature(GatedFeature.socraticSession).allowed,
         isFalse,
       );
 
       // User upgrades!
       ctrl.updateTier(FlueraSubscriptionTier.plus);
       expect(
-        ctrl.checkFeature(GatedFeature.socraticQuestion).allowed,
+        ctrl.checkFeature(GatedFeature.socraticSession).allowed,
         isTrue,
       );
       ctrl.dispose();
@@ -310,8 +310,8 @@ void main() {
 
     test('serialization round-trip preserves counts', () {
       final ctrl = TierGateController(tier: FlueraSubscriptionTier.free);
-      ctrl.recordUsage(GatedFeature.socraticQuestion);
-      ctrl.recordUsage(GatedFeature.socraticQuestion);
+      ctrl.recordUsage(GatedFeature.socraticSession);
+      ctrl.recordUsage(GatedFeature.socraticSession);
       ctrl.recordUsage(GatedFeature.fogOfWarSession, zoneId: 'zone_a');
 
       final json = ctrl.toJson();
@@ -321,8 +321,8 @@ void main() {
       );
 
       expect(
-        restored.checkFeature(GatedFeature.socraticQuestion).remainingToday,
-        3, // 5 - 2
+        restored.checkFeature(GatedFeature.socraticSession).remainingToday,
+        1, // 3 - 2
       );
       expect(
         restored

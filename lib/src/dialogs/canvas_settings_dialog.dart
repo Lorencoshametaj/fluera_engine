@@ -218,7 +218,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
 
                     // 🎨 Background Color
                     _buildSectionHeader(
-                      FlueraLocalizations.of(context).proCanvas_backgroundColor,
+                      FlueraLocalizations.of(context)!.proCanvas_backgroundColor,
                       Icons.palette_rounded,
                       colorScheme,
                       isDark,
@@ -269,7 +269,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
     ColorScheme colorScheme,
     bool isDark,
   ) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 24, 16, 16),
       child: Row(
@@ -379,7 +379,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Widget _buildCategorySegments(ColorScheme colorScheme, bool isDark) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     final categoryNames = _getCategoryNames(l10n);
 
     return SizedBox(
@@ -421,7 +421,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Widget _buildPaperTypeGrid(ColorScheme colorScheme, bool isDark) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     final paperTypesByCategory = _getPaperTypesByCategory(l10n);
     final currentTypes = paperTypesByCategory[_selectedCategory]!;
 
@@ -643,7 +643,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
     ColorScheme colorScheme,
     bool isDark,
   ) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
       child: Row(

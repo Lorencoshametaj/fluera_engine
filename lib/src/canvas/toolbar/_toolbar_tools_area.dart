@@ -53,7 +53,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   // --------------------------------------------------------------------------
 
   Widget _buildMainTools(BuildContext context, bool isDark) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -265,7 +265,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   // --------------------------------------------------------------------------
 
   Widget _buildPdfTools(BuildContext context, bool isDark) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
 
     // 📄 Empty state — beautiful CTA when no PDF is loaded
     if (widget.pdfDocuments.isEmpty) {
@@ -688,7 +688,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   // --------------------------------------------------------------------------
 
   Widget _buildScientificTools(BuildContext context, bool isDark) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -1620,6 +1620,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             dotColor: isDark ? Colors.pink.shade300 : Colors.pink.shade500,
             child: ToolbarEraserButton(
               isActive: widget.isEraserActive,
+              isWholeStroke: widget.eraseWholeStroke,
               onTap: () {
                 HapticFeedback.selectionClick();
                 widget.onEraserToggle();
@@ -1669,7 +1670,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
 
   Widget _buildShapeSection(bool isDark) {
     return ToolbarToolSection(
-      title: FlueraLocalizations.of(context).proCanvas_shapes.toUpperCase(),
+      title: FlueraLocalizations.of(context)!.proCanvas_shapes.toUpperCase(),
       icon: Icons.category_rounded,
       isDark: isDark,
       child: ToolbarShapeTypeSelector(
@@ -1869,7 +1870,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                         _isShapesExpanded ? FontWeight.w700 : FontWeight.w500,
                     fontSize: 13,
                   ),
-                  child: Text(FlueraLocalizations.of(context).proCanvas_shapes),
+                  child: Text(FlueraLocalizations.of(context)!.proCanvas_shapes),
                 ),
                 const SizedBox(width: 4),
                 AnimatedRotation(

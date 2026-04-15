@@ -8,12 +8,14 @@ import 'package:flutter/services.dart';
 /// Eraser button with wobble animation when active
 class ToolbarEraserButton extends StatefulWidget {
   final bool isActive;
+  final bool isWholeStroke;
   final VoidCallback onTap;
   final bool isDark;
 
   const ToolbarEraserButton({
     super.key,
     required this.isActive,
+    this.isWholeStroke = false,
     required this.onTap,
     required this.isDark,
   });
@@ -102,7 +104,11 @@ class _ToolbarEraserButtonState extends State<ToolbarEraserButton>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  Icons.auto_fix_high_rounded,
+                  widget.isActive
+                      ? (widget.isWholeStroke
+                          ? Icons.delete_sweep_rounded
+                          : Icons.content_cut)
+                      : Icons.auto_fix_high_rounded,
                   size: 20,
                   color:
                       widget.isActive

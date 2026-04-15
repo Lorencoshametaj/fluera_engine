@@ -82,6 +82,9 @@ enum SocraticBubbleStatus {
 // ============================================================================
 
 /// Individual Socratic question data.
+///
+/// A3: Immutable — state transitions use [copyWith].
+@immutable
 class SocraticQuestion {
   final String id;
 
@@ -98,30 +101,30 @@ class SocraticQuestion {
   final String text;
 
   /// Current visual status.
-  SocraticBubbleStatus status;
+  final SocraticBubbleStatus status;
 
   /// Confidence level declared by student (1-5) before answering (P3-17).
   /// Null until declared.
-  int? confidence;
+  final int? confidence;
 
   /// Number of breadcrumbs used (0-3) (P3-24 → P3-26).
-  int breadcrumbsUsed;
+  final int breadcrumbsUsed;
 
   /// Breadcrumb hints from AI, unlocked progressively (P3-25).
   /// Index 0 = L'Eco Lontano, 1 = Il Sentiero, 2 = La Soglia.
-  List<String> breadcrumbs;
+  final List<String> breadcrumbs;
 
   /// Timestamp when answered.
-  DateTime? answeredAt;
+  final DateTime? answeredAt;
 
   /// Whether this was a hypercorrection event (P3-21, P3-23).
   /// True if: confidence ≥ 4 AND answer was wrong.
-  bool isHypercorrection;
+  final bool isHypercorrection;
 
   /// Recall level from Recall Mode (1-5), if available.
-  int? recallLevel;
+  final int? recallLevel;
 
-  SocraticQuestion({
+  const SocraticQuestion({
     required this.id,
     required this.clusterId,
     required this.anchorPosition,
@@ -135,6 +138,31 @@ class SocraticQuestion {
     this.isHypercorrection = false,
     this.recallLevel,
   });
+
+  /// Create a copy with modified fields (A3: immutable state transitions).
+  SocraticQuestion copyWith({
+    SocraticBubbleStatus? status,
+    int? confidence,
+    int? breadcrumbsUsed,
+    List<String>? breadcrumbs,
+    DateTime? answeredAt,
+    bool? isHypercorrection,
+    SocraticQuestionType? type,
+    String? text,
+  }) => SocraticQuestion(
+    id: id,
+    clusterId: clusterId,
+    anchorPosition: anchorPosition,
+    type: type ?? this.type,
+    text: text ?? this.text,
+    status: status ?? this.status,
+    confidence: confidence ?? this.confidence,
+    breadcrumbsUsed: breadcrumbsUsed ?? this.breadcrumbsUsed,
+    breadcrumbs: breadcrumbs ?? this.breadcrumbs,
+    answeredAt: answeredAt ?? this.answeredAt,
+    isHypercorrection: isHypercorrection ?? this.isHypercorrection,
+    recallLevel: recallLevel,
+  );
 
   /// Whether this question has been resolved (answered, skipped, or below ZPD).
   bool get isResolved =>
@@ -152,13 +180,8 @@ class SocraticQuestion {
       status == SocraticBubbleStatus.wrongHighConf ||
       status == SocraticBubbleStatus.wrongLowConf;
 
-  /// Label for the question type.
-  String get typeLabel => switch (type) {
-    SocraticQuestionType.lacuna    => 'Lacuna',
-    SocraticQuestionType.challenge => 'Sfida',
-    SocraticQuestionType.depth     => 'Profondità',
-    SocraticQuestionType.transfer  => 'Transfer',
-  };
+  /// Label for the question type (debug/JSON only — UI uses L10n).
+  String get typeLabel => type.name;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -202,6 +225,13 @@ class SocraticSession {
   /// Max questions per session (P3-16: default 8-12).
   final int maxQuestions;
 
+  // ── O(1) incremental counters (O1 optimization) ─────────────────────
+  int _totalCorrect = 0;
+  int _totalWrong = 0;
+  int _totalSkipped = 0;
+  int _totalHypercorrections = 0;
+  int _totalBelowZPD = 0;
+
   SocraticSession({
     required this.sessionId,
     required this.queue,
@@ -215,47 +245,50 @@ class SocraticSession {
   SocraticQuestion? get activeQuestion =>
       activeIndex < queue.length ? queue[activeIndex] : null;
 
+  /// A3: Replace a question at [index] with an updated copy.
+  void replaceQuestion(int index, SocraticQuestion updated) {
+    assert(index >= 0 && index < queue.length);
+    assert(queue[index].id == updated.id, 'ID mismatch in replaceQuestion');
+    queue[index] = updated;
+  }
+
+  /// A3: Replace the active question with an updated copy.
+  void replaceActive(SocraticQuestion updated) {
+    if (activeIndex < queue.length) replaceQuestion(activeIndex, updated);
+  }
+
   /// Whether the session is complete (all answered/skipped or max reached).
   bool get isComplete =>
       activeIndex >= queue.length ||
       totalAnswered >= maxQuestions;
 
-  // ── Computed metrics ─────────────────────────────────────────────────
+  // ── O(1) metrics (O1 optimization) ───────────────────────────────────
 
-  int get totalAnswered => queue
-      .where((q) => q.wasCorrect || q.wasWrong)
-      .length;
+  int get totalAnswered => _totalCorrect + _totalWrong;
+  int get totalCorrect => _totalCorrect;
+  int get totalWrong => _totalWrong;
+  int get totalSkipped => _totalSkipped;
+  int get totalHypercorrections => _totalHypercorrections;
+  int get totalBelowZPD => _totalBelowZPD;
 
-  int get totalCorrect => queue
-      .where((q) => q.wasCorrect)
-      .length;
-
-  int get totalWrong => queue
-      .where((q) => q.wasWrong)
-      .length;
-
-  int get totalSkipped => queue
-      .where((q) => q.status == SocraticBubbleStatus.skipped)
-      .length;
-
-  int get totalHypercorrections => queue
-      .where((q) => q.isHypercorrection)
-      .length;
-
-  int get totalBelowZPD => queue
-      .where((q) => q.status == SocraticBubbleStatus.belowZPD)
-      .length;
-
-  /// Summary text for session end.
-  String get summaryText {
-    final parts = <String>[];
-    if (totalCorrect > 0) parts.add('✅ $totalCorrect corrette');
-    if (totalWrong > 0) parts.add('❌ $totalWrong errate');
-    if (totalHypercorrections > 0) {
-      parts.add('⚡ $totalHypercorrections ipercorrezioni');
+  /// Record an outcome — updates incremental counters once.
+  /// Called by `SocraticController.recordResult` / `skip` / `markBelowZPD`.
+  void recordOutcome(SocraticBubbleStatus status, {bool isHypercorrection = false}) {
+    switch (status) {
+      case SocraticBubbleStatus.correct:
+      case SocraticBubbleStatus.correctLowConf:
+        _totalCorrect++;
+      case SocraticBubbleStatus.wrongHighConf:
+      case SocraticBubbleStatus.wrongLowConf:
+        _totalWrong++;
+      case SocraticBubbleStatus.skipped:
+        _totalSkipped++;
+      case SocraticBubbleStatus.belowZPD:
+        _totalBelowZPD++;
+      default:
+        break;
     }
-    if (totalSkipped > 0) parts.add('⏭️ $totalSkipped saltate');
-    return parts.join(' · ');
+    if (isHypercorrection) _totalHypercorrections++;
   }
 
   Map<String, dynamic> toJson() => {

@@ -20,13 +20,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../reflow/content_cluster.dart';
+import '../../../l10n/generated/fluera_localizations.g.dart';
+import 'recall_level_l10n.dart';
 import 'recall_mode_controller.dart';
 import 'recall_session_model.dart';
 
 /// 🔍 Comparison overlay for the reveal phase.
 class RecallComparisonOverlay extends StatefulWidget {
   final RecallModeController controller;
-  final dynamic canvasController;
 
   /// Called when user wants to navigate to a gap cluster.
   final void Function(String clusterId) onNavigateToGap;
@@ -46,7 +47,6 @@ class RecallComparisonOverlay extends StatefulWidget {
   const RecallComparisonOverlay({
     super.key,
     required this.controller,
-    required this.canvasController,
     required this.onNavigateToGap,
     required this.onShowSummary,
     required this.onStartSocratic,
@@ -101,178 +101,44 @@ class _RecallComparisonOverlayState extends State<RecallComparisonOverlay>
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: widget.controller,
-      builder: (context, _) {
-        if (!widget.controller.isComparing) {
-          return const SizedBox.shrink();
-        }
+    // This widget is already conditionally mounted by the parent
+    // (if isComparing) and rebuilt via the parent AnimatedBuilder
+    // listening to _canvasController. No internal ListenableBuilder
+    // needed — it caused _ElementLifecycle.defunct assertions when
+    // the controller notified during widget teardown.
+    if (!widget.controller.isComparing) {
+      return const SizedBox.shrink();
+    }
 
-        return Stack(
-          children: [
-            // ── Color-coded node overlays (P2-26) ──
-            ..._buildNodeOverlays(),
+    return SizedBox.expand(
+      child: Stack(
+        children: [
+          // ── Navigation bar (bottom) ──
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+            left: 16,
+            right: 16,
+            child: _buildNavigationBar(context),
+          ),
 
-            // ── Navigation bar (bottom) ──
-            Positioned(
-              bottom: MediaQuery.of(context).padding.bottom + 16,
-              left: 16,
-              right: 16,
-              child: _buildNavigationBar(context),
-            ),
-
-            // ── Gap count badge (top right) ──
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              right: 16,
-              child: _buildGapBadge(),
-            ),
-          ],
-        );
-      },
+          // ── Gap count badge (top right) ──
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 16,
+            child: _buildGapBadge(),
+          ),
+        ],
+      ),
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // COLOR-CODED NODE OVERLAYS (P2-26)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  List<Widget> _buildNodeOverlays() {
-    final controller = widget.canvasController;
-    if (controller == null) return const [];
-
-    final entries = widget.controller.nodeEntries;
-    final widgets = <Widget>[];
-
-    for (final entry in entries.entries) {
-      final cluster = widget.controller.originalClusters
-          .where((c) => c.id == entry.key)
-          .firstOrNull;
-      if (cluster == null) continue;
-
-      final status = widget.controller.comparisonStatus(entry.key);
-      final color = _statusColor(status);
-      final opacity = _statusOpacity(status);
-
-      // Convert to screen coordinates.
-      final Offset screenCenter;
-      final double screenWidth;
-      final double screenHeight;
-      try {
-        screenCenter = (controller as dynamic).canvasToScreen(cluster.centroid) as Offset;
-        final scale = (controller as dynamic).scale as double;
-        screenWidth = cluster.bounds.width * scale;
-        screenHeight = cluster.bounds.height * scale;
-      } catch (_) {
-        continue;
-      }
-
-      final w = screenWidth.clamp(40.0, 400.0);
-      final h = screenHeight.clamp(30.0, 300.0);
-
-      // Mastery check (P2-57): gold pulse for mastered nodes.
-      final isMastered = entry.value.mastered;
-      final isRecalled = entry.value.recallLevel.isSuccessful;
-
-      widgets.add(
-        AnimatedBuilder(
-          animation: _revealController,
-          builder: (_, __) {
-            return Positioned(
-              left: screenCenter.dx - w / 2,
-              top: screenCenter.dy - h / 2,
-              child: Opacity(
-                opacity: _fadeAnim.value,
-                child: GestureDetector(
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    widget.controller.cycleRecallLevel(entry.key);
-                  },
-                  onDoubleTap: () {
-                    HapticFeedback.mediumImpact();
-                    widget.onNavigateToGap(entry.key);
-                  },
-                  child: AnimatedBuilder(
-                    animation: _pulseController,
-                    builder: (_, __) {
-                      final goldGlow = isMastered
-                          ? _pulseController.value * 0.4
-                          : 0.0;
-                      return Container(
-                        width: w,
-                        height: h,
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: opacity),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isMastered
-                                ? const Color(0xFFFFD700).withValues(
-                                    alpha: 0.5 + goldGlow,
-                                  )
-                                : color.withValues(alpha: opacity + 0.15),
-                            width: isMastered ? 2.0 : 1.0,
-                          ),
-                          boxShadow: [
-                            if (isMastered)
-                              BoxShadow(
-                                color: const Color(0xFFFFD700)
-                                    .withValues(alpha: goldGlow * 0.5),
-                                blurRadius: 12,
-                                spreadRadius: 2,
-                              ),
-                            if (isRecalled && !isMastered)
-                              BoxShadow(
-                                color: const Color(0xFF30D158)
-                                    .withValues(alpha: 0.15),
-                                blurRadius: 8,
-                              ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // Status icon.
-                              Text(
-                                _statusIcon(status),
-                                style: const TextStyle(fontSize: 20),
-                              ),
-                              const SizedBox(height: 2),
-                              // Recall level indicator.
-                              Text(
-                                entry.value.recallLevel.label,
-                                style: TextStyle(
-                                  color: color.withValues(alpha: 0.9),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              // Mastery star.
-                              if (isMastered)
-                                const Text('⭐',
-                                    style: TextStyle(fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      );
-    }
-
-    return widgets;
-  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // NAVIGATION BAR
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildNavigationBar(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     final gaps = widget.controller.gapClusterIds;
     final hasGaps = gaps.isNotEmpty;
     final idx = widget.controller.gapNavigationIndex;
@@ -314,7 +180,10 @@ class _RecallComparisonOverlayState extends State<RecallComparisonOverlay>
           // Gap counter.
           if (hasGaps)
             Text(
-              '${idx + 1} / ${gaps.length} da rivedere',
+              l10n.recall_gapCounter(
+                (idx + 1).clamp(1, gaps.length), // idx=-1 → show 1, not 0
+                gaps.length,
+              ),
               style: const TextStyle(
                 color: Color(0xFFFF3B30),
                 fontSize: 12,
@@ -323,9 +192,9 @@ class _RecallComparisonOverlayState extends State<RecallComparisonOverlay>
             ),
 
           if (!hasGaps)
-            const Text(
-              '🎉 Nessuna lacuna!',
-              style: TextStyle(
+            Text(
+              l10n.recall_noGaps,
+              style: const TextStyle(
                 color: Color(0xFF30D158),
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -378,7 +247,12 @@ class _RecallComparisonOverlayState extends State<RecallComparisonOverlay>
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    widget.showingOriginals ? 'Confronto' : 'Tentativo',
+                    // Shows where you'll GO, not where you ARE:
+                    // on comparison → button says 'Attempt'
+                    // on attempt    → button says 'Comparison'
+                    widget.showingOriginals
+                        ? l10n.recall_viewAttempt
+                        : l10n.recall_viewComparison,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -406,9 +280,9 @@ class _RecallComparisonOverlayState extends State<RecallComparisonOverlay>
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text(
-                'Riepilogo',
-                style: TextStyle(
+              child: Text(
+                l10n.recall_summary,
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

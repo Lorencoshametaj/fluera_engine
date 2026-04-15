@@ -175,15 +175,6 @@ extension _PdfDrawingMethods on _PdfReaderScreenState {
         });
         HapticFeedback.lightImpact();
 
-        // Auto-bookmark annotated page (orange tag)
-        if (!_bookmarkedPages.containsKey(pageIndex)) {
-          setState(() {
-            _bookmarkedPages[pageIndex] = _BookmarkData(
-              color: const Color(0xFFFF7043),
-            );
-          });
-          _syncBookmarkToModel(pageIndex, true);
-        }
       } else {
         setState(() {
           _shapeStartPos = null;
@@ -222,15 +213,6 @@ extension _PdfDrawingMethods on _PdfReaderScreenState {
       if (_vulkanActive) _vulkanOverlay.clear();
       HapticFeedback.lightImpact();
 
-      // Auto-bookmark annotated page (orange tag)
-      if (!_bookmarkedPages.containsKey(pageIndex)) {
-        setState(() {
-          _bookmarkedPages[pageIndex] = _BookmarkData(
-            color: const Color(0xFFFF7043), // orange = annotated
-          );
-        });
-        _syncBookmarkToModel(pageIndex, true);
-      }
     } else {
       _liveScreenPoints.clear();
       if (_vulkanActive) _vulkanOverlay.clear();

@@ -453,8 +453,6 @@ extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
       final inkService = DigitalInkService.instance;
       if (!inkService.isAvailable) return null;
 
-      final myScript = inkService.engine as MyScriptInkEngine;
-
       final strokeSets = <List<ProDrawingPoint>>[];
       for (final stroke in penStrokes) {
         if (stroke.length < 2) continue;
@@ -467,7 +465,7 @@ extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
 
       if (strokeSets.isEmpty) return null;
 
-      final recognized = await myScript.recognizeText(strokeSets);
+      final recognized = await inkService.engine.recognizeTextMode(strokeSets);
       debugPrint('🗺️ P4-15: Pen OCR result: "$recognized"');
       return recognized?.trim();
     } catch (e) {

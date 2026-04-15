@@ -122,6 +122,19 @@ abstract class InkRecognitionEngine {
   /// Get download status for multiple languages.
   Future<Map<String, bool>> getDownloadStatus(List<String> languageCodes);
 
+  /// Recognize multiple strokes forcing TEXT mode (no math auto-detect).
+  ///
+  /// Used by Ghost Map and Socratic Mode to get readable text for AI prompts
+  /// instead of LaTeX formulas. Default implementation falls back to
+  /// [recognizeMultiStroke] — override in engines that support distinct modes.
+  Future<String?> recognizeTextMode(
+    List<List<ProDrawingPoint>> strokeSets, {
+    InkRecognitionContext context = InkRecognitionContext.empty,
+  }) {
+    // Default: delegate to standard multi-stroke recognition.
+    return recognizeMultiStroke(strokeSets, context: context);
+  }
+
   /// Release resources.
   void dispose();
 }

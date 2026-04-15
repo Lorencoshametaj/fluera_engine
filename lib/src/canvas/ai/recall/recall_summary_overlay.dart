@@ -17,6 +17,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../l10n/generated/fluera_localizations.g.dart';
+import 'recall_level_l10n.dart';
 import 'recall_mode_controller.dart';
 import 'recall_session_model.dart';
 
@@ -94,6 +96,7 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     final session = widget.controller.session;
     if (session == null) return const SizedBox.shrink();
 
@@ -156,7 +159,7 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      widget.controller.summaryText,
+                      l10n.recall_summaryText(recalled, total),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -185,10 +188,10 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
                         ),
                         child: Text(
                           delta > 0
-                              ? '+$delta nodi rispetto all\'ultima volta!'
+                              ? l10n.recall_deltaPositive(delta)
                               : delta == 0
-                                  ? 'Stesso risultato — costanza!'
-                                  : 'Qualche nodo in meno — succede!',
+                                  ? l10n.recall_deltaNeutral
+                                  : l10n.recall_deltaNegative,
                           style: TextStyle(
                             color: delta > 0
                                 ? const Color(0xFF30D158)
@@ -245,19 +248,20 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
     required Duration elapsed,
     required int masteredCount,
   }) {
+    final l10n = FlueraLocalizations.of(context)!;
     return Row(
       children: [
         Expanded(
-          child: _statTile('✅ Ricordati', '$recalled', const Color(0xFF30D158)),
+          child: _statTile(l10n.recall_statRecalled, '$recalled', const Color(0xFF30D158)),
         ),
         const SizedBox(width: 8),
         Expanded(
           child:
-              _statTile('📋 Da rivedere', '$missed', const Color(0xFFFF9500)),
+              _statTile(l10n.recall_statToReview, '$missed', const Color(0xFFFF9500)),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: _statTile('👁️ Sbirciati', '$peeked', const Color(0xFFFFCC00)),
+          child: _statTile(l10n.recall_statPeeked, '$peeked', const Color(0xFFFFCC00)),
         ),
       ],
     );
@@ -304,6 +308,7 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildLevelBreakdown(RecallSession session) {
+    final l10n = FlueraLocalizations.of(context)!;
     // Count by level.
     final counts = <RecallLevel, int>{};
     for (final entry in session.nodeEntries.values) {
@@ -321,9 +326,9 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Dettaglio per livello',
-          style: TextStyle(
+        Text(
+          l10n.recall_levelBreakdown,
+          style: const TextStyle(
             color: Colors.white60,
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -345,7 +350,7 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${level.label} ($count)',
+                        '${level.localizedLabel(l10n)} ($count)',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 11,
@@ -380,6 +385,7 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildActions() {
+    final l10n = FlueraLocalizations.of(context)!;
     final hasGaps = widget.controller.gapClusterIds.isNotEmpty;
 
     return Column(
@@ -407,10 +413,10 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
                   ),
                 ],
               ),
-              child: const Text(
-                '🎓 Avvia Interrogazione Socratica',
+              child: Text(
+                l10n.recall_startSocratic,
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -440,10 +446,10 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
                       width: 0.5,
                     ),
                   ),
-                  child: const Text(
-                    '🔄 Riprova',
+                  child: Text(
+                    l10n.recall_retry,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white60,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -469,10 +475,10 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
                       width: 0.5,
                     ),
                   ),
-                  child: const Text(
-                    '✓ Chiudi',
+                  child: Text(
+                    l10n.recall_close,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white60,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -503,10 +509,10 @@ class _RecallSummaryOverlayState extends State<RecallSummaryOverlay>
                   width: 0.5,
                 ),
               ),
-              child: const Text(
-                '🧹 Cancella tentativo dal canvas',
+              child: Text(
+                l10n.recall_deleteReconstruction,
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Color(0xFFFF6B6B),
                   fontSize: 12,
                   fontWeight: FontWeight.w500,

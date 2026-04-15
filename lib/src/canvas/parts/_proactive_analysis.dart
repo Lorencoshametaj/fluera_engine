@@ -1454,6 +1454,38 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
     }
   }
 
+  // ── TIER GATE PERSISTENCE (A17) ────────────────────────────────────────────
+
+  /// 💳 KV key for tier gate usage counts — global (not per-canvas).
+  static const _tierGateKey = 'tier_gate_usage';
+
+  /// Load tier gate usage counts from KeyValueStore into [_tierGateController].
+  Future<void> _loadTierGateHistory() async {
+    try {
+      final kv = await KeyValueStore.getInstance();
+      final raw = kv.getString(_tierGateKey);
+      if (raw == null || raw.isEmpty) return;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      _tierGateController = TierGateController.fromJson(
+        json,
+        tier: _subscriptionTier,
+      );
+      debugPrint('💳 Tier gate: loaded usage counts');
+    } catch (e) {
+      debugPrint('⚠️ Tier gate load error: $e');
+    }
+  }
+
+  /// Persist tier gate usage counts to KeyValueStore.
+  Future<void> _saveTierGateHistory() async {
+    try {
+      final kv = await KeyValueStore.getInstance();
+      await kv.setString(_tierGateKey, jsonEncode(_tierGateController.toJson()));
+    } catch (e) {
+      debugPrint('⚠️ Tier gate save error: $e');
+    }
+  }
+
   /// 🚦 Build a [ZoneContext] from the current canvas state for gate evaluation.
   ZoneContext _buildZoneContext() {
     // Node count: total content clusters visible

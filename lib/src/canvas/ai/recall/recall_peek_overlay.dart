@@ -14,6 +14,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../l10n/generated/fluera_localizations.g.dart';
 import 'recall_mode_controller.dart';
 
 /// 👁️ Overlay for the peek reveal system.
@@ -168,10 +169,10 @@ class _RecallPeekOverlayState extends State<RecallPeekOverlay>
                     width: 0.5,
                   ),
                 ),
-                child: const Text(
-                  'Forse questo argomento richiede un\'altra lettura 📖',
+                child: Text(
+                  FlueraLocalizations.of(context)!.recall_peekHint,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Color(0xFFFF9500),
                     fontSize: 11,
                     fontWeight: FontWeight.w500,

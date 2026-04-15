@@ -257,7 +257,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.delete_rounded,
             color: Colors.red,
-            tooltip: FlueraLocalizations.of(context).proCanvas_delete,
+            tooltip: FlueraLocalizations.of(context)!.proCanvas_delete,
             onTap: widget.onDelete,
           ),
 
@@ -265,7 +265,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.close_rounded,
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
-            tooltip: FlueraLocalizations.of(context).proCanvas_close,
+            tooltip: FlueraLocalizations.of(context)!.proCanvas_close,
             onTap: widget.onClearSelection,
           ),
 
@@ -447,13 +447,13 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
         CompactActionButton(
           icon: Icons.flip,
           color: Colors.orange,
-          tooltip: FlueraLocalizations.of(context).proCanvas_flipHorizontal,
+          tooltip: FlueraLocalizations.of(context)!.proCanvas_flipHorizontal,
           onTap: widget.onFlipHorizontal,
         ),
         CompactActionButton(
           icon: Icons.flip,
           color: Colors.teal,
-          tooltip: FlueraLocalizations.of(context).proCanvas_flipVertical,
+          tooltip: FlueraLocalizations.of(context)!.proCanvas_flipVertical,
           rotation: 90,
           onTap: widget.onFlipVertical,
         ),
@@ -668,7 +668,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           CompactActionButton(
             icon: Icons.text_fields_rounded,
             color: Colors.deepPurple,
-            tooltip: FlueraLocalizations.of(context).proCanvas_convertToText,
+            tooltip: FlueraLocalizations.of(context)!.proCanvas_convertToText,
             onTap: widget.onConvertToText,
           ),
         ],

@@ -74,8 +74,8 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text(
-              'Servono appunti sul canvas per la Socratica 🔶',
+            content: Text(
+              _l10n.socratic_needNotes,
             ),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -124,7 +124,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
       provider = EngineScope.current.atlasProvider;
     } catch (_) {}
 
-    setState(() => _socraticGeneratingPhase = 'Riconoscimento testo…');
+    setState(() => _socraticGeneratingPhase = _l10n.socratic_generatingOCR);
 
     // 🔶 OCR: Recognize cluster texts BEFORE generating questions.
     // Without this, Gemini has no idea what the student wrote.
@@ -168,8 +168,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
       }
 
       if (strokeSets.isNotEmpty && inkService.isAvailable) {
-        final myScript = inkService.engine as MyScriptInkEngine;
-        final recognized = await myScript.recognizeText(strokeSets);
+        final recognized = await inkService.engine.recognizeTextMode(strokeSets);
         final parts = [...textParts];
         if (recognized != null && recognized.isNotEmpty) {
           parts.add(recognized);
@@ -185,7 +184,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     );
 
     if (mounted)
-      setState(() => _socraticGeneratingPhase = 'Generazione domande…');
+      setState(() => _socraticGeneratingPhase = _l10n.socratic_generatingQuestions);
 
     await _socraticController.activate(
       clusters: _clusterCache,
@@ -206,8 +205,8 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '🔶 Interrogazione Socratica — '
-            '${_socraticController.allQuestions.length} domande',
+            _l10n.socratic_sessionStarted(
+                _socraticController.allQuestions.length),
           ),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -229,18 +228,16 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
   void _socraticSetConfidence(int level) {
     _socraticController.setConfidence(level);
     HapticFeedback.selectionClick();
-    setState(() {});
+    // A2: No setState — ListenableBuilder on controller handles rebuild.
   }
 
   /// Record self-evaluation result (P3-20).
   void _socraticRecordResult(bool recalled) {
+    // O15: Capture active question BEFORE recordResult changes state.
+    final q = _socraticController.session?.activeQuestion;
     _socraticController.recordResult(recalled: recalled);
 
     // Haptic feedback varies by result (P3-21).
-    final q =
-        _socraticController.session?.queue
-            .where((q) => q.answeredAt != null)
-            .lastOrNull;
     if (q != null && q.isHypercorrection) {
       HapticFeedback.heavyImpact(); // ⚡ Shock!
     } else if (q != null && q.wasWrong) {
@@ -248,8 +245,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     } else {
       HapticFeedback.lightImpact();
     }
-
-    setState(() {});
+    // A2: No setState — ListenableBuilder on controller handles rebuild.
   }
 
   /// Skip the current question (P3-15).
@@ -259,14 +255,14 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     if (_socraticController.isComplete) {
       _showSocraticSummary();
     }
-    setState(() {});
+    // A2: No setState — ListenableBuilder on controller handles rebuild.
   }
 
   /// Request a breadcrumb (P3-24).
   void _socraticRequestBreadcrumb() {
     _socraticController.requestBreadcrumb();
     HapticFeedback.selectionClick();
-    setState(() {});
+    // A2: No setState — ListenableBuilder on controller handles rebuild.
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -296,13 +292,13 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Title
-                const Row(
+                Row(
                   children: [
-                    Text('🔶', style: TextStyle(fontSize: 20)),
-                    SizedBox(width: 8),
+                    const Text('🔶', style: TextStyle(fontSize: 20)),
+                    const SizedBox(width: 8),
                     Text(
-                      'Sessione Socratica completata',
-                      style: TextStyle(
+                      _l10n.socratic_sessionComplete,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -319,25 +315,25 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
                     _summaryStatChip(
                       '✅',
                       '${session.totalCorrect}',
-                      'Corrette',
+                      _l10n.socratic_summaryCorrect,
                       const Color(0xFF66BB6A),
                     ),
                     _summaryStatChip(
                       '❌',
                       '${session.totalWrong}',
-                      'Errate',
+                      _l10n.socratic_summaryWrong,
                       const Color(0xFFEF5350),
                     ),
                     _summaryStatChip(
                       '⚡',
                       '${session.totalHypercorrections}',
-                      'Ipercorrezioni',
+                      _l10n.socratic_summaryHypercorrections,
                       const Color(0xFFFF9800),
                     ),
                     _summaryStatChip(
                       '⏭️',
                       '${session.totalSkipped}',
-                      'Saltate',
+                      _l10n.socratic_summarySkipped,
                       Colors.grey,
                     ),
                   ],
@@ -364,7 +360,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
                       Navigator.of(context).pop();
                       dismissSocraticMode();
                     },
-                    child: const Text('Chiudi e torna al canvas'),
+                    child: Text(_l10n.socratic_closeSession),
                   ),
                 ),
               ],
@@ -408,33 +404,21 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     Color color;
 
     if (session.totalHypercorrections > 0) {
-      // Find hypercorrection clusters
-      final hyperQs = session.queue.where((q) => q.isHypercorrection);
-      final clusterIds = hyperQs.map((q) => q.clusterId).toSet();
-      insight =
-          '⚡ Hai avuto ${session.totalHypercorrections} momento/i di ipercorrezione '
-          '— questi sono i tuoi punti più potenti di apprendimento. '
-          'Rivedi attentamente i ${clusterIds.length} cluster coinvolti.';
+      insight = _l10n.socratic_insightHypercorrection(
+          session.totalHypercorrections);
       icon = Icons.flash_on;
       color = const Color(0xFFFF9800);
     } else if (session.totalCorrect == session.totalAnswered &&
         session.totalAnswered > 0) {
-      insight =
-          '🎯 Tutto corretto! La tua padronanza è solida. '
-          'I prossimi intervalli di ripetizione si allungheranno.';
+      insight = _l10n.socratic_insightPerfect;
       icon = Icons.emoji_events;
       color = const Color(0xFF66BB6A);
     } else if (session.totalWrong > session.totalCorrect) {
-      insight =
-          '📚 Ci sono diverse lacune — è il momento migliore per '
-          'rileggere i tuoi appunti. Il retrieval ha attivato i circuiti '
-          'giusti, ora il rinforzo sarà più efficace.';
+      insight = _l10n.socratic_insightGaps;
       icon = Icons.menu_book;
       color = const Color(0xFFFFB300);
     } else {
-      insight =
-          '👍 Buon bilanciamento tra ciò che sai e ciò che devi rivedere. '
-          'FSRS aggiornerà gli intervalli di ripetizione per te.';
+      insight = _l10n.socratic_insightBalanced;
       icon = Icons.balance;
       color = const Color(0xFF42A5F5);
     }
@@ -510,6 +494,8 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     _socraticController.dismiss();
     _socraticPulseController?.stop();
     _socraticPulseController?.reset();
+    // A2: setState still needed here for pulse controller visual reset
+    // (pulse state lives in _FlueraCanvasScreenState, not in SocraticController).
     setState(() {});
   }
 
@@ -573,7 +559,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Genero domande calibrate sulla tua ZPD',
+                        _l10n.socratic_generatingSubtitle,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.4),
                           fontSize: 11,
@@ -646,7 +632,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
                 if (_socraticController.isComplete) {
                   _showSocraticSummary();
                 }
-                setState(() {});
+                // A2: No setState — ListenableBuilder handles rebuild.
               },
               onRequestBreadcrumb: () => _socraticRequestBreadcrumb(),
               currentBreadcrumbText: breadcrumbText,
@@ -670,7 +656,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
           child: Center(
             child: FilledButton.icon(
               icon: const Icon(Icons.flag, size: 18),
-              label: const Text('Termina Interrogazione'),
+              label: Text(_l10n.socratic_endSession),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF455A64),
                 foregroundColor: Colors.white,
@@ -687,7 +673,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
                 HapticFeedback.heavyImpact();
                 _socraticController.endSession();
                 _showSocraticSummary();
-                setState(() {});
+                // A2: No setState — ListenableBuilder handles rebuild.
               },
             ),
           ),
@@ -703,7 +689,7 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
           child: Center(
             child: FilledButton.icon(
               icon: const Icon(Icons.check_circle, size: 18),
-              label: const Text('Chiudi Socratica'),
+              label: Text(_l10n.socratic_closeSession),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF2E7D32),
                 foregroundColor: Colors.white,
@@ -755,9 +741,9 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Text(
-                  'Socratica Attiva',
-                  style: TextStyle(
+                Text(
+                  _l10n.socratic_activeIndicator,
+                  style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

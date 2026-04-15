@@ -604,8 +604,7 @@ class NotificationPlugin :
                                         .bigPicture(bitmap)
                                         .setSummaryText(body)
                                 )
-                            @SuppressLint("MissingPermission")
-                            NotificationManagerCompat.from(ctx).notify(id.hashCode(), updatedBuilder.build())
+                            notifySafe(ctx, id.hashCode(), updatedBuilder.build())
                         }
                     }.start()
                     // Fall through: the base plain notification is posted below
@@ -679,6 +678,13 @@ class NotificationPlugin :
         }
 
         return builder.build()
+    }
+
+    // ── Safe Notify Helper ────────────────────────────────────────────────────
+
+    @SuppressLint("MissingPermission")
+    private fun notifySafe(ctx: Context, id: Int, notification: android.app.Notification) {
+        NotificationManagerCompat.from(ctx).notify(id, notification)
     }
 
     // ── SmallIcon Resolution ──────────────────────────────────────────────────

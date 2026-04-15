@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 import 'ocr_engine.dart';
-import 'mlkit_ocr_engine.dart';
+import 'myscript_ocr_engine.dart';
 
 // Re-export models so consumers don't need to import ocr_engine.dart
 export 'ocr_engine.dart' show OcrTextBlock, OcrResult, OcrEngine;

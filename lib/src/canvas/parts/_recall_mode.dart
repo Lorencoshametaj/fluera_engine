@@ -64,14 +64,6 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
           cluster.centroid = cluster.centroid + offset;
         }
       }
-
-      debugPrint('🧠 Recall: ${_clusterCache.length} clusters, '
-          '${activeLayer.strokes.length} strokes');
-      for (final c in _clusterCache) {
-        debugPrint('  📍 cluster ${c.id.substring(0, 8)} '
-            'bounds=${c.bounds} centroid=${c.centroid} '
-            'strokes=${c.strokeIds.length}');
-      }
     }
 
     HapticFeedback.mediumImpact();
@@ -86,7 +78,7 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
         .toList();
 
     if (clustersInZone.isEmpty) {
-      debugPrint('🧠 No clusters in selected zone');
+    //       debugPrint('🧠 No clusters in selected zone');
       setState(() => _showRecallZoneSelector = false);
       return;
     }
@@ -168,6 +160,9 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
     }
 
     _recallModeController.deactivate();
+    // Release the per-session TextPainter layout cache; freed once per session
+    // (~35 entries). Called here so the controller stays UI-rendering agnostic.
+    RecallNodeOverlayPainter.clearTextPainterCache();
     _recallOriginalStrokeIds = const {};
     _recallNewStrokeIds = const {};
     _recallShowingOriginals = true;
@@ -228,60 +223,171 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
   // ─────────────────────────────────────────────────────────────────────────
 
   /// Starts the comparison phase — reveals original and evaluates gaps.
-  void startRecallComparison() {
+  Future<void> startRecallComparison() async {
     if (!_recallModeController.isActive) return;
     if (_recallModeController.isComparing) return;
 
     HapticFeedback.heavyImpact();
 
-    // Gather reconstructed clusters from the RECONSTRUCTION zone
-    // (adjacent to original — that's where the student wrote).
-    final reconstructedClusters = _clusterCache
-        .where((c) =>
-            _recallReconstructionZone.overlaps(c.bounds) ||
-            _recallReconstructionZone.contains(c.centroid))
-        .where((c) =>
-            // Exclude original clusters — only new ones.
-            !_recallModeController.originalClusters
-                .any((oc) => oc.id == c.id))
-        .toList();
-
-    _recallModeController.startComparison(reconstructedClusters);
-
-    // 🧠 COMPARISON: compute new stroke IDs for reference.
     final allCurrentIds = _layerController
         .getAllVisibleStrokes()
         .map((s) => s.id)
         .toSet();
     _recallNewStrokeIds = allCurrentIds.difference(_recallOriginalStrokeIds);
 
-    // 🧠 With adjacent zones, no strokes need hiding during comparison.
-    // Both original and reconstruction are spatially separated.
-    // Clear the hidden set so originals become visible.
-    _recallOriginalStrokeIds = const {};
-    _layerController.notifyListeners(); // Force DrawingPainter to show originals
+    final rawReconstructedClusters = _clusterCache
+        .where((c) => c.strokeIds.any((id) => _recallNewStrokeIds.contains(id)))
+        .where((c) =>
+            !_recallModeController.originalClusters
+                .any((oc) => oc.id == c.id))
+        .toList();
 
-    // Default: split-view showing both zones.
-    _recallShowingOriginals = true;
-    _panToSplitView();
-    setState(() {}); // Force main widget rebuild (comparison overlay)
-  }
+    // Filter out trivial clusters (noise marks, stray dots, underscores).
+    // A single short stroke shouldn't count as a recall attempt.
+    final reconstructedClusters = rawReconstructedClusters.where((c) {
+      if (c.strokeIds.length == 1) {
+        final area = c.bounds.width * c.bounds.height;
+        if (area < 200) return false;
+      }
+      return true;
+    }).toList();
 
-  /// Toggles comparison view: Split → Original → Tentativo → Split...
-  void toggleRecallComparisonView() {
-    HapticFeedback.mediumImpact();
+    // ── Force OCR on reconstructed clusters ──
+    // The semantic title OCR only runs at zoom < 0.20, so newly-drawn
+    // clusters in the reconstruction zone will NOT have text in the cache.
+    // We force-recognize them here before matching.
+    final inkService = DigitalInkService.instance;
+    if (inkService.isAvailable && reconstructedClusters.isNotEmpty) {
+      final activeLayer = _layerController.layers.firstWhere(
+        (l) => l.id == _layerController.activeLayerId,
+        orElse: () => _layerController.layers.first,
+      );
+      final strokeMap = <String, ProStroke>{};
+      for (final s in activeLayer.strokes) {
+        strokeMap[s.id] = s;
+      }
 
-    // Three-state cycle: split → original → reconstruction → split
-    if (_recallShowingOriginals) {
-      // Was split/original → show reconstruction only.
-      _recallShowingOriginals = false;
-      _panToReconstructionZone();
-    } else {
-      // Was reconstruction → back to split view.
-      _recallShowingOriginals = true;
-      _panToSplitView();
+      final futures = <Future<void>>[];
+      for (final cluster in reconstructedClusters) {
+        // Skip if already recognized.
+        if (_clusterTextCache.containsKey(cluster.id) &&
+            _clusterTextCache[cluster.id]!.trim().isNotEmpty) {
+          continue;
+        }
+
+        final strokeSets = <List<ProDrawingPoint>>[];
+        for (final sid in cluster.strokeIds) {
+          final stroke = strokeMap[sid];
+          if (stroke != null && !stroke.isStub && stroke.points.length >= 3) {
+            strokeSets.add(stroke.points);
+          }
+        }
+        if (strokeSets.isEmpty) continue;
+
+        final clusterId = cluster.id;
+        futures.add(
+          inkService.engine.recognizeTextMode(strokeSets).then((recognized) {
+            if (recognized != null && recognized.trim().isNotEmpty) {
+              _clusterTextCache[clusterId] = recognized.trim();
+            }
+          }),
+        );
+      }
+      if (futures.isNotEmpty) {
+        await Future.wait(futures);
+      }
     }
 
+    // Also force OCR on ORIGINAL clusters that might not have text yet.
+    if (inkService.isAvailable) {
+      final activeLayer = _layerController.layers.firstWhere(
+        (l) => l.id == _layerController.activeLayerId,
+        orElse: () => _layerController.layers.first,
+      );
+      final strokeMap = <String, ProStroke>{};
+      for (final s in activeLayer.strokes) {
+        strokeMap[s.id] = s;
+      }
+
+      final ocrFutures = <Future<void>>[];
+      for (final oc in _recallModeController.originalClusters) {
+        if (_clusterTextCache.containsKey(oc.id) &&
+            _clusterTextCache[oc.id]!.trim().isNotEmpty) {
+          continue;
+        }
+
+        final strokeSets = <List<ProDrawingPoint>>[];
+        for (final sid in oc.strokeIds) {
+          final stroke = strokeMap[sid];
+          if (stroke != null && !stroke.isStub && stroke.points.length >= 3) {
+            strokeSets.add(stroke.points);
+          }
+        }
+        if (strokeSets.isEmpty) continue;
+
+        final clusterId = oc.id;
+        ocrFutures.add(
+          inkService.engine.recognizeTextMode(strokeSets).then((recognized) {
+            if (recognized != null && recognized.trim().isNotEmpty) {
+              _clusterTextCache[clusterId] = recognized.trim();
+            }
+          }),
+        );
+      }
+      if (ocrFutures.isNotEmpty) {
+        await Future.wait(ocrFutures);
+      }
+    }
+
+    // 💾 Compute bounding rect of new strokes for "attempt" camera pan.
+    if (reconstructedClusters.isNotEmpty) {
+      _recallAttemptBounds = reconstructedClusters
+          .map((c) => c.bounds)
+          .reduce((a, b) => a.expandToInclude(b));
+    } else {
+      // User didn't draw enough new clusters — fall back to original zone.
+      _recallAttemptBounds = _recallModeController.selectedZone;
+    }
+
+    // Calculate the offset from original zone to reconstruction zone.
+    final origZone = _recallModeController.selectedZone;
+    final reconstructionOffset = origZone != null
+        ? _recallReconstructionZone.topLeft - origZone.topLeft
+        : Offset.zero;
+
+    _recallModeController.startComparison(
+      reconstructedClusters,
+      reconstructionZoneOffset: reconstructionOffset,
+      clusterTextMap: _clusterTextCache,
+    );
+
+    _recallOriginalStrokeIdsBackup = _recallOriginalStrokeIds;
+    _recallOriginalStrokeIds = const {};
+    _layerController.notifyListeners();
+
+    _recallShowingOriginals = true;
+    _panToOriginalZone();
+    setState(() {});
+  }
+
+  /// Toggles comparison view: Originale ↔ Tentativo (in-place, no pan).
+  ///
+  /// • Comparison (showingOriginals=true): original strokes visible + color overlays.
+  /// • Attempt (showingOriginals=false): original strokes hidden, only new visible.
+  void toggleRecallComparisonView() {
+    HapticFeedback.mediumImpact();
+    _recallShowingOriginals = !_recallShowingOriginals;
+
+    if (_recallShowingOriginals) {
+      // Comparison view: reveal all originals + pan to full zone.
+      _recallOriginalStrokeIds = const {};
+      _panToOriginalZone();
+    } else {
+      // Attempt view: hide originals + zoom into user's new strokes.
+      _recallOriginalStrokeIds = _recallOriginalStrokeIdsBackup;
+      _panToAttemptZone();
+    }
+    _layerController.notifyListeners();
     setState(() {});
   }
 
@@ -307,25 +413,40 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
     setState(() {});
   }
 
-  /// Zooms out to show both original and reconstruction zones.
+  /// Zooms to show both original and reconstruction zones side-by-side.
+  ///
+  /// Uses width-first fitting (the two zones are horizontal neighbours)
+  /// with a minimum scale floor so it never dezoom below a readable level.
   void _panToSplitView() {
     final zone = _recallModeController.selectedZone;
     if (zone == null || _recallReconstructionZone == Rect.zero) return;
 
-    // Compute bounding rect that contains both zones.
     final combined = zone.expandToInclude(_recallReconstructionZone);
     final screenSize = MediaQuery.sizeOf(context);
 
-    // Calculate scale to fit combined rect with padding.
-    const padding = 80.0; // px padding on each side
-    final scaleX = (screenSize.width - padding * 2) / combined.width;
-    final scaleY = (screenSize.height - padding * 2) / combined.height;
-    final targetScale = scaleX < scaleY ? scaleX : scaleY;
+    // Adaptive padding: tighter on small screens.
+    final hPad = screenSize.width < 500 ? 32.0 : 48.0;
+    final vPad = screenSize.height < 900 ? 80.0 : 100.0;
 
-    // Center on the combined rect.
+    // Fit scale — width-first because zones are placed side by side.
+    final scaleX = (screenSize.width - hPad * 2) / combined.width;
+    final scaleY = (screenSize.height - vPad * 2) / combined.height;
+
+    // Prefer width fit; only use height fit if it's significantly smaller.
+    // This prevents extreme dezoom when the combined height is very large.
+    final rawScale = (scaleY < scaleX * 0.6) ? scaleY : scaleX;
+
+    // Clamp: never below 0.45 (readable) or above 1.5 (nothing to show).
+    final targetScale = rawScale.clamp(0.45, 1.5);
+
+    // Center on the horizontal midpoint of both zones, vertically
+    // bias toward top of combined rect so active content is visible.
+    final centerX = combined.center.dx;
+    final centerY = combined.top + (combined.height * 0.45);
+
     final targetOffset = Offset(
-      screenSize.width / 2 - combined.center.dx * targetScale,
-      screenSize.height / 2 - combined.center.dy * targetScale,
+      screenSize.width / 2 - centerX * targetScale,
+      screenSize.height / 2 - centerY * targetScale,
     );
 
     _canvasController.animateToTransform(
@@ -334,29 +455,73 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
     );
   }
 
-  /// Pans camera to center on the original zone.
+  /// Pans camera to fit the original zone on screen at a comfortable zoom.
   void _panToOriginalZone() {
     final zone = _recallModeController.selectedZone;
     if (zone == null) return;
+    _panToZone(zone, label: 'original');
+  }
+
+  /// Pans camera to show the user's reconstruction attempt in context.
+  ///
+  /// Uses the tight cluster bounding box as center, zooming the
+  /// reconstruction zone to fill the viewport horizontally.
+  void _panToAttemptZone() {
+    // HORIZONTAL-ONLY PAN: Y stays frozen, only X changes.
+    // Anchor: align the reconstruction zone LEFT EDGE to the screen left edge
+    // so the full reconstruction zone is visible. The attempt cluster appears
+    // near the left portion of screen, and the rest of the zone to the right.
     final screenSize = MediaQuery.sizeOf(context);
+    _canvasController.stopAnimation();
     final scale = _canvasController.scale;
+
+    final double centerX;
+    if (_recallReconstructionZone != Rect.zero) {
+      // Left edge of reconstruction zone at screen left → zone fills screen.
+      final halfScreenCanvas = screenSize.width / (2 * scale);
+      centerX = _recallReconstructionZone.left + halfScreenCanvas;
+    } else {
+      final bounds = _recallAttemptBounds;
+      if (bounds == null) return;
+      centerX = bounds.center.dx;
+    }
+
     final targetOffset = Offset(
-      screenSize.width / 2 - zone.center.dx * scale,
-      screenSize.height / 2 - zone.center.dy * scale,
+      screenSize.width / 2 - centerX * scale,
+      _canvasController.offset.dy, // ← Y: unchanged (pure horizontal slide)
     );
     _canvasController.animateOffsetTo(targetOffset);
   }
 
-  /// Pans camera to center on the reconstruction zone.
+  /// Pans camera to fit the reconstruction zone on screen at a comfortable zoom.
   void _panToReconstructionZone() {
     if (_recallReconstructionZone == Rect.zero) return;
+    _panToZone(_recallReconstructionZone, label: 'reconstruction');
+  }
+
+  /// Shared helper: animates camera to fit [zone] on screen.
+  ///
+  /// Uses [animateDiveTo] which lerps BOTH offset and scale simultaneously
+  /// via [Offset.lerp] — it always reaches the exact target position.
+  ///
+  /// ⚠️  Do NOT use [animateToTransform] here: with [_isTransformSpringActive]
+  /// the offset update is skipped (`if (!_isTransformSpringActive)`) and the
+  /// zoom spring anchors to [Offset.zero], making the camera drift sideways.
+  void _panToZone(Rect zone, {String label = ''}) {
     final screenSize = MediaQuery.sizeOf(context);
-    final scale = _canvasController.scale;
-    final targetOffset = Offset(
-      screenSize.width / 2 - _recallReconstructionZone.center.dx * scale,
-      screenSize.height / 2 - _recallReconstructionZone.center.dy * scale,
+    // Add 10% horizontal and 15% vertical padding by inflating the zone so
+    // animateDiveTo produces the same visual margins as before.
+    final inflated = Rect.fromLTRB(
+      zone.left   - zone.width  * 0.125,
+      zone.top    - zone.height * 0.088,
+      zone.right  + zone.width  * 0.125,
+      zone.bottom + zone.height * 0.088,
     );
-    _canvasController.animateOffsetTo(targetOffset);
+    _canvasController.animateDiveTo(
+      nodeWorldRect: inflated,
+      viewportSize: screenSize,
+      durationSeconds: 0.45,
+    );
   }
 
   /// Navigates to a specific gap cluster during comparison.
@@ -396,7 +561,7 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
   void transitionToStep3Socratic() {
     final gapMap = _recallModeController.getGapMapForStep3();
     if (gapMap == null || gapMap.isEmpty) {
-      debugPrint('🧠 No gaps to pass to Step 3');
+
       return;
     }
 
@@ -409,7 +574,7 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
     _learningStepController.advanceTo(LearningStep.step3Socratic);
 
     // TODO: Pass gapMap to the Socratic controller when implemented.
-    debugPrint('🧠 Step 3 transition — gap map: ${gapMap.length} entries');
+
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -477,23 +642,9 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
         ),
       );
 
-      // 📝 Animated reconstruction zone border.
-      if (_recallReconstructionZone != Rect.zero) {
-        final topLeft = _canvasController.canvasToScreen(
-          _recallReconstructionZone.topLeft,
-        );
-        final bottomRight = _canvasController.canvasToScreen(
-          _recallReconstructionZone.bottomRight,
-        );
-        final screenRect = Rect.fromPoints(topLeft, bottomRight);
-
-        widgets.add(
-          _RecallReconstructionBorder(
-            key: const ValueKey('reconstruction_border'),
-            screenRect: screenRect,
-          ),
-        );
-      }
+      // 📝 Reconstruction zone dashed border is now painted by
+      // RecallNodeOverlayPainter in canvas space (inside the Transform
+      // stack in _buildCanvasArea). See _ui_canvas_layer.dart.
     }
 
     // Missed markers.
@@ -541,75 +692,20 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
 
     // Comparison overlay.
     if (_recallModeController.isComparing) {
-      // 🌟 Zone labels in split-view.
-      if (_recallShowingOriginals) {
-        final origZone = _recallModeController.selectedZone;
-        if (origZone != null) {
-          // Label on original zone.
-          final origLabelPos = _canvasController.canvasToScreen(
-            Offset(origZone.center.dx, origZone.top - 30),
-          );
-          widgets.add(
-            _RecallZoneLabel(
-              key: const ValueKey('label_original'),
-              screenPos: origLabelPos,
-              text: '📄 Originale',
-              color: const Color(0xFF007AFF),
-            ),
-          );
+      // 🌟 Zone labels + connection line are now painted by
+      // RecallNodeOverlayPainter in canvas space (inside the Transform
+      // stack in _buildCanvasArea), so they track strokes perfectly
+      // during zoom/pan. See _ui_canvas_layer.dart.
 
-          // Label on reconstruction zone.
-          if (_recallReconstructionZone != Rect.zero) {
-            final reconLabelPos = _canvasController.canvasToScreen(
-              Offset(
-                _recallReconstructionZone.center.dx,
-                _recallReconstructionZone.top - 30,
-              ),
-            );
-            widgets.add(
-              _RecallZoneLabel(
-                key: const ValueKey('label_tentativo'),
-                screenPos: reconLabelPos,
-                text: '📝 Tentativo',
-                color: const Color(0xFF30D158),
-              ),
-            );
-
-            // Connection line between zones.
-            final lineStart = _canvasController.canvasToScreen(
-              Offset(origZone.right, origZone.center.dy),
-            );
-            final lineEnd = _canvasController.canvasToScreen(
-              Offset(
-                _recallReconstructionZone.left,
-                _recallReconstructionZone.center.dy,
-              ),
-            );
-            widgets.add(
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: _ConnectionLinePainter(
-                      start: lineStart,
-                      end: lineEnd,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }
-        }
-      }
-
-      // Swipe detector + comparison HUD.
+      // Comparison HUD — Positioned.fill with translucent hit testing
+      // so pinch-to-zoom passes through to InfiniteCanvasGestureDetector.
+      // 🗑️ Swipe-to-toggle removed: competed with ScaleGestureRecognizer.
+      //    Use the toggle button in the navigation bar instead.
       widgets.add(
-        GestureDetector(
-          key: const ValueKey('recall_swipe_detector'),
-          behavior: HitTestBehavior.translucent,
-          onHorizontalDragEnd: handleRecallSwipe,
+        Positioned.fill(
           child: RecallComparisonOverlay(
+            key: const ValueKey('recall_swipe_detector'),
             controller: _recallModeController,
-            canvasController: _canvasController,
             onNavigateToGap: navigateToRecallGap,
             onShowSummary: showRecallSummary,
             onStartSocratic: transitionToStep3Socratic,
@@ -655,280 +751,3 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
   }
 }
 
-// ============================================================================
-// 📝 Animated Reconstruction Zone Border
-// ============================================================================
-
-class _RecallReconstructionBorder extends StatefulWidget {
-  final Rect screenRect;
-
-  const _RecallReconstructionBorder({
-    super.key,
-    required this.screenRect,
-  });
-
-  @override
-  State<_RecallReconstructionBorder> createState() =>
-      _RecallReconstructionBorderState();
-}
-
-class _RecallReconstructionBorderState
-    extends State<_RecallReconstructionBorder>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: widget.screenRect.left,
-      top: widget.screenRect.top,
-      child: IgnorePointer(
-        child: RepaintBoundary(
-          child: AnimatedBuilder(
-            animation: _pulseController,
-            builder: (_, __) {
-              return CustomPaint(
-                size: Size(widget.screenRect.width, widget.screenRect.height),
-                painter: _AnimatedBorderPainter(
-                  dashOffset: _pulseController.value * 40,
-                  pulseOpacity: 0.3 + 0.15 * (0.5 + 0.5 *
-                      (2 * _pulseController.value - 1).abs()),
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AnimatedBorderPainter extends CustomPainter {
-  final double dashOffset;
-  final double pulseOpacity;
-
-  _AnimatedBorderPainter({
-    required this.dashOffset,
-    required this.pulseOpacity,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Color.fromRGBO(108, 99, 255, pulseOpacity)
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke;
-
-    // Soft fill.
-    final fill = Paint()
-      ..color = const Color(0xFF6C63FF).withValues(alpha: 0.03)
-      ..style = PaintingStyle.fill;
-
-    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final rRect = RRect.fromRectAndRadius(rect, const Radius.circular(16));
-
-    canvas.drawRRect(rRect, fill);
-
-    // Animated dashed border.
-    final path = Path()..addRRect(rRect);
-    final dashPath = _createDashPath(
-      path,
-      dashLength: 12.0,
-      gapLength: 8.0,
-      offset: dashOffset,
-    );
-    canvas.drawPath(dashPath, paint);
-
-    // Label "📝 Ricostruisci da memoria" at top center.
-    final textPainter = TextPainter(
-      text: const TextSpan(
-        text: '📝 Ricostruisci da memoria',
-        style: TextStyle(
-          color: Color(0xFF6C63FF),
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.5,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-
-    final labelW = textPainter.width + 24;
-    final labelH = textPainter.height + 12;
-    final labelX = (size.width - labelW) / 2;
-    const labelY = 12.0;
-
-    final labelBg = Paint()
-      ..color = const Color(0xFF0A0A14).withValues(alpha: 0.8)
-      ..style = PaintingStyle.fill;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(labelX, labelY, labelW, labelH),
-        const Radius.circular(8),
-      ),
-      labelBg,
-    );
-
-    textPainter.paint(canvas, Offset(labelX + 12, labelY + 6));
-  }
-
-  @override
-  bool shouldRepaint(_AnimatedBorderPainter oldDelegate) =>
-      dashOffset != oldDelegate.dashOffset ||
-      pulseOpacity != oldDelegate.pulseOpacity;
-
-  Path _createDashPath(
-    Path source, {
-    required double dashLength,
-    required double gapLength,
-    double offset = 0,
-  }) {
-    final dest = Path();
-    for (final metric in source.computeMetrics()) {
-      double distance = offset % (dashLength + gapLength);
-      while (distance < metric.length) {
-        final len = dashLength.clamp(0, metric.length - distance);
-        dest.addPath(
-          metric.extractPath(distance, distance + len),
-          Offset.zero,
-        );
-        distance += dashLength + gapLength;
-      }
-    }
-    return dest;
-  }
-}
-
-
-// ============================================================================
-// 📄 Zone Label — floating label above each zone in split-view
-// ============================================================================
-
-class _RecallZoneLabel extends StatelessWidget {
-  final Offset screenPos;
-  final String text;
-  final Color color;
-
-  const _RecallZoneLabel({
-    super.key,
-    required this.screenPos,
-    required this.text,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: screenPos.dx - 60,
-      top: screenPos.dy - 12,
-      child: IgnorePointer(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xE60A0A14),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: color.withValues(alpha: 0.5),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.15),
-                blurRadius: 12,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Text(
-            text,
-            style: TextStyle(
-              color: color,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// ── Connection Line Painter — dotted line between zones in split-view
-// ============================================================================
-
-class _ConnectionLinePainter extends CustomPainter {
-  final Offset start;
-  final Offset end;
-
-  // Pre-computed for arrowAngle = 0.5 rad (~28.6°)
-  static final double _cosA = math.cos(0.5);
-  static final double _sinA = math.sin(0.5);
-
-  _ConnectionLinePainter({required this.start, required this.end});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFF6C63FF).withValues(alpha: 0.25)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
-
-    // Dotted line.
-    const dashLen = 6.0;
-    const gapLen = 6.0;
-    final dx = end.dx - start.dx;
-    final dy = end.dy - start.dy;
-    final distance = (Offset(dx, dy)).distance;
-    if (distance < 1) return;
-
-    final unitX = dx / distance;
-    final unitY = dy / distance;
-
-    double d = 0;
-    while (d < distance) {
-      final segEnd = (d + dashLen).clamp(0, distance);
-      canvas.drawLine(
-        Offset(start.dx + unitX * d, start.dy + unitY * d),
-        Offset(start.dx + unitX * segEnd, start.dy + unitY * segEnd),
-        paint,
-      );
-      d += dashLen + gapLen;
-    }
-
-    // Arrow at end (pre-computed trig).
-    const arrowSize = 8.0;
-    final ax1 = end.dx - arrowSize * (unitX * _cosA - unitY * _sinA);
-    final ay1 = end.dy - arrowSize * (unitX * _sinA + unitY * _cosA);
-    final ax2 = end.dx - arrowSize * (unitX * _cosA + unitY * _sinA);
-    final ay2 = end.dy - arrowSize * (-unitX * _sinA + unitY * _cosA);
-
-    final arrowPaint = Paint()
-      ..color = const Color(0xFF6C63FF).withValues(alpha: 0.35)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
-
-    canvas.drawLine(end, Offset(ax1, ay1), arrowPaint);
-    canvas.drawLine(end, Offset(ax2, ay2), arrowPaint);
-  }
-
-  @override
-  bool shouldRepaint(_ConnectionLinePainter oldDelegate) =>
-      start != oldDelegate.start || end != oldDelegate.end;
-}

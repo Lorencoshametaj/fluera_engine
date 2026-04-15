@@ -403,7 +403,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
     final discard = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final l10n = FlueraLocalizations.of(ctx);
+        final l10n = FlueraLocalizations.of(ctx)!;
         final cs = Theme.of(ctx).colorScheme;
         return AlertDialog(
           title: Text(l10n.proCanvas_discardChanges),
@@ -877,7 +877,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  FlueraLocalizations.of(context).proCanvas_professionalEditor,
+                  FlueraLocalizations.of(context)!.proCanvas_professionalEditor,
                   style: tt.titleMedium?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -933,7 +933,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildPreview(ColorScheme cs) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Column(
       children: [
         Container(
@@ -1834,7 +1834,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildTransformTab(ColorScheme cs, TextTheme tt) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       children: [
@@ -2028,7 +2028,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildColorTab(ColorScheme cs, TextTheme tt) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       children: [
@@ -2792,7 +2792,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildFiltersTab(ColorScheme cs, TextTheme tt) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -3128,7 +3128,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
   // --------------------------------------------------------------------------
 
   Widget _buildActions(ColorScheme cs, TextTheme tt) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
       decoration: BoxDecoration(

@@ -55,6 +55,35 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
 
     final inkService = DigitalInkService.instance;
 
+    // 🔴 HTR DEGRADED MODE: Warn the user if handwriting recognition
+    // is not available on this platform (desktop, web).
+    if (!inkService.isAvailable && mounted) {
+      final hasHandwriting = _clusterCache.any((c) => c.strokeIds.isNotEmpty);
+      if (hasHandwriting) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _l10n.htr_unavailableOnPlatform,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 5),
+            backgroundColor: const Color(0xFFE65100),
+          ),
+        );
+      }
+    }
+
     // 🗺️ Only process clusters visible in the current viewport
     final size = MediaQuery.of(context).size;
     final topLeft = _canvasController.screenToCanvas(Offset.zero);
@@ -112,8 +141,7 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
 
       // 🔤 Sequential recognition — force TEXT mode (not auto/math)
       if (strokeSets.isNotEmpty && inkService.isAvailable) {
-        final myScript = inkService.engine as MyScriptInkEngine;
-        final recognized = await myScript.recognizeText(strokeSets);
+        final recognized = await inkService.engine.recognizeTextMode(strokeSets);
         final parts = [...textParts];
         if (recognized != null && recognized.isNotEmpty) {
           parts.add(recognized);
@@ -147,6 +175,26 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
   Future<void> _triggerGhostMapCore() async {
     final controller = _ghostMapController;
     if (controller.isLoading) return;
+
+    // 💳 A17: Tier gate — Free tier: 1 Ghost Map comparison/week.
+    final gateResult = _tierGateController.checkFeature(
+      GatedFeature.ghostMapComparison,
+    );
+    if (!gateResult.allowed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(gateResult.upgradeMessage!),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 6),
+            backgroundColor: const Color(0xFF37474F),
+          ),
+        );
+      }
+      return;
+    }
 
     // 🗺️ On-demand OCR: populate cluster text cache for unrecognized clusters.
     // This bypasses the Step 3+ gate on _scheduleSemanticOcr() so
@@ -252,6 +300,10 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
     messenger?.hideCurrentSnackBar();
 
     if (controller.isActive) {
+      // 💳 A17: Record usage so Free tier weekly counter increments.
+      _tierGateController.recordUsage(GatedFeature.ghostMapComparison);
+      _saveTierGateHistory();
+
       // 🗺️ P4-24: Reset opacity to 1.0 when activating
       _ghostMapOpacity.value = 1.0;
       // U-1: Start entry stagger timer

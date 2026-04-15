@@ -21,6 +21,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
   flutter_riverpod: ^3.0.3
   # Storage & IO
@@ -47,6 +50,7 @@ dev_dependencies:
     sdk: flutter
 
 flutter:
+  generate: true
   plugin:
     platforms:
       android:

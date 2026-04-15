@@ -353,7 +353,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // FOUNTAIN PEN SETTINGS
   // =====================
   Widget _buildFountainPenSettings() {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -554,7 +554,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // PENCIL SETTINGS
   // ================
   Widget _buildPencilSettings() {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -619,7 +619,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // HIGHLIGHTER SETTINGS
   // =====================
   Widget _buildHighlighterSettings() {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -653,7 +653,7 @@ class _BrushSettingsDialogState extends State<BrushSettingsDialog> {
   // BALLPOINT SETTINGS
   // ===================
   Widget _buildBallpointSettings() {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

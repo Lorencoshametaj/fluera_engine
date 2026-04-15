@@ -20,6 +20,9 @@ extension PendingFeatures on _FlueraCanvasScreenState {
   /// 🚀 Uses _multiviewVersionNotifier instead of setState to rebuild ONLY
   /// the canvas area, not the entire 2500+ line screen widget tree.
   void _launchAdvancedSplitView() {
+    // 🚀 v1 DEFER: Multiview gated
+    if (!V1FeatureGate.multiview) return;
+
     // Phase 1: Transition out — disposes old canvas tree, shows blank surface
     _isMultiviewTransitioning = true;
     _multiviewVersionNotifier.value++;

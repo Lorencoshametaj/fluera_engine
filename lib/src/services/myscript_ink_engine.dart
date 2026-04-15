@@ -113,6 +113,15 @@ class MyScriptInkEngine implements InkRecognitionEngine {
     return _recognize(strokeSets, contentType: 'text');
   }
 
+  /// Override: force text mode for AI consumers (Ghost Map, Socratic).
+  @override
+  Future<String?> recognizeTextMode(
+    List<List<ProDrawingPoint>> strokeSets, {
+    InkRecognitionContext context = InkRecognitionContext.empty,
+  }) {
+    return recognizeText(strokeSets);
+  }
+
   /// Recognize strokes as math formula (returns LaTeX).
   Future<String?> recognizeMath(List<List<ProDrawingPoint>> strokeSets) {
     return _recognize(strokeSets, contentType: 'math');

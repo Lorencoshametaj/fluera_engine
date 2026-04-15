@@ -259,7 +259,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   }
 
   void _loadAnnotationsFromModel() {
-    // Load serialized ink annotations from the document model (stub)
+    for (int i = 0; i < widget.documentModel.pages.length; i++) {
+      final page = widget.documentModel.pages[i];
+      if (page.inkStrokes.isNotEmpty) {
+        _pageStrokes[i] = page.inkStrokes
+            .map((json) => ProStroke.fromJson(json))
+            .toList();
+      }
+    }
   }
 
   PdfDocumentModel _buildUpdatedModel() {
@@ -269,7 +276,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
       final strokes = _pageStrokes[i] ?? [];
       updatedPages.add(page.copyWith(
         annotations: strokes.map((s) => s.id).toList(),
-        lastModifiedAt: DateTime.now().microsecondsSinceEpoch,
+        inkStrokes: strokes.map((s) => s.toJson()).toList(),
+        lastModifiedAt: strokes.isNotEmpty
+            ? DateTime.now().microsecondsSinceEpoch
+            : null,
       ));
     }
     return widget.documentModel.copyWith(pages: updatedPages);
@@ -346,7 +356,13 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                             colorFilter: ColorFilter.matrix(<double>[_brightness, 0, 0, 0, 0, 0, _brightness, 0, 0, 0, 0, 0, _brightness, 0, 0, 0, 0, 0, 1, 0]),
                             child: _buildPageList())),
                         ]),
-                        if (_vulkanTextureId != null && _isDrawingMode) Positioned.fill(child: IgnorePointer(child: Texture(textureId: _vulkanTextureId!))),
+                        if (_vulkanTextureId != null && _isDrawingMode) Positioned.fill(child: IgnorePointer(child: ColorFiltered(
+                          colorFilter: _readingMode == _ReadingMode.dark
+                              ? const ColorFilter.matrix(<double>[-0.9, 0, 0, 0, 230, 0, -0.9, 0, 0, 220, 0, 0, -0.9, 0, 210, 0, 0, 0, 1, 0])
+                              : _readingMode == _ReadingMode.sepia
+                                  ? const ColorFilter.matrix(<double>[0.95, 0.05, 0.02, 0, 10, 0.02, 0.90, 0.05, 0, 5, 0.02, 0.05, 0.80, 0, 0, 0, 0, 0, 1, 0])
+                                  : const ColorFilter.mode(Color(0x00000000), BlendMode.dst),
+                          child: Texture(textureId: _vulkanTextureId!)))),
                         if (_currentZoomScale < 0.95 && !_isDrawingMode) _buildZoomExitHint(),
                         if ((_currentZoomScale - 1.0).abs() > 0.05 && !_isDrawingMode)
                           Positioned(top: 12, right: 12, child: IgnorePointer(child: AnimatedOpacity(duration: const Duration(milliseconds: 300), opacity: _zoomIndicatorOpacity,

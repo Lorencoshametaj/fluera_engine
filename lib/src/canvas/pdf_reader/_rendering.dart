@@ -21,6 +21,7 @@ extension _PdfRenderingMethods on _PdfReaderScreenState {
 
   /// Ensure visible pages (current ± 3) are rendered and dispose far-away pages.
   void _ensureVisiblePagesRendered() {
+    if (!mounted) return;
     final total = widget.documentModel.totalPages;
     final current = _currentPageIndex;
     
@@ -50,6 +51,7 @@ extension _PdfRenderingMethods on _PdfReaderScreenState {
   Future<void> _renderPage(int pageIndex, FlueraPdfProvider provider, {
     double renderScale = 1.0,
   }) async {
+    if (!mounted) return;
     // Check if already rendered at this or higher scale
     final existingScale = _pageRenderScale[pageIndex] ?? 0.0;
     if (existingScale >= renderScale && _pageImages[pageIndex] != null) return;

@@ -27,7 +27,7 @@ enum PdfReadingAction {
   search('Search',     Icons.search_rounded,              Color(0xFF81C784)),
   bookmark('Bookmark', Icons.bookmark_rounded,            Color(0xFFEF5350)),
   exportAnnotated('Export', Icons.ios_share_rounded,      Color(0xFF42A5F5)),
-  reading('Reading',   Icons.auto_awesome_rounded,        Color(0xFFA87FDB)),
+  reading('Theme',     Icons.dark_mode_rounded,           Color(0xFFA87FDB)),
   sidebar('Pages',     Icons.view_sidebar_rounded,        Color(0xFFE8A84C));
 
   const PdfReadingAction(this.label, this.icon, this.accent);

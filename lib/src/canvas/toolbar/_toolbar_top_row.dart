@@ -16,7 +16,7 @@ part of 'professional_canvas_toolbar.dart';
 
 extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
   Widget _buildTopRow(BuildContext context, bool isDark) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return SizedBox(
       height: ToolbarTokens.topRowHeight,
       child: Padding(
@@ -227,6 +227,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                       widget.onGhostMapPressed!();
                     },
                     isDark: isDark,
+                    label: l10n.proCanvas_ghostMap,
                     isActive: widget.state.isGhostMapActive,
                     gapCount: widget.state.ghostMapGapCount,
                     gateType: widget.state.ghostMapGateType ?? 0,
@@ -243,6 +244,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                       widget.onFogOfWarPressed!();
                     },
                     isDark: isDark,
+                    label: l10n.proCanvas_fogOfWar,
                     gateType: widget.state.fogOfWarGateType ?? 0,
                     isSuggested: widget.state.suggestedStepIndex == 9,
                   ),
@@ -257,6 +259,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                       widget.onSocraticPressed!();
                     },
                     isDark: isDark,
+                    label: l10n.proCanvas_socratic,
                     gateType: widget.state.socraticGateType ?? 0,
                     isSuggested: widget.state.suggestedStepIndex == 2,
                   ),
@@ -474,7 +477,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
 
   void _showQuickRenameFromTop(BuildContext context) {
     if (widget.onNoteTitleChanged == null) return;
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
     final controller = TextEditingController(text: widget.noteTitle ?? '');
     showDialog(
@@ -1018,7 +1021,7 @@ class _RecallChip extends StatelessWidget {
         : (isDark ? const Color(0xFF9D92FF) : const Color(0xFF6C63FF));
 
     return Tooltip(
-      message: isHard ? 'Recall — non disponibile' : 'Recall Mode — Passo 2',
+      message: isHard ? '$label — non disponibile' : label,
       waitDuration: ToolbarTokens.tooltipDelay,
       child: Opacity(
         opacity: isSoft ? 0.5 : 1.0,
@@ -1060,6 +1063,7 @@ class _RecallChip extends StatelessWidget {
 class _GhostMapChip extends StatelessWidget {
   final VoidCallback onPressed;
   final bool isDark;
+  final String label;
   final bool isActive;
   final int gapCount;
   final int gateType;
@@ -1068,6 +1072,7 @@ class _GhostMapChip extends StatelessWidget {
   const _GhostMapChip({
     required this.onPressed,
     required this.isDark,
+    required this.label,
     this.isActive = false,
     this.gapCount = 0,
     this.gateType = 0,
@@ -1086,8 +1091,8 @@ class _GhostMapChip extends StatelessWidget {
 
     return Tooltip(
       message: isHard
-          ? 'Ghost Map — non disponibile'
-          : (isActive ? 'Chiudi Ghost Map 🗺️' : 'Ghost Map — Passo 4 🗺️'),
+          ? '$label — non disponibile'
+          : (isActive ? '$label 🗺️' : '$label 🗺️'),
       waitDuration: ToolbarTokens.tooltipDelay,
       child: Opacity(
         opacity: isSoft ? 0.5 : 1.0,
@@ -1120,7 +1125,7 @@ class _GhostMapChip extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'Ghost Map',
+                    label,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
@@ -1160,12 +1165,14 @@ class _GhostMapChip extends StatelessWidget {
 class _FogOfWarChip extends StatelessWidget {
   final VoidCallback onPressed;
   final bool isDark;
+  final String label;
   final int gateType;
   final bool isSuggested;
 
   const _FogOfWarChip({
     required this.onPressed,
     required this.isDark,
+    required this.label,
     this.gateType = 0,
     this.isSuggested = false,
   });
@@ -1178,7 +1185,7 @@ class _FogOfWarChip extends StatelessWidget {
     final color = isHard ? (isDark ? Colors.white24 : Colors.black26) : baseColor;
 
     return Tooltip(
-      message: isHard ? 'Fog of War — non disponibile' : 'Fog of War — Passo 10 ⚔️',
+      message: isHard ? '$label — non disponibile' : '$label ⚔️',
       waitDuration: ToolbarTokens.tooltipDelay,
       child: Opacity(
         opacity: isSoft ? 0.5 : 1.0,
@@ -1205,7 +1212,7 @@ class _FogOfWarChip extends StatelessWidget {
                     color: color,
                   ),
                   const SizedBox(width: 4),
-                  Text('Fog of War', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+                  Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
                 ],
               ),
             ),
@@ -1220,12 +1227,14 @@ class _FogOfWarChip extends StatelessWidget {
 class _SocraticChip extends StatelessWidget {
   final VoidCallback onPressed;
   final bool isDark;
+  final String label;
   final int gateType;
   final bool isSuggested;
 
   const _SocraticChip({
     required this.onPressed,
     required this.isDark,
+    required this.label,
     this.gateType = 0,
     this.isSuggested = false,
   });
@@ -1238,7 +1247,7 @@ class _SocraticChip extends StatelessWidget {
     final color = isHard ? (isDark ? Colors.white24 : Colors.black26) : baseColor;
 
     return Tooltip(
-      message: isHard ? 'Socratica — non disponibile' : 'Interrogazione Socratica — Passo 3 🔶',
+      message: isHard ? '$label — non disponibile' : '$label 🔶',
       waitDuration: ToolbarTokens.tooltipDelay,
       child: Opacity(
         opacity: isSoft ? 0.5 : 1.0,
@@ -1265,7 +1274,7 @@ class _SocraticChip extends StatelessWidget {
                     color: color,
                   ),
                   const SizedBox(width: 4),
-                  Text('Socratica', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+                  Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
                 ],
               ),
             ),

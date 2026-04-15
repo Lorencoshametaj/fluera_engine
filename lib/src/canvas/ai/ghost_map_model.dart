@@ -197,28 +197,53 @@ class GhostMapResult {
   /// Overall assessment summary from Atlas.
   final String summary;
 
-  /// Counts by status.
-  int get totalMissing => nodes.where((n) => n.isMissing).length;
-  int get totalWeak => nodes.where((n) => n.isWeak).length;
-  int get totalCorrect => nodes.where((n) => n.isCorrect).length;
-  int get totalWrongConnections => nodes.where((n) => n.isWrongConnection).length;
-  int get totalHypercorrection => nodes.where((n) => n.isHypercorrection).length;
-  int get totalBelowZPD => nodes.where((n) => n.isBelowZPD).length;
-
   /// When this ghost map was generated.
   final DateTime generatedAt;
+
+  // ── O-09: Single-pass counts (avoids 6× independent list scans) ────────
+  /// Counts by status — computed once in constructor via single O(N) pass.
+  late final int totalMissing;
+  late final int totalWeak;
+  late final int totalCorrect;
+  late final int totalWrongConnections;
+  late final int totalHypercorrection;
+  late final int totalBelowZPD;
 
   GhostMapResult({
     required this.nodes,
     required this.connections,
     required this.summary,
     DateTime? generatedAt,
-  }) : generatedAt = generatedAt ?? DateTime.now();
+  }) : generatedAt = generatedAt ?? DateTime.now() {
+    int missing = 0, weak = 0, correct = 0, wrong = 0, hyper = 0, zpd = 0;
+    for (final n in nodes) {
+      switch (n.status) {
+        case GhostNodeStatus.missing:         missing++; break;
+        case GhostNodeStatus.weak:            weak++;    break;
+        case GhostNodeStatus.correct:         correct++; break;
+        case GhostNodeStatus.wrongConnection: wrong++;   break;
+      }
+      if (n.isHypercorrection) hyper++;
+      if (n.isBelowZPD) zpd++;
+    }
+    totalMissing = missing;
+    totalWeak = weak;
+    totalCorrect = correct;
+    totalWrongConnections = wrong;
+    totalHypercorrection = hyper;
+    totalBelowZPD = zpd;
+  }
 
   /// Empty result (no analysis).
   GhostMapResult.empty()
       : nodes = const [],
         connections = const [],
         summary = '',
-        generatedAt = DateTime.now();
+        generatedAt = DateTime.now(),
+        totalMissing = 0,
+        totalWeak = 0,
+        totalCorrect = 0,
+        totalWrongConnections = 0,
+        totalHypercorrection = 0,
+        totalBelowZPD = 0;
 }

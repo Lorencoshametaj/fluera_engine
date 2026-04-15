@@ -215,6 +215,7 @@ import '../rendering/gpu/webgpu_stroke_overlay_service_stub.dart'
 import '../storage/recording_storage_service.dart';
 import '../platform/display_capabilities_detector.dart';
 import '../config/adaptive_rendering_config.dart';
+import '../config/v1_feature_gate.dart'; // 🚀 v1 DEFER kill switches
 import '../reflow/cluster_detector.dart';
 import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
@@ -367,9 +368,14 @@ import './ai/recall/recall_comparison_overlay.dart';
 import './ai/recall/recall_summary_overlay.dart';
 import './ai/recall/recall_missed_marker.dart';
 import './ai/recall/recall_zone_selector.dart';
+import './ai/recall/recall_node_overlay_painter.dart';
+import './ai/recall/recall_level_l10n.dart'; // RecallLevelL10n extension for localizedLabel()
 
 // ─── Step Gate System (A15) ─────────────────────────────────────────────────
 import './ai/step_gate_controller.dart';
+
+// ─── Tier Gate System (A17) ─────────────────────────────────────────────────
+import './ai/tier_gate_controller.dart';
 
 // ─── SRS Blur on Return (Step 6/8) ─────────────────────────────────────────
 import './ai/srs_review_session.dart';
@@ -712,6 +718,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Loaded from KeyValueStore on init, saved on step completion.
   late StepGateController _stepGateController;
 
+  /// 💳 Tier gate controller — enforces Free tier frequency limits (A17).
+  /// Ghost Map: 1/week, Socratic: 3/week, etc.
+  late TierGateController _tierGateController;
+
   /// 🛡️ Flow guard — suppresses non-critical overlays during active writing
   /// and for 2 seconds after the last stroke (P1-25).
   final FlowGuard _flowGuard = FlowGuard();
@@ -758,6 +768,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// O-4: Lazy-cached FlueraLocalizations — invalidated on didChangeDependencies.
   /// Avoids repeated InheritedWidget lookups in hot rebuild paths.
   late FlueraLocalizations _l10n;
+
+  /// Pre-built level labels map — cached alongside [_l10n] for use in
+  /// RecallNodeOverlayPainter to avoid a 7-entry Map allocation per rebuild.
+  late Map<RecallLevel, String> _recallLevelLabels;
 
   /// 🌫️ Fog of War: Controller for fog overlay + mastery map.
   final FogOfWarController _fogOfWarController = FogOfWarController();
@@ -860,9 +874,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Used by the zone mask to distinguish original content (hidden) from
   /// new content drawn during recall (visible through mask holes).
   Set<String> _recallOriginalStrokeIds = const {};
+  Set<String> _recallOriginalStrokeIdsBackup = const {}; // Saved for toggle
   Set<String> _recallNewStrokeIds = const {};
   bool _recallShowingOriginals = true; // Toggle for comparison view
   Rect _recallReconstructionZone = Rect.zero; // Adjacent zone for writing
+  Rect? _recallAttemptBounds;            // Bounding rect of user's new strokes
   List<Offset> _recallBlankMarkers = []; // "Non ricordo" markers
 
   /// 🚀 PERFORMANCE: Tratto corrente con notifier ottimizzato
@@ -2113,6 +2129,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _stepGateController = StepGateController();
     _loadStepGateHistory();
 
+    // 💳 Initialize tier gate controller (A17) with persisted usage counts.
+    _tierGateController = TierGateController(tier: _subscriptionTier);
+    _loadTierGateHistory();
+
     // 🔔 Listen for notification taps (SR review reminders)
     _setupNotificationTapHandler();
 
@@ -2531,8 +2551,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _l10n = FlueraLocalizations.of(context);
+    _l10n = FlueraLocalizations.of(context) ?? FlueraLocalizationsEn();
     _ghostMapController.l10n = _l10n;
+    // Rebuild level-label cache whenever the locale changes.
+    _recallLevelLabels = {
+      for (final lvl in RecallLevel.values) lvl: lvl.localizedLabel(_l10n),
+    };
   }
 
   /// 🖼️ Decode image bytes with max dimension cap

@@ -73,8 +73,8 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text(
-              'Servono almeno 3 gruppi di appunti per la Fog of War ⚔️',
+            content: Text(
+              FlueraLocalizations.of(context)?.fow_needAtLeast3 ?? 'Servono almeno 3 gruppi di appunti per la Sfida ⚔️',
             ),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -235,7 +235,9 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '⚔️ Fog of War attiva — ${_fogOfWarController.fogLevelLabel}',
+            FlueraLocalizations.of(context)?.fow_fogActive(
+                _fogOfWarController.localizedFogLevelLabel(FlueraLocalizations.of(context)))
+                ?? '⚔️ Sfida attiva — ${_fogOfWarController.fogLevelLabel}',
           ),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -890,8 +892,9 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
 
     if (!mounted) return;
 
+    final l10n = FlueraLocalizations.of(context);
     final fullSummary =
-        '${_fogOfWarController.summaryText}$deltaText$densitySuggestion$milestoneText';
+        '${_fogOfWarController.localizedSummaryText(l10n)}$deltaText$densitySuggestion$milestoneText';
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -968,7 +971,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
           child: Center(
             child: FilledButton.icon(
               icon: const Icon(Icons.flag, size: 18),
-              label: const Text('Termina Sessione'),
+              label: Text(FlueraLocalizations.of(context)?.fow_endSession ?? 'Termina Sessione'),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF455A64),
                 foregroundColor: Colors.white,
@@ -1060,7 +1063,9 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                '⚔️ ${_fogOfWarController.fogLevelLabel}',
+                FlueraLocalizations.of(context)?.fow_fogActive(
+                    _fogOfWarController.localizedFogLevelLabel(FlueraLocalizations.of(context)))
+                    ?? '⚔️ ${_fogOfWarController.fogLevelLabel}',
                 style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 13,
@@ -1122,7 +1127,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
                   ),
                 FilledButton.icon(
                   icon: const Icon(Icons.check_circle, size: 18),
-                  label: const Text('Chiudi Fog of War'),
+                  label: Text(FlueraLocalizations.of(context)?.fow_closeFogOfWar ?? 'Chiudi Sfida'),
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFF2E7D32),
                     foregroundColor: Colors.white,
@@ -1174,7 +1179,8 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '🗺️ $visitedCount/$totalPath rivisti',
+                      FlueraLocalizations.of(context)?.fow_surgicalReviewCount(visitedCount, totalPath)
+                          ?? '🗺️ $visitedCount/$totalPath rivisti',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 14,
@@ -1195,9 +1201,9 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
                             color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Text(
-                            'Prossimo →',
-                            style: TextStyle(
+                          child: Text(
+                            FlueraLocalizations.of(context)?.fow_surgicalNext ?? 'Prossimo →',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -1219,9 +1225,9 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
                                 .withValues(alpha: 0.6),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Text(
-                            '✅ Completato',
-                            style: TextStyle(
+                          child: Text(
+                            FlueraLocalizations.of(context)?.fow_surgicalCompleted ?? '✅ Completato',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -1345,8 +1351,8 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
           HapticFeedback.heavyImpact();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text(
-                '✅ Tutti i nodi critici rivisti! Ripasso completato.',
+              content: Text(
+                FlueraLocalizations.of(context)?.fow_surgicalReviewDone ?? '✅ Tutti i nodi critici rivisti! Ripasso completato.',
               ),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
@@ -1405,40 +1411,41 @@ class _FogSelfEvalSheet extends StatefulWidget {
 class _FogSelfEvalSheetState extends State<_FogSelfEvalSheet> {
   int? _selectedLevel;
 
-  static const _levels = <_ConfidenceLevel>[
+  /// Build levels with localized labels at runtime.
+  List<_ConfidenceLevel> _buildLevels(FlueraLocalizations? l10n) => [
     _ConfidenceLevel(
       value: 1,
       emoji: '❌',
-      label: 'Non ricordavo nulla',
-      color: Color(0xFFEF5350),
+      label: l10n?.fow_selfEval1 ?? 'Non ricordavo nulla',
+      color: const Color(0xFFEF5350),
       recalled: false,
     ),
     _ConfidenceLevel(
       value: 2,
       emoji: '😕',
-      label: 'Vagamente',
-      color: Color(0xFFFF7043),
+      label: l10n?.fow_selfEval2 ?? 'Vagamente',
+      color: const Color(0xFFFF7043),
       recalled: false,
     ),
     _ConfidenceLevel(
       value: 3,
       emoji: '🤔',
-      label: 'Parzialmente',
-      color: Color(0xFFFFB74D),
+      label: l10n?.fow_selfEval3 ?? 'Parzialmente',
+      color: const Color(0xFFFFB74D),
       recalled: true,
     ),
     _ConfidenceLevel(
       value: 4,
       emoji: '😊',
-      label: 'Bene',
-      color: Color(0xFF66BB6A),
+      label: l10n?.fow_selfEval4 ?? 'Bene',
+      color: const Color(0xFF66BB6A),
       recalled: true,
     ),
     _ConfidenceLevel(
       value: 5,
       emoji: '✅',
-      label: 'Perfettamente',
-      color: Color(0xFF4CAF50),
+      label: l10n?.fow_selfEval5 ?? 'Perfettamente',
+      color: const Color(0xFF4CAF50),
       recalled: true,
     ),
   ];
@@ -1446,6 +1453,8 @@ class _FogSelfEvalSheetState extends State<_FogSelfEvalSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = FlueraLocalizations.of(context);
+    final levels = _buildLevels(l10n);
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -1469,26 +1478,26 @@ class _FogSelfEvalSheetState extends State<_FogSelfEvalSheet> {
               const Text('🧠', style: TextStyle(fontSize: 36)),
               const SizedBox(height: 12),
               Text(
-                'Quanto ricordavi di questo nodo?',
+                l10n?.fow_selfEvalTitle ?? 'Quanto ricordavi di questo nodo?',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                'Valuta onestamente prima di rivelare.',
+                l10n?.fow_selfEvalSubtitle ?? 'Valuta onestamente prima di rivelare.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
               const SizedBox(height: 20),
               // 5-level confidence options.
-              ...List.generate(_levels.length, (i) {
-                final level = _levels[i];
+              ...List.generate(levels.length, (i) {
+                final level = levels[i];
                 final isSelected = _selectedLevel == level.value;
 
                 return Padding(
-                  padding: EdgeInsets.only(bottom: i < _levels.length - 1 ? 6 : 0),
+                  padding: EdgeInsets.only(bottom: i < levels.length - 1 ? 6 : 0),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -1572,7 +1581,7 @@ class _FogSelfEvalSheetState extends State<_FogSelfEvalSheet> {
                   onPressed: _selectedLevel == null
                       ? null
                       : () {
-                          final level = _levels.firstWhere(
+                          final level = levels.firstWhere(
                             (l) => l.value == _selectedLevel,
                           );
                           widget.onResult(level.recalled, level.value);
@@ -1580,7 +1589,7 @@ class _FogSelfEvalSheetState extends State<_FogSelfEvalSheet> {
                         },
                   style: FilledButton.styleFrom(
                     backgroundColor: _selectedLevel != null
-                        ? _levels
+                        ? levels
                             .firstWhere((l) => l.value == _selectedLevel)
                             .color
                         : null,
@@ -1592,8 +1601,8 @@ class _FogSelfEvalSheetState extends State<_FogSelfEvalSheet> {
                   ),
                   child: Text(
                     _selectedLevel == null
-                        ? 'Seleziona la tua confidenza'
-                        : 'Conferma e rivela',
+                        ? (l10n?.fow_selfEvalSelect ?? 'Seleziona la tua confidenza')
+                        : (l10n?.fow_selfEvalConfirm ?? 'Conferma e rivela'),
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),

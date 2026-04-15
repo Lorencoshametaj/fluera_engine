@@ -51,7 +51,7 @@ class _CropEditorDialogState extends State<CropEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
 
     return Dialog(
       backgroundColor: cs.surfaceContainerHighest,

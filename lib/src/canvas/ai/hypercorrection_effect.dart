@@ -52,8 +52,8 @@ class HypercorrectionEvent {
   /// Phase 1 duration: border flash (0–200ms).
   static const int flashPhaseMs = 200;
 
-  /// The positive reinforcement message (A13.8 tone).
-  static const String message = '⚡ Il tuo cervello ricorderà meglio';
+  /// Positive reinforcement (debug/logging only — UI uses L10n).
+  static const String debugMessage = '⚡ Il tuo cervello ricorderà meglio';
 
   /// Border flash color.
   static const Color flashColor = Color(0xFFFF9800); // Bright orange

@@ -139,9 +139,9 @@ void main() {
     });
 
     test('message is positive (no shame)', () {
-      expect(HypercorrectionEvent.message,
+      expect(HypercorrectionEvent.debugMessage,
           contains('ricorderà meglio'));
-      expect(HypercorrectionEvent.message.toLowerCase(),
+      expect(HypercorrectionEvent.debugMessage.toLowerCase(),
           isNot(contains('sbagliato')));
     });
 

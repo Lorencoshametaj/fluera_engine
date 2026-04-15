@@ -62,7 +62,7 @@ class ToolbarShapeTypeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = FlueraLocalizations.of(context);
+    final l10n = FlueraLocalizations.of(context)!;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children:

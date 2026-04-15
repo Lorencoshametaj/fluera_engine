@@ -41,7 +41,7 @@ void main() {
 
     expect(section.sectionName, 'Section');
     expect(section.sectionSize, const Size(800, 600));
-    expect(section.backgroundColor, isNull);
+    expect(section.backgroundColor, Colors.white);
     expect(section.showGrid, isFalse);
     expect(section.gridSpacing, 20);
     expect(section.preset, isNull);
@@ -196,7 +196,7 @@ void main() {
   // 10. Section presets
   // ===========================================================================
   test('SectionPreset provides correct dimensions', () {
-    expect(SectionPreset.a4Portrait.size, const Size(595, 842));
+    expect(SectionPreset.a4Portrait.size, const Size(1240, 1754));
     expect(SectionPreset.desktop1080p.size, const Size(1920, 1080));
     expect(SectionPreset.instagramPost.size, const Size(1080, 1080));
     expect(SectionPreset.presentation16x9.size, const Size(1920, 1080));

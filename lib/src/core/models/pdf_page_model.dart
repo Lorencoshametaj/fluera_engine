@@ -77,6 +77,13 @@ class PdfPageModel {
   /// null = no crop (show full page).
   final Rect? cropRect;
 
+  /// Serialized ink strokes drawn in the PDF reader.
+  ///
+  /// Each entry is a raw JSON map matching [ProStroke.toJson()] format.
+  /// Stored as raw maps to avoid importing drawing models into core.
+  /// Empty by default — only populated when strokes exist.
+  final List<Map<String, dynamic>> inkStrokes;
+
   /// Microseconds since epoch — last annotation or position change.
   final int lastModifiedAt;
 
@@ -95,6 +102,7 @@ class PdfPageModel {
     this.background = PdfPageBackground.blank,
     this.isBookmarked = false,
     this.cropRect,
+    this.inkStrokes = const [],
     int? lastModifiedAt,
   }) : lastModifiedAt = lastModifiedAt ?? 0;
 
@@ -119,6 +127,7 @@ class PdfPageModel {
     bool? isBookmarked,
     Rect? cropRect,
     bool clearCropRect = false,
+    List<Map<String, dynamic>>? inkStrokes,
     int? lastModifiedAt,
   }) {
     return PdfPageModel(
@@ -138,6 +147,7 @@ class PdfPageModel {
       background: background ?? this.background,
       isBookmarked: isBookmarked ?? this.isBookmarked,
       cropRect: clearCropRect ? null : (cropRect ?? this.cropRect),
+      inkStrokes: inkStrokes ?? this.inkStrokes,
       lastModifiedAt: lastModifiedAt ?? this.lastModifiedAt,
     );
   }
@@ -173,6 +183,7 @@ class PdfPageModel {
         'right': cropRect!.right,
         'bottom': cropRect!.bottom,
       },
+    if (inkStrokes.isNotEmpty) 'inkStrokes': inkStrokes,
     'lastModifiedAt': lastModifiedAt,
   };
 
@@ -230,6 +241,11 @@ class PdfPageModel {
                 (json['cropRect']['bottom'] as num?)?.toDouble() ?? 1,
               )
               : null,
+      inkStrokes:
+          (json['inkStrokes'] as List<dynamic>?)
+              ?.map((e) => Map<String, dynamic>.from(e as Map))
+              .toList() ??
+          const [],
       lastModifiedAt: (json['lastModifiedAt'] as num?)?.toInt() ?? 0,
     );
   }
@@ -252,6 +268,7 @@ class PdfPageModel {
           background == other.background &&
           isBookmarked == other.isBookmarked &&
           cropRect == other.cropRect &&
+          inkStrokes.length == other.inkStrokes.length &&
           lastModifiedAt == other.lastModifiedAt;
 
   @override
@@ -266,6 +283,7 @@ class PdfPageModel {
     annotations.length,
     showAnnotations,
     structuredAnnotations.length,
+    inkStrokes.length,
     lastModifiedAt,
   );
 

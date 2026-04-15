@@ -17,6 +17,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../reflow/content_cluster.dart';
+import '../../../l10n/generated/fluera_localizations.g.dart';
+import '../../infinite_canvas_controller.dart';
 import 'recall_mode_controller.dart';
 import 'recall_session_model.dart';
 
@@ -28,7 +30,7 @@ class RecallModeOverlay extends StatefulWidget {
   final RecallModeController controller;
 
   /// Canvas controller for coordinate transforms.
-  final dynamic canvasController; // InfiniteCanvasController
+  final InfiniteCanvasController? canvasController;
 
   /// Callback to switch to Spatial Recall.
   final VoidCallback onSwitchToSpatial;
@@ -95,40 +97,38 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: widget.controller,
-      builder: (context, _) {
-        if (!widget.controller.isActive || widget.controller.isComparing) {
-          return const SizedBox.shrink();
-        }
+    // No internal ListenableBuilder needed — this widget is already
+    // conditionally mounted by the parent and rebuilt via the parent
+    // AnimatedBuilder. Internal listeners cause defunct assertions.
+    if (!widget.controller.isActive || widget.controller.isComparing) {
+      return const SizedBox.shrink();
+    }
 
-        return FadeTransition(
-          opacity: _entranceFade,
-          child: Stack(
-            children: [
-              // ── Spatial Recall: colored blobs for original nodes ──
-              if (widget.controller.isSpatialRecall)
-                ..._buildSpatialBlobs(),
+    return FadeTransition(
+      opacity: _entranceFade,
+      child: Stack(
+        children: [
+          // ── Spatial Recall: colored blobs for original nodes ──
+          if (widget.controller.isSpatialRecall)
+            ..._buildSpatialBlobs(),
 
-              // ── Top HUD bar ──
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 8,
-                left: 16,
-                right: 16,
-                child: _buildHudBar(context),
-              ),
-
-              // ── Bottom action bar ──
-              Positioned(
-                bottom: MediaQuery.of(context).padding.bottom + 16,
-                left: 16,
-                right: 16,
-                child: _buildActionBar(context),
-              ),
-            ],
+          // ── Top HUD bar ──
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 16,
+            right: 16,
+            child: _buildHudBar(context),
           ),
-        );
-      },
+
+          // ── Bottom action bar ──
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+            left: 16,
+            right: 16,
+            child: _buildActionBar(context),
+          ),
+        ],
+      ),
     );
   }
 
@@ -137,6 +137,7 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildHudBar(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
@@ -170,8 +171,8 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
             ),
             child: Text(
               widget.controller.isFreeRecall
-                  ? '🧠 Free Recall'
-                  : '📍 Spatial Recall',
+                  ? l10n.recall_modeFree
+                  : l10n.recall_modeSpatial,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,
@@ -210,8 +211,10 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
           Opacity(
             opacity: 0.6,
             child: Text(
-              'Ricostruiti: ${widget.controller.reconstructedCount}'
-              ' · Originali: ~${widget.controller.originalCount}',
+              l10n.recall_counter(
+                widget.controller.reconstructedCount,
+                widget.controller.originalCount,
+              ),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 11,
@@ -259,14 +262,14 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
                     width: 0.5,
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.visibility_rounded,
+                    const Icon(Icons.visibility_rounded,
                         color: Colors.white54, size: 14),
-                    SizedBox(width: 4),
+                    const SizedBox(width: 4),
                     Text(
-                      'Indizi',
+                    l10n.recall_hints,
                       style: TextStyle(
                         color: Colors.white54,
                         fontSize: 11,
@@ -288,6 +291,7 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildActionBar(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -307,9 +311,9 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
                 width: 0.5,
               ),
             ),
-            child: const Text(
-              'Esci',
-              style: TextStyle(
+            child: Text(
+              l10n.recall_exit,
+              style: const TextStyle(
                 color: Colors.white54,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
@@ -341,15 +345,15 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
                 ),
               ],
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.check_circle_outline_rounded,
+                const Icon(Icons.check_circle_outline_rounded,
                     color: Colors.white, size: 18),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
-                  'Ho finito, mostra il confronto',
-                  style: TextStyle(
+                  l10n.recall_showComparison,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -384,17 +388,10 @@ class _RecallModeOverlayState extends State<RecallModeOverlay>
       }
 
       // Convert canvas bounds to screen coordinates.
-      final Offset screenCenter;
-      final double screenWidth;
-      final double screenHeight;
-      try {
-        screenCenter = (controller as dynamic).canvasToScreen(cluster.centroid) as Offset;
-        final scale = (controller as dynamic).scale as double;
-        screenWidth = cluster.bounds.width * scale;
-        screenHeight = cluster.bounds.height * scale;
-      } catch (_) {
-        return const SizedBox.shrink();
-      }
+      final screenCenter = controller.canvasToScreen(cluster.centroid);
+      final scale = controller.scale;
+      final screenWidth = cluster.bounds.width * scale;
+      final screenHeight = cluster.bounds.height * scale;
 
       // Determine blob color from cluster's dominant stroke color.
       // Fallback to a neutral blue-gray.

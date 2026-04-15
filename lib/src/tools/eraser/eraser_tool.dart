@@ -210,6 +210,13 @@ class EraserTool {
     _currentGestureOps.clear();
     _gestureDidErase = false;
     _currentGestureEraseCount = 0;
+    // 🐛 FIX: Mark spatial index dirty so it rebuilds with current strokes.
+    // Between eraser gestures, the user may have drawn new strokes with the
+    // pen tool. Without this, the stale index doesn't contain those new
+    // stroke IDs → getNearbyStrokeIds returns a non-empty set missing the
+    // new strokes → the `nearbyIds.isNotEmpty && !nearbyIds.contains(id)`
+    // guard silently skips them → eraser appears to "not work" on new ink.
+    _spatialIndex.markDirty();
     analytics.startSession();
   }
 
@@ -429,6 +436,11 @@ class EraserTool {
     final shapesToRemove = <GeometricShape>[];
 
     // Pre-filter using spatial index
+    // 🚀 Lazy rebuild: if dirty, rebuild now so the rest of the gesture
+    // benefits from O(1) lookup instead of O(N) full scan per frame.
+    if (_spatialIndex.isDirty) {
+      _spatialIndex.rebuild(_collectVisibleStrokes());
+    }
     final nearbyIds = _spatialIndex.getNearbyStrokeIds(
       position,
       eraserRadius: eraserRadius + 10,

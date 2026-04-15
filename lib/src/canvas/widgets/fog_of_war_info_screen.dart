@@ -2,6 +2,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/generated/fluera_localizations.g.dart';
+
 /// 🌫️ Fog of War info screen — explains how the feature works.
 ///
 /// Material Design 3 with dark theme, staggered animations, interactive
@@ -101,9 +103,9 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.of(context).pop(),
               ),
-              title: const Text(
-                'Fog of War',
-                style: TextStyle(fontWeight: FontWeight.w700),
+              title: Text(
+                FlueraLocalizations.of(context)?.proCanvas_fogOfWar ?? 'Sfida',
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               flexibleSpace: AnimatedBuilder(
                 animation: _gradientController,
@@ -254,7 +256,7 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'La Fog of War nasconde i tuoi appunti sotto una nebbia: '
+                  'La Sfida nasconde i tuoi appunti sotto una nebbia: '
                   'il tuo compito è ricordare DOVE e COSA hai scritto. '
                   'Non è un quiz sulle risposte — testa la tua memoria spaziale '
                   'e la struttura della conoscenza.',
@@ -635,8 +637,8 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Se dimentichi troppi nodi (<50%), la Fog of War attiva '
-              'il protocollo Muro Rosso per proteggere la motivazione:',
+              'Se dimentichi troppi nodi (<50%), la Sfida attiva '
+              'il protocollo di protezione per la motivazione:',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -804,7 +806,7 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
             ),
             const SizedBox(height: 10),
             Text(
-              'La Fog of War ricorda i tuoi errori precedenti. '
+              'La Sfida ricorda i tuoi errori precedenti. '
               'Nella sessione successiva, i nodi che avevi dimenticato '
               'mostrano un indicatore ⚠️ "critico l\'ultima volta" — '
               'così puoi monitorare se hai davvero consolidato.',

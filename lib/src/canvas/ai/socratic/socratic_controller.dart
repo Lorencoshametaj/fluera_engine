@@ -138,7 +138,7 @@ class SocraticController extends ChangeNotifier {
             clusterId: cluster.id,
             anchorPosition: cluster.centroid,
             type: type,
-            text: entry['question'] ?? _fallbackQuestion(type, cluster),
+            text: entry['question'] ?? _fallbackQuestion(type),
             breadcrumbs: List<String>.from(entry['breadcrumbs'] ?? []),
             recallLevel: recall,
           ));
@@ -159,7 +159,7 @@ class SocraticController extends ChangeNotifier {
         clusterId: cluster.id,
         anchorPosition: cluster.centroid,
         type: type,
-        text: _fallbackQuestion(type, cluster),
+        text: _fallbackQuestion(type),
         breadcrumbs: const [],
         recallLevel: recall,
       ));
@@ -274,19 +274,28 @@ INDIZIO2: [sentiero]
 INDIZIO3: [soglia]
 ...per tutti i ${clusters.length} cluster. SOLO questo formato, nient'altro.''';
 
-    final text = await provider.askFreeText(prompt);
+    final text = await provider.askFreeText(prompt).timeout(
+      const Duration(seconds: 8),
+      onTimeout: () {
+        debugPrint('⚠️ Socratic AI call timed out after 8s → fallback');
+        return '';
+      },
+    );
     debugPrint('🔶 Socratic batch response (${text.length} chars)');
 
     // Parse the response
     return _parseBatchResponse(text, clusters.length);
   }
 
+  // Cached regex for batch parsing (O2 optimization).
+  static final _clusterSplitRegex = RegExp(r'---CLUSTER\s*\d+---', caseSensitive: false);
+
   /// Parse the batch response into structured data
   List<Map<String, dynamic>> _parseBatchResponse(String text, int expected) {
     final results = <Map<String, dynamic>>[];
     
     // Split by cluster markers
-    final sections = text.split(RegExp(r'---CLUSTER\s*\d+---', caseSensitive: false));
+    final sections = text.split(_clusterSplitRegex);
     
     for (final section in sections) {
       if (section.trim().isEmpty) continue;
@@ -345,31 +354,23 @@ INDIZIO3: [soglia]
     return SocraticOutputFilter.fallbackQuestion;
   }
 
+  // Cached regex for LaTeX stripping (O9 optimization).
+  static final _latexDelimiters = RegExp(r'\$\$|\$|\\[()\[\]]');
+
   /// Strip LaTeX delimiters from text for plain-text display.
   /// Converts "$F=ma$" → "F=ma", "$$E=mc^2$$" → "E=mc^2"
-  String _stripLatex(String text) {
-    return text
-        .replaceAll(r'$$', '')
-        .replaceAll(r'$', '')
-        .replaceAll(r'\(', '')
-        .replaceAll(r'\)', '')
-        .replaceAll(r'\[', '')
-        .replaceAll(r'\]', '')
-        .trim();
-  }
+  String _stripLatex(String text) => text.replaceAll(_latexDelimiters, '').trim();
 
   /// Map recall level to question type (P3-13).
   SocraticQuestionType _questionTypeForRecall(int recall) {
-    if (recall <= 1) return SocraticQuestionType.lacuna;
-    if (recall <= 2) return SocraticQuestionType.lacuna;
+    if (recall <= 2) return SocraticQuestionType.lacuna;  // O4: merged branches
     if (recall == 3) return SocraticQuestionType.challenge;
     if (recall == 4) return SocraticQuestionType.depth;
     return SocraticQuestionType.transfer; // recall 5
   }
 
-
-  /// Fallback questions when AI is unavailable.
-  String _fallbackQuestion(SocraticQuestionType type, ContentCluster cluster) {
+  /// Fallback questions when AI is unavailable (O3: unified, removed duplicate).
+  String _fallbackQuestion(SocraticQuestionType type) {
     return switch (type) {
       SocraticQuestionType.lacuna =>
         'Cosa manca in questo argomento? Riesci a collegare i concetti?',
@@ -393,8 +394,11 @@ INDIZIO3: [soglia]
     if (q.status != SocraticBubbleStatus.active &&
         q.status != SocraticBubbleStatus.awaitingConfidence) return;
 
-    q.confidence = level.clamp(1, 5);
-    q.status = SocraticBubbleStatus.awaitingAnswer;
+    // A3: immutable update via copyWith.
+    _session!.replaceActive(q.copyWith(
+      confidence: level.clamp(1, 5),
+      status: SocraticBubbleStatus.awaitingAnswer,
+    ));
     _bump();
   }
 
@@ -410,10 +414,14 @@ INDIZIO3: [soglia]
     if (q == null) return;
 
     final confidence = q.confidence ?? 3;
+    final now = DateTime.now();
+
+    SocraticBubbleStatus newStatus;
+    bool hyper = false;
 
     if (recalled) {
       // Correct answer.
-      q.status = confidence >= 4
+      newStatus = confidence >= 4
           ? SocraticBubbleStatus.correct
           : SocraticBubbleStatus.correctLowConf;
       _session!.consecutiveCorrect++;
@@ -422,16 +430,24 @@ INDIZIO3: [soglia]
       // Wrong answer.
       if (confidence >= 4) {
         // 🔴 HYPERCORRECTION EVENT (P3-21, P3-23).
-        q.status = SocraticBubbleStatus.wrongHighConf;
-        q.isHypercorrection = true;
+        newStatus = SocraticBubbleStatus.wrongHighConf;
+        hyper = true;
       } else {
-        q.status = SocraticBubbleStatus.wrongLowConf;
+        newStatus = SocraticBubbleStatus.wrongLowConf;
       }
       _session!.consecutiveWrong++;
       _session!.consecutiveCorrect = 0;
     }
 
-    q.answeredAt = DateTime.now();
+    // A3: immutable update via copyWith.
+    _session!.replaceActive(q.copyWith(
+      status: newStatus,
+      isHypercorrection: hyper,
+      answeredAt: now,
+    ));
+
+    // O1: Update session counters.
+    _session!.recordOutcome(newStatus, isHypercorrection: hyper);
 
     // ZPD adaptation (P3-14): adjust next question type based on sliding window.
     _adaptZPD();
@@ -443,8 +459,12 @@ INDIZIO3: [soglia]
   void markBelowZPD() {
     final q = _session?.activeQuestion;
     if (q == null) return;
-    q.status = SocraticBubbleStatus.belowZPD;
-    q.answeredAt = DateTime.now();
+    // A3: immutable update via copyWith.
+    _session!.replaceActive(q.copyWith(
+      status: SocraticBubbleStatus.belowZPD,
+      answeredAt: DateTime.now(),
+    ));
+    _session!.recordOutcome(SocraticBubbleStatus.belowZPD);
     _bump();
   }
 
@@ -464,7 +484,10 @@ INDIZIO3: [soglia]
     final idx = q.breadcrumbsUsed;
     if (idx >= q.breadcrumbs.length) return null;
 
-    q.breadcrumbsUsed++;
+    // A3: immutable update via copyWith.
+    _session!.replaceActive(q.copyWith(
+      breadcrumbsUsed: q.breadcrumbsUsed + 1,
+    ));
     _bump();
     return q.breadcrumbs[idx];
   }
@@ -476,17 +499,7 @@ INDIZIO3: [soglia]
     return q.breadcrumbsUsed < 3 && q.breadcrumbs.isNotEmpty;
   }
 
-  /// Current breadcrumb label.
-  String get breadcrumbLabel {
-    final q = _session?.activeQuestion;
-    if (q == null) return '';
-    return switch (q.breadcrumbsUsed) {
-      0 => "L'Eco Lontano 💡",
-      1 => "Il Sentiero 💡💡",
-      2 => "La Soglia 💡💡💡",
-      _ => "Esauriti",
-    };
-  }
+
 
   // ─────────────────────────────────────────────────────────────────────────
   // NAVIGATION (P3-11, P3-15)
@@ -514,8 +527,12 @@ INDIZIO3: [soglia]
   void skip() {
     final q = _session?.activeQuestion;
     if (q == null) return;
-    q.status = SocraticBubbleStatus.skipped;
-    q.answeredAt = DateTime.now();
+    // A3: immutable update via copyWith.
+    _session!.replaceActive(q.copyWith(
+      status: SocraticBubbleStatus.skipped,
+      answeredAt: DateTime.now(),
+    ));
+    _session!.recordOutcome(SocraticBubbleStatus.skipped);
     next();
   }
 
@@ -534,16 +551,8 @@ INDIZIO3: [soglia]
         final nextQ = s.queue[nextIdx];
         final upgraded = _upgradeType(nextQ.type);
         if (upgraded != nextQ.type) {
-          // Replace in queue with upgraded type.
-          s.queue[nextIdx] = SocraticQuestion(
-            id: nextQ.id,
-            clusterId: nextQ.clusterId,
-            anchorPosition: nextQ.anchorPosition,
-            type: upgraded,
-            text: nextQ.text, // Text stays same for now.
-            breadcrumbs: nextQ.breadcrumbs,
-            recallLevel: nextQ.recallLevel,
-          );
+          // O12 + A3: Preserve AI text, only change type metadata.
+          s.replaceQuestion(nextIdx, nextQ.copyWith(type: upgraded));
         }
       }
     }
@@ -555,15 +564,8 @@ INDIZIO3: [soglia]
         final nextQ = s.queue[nextIdx];
         final downgraded = _downgradeType(nextQ.type);
         if (downgraded != nextQ.type) {
-          s.queue[nextIdx] = SocraticQuestion(
-            id: nextQ.id,
-            clusterId: nextQ.clusterId,
-            anchorPosition: nextQ.anchorPosition,
-            type: downgraded,
-            text: nextQ.text,
-            breadcrumbs: nextQ.breadcrumbs,
-            recallLevel: nextQ.recallLevel,
-          );
+          // O12 + A3: Preserve AI text, only change type metadata.
+          s.replaceQuestion(nextIdx, nextQ.copyWith(type: downgraded));
         }
       }
     }
@@ -595,18 +597,31 @@ INDIZIO3: [soglia]
   bool get isComplete => _session?.isComplete ?? false;
 
   /// Summary text for display.
-  String get summaryText => _session?.summaryText ?? '';
+  /// Summary text for display (debug only — UI should use L10n).
+  String get summaryText {
+    final s = _session;
+    if (s == null) return '';
+    final parts = <String>[];
+    if (s.totalCorrect > 0) parts.add('✅ ${s.totalCorrect}');
+    if (s.totalWrong > 0) parts.add('❌ ${s.totalWrong}');
+    if (s.totalHypercorrections > 0) parts.add('⚡ ${s.totalHypercorrections}');
+    if (s.totalSkipped > 0) parts.add('⏭️ ${s.totalSkipped}');
+    return parts.join(' · ');
+  }
 
   /// All questions in the current session (for overlay rendering).
   List<SocraticQuestion> get allQuestions => _session?.queue ?? const [];
 
   /// End the session early.
   void endSession() {
-    // Skip all remaining unanswered questions.
+    // Skip all remaining unanswered questions (A3: immutable update).
     if (_session != null) {
-      for (final q in _session!.queue) {
+      for (int i = 0; i < _session!.queue.length; i++) {
+        final q = _session!.queue[i];
         if (!q.isResolved) {
-          q.status = SocraticBubbleStatus.skipped;
+          _session!.replaceQuestion(i, q.copyWith(
+            status: SocraticBubbleStatus.skipped,
+          ));
         }
       }
     }
@@ -618,6 +633,7 @@ INDIZIO3: [soglia]
     _session = null;
     _isActive = false;
     _isGenerating = false;
+    SocraticOutputFilter.clearLog(); // O8: prevent memory leak
     _bump();
   }
 
