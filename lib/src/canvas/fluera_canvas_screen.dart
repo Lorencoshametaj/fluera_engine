@@ -204,6 +204,9 @@ import '../dialogs/canvas_settings_dialog.dart';
 import '../tools/pdf_page_drag_controller.dart';
 
 // ── SDK Config (Dependency Inversion) ──────────────────────────────────────
+import './canvas_scope.dart';
+import './helpers/responsive_design_helper.dart';
+import './helpers/prototype_animation_helper.dart';
 import './fluera_canvas_config.dart';
 import '../storage/sqlite_storage_adapter.dart';
 import '../storage/section_summary.dart';
@@ -444,10 +447,7 @@ part './parts/_tabular_csv_import.dart';
 part './parts/_tabular_latex_export.dart';
 
 // 🎨 Design Features
-part './parts/_prototype_animation.dart';
 part './parts/_dev_handoff.dart';
-part './parts/_component_system.dart';
-part './parts/_responsive_design.dart';
 part './parts/_design_quality.dart';
 part './parts/_conscious_architecture.dart';
 part './parts/_advanced_export.dart';

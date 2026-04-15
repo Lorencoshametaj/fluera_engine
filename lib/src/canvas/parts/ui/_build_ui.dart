@@ -168,8 +168,21 @@ extension on _FlueraCanvasScreenState {
         resizeToAvoidBottomInset: false, // Prevents canvas UI (minimap, etc) from jumping when keyboard opens
         backgroundColor: Colors.white,
         body: SafeArea(
-          child: Stack(
-            children: [
+          child: CanvasScope(
+            canvasController: _canvasController,
+            layerController: _layerController,
+            toolController: _toolController,
+            learningStepController: _learningStepController,
+            socraticController: _socraticController,
+            recallModeController: _recallModeController,
+            fogOfWarController: _fogOfWarController,
+            ghostMapController: _ghostMapController,
+            tierGateController: _tierGateController,
+            clusterCache: _clusterCache,
+            l10n: _l10n,
+            canvasId: _canvasId,
+            child: Stack(
+              children: [
               // Main content: toolbar + canvas
               Column(
                 children: [
@@ -1359,6 +1372,7 @@ extension on _FlueraCanvasScreenState {
               // across Navigator routes (ImageViewer, PDF Reader, LaTeX, etc.).
             ],
           ),
+          ), // CanvasScope
         ),
       ),
     ); // Focus + Scaffold
