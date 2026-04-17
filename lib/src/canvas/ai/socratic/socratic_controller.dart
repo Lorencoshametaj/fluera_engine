@@ -43,6 +43,10 @@ class SocraticController extends ChangeNotifier {
   bool _isGenerating = false;
   bool get isGenerating => _isGenerating;
 
+  /// Whether the last session used fallback questions (AI call failed).
+  bool _usedFallback = false;
+  bool get usedFallback => _usedFallback;
+
   /// Version notifier for painter/widget repaints.
   final ValueNotifier<int> version = ValueNotifier(0);
 
@@ -67,6 +71,7 @@ class SocraticController extends ChangeNotifier {
 
     _isGenerating = true;
     _isActive = true;
+    _usedFallback = false;
     notifyListeners();
 
     // Generate questions for the clusters.
@@ -89,6 +94,11 @@ class SocraticController extends ChangeNotifier {
       queue: questions,
       maxQuestions: questions.length.clamp(5, 12),
     );
+
+    debugPrint('🔶 Socratic session created:'
+        ' ${questions.length} questions in queue,'
+        ' maxQuestions=${_session!.maxQuestions},'
+        ' types=${questions.map((q) => q.type.name).join(', ')}');
 
     _isGenerating = false;
     _bump();
@@ -133,12 +143,25 @@ class SocraticController extends ChangeNotifier {
           final type = _questionTypeForRecall(recall);
           final entry = batchResult[i];
 
+          final clusterTopic = clusterTexts[cluster.id] ?? '';
+          final rawQuestion = entry['question'];
+          final String questionText;
+          if (rawQuestion != null) {
+            questionText = _applyG2Filter(_stripLatex(rawQuestion), clusterTopic);
+            if (questionText != _stripLatex(rawQuestion)) {
+              debugPrint('🛡️ G2 replaced question for "$clusterTopic": '
+                  '"${rawQuestion.substring(0, rawQuestion.length.clamp(0, 50))}..."');
+            }
+          } else {
+            questionText = _fallbackQuestion(type, clusterTopic);
+            debugPrint('⚠️ Socratic: null question for "$clusterTopic", using fallback');
+          }
           questions.add(SocraticQuestion(
             id: 'sq_${cluster.id}_${DateTime.now().microsecondsSinceEpoch}',
             clusterId: cluster.id,
             anchorPosition: cluster.centroid,
             type: type,
-            text: entry['question'] ?? _fallbackQuestion(type),
+            text: questionText,
             breadcrumbs: List<String>.from(entry['breadcrumbs'] ?? []),
             recallLevel: recall,
           ));
@@ -151,15 +174,17 @@ class SocraticController extends ChangeNotifier {
     }
 
     // ─── FALLBACK: no AI ─────────────────────────────────────────────────
+    _usedFallback = true;
     for (final cluster in toProcess) {
       final recall = recallData[cluster.id] ?? 3;
       final type = _questionTypeForRecall(recall);
+      final clusterTopic = clusterTexts[cluster.id] ?? '';
       questions.add(SocraticQuestion(
         id: 'sq_${cluster.id}_${DateTime.now().microsecondsSinceEpoch}',
         clusterId: cluster.id,
         anchorPosition: cluster.centroid,
         type: type,
-        text: _fallbackQuestion(type),
+        text: _fallbackQuestion(type, clusterTopic),
         breadcrumbs: const [],
         recallLevel: recall,
       ));
@@ -288,7 +313,8 @@ INDIZIO3: [soglia]
   }
 
   // Cached regex for batch parsing (O2 optimization).
-  static final _clusterSplitRegex = RegExp(r'---CLUSTER\s*\d+---', caseSensitive: false);
+  // Accepts: ---CLUSTER 1---, ---CLUSTER 1 (NEWTON)---, ---CLUSTER 1: NEWTON---
+  static final _clusterSplitRegex = RegExp(r'---CLUSTER\s*\d+.*?---', caseSensitive: false);
 
   /// Parse the batch response into structured data
   List<Map<String, dynamic>> _parseBatchResponse(String text, int expected) {
@@ -322,11 +348,10 @@ INDIZIO3: [soglia]
           breadcrumbs.add('Ripensa a questo concetto da un\'angolazione diversa.');
         }
 
-        // ── G2 GUARDRAIL (A2-04): scan question for prohibited patterns ──
-        final cleanQuestion = _applyG2Filter(_stripLatex(question));
-
+        // G2 guardrail is applied later in the question creation loop
+        // where cluster context is available for contextual fallbacks.
         results.add({
-          'question': cleanQuestion,
+          'question': _stripLatex(question),
           'breadcrumbs': breadcrumbs.take(3).map(_stripLatex).toList(),
         });
       }
@@ -340,7 +365,7 @@ INDIZIO3: [soglia]
   /// If the question contains prohibited patterns (declarations,
   /// explanations, definitions, direct answers), it is replaced
   /// with a safe fallback. Minor issues (missing "?") are auto-corrected.
-  String _applyG2Filter(String question) {
+  String _applyG2Filter(String question, [String clusterTopic = '']) {
     final result = SocraticOutputFilter.scanQuestion(question);
 
     if (result.passed) return question;
@@ -349,9 +374,9 @@ INDIZIO3: [soglia]
     final corrected = SocraticOutputFilter.tryAutoCorrect(result);
     if (corrected != null) return corrected;
 
-    // Violation too severe — use safe fallback (A2-05).
+    // Violation too severe — use contextual fallback (A2-05).
     debugPrint('🛡️ G2: replacing violated question with fallback');
-    return SocraticOutputFilter.fallbackQuestion;
+    return SocraticOutputFilter.fallbackForCluster(clusterTopic);
   }
 
   // Cached regex for LaTeX stripping (O9 optimization).
@@ -370,16 +395,18 @@ INDIZIO3: [soglia]
   }
 
   /// Fallback questions when AI is unavailable (O3: unified, removed duplicate).
-  String _fallbackQuestion(SocraticQuestionType type) {
+  /// [topic] provides cluster context to make the question specific.
+  String _fallbackQuestion(SocraticQuestionType type, [String topic = '']) {
+    final t = topic.isNotEmpty ? '"$topic"' : 'questo argomento';
     return switch (type) {
       SocraticQuestionType.lacuna =>
-        'Cosa manca in questo argomento? Riesci a collegare i concetti?',
+        'Cosa manca nella tua comprensione di $t? Riesci a collegare i concetti?',
       SocraticQuestionType.challenge =>
-        'Sei sicuro che questa relazione sia corretta? E se fosse il contrario?',
+        'Sei sicuro di aver compreso correttamente $t? Cosa accadrebbe se la tua assunzione fosse sbagliata?',
       SocraticQuestionType.depth =>
-        'Puoi spiegare il *perché*, non solo il *cosa*?',
+        'Riguardo a $t, puoi spiegare il *perché* e non solo il *cosa*?',
       SocraticQuestionType.transfer =>
-        'Questo concetto ti ricorda qualcosa in un altro ambito?',
+        '$t ti ricorda qualcosa che hai studiato in un altro ambito?',
     };
   }
 
@@ -451,6 +478,12 @@ INDIZIO3: [soglia]
 
     // ZPD adaptation (P3-14): adjust next question type based on sliding window.
     _adaptZPD();
+
+    debugPrint('🔶 Socratic recordResult: activeIndex=${_session!.activeIndex}'
+        ' queue.length=${_session!.queue.length}'
+        ' totalAnswered=${_session!.totalAnswered}'
+        ' maxQuestions=${_session!.maxQuestions}'
+        ' isComplete=${_session!.isComplete}');
 
     _bump();
   }

@@ -338,6 +338,20 @@ abstract class FlueraStorageAdapter {
   /// and should be fast (sub-millisecond for SQLite BLOB reads).
   Future<Uint8List?> loadSnapshot(String canvasId) async => null;
 
+  // ─────────────────────── GHOST MAP SESSIONS ────────────────────────────────
+
+  /// Atomically persist a ghost map dataset JSON for a canvas session.
+  ///
+  /// R10: Uses a transaction to prevent partial writes on force-kill.
+  Future<void> saveGhostMapDataset(
+    String canvasId,
+    String sessionId,
+    String dataJson,
+  ) async {}
+
+  /// Remove incomplete ghost map sessions (cleanup on startup).
+  Future<void> cleanupIncompleteGhostMapSessions() async {}
+
   // ─────────────────────── SECTION METADATA ─────────────────────────────────
 
   /// Save pre-computed section summaries for a canvas.

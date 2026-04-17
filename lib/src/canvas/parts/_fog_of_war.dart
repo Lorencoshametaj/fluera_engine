@@ -38,6 +38,12 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       return;
     }
 
+    // 💳 A17: Tier gate — Free users get 1 FoW session/zone.
+    final fowZoneId = 'fow_$_canvasId';
+    if (!_checkTierGate(GatedFeature.fogOfWarSession, zoneId: fowZoneId)) {
+      return;
+    }
+
     HapticFeedback.mediumImpact();
 
     // Force-refresh cluster cache.
@@ -134,11 +140,17 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
   void _startFogWithZoneSelection(FogLevel level) {
     _pendingFogLevel = level;
 
+    // Ensure zoom is above 50% — the gesture detector's overview guard
+    // blocks draw gestures at ≤50%, which would prevent rectangle drawing.
+    if (_canvasController.scale <= 0.5) {
+      _canvasController.setScale(0.6);
+    }
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text(
-            '📐 Traccia un rettangolo per selezionare l\'area da testare',
+          content: Text(
+            FlueraLocalizations.of(context)?.fow_zoneSelectionHint ?? '📐 Traccia un rettangolo per selezionare l\'area da testare',
           ),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -148,7 +160,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
           duration: const Duration(seconds: 5),
           backgroundColor: const Color(0xFF37474F),
           action: SnackBarAction(
-            label: 'Tutta la canvas',
+            label: FlueraLocalizations.of(context)?.fow_zoneSelectionWholeCanvas ?? 'Tutta la canvas',
             textColor: Colors.white70,
             onPressed: () {
               _pendingFogLevel = null;
@@ -171,6 +183,11 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     if (level == null) return;
     _pendingFogLevel = null;
 
+    // Dismiss the "draw a rectangle" snackbar.
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    }
+
     // Filter clusters to those within the selected zone.
     final clustersInZone = _clusterCache
         .where((c) => zone.overlaps(c.bounds))
@@ -181,8 +198,8 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Solo ${clustersInZone.length} nodi nell\'area — servono almeno 3. '
-              'Prova un\'area più grande.',
+              FlueraLocalizations.of(context)?.fow_zoneTooFewNodes(clustersInZone.length)
+                  ?? 'Solo ${clustersInZone.length} nodi nell\'area — servono almeno 3. Prova un\'area più grande.',
             ),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -208,11 +225,11 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
   // ─────────────────────────────────────────────────────────────────────────
 
   /// Activates Fog of War with the given zone and fog level.
-  void activateFogOfWar(
+  Future<void> activateFogOfWar(
     Rect zone,
     List<ContentCluster> clusters,
     FogLevel fogLevel,
-  ) {
+  ) async {
     _fogOfWarController.activate(
       zone: zone,
       clustersInZone: clusters,
@@ -221,7 +238,8 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     );
 
     // 🧠 Partial Zone Memory (E): Load prior failure IDs from same zone.
-    _loadPriorFailureIds(zone);
+    // Awaited so markers are ready before the first paint frame.
+    await _loadPriorFailureIds(zone);
 
     // Start animation ticker for medium fog visibility effects.
     _fogOfWarAnimController?.repeat();
@@ -314,24 +332,28 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
   bool handleFogOfWarTap(Offset canvasPosition) {
     if (!_fogOfWarController.isActive) return false;
 
-    // During mastery map — tap reveals content of red/grey nodes (P10-21).
+    // During mastery map — tap on red/grey nodes to mark as "reviewed"
+    // and zoom in for a closer look. Content is already visible after the
+    // cinematic reveal — the tap is for NAVIGATION + ACKNOWLEDGEMENT,
+    // not for "revealing" anything.
     if (_fogOfWarController.isMasteryMap) {
-      final result = _fogOfWarController.handleMasteryMapTap(canvasPosition);
+      final result = _fogOfWarController.handleMasteryMapTap(
+        canvasPosition,
+        canvasScale: _canvasController.scale,
+      );
       if (result != null) {
         HapticFeedback.mediumImpact();
         _fogOfWarVersionNotifier.value++;
 
-        // P10-21: Show contextual snackbar.
+        // P10-21: Contextual snackbar — focus on actionable insight.
         if (mounted) {
+          final l10n = FlueraLocalizations.of(context);
           final message = result.status == FogNodeStatus.blindSpot
-              ? '👁‍🗨 Non sapevi che c\'era questo nodo'
-              : '❌ Concetto dimenticato — ora è rivelato';
-          final icon = result.status == FogNodeStatus.blindSpot
-              ? '👁‍🗨'
-              : '📝';
+              ? (l10n?.fow_masteryMapBlindSpotAction ?? '👁‍🗨 Non l\'avevi cercato — rileggilo con attenzione')
+              : (l10n?.fow_masteryMapForgottenAction ?? '📝 Dimenticato — rileggilo e prova a riscriverlo a memoria');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('$icon $message'),
+              content: Text(message),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -339,14 +361,14 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
               margin: const EdgeInsets.only(
                 bottom: 80, left: 20, right: 20,
               ),
-              duration: const Duration(seconds: 2),
+              duration: const Duration(seconds: 3),
               backgroundColor: result.status == FogNodeStatus.blindSpot
                   ? const Color(0xFF546E7A)
                   : const Color(0xFF5D4037),
             ),
           );
 
-          // L: Zoom preview — fly to the node so content is readable.
+          // Zoom to the node so it's readable at the center of the screen.
           ContentCluster? tappedCluster;
           for (final c in _clusterCache) {
             if (c.id == result.clusterId) {
@@ -356,24 +378,29 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
           }
           if (tappedCluster != null) {
             final viewportSize = MediaQuery.of(context).size;
+
+            // Save current camera state to return to it smoothly.
+            final savedOffset = _canvasController.offset;
+            final savedScale = _canvasController.scale;
+
             CameraActions.zoomToRect(
               _canvasController,
-              tappedCluster.bounds.inflate(40.0),
+              tappedCluster.bounds.inflate(120.0),
               viewportSize,
             );
 
-            // OPT-6: Cancel previous zoom-back timer to prevent stacking.
+            // Return to previous view after 4 seconds of reading.
             _fogZoomBackTimer?.cancel();
-            _fogZoomBackTimer = Timer(const Duration(seconds: 3), () {
+            _fogZoomBackTimer = Timer(const Duration(seconds: 4), () {
               if (mounted && _fogOfWarController.isMasteryMap) {
-                final zone = _fogOfWarController.selectedZone;
-                if (zone != null) {
-                  CameraActions.zoomToRect(
-                    _canvasController,
-                    zone,
-                    MediaQuery.of(context).size,
-                  );
-                }
+                _canvasController.animateToTransform(
+                  targetOffset: savedOffset,
+                  targetScale: savedScale,
+                  focalPoint: Offset(
+                    viewportSize.width / 2,
+                    viewportSize.height / 2,
+                  ),
+                );
               }
             });
           }
@@ -385,14 +412,15 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
 
     // During active fog — hit-test against hidden clusters.
     if (_fogOfWarController.isFogActive) {
-      final clusterId = _fogOfWarController.handleTap(canvasPosition);
+      final clusterId = _fogOfWarController.handleTap(
+        canvasPosition,
+        canvasScale: _canvasController.scale,
+      );
       if (clusterId != null) {
         HapticFeedback.mediumImpact();
-        // 🎵 A13.4: "Rivelazione cinematografica" — Am→C chord opening
-        PedagogicalSoundEngine.instance.play(PedagogicalSound.fogOfWarReveal);
-        // Trigger fog overlay repaint to show the revealed node.
-        _fogOfWarVersionNotifier.value++;
-        // Show self-evaluation popup (P10-08).
+        // Show self-evaluation popup FIRST (P10-08).
+        // Node stays fogged until the student declares confidence.
+        // Sound + visual reveal happen in the onResult callback.
         _showFogSelfEvalPopup(clusterId);
         return true;
       }
@@ -439,6 +467,9 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
             recalled: recalled,
             confidence: confidence,
           );
+          // 🎵 A13.4: "Rivelazione cinematografica" — plays AFTER eval,
+          // when the fog hole actually opens and content becomes visible.
+          PedagogicalSoundEngine.instance.play(PedagogicalSound.fogOfWarReveal);
           // Trigger fog overlay repaint to show revealed node.
           _fogOfWarVersionNotifier.value++;
         },
@@ -446,6 +477,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     ).whenComplete(() {
       // Safety net: if popup was dismissed without confirming (e.g. Android
       // back button), clear the pending eval to unblock subsequent taps.
+      if (!mounted) return;
       if (_fogOfWarController.pendingEvalClusterId == clusterId) {
         debugPrint('⚔️ FoW: popup dismissed without confirm — treating as forgotten');
         _fogOfWarController.recordResult(
@@ -470,23 +502,38 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     _fogOfWarController.endSession();
 
     // Start cinematic reveal animation (P10-18: 2-3s, center→outward).
+    // 1800ms feels snappy without being abrupt.
     _fogOfWarAnimController?.stop();
     _fogOfWarRevealController?.duration =
-        const Duration(milliseconds: 2500);
+        const Duration(milliseconds: 1800);
     _fogOfWarRevealController?.forward(from: 0.0);
   }
 
-  /// Called from the reveal animation listener.
+  /// Called from the reveal animation listener — every frame during reveal.
   void _onFogRevealTick() {
     final progress = _fogOfWarRevealController?.value ?? 0.0;
     _fogOfWarController.updateRevealProgress(progress);
+
+    // 🚀 FIX: Trigger painter rebuild every frame during reveal.
+    _fogOfWarVersionNotifier.value++;
 
     if (progress >= 1.0) {
       // Reveal complete → apply SRS reset + show mastery map summary.
       _fogOfWarRevealController?.stop();
       _applyFogOfWarSrsReset();
       _saveFogOfWarSession();
-      _showFogMasteryMapSummary();
+      // Rebuild overlay widgets — phase changed from revealing → masteryMap,
+      // so the hint button and end-session button must disappear and the
+      // mastery map controls (legend, surgical path, close) must appear.
+      setState(() {});
+      // Show summary after a brief pause so the student sees the mastery
+      // map heatmap first — the map is immediately tappable, the summary
+      // provides context without blocking interaction.
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted && _fogOfWarController.isMasteryMap) {
+          _showFogMasteryMapSummary();
+        }
+      });
     }
   }
 
@@ -513,7 +560,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('✅ Tutti i nodi sono stati scoperti!'),
+            content: Text(FlueraLocalizations.of(context)?.fow_allNodesDiscovered ?? '✅ Tutti i nodi sono stati scoperti!'),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -541,7 +588,12 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     }
   }
 
-  /// Tier 1: Show a compass direction arrow toward the nearest node.
+  /// Tier 1: Show a visual arrow overlay on the canvas pointing toward the
+  /// nearest unrevealed node, centered on the viewport with distance label.
+  ///
+  /// The arrow rotates to point in the exact direction and a "pulsing ring"
+  /// marks the viewport center as the reference point — so the student
+  /// clearly sees "from HERE, go THAT WAY".
   void _showDirectionalHint(Offset nodePos) {
     if (!mounted) return;
 
@@ -550,40 +602,34 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       Offset(screenSize.width / 2, screenSize.height / 2),
     );
     final delta = nodePos - viewportCenter;
+    final distance = delta.distance;
 
-    // Calculate 8-direction compass.
-    final angle = delta.direction; // radians
-    String arrow;
-    if (angle > -0.39 && angle <= 0.39) {
-      arrow = '→';
-    } else if (angle > 0.39 && angle <= 1.18) {
-      arrow = '↘';
-    } else if (angle > 1.18 && angle <= 1.96) {
-      arrow = '↓';
-    } else if (angle > 1.96 && angle <= 2.75) {
-      arrow = '↙';
-    } else if (angle > 2.75 || angle <= -2.75) {
-      arrow = '←';
-    } else if (angle > -2.75 && angle <= -1.96) {
-      arrow = '↖';
-    } else if (angle > -1.96 && angle <= -1.18) {
-      arrow = '↑';
+    // Angle in radians for the overlay arrow rotation.
+    _fogHintArrowAngle = delta.direction;
+
+    // Distance label: gives the student a sense of how far to go.
+    final l10n = FlueraLocalizations.of(context);
+    if (distance < 200) {
+      _fogHintDistanceLabel = l10n?.fow_hintDistVeryClose ?? 'Vicinissimo!';
+    } else if (distance < 500) {
+      _fogHintDistanceLabel = l10n?.fow_hintDistClose ?? 'Vicino';
+    } else if (distance < 1200) {
+      _fogHintDistanceLabel = l10n?.fow_hintDistMedium ?? 'Media distanza';
     } else {
-      arrow = '↗';
+      _fogHintDistanceLabel = l10n?.fow_hintDistFar ?? 'Lontano';
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('💡 Suggerimento #1 — prova in questa direzione: $arrow'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        margin: const EdgeInsets.only(bottom: 200, left: 20, right: 20),
-        duration: const Duration(seconds: 2),
-        backgroundColor: const Color(0xFFFF8F00).withValues(alpha: 0.9),
-      ),
-    );
+    setState(() {});
+
+    // Auto-dismiss after 3 seconds.
+    _fogHintArrowTimer?.cancel();
+    _fogHintArrowTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        _fogHintArrowAngle = null;
+        _fogHintDistanceLabel = null;
+        setState(() {});
+      }
+    });
   }
 
   /// Tier 2: Fly camera to the node's area for 2 seconds.
@@ -591,7 +637,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('💡 Suggerimento #$hintNumber — guarda qui!'),
+          content: Text(FlueraLocalizations.of(context)?.fow_hintFlyTo(hintNumber) ?? '💡 Suggerimento #$hintNumber — guarda qui!'),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -633,7 +679,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '💡 Suggerimento #$hintNumber — rivelazione temporanea!',
+            FlueraLocalizations.of(context)?.fow_hintReveal(hintNumber) ?? '💡 Suggerimento #$hintNumber — rivelazione temporanea!',
           ),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -715,12 +761,16 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     int resetCount = 0;
 
     for (final clusterId in surgicalIds) {
-      // Find concepts associated with this cluster via text matching.
+      // Find concepts associated with this cluster via word-boundary matching.
+      // Word boundaries prevent false positives (e.g. "DNA" matching "DNAPL").
       final clusterText = (_clusterTextCache[clusterId] ?? '').toLowerCase();
       if (clusterText.isEmpty) continue;
 
       for (final concept in _reviewSchedule.keys.toList()) {
-        if (clusterText.contains(concept.toLowerCase())) {
+        final conceptLower = concept.toLowerCase();
+        // Use word-boundary regex: concept must appear as a whole word.
+        final pattern = RegExp('\\b${RegExp.escape(conceptLower)}\\b');
+        if (pattern.hasMatch(clusterText)) {
           // P10-23: Reset to 1-day interval, priority review.
           final existing = _reviewSchedule[concept]!;
           _reviewSchedule[concept] = FsrsScheduler.review(
@@ -893,34 +943,24 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     if (!mounted) return;
 
     final l10n = FlueraLocalizations.of(context);
-    final fullSummary =
-        '${_fogOfWarController.localizedSummaryText(l10n)}$deltaText$densitySuggestion$milestoneText';
+    final summaryText = _fogOfWarController.localizedSummaryText(l10n);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${isMuroRosso ? "🎯" : milestoneText.isNotEmpty ? "🏆" : "⚔️"} $fullSummary',
-        ),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
-        // §XI.4: Longer duration for Muro Rosso / milestone messages.
-        duration: Duration(
-          seconds: isMuroRosso || milestoneText.isNotEmpty ? 7 : 5,
-        ),
-        // §XI.4: Softer color when Muro Rosso is active.
-        backgroundColor: milestoneText.isNotEmpty
-            ? const Color(0xFF1B5E20) // Victory green for milestone
-            : isMuroRosso
-                ? const Color(0xFF37474F) // Neutral blue-grey
-                : const Color(0xFF1B5E20), // Standard victory green
-        action: SnackBarAction(
-          label: isMuroRosso ? 'Lavora sulle lacune' : 'Chiudi',
-          textColor: Colors.white70,
-          onPressed: () => dismissFogOfWar(),
-        ),
+    // Show structured bottom sheet instead of multi-line SnackBar.
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isDismissible: true,
+      isScrollControlled: true,
+      builder: (ctx) => _FogMasterySummarySheet(
+        session: session!,
+        summaryText: summaryText,
+        deltaText: deltaText,
+        densitySuggestion: densitySuggestion,
+        milestoneText: milestoneText,
+        isMuroRosso: isMuroRosso,
+        onDismiss: () {
+          Navigator.pop(ctx);
+        },
       ),
     );
   }
@@ -945,9 +985,15 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     _fogSurgicalPathActive = false;
     _fogSurgicalVisitedIds.clear();
     _fogSurgicalCurrentIndex = 0;
+    _fogSurgicalClusterMap = const {};
     // OPT-6: Cancel zoom-back timer.
     _fogZoomBackTimer?.cancel();
     _fogZoomBackTimer = null;
+    // 💡 Clean up hint arrow overlay.
+    _fogHintArrowTimer?.cancel();
+    _fogHintArrowTimer = null;
+    _fogHintArrowAngle = null;
+    _fogHintDistanceLabel = null;
     _layerController.notifyListeners();
     setState(() {});
   }
@@ -990,57 +1036,29 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
         ),
       );
 
-      // Progress counter + hint button (above the end button).
-      final totalNodes = _fogOfWarController.originalClusters.length;
-      final revealedNodes = _fogOfWarController.revealedNodeIds.length;
+      // P10-11: NO node counter shown during session — only hint button.
       widgets.add(
         Positioned(
           bottom: 160,
           left: 0,
           right: 0,
           child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Progress badge.
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    '📍 $revealedNodes / $totalNodes',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+            child: FilledButton.icon(
+              icon: const Icon(Icons.lightbulb_outline, size: 16),
+              label: Text(FlueraLocalizations.of(context)?.fow_hintLabel ?? 'Suggerimento'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF8F00).withValues(alpha: 0.8),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
                 ),
-                const SizedBox(width: 8),
-                // Hint button.
-                FilledButton.icon(
-                  icon: const Icon(Icons.lightbulb_outline, size: 16),
-                  label: const Text('Suggerimento'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF8F00).withValues(alpha: 0.8),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    textStyle: const TextStyle(fontSize: 13),
-                  ),
-                  onPressed: _onFogHintTap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-              ],
+                textStyle: const TextStyle(fontSize: 13),
+              ),
+              onPressed: _onFogHintTap,
             ),
           ),
         ),
@@ -1076,6 +1094,20 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
           ),
         ),
       );
+
+      // 💡 Directional hint arrow overlay — visual compass on screen center.
+      if (_fogHintArrowAngle != null) {
+        widgets.add(
+          Positioned.fill(
+            child: IgnorePointer(
+              child: _FogDirectionalArrow(
+                angle: _fogHintArrowAngle!,
+                distanceLabel: _fogHintDistanceLabel ?? '',
+              ),
+            ),
+          ),
+        );
+      }
     }
 
     // Mastery map controls.
@@ -1148,95 +1180,143 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
         ),
       );
 
-      // 🗺️ Surgical Path progress counter.
+      // 🗺️ Surgical Path UI — bottom card with progress, instruction, and action.
       if (_fogSurgicalPathActive) {
         final totalPath = _fogOfWarController.surgicalPlanNodeIds.length;
         final visitedCount = _fogSurgicalVisitedIds.length;
+        final isDone = _fogSurgicalVisitedIds.length >= totalPath;
 
         widgets.add(
           Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE65100).withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+            bottom: 100,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              decoration: BoxDecoration(
+                color: isDone
+                    ? const Color(0xFF1B5E20).withValues(alpha: 0.95)
+                    : const Color(0xFF37474F).withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Progress bar.
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: SizedBox(
+                      height: 4,
+                      child: LinearProgressIndicator(
+                        value: totalPath > 0 ? visitedCount / totalPath : 0,
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
+                        color: isDone
+                            ? const Color(0xFF4CAF50)
+                            : const Color(0xFFFFB74D),
+                      ),
                     ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+                  ),
+                  const SizedBox(height: 10),
+
+                  if (!isDone) ...[
+                    // Instruction text.
                     Text(
-                      FlueraLocalizations.of(context)?.fow_surgicalReviewCount(visitedCount, totalPath)
-                          ?? '🗺️ $visitedCount/$totalPath rivisti',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
+                      FlueraLocalizations.of(context)?.fow_surgicalInstruction ?? '📖 Rileggi questo concetto con attenzione',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    // "Next" button.
-                    if (_fogSurgicalCurrentIndex < totalPath)
-                      GestureDetector(
-                        onTap: _navigateToNextSurgicalNode,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            FlueraLocalizations.of(context)?.fow_surgicalNext ?? 'Prossimo →',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    const SizedBox(height: 10),
+                    // Action row: progress + next button.
+                    Row(
+                      children: [
+                        // Progress count.
+                        Text(
+                          '$visitedCount/$totalPath',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.5),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ),
-                    // "Done" / auto-close.
-                    if (_fogSurgicalCurrentIndex >= totalPath)
-                      GestureDetector(
-                        onTap: _stopSurgicalPath,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
+                        const Spacer(),
+                        // "Ho riletto → Prossimo" button.
+                        FilledButton.icon(
+                          icon: const Icon(Icons.arrow_forward, size: 16),
+                          label: Text(
+                            visitedCount == totalPath - 1
+                                ? (FlueraLocalizations.of(context)?.fow_surgicalLastOne ?? 'Ultimo →')
+                                : (FlueraLocalizations.of(context)?.fow_surgicalReadNext ?? 'Ho riletto → Prossimo'),
                           ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF4CAF50)
-                                .withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            FlueraLocalizations.of(context)?.fow_surgicalCompleted ?? '✅ Completato',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF8F00),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
+                          onPressed: _navigateToNextSurgicalNode,
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    // Done state.
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('✅', style: TextStyle(fontSize: 20)),
+                        const SizedBox(width: 8),
+                        Text(
+                          FlueraLocalizations.of(context)?.fow_surgicalAllDone(totalPath) ?? 'Tutti i $totalPath nodi rivisti!',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _stopSurgicalPath,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF4CAF50),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          FlueraLocalizations.of(context)?.fow_surgicalBackToMap ?? 'Torna alla mappa',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
           ),
@@ -1260,12 +1340,14 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
 
     // M: Nearest-neighbor spatial ordering — start from viewport center,
     // always visit the closest unvisited node next. O(n²) but n < 30.
-    final clusterMap = <String, ContentCluster>{};
-    for (final c in _clusterCache) {
-      clusterMap[c.id] = c;
-    }
+    // Use the controller's originalClusters (the ones used during the fog
+    // session) — these have the correct bounds from when fog was activated.
+    // _clusterCache may have been re-detected since then.
+    _fogSurgicalClusterMap = {
+      for (final c in _fogOfWarController.originalClusters) c.id: c,
+    };
 
-    final remaining = planIds.where((id) => clusterMap.containsKey(id)).toList();
+    final remaining = planIds.where((id) => _fogSurgicalClusterMap.containsKey(id)).toList();
     final ordered = <String>[];
     final viewportSize = MediaQuery.of(context).size;
     var currentPos = _canvasController.screenToCanvas(
@@ -1277,7 +1359,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       String? nearest;
       double nearestDist = double.infinity;
       for (final id in remaining) {
-        final dist = (clusterMap[id]!.centroid - currentPos).distance;
+        final dist = (_fogSurgicalClusterMap[id]!.centroid - currentPos).distance;
         if (dist < nearestDist) {
           nearestDist = dist;
           nearest = id;
@@ -1285,7 +1367,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       }
       if (nearest == null) break;
       ordered.add(nearest);
-      currentPos = clusterMap[nearest]!.centroid;
+      currentPos = _fogSurgicalClusterMap[nearest]!.centroid;
       remaining.remove(nearest);
     }
 
@@ -1303,45 +1385,68 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
   }
 
   /// Navigate to the next node in the surgical path.
+  ///
+  /// Flow: mark CURRENT node as visited → advance index → fly to NEXT node.
+  /// On first call (from _startSurgicalPath), index is 0 and nothing is
+  /// visited yet, so we just fly to planIds[0] without marking anything.
   void _navigateToNextSurgicalNode() {
     final planIds = _fogOfWarController.surgicalPlanNodeIds;
-    if (_fogSurgicalCurrentIndex >= planIds.length) {
-      _stopSurgicalPath();
+
+    // Find the next valid cluster to fly to, skipping stale IDs.
+    while (_fogSurgicalCurrentIndex < planIds.length) {
+      final targetId = planIds[_fogSurgicalCurrentIndex];
+      final targetCluster = _fogSurgicalClusterMap[targetId];
+      _fogSurgicalCurrentIndex++;
+
+      if (targetCluster == null) continue; // Stale ID — skip.
+
+      // Mark the PREVIOUS valid node as visited (the one the student
+      // just finished reading). We skip this on the first call.
+      // Only mark nodes that actually exist in the cluster map.
+      if (_fogSurgicalVisitedIds.isNotEmpty || _fogSurgicalCurrentIndex > 1) {
+        // Find the previous valid node in the path.
+        for (int j = _fogSurgicalCurrentIndex - 2; j >= 0; j--) {
+          final prevId = planIds[j];
+          if (_fogSurgicalClusterMap.containsKey(prevId)) {
+            _fogSurgicalVisitedIds.add(prevId);
+            break;
+          }
+        }
+      }
+
+      HapticFeedback.selectionClick();
+
+      // Fly to the node — set scale immediately, then animate offset.
+      // Using animateOffsetTo avoids the spring-interaction bug in
+      // animateToTransform where pan spring values are discarded when
+      // _isTransformSpringActive is true.
+      final viewportSize = MediaQuery.of(context).size;
+      final centroid = targetCluster.centroid;
+      final targetScale = _canvasController.scale.clamp(1.0, 3.0);
+
+      // Snap scale to target (no animation — instant, avoids spring conflict).
+      if ((_canvasController.scale - targetScale).abs() >= 0.001) {
+        _canvasController.setScale(targetScale);
+      }
+
+      // Animate offset to center the node in the viewport.
+      final targetOffset = Offset(
+        viewportSize.width / 2 - centroid.dx * targetScale,
+        viewportSize.height / 2 - centroid.dy * targetScale,
+      );
+      _canvasController.animateOffsetTo(targetOffset);
+
+      setState(() {});
       return;
     }
 
-    final targetId = planIds[_fogSurgicalCurrentIndex];
-
-    // Find the cluster for this node ID.
-    ContentCluster? targetCluster;
-    for (final cluster in _clusterCache) {
-      if (cluster.id == targetId) {
-        targetCluster = cluster;
+    // All nodes exhausted — mark the last valid node as visited.
+    for (int j = planIds.length - 1; j >= 0; j--) {
+      if (_fogSurgicalClusterMap.containsKey(planIds[j])) {
+        _fogSurgicalVisitedIds.add(planIds[j]);
         break;
       }
     }
-
-    if (targetCluster == null) {
-      // Cluster not found — skip to next.
-      _fogSurgicalCurrentIndex++;
-      _navigateToNextSurgicalNode();
-      return;
-    }
-
-    // Mark as visited.
-    _fogSurgicalVisitedIds.add(targetId);
-    _fogSurgicalCurrentIndex++;
-
-    HapticFeedback.selectionClick();
-
-    // Fly to the node using CameraActions.
-    final viewportSize = MediaQuery.of(context).size;
-    CameraActions.zoomToRect(
-      _canvasController,
-      targetCluster.bounds.inflate(80.0),
-      viewportSize,
-    );
-
     setState(() {});
 
     // Auto-complete check.
@@ -1375,6 +1480,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     _fogSurgicalPathActive = false;
     _fogSurgicalVisitedIds.clear();
     _fogSurgicalCurrentIndex = 0;
+    _fogSurgicalClusterMap = const {};
     setState(() {});
   }
 }
@@ -1633,6 +1739,275 @@ class _ConfidenceLevel {
 }
 
 // ============================================================================
+// 🌫️ Fog Mastery Summary Sheet — Structured results (P10-22, §XI.4, P10-27)
+// ============================================================================
+
+/// A structured bottom sheet showing the mastery map results with:
+/// - Progress ring, stats grid, delta from previous session
+/// - Muro Rosso emotional protection when >70% failed
+/// - Milestone celebration when 3+ consecutive high-recall sessions
+/// - Density increase suggestion when >80% green
+class _FogMasterySummarySheet extends StatelessWidget {
+  final FogOfWarSession session;
+  final String summaryText;
+  final String deltaText;
+  final String densitySuggestion;
+  final String milestoneText;
+  final bool isMuroRosso;
+  final VoidCallback onDismiss;
+
+  const _FogMasterySummarySheet({
+    required this.session,
+    required this.summaryText,
+    required this.deltaText,
+    required this.densitySuggestion,
+    required this.milestoneText,
+    required this.isMuroRosso,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final ratio = session.totalNodes > 0
+        ? session.recalledCount / session.totalNodes
+        : 0.0;
+    final headerEmoji = milestoneText.isNotEmpty
+        ? '🏆'
+        : isMuroRosso
+            ? '🎯'
+            : '⚔️';
+    final accentColor = milestoneText.isNotEmpty
+        ? const Color(0xFF4CAF50)
+        : isMuroRosso
+            ? const Color(0xFF78909C)
+            : const Color(0xFF4CAF50);
+
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 20,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header with emoji.
+            Text(headerEmoji, style: const TextStyle(fontSize: 36)),
+            const SizedBox(height: 8),
+            Text(
+              milestoneText.isNotEmpty
+                  ? 'Palazzo della Memoria Solido!'
+                  : isMuroRosso
+                      ? 'Zone da Rafforzare Identificate'
+                      : 'Risultati Sfida',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Progress ring + stats row.
+            Row(
+              children: [
+                // Progress ring.
+                SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: ratio,
+                        strokeWidth: 4.5,
+                        backgroundColor: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.08),
+                        color: accentColor,
+                      ),
+                      Text(
+                        '${(ratio * 100).round()}%',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: accentColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Stats column.
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _statChip('✅', '${session.recalledCount}',
+                          'ricordati', const Color(0xFF4CAF50), theme),
+                      const SizedBox(height: 4),
+                      _statChip(
+                          isMuroRosso ? '📝' : '❌',
+                          '${session.forgottenCount}',
+                          'dimenticati',
+                          isMuroRosso
+                              ? const Color(0xFF78909C)
+                              : const Color(0xFFEF5350),
+                          theme),
+                      const SizedBox(height: 4),
+                      _statChip('👁\u200D🗨', '${session.blindSpotCount}',
+                          'non visitati', const Color(0xFF9E9E9E), theme),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // Delta from previous session.
+            if (deltaText.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFF4CAF50).withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Text(
+                  '📈 ${deltaText.replaceFirst('\n📈 ', '')}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF4CAF50),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+
+            // Density suggestion.
+            if (densitySuggestion.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFB74D).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFFFB74D).withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Text(
+                  densitySuggestion.replaceFirst('\n', ''),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFFFFB74D),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+
+            // Milestone celebration.
+            if (milestoneText.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Text(
+                  milestoneText.replaceAll('\n', '').trim(),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF4CAF50),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+
+            // Muro Rosso coaching text.
+            if (isMuroRosso) ...[
+              const SizedBox(height: 8),
+              Text(
+                summaryText,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  height: 1.4,
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 16),
+
+            // Dismiss button.
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: onDismiss,
+                style: FilledButton.styleFrom(
+                  backgroundColor: accentColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  isMuroRosso ? 'Esplora la mappa' : 'Esplora la mappa',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statChip(String emoji, String value, String label,
+      Color color, ThemeData theme) {
+    return Row(
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 14)),
+        const SizedBox(width: 6),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
 // 🌫️ Fog Setup Sheet — Level picker + zone selection (P10-01, P10-02, P10-03)
 // ============================================================================
 
@@ -1653,7 +2028,7 @@ class _FogSetupSheet extends StatefulWidget {
 
 class _FogSetupSheetState extends State<_FogSetupSheet>
     with SingleTickerProviderStateMixin {
-  bool _useZoneSelection = false;
+  bool _useZoneSelection = true;
   List<Map<String, dynamic>> _sessionHistory = [];
   late TabController _tabController;
 
@@ -1717,7 +2092,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Fog of War',
+                  FlueraLocalizations.of(context)?.proCanvas_fogOfWar ?? 'Sfida',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -1725,7 +2100,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
               ),
               IconButton(
                 icon: const Icon(Icons.info_outline, size: 20),
-                tooltip: 'Come funziona',
+                tooltip: FlueraLocalizations.of(context)?.fow_setupInfoTooltip ?? 'Come funziona',
                 onPressed: () => FogOfWarInfoScreen.show(context),
               ),
               IconButton(
@@ -1757,7 +2132,9 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
             const SizedBox(height: 8),
           ],
 
-          // Content
+          // Content — Flexible is needed in BOTH paths so the
+          // SingleChildScrollView inside _buildNewSessionTab gets
+          // bounded constraints and can actually scroll.
           if (hasHistory)
             Flexible(
               child: TabBarView(
@@ -1769,7 +2146,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
               ),
             )
           else
-            _buildNewSessionTab(theme),
+            Flexible(child: _buildNewSessionTab(theme)),
         ],
       ),
     );
@@ -1783,7 +2160,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
         children: [
           if (_sessionHistory.isEmpty)
             Text(
-              'Scegli il livello di nebbia. Più è densa, più è difficile.',
+              FlueraLocalizations.of(context)?.fow_setupChooseLevel ?? 'Scegli il livello di nebbia. Più è densa, più è difficile.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
@@ -1953,7 +2330,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
           _FogLevelOption(
             emoji: '🌤️',
             title: 'Nebbia Leggera',
-            subtitle: 'Sagome dei nodi visibili, zero contenuto',
+            subtitle: FlueraLocalizations.of(context)?.fow_setupLightDesc ?? 'Sagome dei nodi visibili, zero contenuto',
             difficulty: 'Media',
             color: const Color(0xFF64B5F6),
             onTap: () => widget.onStart(FogLevel.light, _useZoneSelection),
@@ -1962,7 +2339,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
           _FogLevelOption(
             emoji: '🌫️',
             title: 'Nebbia Media',
-            subtitle: 'Visibilità limitata (300px). Devi avvicinarti.',
+            subtitle: FlueraLocalizations.of(context)?.fow_setupMediumDesc ?? 'Visibilità limitata (300px). Devi avvicinarti.',
             difficulty: 'Alta',
             color: const Color(0xFFFFB74D),
             onTap: () => widget.onStart(FogLevel.medium, _useZoneSelection),
@@ -1971,7 +2348,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
           _FogLevelOption(
             emoji: '🌑',
             title: 'Nebbia Totale',
-            subtitle: 'Buio completo. Solo la memoria ti guida.',
+            subtitle: FlueraLocalizations.of(context)?.fow_setupTotalDesc ?? 'Buio completo. Solo la memoria ti guida.',
             difficulty: 'Massima',
             color: const Color(0xFFEF5350),
             onTap: () => widget.onStart(FogLevel.total, _useZoneSelection),
@@ -2079,7 +2456,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
     );
   }
 
-  /// Session History tab — shows all past sessions with trend indicators.
+  /// Session History tab — trend chart + session cards + insights.
   Widget _buildHistoryTab(ThemeData theme) {
     if (_sessionHistory.isEmpty) {
       return Center(
@@ -2095,24 +2472,203 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
     // Reversed so newest is on top.
     final sessions = _sessionHistory.reversed.toList();
 
-    return ListView.separated(
+    // Compute global stats for insights.
+    final ratios = _sessionHistory.map((s) {
+      final r = s['results'] as Map<String, dynamic>?;
+      final recalled = (r?['recalled'] as num?)?.toInt() ?? 0;
+      final total = (s['totalNodes'] as num?)?.toInt() ?? 1;
+      return total > 0 ? recalled / total : 0.0;
+    }).toList();
+    final bestRatio = ratios.reduce(math.max);
+    final bestIndex = ratios.indexOf(bestRatio);
+    final latestRatio = ratios.last;
+    final avgRatio = ratios.fold(0.0, (a, b) => a + b) / ratios.length;
+
+    return ListView(
       shrinkWrap: true,
       padding: const EdgeInsets.only(top: 4, bottom: 16),
-      itemCount: sessions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final session = sessions[index];
-        final origIndex = _sessionHistory.length - 1 - index;
-        return _buildHistoryCard(theme, session, origIndex);
-      },
+      children: [
+        // ── 1. Recall trend chart ──
+        if (_sessionHistory.length >= 2) ...[
+          Container(
+            height: 60,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: CustomPaint(
+              painter: _RecallTrendPainter(
+                ratios: ratios,
+                isDark: theme.brightness == Brightness.dark,
+              ),
+            ),
+          ),
+          // Legend.
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Prima sessione',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                  ),
+                ),
+                Text(
+                  'Media: ${(avgRatio * 100).round()}%',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                ),
+                Text(
+                  'Ultima',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // ── 2. Insight text ──
+        _buildInsight(theme, ratios, latestRatio, bestRatio, bestIndex),
+
+        const SizedBox(height: 8),
+
+        // ── 3. Progress bar legend (shown once) ──
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8, left: 4),
+          child: Row(
+            children: [
+              _legendDot(const Color(0xFF4CAF50), '✅ Ricordati', theme),
+              const SizedBox(width: 12),
+              _legendDot(const Color(0xFFEF5350), '❌ Dimenticati', theme),
+              const SizedBox(width: 12),
+              _legendDot(
+                theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                '👁‍🗨 Non cercati',
+                theme,
+              ),
+            ],
+          ),
+        ),
+
+        // ── 4. Session cards ──
+        ...List.generate(sessions.length, (index) {
+          final session = sessions[index];
+          final origIndex = _sessionHistory.length - 1 - index;
+          return Padding(
+            padding: EdgeInsets.only(bottom: index < sessions.length - 1 ? 8 : 0),
+            child: _buildHistoryCard(
+              theme, session, origIndex,
+              isBest: origIndex == bestIndex && _sessionHistory.length > 1,
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _legendDot(Color color, String label, ThemeData theme) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8, height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 9,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInsight(ThemeData theme, List<double> ratios,
+      double latest, double best, int bestIndex) {
+    String text;
+    Color color;
+    String emoji;
+
+    if (ratios.length >= 3) {
+      final last3 = ratios.sublist(ratios.length - 3);
+      final improving = last3[2] > last3[1] && last3[1] > last3[0];
+      final declining = last3[2] < last3[1] && last3[1] < last3[0];
+
+      if (improving) {
+        text = '3 sessioni consecutive in crescita!';
+        color = const Color(0xFF4CAF50);
+        emoji = '📈';
+      } else if (declining) {
+        text = 'Trend in calo — prova nebbia più leggera per consolidare';
+        color = const Color(0xFFFF9800);
+        emoji = '💡';
+      } else if (latest >= 0.9) {
+        text = 'Padronanza eccellente — prova nebbia più densa!';
+        color = const Color(0xFF4CAF50);
+        emoji = '🔥';
+      } else if (latest >= 0.7) {
+        text = 'Buon livello — continua così';
+        color = const Color(0xFF64B5F6);
+        emoji = '💪';
+      } else {
+        text = 'Le lacune sono preziose — ora sai cosa ripassare';
+        color = const Color(0xFF78909C);
+        emoji = '🎯';
+      }
+    } else if (latest >= 0.8) {
+      text = 'Ottimo inizio!';
+      color = const Color(0xFF4CAF50);
+      emoji = '✨';
+    } else {
+      text = 'Ogni sessione rafforza la memoria';
+      color = const Color(0xFF78909C);
+      emoji = '🧠';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildHistoryCard(
     ThemeData theme,
     Map<String, dynamic> session,
-    int sessionIndex,
-  ) {
+    int sessionIndex, {
+    bool isBest = false,
+  }) {
     final results = session['results'] as Map<String, dynamic>?;
     final recalled = (results?['recalled'] as num?)?.toInt() ?? 0;
     final forgotten = (results?['forgotten'] as num?)?.toInt() ?? 0;
@@ -2164,11 +2720,15 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest
-            .withValues(alpha: 0.25),
+        color: isBest
+            ? const Color(0xFFFFD600).withValues(alpha: 0.06)
+            : theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.25),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.08),
+          color: isBest
+              ? const Color(0xFFFFD600).withValues(alpha: 0.3)
+              : theme.colorScheme.outline.withValues(alpha: 0.08),
         ),
       ),
       child: Column(
@@ -2178,7 +2738,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
           Row(
             children: [
               Text(
-                '⚔️ #${sessionIndex + 1}',
+                '${isBest ? "🏆" : "⚔️"} #${sessionIndex + 1}',
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -2490,6 +3050,216 @@ class _FogLevelOption extends StatelessWidget {
 }
 
 // ============================================================================
+// 💡 Directional Hint Arrow — Visual compass overlay for Tier 1 hints
+// ============================================================================
+
+/// A visual arrow overlay centered on the screen that rotates to point
+/// toward the nearest unrevealed node. Includes:
+/// - A pulsing ring at center marking "you are here"
+/// - A rotating arrow pointing toward the target
+/// - A distance label (Vicinissimo/Vicino/Media distanza/Lontano)
+///
+/// This replaces the old text-only snackbar ("→") which was confusing
+/// because the student couldn't see the reference point.
+class _FogDirectionalArrow extends StatefulWidget {
+  final double angle; // radians
+  final String distanceLabel;
+
+  const _FogDirectionalArrow({
+    required this.angle,
+    required this.distanceLabel,
+  });
+
+  @override
+  State<_FogDirectionalArrow> createState() => _FogDirectionalArrowState();
+}
+
+class _FogDirectionalArrowState extends State<_FogDirectionalArrow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, _) {
+        final pulse = _pulseController.value; // 0.0 → 1.0 → 0.0
+        return CustomPaint(
+          painter: _DirectionalArrowPainter(
+            angle: widget.angle,
+            distanceLabel: widget.distanceLabel,
+            pulse: pulse,
+            isDark: Theme.of(context).brightness == Brightness.dark,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DirectionalArrowPainter extends CustomPainter {
+  final double angle;
+  final String distanceLabel;
+  final double pulse;
+  final bool isDark;
+
+  _DirectionalArrowPainter({
+    required this.angle,
+    required this.distanceLabel,
+    required this.pulse,
+    required this.isDark,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final paint = Paint();
+
+    // ── 1. "You are here" pulsing ring ──
+    final ringRadius = 16.0 + pulse * 6.0;
+    final ringAlpha = 0.5 + pulse * 0.3;
+    paint
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..color = Color.fromRGBO(255, 143, 0, ringAlpha);
+    canvas.drawCircle(center, ringRadius, paint);
+
+    // Inner dot.
+    paint
+      ..style = PaintingStyle.fill
+      ..color = const Color.fromRGBO(255, 143, 0, 0.8);
+    canvas.drawCircle(center, 5.0, paint);
+
+    // ── 2. "Sei qui" label below center ──
+    final hereTP = TextPainter(
+      text: TextSpan(
+        text: 'Sei qui',
+        style: TextStyle(
+          color: Color.fromRGBO(255, 143, 0, 0.7 + pulse * 0.3),
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    hereTP.paint(canvas, center + Offset(-hereTP.width / 2, 28));
+
+    // ── 3. Arrow shaft + head pointing toward node ──
+    final arrowStart = 35.0; // start past the ring
+    final arrowEnd = 80.0 + pulse * 10.0; // pulsing length
+
+    final dx = math.cos(angle);
+    final dy = math.sin(angle);
+
+    final startPt = center + Offset(dx * arrowStart, dy * arrowStart);
+    final endPt = center + Offset(dx * arrowEnd, dy * arrowEnd);
+
+    // Arrow shaft (thick, glowing).
+    paint
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.0
+      ..strokeCap = StrokeCap.round
+      ..color = Color.fromRGBO(255, 143, 0, 0.6 + pulse * 0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+    canvas.drawLine(startPt, endPt, paint);
+    paint.maskFilter = null;
+
+    // Arrow shaft (crisp, on top).
+    paint
+      ..strokeWidth = 2.5
+      ..color = Color.fromRGBO(255, 183, 0, 0.8 + pulse * 0.2);
+    canvas.drawLine(startPt, endPt, paint);
+
+    // Arrowhead (triangle).
+    final headSize = 12.0;
+    final perpDx = -dy; // perpendicular
+    final perpDy = dx;
+
+    final headTip = center + Offset(dx * (arrowEnd + 4), dy * (arrowEnd + 4));
+    final headLeft = endPt + Offset(
+      perpDx * headSize * 0.5 - dx * headSize * 0.3,
+      perpDy * headSize * 0.5 - dy * headSize * 0.3,
+    );
+    final headRight = endPt + Offset(
+      -perpDx * headSize * 0.5 - dx * headSize * 0.3,
+      -perpDy * headSize * 0.5 - dy * headSize * 0.3,
+    );
+
+    final headPath = Path()
+      ..moveTo(headTip.dx, headTip.dy)
+      ..lineTo(headLeft.dx, headLeft.dy)
+      ..lineTo(headRight.dx, headRight.dy)
+      ..close();
+
+    paint
+      ..style = PaintingStyle.fill
+      ..color = Color.fromRGBO(255, 183, 0, 0.8 + pulse * 0.2);
+    canvas.drawPath(headPath, paint);
+
+    // ── 4. Distance label along the arrow ──
+    final labelOffset = center + Offset(
+      dx * (arrowEnd + 22),
+      dy * (arrowEnd + 22),
+    );
+
+    // Background pill.
+    final labelTP = TextPainter(
+      text: TextSpan(
+        text: distanceLabel,
+        style: TextStyle(
+          color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final pillRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: labelOffset,
+        width: labelTP.width + 16,
+        height: labelTP.height + 8,
+      ),
+      const Radius.circular(8),
+    );
+
+    paint
+      ..style = PaintingStyle.fill
+      ..color = isDark
+          ? const Color.fromRGBO(255, 143, 0, 0.85)
+          : const Color.fromRGBO(255, 143, 0, 0.9);
+    canvas.drawRRect(pillRect, paint);
+
+    labelTP.paint(
+      canvas,
+      labelOffset - Offset(labelTP.width / 2, labelTP.height / 2),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _DirectionalArrowPainter old) =>
+      angle != old.angle ||
+      distanceLabel != old.distanceLabel ||
+      (pulse - old.pulse).abs() > 0.02;
+}
+
+// ============================================================================
 // 📋 Mastery Map Legend (J) — Collapsible onboarding overlay
 // ============================================================================
 
@@ -2610,6 +3380,98 @@ class _FogMasteryLegendState extends State<_FogMasteryLegend> {
 }
 
 // ============================================================================
+// 📈 Recall Trend Painter — Global recall % trend across all sessions
+// ============================================================================
+
+class _RecallTrendPainter extends CustomPainter {
+  final List<double> ratios; // 0.0–1.0 recall ratios per session
+  final bool isDark;
+
+  _RecallTrendPainter({required this.ratios, this.isDark = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (ratios.length < 2) return;
+
+    final n = ratios.length;
+    final dx = size.width / (n - 1);
+    double yForVal(double v) => size.height - v * size.height;
+
+    // Fill area under the curve.
+    final fillPath = Path()..moveTo(0, size.height);
+    for (int i = 0; i < n; i++) {
+      fillPath.lineTo(i * dx, yForVal(ratios[i]));
+    }
+    fillPath.lineTo(size.width, size.height);
+    fillPath.close();
+
+    canvas.drawPath(
+      fillPath,
+      Paint()
+        ..style = PaintingStyle.fill
+        ..color = isDark
+            ? const Color.fromRGBO(76, 175, 80, 0.08)
+            : const Color.fromRGBO(76, 175, 80, 0.06),
+    );
+
+    // Line.
+    final linePath = Path();
+    for (int i = 0; i < n; i++) {
+      final x = i * dx;
+      final y = yForVal(ratios[i]);
+      if (i == 0) {
+        linePath.moveTo(x, y);
+      } else {
+        linePath.lineTo(x, y);
+      }
+    }
+
+    canvas.drawPath(
+      linePath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round
+        ..color = isDark
+            ? const Color.fromRGBO(76, 175, 80, 0.6)
+            : const Color.fromRGBO(76, 175, 80, 0.5),
+    );
+
+    // Dots.
+    final dotPaint = Paint()..style = PaintingStyle.fill;
+    for (int i = 0; i < n; i++) {
+      final x = i * dx;
+      final y = yForVal(ratios[i]);
+      final v = ratios[i];
+
+      dotPaint.color = v >= 0.8
+          ? const Color(0xFF4CAF50)
+          : v >= 0.5
+              ? const Color(0xFFFFB74D)
+              : const Color(0xFFEF5350);
+      canvas.drawCircle(Offset(x, y), i == n - 1 ? 4.0 : 2.5, dotPaint);
+    }
+
+    // 70% threshold line.
+    final threshY = yForVal(0.7);
+    canvas.drawLine(
+      Offset(0, threshY),
+      Offset(size.width, threshY),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5
+        ..color = isDark
+            ? const Color.fromRGBO(255, 255, 255, 0.1)
+            : const Color.fromRGBO(0, 0, 0, 0.08),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RecallTrendPainter old) =>
+      ratios.length != old.ratios.length;
+}
+
+// ============================================================================
 // 📊 Confidence Sparkline Painter (K) — Mini trend chart
 // ============================================================================
 
@@ -2679,3 +3541,4 @@ class _ConfidenceSparklinePainter extends CustomPainter {
   bool shouldRepaint(covariant _ConfidenceSparklinePainter old) =>
       values != old.values;
 }
+

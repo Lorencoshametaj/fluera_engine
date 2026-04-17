@@ -200,6 +200,35 @@ class SrsCardData {
     );
   }
 
+  /// Returns a copy with only the specified fields replaced.
+  SrsCardData copyWith({
+    double? stability,
+    double? difficulty,
+    int? elapsedDays,
+    int? scheduledDays,
+    int? reps,
+    int? lapses,
+    FsrsState? state,
+    DateTime? nextReview,
+    DateTime? lastReview,
+    double? desiredRetention,
+    List<bool>? recentResults,
+  }) {
+    return SrsCardData(
+      stability: stability ?? this.stability,
+      difficulty: difficulty ?? this.difficulty,
+      elapsedDays: elapsedDays ?? this.elapsedDays,
+      scheduledDays: scheduledDays ?? this.scheduledDays,
+      reps: reps ?? this.reps,
+      lapses: lapses ?? this.lapses,
+      state: state ?? this.state,
+      nextReview: nextReview ?? this.nextReview,
+      lastReview: lastReview ?? this.lastReview,
+      desiredRetention: desiredRetention ?? this.desiredRetention,
+      recentResults: recentResults ?? this.recentResults,
+    );
+  }
+
   bool get isDue => DateTime.now().isAfter(nextReview);
 
   /// Current retrievability — probability of recall at this moment.

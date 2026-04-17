@@ -381,9 +381,24 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
 
                       return Transform(
                         transform: gm,
-                        child: ValueListenableBuilder<int>(
-                          valueListenable: gmc.version,
-                          builder: (_, __, ___) => CustomPaint(
+                        child: AnimatedBuilder(
+                          animation: Listenable.merge([
+                            gmc.version,
+                            if (_ghostMapAnimController != null) _ghostMapAnimController!,
+                          ]),
+                          builder: (_, __) {
+                            // Build reveal timestamps for cross-fade animation.
+                            // Records animationTime when each node first appears in revealedNodeIds.
+                            final currentRevealed = gmc.revealedNodeIds;
+                            for (final id in currentRevealed) {
+                              _ghostRevealTimestamps.putIfAbsent(id, () => _ghostMapAnimTime);
+                            }
+                            // Clean up IDs no longer in the revealed set
+                            _ghostRevealTimestamps.removeWhere(
+                              (id, _) => !currentRevealed.contains(id),
+                            );
+
+                            return CustomPaint(
                             painter: GhostMapOverlayPainter(
                               result: gmc.result!,
                               revealedNodeIds: gmc.revealedNodeIds,
@@ -395,15 +410,21 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                               viewportRect: viewportRect,
                               // O-3: Use pre-cached Set from controller (avoids 60 alloc/sec)
                               visibleMissingNodeIds: gmc.visibleMissingNodeIdsSet,
+                              revealTimestamps: Map<String, double>.of(_ghostRevealTimestamps),
                               // O-8: Localized painter labels
                               labelTapToAttempt: _l10n.ghostMap_tapToAttempt,
                               labelHypercorrection: _l10n.ghostMap_hypercorrectionLabel,
                               labelBelowZPD: _l10n.ghostMap_belowZPDLabel,
+                              labelWriteHere: _l10n.ghostMap_drawHereHint,
+                              // On-canvas attempt: active node rendering
+                              activeAttemptNodeId: FlueraGhostMapOverlaysExtension._canvasAttemptNode?.id,
+                              hasStrokesInAttemptZone: FlueraGhostMapOverlaysExtension._hasStrokesInZone,
                               // U-1: Staggered entry animation
                               entryProgress: _ghostMapEntryTimer.elapsedMilliseconds / 1000.0,
                             ),
                             size: Size.infinite,
-                          ),
+                          );
+                          },
                         ),
                       );
                     },
@@ -448,9 +469,20 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // Rendered ABOVE Vulkan texture so fog actually hides strokes.
           if (_fogOfWarController.isActive)
             IgnorePointer(
+              // Allow taps through during mastery map (P10-21: tap red/grey
+              // nodes to review). Block during active fog and revealing to
+              // prevent gesture conflicts with the canvas gesture detector.
+              ignoring: !_fogOfWarController.isMasteryMap,
               child: AnimatedBuilder(
-                animation: _canvasController,
+                // Single merged listener: canvas transform + fog version.
+                // Both are in one builder so Transform matrix and painter
+                // canvasScale are ALWAYS from the same frame — no mismatch.
+                animation: Listenable.merge([
+                  _canvasController,
+                  _fogOfWarVersionNotifier,
+                ]),
                 builder: (context, _) {
+                  final fs = _canvasController.scale;
                   final fm = Matrix4.identity()
                     ..translateByDouble(
                       _canvasController.offset.dx,
@@ -460,41 +492,37 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   if (_canvasController.rotation != 0.0) {
                     fm.rotateZ(_canvasController.rotation);
                   }
-                  final fs = _canvasController.scale;
                   fm.scaleByDouble(fs, fs, 1.0, 1.0);
+
+                  final screenSize = MediaQuery.sizeOf(context);
+                  final vpCenter = _canvasController.screenToCanvas(
+                    Offset(screenSize.width / 2, screenSize.height / 2),
+                  );
+                  final vpTL = _canvasController.screenToCanvas(Offset.zero);
+                  final vpBR = _canvasController.screenToCanvas(
+                    Offset(screenSize.width, screenSize.height),
+                  );
+
                   return Transform(
                     transform: fm,
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: _fogOfWarVersionNotifier,
-                      builder: (_, __, ___) {
-                        final screenSize = MediaQuery.sizeOf(context);
-                        final vpCenter = _canvasController.screenToCanvas(
-                          Offset(screenSize.width / 2, screenSize.height / 2),
-                        );
-                        final vpTL = _canvasController.screenToCanvas(Offset.zero);
-                        final vpBR = _canvasController.screenToCanvas(
-                          Offset(screenSize.width, screenSize.height),
-                        );
-                        return CustomPaint(
-                          painter: FogOfWarOverlayPainter(
-                            controller: _fogOfWarController,
-                            clusters: _clusterCache,
-                            canvasScale: _canvasController.scale,
-                            animationTime: _fogOfWarAnimTime,
-                            viewportCenterCanvas: vpCenter,
-                            viewportCanvasRect: Rect.fromPoints(vpTL, vpBR),
-                            isDarkMode: Theme.of(context).brightness == Brightness.dark,
-                            isMuroRossoActive: _fogOfWarController.isMuroRossoActive,
-                            surgicalPathNodeIds: _fogSurgicalPathActive
-                                ? _fogOfWarController.surgicalPlanNodeIds
-                                : const [],
-                            surgicalVisitedIds: _fogSurgicalPathActive
-                                ? _fogSurgicalVisitedIds
-                                : const {},
-                          ),
-                          size: Size.infinite,
-                        );
-                      },
+                    child: CustomPaint(
+                      painter: FogOfWarOverlayPainter(
+                        controller: _fogOfWarController,
+                        clusters: _fogOfWarController.originalClusters,
+                        canvasScale: fs,
+                        animationTime: _fogOfWarAnimTime,
+                        viewportCenterCanvas: vpCenter,
+                        viewportCanvasRect: Rect.fromPoints(vpTL, vpBR),
+                        isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                        isMuroRossoActive: _fogOfWarController.isMuroRossoActive,
+                        surgicalPathNodeIds: _fogSurgicalPathActive
+                            ? _fogOfWarController.surgicalPlanNodeIds
+                            : const [],
+                        surgicalVisitedIds: _fogSurgicalPathActive
+                            ? _fogSurgicalVisitedIds
+                            : const {},
+                      ),
+                      size: Size.infinite,
                     ),
                   );
                 },
@@ -1100,6 +1128,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             onPanInterceptTest:
                 _effectiveIsPanMode
                     ? (canvasPos) {
+                      // 🌫️ FOG ZONE SELECTION: Always intercept pan when
+                      // waiting for the student to draw a selection rectangle.
+                      if (isFogZoneSelectionPending) return true;
+
                       // 🖼️ If an image is selected, check if touch hits the
                       // image, its handles, or another image. Return false for
                       // empty space so canvas pan still works.

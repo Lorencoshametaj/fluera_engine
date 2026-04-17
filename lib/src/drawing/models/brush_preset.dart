@@ -233,7 +233,6 @@ class BrushPreset {
   /// GPU pen types hidden in V1 — re-enable post-launch.
   static const _hiddenV1PenTypes = {
     ProPenType.watercolor,
-    ProPenType.marker,
     ProPenType.charcoal,
     ProPenType.oilPaint,
     ProPenType.sprayPaint,

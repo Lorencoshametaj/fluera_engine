@@ -121,28 +121,48 @@ class FlueraNotificationReceiver : BroadcastReceiver() {
         val intId          = notificationId.hashCode()
 
         // Only clean up persistence for one-shot (non-repeating) schedules.
-        // Repeating alarms keep their SharedPrefs entry so they survive reboot.
         val prefs = context.getSharedPreferences("fluera_notifications", Context.MODE_PRIVATE)
         val stored = prefs.getString("scheduled_$intId", null)
-        val isRepeating = stored?.contains("|repeat=") == true
+        val isRepeating = try {
+            stored?.let { org.json.JSONObject(it).has("repeat") } ?: false
+        } catch (_: Exception) {
+            stored?.contains("|repeat=") == true // legacy fallback
+        }
         if (!isRepeating) {
             prefs.edit().remove("scheduled_$intId").apply()
         }
 
-        // Recover display fields from intent extras (set by NotificationPlugin.handleSchedule)
-        val title     = intent.getStringExtra("title") ?: "Fluera"
-        val body      = intent.getStringExtra("body") ?: ""
-        val channelId = intent.getStringExtra("channelId") ?: NotificationPlugin.CH_DEFAULT
-        val sound     = intent.getStringExtra("sound")
+        // Recover display fields from intent extras
+        val title       = intent.getStringExtra("title") ?: "Fluera"
+        val body        = intent.getStringExtra("body") ?: ""
+        val channelId   = intent.getStringExtra("channelId") ?: NotificationPlugin.CH_DEFAULT
+        val sound       = intent.getStringExtra("sound")
+        val priorityStr = intent.getStringExtra("priority") ?: "high"
+        val style       = intent.getStringExtra("style") ?: "bigText"
+        val groupKey    = intent.getStringExtra("groupKey")
+        val vibrate     = intent.getBooleanExtra("vibrate", true)
+        val actionsJson = intent.getStringExtra("actionsJson")
+
+        // Extract data_ prefixed extras
+        val dataMap = extractData(intent)
 
         val soundUri = if (sound != null)
             android.net.Uri.parse("android.resource://${context.packageName}/raw/$sound")
         else null
 
+        val priority = when (priorityStr) {
+            "min"  -> androidx.core.app.NotificationCompat.PRIORITY_MIN
+            "low"  -> androidx.core.app.NotificationCompat.PRIORITY_LOW
+            "high" -> androidx.core.app.NotificationCompat.PRIORITY_HIGH
+            "max"  -> androidx.core.app.NotificationCompat.PRIORITY_MAX
+            else   -> androidx.core.app.NotificationCompat.PRIORITY_DEFAULT
+        }
+
         // Build content-intent that routes through this receiver (so the tap event fires)
         val tapIntent = Intent(context, FlueraNotificationReceiver::class.java).apply {
             action = ACTION_NOTIFICATION_TAP
             putExtra(NotificationPlugin.EXTRA_NOTIFICATION_ID, notificationId)
+            dataMap.forEach { (k, v) -> putExtra("data_$k", v) }
         }
         val tapPi = android.app.PendingIntent.getBroadcast(
             context, intId, tapIntent,
@@ -151,27 +171,64 @@ class FlueraNotificationReceiver : BroadcastReceiver() {
 
         val nm = androidx.core.app.NotificationManagerCompat.from(context)
 
-        // Resolve app icon (same logic as NotificationPlugin.getSmallIconRes)
+        // Resolve app icon
         val appIcon = try {
             val appInfo = context.packageManager.getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
             val metaIcon = appInfo.metaData?.getInt("com.flueraengine.notification_icon", 0) ?: 0
             if (metaIcon != 0) metaIcon else if (appInfo.icon != 0) appInfo.icon else android.R.drawable.ic_dialog_info
         } catch (_: Exception) { android.R.drawable.ic_dialog_info }
 
+        val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(appIcon)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setAutoCancel(true)
+            .setPriority(priority)
+            .setContentIntent(tapPi)
+            .setSound(soundUri)
+            .setVibrate(if (vibrate) longArrayOf(0, 250, 100, 250) else longArrayOf())
+
+        // Style
+        when (style) {
+            "bigText" -> builder.setStyle(
+                androidx.core.app.NotificationCompat.BigTextStyle().bigText(body)
+            )
+            "plain" -> { /* no special style */ }
+        }
+
+        // Group
+        groupKey?.let { builder.setGroup(it) }
+
+        // Action buttons
+        if (actionsJson != null) {
+            try {
+                val arr = org.json.JSONArray(actionsJson)
+                for (i in 0 until arr.length()) {
+                    val actionObj = arr.getJSONObject(i)
+                    val actionId = actionObj.optString("id", "")
+                    val label    = actionObj.optString("label", "")
+                    val openApp  = actionObj.optBoolean("openApp", true)
+
+                    val actionIntent = Intent(context, FlueraNotificationReceiver::class.java).apply {
+                        action = ACTION_NOTIFICATION_ACTION
+                        putExtra(NotificationPlugin.EXTRA_NOTIFICATION_ID, notificationId)
+                        putExtra(NotificationPlugin.EXTRA_ACTION_ID, actionId)
+                        putExtra(EXTRA_OPEN_APP, openApp)
+                        dataMap.forEach { (k, v) -> putExtra("data_$k", v) }
+                    }
+                    val actionPi = android.app.PendingIntent.getBroadcast(
+                        context,
+                        (notificationId + actionId).hashCode(),
+                        actionIntent,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                    )
+                    builder.addAction(0, label, actionPi)
+                }
+            } catch (_: Exception) { /* skip actions on parse failure */ }
+        }
+
         @Suppress("MissingPermission")
-        nm.notify(
-            intId,
-            androidx.core.app.NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(appIcon)
-                .setContentTitle(title)
-                .setContentText(body)
-                .setAutoCancel(true)
-                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(body))
-                .setContentIntent(tapPi)
-                .setSound(soundUri)
-                .build()
-        )
+        nm.notify(intId, builder.build())
     }
 
     // ── Boot completed ────────────────────────────────────────────────────────
@@ -184,56 +241,89 @@ class FlueraNotificationReceiver : BroadcastReceiver() {
         prefs.all.keys
             .filter { it.startsWith("scheduled_") }
             .forEach { key ->
-                val value       = prefs.getString(key, null) ?: return@forEach
-                // Format: "$deliverAtMs|$notifId" or "$deliverAtMs|$notifId|repeat=$interval|group=$gk"
-                val parts       = value.split("|")
-                val deliverAtMs = parts.getOrNull(0)?.toLongOrNull() ?: return@forEach
-                val notifId     = parts.getOrNull(1) ?: return@forEach
-
-                // Parse optional repeat interval
-                val repeatPart  = parts.firstOrNull { it.startsWith("repeat=") }
-                val repeatInterval = repeatPart?.removePrefix("repeat=")
-
-                // For one-shot: skip if already past
-                if (repeatInterval == null && deliverAtMs <= now) {
-                    prefs.edit().remove(key).apply()
-                    return@forEach
-                }
-
+                val value = prefs.getString(key, null) ?: return@forEach
                 val intId = key.removePrefix("scheduled_").toIntOrNull() ?: return@forEach
-                val rescheduleIntent = Intent(context, FlueraNotificationReceiver::class.java).apply {
-                    action = ACTION_DELIVER_SCHEDULED
-                    putExtra(NotificationPlugin.EXTRA_NOTIFICATION_ID, notifId)
-                    // Also carry display extras for the scheduled delivery
-                }
-                val pi = android.app.PendingIntent.getBroadcast(
-                    context, intId, rescheduleIntent,
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-                )
 
-                if (repeatInterval != null) {
-                    // Repeating: calculate next fire time and use setRepeating
-                    val intervalMs = when (repeatInterval) {
-                        "hourly" -> android.app.AlarmManager.INTERVAL_HOUR
-                        "weekly" -> android.app.AlarmManager.INTERVAL_DAY * 7
-                        else     -> android.app.AlarmManager.INTERVAL_DAY
+                try {
+                    val json = org.json.JSONObject(value)
+                    val deliverAtMs    = json.getLong("deliverAtMs")
+                    val notifId        = json.getString("notifId")
+                    val repeatInterval = json.optString("repeat", "").ifEmpty { null }
+
+                    // For one-shot: skip if already past
+                    if (repeatInterval == null && deliverAtMs <= now) {
+                        prefs.edit().remove(key).apply()
+                        return@forEach
                     }
-                    // If the original time has passed, advance to next valid trigger
-                    var nextFire = deliverAtMs
-                    while (nextFire <= now) nextFire += intervalMs
-                    am.setRepeating(android.app.AlarmManager.RTC_WAKEUP, nextFire, intervalMs, pi)
-                } else {
-                    // One-shot: exact alarm
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, deliverAtMs, pi)
+
+                    // Reconstruct intent with ALL display extras
+                    val rescheduleIntent = Intent(context, FlueraNotificationReceiver::class.java).apply {
+                        action = ACTION_DELIVER_SCHEDULED
+                        putExtra(NotificationPlugin.EXTRA_NOTIFICATION_ID, notifId)
+                        putExtra("title", json.optString("title", "Fluera"))
+                        putExtra("body", json.optString("body", ""))
+                        putExtra("channelId", json.optString("channelId", NotificationPlugin.CH_DEFAULT))
+                        putExtra("priority", json.optString("priority", "defaultPriority"))
+                        putExtra("style", json.optString("style", "plain"))
+                        putExtra("vibrate", json.optBoolean("vibrate", true))
+                        val sound = json.optString("sound", "").ifEmpty { null }
+                        if (sound != null) putExtra("sound", sound)
+                        val groupKey = json.optString("groupKey", "").ifEmpty { null }
+                        if (groupKey != null) putExtra("groupKey", groupKey)
+                        val actionsJson = json.optString("actionsJson", "").ifEmpty { null }
+                        if (actionsJson != null) putExtra("actionsJson", actionsJson)
+                        // Restore data_ extras
+                        val dataObj = json.optJSONObject("data")
+                        if (dataObj != null) {
+                            dataObj.keys().forEach { k ->
+                                putExtra("data_$k", dataObj.optString(k, ""))
+                            }
+                        }
+                    }
+                    val pi = android.app.PendingIntent.getBroadcast(
+                        context, intId, rescheduleIntent,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    if (repeatInterval != null) {
+                        val intervalMs = when (repeatInterval) {
+                            "hourly" -> android.app.AlarmManager.INTERVAL_HOUR
+                            "weekly" -> android.app.AlarmManager.INTERVAL_DAY * 7
+                            else     -> android.app.AlarmManager.INTERVAL_DAY
+                        }
+                        var nextFire = deliverAtMs
+                        while (nextFire <= now) nextFire += intervalMs
+                        am.setRepeating(android.app.AlarmManager.RTC_WAKEUP, nextFire, intervalMs, pi)
                     } else {
-                        am.setExact(android.app.AlarmManager.RTC_WAKEUP, deliverAtMs, pi)
+                        scheduleExactOrFallback(am, deliverAtMs, pi)
                     }
+                } catch (_: Exception) {
+                    // Corrupted or legacy entry — remove it
+                    prefs.edit().remove(key).apply()
                 }
             }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Schedules an exact alarm if permitted, otherwise falls back to inexact. */
+    private fun scheduleExactOrFallback(
+        am: android.app.AlarmManager,
+        deliverAtMs: Long,
+        pendingIntent: android.app.PendingIntent,
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (am.canScheduleExactAlarms()) {
+                am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+            } else {
+                am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+        } else {
+            am.setExact(android.app.AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+        }
+    }
 
     /** Extracts custom payload keys (prefixed with "data_") from the intent. */
     private fun extractData(intent: Intent): Map<String, String> {

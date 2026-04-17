@@ -496,8 +496,11 @@ extension on _FlueraCanvasScreenState {
               // A2: Scoped rebuild via ListenableBuilder — avoids full-tree setState.
               ListenableBuilder(
                 listenable: _socraticController,
-                builder: (context, _) => Stack(
-                  children: buildSocraticOverlays(context),
+                builder: (context, _) => Positioned.fill(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: buildSocraticOverlays(context),
+                  ),
                 ),
               ),
 

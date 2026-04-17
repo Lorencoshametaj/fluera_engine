@@ -2517,15 +2517,16 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                               setState(() { _showAtlasPrompt = true; _atlasIsLoading = false; _atlasResponseText = null; });
                             },
                           ),
-                          ListTile(
-                            leading: const Text('🎓', style: TextStyle(fontSize: 22)),
-                            title: const Text('Interrogami', style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.w600)),
-                            subtitle: Text('Esame interattivo sui tuoi appunti', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
-                            onTap: () {
-                              Navigator.pop(context);
-                              _startExamSession();
-                            },
-                          ),
+                          if (V1FeatureGate.examSession)
+                            ListTile(
+                              leading: const Text('🎓', style: TextStyle(fontSize: 22)),
+                              title: const Text('Interrogami', style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.w600)),
+                              subtitle: Text('Esame interattivo sui tuoi appunti', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+                              onTap: () {
+                                Navigator.pop(context);
+                                _startExamSession();
+                              },
+                            ),
                           ListTile(
                             leading: const Text('💬', style: TextStyle(fontSize: 22)),
                             title: const Text('Chat with Notes', style: TextStyle(color: Color(0xFF69F0AE), fontWeight: FontWeight.w600)),

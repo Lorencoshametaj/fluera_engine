@@ -52,6 +52,10 @@ class GhostMapOverlayPainter extends CustomPainter {
   /// If null, all missing nodes are shown.
   final Set<String>? visibleMissingNodeIds;
 
+  /// Reveal timestamps: nodeId -> animationTime when revealed.
+  /// Used for cross-fade transition animation.
+  final Map<String, double> revealTimestamps;
+
   // ─── Reusable objects (static to avoid per-frame allocation) ──────────
   static final Paint _p = Paint();
   static final Paint _dashPaint = Paint();
@@ -99,22 +103,37 @@ class GhostMapOverlayPainter extends CustomPainter {
     this.dismissedNodeIds = const {},
     this.viewportRect,
     this.visibleMissingNodeIds,
+    this.revealTimestamps = const {},
     // O-8: Localized strings passed from the widget layer
     this.labelTapToAttempt = 'Tocca per tentare',
     this.labelHypercorrection = 'Ipercorrezione — eri sicuro!',
     this.labelBelowZPD = 'Da approfondire',
+    this.labelWriteHere = 'Scrivi qui con la penna ✍️',
     // U-1: Entry animation progress (0.0 = just appeared, 1.0+ = fully visible)
     this.entryProgress = 1.0,
+    // On-canvas attempt: which node is currently being attempted
+    this.activeAttemptNodeId,
+    // Whether new strokes exist in the active attempt zone
+    this.hasStrokesInAttemptZone = false,
   });
 
   /// U-1: Entry animation progress (seconds since activation).
   /// Nodes stagger their appearance based on index.
   final double entryProgress;
 
+  /// The ID of the ghost node currently being attempted on-canvas.
+  /// When set, that node renders as an active writing zone instead of ❓.
+  final String? activeAttemptNodeId;
+
+  /// Whether new strokes have been detected in the active attempt zone.
+  /// When true, the zone border changes from blue to green.
+  final bool hasStrokesInAttemptZone;
+
   /// O-8: Localized label strings (passed from widget layer with BuildContext).
   final String labelTapToAttempt;
   final String labelHypercorrection;
   final String labelBelowZPD;
+  final String labelWriteHere;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -136,10 +155,11 @@ class GhostMapOverlayPainter extends CustomPainter {
       _lastDashResult = result;
     }
 
-    // Build cluster centroid map for connection rendering
+    // Build cluster centroid map for connection rendering.
+    // Use displaced centroids — clusters may have been shifted by reflow physics.
     final clusterCentroids = <String, Offset>{};
     for (final c in clusters) {
-      clusterCentroids[c.id] = c.centroid;
+      clusterCentroids[c.id] = c.displacedCentroid;
     }
 
     // Also add ghost node positions
@@ -169,9 +189,9 @@ class GhostMapOverlayPainter extends CustomPainter {
         continue;
       }
 
-      // U-1: Staggered entry animation — each node delays 0.08s after previous
-      final nodeDelay = i * 0.08;
-      final nodeProgress = ((entryProgress - nodeDelay) / 0.4).clamp(0.0, 1.0);
+      // U-1: Staggered entry animation — each node delays 0.12s after previous
+      final nodeDelay = i * 0.12;
+      final nodeProgress = ((entryProgress - nodeDelay) / 0.5).clamp(0.0, 1.0);
       if (nodeProgress <= 0.0) continue; // Not yet visible
 
       // U-1: Apply scale + fade transform
@@ -186,10 +206,44 @@ class GhostMapOverlayPainter extends CustomPainter {
       }
 
       final isRevealed = revealedNodeIds.contains(node.id);
+
+      // On-canvas attempt: render active node as writing zone
+      if (node.id == activeAttemptNodeId && node.isMissing && !isRevealed) {
+        _paintActiveAttemptZone(canvas, node);
+        if (nodeProgress < 1.0) canvas.restore();
+        continue;
+      }
+
       switch (node.status) {
         case GhostNodeStatus.missing:
           if (isRevealed) {
-            _paintRevealedGhostNode(canvas, node);
+            // Cross-fade reveal transition (0.6s ease-out cubic)
+            final revealStart = revealTimestamps[node.id] ?? 0.0;
+            final revealProgress = ((animationTime - revealStart) / 0.6).clamp(0.0, 1.0);
+            if (revealProgress < 1.0) {
+              // Ease-out cubic
+              final t = 1.0 - math.pow(1.0 - revealProgress, 3).toDouble();
+              final center = node.bounds.center;
+              canvas.save();
+              canvas.translate(center.dx, center.dy);
+              canvas.scale(0.9 + 0.1 * t, 0.9 + 0.1 * t);
+              canvas.translate(-center.dx, -center.dy);
+
+              _paintRevealedGhostNode(canvas, node);
+
+              // Green glow burst that fades out
+              final burstAlpha = (1.0 - revealProgress) * 0.3;
+              _p
+                ..style = PaintingStyle.fill
+                ..color = Color.fromRGBO(76, 175, 80, burstAlpha)
+                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20);
+              canvas.drawCircle(center, node.bounds.longestSide * 0.4, _p);
+              _p.maskFilter = null;
+
+              canvas.restore();
+            } else {
+              _paintRevealedGhostNode(canvas, node);
+            }
           } else if (node.isBelowZPD) {
             // 🗺️ P4-22: Below-ZPD nodes get grey styling
             _paintBelowZPDNode(canvas, node);
@@ -229,6 +283,7 @@ class GhostMapOverlayPainter extends CustomPainter {
   // ─────────────────────────────────────────────────────────────────────────
 
   void _paintMissingGhostNode(Canvas canvas, GhostNode node) {
+    // Rectangle scales with canvas (spatial content, not UI) — matches clusters
     final bounds = node.bounds.inflate(4.0);
     final rrect = RRect.fromRectAndRadius(bounds, const Radius.circular(14.0));
 
@@ -243,7 +298,7 @@ class GhostMapOverlayPainter extends CustomPainter {
     var shader = _gradientCache[gradientKey];
     if (shader == null) {
       if (_gradientCache.length >= _maxGradientCacheSize) {
-        _gradientCache.clear(); // Evict all on overflow
+        _gradientCache.clear();
       }
       shader = ui.Gradient.radial(
         gradientCenter,
@@ -279,9 +334,9 @@ class GhostMapOverlayPainter extends CustomPainter {
     canvas.drawRRect(outerRrect, _p);
     _p.maskFilter = null;
 
-    // Pulsing glow behind icon
+    // Pulsing glow behind icon — canvas space, scales with zoom
     final center = bounds.center;
-    final iconSize = 24.0 / canvasScale.clamp(0.3, 2.0);
+    const iconSize = 24.0;
     _p
       ..style = PaintingStyle.fill
       ..color = Color.fromRGBO(255, 120, 80, 0.18 * breathe)
@@ -296,12 +351,67 @@ class GhostMapOverlayPainter extends CustomPainter {
           : Color.fromRGBO(255, 250, 245, 0.9);
     canvas.drawCircle(center, iconSize * 0.8, _p);
 
-    // ❓ Emoji (cached)
+    // ❓ Emoji (scale-compensated — always readable)
     _paintCachedEmoji(canvas, center, '❓', iconSize * 0.9);
 
-    // Label (cached, O-8: localized)
-    _paintCachedLabel(canvas, bounds, labelTapToAttempt,
+    // Label: show explanation — fixed screen size text, readable at any zoom
+    final label = node.explanation ?? labelTapToAttempt;
+    _paintCachedLabel(canvas, bounds, label,
         Color.fromRGBO(255, 140, 100, 0.7));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ACTIVE ATTEMPT ZONE — "Write here" indicator for on-canvas attempts
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _paintActiveAttemptZone(Canvas canvas, GhostNode node) {
+    // Inflated zone — gives room to write around the node
+    final zone = node.bounds.inflate(80.0);
+    final rrect = RRect.fromRectAndRadius(zone, const Radius.circular(16.0));
+
+    // Breathing animation for the zone border
+    final breathe = (math.sin(animationTime * 2.5) * 0.3 + 0.7).clamp(0.0, 1.0);
+
+    // Zone color: green when strokes detected, blue otherwise
+    final zoneColor = hasStrokesInAttemptZone
+        ? const Color(0xFF4CAF50)
+        : const Color(0xFF2196F3);
+
+    // Soft fill — semi-transparent tint matching zone color
+    final fillColor = isDarkMode
+        ? zoneColor.withValues(alpha: 0.06)
+        : zoneColor.withValues(alpha: 0.04);
+    _p
+      ..color = fillColor
+      ..style = PaintingStyle.fill
+      ..maskFilter = null
+      ..shader = null;
+    canvas.drawRRect(rrect, _p);
+
+    // Solid border — breathing zone color (canvas space)
+    _p
+      ..color = zoneColor.withValues(alpha: breathe * 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    canvas.drawRRect(rrect, _p);
+
+    // Outer glow (canvas space)
+    _p
+      ..color = zoneColor.withValues(alpha: breathe * 0.12)
+      ..strokeWidth = 5.0
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    canvas.drawRRect(rrect, _p);
+    _p.maskFilter = null;
+
+    // ✍️ icon at center (canvas space — scales with zoom like everything else)
+    _paintCachedEmoji(canvas, zone.center, '✍️', 24);
+
+    // Show context: explanation (what to attempt) or revealed concept (what to rewrite).
+    // In reveal-write mode, node.isRevealed is true and concept is visible.
+    final label = node.isRevealed
+        ? '✏️ ${node.concept}' // Revealed: show concept to rewrite
+        : (node.explanation ?? labelWriteHere); // Normal: show explanation hint
+    _paintCachedLabel(canvas, zone, label, zoneColor);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -709,24 +819,28 @@ class GhostMapOverlayPainter extends CustomPainter {
               ? Color.fromRGBO(120, 140, 255, 0.4 * breathe)
               : Color.fromRGBO(100, 120, 220, 0.35 * breathe));
 
-    // O-2: Cache dash segments per connection ID
-    final connDashKey = conn.id.hashCode;
+    // O-2: Cache dash segments per connection ID + quantized flow offset
+    final dashLen = isCross ? 12.0 : 8.0;
+    final gapLen = isCross ? 4.0 : 6.0;
+    final flowOffset = (animationTime * 30.0) % (dashLen + gapLen);
+    // Quantize to ~6 steps per cycle to keep cache size bounded
+    final quantizedFlow = (flowOffset / (dashLen + gapLen) * 6).round();
+    final connDashKey = conn.id.hashCode ^ (quantizedFlow * 0x9E3779B9);
     var connSegments = _dashCache[connDashKey];
     if (connSegments == null) {
       connSegments = <Path>[];
       final metrics = _reusablePath.computeMetrics();
       for (final metric in metrics) {
-        double distance = 0;
-        final dashLen = isCross ? 12.0 : 8.0;
-        final gapLen = isCross ? 4.0 : 6.0;
+        double distance = -flowOffset; // offset start for flowing effect
         bool draw = true;
         while (distance < metric.length) {
           final end = distance + (draw ? dashLen : gapLen);
           if (draw) {
-            connSegments.add(metric.extractPath(
-              distance,
-              end.clamp(0, metric.length),
-            ));
+            final clampedStart = distance.clamp(0.0, metric.length);
+            final clampedEnd = end.clamp(0.0, metric.length);
+            if (clampedEnd > clampedStart) {
+              connSegments.add(metric.extractPath(clampedStart, clampedEnd));
+            }
           }
           distance = end;
           draw = !draw;
@@ -840,8 +954,13 @@ class GhostMapOverlayPainter extends CustomPainter {
 
   /// Paint a label with background pill and TextPainter caching.
   void _paintCachedLabel(Canvas canvas, Rect bounds, String text, Color color) {
-    final fontSize = 10.0 / canvasScale.clamp(0.3, 2.0);
-    final maxWidth = bounds.width + 40;
+    // All sizes in canvas space — scales with zoom like clusters and handwriting
+    const fontSize = 10.0;
+    final maxWidth = bounds.width.clamp(150.0, 300.0); // proportional to node, wider for readability
+    const pad = 6.0;
+    const gap = 6.0;
+    const pillRadius = 7.0;
+
     final cacheKey = 'label:$text:${fontSize.toStringAsFixed(1)}:${maxWidth.toStringAsFixed(0)}';
     final tp = _getOrCreateText(cacheKey, () {
       return TextPainter(
@@ -862,13 +981,13 @@ class GhostMapOverlayPainter extends CustomPainter {
 
     final labelPos = Offset(
       bounds.center.dx - tp.width / 2,
-      bounds.bottom + 6.0,
+      bounds.bottom + gap,
     );
 
     // Background pill
     final pillRect = Rect.fromLTWH(
-      labelPos.dx - 6, labelPos.dy - 2,
-      tp.width + 12, tp.height + 4,
+      labelPos.dx - pad, labelPos.dy - pad / 3,
+      tp.width + pad * 2, tp.height + pad * 0.7,
     );
     _p
       ..style = PaintingStyle.fill
@@ -876,7 +995,7 @@ class GhostMapOverlayPainter extends CustomPainter {
           ? const Color.fromRGBO(25, 25, 35, 0.75)
           : const Color.fromRGBO(255, 255, 255, 0.85);
     canvas.drawRRect(
-      RRect.fromRectAndRadius(pillRect, const Radius.circular(7)),
+      RRect.fromRectAndRadius(pillRect, Radius.circular(pillRadius)),
       _p,
     );
 
@@ -926,13 +1045,23 @@ class GhostMapOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GhostMapOverlayPainter oldDelegate) {
+    // Keep repainting while any reveal transition is animating (progress < 1.0)
+    final hasActiveReveal = revealTimestamps.values.any(
+      (start) => (animationTime - start) < 0.6,
+    );
+
     return result != oldDelegate.result ||
         revealedNodeIds != oldDelegate.revealedNodeIds ||
+        revealTimestamps != oldDelegate.revealTimestamps ||
         dismissedNodeIds != oldDelegate.dismissedNodeIds ||
+        activeAttemptNodeId != oldDelegate.activeAttemptNodeId ||
+        hasStrokesInAttemptZone != oldDelegate.hasStrokesInAttemptZone ||
         isDarkMode != oldDelegate.isDarkMode ||
         (canvasScale - oldDelegate.canvasScale).abs() > 0.01 ||
         (animationTime - oldDelegate.animationTime).abs() > 0.016 ||
         // U-1: Repaint during entry animation (first ~2s)
-        (entryProgress < 3.0 && entryProgress != oldDelegate.entryProgress);
+        (entryProgress < 3.0 && entryProgress != oldDelegate.entryProgress) ||
+        // Repaint during active reveal cross-fade transitions
+        hasActiveReveal;
   }
 }

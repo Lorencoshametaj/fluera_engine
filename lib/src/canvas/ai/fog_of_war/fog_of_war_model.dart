@@ -11,19 +11,32 @@
 
 /// The 3 fog density levels (P10-03).
 ///
-/// | Level  | What the student sees                              | Difficulty |
-/// |--------|----------------------------------------------------|------------|
-/// | light  | Node silhouettes at 15% opacity, grey connections  | Medium     |
-/// | medium | 300px visibility radius around viewport center     | High       |
-/// | total  | Pitch black — nodes only on exact tap (50px)       | Maximum    |
+/// The 3 fog density levels (P10-03).
+///
+/// Pedagogical gradient — each level removes more contextual information,
+/// forcing deeper retrieval (§2 Active Recall, §5 Desirable Difficulties):
+///
+/// Pedagogical gradient — each level removes more contextual information,
+/// forcing deeper retrieval (§2 Active Recall, §5 Desirable Difficulties):
+///
+/// | Level  | Silhouettes | Content | What it tests            | Difficulty |
+/// |--------|-------------|---------|--------------------------|------------|
+/// | light  | Clear       | Hidden  | WHAT is in each node     | Medium     |
+/// | medium | Very faint  | Hidden  | WHERE (hard) + WHAT      | High       |
+/// | total  | None        | Hidden  | WHERE + WHAT from memory | Maximum    |
 enum FogLevel {
-  /// "Posso orientarmi" — spatial structure visible, zero text content.
+  /// Clear silhouettes visible — student knows WHERE every node is,
+  /// must recall WHAT each one contains.
+  /// (§3 Generation Effect: "cosa avevo scritto lì?")
   light,
 
-  /// "So solo dove sono" — nodes visible only within 300px radius.
+  /// Very faint silhouettes — student must actively search to find nodes.
+  /// Harder to locate than light, easier than total.
+  /// (§5 Desirable Difficulties: degraded cues force deeper processing)
   medium,
 
-  /// "Buio completo" — canvas black, nodes appear only on exact tap.
+  /// Complete darkness — zero visual cues.
+  /// (§2 Active Recall at maximum difficulty)
   total,
 }
 

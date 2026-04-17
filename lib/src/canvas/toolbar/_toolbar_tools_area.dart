@@ -805,6 +805,37 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             ),
             const SizedBox(width: 12),
 
+            // 📥 Note Import — import handwritten notes from other apps
+            if (widget.onNoteImportPressed != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Tooltip(
+                  message: 'Import Notes',
+                  waitDuration: const Duration(milliseconds: 500),
+                  child: InkWell(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onNoteImportPressed!();
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: (isDark ? Colors.white : Colors.black)
+                            .withValues(alpha: 0.06),
+                      ),
+                      child: Icon(
+                        Icons.upload_file_rounded,
+                        size: 22,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             // 🎤 Recording
             // 🚀 P99 FIX: Wrap in ValueListenableBuilder so the recording
             // button updates independently without rebuilding the canvas.

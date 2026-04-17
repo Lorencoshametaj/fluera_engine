@@ -44,7 +44,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 14;
+const int _kSchemaVersion = 15;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -249,6 +249,9 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
 
     // 🎤 v2: Recordings table for audio + synced stroke persistence
     await _createRecordingsTable(db);
+
+    // 🗺️ v15: Ghost Map sessions (R10 — atomic persistence).
+    await _createGhostMapSessionsTable(db);
   }
 
   /// Handle schema migrations.
@@ -377,6 +380,10 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         );
       } catch (_) {}
     }
+    if (oldVersion < 15) {
+      // 🗺️ R10: Ghost Map sessions — atomic persistence.
+      await _createGhostMapSessionsTable(db);
+    }
   }
 
   /// Create the recordings table (shared by _onCreate and _onUpgrade).
@@ -405,6 +412,23 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
 
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_recordings_audio_path ON recordings(audio_path)
+    ''');
+  }
+
+  /// Create the ghost_map_sessions table (shared by _onCreate and _onUpgrade).
+  Future<void> _createGhostMapSessionsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ghost_map_sessions (
+        session_id    TEXT PRIMARY KEY,
+        canvas_id     TEXT NOT NULL,
+        data_json     TEXT NOT NULL,
+        created_at    INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_ghost_map_canvas
+        ON ghost_map_sessions(canvas_id)
     ''');
   }
 
@@ -1047,6 +1071,41 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     );
     if (rows.isEmpty) return null;
     return rows.first['snapshot_png'] as Uint8List?;
+  }
+
+  // ===========================================================================
+  // GHOST MAP SESSIONS (R10)
+  // ===========================================================================
+
+  @override
+  Future<void> saveGhostMapDataset(
+    String canvasId,
+    String sessionId,
+    String dataJson,
+  ) async {
+    final db = _ensureInitialized();
+    await db.transaction((txn) async {
+      await txn.rawInsert(
+        '''INSERT OR REPLACE INTO ghost_map_sessions
+           (session_id, canvas_id, data_json, created_at)
+           VALUES (?, ?, ?, ?)''',
+        [sessionId, canvasId, dataJson, DateTime.now().millisecondsSinceEpoch],
+      );
+    });
+  }
+
+  @override
+  Future<void> cleanupIncompleteGhostMapSessions() async {
+    final db = _ensureInitialized();
+    // Remove sessions older than 1 hour (likely from a killed process).
+    final cutoff = DateTime.now()
+        .subtract(const Duration(hours: 1))
+        .millisecondsSinceEpoch;
+    await db.delete(
+      'ghost_map_sessions',
+      where: 'created_at < ?',
+      whereArgs: [cutoff],
+    );
   }
 
   // ===========================================================================

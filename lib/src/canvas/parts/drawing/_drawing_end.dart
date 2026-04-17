@@ -6,6 +6,19 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🌫️ FOG OF WAR: Process pending fog tap (confirmed single-finger).
+    // The tap was saved in _onDrawStart; if a second finger arrived
+    // (pinch-to-zoom), _onDrawEnd is NOT called for that pointer, so
+    // the pending tap is safely discarded.
+    if (_fogOfWarController.isActive && !isFogZoneSelectionPending) {
+      final pendingTap = _pendingFogTapPosition;
+      _pendingFogTapPosition = null;
+      if (pendingTap != null) {
+        handleFogOfWarTap(pendingTap);
+      }
+      return;
+    }
+
     // 🌫️ FOG OF WAR ZONE SELECTION (P10-02): Complete rectangle selection.
     if (_fogZoneStartPoint != null && _pendingFogLevel != null) {
       final start = _fogZoneStartPoint!;
@@ -1512,6 +1525,11 @@ extension on _FlueraCanvasScreenState {
       // _currentStrokeStartTime is reset after
     }
     _currentStrokeStartTime = null;
+
+    // Ghost Map: check if new strokes landed in the attempt zone
+    if (_isInlineAttemptActive) {
+      _checkStrokesInAttemptZone();
+    }
 
     // 💾 Auto-save
     _autoSaveCanvas();

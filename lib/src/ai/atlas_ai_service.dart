@@ -50,6 +50,11 @@ class GeminiProvider implements AiProvider {
       );
     }
 
+    // Detect device locale once — used by all models for language consistency.
+    final langCode = ui.PlatformDispatcher.instance.locale.languageCode;
+    const langMap = {'it': 'Italian', 'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'pt': 'Portuguese', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'ru': 'Russian'};
+    final langName = langMap[langCode] ?? 'English';
+
     _model = GenerativeModel(
       model: 'gemini-3.1-flash-lite-preview',
       apiKey: key,
@@ -72,14 +77,9 @@ class GeminiProvider implements AiProvider {
         'You are Atlas, an AI tutor embedded in Fluera — a cognitive learning engine. '
         'Your role is to analyze student handwritten notes and identify knowledge gaps. '
         'You must be factually accurate, domain-specific, and pedagogically constructive. '
-        'Always respond in Italian. Never invent facts. Keep concepts and explanations concise.',
+        'Always respond in $langName. Never invent facts. Keep concepts and explanations concise.',
       ),
     );
-
-    // Streaming model — no JSON constraint, for real-time text output
-    final langCode = ui.PlatformDispatcher.instance.locale.languageCode;
-    const langMap = {'it': 'Italian', 'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'pt': 'Portuguese', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'ru': 'Russian'};
-    final langName = langMap[langCode] ?? 'English';
 
     _streamModel = GenerativeModel(
       model: 'gemini-3.1-flash-lite-preview',
@@ -555,11 +555,16 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
     Map<String, Map<String, double>> clusterSizes = const {},
     List<Map<String, String>> existingConnections = const [],
     Map<String, Map<String, dynamic>> socraticContext = const {},
-    String language = 'Italian',
+    String? language,
   }) async {
     if (!_initialized || _model == null) {
       throw StateError('Atlas non inizializzato. Chiama initialize() prima.');
     }
+
+    // Resolve language from parameter or device locale
+    final langCode = ui.PlatformDispatcher.instance.locale.languageCode;
+    const langMap = {'it': 'Italian', 'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'pt': 'Portuguese', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'ru': 'Russian'};
+    final resolvedLanguage = language ?? (langMap[langCode] ?? 'English');
 
     // Filter low-quality OCR clusters + sanitize input
     final validTexts = <String, String>{};
@@ -659,8 +664,6 @@ Usa questi dati per:
       if (x > maxX) maxX = x;
       if (y > maxY) maxY = y;
     }
-    final areaWidth = (maxX - minX).isFinite ? (maxX - minX).clamp(200, 5000) : 800;
-    final areaHeight = (maxY - minY).isFinite ? (maxY - minY).clamp(200, 3000) : 600;
     final centerX = minX.isFinite ? ((minX + maxX) / 2).round() : 400;
     final centerY = minY.isFinite ? ((minY + maxY) / 2).round() : 300;
 
@@ -676,33 +679,40 @@ Example OCR errors you will encounter:
 - "SCIGNZ' ATO" → "scienziato"
 - "Ii GENE" → "il genio" or "il gene"
 - "RELHIVITA" → "relatività"
+- "Gravha" → "gravità"
+- "NEWT-N" → "Newton"
+- "MECANIA" → "meccanica"
 - "rFu+1v+A'" → (garbled, skip this fragment)
 
 Strategy: Focus on RECOGNIZABLE KEYWORDS. If you can identify ≥1 meaningful word in a cluster, use it. Skip fragments that are 100% unintelligible.
+
+CRITICAL: In ALL output fields (concetto, spiegazione, valutazione), ALWAYS use the RECONSTRUCTED word, NEVER the raw OCR. Write "gravità" not "Gravha", "Newton" not "NEWT-N".
 </CRITICAL_FIRST_STEP>
 
 <TASK>
 Analyze the student's reconstructed notes and generate a Ghost Map:
 
-1. **MISSING** ("mancante") — Key concepts the student SHOULD know for this topic but did NOT write. These are the most valuable: they reveal blind spots.
-2. **WEAK** ("debole") — Concepts the student mentioned but incompletely or incorrectly.
-3. **CORRECT** ("corretto") — Concepts the student got right. Include 2-3 of the most important ones to provide positive reinforcement.
+1. **MISSING** ("mancante") — Key concepts the student SHOULD know for this topic but did NOT write. These are the most valuable: they reveal blind spots. Each mancante node MUST have a "nodo_correlato" pointing to the most relevant existing cluster.
+2. **WEAK** ("debole") — ONLY when the student wrote something factually WRONG. A single keyword without details is NOT weak. Use sparingly (0-1 nodes max).
+3. **CORRECT** ("corretto") — Mark ALL clusters the student mentioned as correct. A single keyword (e.g. "gravità") counts — it shows the student knows the concept exists.
+
+CONSISTENCY RULE: Apply the same standard to ALL clusters. If "energia" written alone is "corretto", then "gravità" written alone MUST also be "corretto". Never treat identical situations differently.
 
 Think step-by-step:
 (a) Reconstruct the OCR text into the student's actual intended words
 (b) Identify the subject/topic and academic level
 (c) List the 5-10 key concepts a complete understanding requires
 (d) Compare against what the student wrote
-(e) Output the top 2-5 gaps as ghost nodes + 2-3 correct confirmations
+(e) Mark ALL mentioned clusters as corretto, then add 2-5 mancante gaps distributed across different clusters
 </TASK>
 
 <CONSTRAINTS>
-1. LANGUAGE: Detect the language from the notes content. All output fields MUST be in that same language. Do NOT default to English.
+1. LANGUAGE: The user's device language is $resolvedLanguage. All output fields MUST be written in $resolvedLanguage.
 2. CONCISENESS: "concetto" ≤ 8 words. "spiegazione" ≤ 15 words. These appear in small UI bubbles.
 3. SPECIFICITY: Missing concepts must be specific to the student's topic. "Newton" + "scienziato" → suggest "Tre leggi del moto", NOT "la scienza è importante".
-4. POSITIONING: Place ghost nodes BELOW or BESIDE existing nodes, NEVER above them (the top area is covered by the toolbar). Canvas area: x ${(centerX - areaWidth ~/ 2)}..${(centerX + areaWidth ~/ 2)}, y ${(centerY)}..${(centerY + areaHeight)}. Offset ≥ 150px from existing nodes. Prefer y values LARGER than existing nodes' y values.
-5. COUNT: 2-5 "mancante" nodes, 0-2 "debole" nodes, 2-3 "corretto" nodes. Never more than 10 total.
-6. CROSS-DOMAIN (P4-34/35/36): If the student's notes connect multiple disciplines (e.g., physics+math, biology+chemistry), include 1-2 missing connections labeled "cross_dominio": true that bridge different knowledge domains. These encourage Transfer (far transfer between fields).
+4. POSITIONING: Do NOT include x/y coordinates. The app computes positions automatically. Just specify the correct "nodo_correlato" for each node. Distribute mancante nodes across DIFFERENT nodo_correlato values.
+5. COUNT: 2-5 "mancante" nodes, 0-1 "debole" nodes, mark ALL mentioned clusters as "corretto". Never more than 10 total.
+6. CROSS-DOMAIN: If the notes span multiple disciplines, include 1-2 missing connections with "cross_dominio": true.
 </CONSTRAINTS>
 
 <STUDENT_NOTES>
@@ -715,20 +725,21 @@ $connSummary
 $socraticSection
 
 <FEW_SHOT_EXAMPLE>
-Input notes: "[[Nodo 1: Fisica]] NEWTON É UN- SCIGNZ' ATO" + "[[Nodo 2]] Ii GENE"
+Input notes: "[[Nodo 1: Fisica]] NEWTON É UN- SCIGNZ' ATO" + "[[Nodo 2]] GRAVITA"
 
 Good output:
 {
-  "ricostruzione": "Lo studente ha scritto: (1) 'Newton è uno scienziato' (2) 'Il genio'. Argomento: Isaac Newton, livello universitario.",
-  "valutazione": "Lo studente sa chi è Newton ma non ha scritto nulla sulle sue scoperte o leggi.",
+  "ricostruzione": "Lo studente ha scritto: (1) 'Newton è uno scienziato' (2) 'Gravità'. Argomento: fisica, livello universitario.",
+  "valutazione": "Lo studente conosce Newton e la gravità ma non ha specificato leggi o formule.",
   "nodi": [
-    {"id": "ghost_1", "stato": "mancante", "concetto": "Tre leggi del moto", "spiegazione": "Fondamento della meccanica classica newtoniana", "nodo_correlato": "nodo_1", "x": 600, "y": 250},
-    {"id": "ghost_2", "stato": "mancante", "concetto": "Legge di gravitazione universale", "spiegazione": "F = Gm₁m₂/r², scoperta chiave di Newton", "nodo_correlato": "nodo_1", "x": 400, "y": 450},
-    {"id": "ghost_3", "stato": "mancante", "concetto": "Calcolo infinitesimale", "spiegazione": "Newton co-inventò il calcolo con Leibniz", "nodo_correlato": "nodo_1", "x": 800, "y": 350},
-    {"id": "ghost_4", "stato": "debole", "concetto": "Identità di Newton", "spiegazione": "Solo 'scienziato' è troppo generico, manca il contesto storico", "nodo_correlato": "nodo_1", "x": 500, "y": 150}
+    {"id": "ghost_1", "stato": "corretto", "concetto": "Newton", "spiegazione": "Correttamente identificato come argomento chiave", "nodo_correlato": "nodo_1"},
+    {"id": "ghost_2", "stato": "corretto", "concetto": "Gravità", "spiegazione": "Concetto fondamentale riconosciuto", "nodo_correlato": "nodo_2"},
+    {"id": "ghost_3", "stato": "mancante", "concetto": "Tre leggi del moto", "spiegazione": "Fondamento della meccanica newtoniana", "nodo_correlato": "nodo_1"},
+    {"id": "ghost_4", "stato": "mancante", "concetto": "Legge di gravitazione universale", "spiegazione": "F = Gm₁m₂/r², scoperta chiave di Newton", "nodo_correlato": "nodo_2"},
+    {"id": "ghost_5", "stato": "mancante", "concetto": "Calcolo infinitesimale", "spiegazione": "Newton co-inventò il calcolo con Leibniz", "nodo_correlato": "nodo_1"}
   ],
   "connessioni_mancanti": [
-    {"id": "gconn_1", "sorgente": "ghost_1", "destinazione": "ghost_2", "etichetta": "derivano da", "spiegazione": "Le leggi del moto sono il fondamento della gravitazione"}
+    {"id": "gconn_1", "sorgente": "nodo_1", "destinazione": "nodo_2", "etichetta": "scoprì", "spiegazione": "Newton formulò la legge di gravità", "cross_dominio": false}
   ]
 }
 </FEW_SHOT_EXAMPLE>
@@ -744,9 +755,7 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
       "stato": "mancante|debole|corretto",
       "concetto": "≤8 words, the concept name",
       "spiegazione": "≤15 words, why it matters",
-      "nodo_correlato": "nodo_N or null",
-      "x": 500,
-      "y": 300
+      "nodo_correlato": "nodo_N or null"
     }
   ],
   "connessioni_mancanti": [
@@ -787,6 +796,15 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
       final valutazione = json['valutazione'] as String?;
       if (ricostruzione != null) debugPrint('🗺️ Atlas ricostruzione: $ricostruzione');
       if (valutazione != null) debugPrint('🗺️ Atlas valutazione: $valutazione');
+      // Debug: log each node's nodo_correlato for positioning diagnosis
+      final nodiDebug = json['nodi'] as List<dynamic>? ?? [];
+      for (final n in nodiDebug) {
+        if (n is Map<String, dynamic>) {
+          debugPrint('🗺️ Node: id=${n['id']}, stato=${n['stato']}, '
+              'correlato=${n['nodo_correlato']}, concetto=${n['concetto']}');
+        }
+      }
+      debugPrint('🗺️ labelToId: $labelToId');
 
       // Parse nodes
       final nodiList = json['nodi'] as List<dynamic>? ?? [];
@@ -805,43 +823,33 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
                 : GhostNodeStatus.missing;
 
         // Resolve nodo_correlato label → real cluster ID
-        final relatedLabel = n['nodo_correlato'] as String?;
+        final relatedLabelRaw = n['nodo_correlato'] as String?;
+        // Normalize: Gemini may return "Nodo 1" instead of "nodo_1"
+        final relatedLabel = relatedLabelRaw != null
+            ? relatedLabelRaw.toLowerCase().replaceAll(' ', '_')
+            : null;
         final relatedClusterId = relatedLabel != null
             ? labelToId[relatedLabel]
             : null;
 
-        // 🔒 SEC-02: Clamp AI-suggested positions to prevent extreme coordinates
-        double nodeX = ((n['x'] as num?)?.toDouble() ??
-            (relatedClusterId != null
-                ? (clusterPositions[relatedClusterId]?['x'] ?? centerX.toDouble()) + 180
-                : centerX.toDouble()))
-            .clamp(-50000.0, 50000.0);
-        double nodeY = ((n['y'] as num?)?.toDouble() ??
-            (relatedClusterId != null
-                ? (clusterPositions[relatedClusterId]?['y'] ?? centerY.toDouble()) + 100
-                : centerY.toDouble()))
-            .clamp(-50000.0, 50000.0);
+        // ── DETERMINISTIC POSITIONING (no AI for layout) ──────────────
+        // Gemini decides WHAT is missing and WHICH cluster it relates to.
+        // The code decides WHERE to render it. 100% deterministic.
+        double nodeX;
+        double nodeY;
 
-        // 🗺️ Force missing nodes BELOW existing clusters so they don't
-        // hide behind the toolbar at the top of the screen.
         if (status == GhostNodeStatus.missing) {
-          double refY = centerY.toDouble();
-          double refH = 80;
-          if (relatedClusterId != null) {
-            refY = clusterPositions[relatedClusterId]?['y'] ?? refY;
-            refH = clusterSizes[relatedClusterId]?['h'] ?? refH;
-          }
-          final clampMinY = refY + refH + 30;
-          if (nodeY < clampMinY) nodeY = clampMinY;
-        }
-
-        // For weak/correct nodes, snap position to the related cluster
-        if (status != GhostNodeStatus.missing && relatedClusterId != null) {
+          // Placeholder — final position computed in post-pass below
+          nodeX = centerX.toDouble();
+          nodeY = centerY.toDouble();
+        } else if (relatedClusterId != null) {
+          // Weak/correct: snap exactly to the related cluster
           final relPos = clusterPositions[relatedClusterId];
-          if (relPos != null) {
-            nodeX = relPos['x'] ?? nodeX;
-            nodeY = relPos['y'] ?? nodeY;
-          }
+          nodeX = relPos?['x'] ?? centerX.toDouble();
+          nodeY = relPos?['y'] ?? centerY.toDouble();
+        } else {
+          nodeX = centerX.toDouble();
+          nodeY = centerY.toDouble();
         }
 
         // 🔒 SEC-03: Clamp string lengths to prevent UI overflow
@@ -864,6 +872,72 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
           relatedClusterId: relatedClusterId,
           explanation: explanation,
         ));
+      }
+
+      // ── DETERMINISTIC LAYOUT for missing nodes ─────────────────────────
+      // Each missing node goes below its related cluster. Nodes sharing a
+      // cluster spread horizontally. Zero reliance on Gemini coordinates.
+      final missingNodes = nodes.where((n) => n.status == GhostNodeStatus.missing).toList();
+      if (missingNodes.isNotEmpty) {
+        // Find the actual bottom edge of all clusters
+        double lowestBottom = centerY.toDouble();
+        for (final entry in clusterPositions.entries) {
+          final cy = entry.value['y'] ?? 0.0;
+          final ch = clusterSizes[entry.key]?['h'] ?? 80.0;
+          final bottom = cy + ch / 2;
+          if (bottom > lowestBottom) lowestBottom = bottom;
+        }
+        // Group by relatedClusterId
+        final groups = <String?, List<GhostNode>>{};
+        for (final node in missingNodes) {
+          groups.putIfAbsent(node.relatedClusterId, () => []).add(node);
+        }
+
+        // Position each group below ITS OWN related cluster
+        for (final entry in groups.entries) {
+          final clusterId = entry.key;
+          final group = entry.value;
+
+          // Anchor: below THIS cluster (not the global lowest)
+          double anchorX;
+          double anchorY;
+          if (clusterId != null && clusterPositions.containsKey(clusterId)) {
+            anchorX = clusterPositions[clusterId]!['x'] ?? centerX.toDouble();
+            final clusterY = clusterPositions[clusterId]!['y'] ?? centerY.toDouble();
+            final clusterH = clusterSizes[clusterId]?['h'] ?? 80.0;
+            anchorY = clusterY + clusterH / 2 + 120; // below THIS cluster
+          } else {
+            anchorX = centerX.toDouble();
+            anchorY = lowestBottom + 120; // orphans below everything
+          }
+
+          // Spread horizontally within group
+          const spacing = 350.0;
+          final totalSpan = (group.length - 1) * spacing;
+          final startX = anchorX - totalSpan / 2;
+
+          for (int i = 0; i < group.length; i++) {
+            group[i].estimatedPosition = ui.Offset(
+              (startX + i * spacing).clamp(-50000.0, 50000.0),
+              anchorY.clamp(-50000.0, 50000.0),
+            );
+          }
+        }
+
+        // Final pass: push apart groups that overlap across different clusters
+        final allPositioned = missingNodes.toList()
+          ..sort((a, b) => a.estimatedPosition.dx.compareTo(b.estimatedPosition.dx));
+        for (int i = 0; i < allPositioned.length - 1; i++) {
+          final dx = allPositioned[i + 1].estimatedPosition.dx -
+              allPositioned[i].estimatedPosition.dx;
+          if (dx < 300) {
+            final push = (300 - dx) / 2 + 10;
+            allPositioned[i].estimatedPosition =
+                allPositioned[i].estimatedPosition.translate(-push, 0);
+            allPositioned[i + 1].estimatedPosition =
+                allPositioned[i + 1].estimatedPosition.translate(push, 0);
+          }
+        }
       }
 
       // Parse connections

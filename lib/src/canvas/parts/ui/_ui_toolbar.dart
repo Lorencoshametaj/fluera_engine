@@ -514,6 +514,10 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                 _toolController.toggleGhostSuggestionMode();
                 setState(() {});
               },
+              // ── Note Import ──────────────────────────────────────────────────
+              onNoteImportPressed: () {
+                pickAndImportNotes();
+              },
               // ── PDF ──────────────────────────────────────────────────────────
               onPdfImportPressed: () {
                 pickAndAddPdf();
@@ -1138,6 +1142,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   defaultFileName: pdfName,
                   totalPages: doc.pageNodes.length,
                   firstPagePreview: firstPagePreview,
+                  subscriptionTier: _subscriptionTier,
                 );
                 if (config == null || !mounted) return;
                 final messenger = ScaffoldMessenger.of(context);

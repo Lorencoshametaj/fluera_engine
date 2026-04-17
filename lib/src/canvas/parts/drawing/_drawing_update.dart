@@ -11,6 +11,9 @@ extension on _FlueraCanvasScreenState {
     // 🔒 INLINE EDITING GUARD
     if (_isInlineEditing) return;
 
+    // 🌫️ FOG OF WAR: Block drawing during active fog session.
+    if (_fogOfWarController.isActive && !isFogZoneSelectionPending) return;
+
     // 🌫️ FOG OF WAR ZONE SELECTION (P10-02): Track rectangle endpoint.
     if (_fogZoneStartPoint != null && _pendingFogLevel != null) {
       _fogZoneCurrentEndPoint = canvasPosition;

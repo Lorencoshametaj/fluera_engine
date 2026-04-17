@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../export/export_pipeline.dart';
 import '../../export/pdf_export_writer.dart';
+import '../fluera_canvas_config.dart';
+import '../../l10n/fluera_localizations.dart';
 
 part 'pdf_export_widgets.dart';
 
@@ -379,12 +381,14 @@ class PdfExportDialog extends StatefulWidget {
   final String? defaultFileName;
   final int totalPages;
   final Uint8List? firstPagePreview;
+  final FlueraSubscriptionTier subscriptionTier;
 
   const PdfExportDialog({
     super.key,
     this.defaultFileName,
     this.totalPages = 0,
     this.firstPagePreview,
+    this.subscriptionTier = FlueraSubscriptionTier.free,
   });
 
   static Future<PdfExportConfig?> show(
@@ -392,6 +396,7 @@ class PdfExportDialog extends StatefulWidget {
     String? defaultFileName,
     int totalPages = 0,
     Uint8List? firstPagePreview,
+    FlueraSubscriptionTier subscriptionTier = FlueraSubscriptionTier.free,
   }) {
     return showModalBottomSheet<PdfExportConfig>(
       context: context,
@@ -402,6 +407,7 @@ class PdfExportDialog extends StatefulWidget {
             defaultFileName: defaultFileName,
             totalPages: totalPages,
             firstPagePreview: firstPagePreview,
+            subscriptionTier: subscriptionTier,
           ),
     );
   }
@@ -779,6 +785,7 @@ class _PdfExportDialogState extends State<PdfExportDialog>
                               const SizedBox(height: 10),
                               _FormatSelector(
                                 value: _config.format,
+                                subscriptionTier: widget.subscriptionTier,
                                 onChanged: (f) {
                                   HapticFeedback.selectionClick();
                                   setState(() {

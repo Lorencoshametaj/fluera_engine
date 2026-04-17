@@ -31,6 +31,9 @@ import 'ghost_map_model.dart';
 class GhostMapController extends ChangeNotifier {
   final AiProvider _provider;
 
+  /// Guard against notifying after dispose (defunct element crash).
+  bool _disposed = false;
+
   /// O-10: Pre-compiled whitespace splitter — avoids RegExp recompilation per attempt.
   static final RegExp _whitespace = RegExp(r'\s+');
 
@@ -52,7 +55,7 @@ class GhostMapController extends ChangeNotifier {
     _userAttempts.clear();
     _attemptResults.clear();
     _dismissedNodeIds.clear();
-    version.value++;
+    _bumpVersion();
   }
 
   /// Whether the ghost map overlay is active.
@@ -245,7 +248,7 @@ class GhostMapController extends ChangeNotifier {
     if (cacheKey == _lastCacheKey && _result != null && _result!.nodes.isNotEmpty) {
       _isActive = true;
       _dismissedNodeIds.clear();
-      version.value++;
+      _bumpVersion();
       notifyListeners();
       return;
     }
@@ -259,17 +262,18 @@ class GhostMapController extends ChangeNotifier {
     try {
       if (!_provider.isInitialized) await _provider.initialize();
 
-      // Build position and size maps from clusters
+      // Build position and size maps from clusters.
+      // Use displaced coordinates — clusters may have been shifted by reflow physics.
       final clusterPositions = <String, Map<String, double>>{};
       final clusterSizes = <String, Map<String, double>>{};
       for (final cluster in clusters) {
         clusterPositions[cluster.id] = {
-          'x': cluster.centroid.dx,
-          'y': cluster.centroid.dy,
+          'x': cluster.displacedCentroid.dx,
+          'y': cluster.displacedCentroid.dy,
         };
         clusterSizes[cluster.id] = {
-          'w': cluster.bounds.width,
-          'h': cluster.bounds.height,
+          'w': cluster.displacedBounds.width,
+          'h': cluster.displacedBounds.height,
         };
       }
 
@@ -280,13 +284,27 @@ class GhostMapController extends ChangeNotifier {
             'label': c.label ?? '',
           }).toList();
 
-      final gemini = _provider as GeminiProvider;
+      // 🔒 B6-FIX: Safe type check instead of hard cast.
+      // If the provider isn't a GeminiProvider, fall back to error.
+      if (_provider is! GeminiProvider) {
+        _error = _l10n?.ghostMap_errorGeneric('Provider non supporta Ghost Map')
+            ?? 'Errore: il provider AI attuale non supporta Ghost Map.';
+        _result = null;
+        _isLoading = false;
+        _loadingHint = null;
+        notifyListeners();
+        return;
+      }
+      // Type promoted by the `is!` check above.
+      final gemini = _provider;
 
       // 🗺️ Retry once on transient failures (network, 503, rate-limit)
       GhostMapResult? apiResult;
       for (int attempt = 0; attempt < 2; attempt++) {
         try {
-          // O-13: 30s timeout prevents infinite loading if API hangs.
+          // O-13: 15s outer timeout — slightly above the 12s inner API timeout
+          // in atlas_ai_service.dart so the inner timeout fires first with a
+          // clearer error message. This is the safety net.
           apiResult = await gemini.generateGhostMap(
             clusterTexts: clusterTexts,
             clusterTitles: clusterTitles,
@@ -295,9 +313,9 @@ class GhostMapController extends ChangeNotifier {
             existingConnections: connMaps,
             socraticContext: socraticContext,
           ).timeout(
-            const Duration(seconds: 30),
+            const Duration(seconds: 15),
             onTimeout: () => throw TimeoutException(
-              'Ghost Map generation timed out after 30s',
+              'Ghost Map generation timed out after 15s',
             ),
           );
           break; // Success — exit retry loop
@@ -422,7 +440,7 @@ class GhostMapController extends ChangeNotifier {
     }
 
     _invalidateCaches();
-    version.value++;
+    _bumpVersion();
     _scheduleNotify();
     _checkAutoComplete();
   }
@@ -436,7 +454,7 @@ class GhostMapController extends ChangeNotifier {
       node.attemptCorrect = isCorrect;
     }
     _invalidateCaches();
-    version.value++;
+    _bumpVersion();
     _scheduleNotify();
   }
 
@@ -444,7 +462,7 @@ class GhostMapController extends ChangeNotifier {
   void revealNode(String ghostNodeId) {
     _revealNode(ghostNodeId);
     _invalidateCaches();
-    version.value++;
+    _bumpVersion();
     _scheduleNotify();
     _checkAutoComplete();
   }
@@ -538,7 +556,7 @@ class GhostMapController extends ChangeNotifier {
   bool reactivate() {
     if (_result == null || _result!.nodes.isEmpty) return false;
     _isActive = true;
-    version.value++;
+    _bumpVersion();
     notifyListeners();
     return true;
   }
@@ -551,7 +569,7 @@ class GhostMapController extends ChangeNotifier {
     _dismissedNodeIds.add(ghostNodeId);
     _invalidateCaches();
     HapticFeedback.lightImpact();
-    version.value++;
+    _bumpVersion();
     _scheduleNotify();
     _checkAutoComplete();
   }
@@ -563,7 +581,7 @@ class GhostMapController extends ChangeNotifier {
   void undismissNode(String ghostNodeId) {
     if (_dismissedNodeIds.remove(ghostNodeId)) {
       _invalidateCaches();
-      version.value++;
+      _bumpVersion();
       _scheduleNotify();
     }
   }
@@ -622,7 +640,7 @@ class GhostMapController extends ChangeNotifier {
   void revealNextChunk() {
     _revealedChunkCount++;
     _invalidateCaches();
-    version.value++;
+    _bumpVersion();
     _scheduleNotify();
   }
 
@@ -708,7 +726,7 @@ class GhostMapController extends ChangeNotifier {
     _isActive = false;
     _activeAttemptNodeId = null;
     _autoCompleteScheduled = false; // Fix #11: reset guard
-    version.value++;
+    _bumpVersion();
     notifyListeners();
   }
 
@@ -728,7 +746,7 @@ class GhostMapController extends ChangeNotifier {
     _navigationIndex = 0;
     _autoCompleteScheduled = false; // Fix #11: reset guard
     _invalidateCaches();
-    version.value++;
+    _bumpVersion();
     notifyListeners();
   }
 
@@ -783,8 +801,21 @@ class GhostMapController extends ChangeNotifier {
     });
   }
 
+  /// Safe version bump — no-op after dispose (prevents defunct element crash).
+  void _bumpVersion() {
+    if (_disposed) return;
+    version.value++;
+  }
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     version.dispose();
     super.dispose();
   }

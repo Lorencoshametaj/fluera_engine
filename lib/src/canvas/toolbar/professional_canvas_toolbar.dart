@@ -227,6 +227,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
       callbacks.onShapeRecognitionSensitivityCycle;
   VoidCallback? get onGhostSuggestionToggle =>
       callbacks.onGhostSuggestionToggle;
+  VoidCallback? get onNoteImportPressed => callbacks.onNoteImportPressed;
   VoidCallback? get onPdfImportPressed => callbacks.onPdfImportPressed;
   VoidCallback? get onPdfCreateBlankPressed =>
       callbacks.onPdfCreateBlankPressed;
@@ -317,6 +318,15 @@ class _ProfessionalCanvasToolbarState
     extends ConsumerState<ProfessionalCanvasToolbar> {
   bool _isToolsExpanded = true;
   bool _isShapesExpanded = false;
+
+  /// R9: Debounce rapid chip taps (300ms window).
+  DateTime _lastChipTapTime = DateTime(0);
+  bool _chipTapDebounce() {
+    final now = DateTime.now();
+    if (now.difference(_lastChipTapTime).inMilliseconds < 300) return false;
+    _lastChipTapTime = now;
+    return true;
+  }
 
   /// Manual tab override — set when the user taps a tab chip.
   /// Cleared automatically when the auto-context changes.

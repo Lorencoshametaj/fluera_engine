@@ -72,6 +72,24 @@ class FogOfWarOverlayPainter extends CustomPainter {
   static final Map<String, TextPainter> _textCache = {};
   static const int _textCacheMaxSize = 64;
 
+  /// 🚀 OPT-7: Pre-computed MaskFilter buckets for fog particles.
+  /// Avoids allocating a new MaskFilter per particle per frame.
+  /// 4 buckets cover radius ranges: ~16, ~22, ~28, ~34 px.
+  static final List<MaskFilter> _particleBlurBuckets = [
+    const MaskFilter.blur(BlurStyle.normal, 12.8),  // baseRadius ~16
+    const MaskFilter.blur(BlurStyle.normal, 17.6),  // baseRadius ~22
+    const MaskFilter.blur(BlurStyle.normal, 22.4),  // baseRadius ~28
+    const MaskFilter.blur(BlurStyle.normal, 27.2),  // baseRadius ~34
+  ];
+
+  /// Pick the closest pre-computed blur bucket for a given radius.
+  static MaskFilter _blurForRadius(double radius) {
+    if (radius < 19) return _particleBlurBuckets[0];
+    if (radius < 25) return _particleBlurBuckets[1];
+    if (radius < 31) return _particleBlurBuckets[2];
+    return _particleBlurBuckets[3];
+  }
+
   /// OPT-4: Lazy cluster lookup map — built once per paint call.
   Map<String, ContentCluster>? _clusterMapCache;
   Map<String, ContentCluster> get _clusterMap {
@@ -128,6 +146,10 @@ class FogOfWarOverlayPainter extends CustomPainter {
     this.surgicalPathNodeIds = const [],
     this.surgicalVisitedIds = const {},
   });
+
+  // All UI elements (badges, labels, rings) are painted in pure canvas-space
+  // with fixed dimensions — they scale naturally with zoom, exactly like
+  // strokes. No zoom compensation (_s / _paintScreenSpace) is applied.
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -198,12 +220,13 @@ class FogOfWarOverlayPainter extends CustomPainter {
 
   /// Nebbia Leggera (P10-05): silhouettes visible, content hidden.
   void _paintLightFog(Canvas canvas, Rect zone) {
-    // Near-opaque dark overlay — must be strong enough to fully hide strokes.
+    // Fully opaque overlay — content must be COMPLETELY invisible.
+    // Only the silhouettes painted on top by the painter are visible.
     _fogPaint
       ..style = PaintingStyle.fill
       ..color = isDarkMode
-          ? const Color.fromRGBO(10, 10, 20, 0.92)
-          : const Color.fromRGBO(20, 20, 40, 0.88);
+          ? const Color.fromRGBO(10, 10, 20, 0.97)
+          : const Color.fromRGBO(20, 20, 40, 0.96);
     canvas.drawRect(zone, _fogPaint);
 
     // Node silhouettes: subtle rounded rects so you know WHERE nodes are.
@@ -236,129 +259,55 @@ class FogOfWarOverlayPainter extends CustomPainter {
     }
   }
 
-  /// Nebbia Media (P10-06): visibility radius 300px around viewport center.
+  /// Nebbia Media: uniform fog with faint silhouettes everywhere.
+  ///
+  /// Pedagogical design (§5 Desirable Difficulties):
+  /// - Stronger overlay than light fog → silhouettes are barely visible
+  /// - Student knows roughly WHERE nodes are but must work harder to
+  ///   distinguish them from the fog
+  /// - Content is fully hidden → must recall WHAT each node contains
+  /// - No circles, no radius, no torch — uniform difficulty across the zone
+  ///
+  /// Difficulty gradient across the 3 levels:
+  ///   Light:  clear silhouettes (opacity 0.20) → easy to locate nodes
+  ///   Medium: faint silhouettes (opacity 0.10) → must squint to find them
+  ///   Total:  zero silhouettes → must remember from scratch
   void _paintMediumFog(Canvas canvas, Rect zone) {
-    // Full opaque fog on the entire zone.
+    // Fully opaque overlay — content must be COMPLETELY invisible.
     _fogPaint
       ..style = PaintingStyle.fill
       ..color = isDarkMode
-          ? const Color.fromRGBO(8, 8, 16, 0.85)
-          : const Color.fromRGBO(15, 15, 30, 0.80);
+          ? const Color.fromRGBO(8, 8, 16, 0.97)
+          : const Color.fromRGBO(15, 15, 30, 0.96);
     canvas.drawRect(zone, _fogPaint);
 
-    // Clear a circular area around the viewport center.
-    const radius = 300.0;
-    canvas.save();
-    final clearPath = Path()
-      ..addOval(Rect.fromCircle(center: viewportCenterCanvas, radius: radius));
-    canvas.clipPath(clearPath);
-
-    // "Undo" the fog in the cleared area by painting with BlendMode.clear
-    // within a saveLayer.
-    canvas.saveLayer(zone, Paint());
-    _fogPaint
-      ..color = isDarkMode
-          ? const Color.fromRGBO(8, 8, 16, 0.85)
-          : const Color.fromRGBO(15, 15, 30, 0.80);
-    canvas.drawRect(zone, _fogPaint);
-
-    // Punch hole for visibility radius with gradient edge.
-    final gradientPaint = Paint()
-      ..blendMode = BlendMode.dstOut
-      ..shader = ui.Gradient.radial(
-        viewportCenterCanvas,
-        radius,
-        [
-          const Color.fromRGBO(0, 0, 0, 1.0),
-          const Color.fromRGBO(0, 0, 0, 1.0),
-          const Color.fromRGBO(0, 0, 0, 0.0),
-        ],
-        [0.0, 0.7, 1.0],
-      );
-    canvas.drawRect(zone, gradientPaint);
-    canvas.restore(); // saveLayer
-    canvas.restore(); // clipPath
-
-    // Re-draw the fog with the radial hole.
-    canvas.saveLayer(zone, Paint());
-    _fogPaint
-      ..color = isDarkMode
-          ? const Color.fromRGBO(8, 8, 16, 0.85)
-          : const Color.fromRGBO(15, 15, 30, 0.80);
-    canvas.drawRect(zone, _fogPaint);
-
-    final holePaint = Paint()
-      ..blendMode = BlendMode.dstOut
-      ..shader = ui.Gradient.radial(
-        viewportCenterCanvas,
-        radius,
-        [
-          const Color.fromRGBO(0, 0, 0, 1.0),
-          const Color.fromRGBO(0, 0, 0, 1.0),
-          const Color.fromRGBO(0, 0, 0, 0.0),
-        ],
-        [0.0, 0.7, 1.0],
-      );
-    canvas.drawRect(zone, holePaint);
-    canvas.restore();
-
-    // Node silhouettes within the visibility radius (subtle).
+    // Very faint silhouettes — barely visible, forces the student to
+    // actively search rather than passively scan.
     for (final cluster in clusters) {
       if (!_isInViewport(cluster)) continue;
       if (controller.revealedNodeIds.contains(cluster.id)) continue;
 
-      final distance =
-          (cluster.centroid - viewportCenterCanvas).distance;
-      if (distance > radius) continue;
-
-      final opacity = distance > 250.0
-          ? 0.6 * (1.0 - ((distance - 250.0) / 50.0))
-          : 0.6;
-
       final bounds = cluster.bounds;
       final rrect = RRect.fromRectAndRadius(
-        bounds.inflate(2.0),
-        const Radius.circular(10.0),
+        bounds,
+        const Radius.circular(12.0),
       );
 
-      _p
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = Color.fromRGBO(180, 180, 210, opacity);
-      canvas.drawRRect(rrect, _p);
-    }
-
-    // H: Vignette edge particles — "torch in the fog" effect.
-    // 20 particles clustered at the 250-350px boundary.
-    const edgeParticleCount = 20;
-    const phi = 1.6180339887; // golden ratio
-    final t = animationTime;
-    for (int i = 0; i < edgeParticleCount; i++) {
-      // Deterministic angle distribution.
-      final angle = (i * phi * math.pi * 2) % (math.pi * 2);
-      // Distance concentrated at the boundary edge (250–350px).
-      final baseR = 250.0 + (i % 7) * 15.0;
-      // Sinusoidal drift.
-      final drift = math.sin(t * 0.5 + i * 1.7) * 20.0;
-      final r = baseR + drift;
-
-      final px = viewportCenterCanvas.dx + math.cos(angle + t * 0.1) * r;
-      final py = viewportCenterCanvas.dy + math.sin(angle + t * 0.1) * r;
-
-      // Skip if outside viewport.
-      if (!viewportCanvasRect.contains(Offset(px, py))) continue;
-
-      final edgeAlpha = (0.04 + (i % 5) * 0.015).clamp(0.0, 0.1);
-      final particleSize = 15.0 + (i % 4) * 8.0;
-
+      // Much fainter than light fog (0.10 vs 0.20).
       _p
         ..style = PaintingStyle.fill
         ..color = isDarkMode
-            ? Color.fromRGBO(8, 8, 16, edgeAlpha)
-            : Color.fromRGBO(15, 15, 30, edgeAlpha)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, particleSize * 0.6);
-      canvas.drawCircle(Offset(px, py), particleSize, _p);
-      _p.maskFilter = null;
+            ? const Color.fromRGBO(80, 80, 100, 0.10)
+            : const Color.fromRGBO(100, 100, 120, 0.09);
+      canvas.drawRRect(rrect, _p);
+
+      _p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..color = isDarkMode
+            ? const Color.fromRGBO(100, 100, 130, 0.08)
+            : const Color.fromRGBO(120, 120, 140, 0.07);
+      canvas.drawRRect(rrect, _p);
     }
   }
 
@@ -383,20 +332,20 @@ class FogOfWarOverlayPainter extends CustomPainter {
   /// Punch a transparent hole in the fog layer for a revealed node.
   void _punchRevealHole(Canvas canvas, ContentCluster cluster) {
     final bounds = cluster.bounds.inflate(8.0);
-    final rrect = RRect.fromRectAndRadius(bounds, const Radius.circular(12.0));
+    final rrect = RRect.fromRectAndRadius(bounds, Radius.circular(12.0));
 
     _p
       ..style = PaintingStyle.fill
       ..color = const Color(0xFF000000)
       ..blendMode = BlendMode.clear;
     canvas.drawRRect(rrect, _p);
-    _p.blendMode = BlendMode.srcOver; // Reset
+    _p.blendMode = BlendMode.srcOver;
   }
 
   /// Paint border/glow decoration on top of fog for revealed nodes.
   void _paintRevealedNodeBorder(Canvas canvas, ContentCluster cluster) {
     final bounds = cluster.bounds.inflate(6.0);
-    final rrect = RRect.fromRectAndRadius(bounds, const Radius.circular(12.0));
+    final rrect = RRect.fromRectAndRadius(bounds, Radius.circular(12.0));
 
     // Subtle glow to mark it as discovered.
     _p
@@ -404,7 +353,7 @@ class FogOfWarOverlayPainter extends CustomPainter {
       ..color = isDarkMode
           ? const Color.fromRGBO(40, 50, 80, 0.15)
           : const Color.fromRGBO(200, 210, 240, 0.1)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16.0);
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16.0);
     canvas.drawRRect(rrect.inflate(8.0), _p);
     _p.maskFilter = null;
 
@@ -421,21 +370,44 @@ class FogOfWarOverlayPainter extends CustomPainter {
   // CINEMATIC REVEAL (P10-18)
   // ─────────────────────────────────────────────────────────────────────────
 
+  // 🚀 PERF: Reusable Paint for reveal gradient — avoids per-frame allocation.
+  static final Paint _revealHolePaint = Paint()..blendMode = BlendMode.dstOut;
+  static const MaskFilter _revealGlowBlur =
+      MaskFilter.blur(BlurStyle.normal, 10.0);
+  static const MaskFilter _revealPopBlur =
+      MaskFilter.blur(BlurStyle.normal, 6.0);
+
   void _paintRevealingFog(Canvas canvas, Rect zone) {
     final progress = controller.revealProgress;
     if (progress >= 1.0) return;
 
-    // Fog dissolves from center outward (P10-18).
     final center = zone.center;
     final maxRadius =
         math.sqrt(zone.width * zone.width + zone.height * zone.height) / 2;
-    final easedProgress = Curves.easeOut.transform(progress);
+    final easedProgress = Curves.easeOutCubic.transform(progress);
     final clearRadius = maxRadius * easedProgress;
 
-    // ── 1. FOG LAYER with noise-edged hole ──
-    canvas.saveLayer(zone, Paint());
+    // 🚀 ZERO-ALLOC REVEAL: No saveLayer, no shader allocation, no clipPath.
+    //
+    // Strategy: draw the fog as a thick ring (donut) whose inner radius
+    // grows outward. This is achieved by clipping OUT the clear circle
+    // using an inverted path (rect + counterclockwise oval), then drawing
+    // a simple filled rect. Only 1 drawRect + 1 clipPath per frame.
+    //
+    // The feathered edge is simulated by drawing a second translucent ring
+    // at the boundary — much cheaper than a gradient shader.
 
-    // Full fog.
+    // Build inverted clip path: everything OUTSIDE the clear circle.
+    final clearRect = Rect.fromCircle(center: center, radius: clearRadius);
+    final clipPath = Path()
+      ..addRect(zone)
+      ..addOval(clearRect)
+      ..fillType = PathFillType.evenOdd;
+
+    canvas.save();
+    canvas.clipPath(clipPath);
+
+    // Fog fill — simple rect, no saveLayer.
     _fogPaint
       ..style = PaintingStyle.fill
       ..color = isDarkMode
@@ -443,127 +415,32 @@ class FogOfWarOverlayPainter extends CustomPainter {
           : const Color.fromRGBO(15, 15, 30, 0.80);
     canvas.drawRect(zone, _fogPaint);
 
-    // Build noise-distorted circular path for organic edge.
-    final noisePath = Path();
-    const segments = 64;
-    final t = animationTime;
-    for (int i = 0; i <= segments; i++) {
-      final angle = (i / segments) * math.pi * 2;
-
-      // Multi-harmonic noise displacement for organic shape.
-      double noise = 0.0;
-      noise += math.sin(angle * 3 + t * 0.8) * 15.0;
-      noise += math.cos(angle * 5 - t * 0.5) * 10.0;
-      noise += math.sin(angle * 7 + t * 1.2) * 6.0;
-      noise += math.cos(angle * 11 - t * 0.3) * 4.0;
-
-      // Scale noise with progress — starts small, grows with reveal.
-      final noiseScale = easedProgress.clamp(0.05, 1.0);
-      final r = clearRadius + noise * noiseScale;
-
-      final x = center.dx + math.cos(angle) * r;
-      final y = center.dy + math.sin(angle) * r;
-
-      if (i == 0) {
-        noisePath.moveTo(x, y);
-      } else {
-        noisePath.lineTo(x, y);
-      }
-    }
-    noisePath.close();
-
-    // Punch the organic hole with feathered edge.
-    // Inner region: fully transparent. Edge: gradient fade.
-    final holePaint = Paint()
-      ..blendMode = BlendMode.dstOut
-      ..shader = ui.Gradient.radial(
-        center,
-        clearRadius * 1.1,
-        [
-          const Color.fromRGBO(0, 0, 0, 1.0),
-          const Color.fromRGBO(0, 0, 0, 1.0),
-          const Color.fromRGBO(0, 0, 0, 0.0),
-        ],
-        [0.0, 0.8, 1.0],
-      );
-    canvas.save();
-    canvas.clipPath(noisePath);
-    canvas.drawRect(zone, holePaint);
     canvas.restore();
 
-    canvas.restore(); // saveLayer
-
-    // ── 2. GLOW TRAIL at reveal boundary ──
-    if (progress > 0.05 && progress < 0.95) {
-      final glowAlpha = (1.0 - progress) * 0.3;
-      final glowPaint = Paint()
+    // Feathered edge — a soft translucent ring at the boundary.
+    // Drawn as a thick stroke with low opacity, simulating gradient.
+    if (clearRadius > 5.0) {
+      final featherWidth = 30.0 + clearRadius * 0.08;
+      final fogAlpha = (1.0 - easedProgress) * 0.4;
+      _p
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 6.0
+        ..strokeWidth = featherWidth
         ..color = isDarkMode
-            ? Color.fromRGBO(130, 170, 255, glowAlpha)
-            : Color.fromRGBO(100, 140, 220, glowAlpha)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12.0);
-      canvas.drawPath(noisePath, glowPaint);
+            ? Color.fromRGBO(8, 8, 16, fogAlpha)
+            : Color.fromRGBO(15, 15, 30, fogAlpha);
+      canvas.drawCircle(center, clearRadius + featherWidth * 0.3, _p);
+    }
 
-      // Inner bright edge.
-      final edgePaint = Paint()
+    // Glow ring at the reveal boundary — thin crisp line, no blur.
+    if (progress > 0.03 && progress < 0.92) {
+      final glowAlpha = (1.0 - progress) * 0.3;
+      _p
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.0
         ..color = isDarkMode
-            ? Color.fromRGBO(180, 200, 255, glowAlpha * 0.8)
-            : Color.fromRGBO(160, 180, 240, glowAlpha * 0.8);
-      canvas.drawPath(noisePath, edgePaint);
-    }
-
-    // ── 3. NODE POP-IN BOUNCE ──
-    // Nodes emerging from the fog get a brief scale bounce (0→1.15→1.0).
-    for (final cluster in clusters) {
-      if (!_isInViewport(cluster)) continue;
-      if (controller.revealedNodeIds.contains(cluster.id)) continue;
-
-      final dist = (cluster.centroid - center).distance;
-      // Node "appears" when the reveal radius passes it.
-      if (dist > clearRadius) continue;
-
-      // How far past the reveal edge is this node?
-      // 0.0 = just appeared, 1.0+ = fully settled.
-      final revealDepth = (clearRadius - dist) / (maxRadius * 0.08);
-      if (revealDepth <= 0) continue;
-
-      final popProgress = revealDepth.clamp(0.0, 1.0);
-      // Bounce curve: overshoot then settle.
-      final scale = popProgress < 0.5
-          ? 0.0 + popProgress * 2.0 * 1.15 // 0 → 1.15
-          : 1.15 - (popProgress - 0.5) * 2.0 * 0.15; // 1.15 → 1.0
-
-      if (scale <= 0.01) continue;
-
-      final bounds = cluster.bounds;
-      final nodeCenter = bounds.center;
-
-      canvas.save();
-      canvas.translate(nodeCenter.dx, nodeCenter.dy);
-      canvas.scale(scale);
-      canvas.translate(-nodeCenter.dx, -nodeCenter.dy);
-
-      // Draw a subtle "emerging" highlight.
-      final popAlpha = (1.0 - popProgress) * 0.25;
-      _p
-        ..style = PaintingStyle.fill
-        ..color = isDarkMode
-            ? Color.fromRGBO(100, 140, 255, popAlpha)
-            : Color.fromRGBO(80, 120, 220, popAlpha)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          bounds.inflate(6.0),
-          const Radius.circular(12.0),
-        ),
-        _p,
-      );
-      _p.maskFilter = null;
-
-      canvas.restore();
+            ? Color.fromRGBO(160, 190, 255, glowAlpha)
+            : Color.fromRGBO(120, 150, 230, glowAlpha);
+      canvas.drawCircle(center, clearRadius, _p);
     }
   }
 
@@ -614,7 +491,7 @@ class FogOfWarOverlayPainter extends CustomPainter {
     bool wasPriorFailure = false,
   }) {
     final bounds = cluster.bounds.inflate(8.0);
-    final rrect = RRect.fromRectAndRadius(bounds, const Radius.circular(12.0));
+    final rrect = RRect.fromRectAndRadius(bounds, Radius.circular(12.0));
 
     // Ring color and opacity (P10-19: 30%).
     Color ringColor;
@@ -623,28 +500,25 @@ class FogOfWarOverlayPainter extends CustomPainter {
 
     switch (style) {
       case _MasteryStyle.recalled:
-        // Confidence-weighted green: brighter for higher confidence.
         final conf = (confidence ?? 5).clamp(3, 5);
         final greenAlpha = isMuroRossoActive
-            ? 0.5 + (conf - 3) * 0.15  // 0.50 → 0.65 → 0.80
-            : 0.35 + (conf - 3) * 0.15; // 0.35 → 0.50 → 0.65
-
+            ? 0.5 + (conf - 3) * 0.15
+            : 0.35 + (conf - 3) * 0.15;
         ringColor = Color.fromRGBO(76, 175, 80, greenAlpha);
         emoji = conf == 5 ? '✅' : conf == 4 ? '😊' : '🤔';
         isDashed = false;
       case _MasteryStyle.forgotten:
-        // §XI.4: Muro Rosso softening.
         ringColor = isMuroRossoActive
             ? const Color.fromRGBO(158, 158, 158, 0.45)
             : const Color.fromRGBO(244, 67, 54, 0.6);
         emoji = isExplored
-            ? '📖'  // Explored: "now you've seen it"
+            ? '📖'
             : isMuroRossoActive ? '📝' : '❌';
         isDashed = false;
       case _MasteryStyle.blindSpot:
         ringColor = const Color.fromRGBO(158, 158, 158, 0.5);
         emoji = isExplored ? '📖' : '👁\u200D🗨';
-        isDashed = !isExplored; // Solid when explored.
+        isDashed = !isExplored;
     }
 
     // P10-21: Explored nodes get a subtle "discovered" tint.
@@ -652,12 +526,12 @@ class FogOfWarOverlayPainter extends CustomPainter {
       _p
         ..style = PaintingStyle.fill
         ..color = const Color.fromRGBO(100, 140, 255, 0.08)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 8.0);
       canvas.drawRRect(rrect.inflate(4.0), _p);
       _p.maskFilter = null;
     }
 
-    // Background tint (30% opacity overlay, P10-19).
+    // Background tint.
     _p
       ..style = PaintingStyle.fill
       ..color = ringColor.withValues(alpha: 0.12);
@@ -676,79 +550,62 @@ class FogOfWarOverlayPainter extends CustomPainter {
 
     // 🧠 Partial Zone Memory: Extra amber warning ring for prior failures.
     if (wasPriorFailure) {
-      // OPT-2: Reuse _auxPaint instead of allocating.
       _auxPaint
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5
         ..color = const Color.fromRGBO(255, 183, 77, 0.5)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3.0);
       canvas.drawRRect(rrect.inflate(4.0), _auxPaint);
       _auxPaint.maskFilter = null;
     }
 
-    // Badge emoji at top-right corner.
-    final badgeSize = 18.0 / canvasScale.clamp(0.3, 2.0);
+    // Badge emoji at top-right corner — canvas-space, scales with zoom.
+    const badgeSize = 18.0;
     final badgePos = Offset(
       bounds.right - badgeSize * 0.4,
       bounds.top - badgeSize * 0.4,
     );
-
-    // Badge background circle.
     _p
       ..style = PaintingStyle.fill
       ..color = isDarkMode
           ? const Color.fromRGBO(20, 20, 30, 0.9)
           : const Color.fromRGBO(255, 255, 255, 0.95);
     canvas.drawCircle(badgePos, badgeSize * 0.7, _p);
-
     _paintEmoji(canvas, badgePos, emoji, badgeSize * 0.75);
 
     // Blind spot label (P10-20).
     if (style == _MasteryStyle.blindSpot && !isExplored) {
-      _paintLabel(
-        canvas,
-        bounds,
-        'Non cercato',
-        const Color.fromRGBO(158, 158, 158, 0.7),
-      );
+      _paintLabel(canvas, bounds, 'Non cercato',
+          const Color.fromRGBO(158, 158, 158, 0.7));
     }
 
-    // ⏱️ Slow recall indicator: response time >8s = fragile consolidation.
+    // ⏱️ Slow recall indicator — canvas-space.
     if (style == _MasteryStyle.recalled &&
         responseTime != null &&
         responseTime.inSeconds >= 8) {
-      final timerSize = 14.0 / canvasScale.clamp(0.3, 2.0);
+      const timerSize = 14.0;
       final timerPos = Offset(
         bounds.left + timerSize * 0.4,
         bounds.top - timerSize * 0.4,
       );
-
-      // Timer background.
       _p
         ..style = PaintingStyle.fill
         ..color = isDarkMode
             ? const Color.fromRGBO(20, 20, 30, 0.9)
             : const Color.fromRGBO(255, 255, 255, 0.95);
       canvas.drawCircle(timerPos, timerSize * 0.65, _p);
-
       _paintEmoji(canvas, timerPos, '⏱️', timerSize * 0.7);
     }
 
-    // Confidence label for recalled nodes (subtle).
+    // Confidence label for recalled nodes.
     if (style == _MasteryStyle.recalled && confidence != null) {
-      final confLabel = '$confidence/5';
-      _paintLabel(
-        canvas,
-        bounds,
-        confLabel,
-        Color.fromRGBO(76, 175, 80, confidence >= 4 ? 0.6 : 0.4),
-      );
+      _paintLabel(canvas, bounds, '$confidence/5',
+          Color.fromRGBO(76, 175, 80, confidence >= 4 ? 0.6 : 0.4));
     }
 
-    // 🧠 Partial Zone Memory: "Critico l'ultima volta" label.
+    // 🧠 Partial Zone Memory: "Critico l'ultima volta" label — canvas-space.
     if (wasPriorFailure && style != _MasteryStyle.recalled) {
-      final warningFontSize = 9.0 / canvasScale.clamp(0.3, 2.0);
-      // OPT-1: Use cached TextPainter instead of allocating per-frame.
+      const warningFontSize = 9.0;
       final tp = _cachedTextPainter(
         '⚠️ critico l\'ultima volta',
         warningFontSize,
@@ -756,18 +613,10 @@ class FogOfWarOverlayPainter extends CustomPainter {
         fontWeight: FontWeight.w600,
         maxWidth: bounds.width + 60,
       );
-
-      final labelPos = Offset(
-        bounds.left,
-        bounds.bottom + 20.0,
-      );
-
-      // Background pill.
+      final labelPos = Offset(bounds.left, bounds.bottom + 20.0);
       final pillRect = Rect.fromLTWH(
-        labelPos.dx - 4,
-        labelPos.dy - 2,
-        tp.width + 8,
-        tp.height + 4,
+        labelPos.dx - 4, labelPos.dy - 2,
+        tp.width + 8, tp.height + 4,
       );
       _p
         ..style = PaintingStyle.fill
@@ -778,7 +627,6 @@ class FogOfWarOverlayPainter extends CustomPainter {
         RRect.fromRectAndRadius(pillRect, const Radius.circular(5)),
         _p,
       );
-
       tp.paint(canvas, labelPos);
     }
   }
@@ -848,12 +696,13 @@ class FogOfWarOverlayPainter extends CustomPainter {
       // Varying radius.
       final radius = baseRadius + 8.0 * math.sin(t * 0.2 + phase * 0.9);
 
+      // 🚀 OPT-7: Use pre-computed blur bucket instead of per-particle allocation.
       _p
         ..style = PaintingStyle.fill
         ..color = isDarkMode
             ? Color.fromRGBO(180, 190, 220, alpha)
             : Color.fromRGBO(120, 130, 160, alpha)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.8);
+        ..maskFilter = _blurForRadius(radius);
       canvas.drawCircle(Offset(x, y), radius, _p);
       _p.maskFilter = null;
     }
@@ -863,8 +712,9 @@ class FogOfWarOverlayPainter extends CustomPainter {
   // 🗺️ SURGICAL PATH (P10-24) — Guided review path overlay
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Renders the guided review path: dashed lines connecting critical nodes,
-  /// sequence numbers, and visited/current indicators.
+  /// Renders the guided review path: solid lines connecting critical nodes,
+  /// small sequence dots OUTSIDE node bounds, and a clear current-target
+  /// indicator that doesn't overlap content.
   void _paintSurgicalPath(Canvas canvas) {
     // OPT-4: Use cached cluster map instead of rebuilding per-frame.
     final pathClusters = <ContentCluster>[];
@@ -872,95 +722,128 @@ class FogOfWarOverlayPainter extends CustomPainter {
       final c = _clusterMap[id];
       if (c != null) pathClusters.add(c);
     }
-    if (pathClusters.length < 2) return;
+    if (pathClusters.isEmpty) return;
 
     // OPT-5: Inflated viewport for culling segments/nodes.
     final vpInflated = viewportCanvasRect.inflate(100.0);
+    final t = animationTime;
 
-    // ── 1. Connecting Lines ──
+    // ── 1. Connecting Lines — solid with gradient progress ──
     for (int i = 0; i < pathClusters.length - 1; i++) {
       final from = pathClusters[i].bounds.center;
       final to = pathClusters[i + 1].bounds.center;
 
-      // OPT-5: Skip segments entirely outside viewport.
       final segBounds = Rect.fromPoints(from, to);
       if (!vpInflated.overlaps(segBounds)) continue;
 
-      final bothVisited = surgicalVisitedIds.contains(pathClusters[i].id) &&
-          surgicalVisitedIds.contains(pathClusters[i + 1].id);
+      final fromVisited = surgicalVisitedIds.contains(pathClusters[i].id);
+      final toVisited = surgicalVisitedIds.contains(pathClusters[i + 1].id);
+      final bothVisited = fromVisited && toVisited;
 
-      // OPT-2: Reuse _auxPaint for glow line.
-      final glowAlpha = bothVisited ? 0.2 : 0.15;
-      _auxPaint
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6.0
-        ..color = bothVisited
-            ? Color.fromRGBO(76, 175, 80, glowAlpha)
-            : Color.fromRGBO(255, 152, 0, glowAlpha)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
-      canvas.drawLine(from, to, _auxPaint);
-      _auxPaint.maskFilter = null;
+      // Completed segments: solid green. Pending: dashed subtle grey.
+      if (bothVisited) {
+        _auxPaint
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = const Color.fromRGBO(76, 175, 80, 0.5)
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = null;
+        canvas.drawLine(from, to, _auxPaint);
+      } else {
+        _paintDashedLine(canvas, from, to,
+            const Color.fromRGBO(158, 158, 158, 0.3), (1.5));
+      }
 
-      // Dashed line (foreground).
-      final lineColor = bothVisited
-          ? const Color.fromRGBO(76, 175, 80, 0.6)
-          : const Color.fromRGBO(255, 152, 0, 0.5);
-      _paintDashedLine(canvas, from, to, lineColor, 2.0);
+      // Arrow indicator on pending segments (midpoint arrow).
+      if (!bothVisited && fromVisited) {
+        final mid = Offset((from.dx + to.dx) / 2, (from.dy + to.dy) / 2);
+        final dir = (to - from);
+        final len = dir.distance;
+        if (len > 10) {
+          final dx = dir.dx / len;
+          final dy = dir.dy / len;
+          final arrowSize = (8.0);
+          final pulse = 0.6 + 0.4 * math.sin(t * 2.5);
+
+          final tip = mid + Offset(dx * arrowSize, dy * arrowSize);
+          final left = mid + Offset(
+            -dx * arrowSize * 0.5 + dy * arrowSize * 0.5,
+            -dy * arrowSize * 0.5 - dx * arrowSize * 0.5,
+          );
+          final right = mid + Offset(
+            -dx * arrowSize * 0.5 - dy * arrowSize * 0.5,
+            -dy * arrowSize * 0.5 + dx * arrowSize * 0.5,
+          );
+          final arrowPath = Path()
+            ..moveTo(tip.dx, tip.dy)
+            ..lineTo(left.dx, left.dy)
+            ..lineTo(right.dx, right.dy)
+            ..close();
+
+          _p
+            ..style = PaintingStyle.fill
+            ..color = Color.fromRGBO(255, 152, 0, pulse * 0.7);
+          canvas.drawPath(arrowPath, _p);
+        }
+      }
     }
 
-    // ── 2. Node markers ──
-    final t = animationTime;
+    // ── 2. Node markers — small dots BELOW the node, not overlapping ──
     for (int i = 0; i < pathClusters.length; i++) {
       final cluster = pathClusters[i];
-
-      // OPT-5: Skip nodes outside viewport.
       if (!vpInflated.overlaps(cluster.bounds)) continue;
 
-      final center = cluster.bounds.center;
       final isVisited = surgicalVisitedIds.contains(cluster.id);
       final isCurrentTarget = !isVisited &&
           (i == 0 || surgicalVisitedIds.contains(pathClusters[i > 0 ? i - 1 : 0].id));
 
-      // Sequence number badge.
-      final badgeRadius = 14.0 / canvasScale.clamp(0.3, 2.0);
-      final badgePos = Offset(
-        cluster.bounds.right + badgeRadius * 0.3,
-        cluster.bounds.top - badgeRadius * 0.3,
+      // Small sequence dot BELOW the node — canvas-space.
+      const dotRadius = 9.0;
+      final dotPos = Offset(
+        cluster.bounds.center.dx,
+        cluster.bounds.bottom + dotRadius * 2.5,
       );
+      final dotColor = isVisited
+          ? const Color.fromRGBO(76, 175, 80, 0.85)
+          : isCurrentTarget
+              ? const Color.fromRGBO(255, 152, 0, 0.9)
+              : const Color.fromRGBO(158, 158, 158, 0.5);
+      final label = isVisited ? '✓' : '${i + 1}';
 
-      // Badge background.
       _p
         ..style = PaintingStyle.fill
-        ..color = isVisited
-            ? const Color.fromRGBO(76, 175, 80, 0.9)
-            : const Color.fromRGBO(255, 152, 0, 0.9);
-      canvas.drawCircle(badgePos, badgeRadius, _p);
+        ..color = dotColor;
+      canvas.drawCircle(dotPos, dotRadius, _p);
 
-      // OPT-1: Use cached TextPainter for sequence number.
-      final label = isVisited ? '✓' : '${i + 1}';
-      final fontSize = badgeRadius * 0.9;
+      final fontSize = dotRadius * 0.85;
       final tp = _cachedTextPainter(
-        label,
-        fontSize,
+        label, fontSize,
         color: const Color(0xFFFFFFFF),
         fontWeight: FontWeight.w800,
       );
-      tp.paint(
-        canvas,
-        badgePos - Offset(tp.width / 2, tp.height / 2),
-      );
+      tp.paint(canvas, dotPos - Offset(tp.width / 2, tp.height / 2));
 
-      // Pulsing ring for current target.
+      // Current target: highlighted border around the node.
       if (isCurrentTarget) {
-        final pulse = 0.7 + 0.3 * math.sin(t * 3.0);
-        final ringRadius = cluster.bounds.longestSide / 2 + 16.0;
+        final pulse = 0.5 + 0.5 * math.sin(t * 2.0);
+        final highlightRect = cluster.bounds.inflate(10.0);
+        final rrect = RRect.fromRectAndRadius(
+          highlightRect,
+          Radius.circular(12.0),
+        );
+
         _p
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3.0
-          ..color = Color.fromRGBO(255, 152, 0, pulse * 0.7)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
-        canvas.drawCircle(center, ringRadius, _p);
+          ..color = Color.fromRGBO(255, 152, 0, pulse * 0.4)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6.0);
+        canvas.drawRRect(rrect, _p);
         _p.maskFilter = null;
+
+        _p
+          ..strokeWidth = 2.0
+          ..color = Color.fromRGBO(255, 152, 0, 0.5 + pulse * 0.3);
+        canvas.drawRRect(rrect, _p);
       }
     }
   }
@@ -1052,14 +935,12 @@ class FogOfWarOverlayPainter extends CustomPainter {
   }
 
   void _paintEmoji(Canvas canvas, Offset center, String emoji, double size) {
-    // OPT-1: Use cached TextPainter instead of allocating per-frame.
     final tp = _cachedTextPainter(emoji, size);
     tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
   }
 
   void _paintLabel(Canvas canvas, Rect bounds, String text, Color color) {
-    final fontSize = 10.0 / canvasScale.clamp(0.3, 2.0);
-    // OPT-1: Use cached TextPainter for label text.
+    const fontSize = 10.0;
     final tp = _cachedTextPainter(
       text,
       fontSize,
@@ -1075,10 +956,8 @@ class FogOfWarOverlayPainter extends CustomPainter {
 
     // Background pill.
     final pillRect = Rect.fromLTWH(
-      labelPos.dx - 6,
-      labelPos.dy - 2,
-      tp.width + 12,
-      tp.height + 4,
+      labelPos.dx - 6, labelPos.dy - 2,
+      tp.width + 12, tp.height + 4,
     );
     _p
       ..style = PaintingStyle.fill
@@ -1089,7 +968,6 @@ class FogOfWarOverlayPainter extends CustomPainter {
       RRect.fromRectAndRadius(pillRect, const Radius.circular(7)),
       _p,
     );
-
     tp.paint(canvas, labelPos);
   }
 
@@ -1169,7 +1047,6 @@ class FogOfWarOverlayPainter extends CustomPainter {
         (animationTime - oldDelegate.animationTime).abs() > 0.016 ||
         viewportCenterCanvas != oldDelegate.viewportCenterCanvas ||
         viewportCanvasRect != oldDelegate.viewportCanvasRect ||
-        canvasScale != oldDelegate.canvasScale ||
         isDarkMode != oldDelegate.isDarkMode ||
         isMuroRossoActive != oldDelegate.isMuroRossoActive ||
         surgicalPathNodeIds.length != oldDelegate.surgicalPathNodeIds.length ||

@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/generated/fluera_localizations.g.dart';
+
 // ── E-1: Design Tokens ──────────────────────────────────────────────────────
 // All colors, durations, and sizing extracted for consistency and theming.
 
@@ -80,12 +82,12 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     super.initState();
     _staggerController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2000),
+      duration: _Tok.staggerDuration,
     )..forward();
 
     _gradientController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 5),
+      duration: _Tok.gradientDuration,
     )..repeat(reverse: true);
   }
 
@@ -121,6 +123,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     return Theme(
       data: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -130,7 +133,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
         useMaterial3: true,
       ),
       child: Semantics(
-        label: 'Ghost Map informational screen',
+        label: l10n.ghostMapInfo_a11yLabel,
         explicitChildNodes: true,
         child: Scaffold(
         body: CustomScrollView(
@@ -141,9 +144,9 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.of(context).pop(),
               ),
-              title: const Text(
-                'Ghost Map',
-                style: TextStyle(fontWeight: FontWeight.w700),
+              title: Text(
+                l10n.ghostMapInfo_title,
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               flexibleSpace: AnimatedBuilder(
                 animation: _gradientController,
@@ -173,67 +176,66 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               sliver: SliverList.list(
                 children: [
-                  _animated(0, _heroCard()),
+                  _animated(0, _heroCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(1, _sectionTitle('Come funziona')),
+                  _animated(1, _sectionTitle(l10n.ghostMapInfo_sectionHowItWorks)),
                   const SizedBox(height: 8),
-                  _animated(1, _flowCard()),
+                  _animated(1, _flowCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(2, _sectionTitle('5 tipi di nodo')),
+                  _animated(2, _sectionTitle(l10n.ghostMapInfo_sectionNodeTypes)),
                   const SizedBox(height: 8),
-                  _animated(2, const _NodeTypeDemo()),
+                  _animated(2, RepaintBoundary(child: _NodeTypeDemo(l10n: l10n))),
                   const SizedBox(height: 16),
 
-                  _animated(3, _sectionTitle('Tentativi e confronto')),
+                  _animated(3, _sectionTitle(l10n.ghostMapInfo_sectionAttempts)),
                   const SizedBox(height: 8),
-                  _animated(3, _attemptCard()),
+                  _animated(3, _attemptCard(l10n)),
                   const SizedBox(height: 8),
-                  _animated(3, const _AttemptFlowDemo()),
+                  _animated(3, RepaintBoundary(child: _AttemptFlowDemo(l10n: l10n))),
                   const SizedBox(height: 16),
 
-                  _animated(4, _sectionTitle('L\'Ipercorrezione')),
+                  _animated(4, _sectionTitle(l10n.ghostMapInfo_sectionHypercorrection)),
                   const SizedBox(height: 8),
-                  _animated(4, _hypercorrectionCard()),
+                  _animated(4, _hypercorrectionCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(5, _sectionTitle('Zona di Sviluppo Prossimale')),
+                  _animated(5, _sectionTitle(l10n.ghostMapInfo_sectionZPD)),
                   const SizedBox(height: 8),
-                  _animated(5, _zpdCard()),
+                  _animated(5, _zpdCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(6, _sectionTitle('Navigazione Guidata')),
+                  _animated(6, _sectionTitle(l10n.ghostMapInfo_sectionNavigation)),
                   const SizedBox(height: 8),
-                  _animated(6, _navigationCard()),
+                  _animated(6, _navigationCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(7, _sectionTitle('Integrazione FSRS')),
+                  _animated(7, _sectionTitle(l10n.ghostMapInfo_sectionFSRS)),
                   const SizedBox(height: 8),
-                  _animated(7, _fsrsCard()),
+                  _animated(7, _fsrsCard(l10n)),
                   const SizedBox(height: 16),
 
-                  _animated(8, _sectionTitle('Crescita del Canvas')),
+                  _animated(8, _sectionTitle(l10n.ghostMapInfo_sectionGrowth)),
                   const SizedBox(height: 8),
-                  _animated(8, _growthCard()),
+                  _animated(8, _growthCard(l10n)),
                   const SizedBox(height: 8),
-                  _animated(8, const _BeforeAfterDemo()),
+                  _animated(8, RepaintBoundary(child: _BeforeAfterDemo(l10n: l10n))),
                   const SizedBox(height: 16),
 
-                  _animated(9, _sectionTitle('Consolidamento Notturno')),
+                  _animated(9, _sectionTitle(l10n.ghostMapInfo_sectionSleep)),
                   const SizedBox(height: 8),
-                  _animated(9, _sleepCard()),
+                  _animated(9, _sleepCard(l10n)),
                   const SizedBox(height: 24),
 
                   // CTA
-                  _animated(9, _ctaButton()),
+                  _animated(9, _ctaButton(l10n)),
                   const SizedBox(height: 16),
 
                   // Footer
                   Center(
                     child: Text(
-                      'Basato su ricerche di Butterfield & Metcalfe (2001),\n'
-                      'Ausubel (1968), Chi (2009), Bjork (1994), Vygotsky (1978)',
+                      l10n.ghostMapInfo_footer,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.3),
@@ -257,7 +259,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
   // WIDGETS
   // ════════════════════════════════════════════════════════════════════════
 
-  Widget _heroCard() {
+  Widget _heroCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -271,10 +273,10 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                 // Animated pulsing ghost node
                 _PulsingGhostNode(animation: _gradientController),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Il Confronto Centauro',
-                    style: TextStyle(
+                    l10n.ghostMapInfo_heroTitle,
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
                       color: _Tok.accent,
@@ -285,9 +287,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'Fluera genera una mappa concettuale "fantasma" basata sui tuoi appunti '
-              'e la sovrappone al canvas. Puoi confrontare ciò che hai scritto con '
-              'ciò che l\'AI ritiene manchi, scoprendo lacune e confermando padronanza.',
+              l10n.ghostMapInfo_heroDescription,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 14,
@@ -311,8 +311,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Scoprire cosa NON sai è più importante di confermare '
-                      'ciò che sai — l\'Active Recall Diagnostico.',
+                      l10n.ghostMapInfo_heroPrinciple,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.6),
                         fontSize: 12,
@@ -343,7 +342,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _flowCard() {
+  Widget _flowCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -351,25 +350,25 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _flowStep('1', '✍️', 'Scrivi', 'Prendi appunti a mano sul canvas'),
+            _flowStep('1', '✍️', l10n.ghostMapInfo_flowWrite, l10n.ghostMapInfo_flowWriteDesc),
             _flowDivider(),
-            _flowStep('2', '🗺️', 'Attiva',
-                'Tocca il pulsante Ghost Map nella toolbar'),
+            _flowStep('2', '🗺️', l10n.ghostMapInfo_flowActivate,
+                l10n.ghostMapInfo_flowActivateDesc),
             _flowDivider(),
-            _flowStep('3', '🤖', 'Analisi AI',
-                'Atlas analizza i cluster e genera la mappa ideale'),
+            _flowStep('3', '🤖', l10n.ghostMapInfo_flowAnalysis,
+                l10n.ghostMapInfo_flowAnalysisDesc),
             _flowDivider(),
-            _flowStep('4', '👻', 'Overlay',
-                'I nodi fantasma appaiono sul canvas come un\'overlay'),
+            _flowStep('4', '👻', l10n.ghostMapInfo_flowOverlay,
+                l10n.ghostMapInfo_flowOverlayDesc),
             _flowDivider(),
-            _flowStep('5', '✏️', 'Tentativo',
-                'Tocca un nodo e prova a scrivere il concetto mancante'),
+            _flowStep('5', '✏️', l10n.ghostMapInfo_flowAttempt,
+                l10n.ghostMapInfo_flowAttemptDesc),
             _flowDivider(),
-            _flowStep('6', '🔍', 'Confronto',
-                'Vedi la risposta di Atlas e auto-valuti il tentativo'),
+            _flowStep('6', '🔍', l10n.ghostMapInfo_flowCompare,
+                l10n.ghostMapInfo_flowCompareDesc),
             _flowDivider(),
-            _flowStep('7', '📊', 'Risultati',
-                'Riepilogo crescita + FSRS aggiornato per SRS'),
+            _flowStep('7', '📊', l10n.ghostMapInfo_flowResults,
+                l10n.ghostMapInfo_flowResultsDesc),
           ],
         ),
       ),
@@ -436,7 +435,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _attemptCard() {
+  Widget _attemptCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -446,7 +445,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Quando tocchi un nodo mancante (❓), si apre una finestra dove puoi:',
+              l10n.ghostMapInfo_attemptIntro,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -456,22 +455,22 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             const SizedBox(height: 12),
             _attemptRow(
               Icons.keyboard_rounded,
-              'Digitare',
-              'Scrivi il concetto che pensi manchi',
+              l10n.ghostMapInfo_attemptType,
+              l10n.ghostMapInfo_attemptTypeDesc,
               _Tok.accent,
             ),
             const SizedBox(height: 8),
             _attemptRow(
               Icons.draw_rounded,
-              'Disegnare',
-              'Usa la penna per scrivere a mano (OCR integrato)',
+              l10n.ghostMapInfo_attemptDraw,
+              l10n.ghostMapInfo_attemptDrawDesc,
               _Tok.accentGreen,
             ),
             const SizedBox(height: 8),
             _attemptRow(
               Icons.visibility,
-              'Rivelare',
-              'Dopo 10 secondi, puoi rivelare la risposta di Atlas',
+              l10n.ghostMapInfo_attemptReveal,
+              l10n.ghostMapInfo_attemptRevealDesc,
               _Tok.accentAmber,
             ),
             const SizedBox(height: 12),
@@ -487,8 +486,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'Il timer di 10 secondi ti obbliga a pensare prima di arrenderti — '
-                      'questo attiva il Retrieval Effort (Bjork, 1994).',
+                      l10n.ghostMapInfo_attemptTimerNote,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.5),
                         fontSize: 11,
@@ -540,7 +538,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _hypercorrectionCard() {
+  Widget _hypercorrectionCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -562,9 +560,9 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                       child: Text('⚡', style: TextStyle(fontSize: 20))),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Il Principio di Ipercorrezione',
+                    l10n.ghostMapInfo_hypercorrectionTitle,
                     style: TextStyle(
                       color: _Tok.accentRedDeep,
                       fontSize: 15,
@@ -576,9 +574,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'Quando sei molto sicuro di qualcosa ma ti sbagli, la sorpresa '
-              'punta l\'attenzione sull\'errore e lo imprime profondamente nella '
-              'memoria a lungo termine.',
+              l10n.ghostMapInfo_hypercorrectionDesc,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -598,7 +594,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '☝️ Butterfield & Metcalfe (2001)',
+                    l10n.ghostMapInfo_hypercorrectionCitation,
                     style: TextStyle(
                       color: _Tok.accentRedDeep.withValues(alpha: 0.8),
                       fontSize: 11,
@@ -607,9 +603,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '"Gli errori ad alta confidenza producono un apprendimento '
-                    'SUPERIORE rispetto a quelli a bassa confidenza — '
-                    'l\'effetto ipercorrettivo."',
+                    l10n.ghostMapInfo_hypercorrectionQuote,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.5),
                       fontSize: 11,
@@ -622,7 +616,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             ),
             const SizedBox(height: 10),
             Text(
-              'La Ghost Map segna questi nodi con ⚡ e bordo rosso ondulato.',
+              l10n.ghostMapInfo_hypercorrectionVisual,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.5),
                 fontSize: 12,
@@ -634,7 +628,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _zpdCard() {
+  Widget _zpdCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -656,9 +650,9 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                       child: Text('📚', style: TextStyle(fontSize: 20))),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'ZPD — Vygotsky (1978)',
+                    l10n.ghostMapInfo_zpdTitle,
                     style: TextStyle(
                       color: _Tok.accentGrey,
                       fontSize: 15,
@@ -670,10 +664,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'Alcuni concetti potrebbero essere TROPPO avanzati per il tuo livello '
-              'attuale. La Ghost Map li identifica come "sotto la ZPD" e li mostra '
-              'in grigio — non perché non siano importanti, ma perché ci sono concetti '
-              'di base da consolidare prima.',
+              l10n.ghostMapInfo_zpdDesc,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -683,22 +674,22 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             const SizedBox(height: 10),
             _zpdRow(
               '🟢',
-              'Zona di Comfort',
-              'Concetti che padroneggi — nodi ✅ verdi',
+              l10n.ghostMapInfo_zpdComfort,
+              l10n.ghostMapInfo_zpdComfortDesc,
               _Tok.accentGreen,
             ),
             const SizedBox(height: 6),
             _zpdRow(
               '🟡',
-              'ZPD',
-              'Puoi imparare con supporto — nodi ❓ e ⚠️',
+              l10n.ghostMapInfo_zpdZone,
+              l10n.ghostMapInfo_zpdZoneDesc,
               _Tok.accentAmber,
             ),
             const SizedBox(height: 6),
             _zpdRow(
               '⚪',
-              'Troppo avanzato',
-              'Da riprendere dopo aver consolidato le basi — nodi 📚',
+              l10n.ghostMapInfo_zpdAdvanced,
+              l10n.ghostMapInfo_zpdAdvancedDesc,
               _Tok.accentGrey,
             ),
           ],
@@ -734,7 +725,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _navigationCard() {
+  Widget _navigationCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -744,7 +735,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Una barra flottante in basso ti permette di navigare tra i nodi:',
+              l10n.ghostMapInfo_navIntro,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -808,20 +799,20 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             ),
             const SizedBox(height: 12),
             _navFeature(
-              Icons.circle, '🔴 Mancanti',
-              'Concetti che mancano completamente — priorità massima',
+              Icons.circle, l10n.ghostMapInfo_navMissing,
+              l10n.ghostMapInfo_navMissingDesc,
               _Tok.accentRed,
             ),
             const SizedBox(height: 6),
             _navFeature(
-              Icons.circle, '🟡 Deboli/Errati',
-              'Concetti presenti ma imprecisi o connessioni sbagliate',
+              Icons.circle, l10n.ghostMapInfo_navWeak,
+              l10n.ghostMapInfo_navWeakDesc,
               _Tok.accentAmber,
             ),
             const SizedBox(height: 6),
             _navFeature(
-              Icons.pan_tool_alt, '⬅ ➡ Navigazione',
-              'Centra il canvas sul nodo selezionato',
+              Icons.pan_tool_alt, l10n.ghostMapInfo_navArrows,
+              l10n.ghostMapInfo_navArrowsDesc,
               _Tok.accent,
             ),
           ],
@@ -857,7 +848,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _fsrsCard() {
+  Widget _fsrsCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -872,7 +863,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                     size: 20, color: _Tok.accent),
                 const SizedBox(width: 8),
                 Text(
-                  'Ogni interazione calibra il ripasso',
+                  l10n.ghostMapInfo_fsrsTitle,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 14,
@@ -882,19 +873,19 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
               ],
             ),
             const SizedBox(height: 12),
-            _fsrsRow('✅', 'Tentativo corretto', 'Intervallo si allunga',
+            _fsrsRow('✅', l10n.ghostMapInfo_fsrsCorrect, l10n.ghostMapInfo_fsrsCorrectEffect,
                 _Tok.accentGreen),
             const SizedBox(height: 6),
-            _fsrsRow('❌', 'Tentativo errato', 'Intervallo si accorcia',
+            _fsrsRow('❌', l10n.ghostMapInfo_fsrsWrong, l10n.ghostMapInfo_fsrsWrongEffect,
                 _Tok.accentRed),
             const SizedBox(height: 6),
-            _fsrsRow('⚡', 'Ipercorrezione', 'Penalità ridotta (shock = apprendimento)',
+            _fsrsRow('⚡', l10n.ghostMapInfo_fsrsHyper, l10n.ghostMapInfo_fsrsHyperEffect,
                 const Color(0xFFFF9800)),
             const SizedBox(height: 6),
-            _fsrsRow('👁', 'Solo rivelato', 'Esposizione passiva — debole',
+            _fsrsRow('👁', l10n.ghostMapInfo_fsrsRevealed, l10n.ghostMapInfo_fsrsRevealedEffect,
                 const Color(0xFF78909C)),
             const SizedBox(height: 6),
-            _fsrsRow('🟢', 'Già sul canvas', 'Rinforzo — intervallo stabile',
+            _fsrsRow('🟢', l10n.ghostMapInfo_fsrsOnCanvas, l10n.ghostMapInfo_fsrsOnCanvasEffect,
                 _Tok.accent),
             const SizedBox(height: 12),
             Container(
@@ -904,9 +895,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                'I dati FSRS alimentano il Passo 6 (SRS Blur) — i concetti '
-                'associati ai nodi Ghost Map riappariranno sfocati quando '
-                'l\'algoritmo prevede che stai per dimenticarli.',
+                l10n.ghostMapInfo_fsrsNote,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.5),
                   fontSize: 11,
@@ -937,7 +926,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _growthCard() {
+  Widget _growthCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -951,7 +940,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                 const Text('📈', style: TextStyle(fontSize: 20)),
                 const SizedBox(width: 10),
                 Text(
-                  'Quanto è cresciuto il tuo canvas?',
+                  l10n.ghostMapInfo_growthTitle,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 14,
@@ -962,22 +951,22 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'Alla chiusura della Ghost Map, vedi un riepilogo con:',
+              l10n.ghostMapInfo_growthIntro,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
               ),
             ),
             const SizedBox(height: 10),
-            _growthRow('✅', 'Corretti', 'Concetti che avevi già giusti'),
+            _growthRow('✅', l10n.ghostMapInfo_growthCorrect, l10n.ghostMapInfo_growthCorrectDesc),
             const SizedBox(height: 4),
-            _growthRow('⚠️', 'Da migliorare', 'Concetti imprecisi o deboli'),
+            _growthRow('⚠️', l10n.ghostMapInfo_growthImprove, l10n.ghostMapInfo_growthImproveDesc),
             const SizedBox(height: 4),
-            _growthRow('❓', 'Mancanti', 'Concetti che non avevi scritto'),
+            _growthRow('❓', l10n.ghostMapInfo_growthMissing, l10n.ghostMapInfo_growthMissingDesc),
             const SizedBox(height: 4),
-            _growthRow('🎯', 'Tentativi', 'Quanti ne hai azzeccati vs totale'),
+            _growthRow('🎯', l10n.ghostMapInfo_growthAttempts, l10n.ghostMapInfo_growthAttemptsDesc),
             const SizedBox(height: 4),
-            _growthRow('📈', 'Crescita %', 'Lacune colmate dopo l\'interazione'),
+            _growthRow('📈', l10n.ghostMapInfo_growthPercent, l10n.ghostMapInfo_growthPercentDesc),
             const SizedBox(height: 12),
             // Mock progress bar
             ClipRRect(
@@ -993,7 +982,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                '65% esplorato',
+                l10n.ghostMapInfo_growthExplored(65),
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.4),
                   fontSize: 11,
@@ -1027,7 +1016,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _sleepCard() {
+  Widget _sleepCard(FlueraLocalizations l10n) {
     return Card(
       color: _Tok.bgCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_Tok.cardRadius)),
@@ -1041,7 +1030,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                 const Text('🌙', style: TextStyle(fontSize: 20)),
                 const SizedBox(width: 10),
                 Text(
-                  'Il sonno completa il ciclo',
+                  l10n.ghostMapInfo_sleepTitle,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 14,
@@ -1052,12 +1041,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'Dopo la sessione Ghost Map, il tuo cervello continua a elaborare '
-              'durante il sonno (consolidamento della memoria). Al prossimo accesso, '
-              'i concetti rivisitati saranno più stabili e Fluera adatterà '
-              'automaticamente gli intervalli di ripasso.\n\n'
-              'Questo è il bridge tra Passo 4 (Ghost Map) → Passo 5 (calcolo SRS '
-              'notturno) → Passo 6 (blur graduato).',
+              l10n.ghostMapInfo_sleepDesc,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -1080,8 +1064,7 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'Stickgold & Walker (2005): "Il sonno trasforma la memoria '
-                      'episodica in conoscenza semantica strutturata."',
+                      l10n.ghostMapInfo_sleepCitation,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.45),
                         fontSize: 10,
@@ -1099,11 +1082,11 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
     );
   }
 
-  Widget _ctaButton() {
+  Widget _ctaButton(FlueraLocalizations l10n) {
     return FilledButton.icon(
       onPressed: () => Navigator.of(context).pop(),
       icon: const Icon(Icons.arrow_back),
-      label: const Text('Torna al canvas e provalo!'),
+      label: Text(l10n.ghostMapInfo_cta),
       style: FilledButton.styleFrom(
         backgroundColor: _Tok.accent,
         foregroundColor: const Color(0xFF0A0A1A),
@@ -1126,7 +1109,8 @@ class _GhostMapInfoScreenState extends State<GhostMapInfoScreen>
 // ════════════════════════════════════════════════════════════════════════════
 
 class _NodeTypeDemo extends StatefulWidget {
-  const _NodeTypeDemo();
+  final FlueraLocalizations l10n;
+  const _NodeTypeDemo({required this.l10n});
 
   @override
   State<_NodeTypeDemo> createState() => _NodeTypeDemoState();
@@ -1135,51 +1119,41 @@ class _NodeTypeDemo extends StatefulWidget {
 class _NodeTypeDemoState extends State<_NodeTypeDemo> {
   int _selectedIndex = -1;
 
-  static const _types = [
+  List<_NodeTypeInfo> get _types => [
     _NodeTypeInfo(
       emoji: '❓',
-      title: 'Mancante',
+      title: widget.l10n.ghostMapInfo_nodeMissingTitle,
       color: _Tok.accentRed,
-      description:
-          'Un concetto che NON hai sul tuo canvas ma che Atlas ritiene importante. '
-          'Puoi tentare di scriverlo o rivelare cosa pensava Atlas.',
-      principle: 'Active Recall + Gap Detection (Ausubel, 1968)',
+      description: widget.l10n.ghostMapInfo_nodeMissingDesc,
+      principle: widget.l10n.ghostMapInfo_nodeMissingPrinciple,
     ),
     _NodeTypeInfo(
       emoji: '⚠️',
-      title: 'Debole',
+      title: widget.l10n.ghostMapInfo_nodeWeakTitle,
       color: _Tok.accentAmber,
-      description:
-          'Un concetto presente ma impreciso, incompleto o collegato in modo errato. '
-          'Atlas ti spiega cosa migliorare.',
-      principle: 'Elaborative Feedback (Chi, 2009)',
+      description: widget.l10n.ghostMapInfo_nodeWeakDesc,
+      principle: widget.l10n.ghostMapInfo_nodeWeakPrinciple,
     ),
     _NodeTypeInfo(
       emoji: '✅',
-      title: 'Corretto',
+      title: widget.l10n.ghostMapInfo_nodeCorrectTitle,
       color: _Tok.accentGreen,
-      description:
-          'Un concetto corretto — il cerchio verde conferma la padronanza. '
-          'Toccalo per vedere il feedback positivo.',
-      principle: 'Positive Reinforcement + Self-Efficacy',
+      description: widget.l10n.ghostMapInfo_nodeCorrectDesc,
+      principle: widget.l10n.ghostMapInfo_nodeCorrectPrinciple,
     ),
     _NodeTypeInfo(
       emoji: '⭐',
-      title: 'Eccellente',
+      title: widget.l10n.ghostMapInfo_nodeExcellentTitle,
       color: _Tok.accentGreenBright,
-      description:
-          'Padronanza profonda — alta confidenza confermata. '
-          'Questi nodi brillano di verde intenso ⭐.',
-      principle: 'Mastery Learning (Bloom, 1968)',
+      description: widget.l10n.ghostMapInfo_nodeExcellentDesc,
+      principle: widget.l10n.ghostMapInfo_nodeExcellentPrinciple,
     ),
     _NodeTypeInfo(
       emoji: '⚡',
-      title: 'Ipercorrezione',
+      title: widget.l10n.ghostMapInfo_nodeHyperTitle,
       color: _Tok.accentRedDeep,
-      description:
-          'Eri molto sicuro ma sbagliavi — il bordo rosso ondulato '
-          'segnala l\'opportunità di apprendimento più potente.',
-      principle: 'Hypercorrection Effect (Butterfield & Metcalfe, 2001)',
+      description: widget.l10n.ghostMapInfo_nodeHyperDesc,
+      principle: widget.l10n.ghostMapInfo_nodeHyperPrinciple,
     ),
   ];
 
@@ -1194,7 +1168,7 @@ class _NodeTypeDemoState extends State<_NodeTypeDemo> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Tocca un nodo per scoprirne il significato:',
+              widget.l10n.ghostMapInfo_nodeTypeTapHint,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -1417,7 +1391,8 @@ class _DashedCirclePainter extends CustomPainter {
 // ════════════════════════════════════════════════════════════════════════════
 
 class _AttemptFlowDemo extends StatefulWidget {
-  const _AttemptFlowDemo();
+  final FlueraLocalizations l10n;
+  const _AttemptFlowDemo({required this.l10n});
 
   @override
   State<_AttemptFlowDemo> createState() => _AttemptFlowDemoState();
@@ -1494,7 +1469,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
                 const Icon(Icons.touch_app, size: 16, color: _Tok.accent),
                 const SizedBox(width: 6),
                 Text(
-                  'Prova il flusso!',
+                  widget.l10n.ghostMapInfo_demoTitle,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 13,
@@ -1552,7 +1527,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
             const Text('❓', style: TextStyle(fontSize: 24)),
             const SizedBox(width: 12),
             Text(
-              'Tocca per simulare un tentativo',
+              widget.l10n.ghostMapInfo_demoTapToStart,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -1577,7 +1552,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
       ),
       child: Column(
         children: [
-          const Text('🤔 Pensa alla risposta...', style: TextStyle(fontSize: 14)),
+          Text(widget.l10n.ghostMapInfo_demoThinking, style: const TextStyle(fontSize: 14)),
           const SizedBox(height: 12),
           AnimatedBuilder(
             animation: _timerController,
@@ -1623,7 +1598,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
       ),
       child: Column(
         children: [
-          const Text('💡 Risposta di Atlas:', style: TextStyle(fontSize: 14)),
+          Text(widget.l10n.ghostMapInfo_demoRevealTitle, style: const TextStyle(fontSize: 14)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -1631,8 +1606,8 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
               color: Colors.white.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Text(
-              '"Fotosintesi clorofilliana"',
+            child: Text(
+              widget.l10n.ghostMapInfo_demoRevealExample,
               style: TextStyle(
                 color: _Tok.accent,
                 fontSize: 15,
@@ -1643,7 +1618,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
           ),
           const SizedBox(height: 12),
           Text(
-            'Avevi pensato la stessa cosa?',
+            widget.l10n.ghostMapInfo_demoRevealQuestion,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.6),
               fontSize: 12,
@@ -1656,7 +1631,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
               FilledButton.tonalIcon(
                 onPressed: () => _selectResult(true),
                 icon: const Icon(Icons.check, size: 16),
-                label: const Text('Sì!'),
+                label: Text(widget.l10n.ghostMapInfo_demoYes),
                 style: FilledButton.styleFrom(
                   backgroundColor: _Tok.accentGreen.withValues(alpha: 0.15),
                   foregroundColor: _Tok.accentGreen,
@@ -1666,7 +1641,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
               FilledButton.tonalIcon(
                 onPressed: () => _selectResult(false),
                 icon: const Icon(Icons.close, size: 16),
-                label: const Text('No'),
+                label: Text(widget.l10n.ghostMapInfo_demoNo),
                 style: FilledButton.styleFrom(
                   backgroundColor: _Tok.accentRed.withValues(alpha: 0.15),
                   foregroundColor: _Tok.accentRed,
@@ -1683,11 +1658,11 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
     final color = correct ? _Tok.accentGreen : _Tok.accentRed;
     final emoji = correct ? '✅' : '⚡';
     final title = correct
-        ? 'Corretto! Il concetto viene rinforzato.'
-        : 'Ipercorrezione! L\'errore si imprime nella memoria.';
+        ? widget.l10n.ghostMapInfo_demoCorrect
+        : widget.l10n.ghostMapInfo_demoWrong;
     final fsrsLabel = correct
-        ? 'FSRS: intervallo ↑ (consolidamento)'
-        : 'FSRS: intervallo ↓ + shock mnemonico';
+        ? widget.l10n.ghostMapInfo_demoFsrsUp
+        : widget.l10n.ghostMapInfo_demoFsrsDown;
 
     return GestureDetector(
       key: ValueKey('result_$correct'),
@@ -1710,7 +1685,7 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
                 style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.4), fontSize: 11)),
             const SizedBox(height: 4),
-            Text('Tocca per riprovare',
+            Text(widget.l10n.ghostMapInfo_demoRetry,
                 style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.3), fontSize: 10)),
           ],
@@ -1725,7 +1700,8 @@ class _AttemptFlowDemoState extends State<_AttemptFlowDemo>
 // ════════════════════════════════════════════════════════════════════════════
 
 class _BeforeAfterDemo extends StatefulWidget {
-  const _BeforeAfterDemo();
+  final FlueraLocalizations l10n;
+  const _BeforeAfterDemo({required this.l10n});
 
   @override
   State<_BeforeAfterDemo> createState() => _BeforeAfterDemoState();
@@ -1766,7 +1742,7 @@ class _BeforeAfterDemoState extends State<_BeforeAfterDemo> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _toggleChip('Prima', !_showAfter, () {
+                _toggleChip(widget.l10n.ghostMapInfo_beforeAfterBefore, !_showAfter, () {
                   setState(() => _showAfter = false);
                   HapticFeedback.selectionClick();
                 }),
@@ -1774,7 +1750,7 @@ class _BeforeAfterDemoState extends State<_BeforeAfterDemo> {
                 const Icon(Icons.arrow_forward, size: 14,
                     color: _Tok.accent),
                 const SizedBox(width: 8),
-                _toggleChip('Dopo', _showAfter, () {
+                _toggleChip(widget.l10n.ghostMapInfo_beforeAfterAfter, _showAfter, () {
                   setState(() => _showAfter = true);
                   HapticFeedback.selectionClick();
                 }),
@@ -1817,8 +1793,8 @@ class _BeforeAfterDemoState extends State<_BeforeAfterDemo> {
               duration: const Duration(milliseconds: 200),
               child: Text(
                 _showAfter
-                    ? '📈 7 concetti, 4 nuovi — 57% di crescita!'
-                    : '3 concetti isolati — mancano le connessioni',
+                    ? widget.l10n.ghostMapInfo_beforeAfterResultAfter
+                    : widget.l10n.ghostMapInfo_beforeAfterResultBefore,
                 key: ValueKey(_showAfter),
                 style: TextStyle(
                   color: (_showAfter

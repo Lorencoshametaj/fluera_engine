@@ -359,22 +359,31 @@ class NotificationPlugin: NSObject, FlutterPlugin, FlutterStreamHandler, UNUserN
         }
 
         let center = UNUserNotificationCenter.current()
+        let group = DispatchGroup()
 
         // Remove delivered notifications with matching threadIdentifier
+        group.enter()
         center.getDeliveredNotifications { notifications in
             let ids = notifications
                 .filter { $0.request.content.threadIdentifier == groupKey }
                 .map { $0.request.identifier }
             center.removeDeliveredNotifications(withIdentifiers: ids)
+            group.leave()
         }
 
         // Remove pending notifications with matching threadIdentifier
+        group.enter()
         center.getPendingNotificationRequests { requests in
             let ids = requests
                 .filter { $0.content.threadIdentifier == groupKey }
                 .map { $0.identifier }
             center.removePendingNotificationRequests(withIdentifiers: ids)
-            DispatchQueue.main.async { result(nil) }
+            group.leave()
+        }
+
+        // Return result only after both operations complete
+        group.notify(queue: .main) {
+            result(nil)
         }
     }
 
@@ -432,8 +441,15 @@ class NotificationPlugin: NSObject, FlutterPlugin, FlutterStreamHandler, UNUserN
 
     private func handleGetInitial(result: @escaping FlutterResult) {
         let defaults = UserDefaults.standard
-        if let queued = defaults.array(forKey: "fluera_pending_tap_events") as? [[String: Any]],
+        if var queued = defaults.array(forKey: "fluera_pending_tap_events") as? [[String: Any]],
            let first = queued.first {
+            // Consume the event so it's not returned again or re-flushed by onListen
+            queued.removeFirst()
+            if queued.isEmpty {
+                defaults.removeObject(forKey: "fluera_pending_tap_events")
+            } else {
+                defaults.set(queued, forKey: "fluera_pending_tap_events")
+            }
             result(first)
         } else {
             result(nil)

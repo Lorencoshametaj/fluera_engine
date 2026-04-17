@@ -418,120 +418,180 @@ class _SectionHeader extends StatelessWidget {
 class _FormatSelector extends StatelessWidget {
   final PdfExportFormat value;
   final ValueChanged<PdfExportFormat> onChanged;
+  final FlueraSubscriptionTier subscriptionTier;
 
-  const _FormatSelector({required this.value, required this.onChanged});
+  /// Formats available in Free tier. All others require Pro.
+  static const _freeFormats = {PdfExportFormat.png};
+
+  const _FormatSelector({
+    required this.value,
+    required this.onChanged,
+    this.subscriptionTier = FlueraSubscriptionTier.free,
+  });
+
+  bool _isFormatLocked(PdfExportFormat format) =>
+      subscriptionTier == FlueraSubscriptionTier.free &&
+      !_freeFormats.contains(format);
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final l10n = FlueraLocalizations.of(context);
 
-    return Row(
-      children:
-          PdfExportFormat.values.map((format) {
-            final isSelected = format == value;
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  right: format != PdfExportFormat.values.last ? 8 : 0,
-                ),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOutCubic,
-                  decoration: BoxDecoration(
-                    gradient:
-                        isSelected
-                            ? LinearGradient(
-                              colors: [
-                                cs.primaryContainer,
-                                cs.primaryContainer.withValues(alpha: 0.6),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            )
-                            : null,
-                    color:
-                        isSelected
-                            ? null
-                            : cs.surfaceContainerHighest.withValues(
-                              alpha: 0.35,
-                            ),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color:
-                          isSelected
-                              ? cs.primary.withValues(alpha: 0.4)
-                              : cs.outlineVariant.withValues(alpha: 0.15),
-                      width: isSelected ? 1.5 : 1,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children:
+              PdfExportFormat.values.map((format) {
+                final isSelected = format == value;
+                final isLocked = _isFormatLocked(format);
+                return Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      right: format != PdfExportFormat.values.last ? 8 : 0,
                     ),
-                    boxShadow:
-                        isSelected
-                            ? [
-                              BoxShadow(
-                                color: cs.primary.withValues(alpha: 0.12),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ]
-                            : null,
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => onChanged(format),
-                      borderRadius: BorderRadius.circular(14),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AnimatedScale(
-                              scale: isSelected ? 1.1 : 1.0,
-                              duration: const Duration(milliseconds: 200),
-                              child: Icon(
-                                format.icon,
-                                size: 24,
-                                color:
-                                    isSelected
-                                        ? cs.primary
-                                        : cs.onSurfaceVariant,
-                              ),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      decoration: BoxDecoration(
+                        gradient:
+                            isSelected && !isLocked
+                                ? LinearGradient(
+                                  colors: [
+                                    cs.primaryContainer,
+                                    cs.primaryContainer.withValues(alpha: 0.6),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                )
+                                : null,
+                        color:
+                            isSelected && !isLocked
+                                ? null
+                                : cs.surfaceContainerHighest.withValues(
+                                  alpha: isLocked ? 0.15 : 0.35,
+                                ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color:
+                              isSelected && !isLocked
+                                  ? cs.primary.withValues(alpha: 0.4)
+                                  : cs.outlineVariant.withValues(alpha: 0.15),
+                          width: isSelected && !isLocked ? 1.5 : 1,
+                        ),
+                        boxShadow:
+                            isSelected && !isLocked
+                                ? [
+                                  BoxShadow(
+                                    color: cs.primary.withValues(alpha: 0.12),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                                : null,
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: isLocked ? null : () => onChanged(format),
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedScale(
+                                  scale: isSelected && !isLocked ? 1.1 : 1.0,
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Icon(
+                                        format.icon,
+                                        size: 24,
+                                        color:
+                                            isLocked
+                                                ? cs.onSurfaceVariant.withValues(alpha: 0.3)
+                                                : isSelected
+                                                    ? cs.primary
+                                                    : cs.onSurfaceVariant,
+                                      ),
+                                      if (isLocked)
+                                        Positioned(
+                                          right: -6,
+                                          top: -6,
+                                          child: Icon(
+                                            Icons.lock_rounded,
+                                            size: 12,
+                                            color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  format.label,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight:
+                                        isSelected && !isLocked
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                    color:
+                                        isLocked
+                                            ? cs.onSurfaceVariant.withValues(alpha: 0.3)
+                                            : isSelected
+                                                ? cs.primary
+                                                : cs.onSurfaceVariant,
+                                    letterSpacing: isSelected && !isLocked ? 0.5 : 0,
+                                  ),
+                                ),
+                                if (isLocked)
+                                  Text(
+                                    'Pro',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: cs.tertiary.withValues(alpha: 0.7),
+                                    ),
+                                  )
+                                else
+                                  // Selection indicator dot
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    margin: const EdgeInsets.only(top: 4),
+                                    width: isSelected ? 6 : 0,
+                                    height: isSelected ? 6 : 0,
+                                    decoration: BoxDecoration(
+                                      color: cs.primary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                              ],
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              format.label,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight:
-                                    isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                color:
-                                    isSelected
-                                        ? cs.primary
-                                        : cs.onSurfaceVariant,
-                                letterSpacing: isSelected ? 0.5 : 0,
-                              ),
-                            ),
-                            // Selection indicator dot
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              margin: const EdgeInsets.only(top: 4),
-                              width: isSelected ? 6 : 0,
-                              height: isSelected ? 6 : 0,
-                              decoration: BoxDecoration(
-                                color: cs.primary,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                );
+              }).toList(),
+        ),
+        if (subscriptionTier == FlueraSubscriptionTier.free)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              l10n?.tierGate_exportBlocked ??
+                  'The Free plan exports only to PNG. With Pro, export to PDF, SVG, and all formats.',
+              style: TextStyle(
+                fontSize: 11,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.5),
               ),
-            );
-          }).toList(),
+            ),
+          ),
+      ],
     );
   }
 }

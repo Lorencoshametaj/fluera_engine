@@ -36,12 +36,16 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
       _saveStepGateHistory();
     }
 
+    // Cancel any active inline attempt before dismissing
+    if (_isInlineAttemptActive) _cancelInlineGhostAttempt();
+
     // 🗺️ P4-24: Animated fade-out (500ms) before actual dismiss
     _animateGhostMapFadeOut(() {
       controller.dismiss();
       _ghostMapAnimController?.stop();
       // U-1: Stop entry timer on dismiss
       _ghostMapEntryTimer.stop();
+      if (!mounted) return;
       setState(() {});
 
       if (summary.isNotEmpty && mounted) {
@@ -149,27 +153,19 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
 
   /// 🗺️ P4-39: Persist the ghost map dataset JSON via the storage adapter.
   ///
+  /// R10: Uses transactional write to prevent partial data on force-kill.
   /// Fire-and-forget: runs asynchronously, non-blocking, swallows errors.
-  /// The dataset is stored as JSON metadata keyed by canvas ID + timestamp.
   void _persistGhostMapDataset(Map<String, dynamic> dataset) {
     Future(() async {
       try {
         final adapter = _config.storageAdapter;
         if (adapter == null) return;
 
-        // Encode as JSON string
+        final sessionId = dataset['sessionId'] as String? ?? 'unknown';
         final jsonStr = jsonEncode(dataset);
-        final bytes = Uint8List.fromList(utf8.encode(jsonStr));
 
-        // Store via the snapshot mechanism (ghost_map_session key)
-        if (adapter is SqliteStorageAdapter) {
-          // Save as a named blob alongside the canvas
-          await adapter.saveSnapshot(
-            '${_canvasId}_ghost_map_${dataset['sessionId']}',
-            bytes,
-          );
-          debugPrint('🗺️ P4-39: Dataset persisted (${bytes.length} bytes)');
-        }
+        await adapter.saveGhostMapDataset(_canvasId, sessionId, jsonStr);
+        debugPrint('🗺️ P4-39: Dataset persisted (${jsonStr.length} chars)');
       } catch (e) {
         debugPrint('🗺️ P4-39: Dataset persistence failed: $e');
       }
@@ -259,16 +255,20 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              l10n.ghostMap_progressExplored(revealed, total),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
+            Flexible(
+              child: Text(
+                l10n.ghostMap_progressExplored(revealed, total),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             if (controller.allMissingRevealed)
               TextButton(
                 onPressed: dismissGhostMap,
-                child: Text(l10n.ghostMap_closeGhostMap),
+                child: Text(l10n.ghostMap_closeGhostMap,
+                  style: const TextStyle(fontSize: 11)),
               ),
           ],
         ),
@@ -431,14 +431,27 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
   /// Navigate the canvas to center on a specific ghost node.
   void _navigateToGhostNode(GhostNode node) {
     HapticFeedback.selectionClick();
-    // Compute the viewport offset that would center the node on screen
     final viewportSize = MediaQuery.of(context).size;
+
+    // Zoom to fit the node with comfortable padding.
+    // Target: node fills ~40% of screen width.
+    final nodeWidth = node.estimatedSize.width > 0 ? node.estimatedSize.width : 220.0;
+    final targetScale = (viewportSize.width * 0.4 / nodeWidth)
+        .clamp(0.8, 2.5); // don't zoom too far in or out
+
+    // Only zoom in if current zoom is too far out
+    if (_canvasController.scale < targetScale) {
+      _canvasController.setScale(targetScale);
+    }
+
+    // Center the node on screen at the (possibly new) scale
+    final scale = _canvasController.scale;
     final targetOffset = Offset(
-      viewportSize.width / 2 - node.estimatedPosition.dx * _canvasController.scale,
-      viewportSize.height / 2 - node.estimatedPosition.dy * _canvasController.scale,
+      viewportSize.width / 2 - node.estimatedPosition.dx * scale,
+      viewportSize.height / 2 - node.estimatedPosition.dy * scale,
     );
     _canvasController.animateOffsetTo(targetOffset);
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   // ── PASSO 3 INTEGRATION ─────────────────────────────────────────────────
@@ -516,7 +529,9 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
     }
 
     // Bump version to trigger repaint with enriched data
-    _ghostMapController.version.value++;
+    // Use the safe method to prevent defunct element crash on dispose.
+    // ignore: invalid_use_of_protected_member
+    _ghostMapController.notifyListeners();
   }
 
   // ── OVERLAYS ─────────────────────────────────────────────────────────────
@@ -583,39 +598,45 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
 
     return [
       // 🗺️ P4-14: Floating navigation bar (bottom-center)
-      Positioned(
-        bottom: 80,
-        left: 0,
-        right: 0,
-        child: Center(
-          child: buildGhostMapNavigationBar(),
-        ),
-      ),
-
-      // 🗺️ Progress indicator (top-right, below toolbar)
-      Positioned(
-        top: 12,
-        right: 16,
-        width: 220,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 8,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: _buildGhostMapProgress(),
+      // Hide when inline attempt is active to reduce clutter
+      if (!_isInlineAttemptActive)
+        Positioned(
+          bottom: 80,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: buildGhostMapNavigationBar(),
           ),
         ),
-      ),
+
+      // 🗺️ Progress indicator (top-right, below toolbar)
+      if (!_isInlineAttemptActive)
+        Positioned(
+          top: 12,
+          right: 16,
+          width: 220,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: _buildGhostMapProgress(),
+            ),
+          ),
+        ),
+
+      // 🗺️ Inline attempt overlay (on-canvas drawing zone)
+      ..._buildInlineAttemptWidgets(context),
     ];
   }
 }

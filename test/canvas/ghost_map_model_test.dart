@@ -146,5 +146,23 @@ void main() {
       expect(node.userAttempt, equals('my guess'));
       expect(node.attemptCorrect, isTrue);
     });
+
+    test('estimatedPosition can be reassigned for deterministic layout pass', () {
+      final node = GhostNode(
+        id: 'layout', concept: 'Layout test',
+        estimatedPosition: const Offset(50, 50),
+        estimatedSize: const Size(200, 80),
+        status: GhostNodeStatus.missing,
+      );
+
+      expect(node.estimatedPosition, equals(const Offset(50, 50)));
+
+      // Reassign position (deterministic layout pass repositions nodes)
+      node.estimatedPosition = const Offset(300, 400);
+
+      expect(node.estimatedPosition, equals(const Offset(300, 400)));
+      // Bounds should reflect the new position
+      expect(node.bounds.center, equals(const Offset(300, 400)));
+    });
   });
 }

@@ -66,6 +66,24 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
       }
     }
 
+    // R1: Guard — empty canvas → show message instead of zone selector.
+    if (_clusterCache.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_l10n.recall_needNotes),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     HapticFeedback.mediumImpact();
     setState(() => _showRecallZoneSelector = true);
   }
@@ -78,8 +96,20 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
         .toList();
 
     if (clustersInZone.isEmpty) {
-    //       debugPrint('🧠 No clusters in selected zone');
       setState(() => _showRecallZoneSelector = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_l10n.recall_needNotes),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
       return;
     }
 
@@ -97,6 +127,25 @@ extension RecallModeWiring on _FlueraCanvasScreenState {
       initialPhase: mode,
       sessionCount: sessionCount,
     );
+
+    // R1: Guard — controller rejected activation (< minNodesForRecall).
+    if (!_recallModeController.isActive) {
+      setState(() => _showRecallZoneSelector = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_l10n.recall_needMoreNotes),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
 
     // 🎵 A13.4: "Sipario che scende" — low 200Hz tone on recall activation
     PedagogicalSoundEngine.instance.play(PedagogicalSound.recallActivation);

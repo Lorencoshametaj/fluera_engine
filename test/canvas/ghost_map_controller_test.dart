@@ -408,6 +408,47 @@ void main() {
   // Edge cases
   // ═════════════════════════════════════════════════════════════════════════
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // Dispose safety
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('Dispose safety', () {
+    test('does not notify after dispose', () {
+      final controller = GhostMapController(provider: _FakeAiProvider());
+      controller.dispose();
+      // Should not throw — notifyListeners() is a no-op after dispose
+      controller.notifyListeners();
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // Mutable estimatedPosition via setResultForTest
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('Mutable estimatedPosition in result', () {
+    test('setResultForTest preserves mutable node positions', () {
+      final result = _makeResult();
+      controller.setResultForTest(result);
+
+      final node = controller.result!.nodes.first;
+      final originalPos = node.estimatedPosition;
+
+      // Reassign estimatedPosition (simulates deterministic layout pass)
+      node.estimatedPosition = const Offset(999, 888);
+      expect(node.estimatedPosition, equals(const Offset(999, 888)));
+      expect(node.estimatedPosition, isNot(equals(originalPos)));
+
+      // Hit-test should reflect the new position
+      final hit = controller.hitTestGhostNode(const Offset(999, 888));
+      expect(hit, isNotNull);
+      expect(hit!.id, equals(node.id));
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // Edge cases
+  // ═════════════════════════════════════════════════════════════════════════
+
   group('Edge cases', () {
     test('reveal same node twice is idempotent', () {
       controller.setResultForTest(_makeResult());

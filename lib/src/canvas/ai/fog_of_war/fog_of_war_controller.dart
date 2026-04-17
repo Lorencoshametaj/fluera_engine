@@ -54,6 +54,11 @@ class FogOfWarController extends ChangeNotifier {
   /// The selected zone in canvas coordinates.
   Rect? _selectedZone;
 
+  /// Medium fog: fixed torch center in canvas coordinates. Set once at
+  /// activation to the zone center — does NOT follow panning. Forces
+  /// the student to remember node locations relative to this anchor.
+  Offset _torchCenter = Offset.zero;
+
   /// Original clusters within the selected zone.
   List<ContentCluster> _originalClusters = const [];
 
@@ -104,6 +109,9 @@ class FogOfWarController extends ChangeNotifier {
 
   /// Original clusters in the zone.
   List<ContentCluster> get originalClusters => _originalClusters;
+
+  /// Medium fog: the fixed torch center (canvas coordinates).
+  Offset get torchCenter => _torchCenter;
 
   /// The fog density level.
   FogLevel get fogLevel => _fogLevel;
@@ -245,6 +253,7 @@ class FogOfWarController extends ChangeNotifier {
     _selectedZone = zone;
     _originalClusters = List.unmodifiable(clustersInZone);
     _fogLevel = fogLevel;
+    _torchCenter = zone.center; // Fixed anchor for medium fog.
     _revealedNodeIds.clear();
     _pendingEvalClusterId = null;
     _revealProgress = 0.0;
@@ -312,9 +321,17 @@ class FogOfWarController extends ChangeNotifier {
   /// Returns the cluster ID if a node was hit, null otherwise.
   /// For [FogLevel.total], uses 50px tolerance (P10-07).
   /// For other levels, uses standard bounds hit-test.
-  String? handleTap(Offset canvasPosition) {
+  ///
+  /// [canvasScale] is needed to scale the hit tolerance inversely with
+  /// zoom — at low zoom a finger tap covers a large canvas area, so the
+  /// tolerance must grow to remain usable.
+  String? handleTap(Offset canvasPosition, {double canvasScale = 1.0}) {
     if (_phase != FogPhase.active) return null;
     if (_pendingEvalClusterId != null) return null; // Already evaluating.
+
+    // Scale-independent tolerance: ~44px finger size in screen space,
+    // converted to canvas space. Minimum 20px canvas units.
+    final fingerRadius = (22.0 / canvasScale).clamp(20.0, 300.0);
 
     for (final cluster in _originalClusters) {
       // Skip already revealed nodes.
@@ -322,12 +339,12 @@ class FogOfWarController extends ChangeNotifier {
 
       bool hit = false;
       if (_fogLevel == FogLevel.total) {
-        // P10-07: 50px tolerance from centroid.
+        // P10-07: generous tolerance from centroid (scales with zoom).
         final distance = (cluster.centroid - canvasPosition).distance;
-        hit = distance <= 50.0;
+        hit = distance <= fingerRadius.clamp(50.0, 300.0);
       } else {
-        // Standard bounds hit-test with some inflation.
-        hit = cluster.bounds.inflate(20.0).contains(canvasPosition);
+        // Standard bounds hit-test with scale-aware inflation.
+        hit = cluster.bounds.inflate(fingerRadius).contains(canvasPosition);
       }
 
       if (hit) {
@@ -357,9 +374,15 @@ class FogOfWarController extends ChangeNotifier {
     return minDistSq;
   }
 
-  /// Reveal a node (mark as tapped, awaiting self-evaluation).
+  /// Mark a node as tapped, awaiting self-evaluation.
+  ///
+  /// The node is NOT visually revealed yet — it stays fogged until
+  /// the student completes the self-evaluation via [recordResult].
+  /// This ensures the student declares confidence BEFORE seeing content
+  /// (explicit metacognition, P10-08).
   void _revealNode(String clusterId) {
-    _revealedNodeIds.add(clusterId);
+    // Do NOT add to _revealedNodeIds here — visual reveal happens
+    // only after self-evaluation in recordResult().
     _pendingEvalClusterId = clusterId;
     _nodeStopwatch
       ..reset()
@@ -400,6 +423,9 @@ class FogOfWarController extends ChangeNotifier {
       entry.confidence = confidence;
     }
 
+    // Visual reveal happens NOW — after the student declared confidence.
+    // This guarantees the metacognitive judgment is uncontaminated (P10-08).
+    _revealedNodeIds.add(clusterId);
     _pendingEvalClusterId = null;
     notifyListeners();
   }
@@ -415,20 +441,28 @@ class FogOfWarController extends ChangeNotifier {
   bool isMasteryExplored(String clusterId) =>
       _masteryExploredIds.contains(clusterId);
 
-  /// Handle tap on a node during mastery map phase — reveals content.
+  /// Handle tap on a node during mastery map phase — marks as "reviewed".
+  ///
+  /// Content is already visible after the cinematic reveal. This tap
+  /// marks the node as acknowledged by the student (visual state change
+  /// from ❌/👁‍🗨 to 📖) and triggers a zoom for closer reading.
   ///
   /// Returns a [MasteryMapTapResult] with the cluster ID and its status,
   /// or null if the tap didn't hit a red/grey node.
-  MasteryMapTapResult? handleMasteryMapTap(Offset canvasPosition) {
+  MasteryMapTapResult? handleMasteryMapTap(
+    Offset canvasPosition, {
+    double canvasScale = 1.0,
+  }) {
     if (_phase != FogPhase.masteryMap) return null;
 
+    final fingerRadius = (22.0 / canvasScale).clamp(20.0, 300.0);
     for (final cluster in _originalClusters) {
-      if (cluster.bounds.inflate(20.0).contains(canvasPosition)) {
+      if (cluster.bounds.inflate(fingerRadius).contains(canvasPosition)) {
         final entry = _session?.nodeEntries[cluster.id];
         if (entry != null &&
             (entry.status == FogNodeStatus.forgotten ||
              entry.status == FogNodeStatus.blindSpot)) {
-          // Mark as explored — painter will reveal content underneath.
+          // Mark as reviewed — painter changes icon to 📖.
           _masteryExploredIds.add(cluster.id);
           _revealedNodeIds.add(cluster.id);
           notifyListeners();
@@ -556,10 +590,9 @@ class FogOfWarController extends ChangeNotifier {
         // Silhouettes always visible (at 15% opacity — handled by painter).
         return true;
       case FogLevel.medium:
-        // Visible only within 300px radius of viewport center (P10-06).
-        final distance =
-            (cluster.centroid - viewportCenterCanvas).distance;
-        return distance <= 300.0;
+        // Faint silhouettes visible everywhere (like light, but harder to
+        // see). Visibility handled by painter opacity, not by radius.
+        return true;
       case FogLevel.total:
         // Never visible until tapped (P10-07).
         return false;
@@ -580,16 +613,8 @@ class FogOfWarController extends ChangeNotifier {
       case FogLevel.light:
         return 0.15; // P10-05: silhouettes at 15% opacity
       case FogLevel.medium:
-        final distance =
-            (cluster.centroid - viewportCenterCanvas).distance;
-        if (distance <= 300.0) {
-          // Fade in at the edge of the visibility radius.
-          if (distance > 250.0) {
-            return 1.0 - ((distance - 250.0) / 50.0); // Fade 250→300
-          }
-          return 1.0;
-        }
-        return 0.0;
+        // Faint silhouettes everywhere — opacity handled by painter.
+        return 0.10;
       case FogLevel.total:
         return 0.0;
     }

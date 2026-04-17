@@ -34,11 +34,16 @@ class SocraticBubble extends StatefulWidget {
   final VoidCallback? onRequestBreadcrumb;
   final VoidCallback? onSkip;
   final VoidCallback? onNext;
+  /// Called when a resolved bubble is swiped away.
+  final VoidCallback? onDismissResolved;
   final String? currentBreadcrumbText;
   final int breadcrumbsUsed;
   final bool canRequestBreadcrumb;
   final int currentIndex;
   final int totalQuestions;
+  /// Status of each question in the session for accurate progress dots.
+  /// Each entry is: null=pending, true=correct, false=wrong/skipped.
+  final List<bool?> questionResults;
 
   const SocraticBubble({
     super.key,
@@ -51,11 +56,13 @@ class SocraticBubble extends StatefulWidget {
     this.onRequestBreadcrumb,
     this.onSkip,
     this.onNext,
+    this.onDismissResolved,
     this.currentBreadcrumbText,
     this.breadcrumbsUsed = 0,
     this.canRequestBreadcrumb = false,
     this.currentIndex = 0,
     this.totalQuestions = 1,
+    this.questionResults = const [],
   });
 
   @override
@@ -148,7 +155,7 @@ class _SocraticBubbleState extends State<SocraticBubble>
     final color = _statusColor;
     final isActive = widget.isActiveQuestion && !_isResolved;
 
-    const bubbleWidth = 260.0;
+    const bubbleWidth = 280.0;
     final screenSize = MediaQuery.of(context).size;
     final topSafeArea = MediaQuery.of(context).padding.top;
     const toolbarHeight = 56.0;
@@ -160,9 +167,16 @@ class _SocraticBubbleState extends State<SocraticBubble>
       bubbleX = _dragOffset.dx;
       bubbleY = _dragOffset.dy;
     } else {
-      // Default: center-right of the screen, safe from toolbar
-      bubbleX = screenSize.width - bubbleWidth - 16;
-      bubbleY = minY + 8;
+      // Smart position: offset from cluster anchor, preferring right side.
+      // If cluster is on right half → place bubble on left, and vice versa.
+      final anchor = pos;
+      if (anchor.dx > screenSize.width * 0.5) {
+        bubbleX = anchor.dx - bubbleWidth - 40;
+      } else {
+        bubbleX = anchor.dx + 40;
+      }
+      // Vertically: slightly above the anchor
+      bubbleY = anchor.dy - 60;
     }
 
     // Always clamp to screen bounds
@@ -184,19 +198,22 @@ class _SocraticBubbleState extends State<SocraticBubble>
         },
         child: Dismissible(
           key: ValueKey('socratic_dismiss_${widget.question.id}'),
-          direction: _isResolved
-              ? DismissDirection.none
-              : DismissDirection.horizontal,
-          onDismissed: (_) => widget.onSkip?.call(),
+          direction: DismissDirection.horizontal,
+          confirmDismiss: (_) async {
+            if (_isResolved) {
+              widget.onDismissResolved?.call();
+            } else {
+              widget.onSkip?.call();
+            }
+            // Never actually dismiss — parent handles removal.
+            return false;
+          },
         child: AnimatedBuilder(
           animation: _pulseController,
           builder: (context, child) {
             final t = _pulseController.value;
-            final borderWidth = _isShock
-                ? 2.0 + math.sin(t * math.pi * 3) * 1.5
-                : isActive
-                    ? 1.0 + math.sin(t * math.pi) * 0.5
-                    : 1.0;
+            // Border width is FIXED to prevent text re-wrapping jitter.
+            final borderWidth = _isShock ? 2.5 : isActive ? 1.5 : 1.0;
             final glowRadius = _isShock
                 ? 12.0 + t * 8.0
                 : isActive
@@ -208,22 +225,22 @@ class _SocraticBubbleState extends State<SocraticBubble>
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: _bubbleBg,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: color.withValues(alpha: _isShock ? 0.9 : 0.5),
+                  color: color.withValues(alpha: _isShock ? 0.9 : 0.4),
                   width: borderWidth,
                 ),
                 boxShadow: [
                   if (glowRadius > 0)
                     BoxShadow(
-                      color: color.withValues(alpha: 0.3),
+                      color: color.withValues(alpha: 0.25),
                       blurRadius: glowRadius,
-                      spreadRadius: glowRadius * 0.3,
+                      spreadRadius: glowRadius * 0.2,
                     ),
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
                   ),
                 ],
               ),
@@ -233,22 +250,29 @@ class _SocraticBubbleState extends State<SocraticBubble>
                 children: [
                   // Header: type badge + skip button.
                   _buildHeader(l10n, color),
-                  const SizedBox(height: 8),
+                  // Progress dots
+                  if (widget.totalQuestions > 1) ...[
+                    const SizedBox(height: 8),
+                    _buildProgressDots(color),
+                  ],
+
+                  const SizedBox(height: 10),
 
                   // Question text (P3-10: only the question, never the answer).
                   Text(
                     widget.question.text,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      fontSize: 13,
-                      height: 1.45,
+                      color: Colors.white.withValues(alpha: 0.92),
+                      fontSize: 13.5,
+                      height: 1.5,
+                      letterSpacing: 0.1,
                     ),
                   ),
 
-                  // Breadcrumb (if any revealed).
-                  if (widget.currentBreadcrumbText != null) ...[
+                  // Breadcrumbs (accumulated — all revealed hints stay visible).
+                  if (widget.breadcrumbsUsed > 0) ...[
                     const SizedBox(height: 8),
-                    _buildBreadcrumb(),
+                    _buildAccumulatedBreadcrumbs(),
                   ],
 
                   // Status-specific UI.
@@ -279,12 +303,12 @@ class _SocraticBubbleState extends State<SocraticBubble>
                   ],
                 ],
               ),
-            );
+            );  // Container (AnimatedBuilder return)
           },
-        ),
-      ),
-      ),
-    );
+        ),  // AnimatedBuilder
+      ),    // Dismissible
+      ),    // GestureDetector
+    );      // Positioned
   }
 
   // ── Header ─────────────────────────────────────────────────────────────
@@ -490,32 +514,49 @@ class _SocraticBubbleState extends State<SocraticBubble>
 
   // ── Breadcrumb ─────────────────────────────────────────────────────────
 
-  Widget _buildBreadcrumb() {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: _amberColor.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _amberColor.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('💡', style: TextStyle(fontSize: 12)),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              widget.currentBreadcrumbText!,
-              style: TextStyle(
-                color: _amberColor.withValues(alpha: 0.85),
-                fontSize: 11,
-                height: 1.35,
-                fontStyle: FontStyle.italic,
+  /// Build ALL revealed breadcrumbs stacked (hints accumulate).
+  Widget _buildAccumulatedBreadcrumbs() {
+    final used = widget.breadcrumbsUsed.clamp(0, widget.question.breadcrumbs.length);
+    final labels = ['🕯️', '🗺️', '🚪']; // Eco Lontano, Sentiero, Soglia
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (int i = 0; i < used; i++) ...[
+          if (i > 0) const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: _amberColor.withValues(alpha: 0.05 + i * 0.03),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _amberColor.withValues(alpha: 0.1 + i * 0.05),
               ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  i < labels.length ? labels[i] : '💡',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    widget.question.breadcrumbs[i],
+                    style: TextStyle(
+                      color: _amberColor.withValues(alpha: 0.7 + i * 0.1),
+                      fontSize: 11,
+                      height: 1.35,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
-      ),
+      ],
     );
   }
 
@@ -700,4 +741,109 @@ class _SocraticBubbleState extends State<SocraticBubble>
       ),
     );
   }
+
+  // ── Progress Dots ────────────────────────────────────────────────────
+
+  Widget _buildProgressDots(Color activeColor) {
+    final total = widget.totalQuestions;
+    final current = widget.currentIndex;
+    final results = widget.questionResults;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(total, (i) {
+        final bool isCurrent = i == current;
+        final bool isPast = i < current;
+
+        Color dotColor;
+        if (isCurrent) {
+          dotColor = activeColor;
+        } else if (isPast && i < results.length) {
+          final result = results[i];
+          dotColor = result == true
+              ? _greenColor.withValues(alpha: 0.8)
+              : result == false
+                  ? _redColor.withValues(alpha: 0.8)
+                  : Colors.grey.withValues(alpha: 0.4);
+        } else {
+          dotColor = Colors.white.withValues(alpha: 0.15);
+        }
+        final dotSize = isCurrent ? 8.0 : 6.0;
+
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 2.5),
+          width: dotSize,
+          height: dotSize,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isCurrent ? null : dotColor,
+            gradient: isCurrent
+                ? LinearGradient(
+                    colors: [activeColor, activeColor.withValues(alpha: 0.6)],
+                  )
+                : null,
+            boxShadow: isCurrent
+                ? [
+                    BoxShadow(
+                      color: activeColor.withValues(alpha: 0.4),
+                      blurRadius: 4,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
+          ),
+        );
+      }),
+    );
+  }
+}
+
+/// Paints a subtle dotted connector line from the bubble to its cluster anchor.
+class _ConnectorLinePainter extends CustomPainter {
+  final Offset from;
+  final Offset to;
+  final Color color;
+
+  _ConnectorLinePainter({
+    required this.from,
+    required this.to,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+
+    // Draw dotted line
+    final dx = to.dx - from.dx;
+    final dy = to.dy - from.dy;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 50) return; // Too close, skip
+
+    const dotLength = 4.0;
+    const gapLength = 4.0;
+    final steps = (dist / (dotLength + gapLength)).floor();
+
+    for (int i = 0; i < steps; i++) {
+      final t0 = i * (dotLength + gapLength) / dist;
+      final t1 = (i * (dotLength + gapLength) + dotLength) / dist;
+      if (t1 > 1.0) break;
+
+      canvas.drawLine(
+        Offset(from.dx + dx * t0, from.dy + dy * t0),
+        Offset(from.dx + dx * t1, from.dy + dy * t1),
+        paint,
+      );
+    }
+
+    // Small circle at anchor end
+    canvas.drawCircle(to, 3, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_ConnectorLinePainter old) =>
+      from != old.from || to != old.to || color != old.color;
 }

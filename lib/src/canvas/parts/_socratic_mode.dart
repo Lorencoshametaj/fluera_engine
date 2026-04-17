@@ -39,6 +39,11 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
       return;
     }
 
+    // 💳 A17: Tier gate — Free users get 3 Socratic sessions/week.
+    if (!_checkTierGate(GatedFeature.socraticSession)) {
+      return;
+    }
+
     HapticFeedback.mediumImpact();
 
     // Force-refresh cluster cache.
@@ -183,15 +188,53 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
       '🔶 Socratic OCR: ${_clusterTextCache.length} clusters recognized',
     );
 
+    // ── Scope to viewport (like "test me") ──────────────────────────────
+    // Only ask about clusters visible on screen — the canvas could contain
+    // an entire degree's worth of content!
+    final topLeft = _canvasController.screenToCanvas(Offset.zero);
+    final screenSize = MediaQuery.sizeOf(context);
+    final bottomRight = _canvasController.screenToCanvas(
+      Offset(screenSize.width, screenSize.height),
+    );
+    final viewport = Rect.fromPoints(topLeft, bottomRight).inflate(200);
+
+    final visibleClusters = _clusterCache
+        .where((c) => viewport.contains(c.centroid))
+        .toList();
+
+    debugPrint(
+      '🔶 Socratic viewport: ${visibleClusters.length}/${_clusterCache.length}'
+      ' clusters visible',
+    );
+
+    if (visibleClusters.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_l10n.socratic_noClustersVisible),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+        setState(() => _socraticGeneratingPhase = null);
+      }
+      return;
+    }
+
     if (mounted)
       setState(() => _socraticGeneratingPhase = _l10n.socratic_generatingQuestions);
 
     await _socraticController.activate(
-      clusters: _clusterCache,
+      clusters: visibleClusters,
       recallData: recallData,
       provider: provider,
       clusterTexts: _clusterTextCache,
     );
+
+    // Clear any previously dismissed bubble IDs from prior sessions.
+    _dismissedSocraticIds.clear();
 
     // Start pulse animation.
     _socraticPulseController?.repeat(reverse: true);
@@ -202,21 +245,37 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     setState(() => _socraticGeneratingPhase = null);
 
     if (_socraticController.isActive && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _l10n.socratic_sessionStarted(
-                _socraticController.allQuestions.length),
+      // R4: Show fallback warning if AI call failed and generic questions used.
+      if (_socraticController.usedFallback) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_l10n.socratic_fallbackUsed),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.orange[700],
           ),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _l10n.socratic_sessionStarted(
+                  _socraticController.allQuestions.length),
+            ),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 3),
+            backgroundColor: const Color(0xFF37474F),
           ),
-          margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
-          duration: const Duration(seconds: 3),
-          backgroundColor: const Color(0xFF37474F),
-        ),
-      );
+        );
+      }
     }
   }
 
@@ -240,6 +299,15 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     // Haptic feedback varies by result (P3-21).
     if (q != null && q.isHypercorrection) {
       HapticFeedback.heavyImpact(); // ⚡ Shock!
+      // ⚡ P3-23: Visual pulse on the cluster node.
+      final clusterId = q.clusterId;
+      setState(() => _hypercorrectionPulseClusterIds.add(clusterId));
+      // Auto-remove after 3s.
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() => _hypercorrectionPulseClusterIds.remove(clusterId));
+        }
+      });
     } else if (q != null && q.wasWrong) {
       HapticFeedback.mediumImpact();
     } else {
@@ -278,94 +346,192 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
     // ── Persist results to FSRS ──────────────────────────────────────────
     _persistSocraticToFSRS(session);
 
+    final total = session.totalAnswered + session.totalSkipped;
+    final pct = total > 0 ? (session.totalCorrect / total * 100).round() : 0;
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0A0A1A),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder:
-          (_) => Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0F1028), Color(0xFF060612)],
+          ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Score circle + title
+            Row(
               children: [
-                // Title
-                Row(
-                  children: [
-                    const Text('🔶', style: TextStyle(fontSize: 20)),
-                    const SizedBox(width: 8),
-                    Text(
-                      _l10n.socratic_sessionComplete,
+                // Score circle
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: pct >= 70
+                          ? [const Color(0xFF66BB6A), const Color(0xFF2E7D32)]
+                          : pct >= 40
+                              ? [const Color(0xFFFFB300), const Color(0xFFE65100)]
+                              : [const Color(0xFFEF5350), const Color(0xFFC62828)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (pct >= 70
+                                ? const Color(0xFF66BB6A)
+                                : pct >= 40
+                                    ? const Color(0xFFFFB300)
+                                    : const Color(0xFFEF5350))
+                            .withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$pct%',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-
-                // Stats row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _summaryStatChip(
-                      '✅',
-                      '${session.totalCorrect}',
-                      _l10n.socratic_summaryCorrect,
-                      const Color(0xFF66BB6A),
-                    ),
-                    _summaryStatChip(
-                      '❌',
-                      '${session.totalWrong}',
-                      _l10n.socratic_summaryWrong,
-                      const Color(0xFFEF5350),
-                    ),
-                    _summaryStatChip(
-                      '⚡',
-                      '${session.totalHypercorrections}',
-                      _l10n.socratic_summaryHypercorrections,
-                      const Color(0xFFFF9800),
-                    ),
-                    _summaryStatChip(
-                      '⏭️',
-                      '${session.totalSkipped}',
-                      _l10n.socratic_summarySkipped,
-                      Colors.grey,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Metacognitive insight
-                _buildMetacognitiveInsight(session),
-
-                const SizedBox(height: 16),
-
-                // Close button
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF1B5E20),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _l10n.socratic_sessionComplete,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      dismissSocraticMode();
-                    },
-                    child: Text(_l10n.socratic_closeSession),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${session.totalCorrect}/$total ${_l10n.socratic_summaryCorrect.toLowerCase()}',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 20),
+
+            // Visual result bar — one segment per question
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                height: 8,
+                child: Row(
+                  children: [
+                    for (final q in session.queue)
+                      Expanded(
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 0.5),
+                          color: q.wasCorrect
+                              ? const Color(0xFF66BB6A)
+                              : q.isHypercorrection
+                                  ? const Color(0xFFFF9800)
+                                  : q.status == SocraticBubbleStatus.skipped
+                                      ? Colors.grey.shade700
+                                      : const Color(0xFFEF5350),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Stats row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _summaryStatChip(
+                  '✅', '${session.totalCorrect}',
+                  _l10n.socratic_summaryCorrect, const Color(0xFF66BB6A),
+                ),
+                _summaryStatChip(
+                  '❌', '${session.totalWrong}',
+                  _l10n.socratic_summaryWrong, const Color(0xFFEF5350),
+                ),
+                _summaryStatChip(
+                  '⚡', '${session.totalHypercorrections}',
+                  _l10n.socratic_summaryHypercorrections, const Color(0xFFFF9800),
+                ),
+                _summaryStatChip(
+                  '⏭️', '${session.totalSkipped}',
+                  _l10n.socratic_summarySkipped, Colors.grey,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Metacognitive insight
+            _buildMetacognitiveInsight(session),
+
+            const SizedBox(height: 20),
+
+            // Close button
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF1B5E20),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  dismissSocraticMode();
+                },
+                child: Text(
+                  _l10n.socratic_closeSession,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -578,15 +744,62 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
 
     if (!_socraticController.isActive) return widgets;
 
+    // ⚡ P3-23: Render hypercorrection pulse overlays BEHIND bubbles.
+    for (final clusterId in _hypercorrectionPulseClusterIds) {
+      final cluster = _clusterCache.where((c) => c.id == clusterId).firstOrNull;
+      if (cluster == null) continue;
+      widgets.add(
+        AnimatedBuilder(
+          animation: _canvasController,
+          builder: (_, __) {
+            final pos = _canvasController.canvasToScreen(cluster.centroid);
+            return Positioned(
+              left: pos.dx - 60,
+              top: pos.dy - 60,
+              child: IgnorePointer(
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 1.0, end: 0.0),
+                  duration: const Duration(seconds: 3),
+                  builder: (_, opacity, __) {
+                    final pulse = (opacity * 6 * 3.14159).remainder(3.14159 * 2);
+                    final scale = 1.0 + 0.3 * (pulse > 0 ? (pulse < 3.14159 ? 1.0 : -1.0) * (1 - (pulse / 3.14159 - 1).abs()) : 0);
+                    return Transform.scale(
+                      scale: scale.clamp(0.8, 1.4),
+                      child: Container(
+                        width: 120,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFF1744).withValues(alpha: opacity * 0.5),
+                              blurRadius: 40,
+                              spreadRadius: 20,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
     final questions = _socraticController.allQuestions;
     final activeQ = _socraticController.session?.activeQuestion;
 
-    // Render bubbles for all questions (resolved ones show status).
     for (int i = 0; i < questions.length; i++) {
       final q = questions[i];
-      // Only show resolved questions and the active one.
-      // Skip unresolved future questions (P3-40: no visible queue).
+
+      // ── ALL questions → SocraticBubble (resolved ones are read-only) ──
+      // Skip un-resolved questions that are NOT active (they wait their turn).
       if (!q.isResolved && q.id != activeQ?.id) continue;
+      // Skip resolved bubbles that the user swiped away.
+      if (_dismissedSocraticIds.contains(q.id)) continue;
 
       // Convert canvas position to screen position.
       final screenPos = _canvasController.canvasToScreen(q.anchorPosition);
@@ -610,6 +823,8 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
         breadcrumbText = q.breadcrumbs[bcIdx];
       }
 
+      final isActive = q.id == activeQ?.id;
+
       widgets.add(
         AnimatedBuilder(
           animation: _canvasController,
@@ -621,25 +836,43 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
               key: ValueKey('socratic_${q.id}'),
               question: q,
               screenPosition: updatedPos,
-              isActiveQuestion: q.id == activeQ?.id,
+              isActiveQuestion: isActive,
               currentIndex: i,
               totalQuestions: questions.length,
-              onConfidenceSelected: (level) => _socraticSetConfidence(level),
-              onSelfEval: (recalled) => _socraticRecordResult(recalled),
-              onSkip: () => _socraticSkip(),
-              onNext: () {
-                _socraticController.next();
-                if (_socraticController.isComplete) {
-                  _showSocraticSummary();
-                }
-                // A2: No setState — ListenableBuilder handles rebuild.
-              },
-              onRequestBreadcrumb: () => _socraticRequestBreadcrumb(),
+              questionResults: [
+                for (final qr in questions)
+                  qr.isResolved
+                      ? qr.wasCorrect
+                      : null,
+              ],
+              onConfidenceSelected: isActive
+                  ? (level) => _socraticSetConfidence(level)
+                  : null,
+              onSelfEval: isActive
+                  ? (recalled) => _socraticRecordResult(recalled)
+                  : null,
+              onSkip: isActive ? () => _socraticSkip() : null,
+              onNext: isActive
+                  ? () {
+                      _socraticController.next();
+                      if (_socraticController.isComplete) {
+                        _showSocraticSummary();
+                      }
+                    }
+                  : null,
+              onRequestBreadcrumb: isActive
+                  ? () => _socraticRequestBreadcrumb()
+                  : null,
+              onDismissResolved: !isActive
+                  ? () {
+                      _dismissedSocraticIds.add(q.id);
+                      setState(() {});
+                    }
+                  : null,
               currentBreadcrumbText: breadcrumbText,
               breadcrumbsUsed: q.breadcrumbsUsed,
               canRequestBreadcrumb:
-                  q.id == activeQ?.id &&
-                  _socraticController.canRequestBreadcrumb,
+                  isActive && _socraticController.canRequestBreadcrumb,
             );
           },
         ),

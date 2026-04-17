@@ -65,6 +65,13 @@ class OnboardingSeedNode {
   });
 
   /// Italian seed (default).
+  ///
+  /// Content design (teoria_cognitiva_apprendimento.md, lines 1700-1710):
+  /// - The seed is a QUESTION, not a lesson — it invites generation (§3).
+  /// - The write prompt triggers Productive Failure (T4): "scrivi tutto
+  ///   quello che sai" forces the student to confront how little they know.
+  /// - The seed content is deliberately concise — just enough to prime
+  ///   curiosity, not enough to satisfy it (Zeigarnik Effect §7).
   static const OnboardingSeedNode it = OnboardingSeedNode._(
     position: Offset.zero,
     locale: 'it',
@@ -83,7 +90,12 @@ class OnboardingSeedNode {
       'Fluera usa entrambi: scrivi a mano, poi ricorda senza guardare.',
       "L'IA non ti dà risposte — ti fa le domande giuste.",
     ],
-    writePrompt: '✍️ Scrivi sotto con le tue parole',
+    // T4 (Productive Failure) + §3 (Generation Effect):
+    // "Scrivi tutto quello che SAI" — not "scrivi con le tue parole"
+    // (which implies paraphrasing). The student must generate from
+    // their own knowledge, discovering their gaps through failure.
+    writePrompt:
+        '✍️ Scrivi tutto quello che sai sulla memoria. Non c\u2019\u00e8 una risposta giusta.',
   );
 
   /// English seed.
@@ -105,7 +117,8 @@ class OnboardingSeedNode {
       'Fluera uses both: write by hand, then recall without looking.',
       'The AI never gives answers — it asks the right questions.',
     ],
-    writePrompt: '✍️ Write below in your own words',
+    writePrompt:
+        '✍️ Write everything you know about memory. There\u2019s no right answer.',
   );
 
   /// Get seed for a locale (falls back to Italian).

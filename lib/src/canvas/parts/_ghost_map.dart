@@ -177,22 +177,7 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
     if (controller.isLoading) return;
 
     // 💳 A17: Tier gate — Free tier: 1 Ghost Map comparison/week.
-    final gateResult = _tierGateController.checkFeature(
-      GatedFeature.ghostMapComparison,
-    );
-    if (!gateResult.allowed) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(gateResult.upgradeMessage!),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
-            duration: const Duration(seconds: 6),
-            backgroundColor: const Color(0xFF37474F),
-          ),
-        );
-      }
+    if (!_checkTierGate(GatedFeature.ghostMapComparison)) {
       return;
     }
 
@@ -300,9 +285,7 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
     messenger?.hideCurrentSnackBar();
 
     if (controller.isActive) {
-      // 💳 A17: Record usage so Free tier weekly counter increments.
-      _tierGateController.recordUsage(GatedFeature.ghostMapComparison);
-      _saveTierGateHistory();
+      // Usage already recorded by _checkTierGate() above.
 
       // 🗺️ P4-24: Reset opacity to 1.0 when activating
       _ghostMapOpacity.value = 1.0;
@@ -311,6 +294,7 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
       _ghostMapEntryTimer.start();
       // Start pulse animation
       _ghostMapAnimController?.repeat();
+      if (!mounted) return;
       setState(() {});
       if (mounted) {
         final missing = controller.totalMissing;
@@ -378,8 +362,8 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
     HapticFeedback.lightImpact();
 
     if (node.isMissing && !node.isRevealed) {
-      // Show attempt overlay
-      _showGhostAttemptOverlay(node);
+      // Inline attempt on canvas — preserves stylus flow (§3, §5, §13, T4)
+      _startInlineGhostAttempt(node);
     } else if (node.isWeak && node.explanation != null) {
       // Show explanation popup
       _showGhostExplanationPopup(node);

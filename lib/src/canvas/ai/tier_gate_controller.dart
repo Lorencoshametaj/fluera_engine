@@ -267,18 +267,18 @@ class TierGateController extends ChangeNotifier {
   static String _upgradeMessage(GatedFeature feature) {
     return switch (feature) {
       GatedFeature.socraticSession =>
-        'Hai usato le 3 sessioni socratiche di questa settimana. '
+        'Hai usato le 3 sessioni di questa settimana. '
             'Con Pro, l\'IA è sempre pronta quando tu lo sei. '
             '€3.33/mese.',
       GatedFeature.fogOfWarSession =>
-        'Hai già completato la Fog of War per questa zona. '
+        'Hai già completato il ripasso guidato per questa zona. '
             'Con Pro, puoi ripetere senza limiti.',
       GatedFeature.ghostMapComparison =>
-        'Hai già usato la Ghost Map questa settimana. '
+        'Hai già usato l\'analisi delle lacune questa settimana. '
             'Con Pro, confronti illimitati ogni volta che vuoi.',
       GatedFeature.crossDomainInteractive =>
-        'I ponti cross-dominio sono solo in visualizzazione nel piano Free. '
-            'Con Pro, puoi creare ponti interattivi.',
+        'I collegamenti avanzati tra materie sono solo in visualizzazione nel piano Free. '
+            'Con Pro, puoi creare collegamenti interattivi.',
       GatedFeature.deepReview =>
         'Hai già completato il ripasso profondo di oggi. '
             'Con Pro, ripassi profondi illimitati.',

@@ -241,6 +241,20 @@ class FlueraCanvasConfig {
   /// Only called when [pdfProvider] is non-null.
   final Future<Uint8List?> Function()? onPickPdfFile;
 
+  // ===========================================================================
+  // UPGRADE PROMPT (A17)
+  // ===========================================================================
+
+  /// Callback invoked when a tier gate blocks a feature.
+  ///
+  /// The engine calls this with a user-facing [upgradeMessage] explaining
+  /// what was blocked and why. The host app should show the paywall or
+  /// an upgrade banner (e.g. via [showFlueraUpgradeBanner]).
+  ///
+  /// If null, the engine shows a basic SnackBar as a fallback.
+  final void Function(BuildContext context, String upgradeMessage)?
+      onUpgradePrompt;
+
   const FlueraCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
@@ -270,6 +284,7 @@ class FlueraCanvasConfig {
     this.accessibilityConfig = PedagogicalAccessibilityConfig.defaultConfig,
     this.pdfProvider,
     this.onPickPdfFile,
+    this.onUpgradePrompt,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';

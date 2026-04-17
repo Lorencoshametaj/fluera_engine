@@ -771,6 +771,20 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMap_selfEvalYes => 'Yes!';
 
   @override
+  String get ghostMap_selfEvalRecordedNo =>
+      'The effort you put in matters — this concept will come back stronger in your reviews.';
+
+  @override
+  String get ghostMap_selfEvalRecordedYes =>
+      'Your effort on this concept paid off. Keep building.';
+
+  @override
+  String get ghostMap_nowWriteThis => 'Now write this on your canvas:';
+
+  @override
+  String get ghostMap_iWroteIt => 'I wrote it ✓';
+
+  @override
   String get ghostMap_connectionToReview => 'Connection to review';
 
   @override
@@ -791,7 +805,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   }
 
   @override
-  String get ghostMap_closeGhostMap => 'Close Ghost Map';
+  String get ghostMap_closeGhostMap => 'Close gap map';
 
   @override
   String get ghostMap_showMoreGaps => 'Show more gaps';
@@ -805,7 +819,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMap_writeAtLeastTwoGroups =>
-      'Write at least 2 note groups for the Ghost Map 🗺️';
+      'Write at least 2 note groups for the gap map 🗺️';
 
   @override
   String get ghostMap_trySocraticFirst => 'Try questioning your notes first!';
@@ -851,7 +865,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       '✍️ Handwriting not recognized. Try writing more clearly or use text.';
 
   @override
-  String get ghostMap_atlasAnswer => '🎯 Atlas\'s answer';
+  String get ghostMap_atlasAnswer => '🤖 According to Atlas (verify!)';
 
   @override
   String get ghostMap_sleepConsolidation =>
@@ -862,7 +876,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMap_emptyResultError =>
-      'Not enough content found for the Ghost Map.';
+      'Not enough content found for the gap map.';
 
   @override
   String get ghostMap_edgeCaseNearlyPerfect =>
@@ -929,7 +943,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String ghostMap_activationHeader(Object details) {
-    return '🗺️ Ghost Map active — $details';
+    return '🗺️ Gap map active — $details';
   }
 
   @override
@@ -1124,6 +1138,14 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       'At the end, you\'ll see a visual comparison between original and reconstruction.';
 
   @override
+  String get recall_needNotes =>
+      'Write something on the canvas before starting recall 🧠';
+
+  @override
+  String get recall_needMoreNotes =>
+      'You need at least 5 note groups for recall 🧠';
+
+  @override
   String get socratic_needNotes => 'Write something on the canvas first 🔶';
 
   @override
@@ -1136,6 +1158,10 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get socratic_closeSession => 'Close and return to canvas';
+
+  @override
+  String get socratic_noClustersVisible =>
+      'No notes visible on screen. Scroll to your notes and try again.';
 
   @override
   String get socratic_endSession => 'End Quiz';
@@ -1183,6 +1209,9 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get socratic_sessionEnd => 'End session';
+
+  @override
+  String get socratic_fallbackUsed => 'No connection — using generic questions';
 
   @override
   String get socratic_feedbackSolidTitle => 'Solid!';
@@ -1381,6 +1410,105 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get fow_surgicalGuideReview => '🗺️ Review guide';
+
+  @override
+  String get fow_zoneSelectionHint =>
+      '📐 Draw a rectangle to select the area to test';
+
+  @override
+  String get fow_zoneSelectionWholeCanvas => 'Whole canvas';
+
+  @override
+  String fow_zoneTooFewNodes(int count) {
+    return 'Only $count nodes in the area — need at least 3. Try a larger area.';
+  }
+
+  @override
+  String fow_hintFlyTo(int number) {
+    return '💡 Hint #$number — look here!';
+  }
+
+  @override
+  String fow_hintReveal(int number) {
+    return '💡 Hint #$number — temporary reveal!';
+  }
+
+  @override
+  String get fow_hintDistVeryClose => 'Very close!';
+
+  @override
+  String get fow_hintDistClose => 'Close';
+
+  @override
+  String get fow_hintDistMedium => 'Medium distance';
+
+  @override
+  String get fow_hintDistFar => 'Far';
+
+  @override
+  String get fow_hintLabel => 'Hint';
+
+  @override
+  String get fow_masteryMapBlindSpotAction =>
+      '👁‍🗨 You didn\'t look for this — read it carefully';
+
+  @override
+  String get fow_masteryMapForgottenAction =>
+      '📝 Forgotten — re-read and try writing from memory';
+
+  @override
+  String get fow_surgicalInstruction => '📖 Re-read this concept carefully';
+
+  @override
+  String get fow_surgicalReadNext => 'Done → Next';
+
+  @override
+  String get fow_surgicalLastOne => 'Last one →';
+
+  @override
+  String fow_surgicalAllDone(int count) {
+    return 'All $count nodes reviewed!';
+  }
+
+  @override
+  String get fow_surgicalBackToMap => 'Back to map';
+
+  @override
+  String get fow_setupSelectArea => 'Select area';
+
+  @override
+  String get fow_setupWholeCanvas => 'Whole canvas';
+
+  @override
+  String get fow_setupAreaDesc =>
+      'Draw a rectangle to test only a specific area';
+
+  @override
+  String fow_setupNodeCount(int count) {
+    return '$count total nodes';
+  }
+
+  @override
+  String get fow_setupChooseLevel =>
+      'Choose fog density. Denser fog = harder challenge.';
+
+  @override
+  String get fow_setupLightDesc => 'Node silhouettes visible, zero content';
+
+  @override
+  String get fow_setupMediumDesc => 'Limited visibility (300px). Move closer.';
+
+  @override
+  String get fow_setupTotalDesc => 'Total darkness. Only memory guides you.';
+
+  @override
+  String get fow_setupInfoTooltip => 'How it works';
+
+  @override
+  String get fow_zoneTooSmall => 'Area too small — drag a larger rectangle';
+
+  @override
+  String get fow_seiQui => 'You are here';
 
   @override
   String get htr_unavailableOnPlatform =>
@@ -1662,4 +1790,425 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   @override
   String get socraticInfo_hypercorrectionNote =>
       'High-confidence errors (⚡ hypercorrection) produce the most LASTING corrections.';
+
+  @override
+  String get ghostMapInfo_title => 'Gap map';
+
+  @override
+  String get ghostMapInfo_a11yLabel => 'Gap map informational screen';
+
+  @override
+  String get ghostMapInfo_heroTitle => 'The Centaur Comparison';
+
+  @override
+  String get ghostMapInfo_heroDescription =>
+      'Fluera generates a \"ghost\" concept map based on your notes and overlays it on the canvas. You can compare what you wrote with what the AI thinks is missing, discovering gaps and confirming mastery.';
+
+  @override
+  String get ghostMapInfo_heroPrinciple =>
+      'Discovering what you DON\'T know is more important than confirming what you do — Active Recall Diagnostics.';
+
+  @override
+  String get ghostMapInfo_sectionHowItWorks => 'How It Works';
+
+  @override
+  String get ghostMapInfo_sectionNodeTypes => '5 Node Types';
+
+  @override
+  String get ghostMapInfo_sectionAttempts => 'Attempts and Comparison';
+
+  @override
+  String get ghostMapInfo_sectionHypercorrection => 'Hypercorrection';
+
+  @override
+  String get ghostMapInfo_sectionZPD => 'Zone of Proximal Development';
+
+  @override
+  String get ghostMapInfo_sectionNavigation => 'Guided Navigation';
+
+  @override
+  String get ghostMapInfo_sectionFSRS => 'FSRS Integration';
+
+  @override
+  String get ghostMapInfo_sectionGrowth => 'Canvas Growth';
+
+  @override
+  String get ghostMapInfo_sectionSleep => 'Overnight Consolidation';
+
+  @override
+  String get ghostMapInfo_flowWrite => 'Write';
+
+  @override
+  String get ghostMapInfo_flowWriteDesc =>
+      'Take handwritten notes on the canvas';
+
+  @override
+  String get ghostMapInfo_flowActivate => 'Activate';
+
+  @override
+  String get ghostMapInfo_flowActivateDesc =>
+      'Tap the \"What am I missing?\" button in the toolbar';
+
+  @override
+  String get ghostMapInfo_flowAnalysis => 'AI Analysis';
+
+  @override
+  String get ghostMapInfo_flowAnalysisDesc =>
+      'Atlas analyzes clusters and generates the ideal map';
+
+  @override
+  String get ghostMapInfo_flowOverlay => 'Overlay';
+
+  @override
+  String get ghostMapInfo_flowOverlayDesc =>
+      'Ghost nodes appear on the canvas as an overlay';
+
+  @override
+  String get ghostMapInfo_flowAttempt => 'Attempt';
+
+  @override
+  String get ghostMapInfo_flowAttemptDesc =>
+      'Tap a node and try to write the missing concept';
+
+  @override
+  String get ghostMapInfo_flowCompare => 'Comparison';
+
+  @override
+  String get ghostMapInfo_flowCompareDesc =>
+      'See Atlas\'s answer and self-evaluate your attempt';
+
+  @override
+  String get ghostMapInfo_flowResults => 'Results';
+
+  @override
+  String get ghostMapInfo_flowResultsDesc =>
+      'Growth summary + FSRS updated for SRS';
+
+  @override
+  String get ghostMapInfo_attemptIntro =>
+      'When you tap a missing node (❓), a window opens where you can:';
+
+  @override
+  String get ghostMapInfo_attemptType => 'Type';
+
+  @override
+  String get ghostMapInfo_attemptTypeDesc =>
+      'Write the concept you think is missing';
+
+  @override
+  String get ghostMapInfo_attemptDraw => 'Draw';
+
+  @override
+  String get ghostMapInfo_attemptDrawDesc =>
+      'Use the pen for handwriting (integrated OCR)';
+
+  @override
+  String get ghostMapInfo_attemptReveal => 'Reveal';
+
+  @override
+  String get ghostMapInfo_attemptRevealDesc =>
+      'After 10 seconds, you can reveal Atlas\'s answer';
+
+  @override
+  String get ghostMapInfo_attemptTimerNote =>
+      'The 10-second timer forces you to think before giving up — this activates Retrieval Effort (Bjork, 1994).';
+
+  @override
+  String get ghostMapInfo_hypercorrectionTitle =>
+      'The Hypercorrection Principle';
+
+  @override
+  String get ghostMapInfo_hypercorrectionDesc =>
+      'When you are very confident about something but wrong, the surprise focuses attention on the error and deeply imprints it in long-term memory.';
+
+  @override
+  String get ghostMapInfo_hypercorrectionCitation =>
+      '☝️ Butterfield & Metcalfe (2001)';
+
+  @override
+  String get ghostMapInfo_hypercorrectionQuote =>
+      '\"High-confidence errors produce SUPERIOR learning compared to low-confidence errors — the hypercorrective effect.\"';
+
+  @override
+  String get ghostMapInfo_hypercorrectionVisual =>
+      'The gap map marks these nodes with ⚡ and a wavy red border.';
+
+  @override
+  String get ghostMapInfo_zpdTitle => 'ZPD — Vygotsky (1978)';
+
+  @override
+  String get ghostMapInfo_zpdDesc =>
+      'Some concepts might be TOO advanced for your current level. The gap map identifies them as \"below ZPD\" and shows them in grey — not because they aren\'t important, but because there are foundational concepts to consolidate first.';
+
+  @override
+  String get ghostMapInfo_zpdComfort => 'Comfort Zone';
+
+  @override
+  String get ghostMapInfo_zpdComfortDesc =>
+      'Concepts you\'ve mastered — ✅ green nodes';
+
+  @override
+  String get ghostMapInfo_zpdZone => 'ZPD';
+
+  @override
+  String get ghostMapInfo_zpdZoneDesc =>
+      'You can learn with support — ❓ and ⚠️ nodes';
+
+  @override
+  String get ghostMapInfo_zpdAdvanced => 'Too Advanced';
+
+  @override
+  String get ghostMapInfo_zpdAdvancedDesc =>
+      'Revisit after consolidating the basics — 📚 nodes';
+
+  @override
+  String get ghostMapInfo_navIntro =>
+      'A floating bar at the bottom lets you navigate between nodes:';
+
+  @override
+  String get ghostMapInfo_navMissing => '🔴 Missing';
+
+  @override
+  String get ghostMapInfo_navMissingDesc =>
+      'Concepts completely missing — highest priority';
+
+  @override
+  String get ghostMapInfo_navWeak => '🟡 Weak/Wrong';
+
+  @override
+  String get ghostMapInfo_navWeakDesc =>
+      'Concepts present but imprecise or incorrectly connected';
+
+  @override
+  String get ghostMapInfo_navArrows => '⬅ ➡ Navigation';
+
+  @override
+  String get ghostMapInfo_navArrowsDesc =>
+      'Centers the canvas on the selected node';
+
+  @override
+  String get ghostMapInfo_fsrsTitle => 'Every interaction calibrates review';
+
+  @override
+  String get ghostMapInfo_fsrsCorrect => 'Correct attempt';
+
+  @override
+  String get ghostMapInfo_fsrsCorrectEffect => 'Interval lengthens';
+
+  @override
+  String get ghostMapInfo_fsrsWrong => 'Wrong attempt';
+
+  @override
+  String get ghostMapInfo_fsrsWrongEffect => 'Interval shortens';
+
+  @override
+  String get ghostMapInfo_fsrsHyper => 'Hypercorrection';
+
+  @override
+  String get ghostMapInfo_fsrsHyperEffect =>
+      'Reduced penalty (shock = learning)';
+
+  @override
+  String get ghostMapInfo_fsrsRevealed => 'Only revealed';
+
+  @override
+  String get ghostMapInfo_fsrsRevealedEffect => 'Passive exposure — weak';
+
+  @override
+  String get ghostMapInfo_fsrsOnCanvas => 'Already on canvas';
+
+  @override
+  String get ghostMapInfo_fsrsOnCanvasEffect =>
+      'Reinforcement — stable interval';
+
+  @override
+  String get ghostMapInfo_fsrsNote =>
+      'The FSRS data feeds into automatic review — concepts associated with nodes will reappear blurred when the algorithm predicts you\'re about to forget them.';
+
+  @override
+  String get ghostMapInfo_growthTitle => 'How much did your canvas grow?';
+
+  @override
+  String get ghostMapInfo_growthIntro =>
+      'When closing the gap map, you see a summary with:';
+
+  @override
+  String get ghostMapInfo_growthCorrect => 'Correct';
+
+  @override
+  String get ghostMapInfo_growthCorrectDesc => 'Concepts you already had right';
+
+  @override
+  String get ghostMapInfo_growthImprove => 'To improve';
+
+  @override
+  String get ghostMapInfo_growthImproveDesc => 'Imprecise or weak concepts';
+
+  @override
+  String get ghostMapInfo_growthMissing => 'Missing';
+
+  @override
+  String get ghostMapInfo_growthMissingDesc => 'Concepts you hadn\'t written';
+
+  @override
+  String get ghostMapInfo_growthAttempts => 'Attempts';
+
+  @override
+  String get ghostMapInfo_growthAttemptsDesc =>
+      'How many you got right vs total';
+
+  @override
+  String get ghostMapInfo_growthPercent => 'Growth %';
+
+  @override
+  String get ghostMapInfo_growthPercentDesc => 'Gaps filled after interaction';
+
+  @override
+  String ghostMapInfo_growthExplored(int percent) {
+    return '$percent% explored';
+  }
+
+  @override
+  String get ghostMapInfo_sleepTitle => 'Sleep completes the cycle';
+
+  @override
+  String get ghostMapInfo_sleepDesc =>
+      'After the session, your brain continues to process during sleep (memory consolidation). On next access, revisited concepts will be more stable and Fluera will automatically adapt review intervals.\n\nThis is the cycle: gap exploration → overnight interval computation → gradual review.';
+
+  @override
+  String get ghostMapInfo_sleepCitation =>
+      'Stickgold & Walker (2005): \"Sleep transforms episodic memory into structured semantic knowledge.\"';
+
+  @override
+  String get ghostMapInfo_cta => 'Back to canvas — try it!';
+
+  @override
+  String get ghostMapInfo_footer =>
+      'Based on research by Butterfield & Metcalfe (2001),\nAusubel (1968), Chi (2009), Bjork (1994), Vygotsky (1978)';
+
+  @override
+  String get ghostMapInfo_nodeTypeTapHint =>
+      'Tap a node to discover its meaning:';
+
+  @override
+  String get ghostMapInfo_nodeMissingTitle => 'Missing';
+
+  @override
+  String get ghostMapInfo_nodeMissingDesc =>
+      'A concept NOT on your canvas that Atlas deems important. You can attempt to write it or reveal what Atlas was thinking.';
+
+  @override
+  String get ghostMapInfo_nodeMissingPrinciple =>
+      'Active Recall + Gap Detection (Ausubel, 1968)';
+
+  @override
+  String get ghostMapInfo_nodeWeakTitle => 'Weak';
+
+  @override
+  String get ghostMapInfo_nodeWeakDesc =>
+      'A concept present but imprecise, incomplete, or incorrectly connected. Atlas explains what to improve.';
+
+  @override
+  String get ghostMapInfo_nodeWeakPrinciple =>
+      'Elaborative Feedback (Chi, 2009)';
+
+  @override
+  String get ghostMapInfo_nodeCorrectTitle => 'Correct';
+
+  @override
+  String get ghostMapInfo_nodeCorrectDesc =>
+      'A correct concept — the green circle confirms mastery. Tap it to see positive feedback.';
+
+  @override
+  String get ghostMapInfo_nodeCorrectPrinciple =>
+      'Positive Reinforcement + Self-Efficacy';
+
+  @override
+  String get ghostMapInfo_nodeExcellentTitle => 'Excellent';
+
+  @override
+  String get ghostMapInfo_nodeExcellentDesc =>
+      'Deep mastery — high confidence confirmed. These nodes glow bright green ⭐.';
+
+  @override
+  String get ghostMapInfo_nodeExcellentPrinciple =>
+      'Mastery Learning (Bloom, 1968)';
+
+  @override
+  String get ghostMapInfo_nodeHyperTitle => 'Hypercorrection';
+
+  @override
+  String get ghostMapInfo_nodeHyperDesc =>
+      'You were very confident but wrong — the wavy red border signals the most powerful learning opportunity.';
+
+  @override
+  String get ghostMapInfo_nodeHyperPrinciple =>
+      'Hypercorrection Effect (Butterfield & Metcalfe, 2001)';
+
+  @override
+  String get ghostMapInfo_demoTitle => 'Try the flow!';
+
+  @override
+  String get ghostMapInfo_demoTapToStart => 'Tap to simulate an attempt';
+
+  @override
+  String get ghostMapInfo_demoThinking => '🤔 Think of the answer...';
+
+  @override
+  String get ghostMapInfo_demoRevealTitle => '💡 Atlas\'s answer:';
+
+  @override
+  String get ghostMapInfo_demoRevealExample => '\"Chlorophyll photosynthesis\"';
+
+  @override
+  String get ghostMapInfo_demoRevealQuestion =>
+      'Had you thought the same thing?';
+
+  @override
+  String get ghostMapInfo_demoYes => 'Yes!';
+
+  @override
+  String get ghostMapInfo_demoNo => 'No';
+
+  @override
+  String get ghostMapInfo_demoCorrect => 'Correct! The concept is reinforced.';
+
+  @override
+  String get ghostMapInfo_demoWrong =>
+      'Hypercorrection! The error imprints in memory.';
+
+  @override
+  String get ghostMapInfo_demoFsrsUp => 'FSRS: interval ↑ (consolidation)';
+
+  @override
+  String get ghostMapInfo_demoFsrsDown => 'FSRS: interval ↓ + mnemonic shock';
+
+  @override
+  String get ghostMapInfo_demoRetry => 'Tap to retry';
+
+  @override
+  String get ghostMapInfo_beforeAfterBefore => 'Before';
+
+  @override
+  String get ghostMapInfo_beforeAfterAfter => 'After';
+
+  @override
+  String get ghostMapInfo_beforeAfterResultAfter =>
+      '📈 7 concepts, 4 new — 57% growth!';
+
+  @override
+  String get ghostMapInfo_beforeAfterResultBefore =>
+      '3 isolated concepts — connections missing';
+
+  @override
+  String get paywall_featureRecall => 'Test me';
+
+  @override
+  String get paywall_featureSocratic => 'AI Quiz';
+
+  @override
+  String get paywall_featureGhostMap => 'What am I missing?';
+
+  @override
+  String get paywall_featureFsrsChallenge => 'Smart review + Challenge';
 }

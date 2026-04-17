@@ -1580,6 +1580,30 @@ abstract class FlueraLocalizations {
   /// **'Yes!'**
   String get ghostMap_selfEvalYes;
 
+  /// No description provided for @ghostMap_selfEvalRecordedNo.
+  ///
+  /// In en, this message translates to:
+  /// **'The effort you put in matters — this concept will come back stronger in your reviews.'**
+  String get ghostMap_selfEvalRecordedNo;
+
+  /// No description provided for @ghostMap_selfEvalRecordedYes.
+  ///
+  /// In en, this message translates to:
+  /// **'Your effort on this concept paid off. Keep building.'**
+  String get ghostMap_selfEvalRecordedYes;
+
+  /// No description provided for @ghostMap_nowWriteThis.
+  ///
+  /// In en, this message translates to:
+  /// **'Now write this on your canvas:'**
+  String get ghostMap_nowWriteThis;
+
+  /// No description provided for @ghostMap_iWroteIt.
+  ///
+  /// In en, this message translates to:
+  /// **'I wrote it ✓'**
+  String get ghostMap_iWroteIt;
+
   /// No description provided for @ghostMap_connectionToReview.
   ///
   /// In en, this message translates to:
@@ -1619,7 +1643,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_closeGhostMap.
   ///
   /// In en, this message translates to:
-  /// **'Close Ghost Map'**
+  /// **'Close gap map'**
   String get ghostMap_closeGhostMap;
 
   /// No description provided for @ghostMap_showMoreGaps.
@@ -1643,7 +1667,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_writeAtLeastTwoGroups.
   ///
   /// In en, this message translates to:
-  /// **'Write at least 2 note groups for the Ghost Map 🗺️'**
+  /// **'Write at least 2 note groups for the gap map 🗺️'**
   String get ghostMap_writeAtLeastTwoGroups;
 
   /// No description provided for @ghostMap_trySocraticFirst.
@@ -1721,7 +1745,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_atlasAnswer.
   ///
   /// In en, this message translates to:
-  /// **'🎯 Atlas\'s answer'**
+  /// **'🤖 According to Atlas (verify!)'**
   String get ghostMap_atlasAnswer;
 
   /// No description provided for @ghostMap_sleepConsolidation.
@@ -1739,7 +1763,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_emptyResultError.
   ///
   /// In en, this message translates to:
-  /// **'Not enough content found for the Ghost Map.'**
+  /// **'Not enough content found for the gap map.'**
   String get ghostMap_emptyResultError;
 
   /// No description provided for @ghostMap_edgeCaseNearlyPerfect.
@@ -1823,7 +1847,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_activationHeader.
   ///
   /// In en, this message translates to:
-  /// **'🗺️ Ghost Map active — {details}'**
+  /// **'🗺️ Gap map active — {details}'**
   String ghostMap_activationHeader(Object details);
 
   /// No description provided for @ghostMap_errorGeneric.
@@ -2162,6 +2186,18 @@ abstract class FlueraLocalizations {
   /// **'At the end, you\'ll see a visual comparison between original and reconstruction.'**
   String get recall_infoComparisonEnd;
 
+  /// No description provided for @recall_needNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Write something on the canvas before starting recall 🧠'**
+  String get recall_needNotes;
+
+  /// No description provided for @recall_needMoreNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'You need at least 5 note groups for recall 🧠'**
+  String get recall_needMoreNotes;
+
   /// No description provided for @socratic_needNotes.
   ///
   /// In en, this message translates to:
@@ -2185,6 +2221,12 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Close and return to canvas'**
   String get socratic_closeSession;
+
+  /// No description provided for @socratic_noClustersVisible.
+  ///
+  /// In en, this message translates to:
+  /// **'No notes visible on screen. Scroll to your notes and try again.'**
+  String get socratic_noClustersVisible;
 
   /// No description provided for @socratic_endSession.
   ///
@@ -2275,6 +2317,12 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'End session'**
   String get socratic_sessionEnd;
+
+  /// No description provided for @socratic_fallbackUsed.
+  ///
+  /// In en, this message translates to:
+  /// **'No connection — using generic questions'**
+  String get socratic_fallbackUsed;
 
   /// No description provided for @socratic_feedbackSolidTitle.
   ///
@@ -2610,6 +2658,174 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'🗺️ Review guide'**
   String get fow_surgicalGuideReview;
+
+  /// No description provided for @fow_zoneSelectionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'📐 Draw a rectangle to select the area to test'**
+  String get fow_zoneSelectionHint;
+
+  /// No description provided for @fow_zoneSelectionWholeCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Whole canvas'**
+  String get fow_zoneSelectionWholeCanvas;
+
+  /// No description provided for @fow_zoneTooFewNodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Only {count} nodes in the area — need at least 3. Try a larger area.'**
+  String fow_zoneTooFewNodes(int count);
+
+  /// No description provided for @fow_hintFlyTo.
+  ///
+  /// In en, this message translates to:
+  /// **'💡 Hint #{number} — look here!'**
+  String fow_hintFlyTo(int number);
+
+  /// No description provided for @fow_hintReveal.
+  ///
+  /// In en, this message translates to:
+  /// **'💡 Hint #{number} — temporary reveal!'**
+  String fow_hintReveal(int number);
+
+  /// No description provided for @fow_hintDistVeryClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Very close!'**
+  String get fow_hintDistVeryClose;
+
+  /// No description provided for @fow_hintDistClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get fow_hintDistClose;
+
+  /// No description provided for @fow_hintDistMedium.
+  ///
+  /// In en, this message translates to:
+  /// **'Medium distance'**
+  String get fow_hintDistMedium;
+
+  /// No description provided for @fow_hintDistFar.
+  ///
+  /// In en, this message translates to:
+  /// **'Far'**
+  String get fow_hintDistFar;
+
+  /// No description provided for @fow_hintLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Hint'**
+  String get fow_hintLabel;
+
+  /// No description provided for @fow_masteryMapBlindSpotAction.
+  ///
+  /// In en, this message translates to:
+  /// **'👁‍🗨 You didn\'t look for this — read it carefully'**
+  String get fow_masteryMapBlindSpotAction;
+
+  /// No description provided for @fow_masteryMapForgottenAction.
+  ///
+  /// In en, this message translates to:
+  /// **'📝 Forgotten — re-read and try writing from memory'**
+  String get fow_masteryMapForgottenAction;
+
+  /// No description provided for @fow_surgicalInstruction.
+  ///
+  /// In en, this message translates to:
+  /// **'📖 Re-read this concept carefully'**
+  String get fow_surgicalInstruction;
+
+  /// No description provided for @fow_surgicalReadNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Done → Next'**
+  String get fow_surgicalReadNext;
+
+  /// No description provided for @fow_surgicalLastOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Last one →'**
+  String get fow_surgicalLastOne;
+
+  /// No description provided for @fow_surgicalAllDone.
+  ///
+  /// In en, this message translates to:
+  /// **'All {count} nodes reviewed!'**
+  String fow_surgicalAllDone(int count);
+
+  /// No description provided for @fow_surgicalBackToMap.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to map'**
+  String get fow_surgicalBackToMap;
+
+  /// No description provided for @fow_setupSelectArea.
+  ///
+  /// In en, this message translates to:
+  /// **'Select area'**
+  String get fow_setupSelectArea;
+
+  /// No description provided for @fow_setupWholeCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Whole canvas'**
+  String get fow_setupWholeCanvas;
+
+  /// No description provided for @fow_setupAreaDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Draw a rectangle to test only a specific area'**
+  String get fow_setupAreaDesc;
+
+  /// No description provided for @fow_setupNodeCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} total nodes'**
+  String fow_setupNodeCount(int count);
+
+  /// No description provided for @fow_setupChooseLevel.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose fog density. Denser fog = harder challenge.'**
+  String get fow_setupChooseLevel;
+
+  /// No description provided for @fow_setupLightDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Node silhouettes visible, zero content'**
+  String get fow_setupLightDesc;
+
+  /// No description provided for @fow_setupMediumDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Limited visibility (300px). Move closer.'**
+  String get fow_setupMediumDesc;
+
+  /// No description provided for @fow_setupTotalDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Total darkness. Only memory guides you.'**
+  String get fow_setupTotalDesc;
+
+  /// No description provided for @fow_setupInfoTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'How it works'**
+  String get fow_setupInfoTooltip;
+
+  /// No description provided for @fow_zoneTooSmall.
+  ///
+  /// In en, this message translates to:
+  /// **'Area too small — drag a larger rectangle'**
+  String get fow_zoneTooSmall;
+
+  /// No description provided for @fow_seiQui.
+  ///
+  /// In en, this message translates to:
+  /// **'You are here'**
+  String get fow_seiQui;
 
   /// No description provided for @htr_unavailableOnPlatform.
   ///
@@ -3096,6 +3312,744 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'High-confidence errors (⚡ hypercorrection) produce the most LASTING corrections.'**
   String get socraticInfo_hypercorrectionNote;
+
+  /// No description provided for @ghostMapInfo_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Gap map'**
+  String get ghostMapInfo_title;
+
+  /// No description provided for @ghostMapInfo_a11yLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Gap map informational screen'**
+  String get ghostMapInfo_a11yLabel;
+
+  /// No description provided for @ghostMapInfo_heroTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The Centaur Comparison'**
+  String get ghostMapInfo_heroTitle;
+
+  /// No description provided for @ghostMapInfo_heroDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Fluera generates a \"ghost\" concept map based on your notes and overlays it on the canvas. You can compare what you wrote with what the AI thinks is missing, discovering gaps and confirming mastery.'**
+  String get ghostMapInfo_heroDescription;
+
+  /// No description provided for @ghostMapInfo_heroPrinciple.
+  ///
+  /// In en, this message translates to:
+  /// **'Discovering what you DON\'T know is more important than confirming what you do — Active Recall Diagnostics.'**
+  String get ghostMapInfo_heroPrinciple;
+
+  /// No description provided for @ghostMapInfo_sectionHowItWorks.
+  ///
+  /// In en, this message translates to:
+  /// **'How It Works'**
+  String get ghostMapInfo_sectionHowItWorks;
+
+  /// No description provided for @ghostMapInfo_sectionNodeTypes.
+  ///
+  /// In en, this message translates to:
+  /// **'5 Node Types'**
+  String get ghostMapInfo_sectionNodeTypes;
+
+  /// No description provided for @ghostMapInfo_sectionAttempts.
+  ///
+  /// In en, this message translates to:
+  /// **'Attempts and Comparison'**
+  String get ghostMapInfo_sectionAttempts;
+
+  /// No description provided for @ghostMapInfo_sectionHypercorrection.
+  ///
+  /// In en, this message translates to:
+  /// **'Hypercorrection'**
+  String get ghostMapInfo_sectionHypercorrection;
+
+  /// No description provided for @ghostMapInfo_sectionZPD.
+  ///
+  /// In en, this message translates to:
+  /// **'Zone of Proximal Development'**
+  String get ghostMapInfo_sectionZPD;
+
+  /// No description provided for @ghostMapInfo_sectionNavigation.
+  ///
+  /// In en, this message translates to:
+  /// **'Guided Navigation'**
+  String get ghostMapInfo_sectionNavigation;
+
+  /// No description provided for @ghostMapInfo_sectionFSRS.
+  ///
+  /// In en, this message translates to:
+  /// **'FSRS Integration'**
+  String get ghostMapInfo_sectionFSRS;
+
+  /// No description provided for @ghostMapInfo_sectionGrowth.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas Growth'**
+  String get ghostMapInfo_sectionGrowth;
+
+  /// No description provided for @ghostMapInfo_sectionSleep.
+  ///
+  /// In en, this message translates to:
+  /// **'Overnight Consolidation'**
+  String get ghostMapInfo_sectionSleep;
+
+  /// No description provided for @ghostMapInfo_flowWrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Write'**
+  String get ghostMapInfo_flowWrite;
+
+  /// No description provided for @ghostMapInfo_flowWriteDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Take handwritten notes on the canvas'**
+  String get ghostMapInfo_flowWriteDesc;
+
+  /// No description provided for @ghostMapInfo_flowActivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Activate'**
+  String get ghostMapInfo_flowActivate;
+
+  /// No description provided for @ghostMapInfo_flowActivateDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the \"What am I missing?\" button in the toolbar'**
+  String get ghostMapInfo_flowActivateDesc;
+
+  /// No description provided for @ghostMapInfo_flowAnalysis.
+  ///
+  /// In en, this message translates to:
+  /// **'AI Analysis'**
+  String get ghostMapInfo_flowAnalysis;
+
+  /// No description provided for @ghostMapInfo_flowAnalysisDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Atlas analyzes clusters and generates the ideal map'**
+  String get ghostMapInfo_flowAnalysisDesc;
+
+  /// No description provided for @ghostMapInfo_flowOverlay.
+  ///
+  /// In en, this message translates to:
+  /// **'Overlay'**
+  String get ghostMapInfo_flowOverlay;
+
+  /// No description provided for @ghostMapInfo_flowOverlayDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Ghost nodes appear on the canvas as an overlay'**
+  String get ghostMapInfo_flowOverlayDesc;
+
+  /// No description provided for @ghostMapInfo_flowAttempt.
+  ///
+  /// In en, this message translates to:
+  /// **'Attempt'**
+  String get ghostMapInfo_flowAttempt;
+
+  /// No description provided for @ghostMapInfo_flowAttemptDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a node and try to write the missing concept'**
+  String get ghostMapInfo_flowAttemptDesc;
+
+  /// No description provided for @ghostMapInfo_flowCompare.
+  ///
+  /// In en, this message translates to:
+  /// **'Comparison'**
+  String get ghostMapInfo_flowCompare;
+
+  /// No description provided for @ghostMapInfo_flowCompareDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'See Atlas\'s answer and self-evaluate your attempt'**
+  String get ghostMapInfo_flowCompareDesc;
+
+  /// No description provided for @ghostMapInfo_flowResults.
+  ///
+  /// In en, this message translates to:
+  /// **'Results'**
+  String get ghostMapInfo_flowResults;
+
+  /// No description provided for @ghostMapInfo_flowResultsDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Growth summary + FSRS updated for SRS'**
+  String get ghostMapInfo_flowResultsDesc;
+
+  /// No description provided for @ghostMapInfo_attemptIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'When you tap a missing node (❓), a window opens where you can:'**
+  String get ghostMapInfo_attemptIntro;
+
+  /// No description provided for @ghostMapInfo_attemptType.
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get ghostMapInfo_attemptType;
+
+  /// No description provided for @ghostMapInfo_attemptTypeDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Write the concept you think is missing'**
+  String get ghostMapInfo_attemptTypeDesc;
+
+  /// No description provided for @ghostMapInfo_attemptDraw.
+  ///
+  /// In en, this message translates to:
+  /// **'Draw'**
+  String get ghostMapInfo_attemptDraw;
+
+  /// No description provided for @ghostMapInfo_attemptDrawDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the pen for handwriting (integrated OCR)'**
+  String get ghostMapInfo_attemptDrawDesc;
+
+  /// No description provided for @ghostMapInfo_attemptReveal.
+  ///
+  /// In en, this message translates to:
+  /// **'Reveal'**
+  String get ghostMapInfo_attemptReveal;
+
+  /// No description provided for @ghostMapInfo_attemptRevealDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'After 10 seconds, you can reveal Atlas\'s answer'**
+  String get ghostMapInfo_attemptRevealDesc;
+
+  /// No description provided for @ghostMapInfo_attemptTimerNote.
+  ///
+  /// In en, this message translates to:
+  /// **'The 10-second timer forces you to think before giving up — this activates Retrieval Effort (Bjork, 1994).'**
+  String get ghostMapInfo_attemptTimerNote;
+
+  /// No description provided for @ghostMapInfo_hypercorrectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The Hypercorrection Principle'**
+  String get ghostMapInfo_hypercorrectionTitle;
+
+  /// No description provided for @ghostMapInfo_hypercorrectionDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'When you are very confident about something but wrong, the surprise focuses attention on the error and deeply imprints it in long-term memory.'**
+  String get ghostMapInfo_hypercorrectionDesc;
+
+  /// No description provided for @ghostMapInfo_hypercorrectionCitation.
+  ///
+  /// In en, this message translates to:
+  /// **'☝️ Butterfield & Metcalfe (2001)'**
+  String get ghostMapInfo_hypercorrectionCitation;
+
+  /// No description provided for @ghostMapInfo_hypercorrectionQuote.
+  ///
+  /// In en, this message translates to:
+  /// **'\"High-confidence errors produce SUPERIOR learning compared to low-confidence errors — the hypercorrective effect.\"'**
+  String get ghostMapInfo_hypercorrectionQuote;
+
+  /// No description provided for @ghostMapInfo_hypercorrectionVisual.
+  ///
+  /// In en, this message translates to:
+  /// **'The gap map marks these nodes with ⚡ and a wavy red border.'**
+  String get ghostMapInfo_hypercorrectionVisual;
+
+  /// No description provided for @ghostMapInfo_zpdTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'ZPD — Vygotsky (1978)'**
+  String get ghostMapInfo_zpdTitle;
+
+  /// No description provided for @ghostMapInfo_zpdDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Some concepts might be TOO advanced for your current level. The gap map identifies them as \"below ZPD\" and shows them in grey — not because they aren\'t important, but because there are foundational concepts to consolidate first.'**
+  String get ghostMapInfo_zpdDesc;
+
+  /// No description provided for @ghostMapInfo_zpdComfort.
+  ///
+  /// In en, this message translates to:
+  /// **'Comfort Zone'**
+  String get ghostMapInfo_zpdComfort;
+
+  /// No description provided for @ghostMapInfo_zpdComfortDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Concepts you\'ve mastered — ✅ green nodes'**
+  String get ghostMapInfo_zpdComfortDesc;
+
+  /// No description provided for @ghostMapInfo_zpdZone.
+  ///
+  /// In en, this message translates to:
+  /// **'ZPD'**
+  String get ghostMapInfo_zpdZone;
+
+  /// No description provided for @ghostMapInfo_zpdZoneDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'You can learn with support — ❓ and ⚠️ nodes'**
+  String get ghostMapInfo_zpdZoneDesc;
+
+  /// No description provided for @ghostMapInfo_zpdAdvanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Too Advanced'**
+  String get ghostMapInfo_zpdAdvanced;
+
+  /// No description provided for @ghostMapInfo_zpdAdvancedDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Revisit after consolidating the basics — 📚 nodes'**
+  String get ghostMapInfo_zpdAdvancedDesc;
+
+  /// No description provided for @ghostMapInfo_navIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'A floating bar at the bottom lets you navigate between nodes:'**
+  String get ghostMapInfo_navIntro;
+
+  /// No description provided for @ghostMapInfo_navMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'🔴 Missing'**
+  String get ghostMapInfo_navMissing;
+
+  /// No description provided for @ghostMapInfo_navMissingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Concepts completely missing — highest priority'**
+  String get ghostMapInfo_navMissingDesc;
+
+  /// No description provided for @ghostMapInfo_navWeak.
+  ///
+  /// In en, this message translates to:
+  /// **'🟡 Weak/Wrong'**
+  String get ghostMapInfo_navWeak;
+
+  /// No description provided for @ghostMapInfo_navWeakDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Concepts present but imprecise or incorrectly connected'**
+  String get ghostMapInfo_navWeakDesc;
+
+  /// No description provided for @ghostMapInfo_navArrows.
+  ///
+  /// In en, this message translates to:
+  /// **'⬅ ➡ Navigation'**
+  String get ghostMapInfo_navArrows;
+
+  /// No description provided for @ghostMapInfo_navArrowsDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Centers the canvas on the selected node'**
+  String get ghostMapInfo_navArrowsDesc;
+
+  /// No description provided for @ghostMapInfo_fsrsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Every interaction calibrates review'**
+  String get ghostMapInfo_fsrsTitle;
+
+  /// No description provided for @ghostMapInfo_fsrsCorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'Correct attempt'**
+  String get ghostMapInfo_fsrsCorrect;
+
+  /// No description provided for @ghostMapInfo_fsrsCorrectEffect.
+  ///
+  /// In en, this message translates to:
+  /// **'Interval lengthens'**
+  String get ghostMapInfo_fsrsCorrectEffect;
+
+  /// No description provided for @ghostMapInfo_fsrsWrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong attempt'**
+  String get ghostMapInfo_fsrsWrong;
+
+  /// No description provided for @ghostMapInfo_fsrsWrongEffect.
+  ///
+  /// In en, this message translates to:
+  /// **'Interval shortens'**
+  String get ghostMapInfo_fsrsWrongEffect;
+
+  /// No description provided for @ghostMapInfo_fsrsHyper.
+  ///
+  /// In en, this message translates to:
+  /// **'Hypercorrection'**
+  String get ghostMapInfo_fsrsHyper;
+
+  /// No description provided for @ghostMapInfo_fsrsHyperEffect.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduced penalty (shock = learning)'**
+  String get ghostMapInfo_fsrsHyperEffect;
+
+  /// No description provided for @ghostMapInfo_fsrsRevealed.
+  ///
+  /// In en, this message translates to:
+  /// **'Only revealed'**
+  String get ghostMapInfo_fsrsRevealed;
+
+  /// No description provided for @ghostMapInfo_fsrsRevealedEffect.
+  ///
+  /// In en, this message translates to:
+  /// **'Passive exposure — weak'**
+  String get ghostMapInfo_fsrsRevealedEffect;
+
+  /// No description provided for @ghostMapInfo_fsrsOnCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Already on canvas'**
+  String get ghostMapInfo_fsrsOnCanvas;
+
+  /// No description provided for @ghostMapInfo_fsrsOnCanvasEffect.
+  ///
+  /// In en, this message translates to:
+  /// **'Reinforcement — stable interval'**
+  String get ghostMapInfo_fsrsOnCanvasEffect;
+
+  /// No description provided for @ghostMapInfo_fsrsNote.
+  ///
+  /// In en, this message translates to:
+  /// **'The FSRS data feeds into automatic review — concepts associated with nodes will reappear blurred when the algorithm predicts you\'re about to forget them.'**
+  String get ghostMapInfo_fsrsNote;
+
+  /// No description provided for @ghostMapInfo_growthTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How much did your canvas grow?'**
+  String get ghostMapInfo_growthTitle;
+
+  /// No description provided for @ghostMapInfo_growthIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'When closing the gap map, you see a summary with:'**
+  String get ghostMapInfo_growthIntro;
+
+  /// No description provided for @ghostMapInfo_growthCorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'Correct'**
+  String get ghostMapInfo_growthCorrect;
+
+  /// No description provided for @ghostMapInfo_growthCorrectDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Concepts you already had right'**
+  String get ghostMapInfo_growthCorrectDesc;
+
+  /// No description provided for @ghostMapInfo_growthImprove.
+  ///
+  /// In en, this message translates to:
+  /// **'To improve'**
+  String get ghostMapInfo_growthImprove;
+
+  /// No description provided for @ghostMapInfo_growthImproveDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Imprecise or weak concepts'**
+  String get ghostMapInfo_growthImproveDesc;
+
+  /// No description provided for @ghostMapInfo_growthMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Missing'**
+  String get ghostMapInfo_growthMissing;
+
+  /// No description provided for @ghostMapInfo_growthMissingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Concepts you hadn\'t written'**
+  String get ghostMapInfo_growthMissingDesc;
+
+  /// No description provided for @ghostMapInfo_growthAttempts.
+  ///
+  /// In en, this message translates to:
+  /// **'Attempts'**
+  String get ghostMapInfo_growthAttempts;
+
+  /// No description provided for @ghostMapInfo_growthAttemptsDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'How many you got right vs total'**
+  String get ghostMapInfo_growthAttemptsDesc;
+
+  /// No description provided for @ghostMapInfo_growthPercent.
+  ///
+  /// In en, this message translates to:
+  /// **'Growth %'**
+  String get ghostMapInfo_growthPercent;
+
+  /// No description provided for @ghostMapInfo_growthPercentDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Gaps filled after interaction'**
+  String get ghostMapInfo_growthPercentDesc;
+
+  /// No description provided for @ghostMapInfo_growthExplored.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% explored'**
+  String ghostMapInfo_growthExplored(int percent);
+
+  /// No description provided for @ghostMapInfo_sleepTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep completes the cycle'**
+  String get ghostMapInfo_sleepTitle;
+
+  /// No description provided for @ghostMapInfo_sleepDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'After the session, your brain continues to process during sleep (memory consolidation). On next access, revisited concepts will be more stable and Fluera will automatically adapt review intervals.\n\nThis is the cycle: gap exploration → overnight interval computation → gradual review.'**
+  String get ghostMapInfo_sleepDesc;
+
+  /// No description provided for @ghostMapInfo_sleepCitation.
+  ///
+  /// In en, this message translates to:
+  /// **'Stickgold & Walker (2005): \"Sleep transforms episodic memory into structured semantic knowledge.\"'**
+  String get ghostMapInfo_sleepCitation;
+
+  /// No description provided for @ghostMapInfo_cta.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to canvas — try it!'**
+  String get ghostMapInfo_cta;
+
+  /// No description provided for @ghostMapInfo_footer.
+  ///
+  /// In en, this message translates to:
+  /// **'Based on research by Butterfield & Metcalfe (2001),\nAusubel (1968), Chi (2009), Bjork (1994), Vygotsky (1978)'**
+  String get ghostMapInfo_footer;
+
+  /// No description provided for @ghostMapInfo_nodeTypeTapHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a node to discover its meaning:'**
+  String get ghostMapInfo_nodeTypeTapHint;
+
+  /// No description provided for @ghostMapInfo_nodeMissingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Missing'**
+  String get ghostMapInfo_nodeMissingTitle;
+
+  /// No description provided for @ghostMapInfo_nodeMissingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'A concept NOT on your canvas that Atlas deems important. You can attempt to write it or reveal what Atlas was thinking.'**
+  String get ghostMapInfo_nodeMissingDesc;
+
+  /// No description provided for @ghostMapInfo_nodeMissingPrinciple.
+  ///
+  /// In en, this message translates to:
+  /// **'Active Recall + Gap Detection (Ausubel, 1968)'**
+  String get ghostMapInfo_nodeMissingPrinciple;
+
+  /// No description provided for @ghostMapInfo_nodeWeakTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Weak'**
+  String get ghostMapInfo_nodeWeakTitle;
+
+  /// No description provided for @ghostMapInfo_nodeWeakDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'A concept present but imprecise, incomplete, or incorrectly connected. Atlas explains what to improve.'**
+  String get ghostMapInfo_nodeWeakDesc;
+
+  /// No description provided for @ghostMapInfo_nodeWeakPrinciple.
+  ///
+  /// In en, this message translates to:
+  /// **'Elaborative Feedback (Chi, 2009)'**
+  String get ghostMapInfo_nodeWeakPrinciple;
+
+  /// No description provided for @ghostMapInfo_nodeCorrectTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Correct'**
+  String get ghostMapInfo_nodeCorrectTitle;
+
+  /// No description provided for @ghostMapInfo_nodeCorrectDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'A correct concept — the green circle confirms mastery. Tap it to see positive feedback.'**
+  String get ghostMapInfo_nodeCorrectDesc;
+
+  /// No description provided for @ghostMapInfo_nodeCorrectPrinciple.
+  ///
+  /// In en, this message translates to:
+  /// **'Positive Reinforcement + Self-Efficacy'**
+  String get ghostMapInfo_nodeCorrectPrinciple;
+
+  /// No description provided for @ghostMapInfo_nodeExcellentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Excellent'**
+  String get ghostMapInfo_nodeExcellentTitle;
+
+  /// No description provided for @ghostMapInfo_nodeExcellentDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Deep mastery — high confidence confirmed. These nodes glow bright green ⭐.'**
+  String get ghostMapInfo_nodeExcellentDesc;
+
+  /// No description provided for @ghostMapInfo_nodeExcellentPrinciple.
+  ///
+  /// In en, this message translates to:
+  /// **'Mastery Learning (Bloom, 1968)'**
+  String get ghostMapInfo_nodeExcellentPrinciple;
+
+  /// No description provided for @ghostMapInfo_nodeHyperTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hypercorrection'**
+  String get ghostMapInfo_nodeHyperTitle;
+
+  /// No description provided for @ghostMapInfo_nodeHyperDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'You were very confident but wrong — the wavy red border signals the most powerful learning opportunity.'**
+  String get ghostMapInfo_nodeHyperDesc;
+
+  /// No description provided for @ghostMapInfo_nodeHyperPrinciple.
+  ///
+  /// In en, this message translates to:
+  /// **'Hypercorrection Effect (Butterfield & Metcalfe, 2001)'**
+  String get ghostMapInfo_nodeHyperPrinciple;
+
+  /// No description provided for @ghostMapInfo_demoTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Try the flow!'**
+  String get ghostMapInfo_demoTitle;
+
+  /// No description provided for @ghostMapInfo_demoTapToStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to simulate an attempt'**
+  String get ghostMapInfo_demoTapToStart;
+
+  /// No description provided for @ghostMapInfo_demoThinking.
+  ///
+  /// In en, this message translates to:
+  /// **'🤔 Think of the answer...'**
+  String get ghostMapInfo_demoThinking;
+
+  /// No description provided for @ghostMapInfo_demoRevealTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'💡 Atlas\'s answer:'**
+  String get ghostMapInfo_demoRevealTitle;
+
+  /// No description provided for @ghostMapInfo_demoRevealExample.
+  ///
+  /// In en, this message translates to:
+  /// **'\"Chlorophyll photosynthesis\"'**
+  String get ghostMapInfo_demoRevealExample;
+
+  /// No description provided for @ghostMapInfo_demoRevealQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Had you thought the same thing?'**
+  String get ghostMapInfo_demoRevealQuestion;
+
+  /// No description provided for @ghostMapInfo_demoYes.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes!'**
+  String get ghostMapInfo_demoYes;
+
+  /// No description provided for @ghostMapInfo_demoNo.
+  ///
+  /// In en, this message translates to:
+  /// **'No'**
+  String get ghostMapInfo_demoNo;
+
+  /// No description provided for @ghostMapInfo_demoCorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'Correct! The concept is reinforced.'**
+  String get ghostMapInfo_demoCorrect;
+
+  /// No description provided for @ghostMapInfo_demoWrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Hypercorrection! The error imprints in memory.'**
+  String get ghostMapInfo_demoWrong;
+
+  /// No description provided for @ghostMapInfo_demoFsrsUp.
+  ///
+  /// In en, this message translates to:
+  /// **'FSRS: interval ↑ (consolidation)'**
+  String get ghostMapInfo_demoFsrsUp;
+
+  /// No description provided for @ghostMapInfo_demoFsrsDown.
+  ///
+  /// In en, this message translates to:
+  /// **'FSRS: interval ↓ + mnemonic shock'**
+  String get ghostMapInfo_demoFsrsDown;
+
+  /// No description provided for @ghostMapInfo_demoRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to retry'**
+  String get ghostMapInfo_demoRetry;
+
+  /// No description provided for @ghostMapInfo_beforeAfterBefore.
+  ///
+  /// In en, this message translates to:
+  /// **'Before'**
+  String get ghostMapInfo_beforeAfterBefore;
+
+  /// No description provided for @ghostMapInfo_beforeAfterAfter.
+  ///
+  /// In en, this message translates to:
+  /// **'After'**
+  String get ghostMapInfo_beforeAfterAfter;
+
+  /// No description provided for @ghostMapInfo_beforeAfterResultAfter.
+  ///
+  /// In en, this message translates to:
+  /// **'📈 7 concepts, 4 new — 57% growth!'**
+  String get ghostMapInfo_beforeAfterResultAfter;
+
+  /// No description provided for @ghostMapInfo_beforeAfterResultBefore.
+  ///
+  /// In en, this message translates to:
+  /// **'3 isolated concepts — connections missing'**
+  String get ghostMapInfo_beforeAfterResultBefore;
+
+  /// No description provided for @paywall_featureRecall.
+  ///
+  /// In en, this message translates to:
+  /// **'Test me'**
+  String get paywall_featureRecall;
+
+  /// No description provided for @paywall_featureSocratic.
+  ///
+  /// In en, this message translates to:
+  /// **'AI Quiz'**
+  String get paywall_featureSocratic;
+
+  /// No description provided for @paywall_featureGhostMap.
+  ///
+  /// In en, this message translates to:
+  /// **'What am I missing?'**
+  String get paywall_featureGhostMap;
+
+  /// No description provided for @paywall_featureFsrsChallenge.
+  ///
+  /// In en, this message translates to:
+  /// **'Smart review + Challenge'**
+  String get paywall_featureFsrsChallenge;
 }
 
 class _FlueraLocalizationsDelegate

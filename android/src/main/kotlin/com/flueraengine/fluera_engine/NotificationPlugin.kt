@@ -80,6 +80,9 @@ class NotificationPlugin :
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
 
+        // Create default notification channels on first attach
+        createNotificationChannels()
+
         methodChannel = MethodChannel(binding.binaryMessenger, METHOD_CHANNEL)
         methodChannel.setMethodCallHandler(this)
 
@@ -123,8 +126,6 @@ class NotificationPlugin :
 
         // Make sink accessible to BroadcastReceiver
         FlueraNotificationReceiver.eventSinkProvider = { eventSink }
-
-        createNotificationChannels()
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -270,9 +271,17 @@ class NotificationPlugin :
             val sound     = call.argument<String>("sound")
             val channelId = call.argument<String>("channelId") ?: CH_DEFAULT
             val priority  = call.argument<String>("priority") ?: "defaultPriority"
+            val style     = call.argument<String>("style") ?: "plain"
+            val groupKey  = call.argument<String>("groupKey")
+            val vibrate   = call.argument<Boolean>("vibrate") ?: true
 
             @Suppress("UNCHECKED_CAST")
             val dataMap = call.argument<Map<String, String>>("data")
+            @Suppress("UNCHECKED_CAST")
+            val actions = call.argument<List<Map<String, Any>>>("actions")
+
+            // Serialize actions to JSON for intent extras
+            val actionsJson = if (actions != null) org.json.JSONArray(actions.map { org.json.JSONObject(it) }).toString() else null
 
             // Embed all display fields as intent extras so the receiver can
             // reconstruct the notification even if the engine is not running.
@@ -283,7 +292,11 @@ class NotificationPlugin :
                 putExtra("body", body)
                 putExtra("channelId", channelId)
                 putExtra("priority", priority)
+                putExtra("style", style)
+                putExtra("vibrate", vibrate)
                 if (sound != null) putExtra("sound", sound)
+                if (groupKey != null) putExtra("groupKey", groupKey)
+                if (actionsJson != null) putExtra("actionsJson", actionsJson)
                 dataMap?.forEach { (k, v) -> putExtra("data_$k", v) }
             }
 
@@ -293,15 +306,25 @@ class NotificationPlugin :
             )
 
             val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
-            } else {
-                am.setExact(AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
-            }
+            scheduleExactOrFallback(am, deliverAtMs, pendingIntent)
 
-            // Persist for reboot recovery (minimal: just the alarm time + id)
+            // Persist full notification data as JSON for reboot recovery
             val prefs = ctx.getSharedPreferences("fluera_notifications", Context.MODE_PRIVATE)
-            prefs.edit().putString("scheduled_$id", "$deliverAtMs|$notifId").apply()
+            val json = org.json.JSONObject().apply {
+                put("deliverAtMs", deliverAtMs)
+                put("notifId", notifId)
+                put("title", title)
+                put("body", body)
+                put("channelId", channelId)
+                put("priority", priority)
+                put("style", style)
+                put("vibrate", vibrate)
+                if (sound != null) put("sound", sound)
+                if (groupKey != null) put("groupKey", groupKey)
+                if (actionsJson != null) put("actionsJson", actionsJson)
+                if (dataMap != null) put("data", org.json.JSONObject(dataMap as Map<*, *>))
+            }
+            prefs.edit().putString("scheduled_$id", json.toString()).apply()
 
             result.success(null)
         } catch (e: Exception) {
@@ -357,6 +380,16 @@ class NotificationPlugin :
             val sound     = call.argument<String>("sound")
             val channelId = call.argument<String>("channelId") ?: CH_DEFAULT
             val groupKey  = call.argument<String>("groupKey")
+            val priority  = call.argument<String>("priority") ?: "defaultPriority"
+            val style     = call.argument<String>("style") ?: "plain"
+            val vibrate   = call.argument<Boolean>("vibrate") ?: true
+
+            @Suppress("UNCHECKED_CAST")
+            val dataMap = call.argument<Map<String, String>>("data")
+            @Suppress("UNCHECKED_CAST")
+            val actions = call.argument<List<Map<String, Any>>>("actions")
+
+            val actionsJson = if (actions != null) org.json.JSONArray(actions.map { org.json.JSONObject(it) }).toString() else null
 
             val intent = Intent(ctx, FlueraNotificationReceiver::class.java).apply {
                 action = FlueraNotificationReceiver.ACTION_DELIVER_SCHEDULED
@@ -364,7 +397,13 @@ class NotificationPlugin :
                 putExtra("title", title)
                 putExtra("body", body)
                 putExtra("channelId", channelId)
+                putExtra("priority", priority)
+                putExtra("style", style)
+                putExtra("vibrate", vibrate)
                 if (sound != null) putExtra("sound", sound)
+                if (groupKey != null) putExtra("groupKey", groupKey)
+                if (actionsJson != null) putExtra("actionsJson", actionsJson)
+                dataMap?.forEach { (k, v) -> putExtra("data_$k", v) }
             }
 
             val pendingIntent = PendingIntent.getBroadcast(
@@ -381,10 +420,24 @@ class NotificationPlugin :
             val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             am.setRepeating(AlarmManager.RTC_WAKEUP, deliverAtMs, intervalMs, pendingIntent)
 
-            // Persist for reboot recovery
+            // Persist full notification data as JSON for reboot recovery
             val prefs = ctx.getSharedPreferences("fluera_notifications", Context.MODE_PRIVATE)
-            val groupSuffix = if (groupKey != null) "|group=$groupKey" else ""
-            prefs.edit().putString("scheduled_$id", "$deliverAtMs|$notifId|repeat=$repeatInterval$groupSuffix").apply()
+            val json = org.json.JSONObject().apply {
+                put("deliverAtMs", deliverAtMs)
+                put("notifId", notifId)
+                put("title", title)
+                put("body", body)
+                put("channelId", channelId)
+                put("priority", priority)
+                put("style", style)
+                put("vibrate", vibrate)
+                put("repeat", repeatInterval)
+                if (sound != null) put("sound", sound)
+                if (groupKey != null) put("groupKey", groupKey)
+                if (actionsJson != null) put("actionsJson", actionsJson)
+                if (dataMap != null) put("data", org.json.JSONObject(dataMap as Map<*, *>))
+            }
+            prefs.edit().putString("scheduled_$id", json.toString()).apply()
 
             result.success(null)
         } catch (e: Exception) {
@@ -408,9 +461,19 @@ class NotificationPlugin :
 
         // Also cancel scheduled alarms that belong to this group
         val prefs = ctx.getSharedPreferences("fluera_notifications", Context.MODE_PRIVATE)
+        val editor = prefs.edit()
         prefs.all.entries
             .filter { it.key.startsWith("scheduled_") }
-            .filter { (it.value as? String)?.contains("|group=$groupKey") == true }
+            .filter { entry ->
+                val value = entry.value as? String ?: return@filter false
+                try {
+                    val json = org.json.JSONObject(value)
+                    json.optString("groupKey") == groupKey
+                } catch (_: Exception) {
+                    // Legacy format fallback
+                    value.contains("|group=$groupKey")
+                }
+            }
             .forEach { entry ->
                 val id = entry.key.removePrefix("scheduled_").toIntOrNull() ?: return@forEach
                 val intent = Intent(ctx, FlueraNotificationReceiver::class.java).apply {
@@ -422,8 +485,9 @@ class NotificationPlugin :
                 )?.let {
                     (ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(it)
                 }
-                prefs.edit().remove(entry.key).apply()
+                editor.remove(entry.key)
             }
+        editor.apply()
 
         result.success(null)
     }
@@ -438,13 +502,24 @@ class NotificationPlugin :
             .filter { it.key.startsWith("scheduled_") }
             .mapNotNull { entry ->
                 val value = entry.value as? String ?: return@mapNotNull null
-                val deliverAtMs = value.substringBefore("|").toLongOrNull() ?: return@mapNotNull null
-                if (deliverAtMs <= now) return@mapNotNull null
-                val notifId = value.substringAfter("|").substringBefore("|")
-                mapOf<String, Any>(
-                    "id" to notifId,
-                    "deliverAtMs" to deliverAtMs,
-                )
+                try {
+                    val json = org.json.JSONObject(value)
+                    val deliverAtMs = json.getLong("deliverAtMs")
+                    val isRepeating = json.has("repeat")
+                    if (!isRepeating && deliverAtMs <= now) return@mapNotNull null
+                    mapOf<String, Any>(
+                        "id" to json.getString("notifId"),
+                        "title" to json.optString("title", ""),
+                        "body" to json.optString("body", ""),
+                        "deliverAtMs" to deliverAtMs,
+                    )
+                } catch (_: Exception) {
+                    // Legacy format fallback
+                    val deliverAtMs = value.substringBefore("|").toLongOrNull() ?: return@mapNotNull null
+                    if (deliverAtMs <= now) return@mapNotNull null
+                    val notifId = value.substringAfter("|").substringBefore("|")
+                    mapOf<String, Any>("id" to notifId, "deliverAtMs" to deliverAtMs)
+                }
             }
         result.success(list)
     }
@@ -678,6 +753,35 @@ class NotificationPlugin :
         }
 
         return builder.build()
+    }
+
+    // ── Exact Alarm Helper ─────────────────────────────────────────────────────
+
+    /**
+     * Schedules an exact alarm if permitted, otherwise falls back to inexact.
+     *
+     * On Android 14+ (API 34) SCHEDULE_EXACT_ALARM is not auto-granted for
+     * non-alarm apps. If the user revokes the permission, setExactAndAllowWhileIdle
+     * throws SecurityException. This helper catches that and falls back to
+     * setAndAllowWhileIdle (±10 min window) so notifications still arrive.
+     */
+    private fun scheduleExactOrFallback(
+        am: AlarmManager,
+        deliverAtMs: Long,
+        pendingIntent: PendingIntent,
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (am.canScheduleExactAlarms()) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+            } else {
+                // Fallback: inexact but still wakes from Doze
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+        } else {
+            am.setExact(AlarmManager.RTC_WAKEUP, deliverAtMs, pendingIntent)
+        }
     }
 
     // ── Safe Notify Helper ────────────────────────────────────────────────────

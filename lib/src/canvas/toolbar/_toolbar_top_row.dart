@@ -208,6 +208,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onRecallModePressed != null) ...[
                   _RecallChip(
                     onPressed: () {
+                      if (!_chipTapDebounce()) return;
                       HapticFeedback.mediumImpact();
                       widget.onRecallModePressed!();
                     },
@@ -223,6 +224,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onGhostMapPressed != null) ...[
                   _GhostMapChip(
                     onPressed: () {
+                      if (!_chipTapDebounce()) return;
                       HapticFeedback.mediumImpact();
                       widget.onGhostMapPressed!();
                     },
@@ -240,6 +242,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onFogOfWarPressed != null) ...[
                   _FogOfWarChip(
                     onPressed: () {
+                      if (!_chipTapDebounce()) return;
                       HapticFeedback.mediumImpact();
                       widget.onFogOfWarPressed!();
                     },
@@ -255,6 +258,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onSocraticPressed != null) ...[
                   _SocraticChip(
                     onPressed: () {
+                      if (!_chipTapDebounce()) return;
                       HapticFeedback.mediumImpact();
                       widget.onSocraticPressed!();
                     },
@@ -270,6 +274,7 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onCrossZoneBridgesPressed != null) ...[
                   _CrossZoneBridgeChip(
                     onPressed: () {
+                      if (!_chipTapDebounce()) return;
                       HapticFeedback.mediumImpact();
                       widget.onCrossZoneBridgesPressed!();
                     },

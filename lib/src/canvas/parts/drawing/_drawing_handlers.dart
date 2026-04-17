@@ -28,9 +28,12 @@ extension on _FlueraCanvasScreenState {
       return;
     }
 
-    // 🌫️ FOG OF WAR: Intercept tap for fog node reveal + self-eval
+    // 🌫️ FOG OF WAR: Block ALL drawing during active fog session.
+    // Save the tap position — it will be processed in _onDrawEnd to
+    // confirm it was a single-finger tap (not a pinch-to-zoom gesture).
     if (_fogOfWarController.isActive) {
-      if (handleFogOfWarTap(canvasPosition)) return;
+      _pendingFogTapPosition = canvasPosition;
+      return;
     }
 
     // 🧠 SRS BLUR: Intercept tap on blurred clusters for reveal
@@ -38,8 +41,10 @@ extension on _FlueraCanvasScreenState {
       if (handleSrsBlurTap(canvasPosition)) return;
     }
 
-    // 🗺️ GHOST MAP: Intercept tap on ghost/weak nodes
-    if (_ghostMapController.isActive) {
+    // 🗺️ GHOST MAP: Intercept tap on ghost/weak nodes.
+    // Skip interception during on-canvas attempt — let strokes land normally
+    // so the student can write in the ghost node zone (§3, T4).
+    if (_ghostMapController.isActive && !_isInlineAttemptActive) {
       if (handleGhostMapTap(canvasPosition)) return;
     }
 
@@ -864,6 +869,9 @@ extension on _FlueraCanvasScreenState {
   /// 🚫 Clear lo in-progress stroke without salvarlo
   /// Called when a 2° dito interrompe il disegno (pan/zoom)
   void _onDrawCancel() {
+    // 🌫️ FOG: Discard pending fog tap — the gesture became a pinch.
+    _pendingFogTapPosition = null;
+
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
     CanvasPerformanceMonitor.instance.notifyDrawingEnded(); // 🚀 Resume overlay

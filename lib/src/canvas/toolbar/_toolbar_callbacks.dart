@@ -73,6 +73,9 @@ class ToolbarCallbacks {
   final VoidCallback? onShapeRecognitionSensitivityCycle;
   final VoidCallback? onGhostSuggestionToggle;
 
+  // ── Note Import ────────────────────────────────────────────────────────────
+  final VoidCallback? onNoteImportPressed;
+
   // ── PDF ───────────────────────────────────────────────────────────────────
   final VoidCallback? onPdfImportPressed;
   final VoidCallback? onPdfCreateBlankPressed;
@@ -210,6 +213,8 @@ class ToolbarCallbacks {
     this.onShapeRecognitionToggle,
     this.onShapeRecognitionSensitivityCycle,
     this.onGhostSuggestionToggle,
+    // Note Import
+    this.onNoteImportPressed,
     // PDF
     this.onPdfImportPressed,
     this.onPdfCreateBlankPressed,

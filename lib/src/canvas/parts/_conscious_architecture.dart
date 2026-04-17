@@ -209,24 +209,10 @@ extension ConsciousArchitectureWiring on _FlueraCanvasScreenState {
     final profile = arch.find<AdaptiveProfile>();
     if (profile == null || !profile.isActive) return;
 
-    // 🚫 Stabilizer level is now user-controlled only (via toolbar slider).
-    // The string-pulling algorithm creates a physical deadzone per level,
-    // so auto-overriding it causes unexpected lag for the user.
-    // Previously: _drawingHandler.stabilizerLevel = level;
-    bool changed = false;
-
-    // Tile prefetch was removed — tile caching is no longer used.
-    final normalizedBias = 1.0;
-
-    // Emit EventBus event if recommendations changed.
-    if (changed) {
-      EngineScope.current.eventBus.emit(
-        ProfileRecommendationsChangedEvent(
-          stabilizerLevel: _drawingHandler.stabilizerLevel,
-          prefetchBias: normalizedBias,
-        ),
-      );
-    }
+    // 🚫 Both adaptive subsystems have been removed:
+    //   - Stabilizer level: now user-controlled only (toolbar slider)
+    //   - Tile prefetch: tile caching no longer used
+    // This method is kept as a hook for future adaptive behavior.
   }
 
   // ─────────────────────────────────────────────────────────────────────────

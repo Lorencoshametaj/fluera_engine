@@ -49,11 +49,13 @@ class GhostNode {
 
   /// Estimated position on the canvas (canvas coordinates).
   ///
-  /// For [GhostNodeStatus.missing]: Atlas suggests a position near
-  /// related clusters.
+  /// For [GhostNodeStatus.missing]: computed deterministically below
+  /// the related cluster (Gemini's x/y are unreliable).
   /// For [GhostNodeStatus.weak] / [GhostNodeStatus.correct]:
   /// position matches the related cluster's centroid.
-  final Offset estimatedPosition;
+  ///
+  /// Mutable: repositioned by layout pass after AI response.
+  Offset estimatedPosition;
 
   /// Width/height hint for the ghost node bounds.
   final Size estimatedSize;

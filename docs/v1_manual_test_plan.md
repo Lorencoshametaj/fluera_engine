@@ -116,16 +116,16 @@
 
 | # | Test | Steps | Expected | Priorità | iPad | Android | Web | Win |
 |---|---|---|---|---|---|---|---|---|
-| E1 | **Attivazione** | Crea appunti → Tap "Interrogami" | IA pone una domanda pertinente al contenuto | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E2 | **Label chip** | Guarda il bottone | Dice "Interrogami", NON "Socratica" | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E3 | **Latenza** | Tempo da tap a prima risposta IA | < 3 secondi | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E4 | **Confidenza (5 dot)** | IA chiede confidenza | 5 dot (1-5) funzionano, haptic progressivo, colore cambia | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E5 | **Hypercorrection** | Rispondi sbagliato con confidenza alta (>80%) | Shock rosso, nodo pulsa, messaggio ipercorrezione | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E6 | **Risposta corretta** | Rispondi corretto | Feedback positivo verde | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E7 | **Gate Free: 3/settimana** | Usa 3 sessioni socratiche | Dopo la 3ª, messaggio: "Hai usato le 3 sessioni..." | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E8 | **Upsell non-modale** | Quando gated dopo la 3ª | Banner dismissabile, NON modale bloccante | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E9 | **Upsell pricing** | Leggi il messaggio | Contiene "€3.33/mese" e "Pro" | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| E10 | **Contesto corretto** | IA fa domande | Le domande riguardano gli appunti scritti, non topic random | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| E1 | **Attivazione** | Crea appunti → Tap "Interrogami" | IA pone una domanda pertinente al contenuto | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| E2 | **Label chip** | Guarda il bottone | Dice "Interrogami", NON "Socratica" | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| E3 | **Latenza** | Tempo da tap a prima risposta IA | < 3 secondi | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| E4 | **Confidenza (5 dot)** | IA chiede confidenza | 5 dot (1-5) funzionano, haptic progressivo, colore cambia | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| E5 | **Hypercorrection** | Rispondi sbagliato con confidenza alta (>80%) | Shock rosso, nodo pulsa, messaggio ipercorrezione | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| E6 | **Risposta corretta** | Rispondi corretto | Feedback positivo verde | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| E7 | **Gate Free: 3/settimana** | Usa 3 sessioni socratiche | Dopo la 3ª, messaggio: "Hai usato le 3 sessioni..." | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| E8 | **Upsell non-modale** | Quando gated dopo la 3ª | Banner dismissabile, NON modale bloccante | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| E9 | **Upsell pricing** | Leggi il messaggio | Contiene "€3.33/mese" e "Pro" | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| E10 | **Contesto corretto** | IA fa domande | Le domande riguardano gli appunti scritti, non topic random | 🔴 | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -133,18 +133,18 @@
 
 | # | Test | Steps | Expected | Priorità | iPad | Android | Web | Win |
 |---|---|---|---|---|---|---|---|---|
-| F1 | **Attivazione** | Crea ≥2 gruppi di appunti → Tap "Cosa mi manca?" | Ghost Map si genera, overlay visibile | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F2 | **Label chip** | Guarda il bottone | Dice "Cosa mi manca?", NON "Ghost Map" | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F3 | **Generazione** | Tempo da tap a overlay | < 5 secondi | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F4 | **Nodi mancanti** | Guarda l'overlay | Mostra concetti mancanti rispetto al topic | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F5 | **Tap per tentare** | Tap su nodo ghost | Popup per tentare la risposta (testo o mano) | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F6 | **Rivela risposta** | Tap "Rivela" dopo attempt | Mostra la risposta corretta dopo countdown | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F7 | **Confronta** | After reveal | Confronto side-by-side (tentativo vs corretto) | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F8 | **Progresso** | Esplora più nodi | Barra progresso "X/Y lacune esplorate" | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F9 | **Chiudi Ghost Map** | Tap "Chiudi" | Overlay rimosso, canvas normale | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F10 | **Gate Free: 1/settimana** | Usa 1 Ghost Map → riprova | Dopo la 1ª, messaggio upsell | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F11 | **Prerequisito minimo** | Prova con <2 gruppi nodi | Messaggio "Scrivi almeno 2 gruppi" | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| F12 | **Info screen** | Tap info/? | Schermata Material 3 con spiegazione pedagogica | 🟢 | ⬜ | ⬜ | ⬜ | ⬜ |
+| F1 | **Attivazione** | Crea ≥2 gruppi di appunti → Tap "Cosa mi manca?" | Ghost Map si genera, overlay visibile | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| F2 | **Label chip** | Guarda il bottone | Dice "Cosa mi manca?", NON "Ghost Map" | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| F3 | **Generazione** | Tempo da tap a overlay | < 5 secondi | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| F4 | **Nodi mancanti** | Guarda l'overlay | Mostra concetti mancanti rispetto al topic | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| F5 | **Tap per tentare** | Tap su nodo ghost | Popup per tentare la risposta (testo o mano) | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| F6 | **Rivela risposta** | Tap "Rivela" dopo attempt | Mostra la risposta corretta dopo countdown | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| F7 | **Confronta** | After reveal | Confronto side-by-side (tentativo vs corretto) | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| F8 | **Progresso** | Esplora più nodi | Barra progresso "X/Y lacune esplorate" | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| F9 | **Chiudi Ghost Map** | Tap "Chiudi" | Overlay rimosso, canvas normale | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| F10 | **Gate Free: 1/settimana** | Usa 1 Ghost Map → riprova | Dopo la 1ª, messaggio upsell | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| F11 | **Prerequisito minimo** | Prova con <2 gruppi nodi | Messaggio "Scrivi almeno 2 gruppi" | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| F12 | **Info screen** | Tap info/? | Schermata Material 3 con spiegazione pedagogica | 🟢 | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -152,24 +152,61 @@
 
 | # | Test | Steps | Expected | Priorità | iPad | Android | Web | Win |
 |---|---|---|---|---|---|---|---|---|
-| G1 | **Attivazione FoW** | Nodi schedulati → Tap "Sfida" | Fog of War overlay: nodi sfocati | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| G2 | **Label chip** | Guarda il bottone | Dice "Sfida", NON "Fog of War" | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| G3 | **Densità nebbia 3 livelli** | Seleziona livello nel picker (Leggera/Media/Totale) | Leggera: trasparenza 30-50%, contenuto intravisto. Media: trasparenza 60-80%, contorni visibili. Totale: completamente coperto | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| G4 | **Tap per rivelare** | Tap su nodo sfocato | Nodo si desfoca con animazione | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| G5 | **Self-eval post-FoW** | Rivela tutti → finisci | Auto-valutazione come in Recall | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| G6 | **Gate: illimitato Free** | Fai 5+ sessioni FoW | Mai bloccato (strategia §3 lo dice) | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| G7 | **FSRS scheduling update** | Dopo eval → chiudi → riapri domani (o simula) | Nodi rischedulati con intervalli FSRS | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
+| G1 | **Attivazione FoW** | Nodi schedulati → Tap "Sfida" | Fog of War overlay: nodi sfocati | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| G2 | **Label chip** | Guarda il bottone | Dice "Sfida", NON "Fog of War" | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| G3 | **Densità nebbia 3 livelli** | Seleziona livello nel picker (Leggera/Media/Totale) | Leggera: trasparenza 30-50%, contenuto intravisto. Media: trasparenza 60-80%, contorni visibili. Totale: completamente coperto | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| G4 | **Tap per rivelare** | Tap su nodo sfocato | Nodo si desfoca con animazione | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| G5 | **Self-eval post-FoW** | Rivela tutti → finisci | Auto-valutazione come in Recall | 🟡 | ✅ | ✅ | ✅ | ✅ |
+| G6 | **Gate: illimitato Free** | Fai 5+ sessioni FoW | Mai bloccato (strategia §3 lo dice) | 🔴 | ✅ | ✅ | ✅ | ✅ |
+| G7 | **FSRS scheduling update** | Dopo eval → chiudi → riapri domani (o simula) | Nodi rischedulati con intervalli FSRS | 🟡 | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
 ## H. SRS Notifications
 
-| # | Test | Steps | Expected | Priorità | iPad | Android | Web | Win |
-|---|---|---|---|---|---|---|---|---|
-| H1 | **Notifica SRS** | Crea nodi → aspetta scheduling (o simula) | Notifica push "X nodi da ripassare" | 🔴 | ⬜ | ⬜ | N/A | ⬜ |
-| H2 | **Tap notifica** | Tap sulla notifica | App si apre al canvas giusto con nodi due | 🟡 | ⬜ | ⬜ | N/A | ⬜ |
-| H3 | **Permesso notifiche** | Prima volta | Dialog permesso OS | 🔴 | ⬜ | ⬜ | N/A | ⬜ |
-| H4 | **Puntualità** | Schedule notifica per tra 1 minuto | Arriva ±30s | 🟡 | ⬜ | ⬜ | N/A | ⬜ |
+### H-A. Permesso e prima schedulazione
+
+| # | Test | Steps | Expected | Priorità | iPad | Android |
+|---|---|---|---|---|---|---|
+| H1 | **Permesso al momento giusto** | Fresh install → scrivi appunti → completa prima verify card (risposta valutata) | Dialog permesso notifiche OS appare DOPO il primo risultato SRS, non prima | 🔴 | ✅ | ✅ |
+| H2 | **Permesso concesso** | Concedi il permesso nel dialog H1 | Nessun errore, scheduling procede silenziosamente (check debugPrint: "Scheduled N SR review notifications") | 🔴 | ✅ | ✅ |
+| H3 | **Permesso negato** | Nega il permesso nel dialog H1 | Nessun crash, nessun dialog ripetuto, scheduling saltato silenziosamente | 🔴 | ✅ | ✅ |
+| H4 | **Permesso gia' concesso** | Ripeti H1 dopo aver gia' concesso | Nessun dialog, scheduling procede | 🟡 | ✅ | ✅ |
+| H5 | **Android < 13** | Device con Android 12 o inferiore | Nessun dialog (non richiesto), scheduling funziona | 🟡 | N/A | ✅ |
+
+### H-B. Schedulazione e consegna
+
+| # | Test | Steps | Expected | Priorità | iPad | Android |
+|---|---|---|---|---|---|---|
+| H6 | **Notifica schedulata** | Completa una verify card → aspetta che nextReview scada (o modifica orologio device +2h) | Notifica appare con titolo "📅 Review: {concetto}", body, e 2 action buttons ("Review now" + "In 1h") | 🔴 | ✅ | ✅ |
+| H7 | **Puntualita'** | Schedule notifica con nextReview = ora + 2 min | Arriva entro ±30s dal tempo schedulato | 🟡 | ✅ | ✅ |
+| H8 | **Raggruppamento** | Avere 3+ concetti due → aspetta che scadano | Le notifiche sono raggruppate sotto un'unica summary "N concepts to review" | 🟡 | ✅ | ✅ |
+| H9 | **Cap notifiche** | Avere 50+ concetti schedulati | Max 40 notifiche schedu late (controlla con debugPrint "capped from"), nessun crash | 🟡 | ✅ | ✅ |
+| H10 | **Badge iOS** | Concetti overdue presenti | App icon mostra badge numerico con conteggio overdue | 🟡 | ✅ | N/A |
+| H11 | **Canale Android** | Notifica arriva su Android | Appare nel canale "Studio & Ripasso" (fluera_study) nelle impostazioni notifiche Android | 🟡 | N/A | ✅ |
+
+### H-C. Interazioni con la notifica
+
+| # | Test | Steps | Expected | Priorità | iPad | Android |
+|---|---|---|---|---|---|---|
+| H12 | **Tap body (app aperta)** | Notifica arriva con app in foreground → tap | Verify card appare nel canvas con il concetto corretto, haptic feedback | 🔴 | ✅ | ✅ |
+| H13 | **Tap body (app background)** | Notifica arriva con app in background → tap | App torna in foreground + verify card appare | 🔴 | ✅ | ✅ |
+| H14 | **Tap body (cold start)** | Forza chiusura app → tap notifica dalla lock screen | App si apre → verify card appare col concetto giusto (getInitialNotification) | 🔴 | ✅ | ✅ |
+| H15 | **Action: Review now** | Tap bottone "Review now" nella notifica | Stesso comportamento di H12 — verify card appare | 🟡 | ✅ | ✅ |
+| H16 | **Action: Snooze 1h** | Tap bottone "In 1h" nella notifica | Notifica sparisce, nuova notifica ri-schedulata a +1h (check debugPrint: "Snoozed X for 1h"), app NON si apre | 🔴 | ✅ | ✅ |
+| H17 | **Snooze effettivo** | Dopo H16, aspetta 1h (o avanza orologio) | Nuova notifica arriva al tempo snoozato | 🟡 | ✅ | ✅ |
+| H18 | **Data payload** | Tap qualsiasi notifica → controlla verify card | Il concetto nel card corrisponde al concetto della notifica (non null, non sbagliato) | 🔴 | ✅ | ✅ |
+
+### H-D. Resilienza
+
+| # | Test | Steps | Expected | Priorità | iPad | Android |
+|---|---|---|---|---|---|---|
+| H19 | **Reboot Android** | Schedula notifiche → riavvia device Android → aspetta orario | Notifiche arrivano comunque (reboot recovery via BOOT_COMPLETED) | 🔴 | N/A | ✅ |
+| H20 | **Reboot: actions presenti** | Dopo H19, controlla la notifica ricevuta | Ha i 2 bottoni "Review now" e "In 1h" (non solo titolo/body) | 🔴 | N/A | ✅ |
+| H21 | **Reboot: data presenti** | Dopo H19, tap sulla notifica | Verify card mostra il concetto corretto (non null) | 🔴 | N/A | ✅ |
+| H22 | **cancelGroup** | Schedula notifiche → completa una nuova verify → salva SR | Vecchie notifiche cancellate, nuove rischedulate (check getPendingNotifications) | 🟡 | ✅ | ✅ |
+| H23 | **Doze mode Android** | Device in idle per 30+ min → notifica scade | Notifica arriva (AlarmManager.setExactAndAllowWhileIdle bypassa Doze) | 🟡 | N/A | ✅ |
+| H24 | **Exact alarm non concesso (Android 14+)** | Revoca "Alarms & reminders" in Settings → Apps → Fluera | Notifica arriva comunque (fallback a setAndAllowWhileIdle, ±10 min) | 🟡 | N/A | ✅ |
 
 ---
 
@@ -224,12 +261,16 @@
 
 | # | Test | Steps | Expected | Priorità | iPad | Android | Web | Win |
 |---|---|---|---|---|---|---|---|---|
-| L1 | **Socratic offline** | Disattiva rete → Tap "Interrogami" | Messaggio fallback: "IA non disponibile, riprova con connessione" | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| L2 | **Ghost Map offline** | Disattiva rete → "Cosa mi manca?" | Messaggio fallback graceful | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| L1 | **Socratic offline** | Disattiva rete → Tap "Interrogami" | Fallback silenzioso: genera domande locali generiche (no messaggio errore, lo studente continua senza accorgersi) | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| L2 | **Ghost Map offline** | Disattiva rete → "Cosa mi manca?" | 2 tentativi automatici (2s tra retry), poi error overlay con messaggio localizzato (`ghostMap_errorGeneric`). No crash | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
 | L3 | **Recall offline** | Disattiva rete → "Mettimi alla prova" | FUNZIONA (non dipende da IA) | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
 | L4 | **FoW offline** | Disattiva rete → "Sfida" | FUNZIONA (non dipende da IA) | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
 | L5 | **Canvas offline** | Disattiva rete → scrivi liberamente | Canvas DEVE funzionare sempre | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
-| L6 | **Riconnessione** | Riattiva rete → r-tap Socratic | Funziona normalmente | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
+| L6 | **Riconnessione base** | Riattiva rete → ri-tap Socratic | IA risponde normalmente, indicatore connessione torna verde | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
+| L7 | **Indicatore connessione** | Disattiva rete → osserva toolbar | Pallino connessione passa da verde a grigio/rosso; riattiva rete → torna verde | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| L8 | **Rete instabile** | Simula rete lenta/intermittente (throttle) | Badge offline visibile, Socratic degrada a domande locali, Ghost Map mostra retry hint | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
+| L9 | **Ghost Map interrotto** | Avvia Ghost Map → disattiva rete durante generazione | Timeout 15s, error overlay, canvas integro, nessuna corruzione | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| L10 | **Offline queue collab** | In sessione collaborativa: disattiva rete → scrivi 5 tratti → riattiva rete | Tratti sincronizzati automaticamente agli altri utenti (offline queue replay) | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -255,7 +296,12 @@
 | N1 | **Salvataggio automatico** | Scrivi 10 nodi → chiudi app (force quit) → riapri | Canvas ripristinato con tutti i nodi | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
 | N2 | **Multiple canvas** | Crea 3 canvas diversi | Tutti elencati, nessuna perdita dati | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
 | N3 | **Rename nota** | Rinomina un canvas | Nome aggiornato ovunque | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
-| N4 | **Tier gate persistence** | Usa 2 Socratic → force quit → riapri | Counter a 2, remaining = 1 | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| N4 | **Tier gate persistence** | Verifica Free tier → Usa 2 Socratic → force quit → riapri | Counter a 2, remaining = 1 (limite 3/settimana) | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| N5 | **Delta save (layer invariati)** | Crea 5 layer con contenuto → modifica solo layer 3 → force quit → riapri | Tutti e 5 i layer intatti, solo layer 3 con la modifica | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| N6 | **Save durante stroke attivo** | Inizia uno stroke lungo e lento → attendi >2s senza rilasciare → rilascia | Nessun crash, save avviene dopo il completamento dello stroke | 🔴 | ⬜ | ⬜ | ⬜ | ⬜ |
+| N7 | **Tier gate reset giornaliero** | Usa 1 Deep Review (limite 1/giorno) → cambia data di sistema al giorno dopo → riapri app | Counter Deep Review azzerato, feature disponibile | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
+| N8 | **Folder organizzazione canvas** | Crea cartella → sposta 2 canvas dentro → naviga nella cartella | Canvas visibili nella cartella, non più nella root | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
+| N9 | **Anteprima canvas al riavvio** | Disegna contenuto riconoscibile → chiudi app → riapri gallery | Thumbnail/anteprima del canvas visibile e corretta | 🟡 | ⬜ | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -319,18 +365,18 @@
 | E. Socratic AI | 10 |
 | F. Ghost Map | 12 |
 | G. Fog of War + FSRS | 7 |
-| H. SRS Notifications | 4 |
+| H. SRS Notifications | 24 |
 | I. Onboarding | 7 |
 | J. Tier Gating | 9 |
 | K. Deferred Features | 10 |
-| L. Degraded Mode | 6 |
+| L. Degraded Mode | 10 |
 | M. UI Labels | 8 |
-| N. Persistence | 4 |
+| N. Persistence | 9 |
 | O. Export | 2 |
 | P. Sound Design | 3 |
 | Q. Stress Test | 6 |
 | R. Edge Cases | 10 |
-| **TOTALE** | **137** |
+| **TOTALE** | **157** |
 
 ---
 

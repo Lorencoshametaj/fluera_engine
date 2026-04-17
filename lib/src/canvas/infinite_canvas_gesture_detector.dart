@@ -594,12 +594,22 @@ class _InfiniteCanvasGestureDetectorState
       }
     }
     if (_pointerCount == 1 && _shouldEnableDrawing && shouldDraw) {
-      // 🔍 OVERVIEW GUARD: Block ALL drawing when zoomed out ≤50%.
+      // 🔍 OVERVIEW GUARD: Block drawing when zoomed out ≤50%.
       // At this scale the user is in navigation/overview mode.
-      // Must be checked HERE (not just in _onDrawStart) because
-      // _isDrawing = true is set below and _onPointerMove would
-      // forward draw updates even if _onDrawStart returns early.
-      if (widget.controller.scale <= 0.5) {
+      // _isDrawing is NOT set, so _onPointerMove won't forward draw updates.
+      // onDrawStart is still fired so that non-drawing tap handlers
+      // (e.g. Fog of War node reveal) work at any zoom level.
+      if (widget.controller.scale <= 0.5 && !_panIntercepted) {
+        // At low zoom, fire onDrawStart for tap handlers (fog node reveal)
+        // but don't set _isDrawing so moves aren't forwarded as strokes.
+        // _panIntercepted means the onPanInterceptTest returned true
+        // (e.g. fog zone selection) — in that case, let the draw proceed.
+        if (widget.onDrawStart != null) {
+          final canvasPoint = widget.controller.screenToCanvas(
+            event.localPosition,
+          );
+          widget.onDrawStart!(canvasPoint, 0.5, 0.0, 0.0);
+        }
         return;
       }
       // 🎯 DOUBLE-TAP CHECK: If this could be the second tap of a double-tap,

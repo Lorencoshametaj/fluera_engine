@@ -141,15 +141,18 @@ class SocraticOutputFilter {
   ];
 
   /// Declarative patterns: "X è Y", "X is Y" — the LLM is stating a fact.
+  /// NOTE: Must NOT match interrogative phrases like "Qual è la...",
+  /// "Com'è il...", "Cos'è il..." — these are valid questions.
   static final List<RegExp> _declarationPatterns = [
-    // Italian declarations
-    RegExp(r"\b\w+\s+è\s+(?:un|una|il|la|lo|l'|i|le|gli)\s+\w+",
+    // Italian declarations — exclude when preceded by interrogative words.
+    // "La forza è una grandezza" (statement) vs "Qual è la grandezza?" (question)
+    RegExp(r"(?<!\b(?:qual|cos|com|dov|perch[ée]|quando|chi|che)\W{0,2})\b\w+\s+è\s+(?:un|una|il|la|lo|l'|i|le|gli)\s+\w+",
         caseSensitive: false),
-    RegExp(r'\b\w+\s+sono\s+(?:dei|delle|degli)\s+\w+',
+    RegExp(r'(?<!\?.*)\b\w+\s+sono\s+(?:dei|delle|degli)\s+\w+',
         caseSensitive: false),
     // English declarations (for mixed-language LLM outputs)
-    RegExp(r'\b\w+\s+is\s+(?:a|an|the)\s+\w+', caseSensitive: false),
-    RegExp(r'\b\w+\s+are\s+\w+\s+that\b', caseSensitive: false),
+    RegExp(r'(?<!\b(?:what|how|why|where|when|who)\W{0,2})\b\w+\s+is\s+(?:a|an|the)\s+\w+', caseSensitive: false),
+    RegExp(r'(?<!\b(?:what|how|why|where|when|who)\W{0,2})\b\w+\s+are\s+\w+\s+that\b', caseSensitive: false),
   ];
 
   /// Explanation patterns: the LLM is explaining WHY something happens.
@@ -266,9 +269,6 @@ class SocraticOutputFilter {
   // ── Fallback questions (A2-05) ────────────────────────────────────────
 
   /// Safe fallback question when 2 retries fail (A2-05).
-  ///
-  /// "Puoi spiegare questo concetto con le tue parole?" is the
-  /// spec-mandated fallback that is always pedagogically safe.
   static const String fallbackQuestion =
       'Puoi spiegare questo concetto con le tue parole?';
 
@@ -277,8 +277,8 @@ class SocraticOutputFilter {
     if (clusterText == null || clusterText.isEmpty) {
       return fallbackQuestion;
     }
-    // Keep it vague enough to be a question, not an answer.
-    return 'Cosa puoi dirmi su questo argomento con le tue parole?';
+    // Include cluster topic so the question has a clear subject.
+    return 'Riguardo a "$clusterText", cosa puoi spiegare con le tue parole?';
   }
 
   // ── Logging (A2-07) ───────────────────────────────────────────────────

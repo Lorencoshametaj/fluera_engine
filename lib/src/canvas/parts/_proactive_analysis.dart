@@ -500,6 +500,11 @@ extension ProactiveAnalysisWiring on _FlueraCanvasScreenState {
       _reviewSchedule[concept] = FsrsScheduler.review(existingCard, quality: 0, confidence: 3);
       _conceptFailHistory[concept] = mode;
     }
+    // Request notification permission after the first SRS evaluation — the
+    // user just saw a review result, so they understand why reminders help.
+    // This is a no-op after the first call (or if already granted).
+    unawaited(_ensureNotificationPermission());
+
     _saveSpacedRepetition();
 
     // Cap _conceptFailHistory to 30 entries max
@@ -1142,45 +1147,113 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
 
   /// Schedules native notifications for all concepts due for review.
   /// Debounced: waits 5s after last call to avoid excessive scheduling.
+  /// Max notifications to schedule at once. Android silently drops
+  /// pending alarms beyond ~50 per app; iOS allows 64 pending requests.
+  static const _kMaxScheduledNotifications = 40;
+
+  /// Whether we've already requested notification permission this session.
+  static bool _notifPermissionRequested = false;
+
+  /// Tracks if notification permission has been denied — avoids scheduling
+  /// calls that would silently fail.
+  static bool _notifPermissionDenied = false;
+
+  /// Requests notification permission once per session with proper context.
+  ///
+  /// Call this at the moment the user first sees an SRS result, so the
+  /// system permission dialog appears when the user understands *why*
+  /// notifications are useful ("we'll remind you when it's time to review").
+  ///
+  /// Subsequent calls are no-ops.
+  Future<void> _ensureNotificationPermission() async {
+    if (_notifPermissionRequested) return;
+    _notifPermissionRequested = true;
+    final perm = await NativeNotifications.requestPermission();
+    _notifPermissionDenied = (perm == FNotificationPermission.denied);
+    if (_notifPermissionDenied) {
+      debugPrint('🔔 Notification permission denied');
+    }
+  }
+
   Future<void> _scheduleReviewNotifications() async {
     _srNotifDebounce?.cancel();
     _srNotifDebounce = Timer(const Duration(seconds: 5), () async {
     try {
+      // Skip silently if user denied notifications
+      if (_notifPermissionDenied) return;
+
       // Cancel old review group
       await NativeNotifications.cancelGroup('sr_review');
 
       final now = DateTime.now();
-      int scheduled = 0;
 
-      for (final entry in _reviewSchedule.entries) {
+      // Collect future reviews and sort by urgency (most overdue first)
+      final futureReviews = _reviewSchedule.entries
+          .where((e) => e.value.nextReview.isAfter(now))
+          .toList()
+        ..sort((a, b) => a.value.nextReview.compareTo(b.value.nextReview));
+
+      // Cap to avoid hitting platform limits
+      final toSchedule = futureReviews.length > _kMaxScheduledNotifications
+          ? futureReviews.sublist(0, _kMaxScheduledNotifications)
+          : futureReviews;
+
+      // Fire all schedule calls in parallel — each is an independent
+      // MethodChannel invocation, no need to await sequentially.
+      final futures = toSchedule.map((entry) {
         final concept = entry.key;
         final reviewAt = entry.value.nextReview;
+        return NativeNotifications.schedule(
+          FNotification(
+            id: 'sr_$concept',
+            title: '📅 Review: $concept',
+            body: 'Time to review this concept. Open your canvas!',
+            style: FNotificationStyle.bigText,
+            priority: FNotificationPriority.high,
+            category: FNotificationCategory.reviewSession,
+            groupKey: 'sr_review',
+            data: {'concept': concept, 'canvasId': _canvasId},
+            actions: const [
+              FNotificationAction(id: 'review_now', label: 'Review now', openApp: true),
+              FNotificationAction(id: 'snooze_1h', label: 'In 1h', openApp: false),
+            ],
+          ),
+          reviewAt,
+        );
+      });
 
-        // Only schedule future reviews (not already past)
-        if (reviewAt.isAfter(now)) {
-          await NativeNotifications.schedule(
-            FNotification(
-              id: 'sr_${concept.hashCode}',
-              title: '📅 Review: $concept',
-              body: 'Time to review this concept. Open your canvas!',
-              style: FNotificationStyle.bigText,
-              priority: FNotificationPriority.high,
-              category: FNotificationCategory.reviewSession,
-              groupKey: 'sr_review',
-              data: {'concept': concept},
-              actions: [
-                FNotificationAction(id: 'review_now', label: 'Review now', openApp: true),
-                FNotificationAction(id: 'snooze_1h', label: 'In 1h', openApp: false),
-              ],
-            ),
-            reviewAt,
-          );
-          scheduled++;
-        }
+      await Future.wait(futures);
+
+      // Schedule a group summary at the earliest review time so it appears
+      // alongside the first child notification (not immediately).
+      if (toSchedule.length > 1) {
+        final firstReviewAt = toSchedule.first.value.nextReview;
+        await NativeNotifications.schedule(
+          FNotification(
+            id: 'sr_review_summary',
+            title: '📅 ${toSchedule.length} concepts to review',
+            body: 'Starting with: ${toSchedule.first.key}',
+            style: FNotificationStyle.plain,
+            priority: FNotificationPriority.low,
+            category: FNotificationCategory.reviewSession,
+            groupKey: 'sr_review',
+            data: {'canvasId': _canvasId},
+            isGroupSummary: true,
+            vibrate: false,
+          ),
+          firstReviewAt,
+        );
       }
 
-      if (scheduled > 0) {
-        debugPrint('🔔 Scheduled $scheduled SR review notifications');
+      // Update app icon badge with total overdue count (iOS only, no-op on Android)
+      final overdueCount = _reviewSchedule.values
+          .where((c) => c.nextReview.isBefore(now))
+          .length;
+      await NativeNotifications.setBadgeCount(overdueCount);
+
+      if (toSchedule.isNotEmpty) {
+        debugPrint('🔔 Scheduled ${toSchedule.length} SR review notifications'
+            '${futureReviews.length > _kMaxScheduledNotifications ? ' (capped from ${futureReviews.length})' : ''}');
       }
     } catch (e) {
       debugPrint('⚠️ SR notification error: $e');
@@ -1194,49 +1267,70 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
   /// Call this once during canvas init.
   void _setupNotificationTapHandler() {
     _notifSub?.cancel();
-    _notifSub = NativeNotifications.onNotificationTapped.listen((event) {
-      if (!mounted) return;
-      debugPrint('🔔 Notification tapped: ${event.notificationId}, action: ${event.actionId}');
 
-      final concept = event.data?['concept'];
-      if (concept == null) return;
-
-      if (event.actionId == 'review_now' || event.actionId == null) {
-        // Open a verify card for the concept
-        HapticFeedback.mediumImpact();
-        final pos = Offset(MediaQuery.sizeOf(context).width / 2 - 130, 100);
-        final cardId = 'notif_review_${DateTime.now().microsecondsSinceEpoch}';
-        setState(() {
-          _atlasCards.add(_AtlasCardEntry(
-            id: cardId,
-            text: '🔔 SCHEDULED REVIEW\n\n'
-                'Time to review: "$concept"',
-            position: pos,
-            verifyQuestion: concept,
-            showSelfRating: true,
-            gapChips: [concept],
-          ));
-        });
-      } else if (event.actionId == 'snooze_1h') {
-        // Snooze the review by 1 hour
-        final existing = _reviewSchedule[concept] ?? SrsCardData.newCard();
-        _reviewSchedule[concept] = SrsCardData(
-          stability: existing.stability,
-          difficulty: existing.difficulty,
-          elapsedDays: existing.elapsedDays,
-          scheduledDays: existing.scheduledDays,
-          reps: existing.reps,
-          lapses: existing.lapses,
-          state: existing.state,
-          nextReview: DateTime.now().add(const Duration(hours: 1)),
-          lastReview: existing.lastReview,
-          desiredRetention: existing.desiredRetention,
-          recentResults: existing.recentResults,
-        );
-        _saveSpacedRepetition();
-        debugPrint('⏰ Snoozed "$concept" for 1h');
+    // Handle cold-start: if the app was opened by tapping a notification,
+    // process that event before subscribing to the stream.
+    NativeNotifications.getInitialNotification().then((initial) {
+      if (initial != null && mounted) {
+        _handleNotificationTap(initial);
       }
     });
+
+    _notifSub = NativeNotifications.onNotificationTapped.listen((event) {
+      if (!mounted) return;
+      _handleNotificationTap(event);
+    });
+  }
+
+  /// Processes a notification tap event (shared by cold-start and stream).
+  void _handleNotificationTap(FNotificationTapEvent event) {
+    debugPrint('🔔 Notification tapped: ${event.notificationId}, action: ${event.actionId}');
+
+    final concept = event.data?['concept'];
+    if (concept == null) return;
+
+    if (event.actionId == 'review_now' || event.actionId == null) {
+      // Open a verify card for the concept
+      HapticFeedback.mediumImpact();
+      final pos = Offset(MediaQuery.sizeOf(context).width / 2 - 130, 100);
+      final cardId = 'notif_review_${DateTime.now().microsecondsSinceEpoch}';
+      setState(() {
+        _atlasCards.add(_AtlasCardEntry(
+          id: cardId,
+          text: '🔔 SCHEDULED REVIEW\n\n'
+              'Time to review: "$concept"',
+          position: pos,
+          verifyQuestion: concept,
+          showSelfRating: true,
+          gapChips: [concept],
+        ));
+      });
+    } else if (event.actionId == 'snooze_1h') {
+      // Snooze: update schedule + reschedule just this one notification
+      final snoozedTime = DateTime.now().add(const Duration(hours: 1));
+      final existing = _reviewSchedule[concept] ?? SrsCardData.newCard();
+      _reviewSchedule[concept] = existing.copyWith(nextReview: snoozedTime);
+      _saveSpacedRepetition(rescheduleNotifications: false);
+      // Reschedule only the snoozed notification — no need to cancel+rebuild all
+      NativeNotifications.schedule(
+        FNotification(
+          id: 'sr_$concept',
+          title: '📅 Review: $concept',
+          body: 'Time to review this concept. Open your canvas!',
+          style: FNotificationStyle.bigText,
+          priority: FNotificationPriority.high,
+          category: FNotificationCategory.reviewSession,
+          groupKey: 'sr_review',
+          data: {'concept': concept, 'canvasId': _canvasId},
+          actions: const [
+            FNotificationAction(id: 'review_now', label: 'Review now', openApp: true),
+            FNotificationAction(id: 'snooze_1h', label: 'In 1h', openApp: false),
+          ],
+        ),
+        snoozedTime,
+      );
+      debugPrint('⏰ Snoozed "$concept" for 1h');
+    }
   }
 
   void _disposeNotificationHandler() {
@@ -1405,7 +1499,7 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
   }
 
   /// Persist the current [_reviewSchedule] to disk (FSRS format).
-  Future<void> _saveSpacedRepetition() async {
+  Future<void> _saveSpacedRepetition({bool rescheduleNotifications = true}) async {
     try {
       final kv = await KeyValueStore.getInstance();
       final map = {
@@ -1421,7 +1515,9 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
         );
       }
       // Schedule native notifications for upcoming reviews
-      _scheduleReviewNotifications();
+      if (rescheduleNotifications) {
+        _scheduleReviewNotifications();
+      }
     } catch (e) {
       debugPrint('⚠️ SR save error: $e');
     }
@@ -1484,6 +1580,45 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
     } catch (e) {
       debugPrint('⚠️ Tier gate save error: $e');
     }
+  }
+
+  /// 💳 A17: Check tier gate for [feature] and show upgrade prompt if blocked.
+  ///
+  /// Returns `true` if the feature is allowed (and records usage).
+  /// Returns `false` if the feature is blocked (and shows upgrade prompt).
+  ///
+  /// For zone-scoped features (e.g. Fog of War), pass [zoneId].
+  bool _checkTierGate(GatedFeature feature, {String? zoneId}) {
+    final result = _tierGateController.checkFeature(feature, zoneId: zoneId);
+
+    if (result.allowed) {
+      // Record usage and persist.
+      _tierGateController.recordUsage(feature, zoneId: zoneId);
+      _saveTierGateHistory();
+      return true;
+    }
+
+    // Blocked — show upgrade prompt.
+    if (mounted && result.upgradeMessage != null) {
+      if (_config.onUpgradePrompt != null) {
+        _config.onUpgradePrompt!(context, result.upgradeMessage!);
+      } else {
+        // Fallback: basic SnackBar.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.upgradeMessage!),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 5),
+            backgroundColor: const Color(0xFF6A1B9A), // Pro purple
+          ),
+        );
+      }
+    }
+    return false;
   }
 
   /// 🚦 Build a [ZoneContext] from the current canvas state for gate evaluation.

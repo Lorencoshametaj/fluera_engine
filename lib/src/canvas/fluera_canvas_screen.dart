@@ -73,6 +73,8 @@ import '../reflow/connection_suggestion_engine.dart';
 import '../rendering/canvas/current_stroke_painter.dart';
 import '../rendering/canvas/pro_stroke_painter.dart';
 
+import '../import/note_import_controller.dart';
+import '../import/stroke_import_models.dart';
 import '../rendering/optimization/stroke_data_manager.dart';
 import '../drawing/services/stroke_persistence_service.dart';
 import '../rendering/canvas/image_painter.dart';
@@ -445,6 +447,7 @@ part './parts/_tabular_clipboard.dart';
 part './parts/_tabular_formatting.dart';
 part './parts/_tabular_csv_import.dart';
 part './parts/_tabular_latex_export.dart';
+part './parts/_note_import.dart'; // 📥 Note Import — external app stroke conversion
 
 // 🎨 Design Features
 part './parts/_dev_handoff.dart';
@@ -586,6 +589,13 @@ class FlueraCanvasScreen extends StatefulWidget {
   /// user taps a specific section to enter.
   final ({double dx, double dy, double scale})? initialViewport;
 
+  /// 🔔 Concept to open as a verify card immediately after canvas init.
+  ///
+  /// Set by [NotificationRouter] when navigating to this canvas from a
+  /// notification tap. The canvas will open the SRS review verify card
+  /// for this concept automatically.
+  final String? pendingReviewConcept;
+
   const FlueraCanvasScreen({
     super.key,
     required this.config,
@@ -600,6 +610,7 @@ class FlueraCanvasScreen extends StatefulWidget {
     this.playbackPageIndex,
     this.onExternalStrokeAdded,
     this.initialViewport,
+    this.pendingReviewConcept,
   });
 
   @override
@@ -750,6 +761,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 🗺️ Ghost Map: Current animation time (seconds) for painter.
   double _ghostMapAnimTime = 0.0;
 
+  /// 🗺️ Ghost Map: Reveal timestamps (nodeId -> animationTime when revealed).
+  /// Populated when revealedNodeIds changes; drives cross-fade transition.
+  final Map<String, double> _ghostRevealTimestamps = {};
+
   /// U-1: Monotonic timer for staggered entry animation.
   final Stopwatch _ghostMapEntryTimer = Stopwatch();
 
@@ -804,6 +819,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 🗺️ Surgical Path: Current index in the surgical plan node order.
   int _fogSurgicalCurrentIndex = 0;
 
+  /// 🗺️ Surgical Path: Cached cluster lookup map (built once in _startSurgicalPath).
+  Map<String, ContentCluster> _fogSurgicalClusterMap = const {};
+
   /// OPT-6: Debounce timer for mastery map zoom-back.
   Timer? _fogZoomBackTimer;
 
@@ -813,11 +831,28 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 💡 Hint system: cooldown timestamp.
   DateTime? _lastHintTime;
 
+  /// 💡 Hint arrow overlay: angle in radians pointing toward nearest node.
+  double? _fogHintArrowAngle;
+
+  /// 💡 Hint arrow overlay: distance label (vicino/medio/lontano).
+  String? _fogHintDistanceLabel;
+
+  /// 💡 Hint arrow overlay: auto-dismiss timer.
+  Timer? _fogHintArrowTimer;
+
+  /// 🌫️ Pending fog tap position — saved in _onDrawStart, processed in
+  /// _onDrawEnd to confirm it was a single-finger tap (not a pinch).
+  Offset? _pendingFogTapPosition;
+
   // 🔶 Socratic Spatial fields
   final SocraticController _socraticController = SocraticController();
   AnimationController? _socraticPulseController;
   /// null = not generating, non-null = current phase label
   String? _socraticGeneratingPhase;
+  /// IDs of resolved bubbles the user swiped away.
+  final Set<String> _dismissedSocraticIds = {};
+  /// Cluster IDs currently showing hypercorrection pulse (⚡ P3-23).
+  final Set<String> _hypercorrectionPulseClusterIds = {};
 
   // 🚶 Passeggiata nel Palazzo fields
   /// Whether Passeggiata mode is currently active.
@@ -2136,6 +2171,19 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // 🔔 Listen for notification taps (SR review reminders)
     _setupNotificationTapHandler();
 
+    // 🔔 Open verify card if this canvas was opened via notification tap
+    if (widget.pendingReviewConcept != null) {
+      // Delay slightly to let the canvas UI settle before adding the card
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          _handleNotificationTap(FNotificationTapEvent(
+            notificationId: 'router_pending',
+            data: {'concept': widget.pendingReviewConcept!},
+          ));
+        }
+      });
+    }
+
     // ── Tool state controller (replaces Riverpod) ──────────────────────────
     _toolController = UnifiedToolController();
     _toolController.addListener(_syncHoverState);
@@ -2430,8 +2478,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
           vsync: this,
           duration: const Duration(seconds: 4),
         )..addListener(() {
+          if (!mounted) return;
           _ghostMapAnimTime = _ghostMapAnimController!.value * 4.0;
-          _ghostMapController.version.value++;
         });
 
         // 🌫️ FOG OF WAR: Initialize animation controllers
@@ -2600,6 +2648,16 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         _knowledgeParticleTicker!.stop();
       }
 
+      // 🌫️ FOG OF WAR: Gracefully end and save session if app goes to background.
+      // Prevents data loss — unvisited nodes become blind spots, session is persisted.
+      if (mounted && _fogOfWarController.isActive && _fogOfWarController.isFogActive) {
+        _fogOfWarController.endSession();
+        _fogOfWarController.updateRevealProgress(1.0); // Skip animation.
+        _applyFogOfWarSrsReset();
+        _saveFogOfWarSession();
+        _fogOfWarController.dismiss();
+      }
+
       BackgroundSaveService.instance.flush();
 
       // ☁️ Flush pending cloud save on app background
@@ -2666,7 +2724,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       (_) => _runImageEvictionCycle(),
     );
 
-    // 4. Force repaint to refresh the canvas
+    // 4. R7: Re-check SRS blur session — items may have become due while
+    //    the app was in the background.
+    _startSrsBlurSessionIfNeeded();
+
+    // 5. Force repaint to refresh the canvas
     if (mounted) {
       setState(() {});
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2822,7 +2884,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _ghostMapController.dispose();
     _ghostMapVersionNotifier.dispose();
     _ghostMapOpacity.dispose();
-    // 🌫️ FOG OF WAR: Release controller + animations
+    // 🌫️ FOG OF WAR: Release controller + animations + timers
+    _fogZoomBackTimer?.cancel();
+    _fogHintTimer?.cancel();
+    _fogHintArrowTimer?.cancel();
     _fogOfWarRevealController?.dispose();
     _fogOfWarAnimController?.dispose();
     _fogOfWarController.dispose();

@@ -8,13 +8,410 @@ part of '../fluera_canvas_screen.dart';
 extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
 
   /// P4-15: Last pen mode preference (persists across attempts).
-  static bool _ghostMapLastPenMode = false;
+  /// Default to pen mode — preserves stylus/finger flow on canvas.
+  static bool _ghostMapLastPenMode = true;
 
+  // ── ON-CANVAS ATTEMPT (§3/§5/§13/T4) ─────────────────────────────────
+  //
+  // The student writes DIRECTLY on the canvas with their stylus.
+  // Real strokes land in the scene graph — no separate drawing pad.
+  // A floating FAB near the ghost node lets them compare or reveal.
+  //
+  // Pedagogical basis:
+  //   §3  Effetto Generazione — writing on the canvas = deep processing
+  //   §5  Difficoltà Desiderabili — spatial effort IS the learning
+  //   §6  Livelli di Elaborazione — positioning = elaborazione profonda
+  //   §13 Sistema 2 — no context switch, deliberate thinking preserved
+  //   T4  Productive Failure — attempt in the SAME space as notes
 
-  // ── ATTEMPT OVERLAY ──────────────────────────────────────────────────────
+  /// The ghost node currently being attempted on the canvas.
+  static GhostNode? _canvasAttemptNode;
 
-  /// Show a frosted glass overlay for the student to attempt writing
-  /// the missing concept, either by typing or drawing with pen (P4-15).
+  /// Snapshot of existing stroke IDs at attempt start.
+  /// Used to identify NEW strokes written during the attempt.
+  static Set<String>? _canvasAttemptPreExistingStrokeIds;
+
+  /// Whether new strokes have been detected in the attempt zone.
+  static bool _hasStrokesInZone = false;
+
+  /// Countdown timer for the 10s reveal gate.
+  static Timer? _canvasAttemptTimer;
+
+  /// When true, the concept has been revealed and the student should
+  /// rewrite it on the canvas (§3 Generation Effect).
+  static bool _revealWriteMode = false;
+
+  /// The revealed concept text (shown in the FAB so student knows what to write).
+  static String? _revealedConcept;
+
+  /// Whether an on-canvas ghost attempt is currently active.
+  bool get _isInlineAttemptActive => _canvasAttemptNode != null;
+
+  /// The inflated zone around the ghost node where student strokes are captured.
+  Rect? get _canvasAttemptZone =>
+      _canvasAttemptNode?.bounds.inflate(80);
+
+  /// Start an on-canvas attempt: the student writes directly on the canvas.
+  void _startInlineGhostAttempt(GhostNode node) {
+    final controller = _ghostMapController;
+    controller.startAttempt(node.id);
+
+    _canvasAttemptNode = node;
+
+    // Snapshot existing stroke IDs so we can find NEW strokes later
+    final activeLayer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+    _canvasAttemptPreExistingStrokeIds =
+        activeLayer.strokes.map((s) => s.id).toSet();
+
+    // Center the node in view
+    _navigateToGhostNode(node);
+    HapticFeedback.selectionClick();
+
+    if (mounted) setState(() {});
+  }
+
+  /// Cancel the on-canvas attempt and clean up.
+  void _cancelInlineGhostAttempt() {
+    _canvasAttemptTimer?.cancel();
+    _canvasAttemptTimer = null;
+    if (_canvasAttemptNode != null) {
+      _ghostMapController.cancelAttempt();
+    }
+    _canvasAttemptNode = null;
+    _canvasAttemptPreExistingStrokeIds = null;
+    _hasStrokesInZone = false;
+    _revealWriteMode = false;
+    _revealedConcept = null;
+    if (mounted) setState(() {});
+  }
+
+  /// Collect NEW strokes written in the ghost node zone during the attempt,
+  /// OCR them, and return the recognized text.
+  Future<String?> _ocrCanvasAttemptStrokes() async {
+    final zone = _canvasAttemptZone;
+    final preExisting = _canvasAttemptPreExistingStrokeIds;
+    if (zone == null || preExisting == null) return null;
+
+    // Get current strokes from the active layer
+    final activeLayer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+
+    // Find NEW strokes (not in snapshot) whose bounds overlap the attempt zone
+    final attemptStrokeSets = <List<ProDrawingPoint>>[];
+    for (final stroke in activeLayer.strokes) {
+      if (preExisting.contains(stroke.id)) continue; // existed before attempt
+      if (stroke.isStub || stroke.points.length < 3) continue;
+      if (!zone.overlaps(stroke.bounds)) continue; // outside attempt zone
+      attemptStrokeSets.add(stroke.points);
+    }
+
+    if (attemptStrokeSets.isEmpty) return null;
+
+    // OCR the new strokes
+    final inkService = DigitalInkService.instance;
+    if (!inkService.isAvailable) return null;
+
+    try {
+      final recognized = await inkService.engine.recognizeTextMode(attemptStrokeSets);
+      debugPrint('🗺️ Canvas attempt OCR: "$recognized"');
+      return recognized?.trim();
+    } catch (e) {
+      debugPrint('🗺️ Canvas attempt OCR failed: $e');
+      return null;
+    }
+  }
+
+  /// Check if new strokes have been drawn in the attempt zone.
+  ///
+  /// Compares current strokes against the pre-existing snapshot to detect
+  /// NEW strokes overlapping `_canvasAttemptZone`. Updates `_hasStrokesInZone`
+  /// and triggers a rebuild if the state changed.
+  void _checkStrokesInAttemptZone() {
+    final zone = _canvasAttemptZone;
+    final preExisting = _canvasAttemptPreExistingStrokeIds;
+    if (zone == null || preExisting == null) return;
+
+    // Get current strokes from the active layer
+    final activeLayer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+
+    // Check if any NEW strokes (not in snapshot) overlap the attempt zone
+    bool found = false;
+    for (final stroke in activeLayer.strokes) {
+      if (preExisting.contains(stroke.id)) continue;
+      if (stroke.isStub || stroke.points.length < 3) continue;
+      if (!zone.overlaps(stroke.bounds)) continue;
+      found = true;
+      break;
+    }
+
+    if (found != _hasStrokesInZone) {
+      _hasStrokesInZone = found;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Build floating FAB widgets for the on-canvas attempt.
+  ///
+  /// The student draws directly on the canvas (real strokes). This method
+  /// only adds a small floating action bar near the ghost node with
+  /// Confronta / Rivela / Close buttons.
+  List<Widget> _buildInlineAttemptWidgets(BuildContext context) {
+    final node = _canvasAttemptNode;
+    if (node == null) return const [];
+
+    final controller = _ghostMapController;
+    final l10n = _l10n;
+    final theme = Theme.of(context);
+    final screenSize = MediaQuery.of(context).size;
+
+    final isHypercorrection = node.isHypercorrection;
+
+    // Compute ghost node screen position for the connector line
+    final scale = _canvasController.scale;
+    final canvasOffset = _canvasController.offset;
+    final nodeScreenX = node.estimatedPosition.dx * scale + canvasOffset.dx;
+    final nodeScreenY = node.estimatedPosition.dy * scale + canvasOffset.dy;
+    final nodeScreenH = node.estimatedSize.height * scale;
+
+    return [
+      // ── Subtle connector line from ghost node to FAB bar
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            painter: _GhostAttemptLinePainter(
+              nodeCenter: Offset(nodeScreenX, nodeScreenY + nodeScreenH / 2 + 10),
+              fabTop: Offset(screenSize.width / 2, screenSize.height - 104),
+              color: theme.colorScheme.primary.withValues(alpha: 0.2),
+            ),
+          ),
+        ),
+      ),
+      // ── Floating action bar — fixed at bottom, never covers the writing zone
+      Positioned(
+        bottom: 24,
+        left: 20,
+        right: 20,
+        child: StatefulBuilder(
+          builder: (ctx, setFabState) {
+            final remaining = controller.secondsUntilReveal;
+            final canReveal = controller.canRevealCurrentAttempt;
+
+            // Timer: refresh countdown
+            if (!canReveal && _canvasAttemptTimer == null) {
+              _canvasAttemptTimer = Timer.periodic(
+                const Duration(seconds: 1), (_) {
+                  if (!ctx.mounted) {
+                    _canvasAttemptTimer?.cancel();
+                    _canvasAttemptTimer = null;
+                    return;
+                  }
+                  if (controller.canRevealCurrentAttempt) {
+                    _canvasAttemptTimer?.cancel();
+                    _canvasAttemptTimer = null;
+                  }
+                  setFabState(() {});
+                },
+              );
+            }
+
+            return Material(
+              color: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface.withValues(alpha: 0.94),
+                  borderRadius: BorderRadius.circular(16),
+                  border: isHypercorrection
+                      ? Border.all(color: const Color(0xFFFF1744).withValues(alpha: 0.3), width: 1.5)
+                      : Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.15)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 12,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ── Header ─────────────────────────────────────────
+                    Row(
+                      children: [
+                        Text(
+                          isHypercorrection ? '⚡' : '✍️',
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            l10n.ghostMap_drawHereHint,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: _cancelInlineGhostAttempt,
+                          child: Icon(Icons.close, size: 18,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+                        ),
+                      ],
+                    ),
+                    if (isHypercorrection) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.ghostMap_hypercorrectionExplanation,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: const Color(0xFFFF1744).withValues(alpha: 0.8),
+                          fontStyle: FontStyle.italic,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    // ── Buttons ────────────────────────────────────────
+                    if (_revealWriteMode) ...[
+                      // REVEAL-WRITE MODE: show concept + "Ho scritto" button
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1565C0).withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF1565C0).withValues(alpha: 0.2)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('💡 ${l10n.ghostMap_nowWriteThis}',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF1565C0),
+                              )),
+                            const SizedBox(height: 4),
+                            Text(_revealedConcept ?? '',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              )),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 36,
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.check, size: 14),
+                          label: Text(l10n.ghostMap_iWroteIt,
+                            style: const TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            // Dismiss the ghost node — the student's handwriting
+                            // is now on the canvas. No digital text should remain.
+                            // §3: the hand-written version IS the learning artifact.
+                            controller.revealNode(node.id);
+                            controller.dismissNode(node.id);
+                            _cancelInlineGhostAttempt();
+                          },
+                        ),
+                      ),
+                    ] else ...[
+                    Row(
+                      children: [
+                        // Reveal → enters reveal-write mode
+                        Expanded(
+                          child: SizedBox(
+                            height: 36,
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.visibility, size: 14),
+                              label: Text(
+                                canReveal
+                                    ? l10n.ghostMap_reveal
+                                    : '${remaining}s',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              // §5: Reveal only after 10s AND at least one attempt
+                              // (writing in the zone). Prevents passive shortcut.
+                              onPressed: (canReveal && _hasStrokesInZone)
+                                  ? () {
+                                      // Enter reveal-write mode: show concept,
+                                      // student must write it on canvas (§3)
+                                      _revealWriteMode = true;
+                                      _revealedConcept = node.concept;
+                                      HapticFeedback.mediumImpact();
+                                      setFabState(() {});
+                                      if (mounted) setState(() {}); // update painter label
+                                    }
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // Compare (OCR canvas strokes)
+                        Expanded(
+                          child: SizedBox(
+                            height: 36,
+                            child: FilledButton.icon(
+                              icon: const Icon(Icons.check, size: 14),
+                              label: Text(l10n.ghostMap_compare,
+                                style: const TextStyle(fontSize: 11)),
+                              onPressed: _hasStrokesInZone ? () async {
+                                final attempt = await _ocrCanvasAttemptStrokes();
+                                if (attempt == null || attempt.isEmpty) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(l10n.ghostMap_ocrFallbackMessage),
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12)),
+                                        margin: const EdgeInsets.only(
+                                            bottom: 80, left: 20, right: 20),
+                                        duration: const Duration(seconds: 3),
+                                        backgroundColor: const Color(0xFFE65100),
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
+                                node.inputMode = 'pen';
+                                // Dismiss FIRST to prevent any frame showing
+                                // digital text on canvas (§3).
+                                controller.dismissNode(node.id);
+                                controller.submitAttempt(node.id, attempt);
+                                _cancelInlineGhostAttempt();
+                                _showGhostCompareOverlay(node, attempt);
+                              } : null,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    ], // end else (normal mode)
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ];
+  }
+
+  // ── LEGACY BOTTOM SHEET ATTEMPT (kept for text-mode fallback) ────────────
+
+  /// Show a bottom sheet overlay for the student to attempt writing
+  /// the missing concept via typing (fallback for text-mode preference).
   void _showGhostAttemptOverlay(GhostNode node) {
     final controller = _ghostMapController;
     final l10n = _l10n;
@@ -477,6 +874,44 @@ extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
   // ── COMPARE OVERLAY ──────────────────────────────────────────────────────
 
   /// Show the comparison overlay: user attempt vs Atlas answer.
+  /// Handle self-evaluation tap (Yes/No): save result, close sheet,
+  /// show Growth Mindset feedback (§12), navigate to next missing node.
+  void _handleSelfEval(BuildContext ctx, GhostNode node, bool correct) {
+    HapticFeedback.mediumImpact();
+    node.attemptCorrect = correct;
+    _ghostMapController.overrideAttemptResult(node.id, correct);
+    // Dismiss the ghost node — the student's handwriting is on the canvas.
+    // No digital text should remain (§3 Effetto Generazione).
+    _ghostMapController.dismissNode(node.id);
+
+    if (!ctx.mounted) return;
+    Navigator.pop(ctx);
+
+    final l10n = _l10n;
+
+    // §12 Growth Mindset: praise EFFORT, not result
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(correct
+              ? '💪 ${l10n.ghostMap_selfEvalRecordedYes}'
+              : '🧠 ${l10n.ghostMap_selfEvalRecordedNo}'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+          duration: const Duration(seconds: 2),
+          backgroundColor: correct
+              ? const Color(0xFF2E7D32)
+              : const Color(0xFF455A64), // neutral grey, not red — errors are learning
+        ),
+      );
+    }
+
+    // T2 Autodeterminazione: do NOT auto-navigate to the next node.
+    // The student chooses what to explore next via the navigation bar.
+    // Imposing the sequence removes autonomy and kills intrinsic motivation.
+  }
+
   void _showGhostCompareOverlay(GhostNode node, String? userAttempt) {
     final isCorrect = node.attemptCorrect == true;
     final isHyper = node.isHypercorrection;
@@ -527,7 +962,8 @@ extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
                 ),
               ],
             ),
-            child: Column(
+            child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -682,12 +1118,7 @@ extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                 ),
-                                onPressed: () {
-                                  HapticFeedback.lightImpact();
-                                  node.attemptCorrect = false;
-                                  _ghostMapController.overrideAttemptResult(node.id, false);
-                                  if (ctx.mounted) setModalState(() {});
-                                },
+                                onPressed: () => _handleSelfEval(ctx, node, false),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -703,12 +1134,7 @@ extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                 ),
-                                onPressed: () {
-                                  HapticFeedback.lightImpact();
-                                  node.attemptCorrect = true;
-                                  _ghostMapController.overrideAttemptResult(node.id, true);
-                                  if (ctx.mounted) setModalState(() {});
-                                },
+                                onPressed: () => _handleSelfEval(ctx, node, true),
                               ),
                             ),
                           ],
@@ -721,12 +1147,13 @@ extension FlueraGhostMapOverlaysExtension on _FlueraCanvasScreenState {
                 _buildGhostMapProgress(),
               ],
             ),
+            ),
           );
         },
       ),
       ),
     ).then((_) {
-      setState(() {});
+      if (mounted) setState(() {});
     });
   }
 
@@ -1004,5 +1431,68 @@ class _GhostPenPainter extends CustomPainter {
   bool shouldRepaint(_GhostPenPainter oldDelegate) =>
       strokes.length != oldDelegate.strokes.length ||
       currentStroke?.length != oldDelegate.currentStroke?.length ||
+      color != oldDelegate.color;
+}
+
+/// Painter that draws a subtle dashed curved line connecting the ghost node
+/// on the canvas to the floating action bar at the bottom of the screen.
+///
+/// Provides a visual hint that the FAB and the active writing zone are related.
+class _GhostAttemptLinePainter extends CustomPainter {
+  final Offset nodeCenter;
+  final Offset fabTop;
+  final Color color;
+
+  _GhostAttemptLinePainter({
+    required this.nodeCenter,
+    required this.fabTop,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Don't draw if points are too close or off-screen
+    final distance = (fabTop - nodeCenter).distance;
+    if (distance < 20) return;
+
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    // Build a quadratic Bezier path with a gentle curve
+    final controlPoint = Offset(
+      (nodeCenter.dx + fabTop.dx) / 2,
+      (nodeCenter.dy + fabTop.dy) / 2,
+    );
+
+    final path = Path()
+      ..moveTo(nodeCenter.dx, nodeCenter.dy)
+      ..quadraticBezierTo(controlPoint.dx, controlPoint.dy, fabTop.dx, fabTop.dy);
+
+    // Compute dashed version of the path
+    final dashedPath = _dashPath(path, dashLength: 8.0, gapLength: 6.0);
+    canvas.drawPath(dashedPath, paint);
+  }
+
+  /// Creates a dashed copy of [source] with the given dash/gap pattern.
+  Path _dashPath(Path source, {required double dashLength, required double gapLength}) {
+    final result = Path();
+    for (final metric in source.computeMetrics()) {
+      double distance = 0.0;
+      while (distance < metric.length) {
+        final end = (distance + dashLength).clamp(0.0, metric.length);
+        result.addPath(metric.extractPath(distance, end), Offset.zero);
+        distance += dashLength + gapLength;
+      }
+    }
+    return result;
+  }
+
+  @override
+  bool shouldRepaint(_GhostAttemptLinePainter oldDelegate) =>
+      nodeCenter != oldDelegate.nodeCenter ||
+      fabTop != oldDelegate.fabTop ||
       color != oldDelegate.color;
 }

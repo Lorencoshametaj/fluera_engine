@@ -68,6 +68,40 @@ extension SrsBlurOnReturn on _FlueraCanvasScreenState {
           return;
         }
 
+        // 💳 A17: Tier gate for Deep Review — Free users get 1/day.
+        if (type == SrsReviewType.deep) {
+          final gateResult = _tierGateController.checkFeature(
+            GatedFeature.deepReview,
+          );
+          if (!gateResult.allowed) {
+            // Blocked — show upgrade prompt and fall back to micro.
+            if (mounted && gateResult.upgradeMessage != null) {
+              if (_config.onUpgradePrompt != null) {
+                _config.onUpgradePrompt!(context, gateResult.upgradeMessage!);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(gateResult.upgradeMessage!),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    margin: const EdgeInsets.only(
+                      bottom: 80, left: 20, right: 20,
+                    ),
+                    duration: const Duration(seconds: 5),
+                    backgroundColor: const Color(0xFF6A1B9A),
+                  ),
+                );
+              }
+            }
+            return;
+          }
+          // Record usage for deep review.
+          _tierGateController.recordUsage(GatedFeature.deepReview);
+          _saveTierGateHistory();
+        }
+
         final dueCount = _srsReviewSession.beginSession(
           clusters: _clusterCache,
           reviewSchedule: _reviewSchedule,

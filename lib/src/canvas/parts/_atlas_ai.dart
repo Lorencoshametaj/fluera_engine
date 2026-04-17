@@ -71,20 +71,22 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
         await _analyzeSelection();
         return;
       }
-      if (prompt == '_EXAM_') {
-        await _startExamSession();
-        return;
-      }
-      // Keyword detection: exam commands in any language
-      final normalizedPrompt = prompt.trim().toLowerCase();
-      if (normalizedPrompt.contains('interrogami') ||
-          normalizedPrompt.contains('esaminami') ||
-          normalizedPrompt.contains('quiz') ||
-          normalizedPrompt.contains('test me') ||
-          normalizedPrompt.contains('interrogate me') ||
-          normalizedPrompt.contains('exam mode')) {
-        await _startExamSession();
-        return;
+      if (V1FeatureGate.examSession) {
+        if (prompt == '_EXAM_') {
+          await _startExamSession();
+          return;
+        }
+        // Keyword detection: exam commands in any language
+        final normalizedPrompt = prompt.trim().toLowerCase();
+        if (normalizedPrompt.contains('interrogami') ||
+            normalizedPrompt.contains('esaminami') ||
+            normalizedPrompt.contains('quiz') ||
+            normalizedPrompt.contains('test me') ||
+            normalizedPrompt.contains('interrogate me') ||
+            normalizedPrompt.contains('exam mode')) {
+          await _startExamSession();
+          return;
+        }
       }
 
       // (C) Phase: extracting context

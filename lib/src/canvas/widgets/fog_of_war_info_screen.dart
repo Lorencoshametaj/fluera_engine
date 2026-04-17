@@ -190,8 +190,10 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
                   // Footer
                   Center(
                     child: Text(
-                      'Basato su: Active Recall (Karpicke, 2011),\n'
-                      'Testing Effect (Roediger & Butler, 2011),\n'
+                      'Basato su: Active Recall (Roediger & Karpicke, 2006),\n'
+                      'Desirable Difficulties (Bjork, 1994),\n'
+                      'Hypercorrection Effect (Butterfield & Metcalfe, 2001),\n'
+                      'Metacognition (Flavell, 1979),\n'
                       'Generation Effect (Slamecka & Graf, 1978)',
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -353,22 +355,23 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _flowStep('1', '⚔️', 'Scegli', 'Seleziona il livello di nebbia e l\'area'),
+            _flowStep('1', '📐', 'Seleziona area',
+                'Traccia un rettangolo sull\'area da testare'),
             _flowDivider(),
-            _flowStep('2', '🌫️', 'Oscuramento',
-                'I tuoi appunti vengono nascosti dalla nebbia'),
+            _flowStep('2', '⚔️', 'Scegli difficoltà',
+                'Leggera (sagome chiare), Media (sagome deboli) o Totale (buio)'),
             _flowDivider(),
             _flowStep('3', '🔍', 'Esplora',
-                'Cerca i tuoi nodi — toccali per rivelarli'),
+                'Cerca i tuoi nodi nella nebbia — toccali per trovarli'),
             _flowDivider(),
-            _flowStep('4', '🎯', 'Auto-Valuta',
-                'Dichiari la tua confidenza (1-5) prima di vedere'),
+            _flowStep('4', '🧠', 'Auto-Valuta',
+                'Dichiari la confidenza (1-5) PRIMA di vedere il contenuto'),
             _flowDivider(),
             _flowStep('5', '🗺️', 'Mappa',
-                'Vedi la mappa di padronanza con i risultati'),
+                'Vedi la mappa di padronanza — tocca i nodi per rileggerli'),
             _flowDivider(),
-            _flowStep('6', '🧭', 'Ripasso',
-                'Segui il percorso chirurgico per i nodi critici'),
+            _flowStep('6', '📖', 'Guida ripasso',
+                'La camera vola ai nodi critici — rileggi e conferma'),
           ],
         ),
       ),
@@ -441,6 +444,24 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
       children: [
         const _MasteryMapDemo(),
         const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _accent.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _accent.withValues(alpha: 0.2)),
+          ),
+          child: Text(
+            'Tocca i nodi ❌ e 👁‍🗨 per zoomare e rileggerli. '
+            'Il sistema suggerisce di riscrivere a memoria i concetti dimenticati.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
         _scienceCallout(
           icon: Icons.science,
           text: 'La mappa rivela la differenza tra "so di non sapere" '
@@ -463,8 +484,8 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Quando tocchi un nodo nascosto, PRIMA di vederlo '
-              'dichiari la tua confidenza su una scala 1-5:',
+              'Quando tocchi un nodo nella nebbia, PRIMA di vedere il contenuto '
+              'dichiari quanto ricordi su una scala 1-5:',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -472,19 +493,19 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
               ),
             ),
             const SizedBox(height: 14),
-            _evalRow('1', '😵', 'Non ricordo nulla',
-                'Intervallo FSRS → reset', const Color(0xFFEF5350)),
+            _evalRow('1', '❌', 'Non ricordavo nulla',
+                'Intervallo SRS → reset', const Color(0xFFEF5350)),
             const SizedBox(height: 6),
-            _evalRow('2', '🤔', 'Qualcosa mi dice…',
-                'Incerto — scaffolding consigliato', const Color(0xFFFF9800)),
+            _evalRow('2', '😕', 'Vagamente',
+                'Incerto — consolidamento fragile', const Color(0xFFFF7043)),
             const SizedBox(height: 6),
-            _evalRow('3', '😊', 'Credo di sapere',
-                'Recall parziale', const Color(0xFFFFB300)),
+            _evalRow('3', '🤔', 'Parzialmente',
+                'Recall parziale', const Color(0xFFFFB74D)),
             const SizedBox(height: 6),
-            _evalRow('4', '💪', 'Sono sicuro',
+            _evalRow('4', '😊', 'Bene',
                 'Recall solido', const Color(0xFF66BB6A)),
             const SizedBox(height: 6),
-            _evalRow('5', '🔥', 'Certissimo!',
+            _evalRow('5', '✅', 'Perfettamente',
                 'Mastery — intervallo allungato', const Color(0xFF4CAF50)),
             const SizedBox(height: 12),
             _scienceCallout(
@@ -556,9 +577,9 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
             ),
             const SizedBox(height: 10),
             Text(
-              'Dopo la mappa di padronanza, puoi attivare il percorso '
-              'chirurgico: la camera vola automaticamente ai nodi '
-              'critici (dimenticati + punti ciechi) in ordine spaziale.',
+              'Dalla mappa di padronanza, attiva la guida ripasso: '
+              'la camera vola ai nodi dimenticati e ai punti ciechi, '
+              'uno alla volta, in ordine spaziale.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -566,16 +587,16 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
               ),
             ),
             const SizedBox(height: 12),
-            _surgicalStep('1', 'Nearest-neighbor',
-                'Parte dal nodo più vicino al tuo viewport attuale',
+            _surgicalStep('1', 'Vola al nodo',
+                'La camera centra il nodo critico più vicino',
                 const Color(0xFFFFB74D)),
             const SizedBox(height: 6),
-            _surgicalStep('2', 'Fly-to automatico',
-                'La camera vola con animazione spring al nodo corrente',
+            _surgicalStep('2', 'Rileggi',
+                'Studia il contenuto con calma — l\'istruzione ti guida',
                 const Color(0xFFFFB74D)),
             const SizedBox(height: 6),
-            _surgicalStep('3', 'Segna come rivisto',
-                'Tocca "Prossimo" per marchare e procedere',
+            _surgicalStep('3', 'Ho riletto → Prossimo',
+                'Conferma e la camera vola al nodo successivo',
                 const Color(0xFF4CAF50)),
             const SizedBox(height: 12),
             _scienceCallout(
@@ -637,8 +658,8 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Se dimentichi troppi nodi (<50%), la Sfida attiva '
-              'il protocollo di protezione per la motivazione:',
+              'Se più del 70% dei nodi risulta dimenticato o non cercato, '
+              'la Sfida attiva il protocollo di protezione emotiva:',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -732,8 +753,7 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Ogni sessione registra metriche dettagliate per il tracciamento '
-              'longitudinale:',
+              'Lo Storico nel popup della Sfida traccia il tuo progresso:',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
@@ -741,20 +761,23 @@ class _FogOfWarInfoScreenState extends State<FogOfWarInfoScreen>
               ),
             ),
             const SizedBox(height: 14),
-            _statRow('⏱️', 'Durata sessione',
-                'Quanto tempo hai impiegato', _accent),
+            _statRow('📈', 'Grafico trend',
+                'Curva di recall % su tutte le sessioni', _accent),
             const SizedBox(height: 6),
-            _statRow('⚡', 'Velocità media',
-                'Secondi per nodo — più basso = più fluido', _accent),
+            _statRow('💡', 'Insight automatico',
+                '"In crescita!", "Prova nebbia più densa"...', _accent),
             const SizedBox(height: 6),
-            _statRow('📊', 'Confidenza media',
-                'Trend della tua auto-percezione (1-5)', _accent),
+            _statRow('🏆', 'Miglior sessione',
+                'Evidenziata in oro nello storico', _accent),
             const SizedBox(height: 6),
-            _statRow('📈', 'Delta vs precedente',
-                'Progresso rispetto all\'ultima sessione', _accent),
+            _statRow('⏱️', 'Durata + velocità',
+                'Tempo totale e secondi per nodo', _accent),
             const SizedBox(height: 6),
-            _statRow('📉', 'Sparkline',
-                'Mini grafico del trend confidenza nelle history card', _accent),
+            _statRow('📊', 'Sparkline confidenza',
+                'Mini grafico del trend per sessione', _accent),
+            const SizedBox(height: 6),
+            _statRow('↑↓', 'Delta vs precedente',
+                'Quanti nodi in più/meno rispetto a prima', _accent),
           ],
         ),
       ),
@@ -931,10 +954,10 @@ class _FogLevelDemoState extends State<_FogLevelDemo> {
   static const _titles = ['', '🌤️ Nebbia Leggera', '🌫️ Nebbia Media', '🌑 Nebbia Totale'];
   static const _descriptions = [
     '',
-    'Le sagome dei nodi sono visibili, ma il contenuto è nascosto. '
+    'Sagome chiare dei nodi visibili, contenuto nascosto. '
         'Sai DOVE sono i tuoi appunti, devi ricordare COSA dicono.',
-    'Visibilità limitata a 300px intorno alla tua posizione. '
-        'Devi muoverti sulla canvas per "trovare" i nodi — come una torcia nel buio.',
+    'Sagome molto deboli — devi sforzarti per individuarle. '
+        'Testa sia la memoria visiva che quella del contenuto.',
     'Buio totale. Non vedi nulla. Solo la tua memoria spaziale '
         'ti guida a toccare i punti giusti.',
   ];
