@@ -284,8 +284,9 @@ void main() {
       final msg =
           ctrl.checkFeature(GatedFeature.socraticSession).upgradeMessage!;
       // Must be informative Italian with pricing.
-      expect(msg, contains('sessioni socratiche'));
+      expect(msg, contains('sessioni'));
       expect(msg, contains('Pro'));
+      expect(msg, contains('€'));
       ctrl.dispose();
     });
 
