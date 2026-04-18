@@ -1458,7 +1458,11 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
       // 🧠 FSRS migration: detect old format (int epoch) vs new (SrsCardData JSON)
       final migrated = FsrsScheduler.migrateLegacySchedule(map);
       _reviewSchedule.addAll(migrated);
-      debugPrint('📅 SR loaded: ${_reviewSchedule.length} concepts scheduled (FSRS)');
+      // 🎥 Load persistent canvas return counter (for progressive zoom-out).
+      final rc = kv.getInt('srs_return_count_$_canvasId');
+      if (rc != null && rc > 0) _canvasReturnCount = rc;
+      debugPrint('📅 SR loaded: ${_reviewSchedule.length} concepts scheduled '
+          '(FSRS), returns=$_canvasReturnCount');
     } catch (e) {
       debugPrint('⚠️ SR load error: $e');
     }
@@ -1507,6 +1511,8 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
           e.key: e.value.toJson(),
       };
       await kv.setString(_srKey, jsonEncode(map));
+      // 🎥 Persist canvas return counter alongside the schedule.
+      await kv.setInt('srs_return_count_$_canvasId', _canvasReturnCount);
       // Also persist calibration log
       if (_calibrationLog.isNotEmpty) {
         await kv.setString(

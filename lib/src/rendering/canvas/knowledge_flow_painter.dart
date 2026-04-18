@@ -6,6 +6,8 @@ import '../../reflow/knowledge_connection.dart';
 import '../../reflow/knowledge_flow_controller.dart';
 import '../../reflow/connection_suggestion_engine.dart';
 import '../../reflow/semantic_morph_controller.dart';
+import '../../reflow/text_label_picker.dart';
+import '../../reflow/zone_labeler.dart';
 import '../../canvas/ai/fsrs_scheduler.dart';
 
 /// 🧠 KNOWLEDGE FLOW PAINTER — Premium glassmorphism mind-map visualization.
@@ -120,6 +122,34 @@ class KnowledgeFlowPainter extends CustomPainter {
   /// When true, paint() early-returns and shouldRepaint suppresses animation diffs.
   final bool isPanning;
 
+  /// 🏛️ Cluster IDs classified as "monuments" by the [MonumentResolver].
+  /// At LOD 2 these are rendered with a persistent title label + landmark
+  /// dot, so the student sees named anchors on the mappamondo (§1098).
+  /// Empty set → no monuments rendered (backward-compatible default).
+  final Set<String> monumentIds;
+
+  /// 🏛️ Normalized importance score 0..1 per cluster (optional).
+  /// Drives size/opacity of the monument glyph at LOD 2.
+  final Map<String, double> monumentImportance;
+
+  /// 🗺️ Auto-derived macro-zone labels rendered at extreme zoom-out
+  /// ("mappamondo con i nomi delle materie", §1098, §1981).
+  /// Empty list → no zone layer rendered.
+  final List<ZoneLabel> zoneLabels;
+
+  /// 🗺️ Cluster ID → zone ID membership (from [ZoneLabeler]).
+  /// Used by the LOD 2 connection filter to *keep* inter-zone connections
+  /// even if they're geometrically short — they're structural bridges
+  /// between macro-regions (§1578 "frecce che attraversano zone distanti").
+  final Map<String, String> zoneMembership;
+
+  /// 🧠 Cluster IDs currently concealed for Active Recall (SRS blur or
+  /// Fog of War). Monument pills on these clusters are suppressed so the
+  /// student isn't spoiled with the cluster's title text while attempting
+  /// to recall its content (§2 teoria, Active Recall). Zones stay visible
+  /// because they name the macro-region, not individual items.
+  final Set<String> hiddenForRecallClusterIds;
+
   // LOD thresholds
   static const double _lodLevel1Min = 0.15;
   static const double _lodLevel1Max = 0.5;
@@ -185,6 +215,11 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.proactiveScan = const {},
     this.reviewSchedule = const {},
     this.isPanning = false,
+    this.monumentIds = const <String>{},
+    this.monumentImportance = const <String, double>{},
+    this.zoneLabels = const <ZoneLabel>[],
+    this.zoneMembership = const <String, String>{},
+    this.hiddenForRecallClusterIds = const <String>{},
   });
 
   @override
@@ -248,6 +283,25 @@ class KnowledgeFlowPainter extends CustomPainter {
 
     // 📍 Connection count badges (LOD 1-2)
     _paintConnectionBadges(canvas, lod, fade);
+
+    // 🏛️ MONUMENT LABELS (LOD 2 satellite view): named landmarks of the
+    // student's Memory Palace (§1098). Kept visible through most of the
+    // semantic-morph crossfade and faded out as AI super-nodes / semantic
+    // nodes start dominating (morphT > 0.5). This prevents the 4-layer
+    // cognitive overload we measured during visual QA: student-derived
+    // monuments coexist with early morph, but yield to AI labels when
+    // the morph is clearly taking over.
+    final landmarkGate = _landmarkLayerFade(morphT);
+    if (lod == 2 && monumentIds.isNotEmpty && landmarkGate > 0.01) {
+      _paintMonumentLabels(canvas, fade * landmarkGate);
+    }
+
+    // 🗺️ ZONE LABELS (LOD 2 mappamondo): auto-derived macro-region names
+    // from the student's own handwriting (§1981 "i nomi delle macro-zone").
+    // Same crossfade gate as monuments.
+    if (lod == 2 && zoneLabels.isNotEmpty && landmarkGate > 0.01) {
+      _paintZoneLabels(canvas, fade * landmarkGate);
+    }
 
     // 🧠 SEMANTIC MORPHING: Paint semantic nodes on top with morph alpha
     if (hasMorph) {
@@ -736,12 +790,44 @@ class KnowledgeFlowPainter extends CustomPainter {
   //   - Directional particles flowing along the dashes
   //   - 🎤 Audio-ink highlight: golden glow burst when tapped for seek
 
+  /// Shared LOD-2 long-distance filter predicate.
+  ///
+  /// Returns true when [conn] should be culled at the satellite view
+  /// because it's micro-cablaggio: short, unlabeled, intra-zone, not
+  /// cross-zone, not currently interactive (selected / audio-highlighted).
+  /// Applied both to solid connections and ghost-dashed connections so
+  /// the mappamondo stays legible regardless of which layer owns the
+  /// short link (§1578 "frecce lunghe che attraversano zone distanti").
+  bool _shouldSkipAtLod2(
+    KnowledgeConnection conn,
+    Offset srcPt,
+    Offset tgtPt,
+  ) {
+    if (conn.isCrossZone) return false;
+    if (conn.label != null && conn.label!.isNotEmpty) return false;
+    if (conn.id == selectedConnectionId) return false;
+    if (conn.id == audioHighlightConnectionId) return false;
+
+    final srcZone = zoneMembership[conn.sourceClusterId];
+    final tgtZone = zoneMembership[conn.targetClusterId];
+    final isInterZoneBridge =
+        srcZone != null && tgtZone != null && srcZone != tgtZone;
+    if (isInterZoneBridge) return false;
+
+    final ddx = tgtPt.dx - srcPt.dx;
+    final ddy = tgtPt.dy - srcPt.dy;
+    final connLen = math.sqrt(ddx * ddx + ddy * ddy);
+    const lod2MinLen = KnowledgeConnection.crossZoneDistanceThreshold / 2;
+    return connLen < lod2MinLen;
+  }
+
   void _paintGhostConnectionsDashed(Canvas canvas, double fade) {
     final ghostConns = controller.connections.where((c) => c.isGhost);
     if (ghostConns.isEmpty) return;
 
     final cMap = _buildClusterMap();
     final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final atLod2 = _getLodLevel() == 2;
 
     for (final conn in ghostConns) {
       final src = cMap[conn.sourceClusterId];
@@ -770,6 +856,10 @@ class KnowledgeFlowPainter extends CustomPainter {
             ? Offset(tgtCenter.dx, tgt.bounds.bottom + 4)
             : Offset(tgtCenter.dx, tgt.bounds.top - 4);
       }
+
+      // 🏛️ LOD 2 long-distance filter — ghosts participate too, so short
+      // intra-zone ghost arrows don't clutter the satellite view.
+      if (atLod2 && _shouldSkipAtLod2(conn, srcPt, tgtPt)) continue;
 
       final cp = controller.getControlPoint(srcPt, tgtPt, conn.curveStrength);
 
@@ -929,6 +1019,24 @@ class KnowledgeFlowPainter extends CustomPainter {
     // 🚀 PERF: Cache DateTime.now() once per paint call (not per connection)
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
+    // 🏷️ LOD 2 LABEL GROUPING: at extreme dezoom, multiple connections with
+    // the same label pile up near hub clusters into unreadable pill spam.
+    // Group by normalized label: only the *first* connection in each group
+    // renders the pill, with a "×N" suffix when more than one shares it.
+    // Computed once pre-loop; canonical membership is consulted inside.
+    final Map<String, String> labelGroupCanonical = {};
+    final Map<String, int> labelGroupCount = {};
+    if (lod == 2) {
+      for (final c in controller.connections) {
+        if (c.isGhost) continue;
+        final raw = c.label;
+        if (raw == null || raw.isEmpty) continue;
+        final key = raw.trim().toLowerCase();
+        labelGroupCount[key] = (labelGroupCount[key] ?? 0) + 1;
+        labelGroupCanonical.putIfAbsent(key, () => c.id);
+      }
+    }
+
     // 🚀 PERF: Pre-compute bi-directional set O(n) instead of O(n²) per-connection
     Set<int>? bidirSet;
     if (controller.connections.length > 1) {
@@ -992,6 +1100,12 @@ class KnowledgeFlowPainter extends CustomPainter {
           srcPt = Offset(srcCenter.dx, src.bounds.bottom + 4);
           tgtPt = Offset(tgtCenter.dx, tgt.bounds.top - 4);
         }
+      }
+
+      // 🏛️ LOD 2 LONG-DISTANCE FILTER — see [_shouldSkipAtLod2].
+      if (lod == 2 && _shouldSkipAtLod2(conn, srcPt, tgtPt)) {
+        connIndex++;
+        continue;
       }
 
       // 🔀 Smart curve offset for multiple connections between same pair
@@ -1520,7 +1634,18 @@ class KnowledgeFlowPainter extends CustomPainter {
       if (conn.label != null && conn.label!.isNotEmpty) {
         final midPt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, 0.5);
         if (lod == 2) {
-          _paintAutoScaledLabelPill(canvas, midPt, conn.label!, typeColor, fade);
+          // Only the canonical connection in each label-group renders the
+          // pill — others are suppressed to avoid hub-cluster pill spam.
+          final key = conn.label!.trim().toLowerCase();
+          final canonical = labelGroupCanonical[key];
+          if (canonical == conn.id) {
+            final count = labelGroupCount[key] ?? 1;
+            final displayLabel = count > 1
+                ? '${conn.label!} ×$count'
+                : conn.label!;
+            _paintAutoScaledLabelPill(
+              canvas, midPt, displayLabel, typeColor, fade);
+          }
         } else {
           _paintLabelPill(canvas, midPt, conn.label!, typeColor, fade);
         }
@@ -2726,6 +2851,20 @@ class KnowledgeFlowPainter extends CustomPainter {
     return 1.0;
   }
 
+  /// 🏛️ Crossfade gate for monuments + zones vs AI semantic-morph layer.
+  ///
+  /// Returns 1.0 while the student-derived landmark layer is the primary
+  /// naming system. Starts fading at morphT = 0.5 and reaches 0 at 0.9 —
+  /// by that point the AI semantic nodes are fully in charge of titling.
+  /// This prevents the 4-layer pile-up (dots + semantic + monument + zone)
+  /// that we measured as cognitive overload during visual QA.
+  double _landmarkLayerFade(double morphT) {
+    if (morphT <= 0.5) return 1.0;
+    if (morphT >= 0.9) return 0.0;
+    final t = 1.0 - ((morphT - 0.5) / 0.4).clamp(0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t); // smoothstep
+  }
+
   /// Smooth fade for LOD 1→2 transition
   double _computeLod2Fade() {
     const fadeZone = 0.04;
@@ -3311,6 +3450,337 @@ class KnowledgeFlowPainter extends CustomPainter {
     canvas.restore();
   }
 
+
+  // ===========================================================================
+  // 🏛️ MONUMENT LABELS — Named landmarks on the satellite view (LOD 2)
+  // ===========================================================================
+  //
+  // Pedagogical contract (§471-474, §1098):
+  //   Zooming out, the student must still see *named* anchors of their
+  //   Memory Palace — "il tetto: i quartieri dall'alto, solo i nomi delle
+  //   materie e i nodi-monumento più grandi". Without these the satellite
+  //   view collapses into anonymous dots and the palace loses its map.
+  //
+  // Inputs:
+  //   - [monumentIds]: pre-computed by MonumentResolver (controller-side).
+  //   - [clusterTexts]: recognized handwriting per cluster (label source).
+  //   - [monumentImportance]: 0..1 score → size/opacity weight.
+
+  void _paintMonumentLabels(Canvas canvas, double fade) {
+    if (monumentIds.isEmpty || fade < 0.01) return;
+
+    final cMap = _buildClusterMap();
+    // Upper clamp bumped from 12 → 30 so labels stay readable below
+    // scale 0.083 where the tighter cap would start shrinking text again.
+    final inverseScale = (1.0 / canvasScale).clamp(2.0, 30.0);
+
+    // Breath synchronized slowly — landmarks "exist", they don't dance.
+    final breath = 0.88 + 0.12 * math.sin(animationTime * 0.6);
+
+    for (final id in monumentIds) {
+      final cluster = cMap[id];
+      if (cluster == null) continue;
+
+      // 🧠 Active Recall protection: hide the label on clusters currently
+      // concealed by SRS blur or Fog of War. Showing the monument title
+      // would pre-reveal the answer the student is trying to recall
+      // (§2 teoria — Active Recall requires retrieval, not recognition).
+      if (hiddenForRecallClusterIds.contains(id)) continue;
+
+      final importance = (monumentImportance[id] ?? 0.5).clamp(0.0, 1.0);
+      final label = _monumentLabel(id);
+      if (label.isEmpty) continue;
+
+      final color = _clusterColor(cluster);
+      final center = cluster.centroid;
+
+      // ── 1. Subtle accent halo — replaces the redundant landmark dot.
+      // [_paintClusterDots] already drew the baseline dot for this cluster;
+      // we only add a soft breathing glow to distinguish monuments at a
+      // glance without stacking another opaque circle on top (which would
+      // compound with the drawing-painter tile stroke-count label, halos,
+      // and connection badges into visual clutter).
+      final accentRadius = (6.0 + importance * 4.0) * inverseScale * 0.35;
+      _softGlowPaint.color = color.withValues(
+        alpha: (0.18 + 0.12 * importance) * fade * breath,
+      );
+      canvas.drawCircle(center, accentRadius * 1.6, _softGlowPaint);
+
+      // ── 2. Title pill ABOVE the cluster dot, inverse-scaled to stay
+      // readable. Generous gap so the pill never collides with the
+      // tile-level "140 tratti" label that the drawing painter draws
+      // at extreme dezoom on busy clusters.
+      final pillGap = accentRadius * 3.2 + 10;
+      final labelCenter = Offset(center.dx, center.dy - pillGap);
+      _paintMonumentPill(
+        canvas,
+        labelCenter,
+        label,
+        color,
+        fade,
+        importance,
+        inverseScale,
+      );
+    }
+  }
+
+  /// Render a readable monument title pill. Scaled inversely to canvasScale so
+  /// it stays legible at extreme dezoom. Higher [importance] → larger font.
+  void _paintMonumentPill(
+    Canvas canvas,
+    Offset center,
+    String label,
+    Color color,
+    double fade,
+    double importance,
+    double inverseScale,
+  ) {
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    // Multiplier 0.9: renders the pill at ~90% of native screen size at any
+    // LOD 2 zoom (inverseScale is clamped at [2,12] to keep extremes sane).
+    // Previous 0.45 produced unreadable ~5pt text at scale 0.10 — monuments
+    // are landmarks and must be the most-legible element on the mappamondo.
+    canvas.scale(inverseScale * 0.9);
+    canvas.translate(-center.dx, -center.dy);
+
+    final display = (label.length > 22 ? '${label.substring(0, 20)}…' : label)
+        .toUpperCase();
+    final fontSize = 11.0 + importance * 3.0;
+    final cacheKey = 'mon_${display.hashCode}_${fontSize.toStringAsFixed(1)}';
+
+    var tp = _cachedTitlePainters[cacheKey];
+    if (tp == null) {
+      tp = TextPainter(
+        text: TextSpan(
+          text: display,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.95),
+            fontSize: fontSize,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.0,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      if (_cachedTitlePainters.length > 100) {
+        _cachedTitlePainters.remove(_cachedTitlePainters.keys.first);
+      }
+      _cachedTitlePainters[cacheKey] = tp;
+    }
+
+    final pillW = tp.width + 18;
+    final pillH = tp.height + 10;
+    final pillRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: pillW, height: pillH),
+      Radius.circular(pillH / 2),
+    );
+
+    // Drop shadow
+    _shadowPaint.color = Colors.black.withValues(alpha: 0.55 * fade);
+    canvas.drawRRect(pillRect.shift(const Offset(0, 1.8)), _shadowPaint);
+
+    // Fill — darker than regular label pill to stand out as a landmark
+    final fillColor = Color.lerp(color, const Color(0xFF050812), 0.65)!;
+    _p
+      ..style = PaintingStyle.fill
+      ..shader = null
+      ..maskFilter = null
+      ..color = fillColor.withValues(alpha: 0.92 * fade);
+    canvas.drawRRect(pillRect, _p);
+
+    // Luminous border — thicker for monuments
+    _p
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3
+      ..color = color.withValues(alpha: 0.70 * fade);
+    canvas.drawRRect(pillRect, _p);
+
+    // Text
+    tp.paint(
+      canvas,
+      Offset(center.dx - tp.width / 2, center.dy - tp.height / 2),
+    );
+
+    canvas.restore();
+  }
+
+  /// Pick a short label for a monument cluster.
+  ///
+  /// Delegates to [TextLabelPicker] — same tokenizer + stopword set as
+  /// [ZoneLabeler]. Keeps the two labeling layers coherent.
+  ///
+  /// First-token dedup with zone label: if this cluster is a member of
+  /// a zone whose label matches the monument's first token, that first
+  /// token is dropped so monument ≠ zone textually. Example:
+  ///   zone = "FISICA", monument text = "Fisica quantistica introduzione"
+  ///   → monument renders as "QUANTISTICA INTRODUZIONE", not
+  ///   "FISICA QUANTISTICA INTRODUZIONE" (which would duplicate zone).
+  String _monumentLabel(String clusterId) {
+    final text = clusterTexts[clusterId]?.trim() ?? '';
+    if (text.isEmpty) return '';
+    final tokens =
+        TextLabelPicker.tokenize(text).where((t) => t.isNotEmpty).toList();
+    if (tokens.isEmpty) return '';
+
+    // Drop the first token if it matches this cluster's zone label.
+    final zoneId = zoneMembership[clusterId];
+    if (zoneId != null) {
+      final zoneTok = _zoneFirstToken(zoneId);
+      if (zoneTok != null && tokens.first == zoneTok) {
+        if (tokens.length > 1) {
+          tokens.removeAt(0);
+        } else {
+          // Only word is the zone name; keep it — the zone label itself
+          // will be suppressed at render time so the monument can shine.
+        }
+      }
+    }
+
+    return TextLabelPicker.pickFromMany(
+      [tokens.join(' ')],
+      maxChars: 22,
+    );
+  }
+
+  /// Lookup the lowercased first token of a zone label (for dedup above).
+  String? _zoneFirstToken(String zoneId) {
+    for (final z in zoneLabels) {
+      if (z.id == zoneId) {
+        final label = z.label.trim();
+        if (label.isEmpty) return null;
+        return label.split(RegExp(r'\s+')).first.toLowerCase();
+      }
+    }
+    return null;
+  }
+
+  // ===========================================================================
+  // 🗺️ ZONE LABELS — Auto-derived macro-region names (LOD 2 mappamondo)
+  // ===========================================================================
+  //
+  // Pedagogical contract (§1981, §1961-1963):
+  //   Zones are *emergent* from the student's spatial organization, not
+  //   imposed. The label is the most frequent significant word from the
+  //   student's own handwriting inside that spatial cluster-of-clusters.
+
+  void _paintZoneLabels(Canvas canvas, double fade) {
+    if (zoneLabels.isEmpty || fade < 0.01) return;
+
+    // Upper clamp bumped from 16 → 36 — zone labels must remain readable
+    // even at satellite-satellite zoom (< 0.07) where 16 would render
+    // them as micro-text again.
+    final inverseScale = (1.0 / canvasScale).clamp(2.0, 36.0);
+
+    for (final zone in zoneLabels) {
+      final display = zone.label.toUpperCase();
+      if (display.isEmpty) continue;
+
+      // Size proportional to cluster count — bigger subjects, bigger names.
+      final magnitude = (zone.clusterCount.clamp(3, 30) - 3) / 27.0;
+      final fontSize = 14.0 + magnitude * 6.0;
+
+      final cacheKey =
+          'zone_${display.hashCode}_${fontSize.toStringAsFixed(1)}';
+      var tp = _cachedTitlePainters[cacheKey];
+      if (tp == null) {
+        tp = TextPainter(
+          text: TextSpan(
+            text: display,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.92),
+              fontSize: fontSize,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 2.0,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        if (_cachedTitlePainters.length > 100) {
+          _cachedTitlePainters.remove(_cachedTitlePainters.keys.first);
+        }
+        _cachedTitlePainters[cacheKey] = tp;
+      }
+
+      // Position the label OUTSIDE the zone bounds — just above the
+      // top edge — so it never overlaps member clusters or their
+      // monument pills. The centroid-based positioning used previously
+      // routinely dropped the label on top of a central cluster when
+      // the zone was spatially balanced, occluding content.
+      // Gap (40 canvas units) stays constant at native scale; the
+      // inverse-scale transform inside the pill render handles
+      // perceptual size, so no per-zoom compensation needed here.
+      const gapAboveBounds = 40.0;
+      final screenCenter = Offset(
+        zone.centroid.dx,
+        zone.bounds.top - gapAboveBounds,
+      );
+
+      canvas.save();
+      canvas.translate(screenCenter.dx, screenCenter.dy);
+      // Multiplier 1.1: zone labels should be visually LARGER than monument
+      // pills (they name whole subjects, not individual landmarks). Combined
+      // with the 14–20pt base, this yields ~15–22pt at native screen size
+      // regardless of LOD 2 zoom — readable at a glance, "continent name"
+      // feel as specified in §1098.
+      canvas.scale(inverseScale * 1.1);
+      canvas.translate(-screenCenter.dx, -screenCenter.dy);
+
+      // Soft diffuse glow behind the title — feels like a continent name
+      // floating above the terrain.
+      _softGlowPaint.color =
+          Colors.white.withValues(alpha: 0.08 * fade);
+      canvas.drawCircle(
+        screenCenter,
+        tp.width * 0.7,
+        _softGlowPaint,
+      );
+
+      // Drop shadow for contrast against any color bg (cached separately
+      // from the main title painter — same geometry, pre-faded black ink).
+      // Alpha is baked at 0.65: at LOD 2 the enclosing _computeFade() is
+      // always 1.0, so no per-frame alpha multiplier is needed.
+      final shadowKey =
+          'zone_sh_${display.hashCode}_${fontSize.toStringAsFixed(1)}';
+      var shadowTp = _cachedTitlePainters[shadowKey];
+      if (shadowTp == null) {
+        shadowTp = TextPainter(
+          text: TextSpan(
+            text: display,
+            style: TextStyle(
+              color: Colors.black.withValues(alpha: 0.65),
+              fontSize: fontSize,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 2.0,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        if (_cachedTitlePainters.length > 100) {
+          _cachedTitlePainters.remove(_cachedTitlePainters.keys.first);
+        }
+        _cachedTitlePainters[shadowKey] = shadowTp;
+      }
+      shadowTp.paint(
+        canvas,
+        Offset(
+          screenCenter.dx - shadowTp.width / 2 + 1.5,
+          screenCenter.dy - shadowTp.height / 2 + 2.0,
+        ),
+      );
+
+      // Main text
+      tp.paint(
+        canvas,
+        Offset(
+          screenCenter.dx - tp.width / 2,
+          screenCenter.dy - tp.height / 2,
+        ),
+      );
+
+      canvas.restore();
+    }
+  }
 
   // ===========================================================================
   // 🌍 GOD VIEW — Thematic super-nodes at extreme zoom-out

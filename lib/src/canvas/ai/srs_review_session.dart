@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../ai/fsrs_scheduler.dart';
 import '../ai/red_wall_controller.dart';
+import '../ai/srs_camera_policy.dart';
 import '../../reflow/content_cluster.dart';
 import '../widgets/srs_review_type_selector.dart';
 
@@ -69,6 +70,22 @@ class SrsReviewSession extends ChangeNotifier {
   /// Timestamp when each cluster was revealed (for response time calculation).
   final Map<String, DateTime> _revealTimestamps = {};
 
+  // ── Progressive Zoom-Out on Return (§1010, §1549-1554) ───────────────────
+
+  /// Target zoom scale for the *next* `beginSession` return, computed from
+  /// the student's accumulated review count.
+  ///
+  /// Null until the first `beginSession` that receives a non-zero
+  /// `reviewCount`. The UI reads this after `beginSession` and applies it
+  /// to the canvas camera.
+  double? _targetInitialZoomScale;
+
+  /// Target LOD tier the student will land in for this return.
+  int? _targetInitialLodTier;
+
+  /// Human-readable hint to show the student on session open.
+  String? _returnZoomHint;
+
   // ── Getters ───────────────────────────────────────────────────────────────
 
   bool get isActive => _isActive;
@@ -103,6 +120,16 @@ class SrsReviewSession extends ChangeNotifier {
   List<String> conceptsForCluster(String clusterId) =>
       _clusterToConcepts[clusterId] ?? const [];
 
+  /// Target zoom scale the UI should apply on session open, per the
+  /// progressive zoom-out policy (§1549). Null → no override.
+  double? get targetInitialZoomScale => _targetInitialZoomScale;
+
+  /// Target LOD tier for the return, derived from the target scale.
+  int? get targetInitialLodTier => _targetInitialLodTier;
+
+  /// Localized hint to surface to the student on session open.
+  String? get returnZoomHint => _returnZoomHint;
+
   // ── Session Lifecycle ─────────────────────────────────────────────────────
 
   /// Begins an SRS review session. Scans the review schedule for overdue
@@ -115,6 +142,8 @@ class SrsReviewSession extends ChangeNotifier {
     required Map<String, String> clusterTexts,
     SrsReviewType reviewType = SrsReviewType.micro,
     int maxNodes = 12,
+    int canvasReviewCount = 0,
+    double userBaseScale = 1.0,
   }) {
     _blurredClusterIds.clear();
     _revealedClusterIds.clear();
@@ -127,7 +156,24 @@ class SrsReviewSession extends ChangeNotifier {
     _responseTimes.clear();
     _confidence.clear();
     _revealTimestamps.clear();
+    _targetInitialZoomScale = null;
+    _targetInitialLodTier = null;
+    _returnZoomHint = null;
     _reviewType = reviewType;
+
+    if (canvasReviewCount > 0) {
+      final scale = SrsCameraPolicy.targetScaleForReturn(
+        reviewCount: canvasReviewCount,
+        userBaseScale: userBaseScale,
+      );
+      final tier = SrsCameraPolicy.targetLodTier(
+        reviewCount: canvasReviewCount,
+        userBaseScale: userBaseScale,
+      );
+      _targetInitialZoomScale = scale;
+      _targetInitialLodTier = tier;
+      _returnZoomHint = SrsCameraPolicy.hintForTier(tier);
+    }
 
     final now = DateTime.now();
 
@@ -341,6 +387,9 @@ class SrsReviewSession extends ChangeNotifier {
     _responseTimes.clear();
     _confidence.clear();
     _revealTimestamps.clear();
+    _targetInitialZoomScale = null;
+    _targetInitialLodTier = null;
+    _returnZoomHint = null;
     notifyListeners();
   }
 

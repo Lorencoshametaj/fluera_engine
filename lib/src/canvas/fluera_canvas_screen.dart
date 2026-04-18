@@ -224,6 +224,8 @@ import '../config/v1_feature_gate.dart'; // 🚀 v1 DEFER kill switches
 import '../reflow/cluster_detector.dart';
 import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
+import '../reflow/monument_resolver.dart';
+import '../reflow/zone_labeler.dart';
 import '../reflow/reflow_controller.dart';
 import '../reflow/animated_reflow_controller.dart';
 import '../reflow/semantic_morph_controller.dart';
@@ -1211,6 +1213,205 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // 🧠 SEMANTIC MORPHING: Zoom-out semantic view controller
   SemanticMorphController? _semanticMorphController;
 
+  // 🏛️ MONUMENT RESOLVER: named landmarks visible at LOD 2 (§1098).
+  // Recomputed only when the graph topology changes — panning/zooming
+  // reuses the cached result.
+  MonumentResolver? _monumentResolver;
+  int _monumentSignature = 0;
+
+  /// XOR-hash of all cluster text content. Cheap (one hash per entry,
+  /// O(texts) total) and sensitive to *any* text change — unlike a
+  /// length-based signature which misses in-place edits.
+  int _clusterTextContentHash() {
+    var h = 0;
+    for (final entry in _clusterTextCache.entries) {
+      h ^= entry.key.hashCode;
+      h ^= entry.value.hashCode;
+    }
+    return h;
+  }
+
+  MonumentResolver _monumentsOrCompute() {
+    final sig = Object.hash(
+      _clusterCache.length,
+      _knowledgeFlowController?.version.value ?? 0,
+      _reviewSchedule.length,
+      _clusterTextCache.length,
+      _clusterTextContentHash(),
+    );
+    final cached = _monumentResolver;
+    if (cached != null && sig == _monumentSignature) return cached;
+    final fresh = MonumentResolver.compute(
+      clusters: _clusterCache,
+      connections: _knowledgeFlowController?.connections ?? const [],
+      reviewSchedule: _reviewSchedule,
+      clusterTexts: _clusterTextCache,
+    );
+    _monumentResolver = fresh;
+    _monumentSignature = sig;
+    return fresh;
+  }
+
+  // 🏛️ Landmark OCR trigger — guards proactive text-cache population.
+  // `_populatingLandmarkTexts` is the only guard: it prevents concurrent
+  // runs but still allows retries on subsequent listener fires once a
+  // previous run completes. Clusters skipped because the ink engine wasn't
+  // ready will be retried automatically — they never get a cache entry,
+  // so `missing > 0` keeps triggering re-runs until MyScript catches up.
+  bool _populatingLandmarkTexts = false;
+
+  /// Called from the _canvasController listener: if we're dezoomed into the
+  /// LOD 2 neighborhood and clusters still lack OCR text, silently run the
+  /// handwriting recognition pass to populate [_clusterTextCache] so that
+  /// monument pills and zone labels can derive their text.
+  void _maybePopulateTextsForLandmarks() {
+    if (!mounted) return;
+    if (_populatingLandmarkTexts) return;
+    if (_canvasController.scale >= 0.30) return;
+    if (_clusterCache.isEmpty) return;
+
+    final missing = _clusterCache
+        .where((c) => !_clusterTextCache.containsKey(c.id))
+        .length;
+    if (missing == 0) return;
+
+    _populatingLandmarkTexts = true;
+    _runSilentLandmarkOcr().whenComplete(() {
+      _populatingLandmarkTexts = false;
+      if (mounted) setState(() {});
+    });
+  }
+
+  /// Silent OCR pass that mirrors [_recognizeClusterTextsForGhostMap] but
+  /// without any UI side-effects. Proactively initializes the ink engine
+  /// if needed — engine init is idempotent, so this is safe to call even
+  /// after other features have already initialized it.
+  Future<void> _runSilentLandmarkOcr() async {
+    final inkService = DigitalInkService.instance;
+
+    // Proactive init: nothing else guarantees MyScript is ready by the
+    // time the student dezoom into LOD 2. init() is a no-op if already
+    // initialized.
+    if (!inkService.isAvailable) {
+      try {
+        await inkService.init(languageCode: 'en');
+      } catch (_) {
+        // Silent failure — landmark text will be empty on this platform.
+      }
+    }
+
+    final activeLayer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+    final strokeMap = <String, ProStroke>{};
+    for (final s in activeLayer.strokes) {
+      strokeMap[s.id] = s;
+    }
+    final textMap = <String, DigitalTextElement>{};
+    for (final t in _digitalTextElements) {
+      textMap[t.id] = t;
+    }
+
+    for (final cluster in _clusterCache) {
+      if (cluster.strokeIds.isEmpty && cluster.textIds.isEmpty) continue;
+      if (_clusterTextCache.containsKey(cluster.id)) continue;
+
+      final textParts = <String>[];
+      for (final tid in cluster.textIds) {
+        final textEl = textMap[tid];
+        if (textEl != null && textEl.text.trim().isNotEmpty) {
+          textParts.add(textEl.text.trim());
+        }
+      }
+
+      final strokeSets = <List<ProDrawingPoint>>[];
+      for (final sid in cluster.strokeIds) {
+        final stroke = strokeMap[sid];
+        if (stroke != null && !stroke.isStub && stroke.points.length >= 3) {
+          strokeSets.add(stroke.points);
+        }
+      }
+
+      if (strokeSets.isEmpty && textParts.isEmpty) {
+        _clusterTextCache[cluster.id] = '';
+        continue;
+      }
+
+      if (strokeSets.isNotEmpty && inkService.isAvailable) {
+        try {
+          final recognized =
+              await inkService.engine.recognizeTextMode(strokeSets);
+          final parts = [...textParts];
+          if (recognized != null && recognized.isNotEmpty) {
+            parts.add(recognized);
+          }
+          _clusterTextCache[cluster.id] = parts.join(' ');
+        } catch (e) {
+          // Silent failure — landmark layer degrades without text.
+          _clusterTextCache[cluster.id] = textParts.join(' ');
+        }
+      } else if (textParts.isNotEmpty) {
+        _clusterTextCache[cluster.id] = textParts.join(' ');
+      }
+      // If ink service is unavailable and there's no typed text, skip
+      // this cluster entirely — do NOT set an empty entry, so a later
+      // pass (when ink becomes available) can retry it.
+    }
+  }
+
+  // 🗺️ ZONE LABELER: auto-derived macro-region names visible at LOD 2.
+  // Recomputed only when clusters or their texts change.
+  ZoneLabelResult _zoneResult = ZoneLabelResult.empty;
+  int _zoneSignature = 0;
+
+  ZoneLabelResult _zonesOrCompute() {
+    final sig = Object.hash(
+      _clusterCache.length,
+      _clusterTextCache.length,
+      _clusterTextContentHash(),
+    );
+    // Reuse cache on hit *even when the result is empty* — an empty
+    // result is still a valid memoized computation.
+    if (sig == _zoneSignature && _zoneSignature != 0) {
+      return _zoneResult;
+    }
+    _zoneResult = ZoneLabeler.compute(
+      clusters: _clusterCache,
+      clusterTexts: _clusterTextCache,
+    );
+    _zoneSignature = sig == 0 ? 1 : sig;
+    return _zoneResult;
+  }
+
+  /// 🧠 Active Recall protection: cluster IDs whose label must be hidden
+  /// at LOD 2 because the student is currently trying to recall them.
+  /// Unions SRS-blurred (not yet revealed) and fogged (not yet revealed)
+  /// cluster sets. Passed to the KnowledgeFlowPainter.
+  Set<String> _clustersHiddenForRecall() {
+    final hidden = <String>{};
+
+    // SRS blur: overdue clusters that haven't been tapped yet.
+    if (_srsReviewSession.isActive) {
+      for (final id in _srsReviewSession.blurredClusterIds) {
+        if (!_srsReviewSession.revealedClusterIds.contains(id)) {
+          hidden.add(id);
+        }
+      }
+    }
+
+    // Fog of War: covered clusters that haven't been revealed yet.
+    if (_fogOfWarController.isActive && _fogOfWarController.isFogActive) {
+      for (final cluster in _clusterCache) {
+        if (!_fogOfWarController.revealedNodeIds.contains(cluster.id)) {
+          hidden.add(cluster.id);
+        }
+      }
+    }
+
+    return hidden;
+  }
+
   // 🧠 KNOWLEDGE FLOW: Connection drag state
   bool _isConnectionDragging = false;
   Offset? _connectionDragSourcePoint;
@@ -1286,6 +1487,16 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   final Set<String> _sessionMastered = {}; // concepts rated "lo so già"
   final Map<String, SrsCardData> _reviewSchedule =
       {}; // FSRS spaced repetition: concept → card data
+  /// 🎥 Persistent count of completed SRS review sessions for this canvas.
+  /// Drives the progressive zoom-out opener (§1549). Increments after each
+  /// successful endSession, persisted alongside the schedule.
+  int _canvasReturnCount = 0;
+
+  /// LOD tier at which the zoom hint was last shown. -1 = never shown.
+  /// Used to throttle the hint SnackBar so the student only sees it when
+  /// they *cross into a new tier* (first time to concept view, first time
+  /// to satellite), not every single SRS return.
+  int _lastShownZoomHintTier = -1;
   final Map<String, String> _conceptFailHistory =
       {}; // concept → last failed mode ('spiega'|'esempio')
   final Set<String> _hiddenClusters =
@@ -2147,6 +2358,16 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // 💾 Load persisted learned words from disk
     WordCompletionDictionary.instance.loadUserFrequency();
 
+    // 🏛️ Pre-warm MyScript ink engine so monument/zone labels aren't
+    // delayed by first-use init latency (~500ms-2s). Fire-and-forget —
+    // init is idempotent; other features that also call it will no-op.
+    // Failure is silent: platforms without the plugin (desktop/web)
+    // simply won't populate the landmark text layer.
+    // ignore: discarded_futures
+    DigitalInkService.instance.init(languageCode: 'en').catchError((Object _) {
+      // silent — landmark layer degrades gracefully without OCR
+    });
+
     // 🔄 Load wheel mode preference from disk
     _WheelModePref.load().then((_) {
       if (mounted) setState(() {});
@@ -2413,6 +2634,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // 🔍 Real-time zoom detection: check continuously during pinch gestures
     _canvasController.addListener(_onPdfZoomCheck);
     _canvasController.addListener(_onImageZoomCheck);
+
+    // 🏛️ Proactive OCR trigger for the monument/zone LOD 2 layer.
+    // Without this, _clusterTextCache stays empty until the student opens
+    // ghost-map / socratic / radial — which means monument pills and zone
+    // labels never get their text even though the resolver classifies them
+    // correctly. Firing at the 0.30 threshold gives the async OCR pipeline
+    // time to finish before the student reaches 0.15 (LOD 2).
+    _canvasController.addListener(_maybePopulateTextsForLandmarks);
 
     // 🌀 Load persisted rotation lock preference
     _canvasController.loadPersistedState();
@@ -2861,6 +3090,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   @override
   void dispose() {
+    // 🏛️ Unregister landmark OCR listener BEFORE the rest of dispose runs,
+    // so trailing controller notifications can't fire an async callback that
+    // touches a defunct context via ScaffoldMessenger.
+    _canvasController.removeListener(_maybePopulateTextsForLandmarks);
+
     // 🔄 REALTIME: Unsubscribe from remote changes
     _syncEngine?.unsubscribeFromCanvas();
     _syncEngine?.remoteChange.removeListener(_onRemoteCanvasChange);

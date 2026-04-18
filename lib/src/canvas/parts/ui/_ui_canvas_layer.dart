@@ -156,6 +156,14 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                               proactiveScan: _proactiveScanCache,
                               reviewSchedule: _reviewSchedule,
                               isPanning: _canvasController.isPanning,
+                              monumentIds: _monumentsOrCompute().monumentIds,
+                              monumentImportance:
+                                  _monumentsOrCompute().importance,
+                              zoneLabels: _zonesOrCompute().zones,
+                              zoneMembership:
+                                  _zonesOrCompute().membership,
+                              hiddenForRecallClusterIds:
+                                  _clustersHiddenForRecall(),
                             ),
                             size: Size.infinite,
                           ),
@@ -167,46 +175,54 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // 🧠 RECALL NODE OVERLAYS: Canvas-space status indicators.
           // Mounted INSIDE the Transform stack (like KnowledgeFlowPainter)
           // so they move in perfect lock-step with strokes during zoom.
-          // ALWAYS mounted (no conditional) — paint() returns early when not
-          // comparing. Conditional mount causes _ElementLifecycle.defunct
-          // assertions when the controller notifies during tree teardown.
+          // 🚀 P99 FIX: outer IgnorePointer + ListenableBuilder stay mounted
+          // always (preserving the "controller-notify-during-teardown"
+          // contract, see git blame for _ElementLifecycle.defunct context).
+          // The AnimatedBuilder + Transform + CustomPaint subtree is built
+          // only when recall mode is active — during idle, the pan-frame
+          // rebuild chain is entirely skipped.
           IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _canvasController,
+            child: ListenableBuilder(
+              listenable: _recallModeController,
               builder: (context, _) {
-                final m =
-                    Matrix4.identity()..translateByDouble(
-                      _canvasController.offset.dx,
-                      _canvasController.offset.dy,
-                      0.0, 1.0,
-                    );
-                if (_canvasController.rotation != 0.0) {
-                  m.rotateZ(_canvasController.rotation);
+                if (!_recallModeController.isActive) {
+                  return const SizedBox.shrink();
                 }
-                final _s = _canvasController.scale;
-                m.scaleByDouble(_s, _s, 1.0, 1.0);
-                return Transform(
-                  transform: m,
-                  child: ListenableBuilder(
-                    listenable: _recallModeController,
-                    builder: (_, __) => CustomPaint(
-                      painter: RecallNodeOverlayPainter(
-                        controller: _recallModeController,
-                        animationTime:
-                            DateTime.now().millisecondsSinceEpoch %
-                            10000 /
-                            1000.0,
-                        originalZone: _recallModeController.selectedZone,
-                        reconstructionZone: _recallReconstructionZone,
-                        showingOriginals: _recallShowingOriginals,
-                        labelOriginalZone: _l10n.recall_zoneOriginal,
-                        labelAttemptZone: _l10n.recall_zoneAttempt,
-                        labelReconstruct: _l10n.recall_reconstructFromMemory,
-                        levelLabels: _recallLevelLabels, // cached in didChangeDependencies
+                return AnimatedBuilder(
+                  animation: _canvasController,
+                  builder: (context, _) {
+                    final m =
+                        Matrix4.identity()..translateByDouble(
+                          _canvasController.offset.dx,
+                          _canvasController.offset.dy,
+                          0.0, 1.0,
+                        );
+                    if (_canvasController.rotation != 0.0) {
+                      m.rotateZ(_canvasController.rotation);
+                    }
+                    final _s = _canvasController.scale;
+                    m.scaleByDouble(_s, _s, 1.0, 1.0);
+                    return Transform(
+                      transform: m,
+                      child: CustomPaint(
+                        painter: RecallNodeOverlayPainter(
+                          controller: _recallModeController,
+                          animationTime:
+                              DateTime.now().millisecondsSinceEpoch %
+                              10000 /
+                              1000.0,
+                          originalZone: _recallModeController.selectedZone,
+                          reconstructionZone: _recallReconstructionZone,
+                          showingOriginals: _recallShowingOriginals,
+                          labelOriginalZone: _l10n.recall_zoneOriginal,
+                          labelAttemptZone: _l10n.recall_zoneAttempt,
+                          labelReconstruct: _l10n.recall_reconstructFromMemory,
+                          levelLabels: _recallLevelLabels, // cached in didChangeDependencies
+                        ),
+                        size: Size.infinite,
                       ),
-                      size: Size.infinite,
-                    ),
-                  ),
+                    );
+                  },
                 );
               },
             ),
@@ -923,7 +939,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       const Duration(milliseconds: 150),
                       () {
                         if (mounted) {
-                          _layerController.notifyListeners();
+                          // 🚀 P99 FIX A2: repaint DrawingPainter directly via
+                          // its static notifier. Notifying _layerController
+                          // here would rebuild the whole ListenableBuilder
+                          // subtree (new painter + RPB) for no reason.
+                          DrawingPainter.triggerLodRepaint();
                           _imageRepaintNotifier
                               .value++; // 🚀 Also repaint images for LOD
                         }
@@ -1539,29 +1559,40 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           return const SizedBox.shrink();
         }
 
-        return IgnorePointer(
-          child: RepaintBoundary(
-            child: CustomPaint(
-              painter: CurrentStrokePainter(
-                strokeNotifier: _currentStrokeNotifier,
-                penType: _effectivePenType,
-                color: _effectiveColor,
-                width: _effectiveWidth,
-                settings: _brushSettings,
-                enableClipping: _isImageEditFromInfiniteCanvas,
-                canvasSize: _canvasSize,
-                enablePredictive:
-                    _renderingConfig?.enablePredictiveRendering ?? true,
-                guideSystem: _rulerGuideSystem,
-                controller: _canvasController, // 🚀 viewport-level mode
-                pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
-                surface: _activeSurface, // 🧬 Programmable materiality
-                useNativeOverlay:
-                    _vulkanOverlayActive, // 🔥 Skip Dart when Vulkan handles it
+        // 🚀 P99 FIX A1: unmount the fullscreen RepaintBoundary while idle.
+        // A mounted RPB costs GPU compositing (~1-2ms on Adreno 660) every
+        // frame during pan even if paint() early-returns on empty stroke.
+        // Mount only while actively drawing — re-attached fast enough for
+        // the first stroke point (ValueListenableBuilder on a bool).
+        return ValueListenableBuilder<bool>(
+          valueListenable: _isDrawingNotifier,
+          builder: (_, isDrawing, __) {
+            if (!isDrawing) return const SizedBox.shrink();
+            return IgnorePointer(
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: CurrentStrokePainter(
+                    strokeNotifier: _currentStrokeNotifier,
+                    penType: _effectivePenType,
+                    color: _effectiveColor,
+                    width: _effectiveWidth,
+                    settings: _brushSettings,
+                    enableClipping: _isImageEditFromInfiniteCanvas,
+                    canvasSize: _canvasSize,
+                    enablePredictive:
+                        _renderingConfig?.enablePredictiveRendering ?? true,
+                    guideSystem: _rulerGuideSystem,
+                    controller: _canvasController, // 🚀 viewport-level mode
+                    pdfClipRect: _activePdfClipRect, // ✂️ PDF page clipping
+                    surface: _activeSurface, // 🧬 Programmable materiality
+                    useNativeOverlay:
+                        _vulkanOverlayActive, // 🔥 Skip Dart when Vulkan handles it
+                  ),
+                  size: Size.infinite,
+                ),
               ),
-              size: Size.infinite,
-            ),
-          ),
+            );
+          },
         );
       },
     );

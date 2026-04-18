@@ -102,16 +102,60 @@ extension SrsBlurOnReturn on _FlueraCanvasScreenState {
           _saveTierGateHistory();
         }
 
+        // 🎥 Progressive zoom-out (§1549-1554): the more times this canvas
+        // has been reviewed, the wider the auto-opener pulls back — forcing
+        // the student to reconstruct detail from titles and spatial position.
+        // Uses the persisted [_canvasReturnCount] (loaded from disk alongside
+        // the schedule and incremented on each successful endSession).
         final dueCount = _srsReviewSession.beginSession(
           clusters: _clusterCache,
           reviewSchedule: _reviewSchedule,
           clusterTexts: _clusterTextCache,
           reviewType: type,
           maxNodes: type == SrsReviewType.micro ? 12 : 999,
+          canvasReviewCount: _canvasReturnCount,
+          userBaseScale: _canvasController.scale,
         );
 
         if (dueCount > 0) {
           debugPrint('🧠 SRS Blur: $dueCount clusters for ${type.name} review');
+
+          // Apply the progressive zoom-out if the session produced a target.
+          final targetScale = _srsReviewSession.targetInitialZoomScale;
+          final targetTier = _srsReviewSession.targetInitialLodTier;
+          if (targetScale != null && mounted) {
+            final viewport = MediaQuery.sizeOf(context);
+            CameraActions.zoomToLevel(
+              _canvasController,
+              targetScale,
+              viewport,
+            );
+
+            // Throttle: only surface the hint on the *first* session that
+            // lands the student in a new LOD tier. Repeated sessions at
+            // the same tier would be noise.
+            final hint = _srsReviewSession.returnZoomHint;
+            if (hint != null &&
+                targetTier != null &&
+                targetTier != _lastShownZoomHintTier) {
+              _lastShownZoomHintTier = targetTier;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(hint),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  margin: const EdgeInsets.only(
+                    bottom: 80, left: 20, right: 20,
+                  ),
+                  duration: const Duration(seconds: 3),
+                  backgroundColor: const Color(0xFF263238),
+                ),
+              );
+            }
+          }
+
           if (mounted) setState(() {});
           HapticFeedback.mediumImpact();
         }
@@ -276,6 +320,11 @@ extension SrsBlurOnReturn on _FlueraCanvasScreenState {
 
     // Apply FSRS updates to the review schedule
     _reviewSchedule.addAll(updates);
+
+    // 🎥 Increment persistent canvas return counter — drives the
+    // progressive zoom-out opener on the next session (§1549).
+    _canvasReturnCount++;
+
     _saveSpacedRepetition();
 
     // Show summary toast
