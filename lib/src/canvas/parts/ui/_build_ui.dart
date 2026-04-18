@@ -295,6 +295,18 @@ extension on _FlueraCanvasScreenState {
                             valueListenable: _contentBoundsTracker.regions,
                             builder: (context, regions, child) {
                               final hasContent = regions.isNotEmpty;
+                              // 🏛️ Landmark layer on the minimap (§1964)
+                              // — compute monument centroids from the
+                              // memoized resolver + cluster cache. Builds
+                              // only the centroid map the minimap painter
+                              // needs, not the full importance scores.
+                              final monIds =
+                                  _monumentsOrCompute().monumentIds;
+                              final monumentCentroids = <String, Offset>{
+                                for (final c in _clusterCache)
+                                  if (monIds.contains(c.id))
+                                    c.id: c.centroid,
+                              };
                               return CanvasMinimap(
                                 controller: _canvasController,
                                 boundsTracker: _contentBoundsTracker,
@@ -306,9 +318,81 @@ extension on _FlueraCanvasScreenState {
                                 currentStroke: _currentStrokeNotifier,
                                 currentStrokeColor: _effectiveColor,
                                 remoteCursors: _realtimeEngine?.remoteCursors,
+                                monumentCentroids: monumentCentroids,
+                                zoneLabels: _zonesOrCompute().zones,
+                                // 📌 §1964 — bookmark dots on the minimap.
+                                // Empty set → zero-cost (layer skipped).
+                                bookmarkLocations: _bookmarkLocations(),
                               );
                             },
                           ),
+                        ),
+
+                        // 📌 Bookmark FAB (top-right) — opens the list sheet.
+                        // Hidden when no bookmarks exist (keep canvas clean
+                        // before the student has actually saved anything).
+                        // Anchored top-right so it doesn't fight the minimap
+                        // (bottom-right) for space.
+                        AnimatedBuilder(
+                          animation: _bookmarkController,
+                          builder: (context, _) {
+                            final count = _bookmarkController.bookmarks.length;
+                            if (count == 0) return const SizedBox.shrink();
+                            return Positioned(
+                              top: 12,
+                              right: 12,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: Tooltip(
+                                  message: 'Bookmarks',
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      FloatingActionButton.small(
+                                        heroTag: 'bookmark_fab',
+                                        backgroundColor:
+                                            const Color(0xFFFF9800),
+                                        foregroundColor: Colors.white,
+                                        onPressed: _openBookmarkSheet,
+                                        child: const Icon(Icons.bookmarks),
+                                      ),
+                                      Positioned(
+                                        right: -2,
+                                        top: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5, vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 1,
+                                            ),
+                                          ),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 16,
+                                            minHeight: 14,
+                                          ),
+                                          child: Text(
+                                            '$count',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
 
                         // 🔍 Handwriting Search Overlay (inside canvas stack = below toolbar)

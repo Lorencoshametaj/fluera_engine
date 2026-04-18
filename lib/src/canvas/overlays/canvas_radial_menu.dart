@@ -27,7 +27,10 @@ enum RadialMenuItem {
   undo('Undo', Icons.undo_rounded, Color(0xFFEF9A9A)),
   tools('Tools', Icons.build_rounded, Color(0xFF80CBC4)),
   knowledgeMap('Map', Icons.hub_rounded, Color(0xFF7EC8E3)),
-  atlas('Atlas', Icons.auto_awesome_rounded, Color(0xFF00E5FF));
+  atlas('Atlas', Icons.auto_awesome_rounded, Color(0xFF00E5FF)),
+  // 📌 §1972-1977 — student-placed spatial anchor at the long-press position.
+  // Orange palette to match the bookmark color used on the minimap.
+  bookmark('Bookmark', Icons.bookmark_add_outlined, Color(0xFFFF9800));
 
   const RadialMenuItem(this.label, this.icon, this.accent);
   final String label;
@@ -44,6 +47,7 @@ enum RadialMenuItem {
       case RadialMenuItem.insert:
       case RadialMenuItem.knowledgeMap: return HapticType.light;
       case RadialMenuItem.atlas: return HapticType.medium;
+      case RadialMenuItem.bookmark: return HapticType.light;
     }
   }
 
@@ -374,7 +378,10 @@ class CanvasRadialMenuState extends State<CanvasRadialMenu>
   double get _deadZone => _baseDeadZone * _sf;
   double get _primaryRadius => _basePrimaryRadius * _sf;
 
-  static const int N = 8;
+  // 9 items (the 9th is Bookmark — §1972-1977). Each slice = 40°.
+  // Geometry scales automatically from N via _sa; no other layout code
+  // hardcodes the 8-slice assumption (checked during the bump).
+  static const int N = 9;
   static const double _sa = 2 * math.pi / N;
   static const double _s0 = -math.pi / 2;
   static const double _gap = 3.0 * math.pi / 180;
@@ -875,7 +882,8 @@ class _PainterV4Opt extends CustomPainter {
     required this.getIcon, required this.getLabel,
   });
 
-  static const int N = 8;
+  // Must stay in sync with the state-side constant above.
+  static const int N = 9;
   static const double _sa = 2 * math.pi / N;
   static const double _s0 = -math.pi / 2;
   final double ri, ro;

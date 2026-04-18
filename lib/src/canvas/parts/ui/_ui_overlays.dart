@@ -2542,6 +2542,17 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                     ),
                   );
                   break;
+                case RadialMenuItem.bookmark:
+                  // 📌 §1972-1977: place a spatial bookmark at the
+                  // long-press canvas position. Caller flow: prompt name
+                  // → controller.add → background thumbnail generation
+                  // → KV persist (auto via _onBookmarksChanged).
+                  HapticFeedback.lightImpact();
+                  final canvasPos = _canvasController.screenToCanvas(
+                    _radialMenuCenter,
+                  );
+                  _createBookmarkAt(canvasPos);
+                  break;
               }
             },
           ),

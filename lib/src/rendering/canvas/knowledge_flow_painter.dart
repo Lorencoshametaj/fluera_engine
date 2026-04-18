@@ -2377,7 +2377,16 @@ class KnowledgeFlowPainter extends CustomPainter {
       }
 
       // 🔤 Auto-scaled text label under dot (recognized text)
-      final text = clusterTexts[cluster.id];
+      //
+      // 🧠 Active Recall protection: skip the sublabel for clusters
+      // currently concealed by SRS blur or Fog of War. Otherwise the
+      // student would see "Glicolisi..." beneath a blurred cluster and
+      // bypass the retrieval exercise (§2 teoria). Parallels the
+      // monument-pill suppression above.
+      final text =
+          hiddenForRecallClusterIds.contains(cluster.id)
+              ? null
+              : clusterTexts[cluster.id];
       if (text != null && text.isNotEmpty) {
         final inverseScale = (1.0 / canvasScale).clamp(2.0, 8.0);
         canvas.save();

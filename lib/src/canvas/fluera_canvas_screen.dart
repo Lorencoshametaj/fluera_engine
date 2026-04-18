@@ -225,6 +225,7 @@ import '../reflow/cluster_detector.dart';
 import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
 import '../reflow/monument_resolver.dart';
+import '../reflow/text_label_picker.dart';
 import '../reflow/zone_labeler.dart';
 import '../reflow/reflow_controller.dart';
 import '../reflow/animated_reflow_controller.dart';
@@ -302,6 +303,10 @@ import '../rendering/canvas/latex_provenance_overlay_painter.dart';
 import './navigation/content_bounds_tracker.dart';
 import './navigation/camera_actions.dart';
 import './navigation/canvas_minimap.dart';
+import './navigation/spatial_bookmark.dart';
+import './navigation/spatial_bookmark_controller.dart';
+import './navigation/bookmark_thumbnail_cache.dart';
+import './overlays/bookmark_list_sheet.dart';
 import './navigation/content_radar_overlay.dart';
 import './navigation/zoom_level_indicator.dart';
 import './navigation/return_to_content_fab.dart';
@@ -1360,6 +1365,256 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     }
   }
 
+  // 📌 SPATIAL BOOKMARKS: student-placed navigation anchors (§1972-1977).
+  // Persistent per canvas via KV store; thumbnails cached separately
+  // (lazy + LRU). Loaded asynchronously in initState alongside the SR
+  // schedule so they're ready before the canvas is interacted with.
+  final SpatialBookmarkController _bookmarkController =
+      SpatialBookmarkController();
+  final BookmarkThumbnailCache _bookmarkThumbnailCache =
+      BookmarkThumbnailCache();
+
+  /// Convenience: bookmark id → world centroid for the minimap layer.
+  Map<String, Offset> _bookmarkLocations() => {
+        for (final bm in _bookmarkController.bookmarks)
+          bm.id: bm.canvasPosition,
+      };
+
+  /// Triggered every time the bookmark list mutates (add/remove/rename/
+  /// recordVisit). Persists asynchronously and rebuilds so the minimap
+  /// landmark layer redraws with the new orange dots.
+  void _onBookmarksChanged() {
+    if (!mounted) return;
+    setState(() {});
+    // Fire-and-forget; failures logged inside the controller.
+    // ignore: discarded_futures
+    _bookmarkController.saveToKVStore(_canvasId);
+  }
+
+  /// 📌 Handler — invoked by the radial menu when the student picks
+  /// "📌 Bookmark". Suggests a default name from the nearest cluster's
+  /// recognized text and prompts the student to confirm or override.
+  Future<void> _createBookmarkAt(Offset canvasPosition) async {
+    if (!mounted) return;
+
+    // Default name: first significant token from the closest cluster's
+    // OCR text within ~500 canvas units. Falls back to a numbered
+    // generic label so the dialog never starts blank.
+    String suggested = '';
+    if (_clusterCache.isNotEmpty) {
+      ContentCluster? nearest;
+      double nearestDistSq = 500.0 * 500.0;
+      for (final c in _clusterCache) {
+        final dx = c.centroid.dx - canvasPosition.dx;
+        final dy = c.centroid.dy - canvasPosition.dy;
+        final dSq = dx * dx + dy * dy;
+        if (dSq < nearestDistSq) {
+          nearestDistSq = dSq;
+          nearest = c;
+        }
+      }
+      if (nearest != null) {
+        final txt = _clusterTextCache[nearest.id] ?? '';
+        if (txt.isNotEmpty) {
+          suggested =
+              TextLabelPicker.pickFromSingle(txt, maxWords: 2, maxChars: 30);
+        }
+      }
+    }
+    if (suggested.isEmpty) {
+      suggested = 'Bookmark ${_bookmarkController.bookmarks.length + 1}';
+    }
+
+    // Dialog is a StatefulWidget so the TextEditingController's lifecycle
+    // follows the widget tree — Flutter guarantees `dispose()` runs after
+    // all FocusNode teardown notifications drain, eliminating the
+    // "used after being disposed" assertion that the earlier in-line
+    // `AlertDialog + post-frame dispose` workaround was papering over.
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _BookmarkNameDialog(initialName: suggested),
+    );
+    if (result == null || result.isEmpty) return;
+
+    final bm = _bookmarkController.add(
+      label: result,
+      canvasPosition: canvasPosition,
+      scale: _canvasController.scale,
+    );
+
+    // Eagerly generate the thumbnail in the background — small,
+    // non-blocking. If it fails the sheet falls back to a placeholder.
+    // ignore: discarded_futures
+    _generateBookmarkThumbnail(bm);
+  }
+
+  /// Generates (or refreshes) the rasterized preview for a bookmark.
+  /// Frames a 600×600 region around the bookmark position — same default
+  /// the navigation handler uses for fly-to, keeping preview aligned
+  /// with what the student will see after camera-fly.
+  Future<ui.Image?> _generateBookmarkThumbnail(SpatialBookmark bm) async {
+    final layer = _layerController.layers.firstWhere(
+      (l) => l.id == _layerController.activeLayerId,
+      orElse: () => _layerController.layers.first,
+    );
+    final bounds = Rect.fromCenter(
+      center: bm.canvasPosition,
+      width: 600,
+      height: 600,
+    );
+    return _bookmarkThumbnailCache.generateForBounds(
+      bookmarkId: bm.id,
+      worldBounds: bounds,
+      activeLayer: layer,
+    );
+  }
+
+  /// 📌 Opens the bookmark list sheet (bottom sheet with thumbnail grid).
+  /// The sheet itself is a dumb view — all CRUD goes through callbacks
+  /// wired here so the controller stays the single source of truth.
+  void _openBookmarkSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => BookmarkListSheet(
+        controller: _bookmarkController,
+        thumbnailCache: _bookmarkThumbnailCache,
+        thumbnailLoader: _generateBookmarkThumbnail,
+        onNavigate: _navigateToBookmark,
+        onRename: _promptRenameBookmark,
+        onDelete: _confirmDeleteBookmark,
+      ),
+    );
+  }
+
+  /// Camera flies to the bookmark's saved frame.
+  ///
+  /// Respects the saved [SpatialBookmark.scale] exactly — lands the
+  /// student at the same zoom level they chose when they decided the
+  /// position was worth saving. Computes the offset so the bookmark
+  /// centroid ends up at viewport centre.
+  ///
+  /// Transform math: `screenPt = canvasPt × scale + offset` →
+  /// for canvasPt=bm.position at screenPt=viewport centre,
+  /// offset = centre − bm.position × bm.scale.
+  ///
+  /// Records the visit so LRU eviction prefers never-visited entries.
+  void _navigateToBookmark(SpatialBookmark bm) {
+    _bookmarkController.recordVisit(bm.id);
+    final viewport = MediaQuery.sizeOf(context);
+    final centre = Offset(viewport.width / 2, viewport.height / 2);
+    final targetOffset = Offset(
+      centre.dx - bm.canvasPosition.dx * bm.scale,
+      centre.dy - bm.canvasPosition.dy * bm.scale,
+    );
+    // The bottom sheet pop animation takes ~200ms. If we fire
+    // animateToTransform synchronously, it overlaps with the sheet
+    // dismiss — many spring frames are hidden behind the sheet and the
+    // student perceives "no movement". Defer the animation to the next
+    // frame so the sheet has begun its dismiss tween before the camera
+    // starts moving.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      // 🎬 Adaptive duration — short jumps feel instant, long jumps feel
+      // cinematic. Linear interpolation over the perceived screen-space
+      // distance (offset delta / current-viewport diagonal), so hops
+      // near the student's current view snap quickly while cross-canvas
+      // flights get the breathing room they need to stay readable.
+      final curOffset = _canvasController.offset;
+      final deltaOffset = (targetOffset - curOffset).distance;
+      final viewportDiag = math.sqrt(
+        viewport.width * viewport.width +
+            viewport.height * viewport.height,
+      );
+      // `screenDistance` is in "viewport diagonals" units. A jump of 1
+      // viewport diagonal ≈ a big swipe across the screen.
+      final screenDistance =
+          viewportDiag > 0 ? deltaOffset / viewportDiag : 0.0;
+      final scaleRatio = (bm.scale / _canvasController.scale).abs();
+      // Combined progress: geometric + zoom magnitude. A large zoom
+      // change (e.g. 0.1 → 1.5) matters even at small pixel delta.
+      final zoomFactor = scaleRatio >= 1
+          ? math.log(scaleRatio) / math.ln2
+          : math.log(1 / scaleRatio) / math.ln2; // log2 ratio, always ≥0
+      final distanceScore =
+          (screenDistance + zoomFactor * 0.5).clamp(0.0, 4.0);
+      // 0.25s minimum (snappy for neighbours), 1.0s maximum (cinematic
+      // for continent-crossings). Linear map with a mild curve.
+      final durationSeconds = 0.25 + (distanceScore / 4.0) * 0.75;
+
+      _canvasController.animateMultiPhase(
+        keyframes: [
+          CameraKeyframe(
+            targetOffset: targetOffset,
+            targetScale: bm.scale,
+            durationSeconds: durationSeconds,
+            curve: Curves.easeInOutCubic,
+          ),
+        ],
+      );
+    });
+  }
+
+  Future<void> _promptRenameBookmark(SpatialBookmark bm) async {
+    final controller = TextEditingController(text: bm.label);
+    final newLabel = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rinomina bookmark'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Salva'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (newLabel != null && newLabel.isNotEmpty) {
+      _bookmarkController.rename(bm.id, newLabel);
+    }
+  }
+
+  Future<void> _confirmDeleteBookmark(SpatialBookmark bm) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminare il bookmark?'),
+        content: Text('"${bm.label}" sarà rimosso definitivamente.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFE53935),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      _bookmarkController.remove(bm.id);
+      _bookmarkThumbnailCache.invalidate(bm.id);
+    }
+  }
+
   // 🗺️ ZONE LABELER: auto-derived macro-region names visible at LOD 2.
   // Recomputed only when clusters or their texts change.
   ZoneLabelResult _zoneResult = ZoneLabelResult.empty;
@@ -2381,6 +2636,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     });
     _loadSeenClusters(); // 👁️ Restore dismissed dots
 
+    // 📌 Register the bookmark listener here; the actual KV load happens
+    // AFTER `_canvasId` is assigned (see a few lines below) — `_canvasId`
+    // is a `late final` field and reading it before assignment throws
+    // LateInitializationError.
+    _bookmarkController.addListener(_onBookmarksChanged);
+
     // 🚦 Initialize step gate controller (A15) with persisted history.
     _stepGateController = StepGateController();
     _loadStepGateHistory();
@@ -2436,6 +2697,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // 🆕 Genera o usa canvasId esistente
     _canvasId =
         widget.canvasId ?? 'canvas_${DateTime.now().microsecondsSinceEpoch}';
+
+    // 📌 Bookmarks (§1972-1977) can only load once `_canvasId` exists —
+    // the KV key is scoped per-canvas. Fire-and-forget; the listener
+    // registered earlier triggers setState so the minimap landmark layer
+    // picks up the restored set as soon as it's ready.
+    _bookmarkController.loadFromKVStore(_canvasId);
 
     // 🆕 Initialize titolo
     _noteTitle = widget.title;
@@ -3095,6 +3362,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // touches a defunct context via ScaffoldMessenger.
     _canvasController.removeListener(_maybePopulateTextsForLandmarks);
 
+    // 📌 Tear down bookmarks before other controllers — listener removal
+    // must precede the controller dispose, and the thumbnail cache holds
+    // ui.Image GPU handles that need explicit release.
+    _bookmarkController.removeListener(_onBookmarksChanged);
+    _bookmarkController.dispose();
+    _bookmarkThumbnailCache.dispose();
+
     // 🔄 REALTIME: Unsubscribe from remote changes
     _syncEngine?.unsubscribeFromCanvas();
     _syncEngine?.remoteChange.removeListener(_onRemoteCanvasChange);
@@ -3297,6 +3571,72 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _flowGuard.dispose();
 
     super.dispose();
+  }
+}
+
+// ============================================================================
+// 📌 BOOKMARK NAME DIALOG
+// ============================================================================
+
+/// Dialog for naming a new spatial bookmark. Owns its own
+/// [TextEditingController] so its lifecycle mirrors the widget tree —
+/// Flutter disposes the controller after all focus-node teardown
+/// notifications have drained, eliminating the "TextEditingController
+/// used after being disposed" assertion that an inline controller
+/// plus synchronous dispose triggers.
+class _BookmarkNameDialog extends StatefulWidget {
+  final String initialName;
+
+  const _BookmarkNameDialog({required this.initialName});
+
+  @override
+  State<_BookmarkNameDialog> createState() => _BookmarkNameDialogState();
+}
+
+class _BookmarkNameDialogState extends State<_BookmarkNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(_controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Nuovo bookmark'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 40,
+        decoration: const InputDecoration(
+          hintText: 'Nome del bookmark',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('Annulla'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
+    );
   }
 }
 

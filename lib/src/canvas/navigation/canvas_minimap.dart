@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../drawing/models/pro_drawing_point.dart';
+import '../../reflow/zone_labeler.dart';
 import '../infinite_canvas_controller.dart';
 import './content_bounds_tracker.dart';
 import './minimap_painter.dart';
@@ -38,6 +39,19 @@ class CanvasMinimap extends StatefulWidget {
   final Color currentStrokeColor;
   final ValueNotifier<Map<String, Map<String, dynamic>>>? remoteCursors;
 
+  /// 🏛️ Monument cluster centroids (world coordinates). Rendered on the
+  /// minimap as luminous dots per §1964. Empty → no monument layer drawn.
+  final Map<String, Offset> monumentCentroids;
+
+  /// 🗺️ Auto-derived macro-zone labels. Rendered as translucent colored
+  /// regions + uppercase titles on the minimap (§1981). Empty → skipped.
+  final List<ZoneLabel> zoneLabels;
+
+  /// 📌 Spatial bookmark positions (world coordinates), keyed by bookmark
+  /// id. Rendered as orange dots on the minimap (§1972-1977). Empty → no
+  /// bookmark layer added (zero-cost fallback).
+  final Map<String, Offset> bookmarkLocations;
+
   static const double kWidth = 220.0;
   static const double kHeight = 160.0;
   static const double _showThreshold = 0.7;
@@ -59,6 +73,9 @@ class CanvasMinimap extends StatefulWidget {
     this.currentStroke,
     this.currentStrokeColor = const Color(0xFF4A90D9),
     this.remoteCursors,
+    this.monumentCentroids = const <String, Offset>{},
+    this.zoneLabels = const <ZoneLabel>[],
+    this.bookmarkLocations = const <String, Offset>{},
   });
 
   @override
@@ -461,6 +478,29 @@ class _CanvasMinimapState extends State<CanvasMinimap>
                         ),
                       ),
                     ),
+
+                    // ── Layer 1b: Landmarks — monuments + zones + bookmarks ──
+                    // Drawn above content, below the viewport frame, so
+                    // monuments, zone regions and bookmark dots float on
+                    // the minimap without being occluded by stroke regions
+                    // but don't cover the viewport indicator. Skipped at
+                    // zero cost when all three collections are empty.
+                    if (widget.monumentCentroids.isNotEmpty ||
+                        widget.zoneLabels.isNotEmpty ||
+                        widget.bookmarkLocations.isNotEmpty)
+                      RepaintBoundary(
+                        child: CustomPaint(
+                          size: _radarSize,
+                          painter: MinimapLandmarkPainter(
+                            monumentCentroids: widget.monumentCentroids,
+                            zoneLabels: widget.zoneLabels,
+                            bookmarkLocations: widget.bookmarkLocations,
+                            contentBounds: neighborhood,
+                            minimapWidth: CanvasMinimap.kWidth,
+                            minimapHeight: CanvasMinimap.kHeight,
+                          ),
+                        ),
+                      ),
 
                     // ── Layer 2: Viewport indicator ──
                     CustomPaint(

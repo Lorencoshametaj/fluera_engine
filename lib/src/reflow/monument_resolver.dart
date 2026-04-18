@@ -37,21 +37,17 @@ class MonumentResolver {
   static const double monumentThreshold = 0.45;
 
   /// Minimum absolute degree to be *eligible* as a monument.
-  /// Prevents single-connection clusters from becoming monuments in tiny graphs.
-  /// This is the *floor* — the actual threshold can be raised adaptively by
-  /// [_effectiveMinDegree] for small graphs where "2 connections" is not
-  /// pedagogically meaningful landmark criterion.
-  static const int minDegreeEligibility = 2;
-
-  /// Adaptive degree floor: in very small graphs (≤5 clusters), anyone
-  /// with ≥1 connection would trivially qualify — bump the requirement
-  /// to 3 to preserve the "landmark" semantics (a true hub, not just any
-  /// connected node). In medium graphs (6–15), keep the default of 2.
-  /// In large graphs (16+), 2 is appropriate since hubs emerge naturally.
-  static int _effectiveMinDegree(int clusterCount) {
-    if (clusterCount <= 5) return 3;
-    return minDegreeEligibility;
-  }
+  ///
+  /// Set to 3 to align with the HUB STAR BURST visual in
+  /// [KnowledgeFlowPainter]'s `_paintClusterDots`, which draws rotating
+  /// radial rays on clusters with `clusterConnCount >= 3`. Keeping these
+  /// two in sync means every monument is also visually distinguished by
+  /// the star burst — no incoherent "monument without star" cases — and
+  /// a 2-connection cluster is never promoted to landmark status (which
+  /// was pedagogically weak anyway: a true hub needs multi-way branching).
+  ///
+  /// Pinned clusters bypass this check entirely (manual student override).
+  static const int minDegreeEligibility = 3;
 
   /// Stability (days) that maps to a normalized score of 1.0.
   /// 30 days of FSRS stability ≈ well-consolidated memory.
@@ -123,9 +119,6 @@ class MonumentResolver {
     final importance = <String, double>{};
     final monumentIds = <String>{};
 
-    // Adaptive degree floor — see [_effectiveMinDegree].
-    final minDeg = _effectiveMinDegree(clusters.length);
-
     for (final c in clusters) {
       final deg = degree[c.id] ?? 0;
       final degNorm = (deg / degreeDenom).clamp(0.0, 1.0);
@@ -150,7 +143,7 @@ class MonumentResolver {
 
       importance[c.id] = score;
 
-      final eligible = deg >= minDeg || c.isPinned;
+      final eligible = deg >= minDegreeEligibility || c.isPinned;
       if (eligible && score >= threshold) {
         monumentIds.add(c.id);
       }

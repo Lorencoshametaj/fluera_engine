@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/models/shape_type.dart';
+import '../../reflow/zone_labeler.dart';
 import './content_bounds_tracker.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -923,4 +924,204 @@ class MinimapCursorsPainter extends CustomPainter {
   bool shouldRepaint(MinimapCursorsPainter oldDelegate) =>
       remoteCursors.length != oldDelegate.remoteCursors.length ||
       contentBounds != oldDelegate.contentBounds;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🏛️ LANDMARK PAINTER — monuments + zone labels on the minimap
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Theory contract (§1964): "I nodi-monumento sono visibili sulla minimap
+// come punti luminosi." Plus the implicit extension for zone labels
+// from §1981 (macro-zone names visible on the continental map).
+//
+// This painter lives above [MinimapContentPainter] (content) and below
+// [MinimapViewportPainter] (viewport frame) so landmarks float over the
+// stroke regions without obscuring the viewport indicator.
+//
+// Both inputs are optional — if either is empty, the corresponding layer
+// is skipped, keeping the minimap clean for canvases that don't yet have
+// the required structure (few connections → no monuments; single dense
+// region → no zones).
+
+class MinimapLandmarkPainter extends CustomPainter {
+  /// Monument cluster centroids in world coordinates. Key = cluster id
+  /// (not rendered; just used for stable shouldRepaint diffing).
+  final Map<String, Offset> monumentCentroids;
+
+  /// Zones from the [ZoneLabeler]. Renders both the label text at the
+  /// zone centroid and a translucent colored region halo over its bounds.
+  final List<ZoneLabel> zoneLabels;
+
+  /// 📌 Spatial bookmark positions (world coordinates). Rendered as
+  /// distinctive orange dots above zones and monuments so the student
+  /// can spot saved navigation anchors at a glance on the minimap
+  /// (§1972-1977). Empty → bookmark layer skipped.
+  final Map<String, Offset> bookmarkLocations;
+
+  final Rect contentBounds;
+  final double minimapWidth;
+  final double minimapHeight;
+
+  static final Paint _zoneFillPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _zoneBorderPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.6;
+  static final Paint _monumentGlow = Paint()
+    ..style = PaintingStyle.fill
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+  static final Paint _monumentCore = Paint()..style = PaintingStyle.fill;
+  static final Paint _bookmarkGlow = Paint()
+    ..style = PaintingStyle.fill
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
+  static final Paint _bookmarkCore = Paint()..style = PaintingStyle.fill;
+
+  const MinimapLandmarkPainter({
+    required this.monumentCentroids,
+    required this.zoneLabels,
+    required this.contentBounds,
+    required this.minimapWidth,
+    required this.minimapHeight,
+    this.bookmarkLocations = const <String, Offset>{},
+    super.repaint,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (monumentCentroids.isEmpty && zoneLabels.isEmpty) return;
+    final mapping = _computeMapping(contentBounds, minimapWidth, minimapHeight);
+    if (mapping == null) return;
+    final (:scale, :offsetX, :offsetY, :expandedBounds) = mapping;
+
+    // Clip to the minimap panel so overflowing landmarks don't bleed
+    // beyond the HUD frame.
+    final clipRect = Rect.fromLTWH(0, 0, size.width, size.height);
+    canvas.clipRRect(
+      RRect.fromRectAndRadius(clipRect, const Radius.circular(10)),
+    );
+
+    // ── 1. Zone regions (under monuments) ─────────────────────────────
+    for (var i = 0; i < zoneLabels.length; i++) {
+      final zone = zoneLabels[i];
+      // Deterministic per-zone tint — same zone renders same color on every
+      // repaint even when zone ordering changes.
+      final hue = (zone.id.hashCode & 0xFFFF) / 0xFFFF * 360.0;
+      final tint = HSLColor.fromAHSL(1.0, hue, 0.55, 0.65).toColor();
+
+      final rect = _worldToMinimap(
+        zone.bounds,
+        scale,
+        offsetX,
+        offsetY,
+        expandedBounds,
+      );
+      final rrect = RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(math.min(rect.shortestSide * 0.2, 6)),
+      );
+      _zoneFillPaint.color = tint.withValues(alpha: 0.12);
+      canvas.drawRRect(rrect, _zoneFillPaint);
+      _zoneBorderPaint.color = tint.withValues(alpha: 0.45);
+      canvas.drawRRect(rrect, _zoneBorderPaint);
+
+      // Zone name pinned above the region (or inside if the region is
+      // already at the panel top).
+      final tp = TextPainter(
+        text: TextSpan(
+          text: zone.label.toUpperCase(),
+          style: TextStyle(
+            color: tint.withValues(alpha: 0.95),
+            fontSize: 7.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+            shadows: const [
+              Shadow(color: Color(0xCC000000), blurRadius: 2, offset: Offset(0, 1)),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final labelTop = rect.top - tp.height - 1;
+      final x = (rect.center.dx - tp.width / 2)
+          .clamp(2.0, size.width - tp.width - 2);
+      final y = labelTop < 2 ? rect.top + 2 : labelTop;
+      tp.paint(canvas, Offset(x, y));
+    }
+
+    // ── 2. Monument luminous dots (above zones) ──────────────────────
+    for (final entry in monumentCentroids.entries) {
+      final center = _worldPtToMinimap(
+        entry.value,
+        scale,
+        offsetX,
+        offsetY,
+        expandedBounds,
+      );
+      // Outer glow — warm amber, stands out against the cyan content palette.
+      _monumentGlow.color = const Color(0xFFFFD54F).withValues(alpha: 0.55);
+      canvas.drawCircle(center, 4.0, _monumentGlow);
+      // Bright white core.
+      _monumentCore.color = Colors.white.withValues(alpha: 0.95);
+      canvas.drawCircle(center, 1.5, _monumentCore);
+    }
+
+    // ── 3. Bookmark flags (top of stack) ─────────────────────────────
+    // Distinct SHAPE (flag/triangle marker) rather than a circle, so
+    // bookmarks are unambiguous vs monuments (amber circles) even on
+    // small screens / low contrast. Orange (#FF9800) palette marries
+    // with the FAB + radial menu icon for end-to-end visual continuity.
+    if (bookmarkLocations.isNotEmpty) {
+      _bookmarkGlow.color = const Color(0xFFFF9800).withValues(alpha: 0.60);
+      _bookmarkCore.color = const Color(0xFFFF9800).withValues(alpha: 0.95);
+      for (final pos in bookmarkLocations.values) {
+        final center = _worldPtToMinimap(
+          pos,
+          scale,
+          offsetX,
+          offsetY,
+          expandedBounds,
+        );
+        _drawFlagMarker(canvas, center);
+      }
+    }
+  }
+
+  /// Paint a small flag glyph anchored at [anchor].
+  /// Shape: vertical pole (line) + pennant triangle to the right, giving
+  /// the marker an immediately recognizable "pinned here" silhouette
+  /// distinct from monument circles and zone rectangles.
+  static final Path _flagPath = Path();
+  void _drawFlagMarker(Canvas canvas, Offset anchor) {
+    const poleHeight = 9.0;
+    const pennantWidth = 5.5;
+    const pennantHeight = 4.0;
+
+    // Soft amber halo behind the glyph for discoverability at small sizes.
+    canvas.drawCircle(anchor, 4.0, _bookmarkGlow);
+
+    // Pole.
+    canvas.drawLine(
+      anchor,
+      Offset(anchor.dx, anchor.dy - poleHeight),
+      Paint()
+        ..color = const Color(0xFFFF9800)
+        ..strokeWidth = 1.2
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Pennant triangle (fill).
+    _flagPath
+      ..reset()
+      ..moveTo(anchor.dx, anchor.dy - poleHeight)
+      ..lineTo(anchor.dx + pennantWidth, anchor.dy - poleHeight + pennantHeight / 2)
+      ..lineTo(anchor.dx, anchor.dy - poleHeight + pennantHeight)
+      ..close();
+    canvas.drawPath(_flagPath, _bookmarkCore);
+  }
+
+  @override
+  bool shouldRepaint(MinimapLandmarkPainter oldDelegate) =>
+      contentBounds != oldDelegate.contentBounds ||
+      monumentCentroids.length != oldDelegate.monumentCentroids.length ||
+      zoneLabels.length != oldDelegate.zoneLabels.length ||
+      bookmarkLocations.length != oldDelegate.bookmarkLocations.length;
 }

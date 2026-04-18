@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -29,6 +30,14 @@ class MyScriptInkEngine implements InkRecognitionEngine {
   bool _available = false;
   bool _initialized = false;
 
+  /// Single-flight guard: when an init() invocation is in progress, all
+  /// subsequent callers share the same Future. This prevents the race
+  /// where two concurrent `init()` calls both pass the synchronous
+  /// `_initialized` check, both fire the native `initialize` method, and
+  /// the second native call fails with "package already exists" —
+  /// overwriting `_available = false` on what was a successful init.
+  Future<void>? _inFlightInit;
+
   @override
   bool get isAvailable => _available;
 
@@ -41,11 +50,29 @@ class MyScriptInkEngine implements InkRecognitionEngine {
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   @override
-  Future<void> init({String languageCode = 'en'}) async {
-    if (_initialized) return;
+  Future<void> init({String languageCode = 'en'}) {
+    if (_initialized) return Future.value();
+    final existing = _inFlightInit;
+    if (existing != null) return existing;
+    final future = _doInit();
+    _inFlightInit = future;
+    return future;
+  }
 
+  /// Hard ceiling on how long the native `initialize` call may take.
+  /// First-run on a new device includes license unpacking, package creation,
+  /// and editor warm-up — MyScript typically completes in 300-800ms but
+  /// has been observed up to ~3s on older hardware. 10s is a generous
+  /// safety net: if we hit it, the native side is almost certainly hung
+  /// (corrupt package, disk full, revoked permission) and we must unblock
+  /// the UI rather than wait forever.
+  static const Duration _initTimeout = Duration(seconds: 10);
+
+  Future<void> _doInit() async {
     try {
-      final result = await _channel.invokeMethod<Map>('initialize');
+      final result = await _channel
+          .invokeMethod<Map>('initialize')
+          .timeout(_initTimeout);
       _available = result?['available'] as bool? ?? false;
       _initialized = true;
       if (_available) {
@@ -54,6 +81,17 @@ class MyScriptInkEngine implements InkRecognitionEngine {
         final error = result?['error'] as String?;
         debugPrint('[MyScriptInk] ⚠️ Engine not available: $error');
       }
+    } on TimeoutException {
+      debugPrint(
+        '[MyScriptInk] ⏱️ Init timed out after ${_initTimeout.inSeconds}s — '
+        'native plugin unresponsive. Flagging engine unavailable so the UI '
+        'can proceed without OCR. Future init() calls may retry since '
+        '_initialized stays false.',
+      );
+      // Keep _initialized = false so the next caller can retry — a
+      // transient native hang (e.g. license server slow) shouldn't
+      // permanently disable OCR for the app session.
+      _available = false;
     } on PlatformException catch (e) {
       debugPrint('[MyScriptInk] ❌ Init failed: ${e.message}');
       _initialized = true;
@@ -62,6 +100,8 @@ class MyScriptInkEngine implements InkRecognitionEngine {
       debugPrint('[MyScriptInk] ❌ Plugin not registered (wrong platform?)');
       _initialized = true;
       _available = false;
+    } finally {
+      _inFlightInit = null;
     }
   }
 
