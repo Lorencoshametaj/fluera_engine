@@ -19,6 +19,7 @@ import '../drawing/models/pro_drawing_point.dart';
 import '../layers/fluera_layer_controller.dart';
 import '../audio/native_audio_models.dart';
 import 'ai/pedagogical_accessibility_config.dart';
+import '../ai/ai_usage_tracker.dart';
 
 // =============================================================================
 // FLUERA CANVAS CONFIGURATION
@@ -255,6 +256,20 @@ class FlueraCanvasConfig {
   final void Function(BuildContext context, String upgradeMessage)?
       onUpgradePrompt;
 
+  // ===========================================================================
+  // AI USAGE TRACKING
+  // ===========================================================================
+
+  /// Optional server-backed tracker for AI token consumption.
+  ///
+  /// When provided, every outbound Gemini call is metered: pre-flight balance
+  /// check (may throw [AiQuotaExceededException]) and post-call reconciliation
+  /// with the actual `usageMetadata.totalTokenCount`.
+  ///
+  /// Leave null in tests / the web demo / the landing page. The engine falls
+  /// back to a no-op implementation that never enforces limits.
+  final AiUsageTracker? aiUsageTracker;
+
   const FlueraCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
@@ -285,6 +300,7 @@ class FlueraCanvasConfig {
     this.pdfProvider,
     this.onPickPdfFile,
     this.onUpgradePrompt,
+    this.aiUsageTracker,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';

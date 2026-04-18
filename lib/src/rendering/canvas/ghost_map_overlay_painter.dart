@@ -69,14 +69,29 @@ class GhostMapOverlayPainter extends CustomPainter {
   static bool _lastCacheDarkMode = false;
   static const int _maxCacheSize = 64;
 
-  /// Clear text cache when scale or dark mode changes.
+  /// 🚀 P99 FIX G2: quantize `scale` to 0.1 steps. Without this, every
+  /// micro-zoom change (0.01) invalidates every cached TextPainter —
+  /// which forces Impeller to rebuild the glyph atlas
+  /// (`CreateGlyphAtlas` + `UpdateAtlasBitmap`) on the raster thread.
+  static double _quantizeScale(double scale) =>
+      (scale * 10).roundToDouble() / 10;
+
+  /// 🚀 P99 FIX G4: clear on quantized-scale boundary cross but DO NOT
+  /// dispose the old TextPainter objects — disposal inside paint() caused a
+  /// one-frame visual glitch (disposed painters paint nothing). GC reclaims
+  /// them once the map is replaced. Keeping the glyph set small is critical:
+  /// accumulating multiple font sizes fills Impeller's internal glyph atlas
+  /// and triggers more frequent atlas rebuilds (regression seen in G3).
+  /// Dark-mode toggle also clears (colors are baked into the painter).
   static void _ensureCacheValid(double scale, bool darkMode) {
-    if ((_lastCacheScale - scale).abs() > 0.01 || _lastCacheDarkMode != darkMode) {
-      for (final tp in _textCache.values) {
-        tp.dispose();
-      }
+    final q = _quantizeScale(scale);
+    if (_lastCacheScale != q || _lastCacheDarkMode != darkMode) {
+      // Clear WITHOUT dispose(). Any painter still referenced by a stack
+      // frame finishes its paint() call safely; GC collects once
+      // unreferenced. This avoids "use-after-dispose" glitch while keeping
+      // the active glyph set small → stable Impeller atlas.
       _textCache.clear();
-      _lastCacheScale = scale;
+      _lastCacheScale = q;
       _lastCacheDarkMode = darkMode;
     }
   }
@@ -324,15 +339,9 @@ class GhostMapOverlayPainter extends CustomPainter {
     // Dashed border (cached path segments)
     _paintDashedRRect(canvas, rrect, Color.fromRGBO(255, 120, 80, 0.6 * breathe), 2.0);
 
-    // Double-ring outer glow
-    final outerRrect = rrect.inflate(3.0 * breathe);
-    _p
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0
-      ..color = Color.fromRGBO(255, 120, 80, 0.12 * breathe)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
-    canvas.drawRRect(outerRrect, _p);
-    _p.maskFilter = null;
+    // 🚀 P99 FIX G5: outer decorative blur ring removed. The dashed border
+    // above + the pulsing icon glow below still make the missing node
+    // visually distinct; the ambient ring was ~1 ms of raster per node.
 
     // Pulsing glow behind icon — canvas space, scales with zoom
     final center = bounds.center;
@@ -443,8 +452,10 @@ class GhostMapOverlayPainter extends CustomPainter {
       ..color = color.withValues(alpha: 0.7);
     canvas.drawRRect(rrect, _p);
 
-    // Concept text (cached)
-    final fontSize = 11.0 / canvasScale.clamp(0.3, 2.0);
+    // Concept text (cached).
+    // 🚀 P99 FIX G2: fontSize derived from quantized scale — cache key is
+    // stable during smooth zoom, preventing glyph atlas rebuilds.
+    final fontSize = 11.0 / _quantizeScale(canvasScale).clamp(0.3, 2.0);
     final cacheKey = 'revealed:${node.id}:$fontSize';
     final tp = _getOrCreateText(cacheKey, () {
       return TextPainter(
@@ -492,19 +503,14 @@ class GhostMapOverlayPainter extends CustomPainter {
     final rrect = RRect.fromRectAndRadius(bounds, const Radius.circular(12.0));
     final breathe = 0.8 + 0.2 * math.sin(animationTime * 1.8);
 
-    // Yellow glow
+    // 🚀 P99 FIX G5: decorative yellow halo blur removed — the solid border
+    // below + the ⚠️ badge are enough signal for a weak node.
+
+    // Yellow border (stronger than before to compensate for removed glow)
     _p
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0
-      ..color = Color.fromRGBO(255, 193, 7, 0.4 * breathe)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10.0);
-    canvas.drawRRect(rrect, _p);
-    _p.maskFilter = null;
-
-    // Yellow border
-    _p
-      ..strokeWidth = 2.0
-      ..color = Color.fromRGBO(255, 193, 7, 0.6 * breathe);
+      ..strokeWidth = 2.5
+      ..color = Color.fromRGBO(255, 193, 7, 0.7 * breathe);
     canvas.drawRRect(rrect, _p);
 
     // ⚠️ Badge (cached)
@@ -537,20 +543,16 @@ class GhostMapOverlayPainter extends CustomPainter {
         ? (animationTime % 3.0) / 1.5
         : 1.0;
 
-    // Shimmer glow aura
+    // 🚀 P99 FIX G5: shimmer blur aura removed — shimmer retained via
+    // breathing border alpha below + ✅ badge. Correct node is already
+    // visually clear; the blurred outer aura was pure decoration.
     final shimmerPhase = math.sin(animationTime * 1.2) * 0.5 + 0.5;
+
+    // Green border (stronger stroke compensates removed shimmer)
     _p
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.0
-      ..color = Color.fromRGBO(76, 175, 80, 0.12 * shimmerPhase)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
-    canvas.drawRRect(rrect.inflate(2.0), _p);
-    _p.maskFilter = null;
-
-    // Green border
-    _p
-      ..strokeWidth = 2.0
-      ..color = Color.fromRGBO(76, 175, 80, 0.5 * fadeIn);
+      ..strokeWidth = 2.5
+      ..color = Color.fromRGBO(76, 175, 80, 0.5 * fadeIn * (0.6 + 0.4 * shimmerPhase));
     canvas.drawRRect(rrect, _p);
 
     // ✅ Badge (cached)
@@ -616,14 +618,8 @@ class GhostMapOverlayPainter extends CustomPainter {
       );
     }
 
-    // Outer dramatic glow
-    _p
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0
-      ..color = Color.fromRGBO(255, 50, 30, 0.25 * breathe)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12.0);
-    canvas.drawRRect(rrect.inflate(4.0), _p);
-    _p.maskFilter = null;
+    // 🚀 P99 FIX G5: outer dramatic blur removed — the icon glow below + red
+    // border handle the hypercorrection emphasis.
 
     // ⚡ Icon (cached) — centered, larger than standard
     final center = bounds.center;
@@ -707,20 +703,15 @@ class GhostMapOverlayPainter extends CustomPainter {
         ? (animationTime % 3.0) / 1.5
         : 1.0;
 
-    // 🗺️ P4-23: Brighter shimmer glow (#00C853)
+    // 🚀 P99 FIX G5: shimmer blur removed — green border below breathes via
+    // the shimmerPhase alpha, preserving the high-confidence "pulse" feel.
     final shimmerPhase = math.sin(animationTime * 1.2) * 0.5 + 0.5;
+
+    // Brighter green border (#00C853, 3px — breathing alpha compensates removed aura)
     _p
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5.0
-      ..color = Color.fromRGBO(0, 200, 83, 0.2 * shimmerPhase)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10.0);
-    canvas.drawRRect(rrect.inflate(3.0), _p);
-    _p.maskFilter = null;
-
-    // Brighter green border (#00C853, 3px, 80% opacity — P4-23)
-    _p
       ..strokeWidth = 3.0
-      ..color = Color.fromRGBO(0, 200, 83, 0.8 * fadeIn);
+      ..color = Color.fromRGBO(0, 200, 83, (0.7 + 0.3 * shimmerPhase) * fadeIn);
     canvas.drawRRect(rrect, _p);
 
     // ⭐ Badge (cached) — star instead of checkmark for high confidence
@@ -855,7 +846,8 @@ class GhostMapOverlayPainter extends CustomPainter {
 
     // P4-35: Cross-domain icon (🔗) at midpoint
     if (isCross) {
-      final emojiSize = 16.0 / canvasScale.clamp(0.3, 2.0);
+      // 🚀 P99 FIX G2: quantized scale — stable cache key during zoom.
+      final emojiSize = 16.0 / _quantizeScale(canvasScale).clamp(0.3, 2.0);
       final crossKey = 'crossicon:${conn.id}:$emojiSize';
       final crossTp = _getOrCreateText(crossKey, () {
         return TextPainter(
@@ -874,7 +866,8 @@ class GhostMapOverlayPainter extends CustomPainter {
 
     // Label at midpoint (cached)
     if (conn.label != null) {
-      final fontSize = 9.0 / canvasScale.clamp(0.3, 2.0);
+      // 🚀 P99 FIX G2: quantized scale — stable cache key during zoom.
+      final fontSize = 9.0 / _quantizeScale(canvasScale).clamp(0.3, 2.0);
       final cacheKey = 'conn:${conn.id}:$fontSize';
       final tp = _getOrCreateText(cacheKey, () {
         return TextPainter(
@@ -1058,7 +1051,12 @@ class GhostMapOverlayPainter extends CustomPainter {
         hasStrokesInAttemptZone != oldDelegate.hasStrokesInAttemptZone ||
         isDarkMode != oldDelegate.isDarkMode ||
         (canvasScale - oldDelegate.canvasScale).abs() > 0.01 ||
-        (animationTime - oldDelegate.animationTime).abs() > 0.016 ||
+        // 🚀 P99 FIX G1: throttle breathing-animation repaints to ~20 Hz
+        // (every 50 ms) instead of 60 Hz. With 9 MaskFilter.blur calls per
+        // paint (each = 1 offscreen saveLayer on Impeller), cutting repaint
+        // rate by 3× cuts raster cost by 3× on the hot path. sin() visually
+        // smooth at 20 Hz since the breathing period is ~1-3 s.
+        (animationTime - oldDelegate.animationTime).abs() > 0.05 ||
         // U-1: Repaint during entry animation (first ~2s)
         (entryProgress < 3.0 && entryProgress != oldDelegate.entryProgress) ||
         // Repaint during active reveal cross-fade transitions

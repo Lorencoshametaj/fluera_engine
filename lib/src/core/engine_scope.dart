@@ -48,7 +48,9 @@ import '../tools/pdf/pdf_module.dart';
 import '../audio/audio_module.dart';
 import 'enterprise/enterprise_module.dart';
 import '../ai/ai_provider.dart';
+import '../ai/ai_usage_tracker.dart';
 import '../ai/atlas_ai_service.dart';
+import '../ai/gemini_client.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -124,11 +126,32 @@ class EngineScope {
   /// Pass this from the app layer (e.g. from `--dart-define` or secure storage).
   final String? geminiApiKey;
 
+  /// Optional AI usage tracker for server-side quota enforcement.
+  ///
+  /// When set, every Gemini call from [atlasProvider] is metered: pre-flight
+  /// balance check and post-call token reconciliation. Defaults to no-op.
+  final AiUsageTracker? aiUsageTracker;
+
+  /// Optional Gemini proxy configuration. When provided, all Gemini API
+  /// calls are routed through a Supabase Edge Function that holds the key
+  /// server-side — preferred for production. Takes priority over
+  /// [geminiApiKey] if both are set.
+  final GeminiProxyConfig? geminiProxy;
+
   /// Create a new engine scope.
   ///
   /// Pass [journalPath] to enable the crash-recovery write-ahead log.
-  /// Pass [geminiApiKey] to enable Atlas AI with Gemini.
-  EngineScope({this.journalPath, this.geminiApiKey});
+  /// Pass [geminiApiKey] to enable Atlas AI with Gemini in DEV MODE
+  /// (API key baked into the client — never ship this to production).
+  /// Pass [geminiProxy] to route Gemini through a Supabase Edge Function
+  /// that holds the API key server-side — this is the PRODUCTION mode.
+  /// Pass [aiUsageTracker] to enforce AI token quotas (per-user, server-side).
+  EngineScope({
+    this.journalPath,
+    this.geminiApiKey,
+    this.aiUsageTracker,
+    this.geminiProxy,
+  });
   // ---------------------------------------------------------------------------
   // Scope Stack Management
   // ---------------------------------------------------------------------------
@@ -321,7 +344,15 @@ class EngineScope {
   late final StyleCoherenceEngine styleCoherenceEngine = StyleCoherenceEngine();
 
   /// 🌌 Atlas AI — spatial intelligence provider (Gemini by default).
-  late final AiProvider atlasProvider = GeminiProvider(apiKey: geminiApiKey);
+  ///
+  /// Automatically chooses between direct (API key in-client, dev) and
+  /// proxied (key server-side via Supabase Edge Function, prod) based on
+  /// what the app provides. If both are set, proxy wins.
+  late final AiProvider atlasProvider = GeminiProvider(
+    apiKey: geminiApiKey,
+    proxy: geminiProxy,
+    tracker: aiUsageTracker,
+  );
 
   /// 📦 Module Registry — manages all canvas modules (drawing, tabular, etc.).
   late final ModuleRegistry moduleRegistry = ModuleRegistry(

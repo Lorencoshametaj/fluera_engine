@@ -1,10 +1,13 @@
-import 'dart:async' show TimeoutException;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'ai_provider.dart';
+import 'ai_usage_tracker.dart';
 import 'atlas_action.dart';
+import 'gemini_client.dart';
+import 'noop_ai_usage_tracker.dart';
 import '../canvas/ai/exam_session_model.dart';
 import '../canvas/ai/ghost_map_model.dart';
 
@@ -17,20 +20,129 @@ import '../canvas/ai/ghost_map_model.dart';
 /// The API key is passed directly instead of using dotenv, making this
 /// work cleanly in both package and app contexts.
 class GeminiProvider implements AiProvider {
-  GenerativeModel? _model;
-  GenerativeModel? _streamModel; // For streaming (no JSON constraint)
-  GenerativeModel? _ghostMapModel; // 🗺️ Ghost Map — low temperature for accuracy
+  // ── Model tiers ────────────────────────────────────────────────────────────
+  // Hybrid strategy (launch):
+  //   • Flash Lite: canvas actions, chat, socratic, hints — cheap, low-reasoning.
+  //   • Flash:      Ghost Map, exam generation, answer evaluation — pedagogical
+  //                 quality is the product's core promise; Pro would be overkill
+  //                 and shred margins (~20-26× Flash Lite).
+  //
+  // Both pinned to GA (not preview) — avoids breaking changes mid-launch and
+  // already covers our needs. Flash has a 1M-token context window (plenty for
+  // long OCR notes). Upgrade to `gemini-3-flash-preview` post-launch only if
+  // telemetry proves it meaningfully improves Ghost Map quality.
+  static const _modelFlashLite = 'gemini-2.5-flash-lite';
+  static const _modelFlash = 'gemini-2.5-flash';
+
+  GeminiClient? _model; // Flash Lite, JSON — canvas actions (askAtlas, hint)
+  GeminiClient? _streamModel; // Flash Lite, no JSON — chat, stream, socratic
+  GeminiClient? _ghostMapModel; // 🗺️ Flash, JSON, low temp — Ghost Map
+  GeminiClient? _examModel; // 🎓 Flash, JSON — exam generation
+  GeminiClient? _evaluationModel; // 🎓 Flash, streaming — answer evaluation
   bool _initialized = false;
 
-  /// The API key to use for Gemini.
-  /// Set via [initialize] or constructor.
+  /// Direct-mode Gemini API key (baked into the client binary). Null when
+  /// the proxy is configured — preferred for production.
   final String? _apiKey;
+
+  /// Proxy mode config. When non-null, all outbound Gemini calls are routed
+  /// through the Supabase Edge Function that holds the key server-side.
+  /// Takes priority over [_apiKey].
+  final GeminiProxyConfig? _proxyConfig;
+
+  /// Usage tracker: metered pre-flight check + post-call reconciliation
+  /// using `response.usageMetadata.totalTokenCount`. Defaults to no-op.
+  final AiUsageTracker _tracker;
 
   /// Create a GeminiProvider.
   ///
-  /// If [apiKey] is provided, it will be used directly.
-  /// Otherwise, pass it via [initialize].
-  GeminiProvider({String? apiKey}) : _apiKey = apiKey;
+  /// Either [apiKey] (direct mode, dev / testing) or [proxy] (production,
+  /// key lives server-side in the Supabase Edge Function) must be given.
+  /// If both are provided, [proxy] wins — security default.
+  ///
+  /// [tracker] — optional. When provided, every outbound Gemini call is
+  /// metered and may throw [AiQuotaExceededException] on pre-flight check.
+  /// Defaults to [NoopAiUsageTracker] (never enforces).
+  GeminiProvider({
+    String? apiKey,
+    GeminiProxyConfig? proxy,
+    AiUsageTracker? tracker,
+  })  : _apiKey = apiKey,
+        _proxyConfig = proxy,
+        _tracker = tracker ?? NoopAiUsageTracker();
+
+  /// True when the provider is configured to route through the Edge Function.
+  bool get usesProxy => _proxyConfig != null;
+
+  // ---------------------------------------------------------------------------
+  // Metering
+  // ---------------------------------------------------------------------------
+
+  /// Pre-flight balance check + post-call reconciliation for one-shot calls.
+  ///
+  /// Throws [AiQuotaExceededException] if [estimate] exceeds remaining balance.
+  /// Records actual tokens after the call (falls back to [estimate] if the
+  /// provider omits `usageMetadata`).
+  Future<T> _meter<T>(
+    String feature, {
+    required int estimate,
+    required Future<({T value, FGeminiResponse response})> Function() run,
+  }) async {
+    // Client-side pre-flight from cached snapshot — saves a round trip if
+    // the user is obviously over budget.
+    await _tracker.ensureBalance(estimate: estimate);
+    try {
+      final r = await run();
+      final tokens = r.response.usageMetadata?.totalTokenCount ?? estimate;
+      if (usesProxy) {
+        // Proxy mode: the Edge Function already called consume_ai_tokens
+        // before invoking Gemini. The client must NOT re-consume, or we'd
+        // double-count. Just refresh the local snapshot so the UI reflects
+        // the new balance.
+        unawaited(_tracker.refresh());
+      } else {
+        unawaited(_tracker.recordUsage(tokens, feature));
+      }
+      return r.value;
+    } on GeminiProxyQuotaExceededException {
+      // Unify proxy 429 with the engine-wide quota exception so callers
+      // don't need to know which code path was taken.
+      throw AiQuotaExceededException(
+        needed: estimate,
+        remaining: 0,
+      );
+    }
+  }
+
+  /// Streaming metering: pre-flight once, capture `usageMetadata` from the
+  /// last chunk, reconcile in a `finally` so cancellation still records.
+  Stream<String> _meterStream(
+    String feature, {
+    required int estimate,
+    required Stream<FGeminiResponse> Function() start,
+  }) async* {
+    await _tracker.ensureBalance(estimate: estimate);
+    int tokens = estimate; // fallback if the stream ends without metadata
+    try {
+      try {
+        await for (final response in start()) {
+          final m = response.usageMetadata?.totalTokenCount;
+          if (m != null && m > 0) tokens = m;
+          if (response.text != null && response.text!.isNotEmpty) {
+            yield response.text!;
+          }
+        }
+      } on GeminiProxyQuotaExceededException {
+        throw AiQuotaExceededException(needed: estimate, remaining: 0);
+      }
+    } finally {
+      if (usesProxy) {
+        unawaited(_tracker.refresh());
+      } else {
+        unawaited(_tracker.recordUsage(tokens, feature));
+      }
+    }
+  }
 
   @override
   String get name => 'Gemini Flash';
@@ -42,11 +154,10 @@ class GeminiProvider implements AiProvider {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    final key = _apiKey;
-    if (key == null || key.isEmpty) {
+    if (_proxyConfig == null && (_apiKey == null || _apiKey.isEmpty)) {
       throw Exception(
-        'Atlas Error: API Key non fornita. '
-        'Passa la chiave API al costruttore di GeminiProvider.',
+        'Atlas Error: né API Key né Proxy config forniti. '
+        'Passa `apiKey` (dev) o `proxy` (prod) al costruttore di GeminiProvider.',
       );
     }
 
@@ -55,44 +166,91 @@ class GeminiProvider implements AiProvider {
     const langMap = {'it': 'Italian', 'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'pt': 'Portuguese', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'ru': 'Russian'};
     final langName = langMap[langCode] ?? 'English';
 
-    _model = GenerativeModel(
-      model: 'gemini-3.1-flash-lite-preview',
-      apiKey: key,
-      generationConfig: GenerationConfig(
-        responseMimeType: 'application/json',
-      ),
-      systemInstruction: Content.system(_systemPrompt),
+    // Canvas actions: structured JSON output, low reasoning demand → Flash Lite.
+    _model = _buildClient(
+      modelName: _modelFlashLite,
+      systemInstruction: _systemPrompt,
+      generationConfig: const {'responseMimeType': 'application/json'},
     );
 
-    // 🗺️ Ghost Map model — low temperature (0.3) for factual accuracy (A3-02).
+    // 🗺️ Ghost Map — low temperature (0.3) for factual accuracy (A3-02).
     // The reference concept map MUST be correct — creativity is harmful here.
-    _ghostMapModel = GenerativeModel(
-      model: 'gemini-3.1-flash-lite-preview',
-      apiKey: key,
-      generationConfig: GenerationConfig(
-        responseMimeType: 'application/json',
-        temperature: 0.3,
-      ),
-      systemInstruction: Content.system(
-        'You are Atlas, an AI tutor embedded in Fluera — a cognitive learning engine. '
-        'Your role is to analyze student handwritten notes and identify knowledge gaps. '
-        'You must be factually accurate, domain-specific, and pedagogically constructive. '
-        'Always respond in $langName. Never invent facts. Keep concepts and explanations concise.',
-      ),
+    // Upgraded to Flash: knowledge-gap reasoning is the product's core promise.
+    _ghostMapModel = _buildClient(
+      modelName: _modelFlash,
+      systemInstruction:
+          'You are Atlas, an AI tutor embedded in Fluera — a cognitive learning engine. '
+          'Your role is to analyze student handwritten notes and identify knowledge gaps. '
+          'You must be factually accurate, domain-specific, and pedagogically constructive. '
+          'Always respond in $langName. Never invent facts. Keep concepts and explanations concise.',
+      generationConfig: const {
+        'responseMimeType': 'application/json',
+        'temperature': 0.3,
+      },
     );
 
-    _streamModel = GenerativeModel(
-      model: 'gemini-3.1-flash-lite-preview',
-      apiKey: key,
-      systemInstruction: Content.system(
-        'You are ATLAS, an advanced spatial intelligence AI. '
-        'Respond directly with the analysis text. No JSON wrapping. '
-        'You MUST always respond in $langName.',
-      ),
+    // 🎓 Exam generation — pedagogically sound questions require real reasoning.
+    _examModel = _buildClient(
+      modelName: _modelFlash,
+      systemInstruction:
+          'You are an expert educational assessment designer. You create precise, '
+          'pedagogically-sound exam questions from student handwritten notes. '
+          'Always respond in $langName. Output strictly valid JSON. No prose.',
+      generationConfig: const {
+        'responseMimeType': 'application/json',
+        'temperature': 0.4,
+      },
+    );
+
+    // 🎓 Answer evaluation — nuanced grading, streaming output.
+    _evaluationModel = _buildClient(
+      modelName: _modelFlash,
+      systemInstruction:
+          'You are a rigorous but encouraging professor evaluating a student answer. '
+          'Be precise, concise (1-2 sentences), growth-mindset. Always in $langName.',
+    );
+
+    _streamModel = _buildClient(
+      modelName: _modelFlashLite,
+      systemInstruction:
+          'You are ATLAS, an advanced spatial intelligence AI. '
+          'Respond directly with the analysis text. No JSON wrapping. '
+          'You MUST always respond in $langName.',
     );
 
     _initialized = true;
+  }
 
+  /// Build a GeminiClient pointing at either the direct Gemini API (dev)
+  /// or the Supabase Edge Function proxy (prod).
+  GeminiClient _buildClient({
+    required String modelName,
+    required String systemInstruction,
+    Map<String, dynamic>? generationConfig,
+  }) {
+    if (_proxyConfig != null) {
+      return ProxiedGeminiClient(
+        modelName: modelName,
+        systemInstructionText: systemInstruction,
+        generationConfig: generationConfig,
+        config: _proxyConfig,
+      );
+    }
+    // Direct mode: construct a GenerativeModel from google_generative_ai.
+    // generationConfig translates to GenerationConfig fields we use.
+    final genConfig = generationConfig == null
+        ? null
+        : GenerationConfig(
+            responseMimeType: generationConfig['responseMimeType'] as String?,
+            temperature: (generationConfig['temperature'] as num?)?.toDouble(),
+          );
+    final model = GenerativeModel(
+      model: modelName,
+      apiKey: _apiKey!,
+      generationConfig: genConfig,
+      systemInstruction: Content.system(systemInstruction),
+    );
+    return DirectGeminiClient(model);
   }
 
   @override
@@ -136,31 +294,39 @@ class GeminiProvider implements AiProvider {
     });
 
     try {
-
-      final response = await _model!.generateContent([Content.text(payload)]);
-
-      if (response.text != null) {
-        final rawText = response.text!
-            .replaceAll('```json', '')
-            .replaceAll('```', '')
-            .trim();
-
-        final json = jsonDecode(rawText) as Map<String, dynamic>;
-        final actions = AtlasAction.parseAll(json);
-        final explanation = json['spiegazione'] as String?
-            ?? json['explanation'] as String?;
-
-        return AtlasResponse(
-          actions: actions,
-          explanation: explanation,
-          rawJson: json,
-        );
-      }
+      return await _meter<AtlasResponse>(
+        'askAtlas',
+        estimate: 500,
+        run: () async {
+          final response = await _model!.generateContent(
+            [Content.text(payload)],
+            featureTag: 'askAtlas',
+            estimate: 500,
+          );
+          AtlasResponse value = const AtlasResponse.empty();
+          if (response.text != null) {
+            final rawText = response.text!
+                .replaceAll('```json', '')
+                .replaceAll('```', '')
+                .trim();
+            final json = jsonDecode(rawText) as Map<String, dynamic>;
+            final actions = AtlasAction.parseAll(json);
+            final explanation = json['spiegazione'] as String?
+                ?? json['explanation'] as String?;
+            value = AtlasResponse(
+              actions: actions,
+              explanation: explanation,
+              rawJson: json,
+            );
+          }
+          return (value: value, response: response);
+        },
+      );
+    } on AiQuotaExceededException {
+      rethrow;
     } catch (e) {
-
+      return const AtlasResponse.empty();
     }
-
-    return const AtlasResponse.empty();
   }
 
   /// 🔶 Free-text prompt — sends raw text, returns raw text.
@@ -173,10 +339,22 @@ class GeminiProvider implements AiProvider {
     }
 
     try {
-      final response = await _streamModel!.generateContent([Content.text(prompt)]);
-      final text = response.text?.trim() ?? '';
-      debugPrint('🔶 askFreeText response: $text');
-      return text;
+      return await _meter<String>(
+        'askFreeText',
+        estimate: 500,
+        run: () async {
+          final response = await _streamModel!.generateContent(
+            [Content.text(prompt)],
+            featureTag: 'askFreeText',
+            estimate: 500,
+          );
+          final text = response.text?.trim() ?? '';
+          debugPrint('🔶 askFreeText response: $text');
+          return (value: text, response: response);
+        },
+      );
+    } on AiQuotaExceededException {
+      rethrow;
     } catch (e) {
       debugPrint('⚠️ askFreeText error: $e');
       return '';
@@ -195,19 +373,15 @@ class GeminiProvider implements AiProvider {
     // Build a simple payload (no JSON wrapping needed for streaming)
     final payload = '$userPrompt\n\nCONTEXT: ${canvasContext.isNotEmpty ? canvasContext.first['contenuto'] ?? '' : ''}';
 
-    try {
-      final responses = _streamModel!.generateContentStream(
+    yield* _meterStream(
+      'askAtlasStream',
+      estimate: 1500,
+      start: () => _streamModel!.generateContentStream(
         [Content.text(payload)],
-      );
-      await for (final response in responses) {
-        if (response.text != null && response.text!.isNotEmpty) {
-          yield response.text!;
-        }
-      }
-    } catch (e) {
-
-      rethrow;
-    }
+        featureTag: 'askAtlasStream',
+        estimate: 1500,
+      ),
+    );
   }
 
   @override
@@ -243,18 +417,15 @@ STUDENT: $userMessage
 
 ATLAS:''';
 
-    try {
-      final responses = _streamModel!.generateContentStream(
+    yield* _meterStream(
+      'askChatStream',
+      estimate: 1500,
+      start: () => _streamModel!.generateContentStream(
         [Content.text(prompt)],
-      );
-      await for (final response in responses) {
-        if (response.text != null && response.text!.isNotEmpty) {
-          yield response.text!;
-        }
-      }
-    } catch (e) {
-      rethrow;
-    }
+        featureTag: 'askChatStream',
+        estimate: 1500,
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -270,7 +441,7 @@ ATLAS:''';
     int count = 7,
     String difficulty = 'normale', // 'facile' | 'normale' | 'difficile'
   }) async {
-    if (!_initialized || _model == null) {
+    if (!_initialized || _examModel == null) {
       throw StateError('Atlas non inizializzato. Chiama initialize() prima.');
     }
 
@@ -385,26 +556,36 @@ Field "cluster_id" must use the note labels: appunto_1, appunto_2, etc.
 </OUTPUT_SCHEMA>''';
 
     try {
-
-      final response = await _model!.generateContent([Content.text(prompt)]);
-      if (response.text == null) return [];
-
-      final raw = response.text!
-          .replaceAll('```json', '')
-          .replaceAll('```', '')
-          .trim();
-
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      final domande = json['domande'] as List<dynamic>? ?? [];
-
-      return domande
-          .whereType<Map<String, dynamic>>()
-          .map((d) => _parseExamQuestion(d, clusterTexts, labelToId))
-          .where((q) => q != null)
-          .cast<ExamQuestion>()
-          .toList();
+      return await _meter<List<ExamQuestion>>(
+        'generateExamQuestions',
+        estimate: 2500,
+        run: () async {
+          final response = await _examModel!.generateContent(
+            [Content.text(prompt)],
+            featureTag: 'generateExamQuestions',
+            estimate: 2500,
+          );
+          if (response.text == null) {
+            return (value: <ExamQuestion>[], response: response);
+          }
+          final raw = response.text!
+              .replaceAll('```json', '')
+              .replaceAll('```', '')
+              .trim();
+          final json = jsonDecode(raw) as Map<String, dynamic>;
+          final domande = json['domande'] as List<dynamic>? ?? [];
+          final questions = domande
+              .whereType<Map<String, dynamic>>()
+              .map((d) => _parseExamQuestion(d, clusterTexts, labelToId))
+              .where((q) => q != null)
+              .cast<ExamQuestion>()
+              .toList();
+          return (value: questions, response: response);
+        },
+      );
+    } on AiQuotaExceededException {
+      rethrow;
     } catch (e) {
-
       return [];
     }
   }
@@ -472,7 +653,7 @@ Field "cluster_id" must use the note labels: appunto_1, appunto_2, etc.
     required String language,
     required void Function(String chunk) onTextChunk,
   }) async {
-    if (!_initialized || _streamModel == null) {
+    if (!_initialized || _evaluationModel == null) {
       throw StateError('Atlas non inizializzato.');
     }
 
@@ -509,27 +690,46 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
 
     String fullText = '';
     ExamAnswerResult result = ExamAnswerResult.incorrect;
+    int tokens = 800; // fallback estimate
 
     try {
-      final stream = _streamModel!.generateContentStream([Content.text(prompt)]);
-      await for (final chunk in stream) {
-        if (chunk.text != null && chunk.text!.isNotEmpty) {
-          fullText += chunk.text!;
-          onTextChunk(chunk.text!);
+      await _tracker.ensureBalance(estimate: 800);
+      try {
+        final stream = _evaluationModel!.generateContentStream(
+          [Content.text(prompt)],
+          featureTag: 'evaluateOpenAnswer',
+          estimate: 800,
+        );
+        await for (final chunk in stream) {
+          final m = chunk.usageMetadata?.totalTokenCount;
+          if (m != null && m > 0) tokens = m;
+          if (chunk.text != null && chunk.text!.isNotEmpty) {
+            fullText += chunk.text!;
+            onTextChunk(chunk.text!);
+          }
+        }
+
+        // Parse VOTO from response
+        final voto = RegExp(r'VOTO:\s*(CORRETTO|PARZIALE|SBAGLIATO)', caseSensitive: false)
+            .firstMatch(fullText)
+            ?.group(1)
+            ?.toUpperCase();
+
+        if (voto == 'CORRETTO') result = ExamAnswerResult.correct;
+        else if (voto == 'PARZIALE') result = ExamAnswerResult.partial;
+        else result = ExamAnswerResult.incorrect;
+      } finally {
+        if (usesProxy) {
+          unawaited(_tracker.refresh());
+        } else {
+          unawaited(_tracker.recordUsage(tokens, 'evaluateOpenAnswer'));
         }
       }
-
-      // Parse VOTO from response
-      final voto = RegExp(r'VOTO:\s*(CORRETTO|PARZIALE|SBAGLIATO)', caseSensitive: false)
-          .firstMatch(fullText)
-          ?.group(1)
-          ?.toUpperCase();
-
-      if (voto == 'CORRETTO') result = ExamAnswerResult.correct;
-      else if (voto == 'PARZIALE') result = ExamAnswerResult.partial;
-      else result = ExamAnswerResult.incorrect;
+    } on GeminiProxyQuotaExceededException {
+      throw AiQuotaExceededException(needed: 800, remaining: 0);
+    } on AiQuotaExceededException {
+      rethrow;
     } catch (e) {
-
       onTextChunk('\n⚠️ Errore nella valutazione. La risposta corretta è: $correctAnswer');
     }
 
@@ -771,17 +971,30 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
 }
 </OUTPUT_FORMAT>''';
 
+    int ghostMapTokens = 3500; // fallback if usageMetadata missing (e.g. timeout)
     try {
+      await _tracker.ensureBalance(estimate: 3500);
       // 🗺️ Use dedicated ghost map model (temperature 0.3) with 12s timeout (A3-03)
       final ghostModel = _ghostMapModel ?? _model!;
       final response = await ghostModel
-          .generateContent([Content.text(prompt)])
+          .generateContent(
+            [Content.text(prompt)],
+            featureTag: 'generateGhostMap',
+            estimate: 3500,
+          )
           .timeout(
             const Duration(seconds: 12),
             onTimeout: () => throw TimeoutException(
               'Ghost Map generation exceeded 12s timeout',
             ),
           );
+      final m = response.usageMetadata?.totalTokenCount;
+      if (m != null && m > 0) ghostMapTokens = m;
+      if (usesProxy) {
+        unawaited(_tracker.refresh());
+      } else {
+        unawaited(_tracker.recordUsage(ghostMapTokens, 'generateGhostMap'));
+      }
       if (response.text == null) return GhostMapResult.empty();
 
       final raw = response.text!
@@ -970,6 +1183,10 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
         connections: connections,
         summary: json['valutazione'] as String? ?? '',
       );
+    } on GeminiProxyQuotaExceededException {
+      throw AiQuotaExceededException(needed: 3500, remaining: 0);
+    } on AiQuotaExceededException {
+      rethrow;
     } on TimeoutException {
       debugPrint('🗺️ Ghost Map generation timed out (12s)');
       return GhostMapResult.empty();
@@ -1023,6 +1240,8 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
     _model = null;
     _streamModel = null;
     _ghostMapModel = null;
+    _examModel = null;
+    _evaluationModel = null;
     _initialized = false;
   }
 
@@ -1107,8 +1326,23 @@ Provide EXACTLY ONE short, conceptual hint in $language.
 ❌ BAD: "Here is a hint: Newton described it as mass times acceleration." (Too long, contains preamble)
 </EXAMPLES>
 ''';
-      final result = await _model!.generateContent([Content.text(prompt)]);
-      return result.text?.trim() ?? '💡 Pensa ai concetti fondamentali!';
+      return await _meter<String>(
+        'generateHint',
+        estimate: 200,
+        run: () async {
+          final result = await _model!.generateContent(
+            [Content.text(prompt)],
+            featureTag: 'generateHint',
+            estimate: 200,
+          );
+          return (
+            value: result.text?.trim() ?? '💡 Pensa ai concetti fondamentali!',
+            response: result,
+          );
+        },
+      );
+    } on AiQuotaExceededException {
+      rethrow;
     } catch (_) {
       return '💡 Pensa ai concetti fondamentali!';
     }

@@ -579,6 +579,19 @@ export 'src/platform/native_performance_monitor.dart' hide PerformanceMetrics;
 export 'src/platform/native_pdf_provider.dart';
 
 
+// ────────────────────────── AI ──────────────────────────
+// Usage tracking: host apps implement AiUsageTracker to persist quota
+// server-side. The engine ships a no-op default.
+export 'src/ai/ai_usage_tracker.dart';
+export 'src/ai/noop_ai_usage_tracker.dart';
+
+// Gemini proxy: when the app constructs EngineScope with a GeminiProxyConfig,
+// all Gemini calls route through a Supabase Edge Function that holds the
+// API key server-side — keeping the key out of the binary.
+export 'src/ai/gemini_client.dart'
+    show GeminiProxyConfig, GeminiProxyException,
+         GeminiProxyQuotaExceededException;
+
 // ────────────────────────── L10N ──────────────────────────
 export 'src/l10n/fluera_localizations.dart';
 

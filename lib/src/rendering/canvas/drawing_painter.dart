@@ -180,6 +180,14 @@ class DrawingPainter extends CustomPainter {
     return _cachedMergedRepaint!;
   }
 
+  /// 🚀 P99 FIX A2: Trigger a DrawingPainter repaint without rebuilding the
+  /// surrounding widget tree. Use this (instead of notifying the layer
+  /// controller) when the only intent is to force shouldRepaint on the
+  /// painter — e.g. from a LOD debounce after zoom settles.
+  static void triggerLodRepaint() {
+    _lodRepaintNotifier.value++;
+  }
+
   /// 🚀 LOD GRACE PERIOD: delays transition until zoom tier is stable for
   /// 2 consecutive frames. Prevents 20ms spike during rapid zoom.
   static int _lodGraceFrames = 0;
