@@ -31,6 +31,53 @@
 
 **Verifica globale:** `flutter analyze` zero nuovi errori. Gli errori rimanenti sono pre-esistenti (`tray_manager` dep missing, `supabase_collab_providers`).
 
+---
+
+## 📌 PASS 2 — Accessibility + Copy Quality + Dead Code (2026-04-20)
+
+Secondo giro dell'audit su dimensioni non coperte dal Pass 1.
+
+### Pass 2 — Eseguiti
+
+| Ticket | Stato | Note |
+|--------|:-----:|------|
+| **A1** Semantics wrappers su 3 GestureDetector chiave | ✅ | `_workspace_dashboard.dart` linee 167 (canvas carousel), 439 (minimap tap), 1329 (color picker) — ora annunciano correttamente ruolo button + label + stato selected per screen reader |
+| **A2** Tooltip su settings collapsible headers | ✅ N/A | Survey ha rivelato che non esistono ExpansionTile/InkWell headers nel settings — finding del Pass 1 era speculativo |
+| **C1** Rimozione dead code da refactor F02/F05 | ✅ | `atlas_arc_reactor.dart` eliminato (467 righe, classe mai wired). `_ArcLinePainter` + `_ConnectorPainter` rimossi da `selection_context_halo.dart` (~100 righe, non più usati dopo F05) |
+
+### Pass 2 — Findings (documentati, non fixati)
+
+| Finding | Severità | Scope | Raccomandazione |
+|---------|:--------:|:-----:|-----------------|
+| **A3** Touch target sotto 44×44pt | 🔴 | `toolbar_tokens.dart:23` chip height 30dp · `toolbar_color_palette.dart:122-123` swatch 28-34dp | Pass AA 2.5.8 (24dp min) ma fallisce AAA 2.5.5 (44dp). Fix = rework layout, rischio visual regression → ticket dedicato |
+| **A4** Contrast a rischio | 🟡 | ~40 occorrenze di `withValues(alpha: 0.3-0.4)` su text/icon | Richiede sweep sistematico con contrast checker automatico. Alcuni casi sono decorative (ok), altri su body text (fail) |
+| **A5** Hardcoded fontSize non scalano | 🟡 | `fluera_settings.dart` 30+ ricorrenze (fontSize: 13, 12, ...) | Migrazione a `Theme.of(context).textTheme.bodyMedium` — M effort |
+| **A6** Reduced motion non rispettato | 🟢 | Nessun `MediaQuery.disableAnimations` check nei ~20 `AnimationController` | Animazioni sono brevi (150-300ms), ma compliance WCAG 2.3.3 richiede opt-out. Pattern: helper `effectiveDuration()` |
+| **A7** `BrushTestPainter` senza Semantics | 🟢 | Custom painter in brush testing lab | Semantics builder opzionale per screen reader — low priority |
+| **B1** 50+ stringhe IT hardcoded in Dart | 🟡 | 20+ file con `Text('Scrivi...')`, `Text('Chiedi...')` fuori da ARB | Copy migration sweep — M-L effort. Crea barriera per i18n EN/ES |
+| **B2** Debug prints con "Atlas" brand | 🟢 | `atlas_action_executor.dart:73, 107` — `debugPrint('⚠️ Atlas: ...')` | Developer-only, non user-facing. Rinominare è cosmetic |
+
+### Pass 2 — Scoperte Positive (da preservare)
+
+- ✅ **Keyboard shortcuts ben implementati** — `fluera_keyboard_shortcuts.dart` usa `CallbackShortcuts` con Cmd+Z, Cmd+S, Cmd+Shift+Z
+- ✅ **Accessibility toggle presenti** — dyslexia font, high contrast, motion reduce, large text, reduce haptics in settings
+- ✅ **Tooltip uniformi sui tool** — `toolbar_tool_buttons.dart` ha tooltip su tutti i bottoni, 600ms waitDuration
+- ✅ **Material 3 ColorScheme** — theme centralizzato, focus ring built-in su M3 widgets
+- ✅ **Handedness support** — rare feature, ben implementata
+
+### Pass 2 — Metriche cumulative sprint
+
+| Dimensione | Valore |
+|------------|--------|
+| Commit sprint | 3 (Fluera: 1 · fluera_engine: 2) |
+| File modificati | ~28 |
+| Dead code rimosso | ~567 righe |
+| Nuovi documenti | `leggi_ui_ux.md` · `audit_ux.md` |
+| Errori flutter analyze introdotti | 0 |
+| Ticket completati | 15 (Pass 1: 13, Pass 2: 3 + 7 findings documentati) |
+
+---
+
 **Scoperte emerse durante l'implementazione:**
 
 - `AtlasArcReactor` (467 righe) — dead code mai invocato. Candidate per cleanup.
