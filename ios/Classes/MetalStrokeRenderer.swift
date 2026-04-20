@@ -5,6 +5,7 @@
 import Metal
 import CoreVideo
 import QuartzCore
+import simd
 
 /// Vertex layout: 2D position + RGBA color (24 bytes, matches StrokeShaders.metal)
 struct StrokeVertex {

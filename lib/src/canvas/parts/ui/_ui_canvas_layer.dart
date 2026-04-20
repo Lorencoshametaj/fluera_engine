@@ -492,11 +492,19 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // (The actual fog overlay is rendered AFTER the Vulkan texture — see below.)
           _gestureLayerHost,
           // 🔥 VULKAN: Native GPU stroke overlay
-          // 🖍️ Flutter live stroke: ALWAYS in tree, placed BELOW Vulkan texture.
-          // For non-highlighter pens, Vulkan (above, at opacity 1.0) covers this.
-          // For highlighter, Vulkan opacity = 0.0 → this Flutter stroke shows through.
-          // NOTE: Do NOT conditionally hide — Vulkan may not be ready on first stroke.
-          _currentStrokeHost,
+          // 🖍️ Flutter live stroke: hidden when Metal/Vulkan is active at full opacity.
+          // For highlighter (opacity=0.0) → Metal hidden, Dart stroke shows through.
+          // When Metal is not ready (first frame) → opacity defaults to 0 → Dart shows.
+          ValueListenableBuilder<double>(
+            valueListenable: _vulkanTextureOpacity,
+            builder: (_, opacity, child) {
+              if (_vulkanOverlayActive && opacity >= 1.0) {
+                return const SizedBox.shrink();
+              }
+              return child!;
+            },
+            child: _currentStrokeHost,
+          ),
           // 🌐 WEB: WebGPU overlay (replaces Texture widget on web)
           if (kIsWeb && _webGpuOverlayActive)
             const Positioned.fill(

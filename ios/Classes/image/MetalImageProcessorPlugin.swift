@@ -713,7 +713,7 @@ public class MetalImageProcessorPlugin: NSObject, FlutterPlugin {
     
     // MARK: - Per-Image GPU State
     
-    private class GPUImageState: FlutterTexture {
+    private class GPUImageState: NSObject, FlutterTexture {
         let device: MTLDevice
         let width: Int
         let height: Int
@@ -1089,9 +1089,81 @@ public class MetalImageProcessorPlugin: NSObject, FlutterPlugin {
         var invert: Float
     }
     
+    // MARK: - Generic Render Pass Helper
+    
+    /// Applies a generic render pass with fragment params buffer (array overload).
+    @discardableResult
+    private func applyRenderPass(
+        state: GPUImageState,
+        pipeline: MTLRenderPipelineState,
+        params: [Float],
+        paramsSize: Int
+    ) -> Bool {
+        var mutableParams = params
+        return applyRenderPass(state: state, pipeline: pipeline,
+                              params: &mutableParams, paramsSize: paramsSize)
+    }
+    
+    /// Applies a generic render pass with fragment params buffer.
+    /// Renders from state.outputTexture (or sourceTexture) back to outputTexture via pingTexture.
+    @discardableResult
+    private func applyRenderPass(
+        state: GPUImageState,
+        pipeline: MTLRenderPipelineState,
+        params: UnsafeMutableRawPointer,
+        paramsSize: Int
+    ) -> Bool {
+        guard let commandQueue = commandQueue,
+              let sampler = linearSampler,
+              let sourceTexture = state.outputTexture ?? state.sourceTexture,
+              let destTexture = state.pingTexture ?? state.outputTexture else {
+            return false
+        }
+        
+        let passDesc = MTLRenderPassDescriptor()
+        passDesc.colorAttachments[0].texture = destTexture
+        passDesc.colorAttachments[0].loadAction = .dontCare
+        passDesc.colorAttachments[0].storeAction = .store
+        
+        guard let cmdBuf = commandQueue.makeCommandBuffer(),
+              let encoder = cmdBuf.makeRenderCommandEncoder(descriptor: passDesc) else {
+            return false
+        }
+        
+        encoder.setRenderPipelineState(pipeline)
+        encoder.setFragmentTexture(sourceTexture, index: 0)
+        encoder.setFragmentSamplerState(sampler, index: 0)
+        encoder.setFragmentBytes(params, length: paramsSize, index: 0)
+        
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        encoder.endEncoding()
+        cmdBuf.commit()
+        cmdBuf.waitUntilCompleted()
+        
+        // Swap ping → output
+        if let ping = state.pingTexture, ping !== state.outputTexture {
+            if let blitBuf = commandQueue.makeCommandBuffer(),
+               let blit = blitBuf.makeBlitCommandEncoder(),
+               let output = state.outputTexture {
+                blit.copy(from: ping,
+                         sourceSlice: 0, sourceLevel: 0,
+                         sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                         sourceSize: MTLSize(width: output.width, height: output.height, depth: 1),
+                         to: output,
+                         destinationSlice: 0, destinationLevel: 0,
+                         destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+                blit.endEncoding()
+                blitBuf.commit()
+                blitBuf.waitUntilCompleted()
+            }
+        }
+        
+        return true
+    }
+    
     // MARK: - MethodChannel Handler
     
-    private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
             
         case "initialize":

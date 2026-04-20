@@ -3,6 +3,7 @@
 
 import Flutter
 import Metal
+import simd
 
 /// 🎨 MetalTransformPlugin — GPU compute pipeline for pixel manipulation tools.
 ///
@@ -45,19 +46,19 @@ class MetalTransformPlugin: NSObject, FlutterPlugin {
             binaryMessenger: registrar.messenger()
         )
         // Only register if Metal is available
-        guard let plugin = MetalTransformPlugin() else {
+        guard let device = MTLCreateSystemDefaultDevice(),
+              let queue = device.makeCommandQueue() else {
             NSLog("[FlueraMtlTransform] Metal not available, skipping registration")
             return
         }
+        let plugin = MetalTransformPlugin(device: device, commandQueue: queue)
         plugin.textureRegistry = registrar.textures()
         registrar.addMethodCallDelegate(plugin, channel: channel)
     }
 
-    init?() {
-        guard let device = MTLCreateSystemDefaultDevice() else { return nil }
+    private init(device: MTLDevice, commandQueue: MTLCommandQueue) {
         self.device = device
-        guard let queue = device.makeCommandQueue() else { return nil }
-        self.commandQueue = queue
+        self.commandQueue = commandQueue
 
         super.init()
 
@@ -103,7 +104,7 @@ class MetalTransformPlugin: NSObject, FlutterPlugin {
     // FLUTTER METHOD CHANNEL
     // ═══════════════════════════════════════════════════════════════
 
-    func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "isAvailable":
             result(liquifyPipeline != nil)

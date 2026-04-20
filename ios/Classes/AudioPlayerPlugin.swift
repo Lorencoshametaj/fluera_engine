@@ -31,27 +31,7 @@ public class AudioPlayerPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         instance.eventChannel = eventChannel
     }
 
-    // Called when registered via FlutterPluginBinding (engine-level)
-    public func onAttachedToEngine(_ binding: FlutterPluginBinding) {
-        methodChannel = FlutterMethodChannel(
-            name: "flueraengine.audio/player",
-            binaryMessenger: binding.binaryMessenger
-        )
-        eventChannel = FlutterEventChannel(
-            name: "flueraengine.audio/player_events",
-            binaryMessenger: binding.binaryMessenger
-        )
-        methodChannel?.setMethodCallHandler(handle)
-        eventChannel?.setStreamHandler(self)
-    }
 
-    public func onDetachedFromEngine(_ binding: FlutterPluginBinding) {
-        methodChannel?.setMethodCallHandler(nil)
-        eventChannel?.setStreamHandler(nil)
-        releasePlayer()
-        methodChannel = nil
-        eventChannel = nil
-    }
 
     // MARK: - FlutterStreamHandler
 

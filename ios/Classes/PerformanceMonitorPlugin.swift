@@ -201,7 +201,7 @@ public class PerformanceMonitorPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         return [
             "batteryLevel": batteryLevel >= 0 ? Double(batteryLevel) * 100.0 : -1.0,
             "batteryState": batteryState,
-            "isLowPowerMode": ProcessInfo.processInfo.isLowPowerMode
+            "isLowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled
         ]
     }
 

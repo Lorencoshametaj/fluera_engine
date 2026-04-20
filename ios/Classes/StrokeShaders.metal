@@ -26,6 +26,10 @@ vertex VertexOut stroke_vertex(VertexIn in [[stage_in]],
                                constant Uniforms &uniforms [[buffer(1)]]) {
     VertexOut out;
     out.position = uniforms.transform * float4(in.position, 0.0, 1.0);
+    // Metal viewport Y-flip: Metal NDC Y-up maps to framebuffer Y-down,
+    // which is the opposite of Vulkan. Negate Y so the Vulkan-style
+    // transform matrix produces correct output on Metal.
+    out.position.y = -out.position.y;
     out.color = in.color;
     return out;
 }

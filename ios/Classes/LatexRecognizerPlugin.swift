@@ -1,10 +1,8 @@
 import Foundation
 import Flutter
 
-// LibTorch headers are bridged via the CocoaPod
-// If LibTorchLite is properly linked, these types are available:
-//   - TorchModule (load, predict)
-//   - Tensor
+// LibTorch types are bridged via TorchModule.h (ObjC → Swift)
+// Types available: TorchModule, Tensor, TorchTensorType
 
 /// 🧮 LatexRecognizerPlugin — iOS native module for LaTeX recognition.
 ///
@@ -146,7 +144,8 @@ public class LatexRecognizerPlugin: NSObject, FlutterPlugin {
                     break
                 }
                 
-                let logits = logitsTensor.floatData
+                let logitsNS = logitsTensor.floatData()
+                let logits = logitsNS.map { $0.floatValue }
                 
                 // Apply softmax and get best token
                 let probs = softmax(logits)

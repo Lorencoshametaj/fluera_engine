@@ -177,7 +177,7 @@ private class TouchOverlayView: UIView {
         self.isUserInteractionEnabled = true
         
         // Add hover gesture recognizer for Apple Pencil
-        if #available(iOS 13.0, *) {
+        if #available(iOS 16.0, *) {
             let hoverGesture = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
             self.addGestureRecognizer(hoverGesture)
         }
@@ -193,7 +193,7 @@ private class TouchOverlayView: UIView {
         
         // Get altitude angle (how close to screen: 0 = touching, π/2 = parallel)
         var altitude: Double = 0.0
-        if #available(iOS 16.1, *) {
+        if #available(iOS 16.4, *) {
             altitude = gesture.altitudeAngle
         }
         
