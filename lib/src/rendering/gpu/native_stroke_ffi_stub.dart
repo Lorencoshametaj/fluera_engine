@@ -38,6 +38,7 @@ class NativeStrokeFfi {
     int width,
     int height, [
     double dpr = 1.0,
+    ui.Offset canvasOrigin = ui.Offset.zero,
   ]) {}
 
   void clear() {}

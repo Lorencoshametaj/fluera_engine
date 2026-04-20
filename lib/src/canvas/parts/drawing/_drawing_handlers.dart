@@ -818,13 +818,18 @@ extension on _FlueraCanvasScreenState {
         _vulkanStrokeOverlay.clear(); // Clear previous stroke
         final rb =
             _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
-        final canvasSize = rb?.size ?? MediaQuery.of(context).size;
+        // Use full screen dimensions: the Metal overlay covers the entire
+        // FlutterViewController view, not just the canvas area below the toolbar.
+        final screenSize = MediaQuery.of(context).size;
         final dpr = MediaQuery.of(context).devicePixelRatio;
+        // Canvas origin within the screen (accounts for toolbar height).
+        final canvasOrigin = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
         _vulkanStrokeOverlay.setTransform(
           _canvasController,
-          (canvasSize.width * dpr).toInt(),
-          (canvasSize.height * dpr).toInt(),
+          (screenSize.width * dpr).toInt(),
+          (screenSize.height * dpr).toInt(),
           dpr,
+          canvasOrigin,
         );
       }
     }

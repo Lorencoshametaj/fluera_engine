@@ -349,6 +349,7 @@ class NativeStrokeFfi {
     int width,
     int height, [
     double dpr = 1.0,
+    ui.Offset canvasOrigin = ui.Offset.zero,
   ]) {
     if (!_initialized || _buffer == null || _execute == null) return;
 
@@ -363,8 +364,8 @@ class NativeStrokeFfi {
     final double w = width.toDouble();
     final double h = height.toDouble();
     final effectiveScale = scale * dpr;
-    final effectiveOx = ox * dpr;
-    final effectiveOy = oy * dpr;
+    final effectiveOx = (ox + canvasOrigin.dx) * dpr;
+    final effectiveOy = (oy + canvasOrigin.dy) * dpr;
 
     final cosR = rotation == 0.0 ? 1.0 : math.cos(rotation);
     final sinR = rotation == 0.0 ? 0.0 : math.sin(rotation);

@@ -40,6 +40,7 @@ class VulkanStrokeOverlayService {
   double _lastOx = double.nan;
   double _lastOy = double.nan;
   double _lastRotation = double.nan;
+  ui.Offset _lastCanvasOrigin = const ui.Offset(double.nan, double.nan);
 
   // 🚀 #6: Ring buffer diagnostics
   int _ringFallbackCount = 0;
@@ -240,6 +241,7 @@ class VulkanStrokeOverlayService {
     int width,
     int height, [
     double dpr = 1.0,
+    ui.Offset canvasOrigin = ui.Offset.zero,
   ]) {
     if (!_initialized) return;
 
@@ -252,17 +254,20 @@ class VulkanStrokeOverlayService {
     if ((scale - _lastScale).abs() < 0.001 &&
         (ox - _lastOx).abs() < 0.5 &&
         (oy - _lastOy).abs() < 0.5 &&
-        (rotation - _lastRotation).abs() < 0.0001) {
+        (rotation - _lastRotation).abs() < 0.0001 &&
+        (canvasOrigin.dx - _lastCanvasOrigin.dx).abs() < 0.5 &&
+        (canvasOrigin.dy - _lastCanvasOrigin.dy).abs() < 0.5) {
       return;
     }
     _lastScale = scale;
     _lastOx = ox;
     _lastOy = oy;
     _lastRotation = rotation;
+    _lastCanvasOrigin = canvasOrigin;
 
     // 🚀 #11: FFI path computes its own matrix — skip Dart matrix construction
     if (_ffi.isInitialized) {
-      _ffi.setTransform(controller, width, height, dpr);
+      _ffi.setTransform(controller, width, height, dpr, canvasOrigin);
       return;
     }
 
@@ -270,8 +275,10 @@ class VulkanStrokeOverlayService {
     final double h = height.toDouble();
 
     final effectiveScale = scale * dpr;
-    final effectiveOx = ox * dpr;
-    final effectiveOy = oy * dpr;
+    // canvasOrigin accounts for the Metal overlay covering the full screen
+    // while the canvas area starts below the toolbar.
+    final effectiveOx = (ox + canvasOrigin.dx) * dpr;
+    final effectiveOy = (oy + canvasOrigin.dy) * dpr;
 
     final cosR = _cos(rotation);
     final sinR = _sin(rotation);
