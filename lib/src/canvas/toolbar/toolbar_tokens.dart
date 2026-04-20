@@ -19,8 +19,16 @@ abstract final class ToolbarTokens {
   /// Small icon size (layout chips, badges)
   static const double iconSizeSmall = 16.0;
 
-  /// Height of compact chips (Recall, Branch, layout buttons)
-  static const double chipHeight = 30.0;
+  /// Minimum interactive target size (WCAG 2.5.5 AAA: 44×44).
+  /// Use for any tappable surface that doesn't already have ≥44pt of
+  /// hit area from surrounding padding.
+  static const double tapTargetMin = 44.0;
+
+  /// Height of compact chips (Recall, Branch, layout buttons).
+  /// Raised from 30→40 for better touch accessibility on stylus+finger
+  /// devices. Pair with horizontal padding ≥ 6pt for effective ≥44×44
+  /// hit area after surrounding layout.
+  static const double chipHeight = 40.0;
 
   /// Horizontal padding for tool toggle buttons
   static const double buttonPadH = 10.0;

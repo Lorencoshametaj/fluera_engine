@@ -751,7 +751,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
   String get ghostMap_ignoreNode => 'Ignora questo nodo';
 
   @override
-  String get ghostMap_nodeIgnored => '🗺️ Nodo ignorato';
+  String get ghostMap_nodeIgnored => 'Nodo ignorato';
 
   @override
   String get ghostMap_undo => 'Annulla';
@@ -823,7 +823,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMap_writeAtLeastTwoGroups =>
-      'Scrivi almeno 2 gruppi di appunti per la mappa delle lacune 🗺️';
+      'Scrivi almeno 2 gruppi di appunti per la mappa delle lacune.';
 
   @override
   String get ghostMap_trySocraticFirst =>
@@ -947,7 +947,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String ghostMap_activationHeader(Object details) {
-    return '🗺️ Mappa delle lacune attiva — $details';
+    return 'Mappa delle lacune attiva — $details';
   }
 
   @override
@@ -1151,11 +1151,11 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get socratic_needNotes =>
-      'Scrivi qualcosa sul canvas prima di iniziare 🔶';
+      'Scrivi qualcosa sul canvas prima di iniziare.';
 
   @override
   String socratic_sessionStarted(int count) {
-    return '🔶 Interrogazione avviata — $count domande';
+    return 'Interrogazione avviata — $count domande';
   }
 
   @override
@@ -1408,7 +1408,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String fow_surgicalReviewCount(int visited, int total) {
-    return '🗺️ $visited/$total rivisti';
+    return '$visited/$total rivisti';
   }
 
   @override
@@ -1418,7 +1418,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
   String get fow_surgicalCompleted => '✅ Completato';
 
   @override
-  String get fow_surgicalGuideReview => '🗺️ Guida ripasso';
+  String get fow_surgicalGuideReview => 'Guida ripasso';
 
   @override
   String get fow_zoneSelectionHint =>
@@ -1467,7 +1467,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get fow_surgicalInstruction =>
-      '📖 Rileggi questo concetto con attenzione';
+      'Rileggi questo concetto con attenzione';
 
   @override
   String get fow_surgicalReadNext => 'Ho riletto → Prossimo';

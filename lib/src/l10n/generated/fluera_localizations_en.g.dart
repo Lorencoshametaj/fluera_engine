@@ -747,7 +747,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMap_ignoreNode => 'Ignore this node';
 
   @override
-  String get ghostMap_nodeIgnored => '🗺️ Node ignored';
+  String get ghostMap_nodeIgnored => 'Node ignored';
 
   @override
   String get ghostMap_undo => 'Undo';
@@ -819,7 +819,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMap_writeAtLeastTwoGroups =>
-      'Write at least 2 note groups for the gap map 🗺️';
+      'Write at least 2 note groups for the gap map.';
 
   @override
   String get ghostMap_trySocraticFirst => 'Try questioning your notes first!';
@@ -1146,11 +1146,11 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       'You need at least 5 note groups for recall 🧠';
 
   @override
-  String get socratic_needNotes => 'Write something on the canvas first 🔶';
+  String get socratic_needNotes => 'Write something on the canvas first.';
 
   @override
   String socratic_sessionStarted(int count) {
-    return '🔶 Quiz started — $count questions';
+    return 'Quiz started — $count questions';
   }
 
   @override
@@ -1399,7 +1399,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String fow_surgicalReviewCount(int visited, int total) {
-    return '🗺️ $visited/$total reviewed';
+    return '$visited/$total reviewed';
   }
 
   @override
@@ -1409,7 +1409,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get fow_surgicalCompleted => '✅ Completed';
 
   @override
-  String get fow_surgicalGuideReview => '🗺️ Review guide';
+  String get fow_surgicalGuideReview => 'Review guide';
 
   @override
   String get fow_zoneSelectionHint =>

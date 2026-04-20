@@ -1535,7 +1535,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_nodeIgnored.
   ///
   /// In en, this message translates to:
-  /// **'🗺️ Node ignored'**
+  /// **'Node ignored'**
   String get ghostMap_nodeIgnored;
 
   /// No description provided for @ghostMap_undo.
@@ -1667,7 +1667,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_writeAtLeastTwoGroups.
   ///
   /// In en, this message translates to:
-  /// **'Write at least 2 note groups for the gap map 🗺️'**
+  /// **'Write at least 2 note groups for the gap map.'**
   String get ghostMap_writeAtLeastTwoGroups;
 
   /// No description provided for @ghostMap_trySocraticFirst.
@@ -2201,13 +2201,13 @@ abstract class FlueraLocalizations {
   /// No description provided for @socratic_needNotes.
   ///
   /// In en, this message translates to:
-  /// **'Write something on the canvas first 🔶'**
+  /// **'Write something on the canvas first.'**
   String get socratic_needNotes;
 
   /// No description provided for @socratic_sessionStarted.
   ///
   /// In en, this message translates to:
-  /// **'🔶 Quiz started — {count} questions'**
+  /// **'Quiz started — {count} questions'**
   String socratic_sessionStarted(int count);
 
   /// No description provided for @socratic_sessionComplete.
@@ -2638,7 +2638,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @fow_surgicalReviewCount.
   ///
   /// In en, this message translates to:
-  /// **'🗺️ {visited}/{total} reviewed'**
+  /// **'{visited}/{total} reviewed'**
   String fow_surgicalReviewCount(int visited, int total);
 
   /// No description provided for @fow_surgicalNext.
@@ -2656,7 +2656,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @fow_surgicalGuideReview.
   ///
   /// In en, this message translates to:
-  /// **'🗺️ Review guide'**
+  /// **'Review guide'**
   String get fow_surgicalGuideReview;
 
   /// No description provided for @fow_zoneSelectionHint.

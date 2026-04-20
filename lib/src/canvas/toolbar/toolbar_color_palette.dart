@@ -119,8 +119,10 @@ class _ToolbarColorButtonState extends State<ToolbarColorButton>
         child: AnimatedContainer(
           duration: ToolbarTokens.animNormal,
           curve: ToolbarTokens.curveActive,
-          width: widget.isSelected ? 34 : 28,
-          height: widget.isSelected ? 34 : 28,
+          // WCAG 2.5.5 AAA: minimum 44×44 tap target.
+          // Default 40 (compromise with density), 44 when selected.
+          width: widget.isSelected ? 44 : 40,
+          height: widget.isSelected ? 44 : 40,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             // Outer ring: colored glow border when selected
