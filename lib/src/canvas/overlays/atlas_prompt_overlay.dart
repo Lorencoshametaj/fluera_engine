@@ -249,14 +249,14 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
                 ),
               ),
               const SizedBox(width: 8),
-              // Title
+              // Title — neutral voice, no brand character
               Text(
-                'Atlas',
+                'Chiedi',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: _accent,
-                  letterSpacing: 0.5,
+                  letterSpacing: 0.2,
                 ),
               ),
               const Spacer(),
@@ -341,7 +341,7 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
                     isCollapsed: true,
                     hintText: widget.hasSelection
                         ? 'Cosa vuoi fare con questi nodi?'
-                        : 'Chiedi qualcosa ad Atlas...',
+                        : 'Chiedi qualcosa\u2026',
                     hintStyle: TextStyle(
                       fontSize: 14,
                       color: Colors.white.withValues(alpha: 0.2),
@@ -450,7 +450,7 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
 
   /// (C) Contextual loading state — shows current phase.
   Widget _buildLoadingState() {
-    final phaseText = widget.loadingPhase ?? 'Atlas sta analizzando...';
+    final phaseText = widget.loadingPhase ?? 'Analizzo\u2026';
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),

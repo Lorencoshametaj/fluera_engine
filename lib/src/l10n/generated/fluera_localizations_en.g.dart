@@ -838,7 +838,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMap_dismissGuidanceDefault =>
-      '✍️ Keep writing — Atlas is dormant. The canvas is all yours now.';
+      'Keep writing — the AI is dormant. The canvas is all yours.';
 
   @override
   String get ghostMap_proceedAnyway => 'Proceed anyway';
@@ -854,7 +854,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMap_belowZPDLabel => 'To deepen later';
 
   @override
-  String get ghostMap_loadingAnalyzing => '🌌 Atlas is analyzing your notes...';
+  String get ghostMap_loadingAnalyzing => 'Analyzing your notes…';
 
   @override
   String get ghostMap_penModeHint =>
@@ -865,7 +865,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       '✍️ Handwriting not recognized. Try writing more clearly or use text.';
 
   @override
-  String get ghostMap_atlasAnswer => '🤖 According to Atlas (verify!)';
+  String get ghostMap_atlasAnswer => 'According to the AI (verify!)';
 
   @override
   String get ghostMap_sleepConsolidation =>
@@ -955,7 +955,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMap_yourAttempt => '✍️ Your attempt';
 
   @override
-  String get recall_modeFree => '🧠 Free mode';
+  String get recall_modeFree => 'Free mode';
 
   @override
   String get recall_modeSpatial => '📍 With hints';
@@ -980,7 +980,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   }
 
   @override
-  String get recall_noGaps => '🎉 No gaps!';
+  String get recall_noGaps => 'No gaps.';
 
   @override
   String get recall_viewComparison => 'Comparison';
@@ -1007,7 +1007,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get recall_startSocratic => '🎓 Start Socratic Questioning';
 
   @override
-  String get recall_retry => '🔄 Retry';
+  String get recall_retry => 'Retry';
 
   @override
   String get recall_close => '✓ Close';
@@ -1032,7 +1032,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   }
 
   @override
-  String get recall_peekHint => 'Maybe this topic needs another read 📖';
+  String get recall_peekHint => 'Maybe this topic needs another read.';
 
   @override
   String get recall_selectZone => '📐 Select the zone to review';
@@ -1272,15 +1272,15 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get socratic_insightPerfect =>
-      '🎯 All correct! Your mastery is solid. The next review intervals will extend.';
+      'All correct. Your mastery is solid — review intervals will extend.';
 
   @override
   String get socratic_insightGaps =>
-      '📚 There are several gaps — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.';
+      'There are several gaps — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.';
 
   @override
   String get socratic_insightBalanced =>
-      '👍 Good balance between what you know and what needs review. FSRS will update the review intervals for you.';
+      'Good balance between what you know and what needs review. Review intervals will update accordingly.';
 
   @override
   String get socratic_gateMessage =>
@@ -1320,7 +1320,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String fow_muroRossoPreciseZones(int count) {
-    return '🎯 You identified $count precise zones to strengthen';
+    return 'You identified $count precise zones to strengthen';
   }
 
   @override
@@ -1457,7 +1457,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       '📝 Forgotten — re-read and try writing from memory';
 
   @override
-  String get fow_surgicalInstruction => '📖 Re-read this concept carefully';
+  String get fow_surgicalInstruction => 'Re-read this concept carefully';
 
   @override
   String get fow_surgicalReadNext => 'Done → Next';
@@ -1854,7 +1854,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_flowAnalysisDesc =>
-      'Atlas analyzes clusters and generates the ideal map';
+      'The AI analyzes clusters and generates the ideal map';
 
   @override
   String get ghostMapInfo_flowOverlay => 'Overlay';
@@ -1875,7 +1875,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_flowCompareDesc =>
-      'See Atlas\'s answer and self-evaluate your attempt';
+      'See the AI\'s answer and self-evaluate your attempt';
 
   @override
   String get ghostMapInfo_flowResults => 'Results';
@@ -1907,7 +1907,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_attemptRevealDesc =>
-      'After 10 seconds, you can reveal Atlas\'s answer';
+      'After 10 seconds, you can reveal the AI\'s answer';
 
   @override
   String get ghostMapInfo_attemptTimerNote =>
@@ -1959,7 +1959,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_zpdAdvancedDesc =>
-      'Revisit after consolidating the basics — 📚 nodes';
+      'Revisit after consolidating the basics';
 
   @override
   String get ghostMapInfo_navIntro =>
@@ -2095,7 +2095,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_nodeMissingDesc =>
-      'A concept NOT on your canvas that Atlas deems important. You can attempt to write it or reveal what Atlas was thinking.';
+      'A concept NOT on your canvas that the AI deems important. You can attempt to write it or reveal what the AI suggested.';
 
   @override
   String get ghostMapInfo_nodeMissingPrinciple =>
@@ -2106,7 +2106,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_nodeWeakDesc =>
-      'A concept present but imprecise, incomplete, or incorrectly connected. Atlas explains what to improve.';
+      'A concept present but imprecise, incomplete, or incorrectly connected. The AI explains what to improve.';
 
   @override
   String get ghostMapInfo_nodeWeakPrinciple =>
@@ -2155,7 +2155,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMapInfo_demoThinking => '🤔 Think of the answer...';
 
   @override
-  String get ghostMapInfo_demoRevealTitle => '💡 Atlas\'s answer:';
+  String get ghostMapInfo_demoRevealTitle => 'The AI\'s answer:';
 
   @override
   String get ghostMapInfo_demoRevealExample => '\"Chlorophyll photosynthesis\"';

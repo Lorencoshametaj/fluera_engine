@@ -27,7 +27,7 @@ enum RadialMenuItem {
   undo('Undo', Icons.undo_rounded, Color(0xFFEF9A9A)),
   tools('Tools', Icons.build_rounded, Color(0xFF80CBC4)),
   knowledgeMap('Map', Icons.hub_rounded, Color(0xFF7EC8E3)),
-  atlas('Atlas', Icons.auto_awesome_rounded, Color(0xFF00E5FF)),
+  atlas('Chiedi', Icons.auto_awesome_rounded, Color(0xFF00E5FF)),
   // 📌 §1972-1977 — student-placed spatial anchor at the long-press position.
   // Orange palette to match the bookmark color used on the minimap.
   bookmark('Bookmark', Icons.bookmark_add_outlined, Color(0xFFFF9800));

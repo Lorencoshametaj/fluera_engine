@@ -158,7 +158,11 @@ class UnifiedToolController extends ChangeNotifier {
 
   /// 🔷 Shape recognition mode — when enabled, freehand strokes are
   /// analyzed on pointer-up and replaced with perfect geometric shapes.
-  bool _shapeRecognitionEnabled = true;
+  ///
+  /// OPT-IN (default off): preserves handwriting imperfection as cognitive
+  /// artifact (Embodied Cognition §23, Desirable Difficulties §5). The user
+  /// enables this explicitly via the shape recognition toggle in the toolbar.
+  bool _shapeRecognitionEnabled = false;
   bool get shapeRecognitionEnabled => _shapeRecognitionEnabled;
 
   /// 🔷 Shape recognition sensitivity level.

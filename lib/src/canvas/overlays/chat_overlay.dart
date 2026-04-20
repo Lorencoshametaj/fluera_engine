@@ -223,7 +223,7 @@ class _ChatOverlayState extends State<ChatOverlay>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Atlas Chat',
+                'Chat',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 15,
@@ -402,7 +402,7 @@ class _ChatOverlayState extends State<ChatOverlay>
           ),
           const SizedBox(height: 8),
           Text(
-            'Atlas conosce le tue note, i PDF e le trascrizioni audio.',
+            'Conosco le tue note, i PDF e le trascrizioni audio.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.3),
@@ -961,10 +961,10 @@ class _ChatOverlayState extends State<ChatOverlay>
               onSubmitted: (_) => _send(),
               decoration: InputDecoration(
                 hintText: _isVoiceActive
-                    ? '🎤 Sto ascoltando...'
+                    ? 'Sto ascoltando\u2026'
                     : isStreaming
-                        ? 'Atlas sta scrivendo...'
-                        : 'Chiedimi qualcosa...',
+                        ? 'Elaboro\u2026'
+                        : 'Chiedimi qualcosa\u2026',
                 hintStyle: TextStyle(
                   color: _isVoiceActive
                       ? Colors.redAccent.withValues(alpha: 0.5)

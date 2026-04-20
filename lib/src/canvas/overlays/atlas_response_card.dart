@@ -842,11 +842,11 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
                 border: Border.all(color: ac.withValues(alpha: 0.5), width: 1),
                 boxShadow: [BoxShadow(color: ac.withValues(alpha: 0.3 * glowPulse), blurRadius: 8)],
               ),
-              child: const Center(child: Text('⚡', style: TextStyle(fontSize: 10))),
+              child: Icon(Icons.auto_awesome_rounded, size: 10, color: ac.withValues(alpha: 0.85)),
             ),
             const SizedBox(width: 6),
-            Text('ATLAS', style: TextStyle(
-              color: ac.withValues(alpha: 0.9), fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 2,
+            Text('Risposta', style: TextStyle(
+              color: ac.withValues(alpha: 0.85), fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.2,
             )),
             const SizedBox(width: 4),
             Icon(_isMinimized ? Icons.expand_more : Icons.expand_less, size: 12, color: ac.withValues(alpha: 0.4)),

@@ -159,7 +159,7 @@ class _AtlasCta extends StatelessWidget {
         boxShadow: [BoxShadow(color: const Color(0xFF6C63FF).withValues(alpha: 0.35), blurRadius: 12, offset: const Offset(0, 4))]),
       child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
         Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 18), SizedBox(width: 8),
-        Text('Chiedi ad Atlas', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14))])));
+        Text('Chiedi all\u2019IA', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14))])));
   }
 }
 
@@ -175,7 +175,7 @@ class _AtlasReplyCard extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           const Icon(Icons.auto_awesome_rounded, color: Color(0xFF6C63FF), size: 15), const SizedBox(width: 6),
-          const Text('Atlas', style: TextStyle(color: Color(0xFF6C63FF), fontWeight: FontWeight.w700, fontSize: 13)),
+          const Text('Risposta', style: TextStyle(color: Color(0xFF6C63FF), fontWeight: FontWeight.w600, fontSize: 13)),
           if (isLoading) ...[const SizedBox(width: 8), const SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF6C63FF)))],
         ]),
         const SizedBox(height: 8),

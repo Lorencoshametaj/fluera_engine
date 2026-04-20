@@ -831,7 +831,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMap_belowZPDExplanation =>
-      '📚 Questo concetto è oltre la tua zona di sviluppo attuale. Concentrati prima sui prerequisiti — ci tornerai più avanti.';
+      'Questo concetto è oltre la tua zona di sviluppo attuale. Concentrati prima sui prerequisiti — ci tornerai più avanti.';
 
   @override
   String get ghostMap_dismissGuidanceExcellent =>
@@ -843,7 +843,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMap_dismissGuidanceDefault =>
-      '✍️ Continua a scrivere — Atlas è dormiente. Il canvas è solo tuo adesso.';
+      'Continua a scrivere — l’IA è dormiente. Il canvas è solo tuo.';
 
   @override
   String get ghostMap_proceedAnyway => 'Procedi comunque';
@@ -858,8 +858,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
   String get ghostMap_belowZPDLabel => 'Da approfondire';
 
   @override
-  String get ghostMap_loadingAnalyzing =>
-      '🌌 Atlas sta analizzando i tuoi appunti...';
+  String get ghostMap_loadingAnalyzing => 'Analizzo i tuoi appunti…';
 
   @override
   String get ghostMap_penModeHint =>
@@ -870,14 +869,14 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
       '✍️ Non ho riconosciuto la scrittura. Prova a scrivere più chiaramente o usa il testo.';
 
   @override
-  String get ghostMap_atlasAnswer => '🤖 Secondo Atlas (verifica!)';
+  String get ghostMap_atlasAnswer => 'Secondo l’IA (verifica!)';
 
   @override
   String get ghostMap_sleepConsolidation =>
-      '🌙 Il tuo canvas è cresciuto. Adesso riposati — il sonno consoliderà tutto.';
+      'Il tuo canvas è cresciuto. Adesso riposati — il sonno consoliderà tutto.';
 
   @override
-  String get ghostMap_retryHint => '🔄 Riprovo...';
+  String get ghostMap_retryHint => 'Riprovo…';
 
   @override
   String get ghostMap_emptyResultError =>
@@ -885,11 +884,11 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMap_edgeCaseNearlyPerfect =>
-      '🌟 Il tuo canvas è quasi completo! Solo qualche dettaglio da aggiungere.';
+      'Il tuo canvas è quasi completo. Qualche dettaglio da aggiungere.';
 
   @override
   String get ghostMap_edgeCaseVeryIncomplete =>
-      '📖 Ho trovato diverse aree da esplorare. Iniziamo dalle basi.';
+      'Ho trovato diverse aree da esplorare. Iniziamo dalle basi.';
 
   @override
   String ghostMap_activationGapsFound(Object count) {
@@ -943,7 +942,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String ghostMap_summaryAttempts(Object correct, Object total) {
-    return '🎯 $correct/$total tentativi riusciti';
+    return '$correct/$total tentativi riusciti';
   }
 
   @override
@@ -985,7 +984,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
   }
 
   @override
-  String get recall_noGaps => '🎉 Nessuna lacuna!';
+  String get recall_noGaps => 'Nessuna lacuna.';
 
   @override
   String get recall_viewComparison => 'Confronto';
@@ -1144,11 +1143,11 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get recall_needNotes =>
-      'Scrivi qualcosa sul canvas prima di iniziare il ripasso 🧠';
+      'Scrivi qualcosa sul canvas prima di iniziare il ripasso.';
 
   @override
   String get recall_needMoreNotes =>
-      'Servono almeno 5 gruppi di appunti per il ripasso 🧠';
+      'Servono almeno 5 gruppi di appunti per il ripasso.';
 
   @override
   String get socratic_needNotes =>
@@ -1282,15 +1281,15 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get socratic_insightPerfect =>
-      '🎯 Tutto corretto! La tua padronanza è solida. I prossimi intervalli di ripetizione si allungheranno.';
+      'Tutto corretto. La padronanza è solida — gli intervalli di ripetizione si allungheranno.';
 
   @override
   String get socratic_insightGaps =>
-      '📚 Ci sono diverse lacune — è il momento migliore per rileggere i tuoi appunti. Il retrieval ha attivato i circuiti giusti, ora il rinforzo sarà più efficace.';
+      'Ci sono diverse lacune — è il momento migliore per rileggere gli appunti. Il retrieval ha attivato i circuiti giusti, ora il rinforzo sarà più efficace.';
 
   @override
   String get socratic_insightBalanced =>
-      '👍 Buon bilanciamento tra ciò che sai e ciò che devi rivedere. FSRS aggiornerà gli intervalli di ripetizione per te.';
+      'Buon bilanciamento tra ciò che sai e ciò che devi rivedere. Gli intervalli di ripetizione si aggiorneranno di conseguenza.';
 
   @override
   String get socratic_gateMessage =>
@@ -1330,7 +1329,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String fow_muroRossoPreciseZones(int count) {
-    return '🎯 Hai identificato $count zone precise da rafforzare';
+    return 'Hai identificato $count zone precise da rafforzare';
   }
 
   @override
@@ -1863,7 +1862,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_flowAnalysisDesc =>
-      'Atlas analizza i cluster e genera la mappa ideale';
+      'L’IA analizza i cluster e genera la mappa ideale';
 
   @override
   String get ghostMapInfo_flowOverlay => 'Overlay';
@@ -1884,7 +1883,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_flowCompareDesc =>
-      'Vedi la risposta di Atlas e auto-valuti il tentativo';
+      'Vedi la risposta dell’IA e auto-valuti il tentativo';
 
   @override
   String get ghostMapInfo_flowResults => 'Risultati';
@@ -1916,7 +1915,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_attemptRevealDesc =>
-      'Dopo 10 secondi, puoi rivelare la risposta di Atlas';
+      'Dopo 10 secondi, puoi rivelare la risposta dell’IA';
 
   @override
   String get ghostMapInfo_attemptTimerNote =>
@@ -2104,7 +2103,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_nodeMissingDesc =>
-      'Un concetto che NON hai sul tuo canvas ma che Atlas ritiene importante. Puoi tentare di scriverlo o rivelare cosa pensava Atlas.';
+      'Un concetto che NON hai sul tuo canvas ma che l’IA ritiene importante. Puoi tentare di scriverlo o rivelare cosa ha suggerito.';
 
   @override
   String get ghostMapInfo_nodeMissingPrinciple =>
@@ -2115,7 +2114,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_nodeWeakDesc =>
-      'Un concetto presente ma impreciso, incompleto o collegato in modo errato. Atlas ti spiega cosa migliorare.';
+      'Un concetto presente ma impreciso, incompleto o collegato in modo errato. L’IA ti spiega cosa migliorare.';
 
   @override
   String get ghostMapInfo_nodeWeakPrinciple =>
@@ -2164,7 +2163,7 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
   String get ghostMapInfo_demoThinking => '🤔 Pensa alla risposta...';
 
   @override
-  String get ghostMapInfo_demoRevealTitle => '💡 Risposta di Atlas:';
+  String get ghostMapInfo_demoRevealTitle => 'Risposta dell’IA:';
 
   @override
   String get ghostMapInfo_demoRevealExample => '\"Fotosintesi clorofilliana\"';

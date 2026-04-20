@@ -36,6 +36,24 @@
 
 import 'dart:ui';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ INTEGRATION STATUS — not yet wired into FlueraCanvasScreen.
+//
+// This controller is exported from `fluera_engine.dart` (line 482) but no
+// caller instantiates it. To complete the A20.1 experience:
+//
+//   1. Instantiate OnboardingController in _FlueraCanvasScreenState.initState()
+//      (or via a Riverpod provider), loading `isComplete` from storage.
+//   2. On first-ever canvas open (all canvases empty), if !isComplete:
+//      - Inject a TextNode at the canvas center with OnboardingSeedNode.it.
+//      - Render the writePrompt as a BelowCanvas overlay (auto-fades on
+//        first stroke via onFirstStroke()).
+//   3. Persist isComplete via the storage adapter after the student completes
+//      their first recall attempt (Passo 2).
+//
+// Tracking: roadmap audit_ux.md Appendice B — "Wiring OnboardingController".
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// 🎓 Onboarding seed node content (A20.1).
 ///
 /// Contains the pre-written pedagogical content that appears on first launch.

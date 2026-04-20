@@ -2509,8 +2509,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                               borderRadius: BorderRadius.circular(2))),
                           const SizedBox(height: 20),
                           ListTile(
-                            leading: const Text('⚡', style: TextStyle(fontSize: 22)),
-                            title: const Text('Chiedi ad Atlas', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                            leading: const Icon(Icons.auto_awesome_rounded, size: 22, color: Color(0xFF6C63FF)),
+                            title: const Text('Chiedi all\u2019IA', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                             subtitle: Text('Prompt libero o analisi selezione', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
                             onTap: () {
                               Navigator.pop(context);

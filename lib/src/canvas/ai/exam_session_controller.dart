@@ -75,7 +75,7 @@ class ExamSessionController extends ChangeNotifier {
     if (_isLoading) return;
     _isLoading = true;
     _error = null;
-    _loadingHint = '🌌 Atlas sta generando le domande...';
+    _loadingHint = 'Genero le domande…';
     _fullClusterTexts = Map.from(selectedClusters); // save full texts
     notifyListeners();
 
@@ -140,7 +140,7 @@ class ExamSessionController extends ChangeNotifier {
 
     _currentEvalText = '';
     _isLoading = true;
-    _loadingHint = '⚡ Atlas sta valutando...';
+    _loadingHint = 'Valuto la risposta…';
     notifyListeners();
 
     try {

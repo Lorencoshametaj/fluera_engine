@@ -70,12 +70,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
   late final AnimationController _shakeController;
   bool _shockFlashVisible = false;
 
-  // Confidence rating (1-5) — Hypercorrection Effect
+  // Confidence rating (1-5) — Hypercorrection Effect (Butterfield & Metcalfe, 2001)
+  // Numeric only — emoji removed (see leggi_ui_ux.md §V.2: no gamification cheap).
   int _confidenceLevel = 0; // 0 = not set, 1-5 = selected
-  static const _confidenceEmoji = ['', '😟', '🤔', '😐', '😊', '😎'];
-
-  // Streak counter — Goal Gradient Effect
-  int _currentStreak = 0;
 
   // Language selector
   String _examLang = 'Italian'; // language passed to controller
@@ -503,18 +500,6 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           ])),
           const SizedBox(width: 10),
           Text('$cur/$total', style: TextStyle(color: _cyan.withValues(alpha: 0.7), fontSize: 12, fontWeight: FontWeight.w600)),
-          // Streak badge
-          if (_currentStreak >= 2) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: _orange.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _orange.withValues(alpha: 0.4))),
-              child: Text('🔥 $_currentStreak', style: TextStyle(color: _orange, fontSize: 10, fontWeight: FontWeight.w700)),
-            ),
-          ],
           const SizedBox(width: 8),
           Text('${session.correctCount}✓', style: TextStyle(color: _green.withValues(alpha: 0.7), fontSize: 12)),
           const SizedBox(width: 8),
@@ -600,12 +585,11 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: selected ? _purple.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.08)),
                 ),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Text(_confidenceEmoji[level], style: const TextStyle(fontSize: 18)),
-                  Text('$level', style: TextStyle(
-                    color: selected ? _purple : Colors.white.withValues(alpha: 0.3),
-                    fontSize: 10, fontWeight: FontWeight.w600)),
-                ]),
+                child: Center(
+                  child: Text('$level', style: TextStyle(
+                    color: selected ? _purple : Colors.white.withValues(alpha: 0.45),
+                    fontSize: 18, fontWeight: FontWeight.w600)),
+                ),
               ),
             );
           }),
@@ -703,7 +687,6 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             widget.controller.submitChoiceAnswer(idx);
             final res = q.result ?? ExamAnswerResult.incorrect;
             _hapticForResult(res);
-            _updateStreak(res);
             setState(() { _revealed = true; _evalText = q.explanation; });
           },
           child: AnimatedContainer(
@@ -756,7 +739,6 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         widget.controller.submitChoiceAnswer(idx);
         final res = q.result ?? ExamAnswerResult.incorrect;
         _hapticForResult(res);
-        _updateStreak(res);
         setState(() { _revealed = true; _evalText = q.explanation; });
       },
       child: Container(
@@ -859,8 +841,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             if (mounted) {
               final res = q.result ?? ExamAnswerResult.skipped;
               _hapticForResult(res);
-              _updateStreak(res);
-            }
+              }
           });
         })),
         const SizedBox(width: 8),
@@ -1446,7 +1427,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           if (widget.controller.incorrectQuestions.isNotEmpty) ...[
             _btn(label: '🔄 Rafforza ${widget.controller.incorrectQuestions.length} concetti — ogni ripasso è crescita', color: _orange, onTap: () {
               HapticFeedback.mediumImpact();
-              setState(() { _scopeSelected = true; _revealed = false; _evalText = ''; _confidenceLevel = 0; _currentStreak = 0; });
+              setState(() { _scopeSelected = true; _revealed = false; _evalText = ''; _confidenceLevel = 0; });
               widget.controller.startErrorReplay();
             }),
             const SizedBox(height: 8),
@@ -1570,17 +1551,6 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
   }
 
 
-  // ─── Streak helper ────────────────────────────────────────────────────────
-
-  void _updateStreak(ExamAnswerResult result) {
-    if (result == ExamAnswerResult.correct) {
-      _currentStreak++;
-      if (_currentStreak >= 5) HapticFeedback.heavyImpact();
-    } else {
-      _currentStreak = 0;
-    }
-  }
-
   // ─── SHARED ─────────────────────────────────────────────────────────────
 
   Widget _buildHeader(String title, {required bool showClose}) {
@@ -1594,10 +1564,10 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
               color: _cyan.withValues(alpha: 0.11),
               border: Border.all(color: _cyan.withValues(alpha: 0.35 + _glowController.value * 0.2)),
               boxShadow: [BoxShadow(color: _cyan.withValues(alpha: 0.15 + _glowController.value * 0.1), blurRadius: 8)]),
-            child: const Center(child: Text('🎓', style: TextStyle(fontSize: 11))),
+            child: Icon(Icons.school_rounded, size: 11, color: _cyan.withValues(alpha: 0.85)),
           )),
         const SizedBox(width: 9),
-        Text('ATLAS EXAM', style: TextStyle(color: _cyan.withValues(alpha: 0.85), fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 2)),
+        Text('Esame', style: TextStyle(color: _cyan.withValues(alpha: 0.85), fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.2)),
         const SizedBox(width: 6),
         Text('·', style: TextStyle(color: Colors.white.withValues(alpha: 0.18))),
         const SizedBox(width: 6),

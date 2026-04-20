@@ -269,7 +269,7 @@ class GhostMapController extends ChangeNotifier {
     _isLoading = true;
     _error = null;
     _loadingHint = _l10n?.ghostMap_loadingAnalyzing
-        ?? '🌌 Atlas sta analizzando i tuoi appunti...';
+        ?? 'Analizzo i tuoi appunti\u2026';
     _sessionStartedAt = DateTime.now();
     _telemetry.logEvent('step_4_ghost_map_started', properties: {
       'trigger': 'fresh',

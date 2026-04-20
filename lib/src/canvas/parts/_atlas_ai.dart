@@ -136,7 +136,7 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
       }
 
       // (C) Phase: AI thinking
-      if (mounted) setState(() => _atlasLoadingPhase = '🌌 Atlas is thinking...');
+      if (mounted) setState(() => _atlasLoadingPhase = 'Elaboro\u2026');
 
       // 2. Call Atlas AI
       final provider = EngineScope.current.atlasProvider;

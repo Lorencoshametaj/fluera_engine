@@ -73,6 +73,12 @@ class V1FeatureGate {
   /// 💬 Design Comments — collaboration feature.
   static const bool designComment = false;
 
+  /// 🎨 Design Tools Tab — Responsive preview, Design Quality, Dev Handoff,
+  /// Animation Timeline, Variable Manager. These are Figma-adjacent features
+  /// that dilute the "study tool" positioning for the beta. Backend panels
+  /// remain intact (overlays/) — only the toolbar tab entry point is gated.
+  static const bool designTools = false;
+
   /// 📋 GDPR export/consent/deletion — prepare for EU but not user-facing.
   static const bool gdprUi = false;
 

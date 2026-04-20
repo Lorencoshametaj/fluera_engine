@@ -62,30 +62,7 @@ class _CanvasLoadingScreen extends StatefulWidget {
   State<_CanvasLoadingScreen> createState() => _CanvasLoadingScreenState();
 }
 
-class _CanvasLoadingScreenState extends State<_CanvasLoadingScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    );
-    _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-    _pulseController.repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
-
+class _CanvasLoadingScreenState extends State<_CanvasLoadingScreen> {
   @override
   Widget build(BuildContext context) {
     final hasSnapshot = widget.snapshotPng != null;
@@ -95,7 +72,8 @@ class _CanvasLoadingScreenState extends State<_CanvasLoadingScreen>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 🖼️ Canvas snapshot preview (blurred background)
+          // 🖼️ Canvas snapshot preview (blurred background) — gives specificity:
+          // the user sees their own canvas, faded, while it fully loads.
           if (hasSnapshot)
             Positioned.fill(
               child: ImageFiltered(
@@ -116,37 +94,28 @@ class _CanvasLoadingScreenState extends State<_CanvasLoadingScreen>
               ),
             ),
 
-          // 🎯 Center content: logo + progress bar
+          // 🎯 Center content — minimal.
+          // With snapshot: only a thin progress bar (the snapshot IS the feedback).
+          // Without snapshot: static logo + progress bar + "Apertura…" text.
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 🏷️ Pulsing logo
-                AnimatedBuilder(
-                  animation: _pulseAnimation,
-                  builder: (context, child) {
-                    return Opacity(
-                      opacity: _pulseAnimation.value,
-                      child: child,
-                    );
-                  },
-                  child: Image.asset(
+                if (!hasSnapshot) ...[
+                  Image.asset(
                     widget.logoAssetPath,
                     package: widget.packageName,
-                    width: 96,
-                    height: 96,
-                    errorBuilder:
-                        (_, __, ___) => const Icon(
-                          Icons.brush_rounded,
-                          size: 64,
-                          color: Colors.white70,
-                        ),
+                    width: 64,
+                    height: 64,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.brush_rounded,
+                      size: 48,
+                      color: Colors.white70,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 24),
+                ],
 
-                const SizedBox(height: 32),
-
-                // 📊 Thin progress indicator
                 SizedBox(
                   width: 160,
                   child: ClipRRect(
@@ -160,6 +129,19 @@ class _CanvasLoadingScreenState extends State<_CanvasLoadingScreen>
                     ),
                   ),
                 ),
+
+                if (!hasSnapshot) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Apertura\u2026',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.45),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

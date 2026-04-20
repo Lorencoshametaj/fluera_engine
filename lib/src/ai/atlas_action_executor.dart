@@ -95,7 +95,7 @@ class AtlasActionExecutor {
     final node = TextNode(
       id: NodeId(id),
       textElement: textElement,
-      name: action.label ?? 'Atlas: ${action.content.length > 20 ? action.content.substring(0, 20) : action.content}',
+      name: action.label ?? (action.content.length > 20 ? '${action.content.substring(0, 20)}\u2026' : action.content),
     );
 
     // Set the position via localTransform

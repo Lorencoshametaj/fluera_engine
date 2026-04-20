@@ -1697,7 +1697,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_dismissGuidanceDefault.
   ///
   /// In en, this message translates to:
-  /// **'✍️ Keep writing — Atlas is dormant. The canvas is all yours now.'**
+  /// **'Keep writing — the AI is dormant. The canvas is all yours.'**
   String get ghostMap_dismissGuidanceDefault;
 
   /// No description provided for @ghostMap_proceedAnyway.
@@ -1727,7 +1727,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_loadingAnalyzing.
   ///
   /// In en, this message translates to:
-  /// **'🌌 Atlas is analyzing your notes...'**
+  /// **'Analyzing your notes…'**
   String get ghostMap_loadingAnalyzing;
 
   /// No description provided for @ghostMap_penModeHint.
@@ -1745,7 +1745,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_atlasAnswer.
   ///
   /// In en, this message translates to:
-  /// **'🤖 According to Atlas (verify!)'**
+  /// **'According to the AI (verify!)'**
   String get ghostMap_atlasAnswer;
 
   /// No description provided for @ghostMap_sleepConsolidation.
@@ -1865,7 +1865,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @recall_modeFree.
   ///
   /// In en, this message translates to:
-  /// **'🧠 Free mode'**
+  /// **'Free mode'**
   String get recall_modeFree;
 
   /// No description provided for @recall_modeSpatial.
@@ -1907,7 +1907,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @recall_noGaps.
   ///
   /// In en, this message translates to:
-  /// **'🎉 No gaps!'**
+  /// **'No gaps.'**
   String get recall_noGaps;
 
   /// No description provided for @recall_viewComparison.
@@ -1961,7 +1961,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @recall_retry.
   ///
   /// In en, this message translates to:
-  /// **'🔄 Retry'**
+  /// **'Retry'**
   String get recall_retry;
 
   /// No description provided for @recall_close.
@@ -2003,7 +2003,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @recall_peekHint.
   ///
   /// In en, this message translates to:
-  /// **'Maybe this topic needs another read 📖'**
+  /// **'Maybe this topic needs another read.'**
   String get recall_peekHint;
 
   /// No description provided for @recall_selectZone.
@@ -2423,19 +2423,19 @@ abstract class FlueraLocalizations {
   /// No description provided for @socratic_insightPerfect.
   ///
   /// In en, this message translates to:
-  /// **'🎯 All correct! Your mastery is solid. The next review intervals will extend.'**
+  /// **'All correct. Your mastery is solid — review intervals will extend.'**
   String get socratic_insightPerfect;
 
   /// No description provided for @socratic_insightGaps.
   ///
   /// In en, this message translates to:
-  /// **'📚 There are several gaps — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.'**
+  /// **'There are several gaps — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.'**
   String get socratic_insightGaps;
 
   /// No description provided for @socratic_insightBalanced.
   ///
   /// In en, this message translates to:
-  /// **'👍 Good balance between what you know and what needs review. FSRS will update the review intervals for you.'**
+  /// **'Good balance between what you know and what needs review. Review intervals will update accordingly.'**
   String get socratic_insightBalanced;
 
   /// No description provided for @socratic_gateMessage.
@@ -2494,7 +2494,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @fow_muroRossoPreciseZones.
   ///
   /// In en, this message translates to:
-  /// **'🎯 You identified {count} precise zones to strengthen'**
+  /// **'You identified {count} precise zones to strengthen'**
   String fow_muroRossoPreciseZones(int count);
 
   /// No description provided for @fow_muroRossoNowYouKnow.
@@ -2734,7 +2734,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @fow_surgicalInstruction.
   ///
   /// In en, this message translates to:
-  /// **'📖 Re-read this concept carefully'**
+  /// **'Re-read this concept carefully'**
   String get fow_surgicalInstruction;
 
   /// No description provided for @fow_surgicalReadNext.
@@ -3430,7 +3430,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_flowAnalysisDesc.
   ///
   /// In en, this message translates to:
-  /// **'Atlas analyzes clusters and generates the ideal map'**
+  /// **'The AI analyzes clusters and generates the ideal map'**
   String get ghostMapInfo_flowAnalysisDesc;
 
   /// No description provided for @ghostMapInfo_flowOverlay.
@@ -3466,7 +3466,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_flowCompareDesc.
   ///
   /// In en, this message translates to:
-  /// **'See Atlas\'s answer and self-evaluate your attempt'**
+  /// **'See the AI\'s answer and self-evaluate your attempt'**
   String get ghostMapInfo_flowCompareDesc;
 
   /// No description provided for @ghostMapInfo_flowResults.
@@ -3520,7 +3520,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_attemptRevealDesc.
   ///
   /// In en, this message translates to:
-  /// **'After 10 seconds, you can reveal Atlas\'s answer'**
+  /// **'After 10 seconds, you can reveal the AI\'s answer'**
   String get ghostMapInfo_attemptRevealDesc;
 
   /// No description provided for @ghostMapInfo_attemptTimerNote.
@@ -3604,7 +3604,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_zpdAdvancedDesc.
   ///
   /// In en, this message translates to:
-  /// **'Revisit after consolidating the basics — 📚 nodes'**
+  /// **'Revisit after consolidating the basics'**
   String get ghostMapInfo_zpdAdvancedDesc;
 
   /// No description provided for @ghostMapInfo_navIntro.
@@ -3844,7 +3844,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_nodeMissingDesc.
   ///
   /// In en, this message translates to:
-  /// **'A concept NOT on your canvas that Atlas deems important. You can attempt to write it or reveal what Atlas was thinking.'**
+  /// **'A concept NOT on your canvas that the AI deems important. You can attempt to write it or reveal what the AI suggested.'**
   String get ghostMapInfo_nodeMissingDesc;
 
   /// No description provided for @ghostMapInfo_nodeMissingPrinciple.
@@ -3862,7 +3862,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_nodeWeakDesc.
   ///
   /// In en, this message translates to:
-  /// **'A concept present but imprecise, incomplete, or incorrectly connected. Atlas explains what to improve.'**
+  /// **'A concept present but imprecise, incomplete, or incorrectly connected. The AI explains what to improve.'**
   String get ghostMapInfo_nodeWeakDesc;
 
   /// No description provided for @ghostMapInfo_nodeWeakPrinciple.
@@ -3946,7 +3946,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_demoRevealTitle.
   ///
   /// In en, this message translates to:
-  /// **'💡 Atlas\'s answer:'**
+  /// **'The AI\'s answer:'**
   String get ghostMapInfo_demoRevealTitle;
 
   /// No description provided for @ghostMapInfo_demoRevealExample.

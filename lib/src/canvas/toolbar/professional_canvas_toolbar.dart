@@ -24,6 +24,7 @@ import '../../core/nodes/pdf_document_node.dart';
 import '../../tools/pdf/pdf_annotation_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
 import '../../history/command_history.dart';
+import '../../config/v1_feature_gate.dart';
 import 'pdf_contextual_toolbar.dart';
 
 import 'toolbar_status.dart';
@@ -342,14 +343,29 @@ class _ProfessionalCanvasToolbarState
       tabs.add(ToolbarTab.pdf);
     }
 
-    // Scientific: always available (LaTeX, pen tool, shapes)
-    tabs.add(ToolbarTab.scientific);
+    // Scientific: LaTeX + symbol tools — gated to align with v1 scope.
+    // The core "Math" features depend on latexRecognition which is v1.5/v2.
+    // ignore: dead_code
+    if (V1FeatureGate.latexRecognition) {
+      tabs.add(ToolbarTab.scientific);
+    }
 
-    // Excel: always available (can create new tables)
-    tabs.add(ToolbarTab.excel);
+    // Excel: Spreadsheet/Tabular tools — gated to align with v1 scope.
+    // Tabular is v1.5/v2; keeping the tab out avoids scope creep for beta.
+    // ignore: dead_code
+    if (V1FeatureGate.tabular) {
+      tabs.add(ToolbarTab.excel);
+    }
 
     // Media: always available (digital text, images, recording)
     tabs.add(ToolbarTab.media);
+
+    // Design tab — Figma-adjacent features, gated off for beta positioning.
+    // Enable via V1FeatureGate.designTools when targeting designer audience.
+    // ignore: dead_code
+    if (V1FeatureGate.designTools) {
+      tabs.add(ToolbarTab.design);
+    }
 
     return tabs;
   }

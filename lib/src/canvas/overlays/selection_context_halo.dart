@@ -4,12 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../l10n/fluera_localizations.dart';
 
-/// 🎯 Iron Man JARVIS HUD — symmetric arc with holographic details.
+/// 🎯 Selection context menu — sober bounding frame + floating action arc.
 ///
-/// Uniform circle buttons in a symmetric arc, connected by a thin orbital
-/// line. Each button has a micro-label underneath. A thin connector line
-/// links the arc to the selection, and a subtle frame ring outlines the
-/// selected area. True JARVIS holographic aesthetic.
+/// Shows a subtle bounding frame around the current selection with a
+/// clustered arc of action buttons above (or below). No holographic/orbital
+/// decorations — enterprise-sober per leggi_ui_ux.md §II.1-II.7.
 class SelectionContextHalo extends StatefulWidget {
   final Rect selectionScreenBounds;
   final int selectionCount;
@@ -193,7 +192,7 @@ class _SelectionContextHaloState extends State<SelectionContextHalo>
 
     return Stack(
       children: [
-        // ── 1. Selection frame ring ──
+        // ── 1. Selection frame ring (sober bounding box) ──
         Positioned.fill(
           child: FadeTransition(
             opacity: _entryController,
@@ -201,136 +200,63 @@ class _SelectionContextHaloState extends State<SelectionContextHalo>
               child: CustomPaint(
                 painter: _SelectionFramePainter(
                   bounds: bounds,
-                  color: _accent.withValues(alpha: 0.15),
+                  color: _accent.withValues(alpha: 0.35),
                 ),
               ),
             ),
           ),
         ),
 
-        // ── 2. Connector line: selection → arc origin ──
-        Positioned.fill(
-          child: FadeTransition(
-            opacity: _entryController,
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _ConnectorPainter(
-                  from: selectionAnchor,
-                  to: arcOrigin,
-                  color: _accent,
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        // ── 3. Arc orbital line (behind buttons) ──
-        Positioned.fill(
-          child: FadeTransition(
-            opacity: _entryController,
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _ArcLinePainter(
-                  center: arcOrigin,
-                  radius: _arcRadius,
-                  startAngle: startAngle,
-                  sweepAngle: _arcSweep,
-                  color: _accent.withValues(alpha: 0.10),
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        // ── 4. Arc buttons with micro-labels ──
+        // ── 2. Action buttons on a gentle arc (no orbital line, no connector) ──
         ...List.generate(count, (i) {
           final t = count > 1 ? i / (count - 1) : 0.5;
           final angle = startAngle + _arcSweep * t;
           final x = arcOrigin.dx + _arcRadius * math.cos(angle);
           final y = arcOrigin.dy + _arcRadius * math.sin(angle);
 
-          // Staggered entry: center-first
-          final centerDist = (t - 0.5).abs();
-          final delay = centerDist * 0.3;
-
-          return AnimatedBuilder(
-            animation: _entryController,
-            builder: (context, child) {
-              final raw = ((_entryController.value - delay) / (1.0 - delay))
-                  .clamp(0.0, 1.0);
-              final opacity = Curves.easeOut.transform(raw);
-              final progress = Curves.easeOutCubic.transform(raw);
-              final curX = arcOrigin.dx + (x - arcOrigin.dx) * progress;
-              final curY = arcOrigin.dy + (y - arcOrigin.dy) * progress;
-
-              return Positioned(
-                left: curX - _btnSize / 2,
-                top: curY - _btnSize / 2,
-                child: Opacity(
-                  opacity: opacity,
-                  child: child,
-                ),
-              );
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ArcButton(action: actions[i], size: _btnSize),
-                const SizedBox(height: 3),
-                // ── Micro-label with dark backing ──
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: const Color(0xCC121218),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(
-                    actions[i].label.toUpperCase(),
-                    style: TextStyle(
-                      color: actions[i].color.withValues(alpha: 0.75),
-                      fontSize: 7,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'monospace',
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ],
+          return FadeTransition(
+            opacity: _entryController,
+            child: Positioned(
+              left: x - _btnSize / 2,
+              top: y - _btnSize / 2,
+              child: Tooltip(
+                message: actions[i].label,
+                waitDuration: const Duration(milliseconds: 500),
+                child: _ArcButton(action: actions[i], size: _btnSize),
+              ),
             ),
           );
         }),
 
-        // ── 5. Count badge at arc origin ──
-        Positioned(
-          left: arcOrigin.dx - 15,
-          top: arcOrigin.dy - 11,
-          child: FadeTransition(
-            opacity: _entryController,
-            child: IgnorePointer(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _panelBg,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: _accent.withValues(alpha: 0.12), width: 0.5),
-                ),
-                child: Text(
-                  '${widget.selectionCount}',
-                  style: TextStyle(
-                    color: _accent.withValues(alpha: 0.6),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: 'monospace',
+        // ── 3. Count badge (only when multi-selection) ──
+        if (widget.selectionCount > 1)
+          Positioned(
+            left: arcOrigin.dx - 16,
+            top: arcOrigin.dy - 12,
+            child: FadeTransition(
+              opacity: _entryController,
+              child: IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _panelBg,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${widget.selectionCount}',
+                    style: TextStyle(
+                      color: _accent.withValues(alpha: 0.75),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
 
-        // ── 6. Expanded panel ──
+        // ── 4. Expanded panel ──
         if (_isExpanded)
           _buildExpandedPanel(arcOrigin, placeBelow, viewSize),
       ],
@@ -354,7 +280,7 @@ class _SelectionContextHaloState extends State<SelectionContextHalo>
       _HaloAction(
           Icons.delete_outline_rounded, 'Del', _danger, widget.onDelete),
       if (widget.onAtlas != null)
-        _HaloAction(Icons.auto_awesome_rounded, 'Atlas', _teal,
+        _HaloAction(Icons.auto_awesome_rounded, 'Analizza', _teal,
             () => widget.onAtlas!('_ANALYZE_')),
       _HaloAction(
         _isExpanded ? Icons.expand_less_rounded : Icons.more_horiz_rounded,
