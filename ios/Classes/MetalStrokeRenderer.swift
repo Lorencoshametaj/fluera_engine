@@ -7,6 +7,40 @@ import CoreVideo
 import QuartzCore
 import simd
 
+// Shader source embedded at build time — avoids requiring the Metal toolchain on CI.
+// These are compiled at runtime via device.makeLibrary(source:options:) on first use.
+private let kStrokeShaderSource = """
+#include <metal_stdlib>
+using namespace metal;
+
+struct VertexIn {
+    float2 position [[attribute(0)]];
+    float4 color    [[attribute(1)]];
+};
+
+struct VertexOut {
+    float4 position [[position]];
+    float4 color;
+};
+
+struct Uniforms {
+    float4x4 transform;
+};
+
+vertex VertexOut stroke_vertex(VertexIn in [[stage_in]],
+                               constant Uniforms &uniforms [[buffer(1)]]) {
+    VertexOut out;
+    out.position = uniforms.transform * float4(in.position, 0.0, 1.0);
+    out.position.y = -out.position.y;
+    out.color = in.color;
+    return out;
+}
+
+fragment float4 stroke_fragment(VertexOut in [[stage_in]]) {
+    return in.color;
+}
+"""
+
 /// Vertex layout: 2D position + RGBA color (24 bytes, matches StrokeShaders.metal)
 struct StrokeVertex {
     var x: Float
@@ -232,9 +266,8 @@ class MetalStrokeRenderer {
     // ═══════════════════════════════════════════════════════════════
     
     private static func buildPipeline(device: MTLDevice, sampleCount: Int) -> MTLRenderPipelineState? {
-        // Load shaders from the plugin bundle
-        guard let library = try? device.makeDefaultLibrary(bundle: Bundle(for: MetalStrokeRenderer.self)) else {
-            NSLog("[FlueraMtl] Failed to load shader library")
+        guard let library = try? device.makeLibrary(source: kStrokeShaderSource, options: nil) else {
+            NSLog("[FlueraMtl] Failed to compile stroke shader library")
             return nil
         }
         
@@ -861,7 +894,7 @@ class MetalStrokeRenderer {
     }
     
     private func setupComputePipeline() {
-        guard let library = try? device.makeDefaultLibrary(bundle: Bundle(for: MetalStrokeRenderer.self)),
+        guard let library = try? device.makeLibrary(source: kStrokeShaderSource, options: nil),
               let fn = library.makeFunction(name: "strokeComputeKernel") else {
             NSLog("[FlueraMtl] Compute shader not found, using CPU tessellation")
             return
