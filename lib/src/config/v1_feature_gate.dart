@@ -35,7 +35,9 @@ class V1FeatureGate {
   static const bool collaboration = false;
 
   /// 🌉 Cross-Zone Bridges — Step 9, requires months of canvas usage.
-  static const bool crossZoneBridges = false;
+  /// Enabled for closed beta: controller backend stable, low-risk exposure,
+  /// gives us telemetry on whether students actually build cross-domain links.
+  static const bool crossZoneBridges = true;
 
   /// 📝 Exam Session — Steps 10-11, not in the first month.
   static const bool examSession = false;

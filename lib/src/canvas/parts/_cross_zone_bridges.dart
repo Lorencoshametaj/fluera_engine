@@ -216,6 +216,7 @@ extension CrossZoneBridgesExtension on _FlueraCanvasScreenState {
     if (flowCtrl == null) return;
     _crossZoneBridgeController = CrossZoneBridgeController(
       flowController: flowCtrl,
+      telemetry: widget.config.telemetry,
     );
   }
 

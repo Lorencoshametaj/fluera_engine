@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import '../../ai/ai_provider.dart';
+import '../../ai/telemetry_recorder.dart';
 import '../../reflow/knowledge_connection.dart';
 import '../../reflow/knowledge_flow_controller.dart';
 import '../../reflow/content_cluster.dart';
@@ -149,7 +150,11 @@ class CrossZoneBridgeController {
 
   CrossZoneBridgeController({
     required KnowledgeFlowController flowController,
-  }) : _flowController = flowController;
+    TelemetryRecorder? telemetry,
+  })  : _flowController = flowController,
+        _telemetry = telemetry ?? TelemetryRecorder.noop;
+
+  final TelemetryRecorder _telemetry;
 
   // ===========================================================================
   // BRIDGE QUERY & RETRIEVAL
@@ -298,6 +303,13 @@ class CrossZoneBridgeController {
     stats.aiSuggested++;
     stats.totalBridges++;
     stats.zonesConnected = countConnectedZones();
+
+    _telemetry.logEvent('step_9_cross_zone_bridge', properties: {
+      'bridge_type': suggestion.bridgeType.name,
+      'origin': 'ai_suggested',
+      'total_bridges': stats.totalBridges,
+      'zones_connected': stats.zonesConnected,
+    });
 
     version.value++;
     return ghost;

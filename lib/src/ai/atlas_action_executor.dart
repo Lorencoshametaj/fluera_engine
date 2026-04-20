@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../core/scene_graph/canvas_node.dart';
 import '../core/scene_graph/node_id.dart';
 import '../core/nodes/text_node.dart';
@@ -69,7 +70,7 @@ class AtlasActionExecutor {
           _executeMove(action);
 
         case UnknownAction():
-          print('⚠️ Atlas: azione sconosciuta ignorata: ${action.type}');
+          debugPrint('⚠️ Atlas: azione sconosciuta ignorata: ${action.type}');
       }
     }
 
@@ -103,7 +104,7 @@ class AtlasActionExecutor {
     sceneRoot.add(node);
     onNodeCreated?.call(node);
 
-    print('✨ Atlas ha creato un nodo: "${action.content.length > 30 ? '${action.content.substring(0, 30)}...' : action.content}"');
+    debugPrint('✨ Atlas ha creato un nodo: "${action.content.length > 30 ? '${action.content.substring(0, 30)}...' : action.content}"');
     return node;
   }
 
@@ -113,12 +114,12 @@ class AtlasActionExecutor {
     final toNode = nodeResolver(action.toId);
 
     if (fromNode == null || toNode == null) {
-      print('⚠️ Atlas: impossibile connettere ${action.fromId} → ${action.toId} (nodo non trovato)');
+      debugPrint('⚠️ Atlas: impossibile connettere ${action.fromId} → ${action.toId} (nodo non trovato)');
       return;
     }
 
     onConnectionCreated?.call(action.fromId, action.toId, action.label);
-    print('🔗 Atlas ha connesso: ${action.fromId} → ${action.toId}');
+    debugPrint('🔗 Atlas ha connesso: ${action.fromId} → ${action.toId}');
   }
 
   void _executeGroup(GroupNodesAction action) {
@@ -130,7 +131,7 @@ class AtlasActionExecutor {
 
     if (nodes.length >= 2) {
       selectionManager.selectAll(nodes);
-      print('📦 Atlas ha raggruppato ${nodes.length} nodi');
+      debugPrint('📦 Atlas ha raggruppato ${nodes.length} nodi');
     }
   }
 
@@ -189,19 +190,19 @@ class AtlasActionExecutor {
         selectionManager.distributeVertically();
     }
 
-    print('📐 Atlas ha allineato ${nodes.length} nodi (${ action.alignment })');
+    debugPrint('📐 Atlas ha allineato ${nodes.length} nodi (${ action.alignment })');
   }
 
   void _executeMove(MoveNodeAction action) {
     final node = nodeResolver(action.nodeId);
     if (node == null) {
-      print('⚠️ Atlas: nodo ${action.nodeId} non trovato per lo spostamento');
+      debugPrint('⚠️ Atlas: nodo ${action.nodeId} non trovato per lo spostamento');
       return;
     }
 
     node.setPosition(action.x, action.y);
     node.invalidateTransformCache();
-    print('🚀 Atlas ha spostato il nodo ${action.nodeId} a (${action.x}, ${action.y})');
+    debugPrint('🚀 Atlas ha spostato il nodo ${action.nodeId} a (${action.x}, ${action.y})');
   }
 
   // ---------------------------------------------------------------------------

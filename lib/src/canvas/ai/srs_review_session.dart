@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../ai/telemetry_recorder.dart';
 import '../ai/fsrs_scheduler.dart';
 import '../ai/red_wall_controller.dart';
 import '../ai/srs_camera_policy.dart';
@@ -25,6 +26,11 @@ import '../widgets/srs_review_type_selector.dart';
 ///   4. `recordResult(id, remembered)` for self-evaluation
 ///   5. `endSession()` returns the FSRS updates to persist
 class SrsReviewSession extends ChangeNotifier {
+  SrsReviewSession({TelemetryRecorder? telemetry})
+      : _telemetry = telemetry ?? TelemetryRecorder.noop;
+
+  final TelemetryRecorder _telemetry;
+  DateTime? _sessionStartedAt;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -237,6 +243,18 @@ class SrsReviewSession extends ChangeNotifier {
       _clusterToConcepts.removeWhere((id, _) => !keep.contains(id));
     }
 
+    // 📊 Telemetry: emit only when a real review session is activated
+    // (i.e. at least one overdue cluster matched on the canvas).
+    if (_isActive) {
+      _sessionStartedAt = DateTime.now();
+      _telemetry.logEvent('step_6_srs_review_started', properties: {
+        'review_type': reviewType.name,
+        'cluster_count': _blurredClusterIds.length,
+        'overdue_concepts': overdueKeys.length,
+        'canvas_review_count': canvasReviewCount,
+      });
+    }
+
     notifyListeners();
     return _blurredClusterIds.length;
   }
@@ -345,6 +363,21 @@ class SrsReviewSession extends ChangeNotifier {
       forgottenCount: totalForgot,
       totalCount: totalDue,
     );
+
+    // 📊 Telemetry: emit completion before state is cleared.
+    final startedAt = _sessionStartedAt;
+    if (startedAt != null) {
+      _telemetry.logEvent('step_6_srs_review_completed', properties: {
+        'review_type': _reviewType.name,
+        'total_due': totalDue,
+        'total_remembered': totalRemembered,
+        'total_forgot': totalForgot,
+        'duration_sec':
+            DateTime.now().difference(startedAt).inSeconds,
+        'red_wall_triggered': _lastRedWallEvaluation?.isActive ?? false,
+      });
+      _sessionStartedAt = null;
+    }
 
     _isActive = false;
     notifyListeners();

@@ -20,6 +20,7 @@ import '../layers/fluera_layer_controller.dart';
 import '../audio/native_audio_models.dart';
 import 'ai/pedagogical_accessibility_config.dart';
 import '../ai/ai_usage_tracker.dart';
+import '../ai/telemetry_recorder.dart';
 
 // =============================================================================
 // FLUERA CANVAS CONFIGURATION
@@ -270,6 +271,20 @@ class FlueraCanvasConfig {
   /// back to a no-op implementation that never enforces limits.
   final AiUsageTracker? aiUsageTracker;
 
+  // ===========================================================================
+  // PRODUCT TELEMETRY
+  // ===========================================================================
+
+  /// Optional sink for product telemetry events (12-step cycle progression,
+  /// AI call cost, tier limits hit, session lifecycle).
+  ///
+  /// The engine emits events unconditionally via this recorder; the host
+  /// implementation is expected to enforce GDPR consent before transmitting.
+  ///
+  /// Leave null in tests / demos / landing page. The engine falls back to
+  /// [TelemetryRecorder.noop].
+  final TelemetryRecorder? telemetry;
+
   const FlueraCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
@@ -301,6 +316,7 @@ class FlueraCanvasConfig {
     this.onPickPdfFile,
     this.onUpgradePrompt,
     this.aiUsageTracker,
+    this.telemetry,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';

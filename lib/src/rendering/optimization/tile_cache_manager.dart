@@ -2,59 +2,133 @@ import 'dart:collection';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
-/// 🧩 TILE CACHE MANAGER — Regional cache for O(1) stroke addition
+/// 🧩 TILE CACHE MANAGER — Pyramidal regional cache (Google Maps-style)
 ///
-/// Divides the canvas into fixed-size tiles (4096×4096 canvas units).
-/// Each tile stores a pre-rendered `ui.Picture` of the strokes within it.
+/// ARCHITECTURE
+/// ────────────
+/// The canvas is divided into a fixed grid of tiles ([tileSize]×[tileSize]
+/// canvas units). For each tile, multiple `ui.Picture` representations may
+/// coexist — one per LOD tier — forming a tile pyramid.
 ///
-/// PERFORMANCE:
-/// - Adding a stroke invalidates only the 1-2 tiles it overlaps
-/// - Drawing replays only tiles visible in the current viewport
-/// - Full cache rebuild cost: O(strokes_per_tile) instead of O(all_strokes)
+/// Three LOD tiers are supported:
+///   tier 0 = full quality   (high zoom, scale ≥ 0.50)
+///   tier 1 = simplified     (mid zoom, 0.25 ≤ scale < 0.50)
+///   tier 2 = thumbnails     (low zoom, scale < 0.25)
 ///
-/// TILE COORDINATE SYSTEM:
-/// Canvas point (x, y) → tile (x ~/ tileSize, y ~/ tileSize)
-/// Tile (tx, ty) covers canvas area [tx*4096, ty*4096, (tx+1)*4096, (ty+1)*4096]
+/// Each tier owns an independent LRU map ([maxTilesPerTier]) so a transition
+/// between tiers does NOT discard the previous tier's tiles.
+///
+/// PARENT FALLBACK (the trick behind Google Maps' smooth zoom)
+/// ───────────────────────────────────────────────────────────
+/// When the renderer asks for a tile at the active tier and that tile is
+/// not yet cached, [drawWithParentFallback] looks across other tiers for
+/// the closest available tile and draws THAT picture instead. The result
+/// is identical in canvas coordinates (the canvas transform handles any
+/// scale mismatch) — the only visible difference is the level of detail,
+/// which the user accepts as "the new zoom is loading".
+///
+/// As soon as the active-tier tile is built and cached, subsequent frames
+/// stop falling back. There is no global cross-fade: the swap happens per
+/// tile, exactly when each new tile becomes available, just like Google
+/// Maps swaps individual map tiles in a viewport.
+///
+/// IDLE TIER EVICTION
+/// ──────────────────
+/// Each tier remembers when it was last drawn ([_lastVisitFrame]). Call
+/// [evictIdleTiers] periodically (the painter does this on every frame at
+/// negligible cost) to drop tiers untouched for [evictAfterFrames] frames.
+/// The currently active tier is never evicted.
+///
+/// MEMORY BUDGET
+/// ─────────────
+/// Worst case: [maxTilesPerTier] × [_numTiers] = 48 × 3 = 144 cached
+/// pictures. Pictures are vector command lists (typically < 1 MB each),
+/// not bitmaps, so the realistic ceiling is ~50–100 MB even on dense
+/// scenes. Bitmap rasterization is left to Skia / Impeller on the raster
+/// thread, where the GPU caches the resulting textures with its own LRU.
+///
+/// TILE COORDINATE SYSTEM
+/// ──────────────────────
+/// Canvas point (x, y) → tile (x ~/ tileSize, y ~/ tileSize). The same
+/// (tx, ty) refers to the same canvas region across all tiers; only the
+/// rendering inside the picture differs (full quality vs simplified vs
+/// thumbnail).
 class TileCacheManager {
-  /// Size of each tile in canvas units.
-  /// 4096 is a good balance: large enough to contain many strokes per tile
-  /// (reducing overhead), small enough that rebuilding one tile is fast.
+  /// Edge length of each tile in canvas units.
+  ///
+  /// 4096 balances per-tile rebuild cost against per-frame draw call count:
+  /// large enough that a 1080p viewport at scale 1.0 fits in ~3×2 tiles,
+  /// small enough that rebuilding one tile at full quality stays under
+  /// the per-frame budget.
   static const double tileSize = 4096.0;
 
-  /// Maximum cached tiles to prevent OOM on large canvases.
-  /// 128 tiles × display lists = very memory-efficient (Pictures are
-  /// GPU command lists, not raw bitmaps).
-  static const int maxTiles = 48;
+  /// Maximum cached tiles per LOD tier (LRU-evicted).
+  ///
+  /// 48 covers a generous viewport plus a 2-ring pre-warm halo at any
+  /// zoom level supported by the engine.
+  static const int maxTilesPerTier = 48;
 
-  /// Cached pictures keyed by tile coordinates.
-  /// LinkedHashMap preserves insertion order for LRU eviction.
-  final LinkedHashMap<TileKey, ui.Picture> _tiles =
-      LinkedHashMap<TileKey, ui.Picture>();
+  /// Number of LOD tiers managed by this cache.
+  static const int _numTiers = 3;
 
-  /// 🚀 STALE TILES: old-LOD tiles kept as GPU-scaled fallback during
-  /// progressive rebuild. Disposed lazily as new tiles replace them.
-  final Map<TileKey, ui.Picture> _staleTiles = {};
+  /// Per-tier LRU maps. `_tilesByTier[t][key]` is the picture cached for
+  /// tier `t`, or null if not built yet at that tier.
+  final List<LinkedHashMap<TileKey, ui.Picture>> _tilesByTier = List.generate(
+    _numTiers,
+    (_) => LinkedHashMap<TileKey, ui.Picture>(),
+  );
 
-  /// Scene graph version when each tile was last built.
-  final Map<TileKey, int> _tileVersions = {};
+  /// Per-tier scene-graph version map. Used by future fine-grained version
+  /// checks; today the cache is invalidated as a whole on scene change.
+  final List<Map<TileKey, int>> _versionsByTier = List.generate(
+    _numTiers,
+    (_) => <TileKey, int>{},
+  );
 
-  /// Total stroke count when the tile cache was last fully valid.
+  /// Frame index at which each tier was last drawn from. Used by
+  /// [evictIdleTiers] to drop pictures the user has not visited recently.
+  final List<int> _lastVisitFrame = List.filled(_numTiers, 0);
+
+  /// Monotonic frame counter, advanced once per [drawWithParentFallback] call.
+  int _frameCounter = 0;
+
+  /// Tier most recently drawn from. Never evicted by [evictIdleTiers].
+  int _activeTier = 0;
+
+  /// Total stroke count when the cache was last marked valid.
   int _cachedStrokeCount = 0;
 
-  /// Scene graph version for the overall cache.
+  /// Scene-graph version when the cache was last marked valid.
   int _cachedVersion = -1;
 
   /// Public access to cached scene version for external invalidation checks.
   int get cachedVersion => _cachedVersion;
 
-  /// Number of cached tiles.
-  int get tileCount => _tiles.length;
-
   /// Total stroke count in the cache.
   int get cachedStrokeCount => _cachedStrokeCount;
 
-  /// Whether the cache has any tiles.
-  bool get hasCachedTiles => _tiles.isNotEmpty;
+  /// Sum of cached pictures across every tier.
+  int get tileCount {
+    var total = 0;
+    for (final tier in _tilesByTier) {
+      total += tier.length;
+    }
+    return total;
+  }
+
+  /// Cached picture count for a specific tier.
+  int tileCountForTier(int tier) => _tilesByTier[tier].length;
+
+  /// Tier that received the most recent [drawWithParentFallback] call.
+  int get activeTier => _activeTier;
+
+  /// True when at least one tier holds at least one tile.
+  bool get hasCachedTiles {
+    for (final tier in _tilesByTier) {
+      if (tier.isNotEmpty) return true;
+    }
+    return false;
+  }
 
   // =========================================================================
   // CACHE STATS (for debug overlay)
@@ -63,19 +137,20 @@ class TileCacheManager {
   int _cacheHits = 0;
   int _cacheMisses = 0;
 
-  /// Cache hit count since last reset.
+  /// Cache hit count since last reset. A "hit" means the tile was found at
+  /// the requested tier (parent fallback does NOT count as a hit).
   int get cacheHits => _cacheHits;
 
-  /// Cache miss count since last reset.
+  /// Cache miss count since last reset. Includes parent-fallback fills.
   int get cacheMisses => _cacheMisses;
 
-  /// Hit rate as a percentage (0-100). Returns 100 if no requests.
+  /// Hit rate as a percentage (0–100). Returns 100 when no requests yet.
   double get hitRate {
     final total = _cacheHits + _cacheMisses;
     return total > 0 ? (_cacheHits / total * 100) : 100;
   }
 
-  /// Reset hit/miss counters (call periodically from monitor).
+  /// Reset hit/miss counters. Called periodically by the performance monitor.
   void resetStats() {
     _cacheHits = 0;
     _cacheMisses = 0;
@@ -85,12 +160,12 @@ class TileCacheManager {
   // TILE KEY COMPUTATION
   // =========================================================================
 
-  /// Compute the tile key for a canvas point.
+  /// Compute the tile key containing canvas point (x, y).
   static TileKey tileKeyForPoint(double x, double y) {
     return TileKey(x ~/ tileSize, y ~/ tileSize);
   }
 
-  /// Compute all tile keys that overlap a given rect.
+  /// Compute every tile key overlapping [rect] in canvas coordinates.
   static List<TileKey> tileKeysForRect(Rect rect) {
     if (rect.isEmpty) return const [];
 
@@ -108,7 +183,7 @@ class TileCacheManager {
     return keys;
   }
 
-  /// Get the canvas-space bounds of a tile.
+  /// Canvas-space bounds of the tile identified by [key].
   static Rect tileBounds(TileKey key) {
     return Rect.fromLTWH(
       key.tx * tileSize,
@@ -118,8 +193,8 @@ class TileCacheManager {
     );
   }
 
-  /// 🚀 Sort tile keys by distance to viewport center (center-first priority).
-  /// Tiles closest to where the user is looking are rebuilt first.
+  /// Sort [tiles] in-place by squared distance to viewport center.
+  /// Used to schedule center-first tile rebuilds during progressive load.
   static void sortByDistanceToCenter(List<TileKey> tiles, Rect viewport) {
     final cx = viewport.center.dx / tileSize;
     final cy = viewport.center.dy / tileSize;
@@ -130,9 +205,9 @@ class TileCacheManager {
     });
   }
 
-  /// 🚀 Sort tiles biased toward pan direction (viewport prediction).
-  /// Tiles in the pan direction get negative distance bias → built first.
-  /// `panDir` should be a normalized direction vector (dx, dy).
+  /// Sort [tiles] in-place biased toward [panDir] (normalized direction
+  /// vector). Tiles in the predicted pan direction get rebuilt first so
+  /// they land in cache by the time the user pans into them.
   static void sortByPanPrediction(
     List<TileKey> tiles,
     Rect viewport,
@@ -147,11 +222,8 @@ class TileCacheManager {
     final pdx = panDir.dx;
     final pdy = panDir.dy;
     tiles.sort((a, b) {
-      // Dot product with pan direction: higher = more aligned
       final dotA = (a.tx - cx) * pdx + (a.ty - cy) * pdy;
       final dotB = (b.tx - cx) * pdx + (b.ty - cy) * pdy;
-      // Prefer tiles aligned with pan direction (negative = behind)
-      // Strongly bias: subtract 2× dot product from distance
       final da =
           (a.tx - cx) * (a.tx - cx) + (a.ty - cy) * (a.ty - cy) - dotA * 3.0;
       final db =
@@ -160,163 +232,221 @@ class TileCacheManager {
     });
   }
 
-  /// 🚀 Collect missing tiles in a 2-ring surrounding the viewport (pre-warm).
-  /// Returns tiles OUTSIDE the viewport that aren't cached yet.
-  List<TileKey> collectMissingPreWarm(Rect viewport) {
-    // Inflate viewport by 2 tiles in each direction for aggressive pre-warm
-    final inflated = viewport.inflate(tileSize * 2);
-    final allKeys = tileKeysForRect(inflated);
-    final visibleKeys = tileKeysForRect(viewport).toSet();
-    final missing = <TileKey>[];
-    for (final key in allKeys) {
-      if (!visibleKeys.contains(key) && !_tiles.containsKey(key)) {
-        missing.add(key);
-      }
-    }
-    return missing;
-  }
-
   // =========================================================================
-  // CACHE OPERATIONS
+  // CACHE OPERATIONS — TIER-AWARE
   // =========================================================================
 
-  /// Check if the tile cache is valid for the given stroke count and version.
-  bool isValid(int strokeCount, int sceneVersion) {
+  /// Whether the cache has every visible tile of [tier] for [strokeCount]
+  /// strokes at scene [sceneVersion]. Cheap viewport-aware check used by
+  /// the painter to short-circuit the rebuild loop.
+  bool isValidForTier(int tier, int strokeCount, int sceneVersion) {
     return _cachedStrokeCount == strokeCount &&
         _cachedVersion == sceneVersion &&
-        _tiles.isNotEmpty;
+        _tilesByTier[tier].isNotEmpty;
   }
 
-  /// Invalidate tiles that overlap the given bounds (e.g. a new stroke).
-  void invalidateForBounds(Rect bounds) {
-    final keys = tileKeysForRect(bounds);
-    for (final key in keys) {
-      _tiles.remove(key)?.dispose();
-      _tileVersions.remove(key);
-    }
-  }
+  /// Look up the cached picture for ([tier], [key]). Returns null when no
+  /// picture has been built yet at that tier. Does NOT count toward stats.
+  ui.Picture? getTile(int tier, TileKey key) => _tilesByTier[tier][key];
 
-  /// Invalidate ALL tiles (e.g. on undo or full scene change).
-  void invalidateAll() {
-    for (final picture in _tiles.values) {
-      picture.dispose();
-    }
-    _tiles.clear();
-    _tileVersions.clear();
-    _cachedStrokeCount = 0;
-    _cachedVersion = -1;
-    // Also dispose stale tiles
-    for (final p in _staleTiles.values) {
-      p.dispose();
-    }
-    _staleTiles.clear();
-  }
-
-  /// 🚀 Mark all current tiles as STALE (wrong LOD) instead of disposing.
-  /// Stale tiles are drawn as fallback during progressive rebuild,
-  /// then disposed lazily as new tiles replace them.
-  void markAllStale() {
-    // Move current tiles → stale, dispose any existing stale
-    for (final entry in _staleTiles.entries) {
-      entry.value.dispose();
-    }
-    _staleTiles.clear();
-    _staleTiles.addAll(_tiles);
-    _tiles.clear();
-    _tileVersions.clear();
-    _cachedStrokeCount = 0;
-    _cachedVersion = -1;
-  }
-
-  /// Draw all cached tiles that overlap the viewport.
+  /// Find the closest available tile for [key] across tiers OTHER than
+  /// [currentTier]. Prefers the tier nearest to [currentTier] (smallest
+  /// |delta|) so the visual mismatch is minimized. Returns null when no
+  /// tier holds a picture for [key].
   ///
-  /// Returns the list of tile keys that are MISSING (need rebuilding).
-  /// The caller should rebuild those tiles and call [cacheTile] for each.
-  List<TileKey> drawAndCollectMissing(Canvas canvas, Rect viewport) {
+  /// This is the Google Maps "parent fallback": a tile from another zoom
+  /// level renders in the same canvas region, only at a different level
+  /// of detail.
+  ui.Picture? getParentFallback(int currentTier, TileKey key) {
+    for (int delta = 1; delta < _numTiers; delta++) {
+      // Prefer the tier just BELOW (more detailed) before going coarser.
+      // For currentTier=2 the order is: tier 1, then tier 0.
+      // For currentTier=0 the order is: tier 1, then tier 2.
+      for (final candidate in [currentTier - delta, currentTier + delta]) {
+        if (candidate < 0 || candidate >= _numTiers) continue;
+        final pic = _tilesByTier[candidate][key];
+        if (pic != null) return pic;
+      }
+    }
+    return null;
+  }
+
+  /// Draw every tile visible in [viewport] at [currentTier]; for each
+  /// missing tile, fall back to a picture from another tier (see
+  /// [getParentFallback]). Returns the keys still missing AT [currentTier]
+  /// — the caller is expected to rebuild and [cacheTile] them, ideally
+  /// progressively across frames.
+  ///
+  /// Side effects:
+  ///   • marks [currentTier] as the active tier;
+  ///   • advances the internal frame counter (drives [evictIdleTiers]);
+  ///   • updates hit / miss counters.
+  List<TileKey> drawWithParentFallback(
+    Canvas canvas,
+    Rect viewport,
+    int currentTier,
+  ) {
+    _activeTier = currentTier;
+    _frameCounter++;
+    _lastVisitFrame[currentTier] = _frameCounter;
+
     final visibleKeys = tileKeysForRect(viewport);
     final missing = <TileKey>[];
+    final tier = _tilesByTier[currentTier];
 
     for (final key in visibleKeys) {
-      final picture = _tiles[key];
+      final picture = tier[key];
       if (picture != null) {
         canvas.drawPicture(picture);
         _cacheHits++;
       } else {
-        // 🚀 STALE FALLBACK: draw old-LOD tile if available (GPU-scaled)
-        final stale = _staleTiles[key];
-        if (stale != null) {
-          canvas.drawPicture(stale);
+        final fallback = getParentFallback(currentTier, key);
+        if (fallback != null) {
+          canvas.drawPicture(fallback);
         }
         _cacheMisses++;
         missing.add(key);
       }
     }
-
     return missing;
   }
 
-  /// 🚀 Collect missing tile keys WITHOUT drawing cached tiles.
-  /// Used during progressive LOD transition: we draw the old snapshot
-  /// and only need to know which tiles still need rebuilding.
-  List<TileKey> collectMissing(Rect viewport) {
+  /// Collect missing tile keys at [tier] without drawing anything.
+  List<TileKey> collectMissing(int tier, Rect viewport) {
     final visibleKeys = tileKeysForRect(viewport);
     final missing = <TileKey>[];
+    final map = _tilesByTier[tier];
     for (final key in visibleKeys) {
-      if (!_tiles.containsKey(key)) {
+      if (!map.containsKey(key)) missing.add(key);
+    }
+    return missing;
+  }
+
+  /// Collect missing tiles in a 2-ring around [viewport] at [tier],
+  /// EXCLUDING the visible viewport itself. Used for predictive pre-warm
+  /// during idle frames.
+  List<TileKey> collectMissingPreWarm(int tier, Rect viewport) {
+    final inflated = viewport.inflate(tileSize * 2);
+    final allKeys = tileKeysForRect(inflated);
+    final visibleKeys = tileKeysForRect(viewport).toSet();
+    final missing = <TileKey>[];
+    final map = _tilesByTier[tier];
+    for (final key in allKeys) {
+      if (!visibleKeys.contains(key) && !map.containsKey(key)) {
         missing.add(key);
       }
     }
     return missing;
   }
 
-  /// 🚀 Draw ONLY cached tiles (skip missing). Used for global cache adoption
-  /// where we just need to replay already-rendered tiles into a PictureRecorder.
-  /// No tile rebuilding — O(1) per tile via drawPicture.
-  void drawCachedOnly(Canvas canvas, Rect viewport) {
+  /// Replay only tiles cached at [tier] that are visible in [viewport],
+  /// without falling back to other tiers. Used when adopting tiles into a
+  /// global stroke-cache picture (we want a clean, single-tier render).
+  void drawCachedOnlyForTier(int tier, Canvas canvas, Rect viewport) {
     final visibleKeys = tileKeysForRect(viewport);
+    final map = _tilesByTier[tier];
     for (final key in visibleKeys) {
-      final picture = _tiles[key];
-      if (picture != null) {
-        canvas.drawPicture(picture);
-      }
+      final picture = map[key];
+      if (picture != null) canvas.drawPicture(picture);
     }
   }
 
-  /// Cache a rebuilt tile picture.
-  /// Evicts oldest tiles if the cache exceeds [maxTiles].
-  void cacheTile(TileKey key, ui.Picture picture, int sceneVersion) {
-    _tiles.remove(key)?.dispose();
-    _tiles[key] = picture; // Insert at end (newest)
-    _tileVersions[key] = sceneVersion;
+  /// Cache a freshly-rebuilt tile picture for ([tier], [key]). LRU-evicts
+  /// the oldest tile of [tier] when the per-tier cap is exceeded.
+  void cacheTile(int tier, TileKey key, ui.Picture picture, int sceneVersion) {
+    final map = _tilesByTier[tier];
+    final versions = _versionsByTier[tier];
+    map.remove(key)?.dispose();
+    map[key] = picture; // Insert at end (newest)
+    versions[key] = sceneVersion;
 
-    // 🚀 Dispose stale tile for this key (no longer needed)
-    _staleTiles.remove(key)?.dispose();
-
-    // 🛡️ LRU EVICTION: remove oldest tiles if over cap
-    while (_tiles.length > maxTiles) {
-      final oldest = _tiles.keys.first;
-      _tiles.remove(oldest)?.dispose();
-      _tileVersions.remove(oldest);
+    while (map.length > maxTilesPerTier) {
+      final oldest = map.keys.first;
+      map.remove(oldest)?.dispose();
+      versions.remove(oldest);
     }
   }
 
-  /// Mark the cache as fully valid for the given counts.
+  /// Mark the cache as fully valid for the given counts. Called once per
+  /// frame after a successful tile rebuild pass.
   void markValid(int strokeCount, int sceneVersion) {
     _cachedStrokeCount = strokeCount;
     _cachedVersion = sceneVersion;
   }
 
-  /// Dispose all cached tiles.
-  void dispose() {
-    for (final picture in _tiles.values) {
-      picture.dispose();
+  // =========================================================================
+  // INVALIDATION
+  // =========================================================================
+
+  /// Invalidate every tile across every tier whose canvas footprint
+  /// overlaps [bounds]. Stroke mutations affect all LODs, so all tiers
+  /// must be invalidated together.
+  void invalidateForBounds(Rect bounds) {
+    final keys = tileKeysForRect(bounds);
+    for (int t = 0; t < _numTiers; t++) {
+      final map = _tilesByTier[t];
+      final versions = _versionsByTier[t];
+      for (final key in keys) {
+        map.remove(key)?.dispose();
+        versions.remove(key);
+      }
     }
-    _tiles.clear();
-    _tileVersions.clear();
-    for (final p in _staleTiles.values) {
+  }
+
+  /// Invalidate every tile across every tier (e.g. on undo or full
+  /// scene change).
+  void invalidateAll() {
+    for (final map in _tilesByTier) {
+      for (final p in map.values) {
+        p.dispose();
+      }
+      map.clear();
+    }
+    for (final v in _versionsByTier) {
+      v.clear();
+    }
+    _cachedStrokeCount = 0;
+    _cachedVersion = -1;
+  }
+
+  /// Drop every tile of a specific [tier]. Use sparingly — the value of
+  /// the pyramid is in keeping other-tier tiles around as parent fallback.
+  void evictTier(int tier) {
+    final map = _tilesByTier[tier];
+    for (final p in map.values) {
       p.dispose();
     }
-    _staleTiles.clear();
+    map.clear();
+    _versionsByTier[tier].clear();
+  }
+
+  /// Drop tiles of any tier untouched for more than [evictAfterFrames]
+  /// frames. The currently active tier is always preserved.
+  ///
+  /// Cheap to call every frame: walks 3 integers and only allocates work
+  /// when a tier actually exceeds the threshold.
+  void evictIdleTiers({int evictAfterFrames = 600}) {
+    for (int t = 0; t < _numTiers; t++) {
+      if (t == _activeTier) continue;
+      if (_tilesByTier[t].isEmpty) continue;
+      if (_frameCounter - _lastVisitFrame[t] > evictAfterFrames) {
+        evictTier(t);
+      }
+    }
+  }
+
+  /// Dispose every cached picture across every tier. Call when the canvas
+  /// is destroyed or the engine is torn down.
+  void dispose() {
+    for (final map in _tilesByTier) {
+      for (final p in map.values) {
+        p.dispose();
+      }
+      map.clear();
+    }
+    for (final v in _versionsByTier) {
+      v.clear();
+    }
   }
 }
 
@@ -324,7 +454,8 @@ class TileCacheManager {
 // TILE KEY
 // ===========================================================================
 
-/// Immutable tile coordinate key for cache lookups.
+/// Immutable tile coordinate key. The same (tx, ty) refers to the same
+/// canvas region across every LOD tier.
 @immutable
 class TileKey {
   final int tx;

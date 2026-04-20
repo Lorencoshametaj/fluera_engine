@@ -584,6 +584,7 @@ export 'src/platform/native_pdf_provider.dart';
 // server-side. The engine ships a no-op default.
 export 'src/ai/ai_usage_tracker.dart';
 export 'src/ai/noop_ai_usage_tracker.dart';
+export 'src/ai/telemetry_recorder.dart'; // 📊 Product telemetry sink
 
 // Gemini proxy: when the app constructs EngineScope with a GeminiProxyConfig,
 // all Gemini calls route through a Supabase Edge Function that holds the

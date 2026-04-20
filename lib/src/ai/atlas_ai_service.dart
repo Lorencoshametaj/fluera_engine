@@ -8,6 +8,7 @@ import 'ai_usage_tracker.dart';
 import 'atlas_action.dart';
 import 'gemini_client.dart';
 import 'noop_ai_usage_tracker.dart';
+import 'telemetry_recorder.dart';
 import '../canvas/ai/exam_session_model.dart';
 import '../canvas/ai/ghost_map_model.dart';
 
@@ -54,6 +55,10 @@ class GeminiProvider implements AiProvider {
   /// using `response.usageMetadata.totalTokenCount`. Defaults to no-op.
   final AiUsageTracker _tracker;
 
+  /// Product telemetry sink. Every metered call emits an `ai_call` event
+  /// with feature + tokens + model + latency. Defaults to no-op.
+  final TelemetryRecorder _telemetry;
+
   /// Create a GeminiProvider.
   ///
   /// Either [apiKey] (direct mode, dev / testing) or [proxy] (production,
@@ -67,9 +72,11 @@ class GeminiProvider implements AiProvider {
     String? apiKey,
     GeminiProxyConfig? proxy,
     AiUsageTracker? tracker,
+    TelemetryRecorder? telemetry,
   })  : _apiKey = apiKey,
         _proxyConfig = proxy,
-        _tracker = tracker ?? NoopAiUsageTracker();
+        _tracker = tracker ?? NoopAiUsageTracker(),
+        _telemetry = telemetry ?? TelemetryRecorder.noop;
 
   /// True when the provider is configured to route through the Edge Function.
   bool get usesProxy => _proxyConfig != null;
@@ -91,9 +98,17 @@ class GeminiProvider implements AiProvider {
     // Client-side pre-flight from cached snapshot — saves a round trip if
     // the user is obviously over budget.
     await _tracker.ensureBalance(estimate: estimate);
+    final sw = Stopwatch()..start();
     try {
       final r = await run();
       final tokens = r.response.usageMetadata?.totalTokenCount ?? estimate;
+      sw.stop();
+      _telemetry.logEvent('ai_call', properties: {
+        'feature': feature,
+        'tokens_used': tokens,
+        'latency_ms': sw.elapsedMilliseconds,
+        'mode': usesProxy ? 'proxy' : 'direct',
+      });
       if (usesProxy) {
         // Proxy mode: the Edge Function already called consume_ai_tokens
         // before invoking Gemini. The client must NOT re-consume, or we'd
@@ -123,6 +138,7 @@ class GeminiProvider implements AiProvider {
   }) async* {
     await _tracker.ensureBalance(estimate: estimate);
     int tokens = estimate; // fallback if the stream ends without metadata
+    final sw = Stopwatch()..start();
     try {
       try {
         await for (final response in start()) {
@@ -136,6 +152,14 @@ class GeminiProvider implements AiProvider {
         throw AiQuotaExceededException(needed: estimate, remaining: 0);
       }
     } finally {
+      sw.stop();
+      _telemetry.logEvent('ai_call', properties: {
+        'feature': feature,
+        'tokens_used': tokens,
+        'latency_ms': sw.elapsedMilliseconds,
+        'mode': usesProxy ? 'proxy' : 'direct',
+        'streaming': true,
+      });
       if (usesProxy) {
         unawaited(_tracker.refresh());
       } else {

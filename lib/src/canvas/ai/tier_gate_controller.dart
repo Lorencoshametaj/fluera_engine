@@ -31,6 +31,7 @@
 
 import 'package:flutter/foundation.dart';
 
+import '../../ai/telemetry_recorder.dart';
 import '../../canvas/fluera_canvas_config.dart';
 
 /// 💳 Gated pedagogical feature.
@@ -123,9 +124,13 @@ class TierGateController extends ChangeNotifier {
   /// The Monday of the current weekly usage counts (resets weekly).
   DateTime _weekStart;
 
+  final TelemetryRecorder _telemetry;
+
   TierGateController({
     required FlueraSubscriptionTier tier,
+    TelemetryRecorder? telemetry,
   })  : _tier = tier,
+        _telemetry = telemetry ?? TelemetryRecorder.noop,
         _usageDate = _today(),
         _weekStart = _mondayOfWeek();
 
@@ -159,6 +164,7 @@ class TierGateController extends ChangeNotifier {
       final zoneCount = _zoneUsageCounts[key] ?? 0;
       final zoneLimit = _zonelimit(feature);
       if (zoneCount >= zoneLimit) {
+        _emitLimitHit(feature, 'zone', 0);
         return GateResult.blocked(feature);
       }
       return GateResult.allowed(remainingToday: zoneLimit - zoneCount);
@@ -170,6 +176,7 @@ class TierGateController extends ChangeNotifier {
       if (weeklyLimit == null) return const GateResult.unlimited();
       final weeklyCount = _weeklyUsageCounts[feature] ?? 0;
       if (weeklyCount >= weeklyLimit) {
+        _emitLimitHit(feature, 'weekly', 0);
         return GateResult.blocked(feature);
       }
       return GateResult.allowed(remainingToday: weeklyLimit - weeklyCount);
@@ -181,9 +188,19 @@ class TierGateController extends ChangeNotifier {
 
     final count = _usageCounts[feature] ?? 0;
     if (count >= limit) {
+      _emitLimitHit(feature, 'daily', 0);
       return GateResult.blocked(feature);
     }
     return GateResult.allowed(remainingToday: limit - count);
+  }
+
+  void _emitLimitHit(GatedFeature feature, String scope, int remaining) {
+    _telemetry.logEvent('tier_limit_hit', properties: {
+      'feature': feature.name,
+      'tier': _tier.name,
+      'scope': scope,
+      'remaining': remaining,
+    });
   }
 
   /// Record one usage of a feature.

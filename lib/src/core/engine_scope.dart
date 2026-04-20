@@ -50,6 +50,7 @@ import 'enterprise/enterprise_module.dart';
 import '../ai/ai_provider.dart';
 import '../ai/ai_usage_tracker.dart';
 import '../ai/atlas_ai_service.dart';
+import '../ai/telemetry_recorder.dart';
 import '../ai/gemini_client.dart';
 
 // ---------------------------------------------------------------------------
@@ -138,6 +139,14 @@ class EngineScope {
   /// [geminiApiKey] if both are set.
   final GeminiProxyConfig? geminiProxy;
 
+  /// Optional product-telemetry recorder. When set, every Gemini call
+  /// emitted by [atlasProvider] will log an `ai_call` event.
+  /// Defaults to [TelemetryRecorder.noop].
+  ///
+  /// Note: distinct from the engine-internal [telemetry] (EngineTelemetry)
+  /// bus above, which handles counters/gauges/spans for engine metrics.
+  final TelemetryRecorder? productTelemetry;
+
   /// Create a new engine scope.
   ///
   /// Pass [journalPath] to enable the crash-recovery write-ahead log.
@@ -151,6 +160,7 @@ class EngineScope {
     this.geminiApiKey,
     this.aiUsageTracker,
     this.geminiProxy,
+    this.productTelemetry,
   });
   // ---------------------------------------------------------------------------
   // Scope Stack Management
@@ -352,6 +362,7 @@ class EngineScope {
     apiKey: geminiApiKey,
     proxy: geminiProxy,
     tracker: aiUsageTracker,
+    telemetry: productTelemetry,
   );
 
   /// 📦 Module Registry — manages all canvas modules (drawing, tabular, etc.).

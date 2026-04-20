@@ -29,6 +29,7 @@
 
 import 'package:flutter/foundation.dart';
 
+import '../../ai/telemetry_recorder.dart';
 import 'passeggiata_controller.dart';
 import 'step_transition_choreographer.dart';
 
@@ -112,7 +113,11 @@ class LearningStepController extends ChangeNotifier {
   /// [setStep] when the user progresses through the methodology.
   LearningStepController({
     LearningStep initialStep = LearningStep.step1Notes,
-  }) : _currentStep = initialStep;
+    TelemetryRecorder? telemetry,
+  })  : _currentStep = initialStep,
+        _telemetry = telemetry ?? TelemetryRecorder.noop;
+
+  final TelemetryRecorder _telemetry;
 
   // ─────────────────────────────────────────────────────────────────────────
   // STATE
@@ -146,6 +151,21 @@ class LearningStepController extends ChangeNotifier {
       }
     } else if (passeggiata.isActive) {
       passeggiata.deactivate();
+    }
+
+    // 📊 Telemetry: emit for beta-validated step entries only (1, 2).
+    // Other steps are tracked at their domain-specific entry points
+    // (step_3_socratic_started, step_4_ghost_map_started, etc.).
+    final eventName = switch (step) {
+      LearningStep.step1Notes => 'step_1_entered',
+      LearningStep.step2Recall => 'step_2_entered',
+      _ => null,
+    };
+    if (eventName != null) {
+      _telemetry.logEvent(eventName, properties: {
+        'from_step': fromStep,
+        'to_step': stepNumber,
+      });
     }
 
     notifyListeners();

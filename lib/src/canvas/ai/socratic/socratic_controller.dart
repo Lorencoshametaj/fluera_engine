@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'socratic_model.dart';
 import 'socratic_output_filter.dart';
 import '../../../ai/ai_provider.dart';
+import '../../../ai/telemetry_recorder.dart';
 import '../../../reflow/content_cluster.dart';
 
 /// 🔶 SOCRATIC SPATIAL — Controller for Socratic interrogation sessions.
@@ -29,6 +30,11 @@ import '../../../reflow/content_cluster.dart';
 ///   P3-38: No timer / countdown
 ///   P3-40: No visible question list count
 class SocraticController extends ChangeNotifier {
+  SocraticController({TelemetryRecorder? telemetry})
+      : _telemetry = telemetry ?? TelemetryRecorder.noop;
+
+  final TelemetryRecorder _telemetry;
+  DateTime? _sessionStartedAt;
 
   // ─────────────────────────────────────────────────────────────────────────
   // STATE
@@ -99,6 +105,14 @@ class SocraticController extends ChangeNotifier {
         ' ${questions.length} questions in queue,'
         ' maxQuestions=${_session!.maxQuestions},'
         ' types=${questions.map((q) => q.type.name).join(', ')}');
+
+    _sessionStartedAt = DateTime.now();
+    _telemetry.logEvent('step_3_socratic_started', properties: {
+      'cluster_count': clusters.length,
+      'question_count': questions.length,
+      'max_questions': _session!.maxQuestions,
+      'used_fallback': _usedFallback,
+    });
 
     _isGenerating = false;
     _bump();
@@ -663,7 +677,21 @@ INDIZIO3: [soglia]
 
   /// Dismiss and deactivate.
   void dismiss() {
+    // 📊 Emit completion before clearing session state.
+    final session = _session;
+    final startedAt = _sessionStartedAt;
+    if (session != null && startedAt != null) {
+      _telemetry.logEvent('step_3_socratic_completed', properties: {
+        'questions_answered': session.totalAnswered,
+        'questions_correct': session.totalCorrect,
+        'questions_wrong': session.totalWrong,
+        'duration_sec':
+            DateTime.now().difference(startedAt).inSeconds,
+      });
+    }
+
     _session = null;
+    _sessionStartedAt = null;
     _isActive = false;
     _isGenerating = false;
     SocraticOutputFilter.clearLog(); // O8: prevent memory leak

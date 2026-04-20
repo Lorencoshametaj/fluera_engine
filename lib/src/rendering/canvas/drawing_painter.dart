@@ -2,7 +2,9 @@ library drawing_painter;
 
 import '../lod_config.dart' as lod;
 
+import 'dart:developer' show Timeline;
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import '../../services/canvas_performance_monitor.dart';
 import 'package:flutter/scheduler.dart';
@@ -150,18 +152,20 @@ class DrawingPainter extends CustomPainter {
   static int computeLodTier(double scale, [int? currentTier]) =>
       lod.computeLodTier(scale, currentTier);
 
-  /// 🚀 GOOGLE MAPS-STYLE LOD TRANSITION:
-  /// On LOD change, save the old rendering as a snapshot Picture.
-  /// During transition, draw the snapshot (old LOD, user sees no change)
-  /// while silently rebuilding tiles at the new LOD in the background.
-  /// When all tiles are done, cross-fade to new rendering. Zero frame skip.
-  static bool _lodProgressiveMode = false;
+  /// 🗺️ GOOGLE MAPS-STYLE LOD TRANSITION (tile pyramid):
+  ///
+  /// LOD tier changes require no snapshot, no cross-fade, and no progressive
+  /// rebuild loop. The TileCacheManager keeps a separate LRU cache per tier
+  /// and serves "parent fallback" tiles from neighbouring tiers while the
+  /// active tier's tiles are being built — exactly the way Google Maps
+  /// shows blurry parent-zoom tiles until the new zoom level loads in.
+  ///
+  /// See [TileCacheManager.drawWithParentFallback] for the rendering path.
 
   /// 🚀 SELECTION: force direct SceneGraphRenderer (no tile/stroke cache)
   /// during selection transforms. Set by SelectionTransformOverlay.
   static bool forceDirectRender = false;
-  static ui.Picture? _lodSnapshotPicture;
-  static double _lodCrossFadeProgress = 0.0; // 0.0 = snapshot, 1.0 = new cache
+
   static final ValueNotifier<int> _lodRepaintNotifier = ValueNotifier<int>(0);
 
   /// 🚀 LAYER MERGE: Cached merged listenable to avoid allocating a new
@@ -225,6 +229,102 @@ class DrawingPainter extends CustomPainter {
 
   /// 🏎️ Last paint() duration in microseconds (for debug overlay).
   static int _lastPaintDurationUs = 0;
+
+  // 🔬 ─── DART TIMELINE INSTRUMENTATION ─────────────────────────────────
+  // Compile-time gated wrappers around Timeline.startSync/finishSync so the
+  // events show up in the DevTools Performance trace (look for slices named
+  // "LOD/*"). Active in debug + profile builds, fully inlined-out in release.
+  static const bool _traceLodEnabled = !kReleaseMode;
+
+  static void _traceBegin(String name) {
+    if (_traceLodEnabled) Timeline.startSync(name);
+  }
+
+  static void _traceEnd() {
+    if (_traceLodEnabled) Timeline.finishSync();
+  }
+
+  // 🔬 ─── INLINE LOD PROFILER ────────────────────────────────────────────
+  // Set by paint() at every early-return / final-return point so the
+  // profiler can classify what work was actually done. Diagnostic-only —
+  // gated by [profilerEnabled] so it's free in release builds.
+  static bool profilerEnabled = false;
+  static String _lastPaintPath = 'unknown';
+  static int _profPaintCalls = 0;
+  static int _profFastPath = 0;
+  static int _profTileFull = 0;
+  static int _profProgressive = 0;
+  static int _profGracePeriod = 0;
+  static int _profDirectFallback = 0;
+  static int _profOther = 0;
+  static int _profWindowStartMs = 0;
+  static final List<int> _profFrameTimesUs = <int>[];
+
+  static void _recordPaintForProfiler(int durationUs) {
+    if (!profilerEnabled) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (_profWindowStartMs == 0) _profWindowStartMs = nowMs;
+    _profPaintCalls++;
+    _profFrameTimesUs.add(durationUs);
+    switch (_lastPaintPath) {
+      case 'fast':
+        _profFastPath++;
+        break;
+      case 'tile':
+        _profTileFull++;
+        break;
+      case 'progressive':
+        _profProgressive++;
+        break;
+      case 'grace':
+        _profGracePeriod++;
+        break;
+      case 'direct':
+        _profDirectFallback++;
+        break;
+      default:
+        _profOther++;
+    }
+    if (nowMs - _profWindowStartMs >= 1000) {
+      final n = _profFrameTimesUs.length;
+      if (n == 0) {
+        _profWindowStartMs = nowMs;
+        return;
+      }
+      _profFrameTimesUs.sort();
+      final p50 = _profFrameTimesUs[n ~/ 2];
+      final p99Index = ((n - 1) * 0.99).floor().clamp(0, n - 1);
+      final p99 = _profFrameTimesUs[p99Index];
+      final maxUs = _profFrameTimesUs.last;
+      final rasterMetrics = CanvasPerformanceMonitor.instance.getMetrics();
+      // ignore: avoid_print
+      debugPrint('🔬 LOD-PROF tier=$_cachedLodTier '
+          'scale=${_lastPaintedScale.toStringAsFixed(3)} | '
+          'paints/s=$_profPaintCalls '
+          '(fast=$_profFastPath tile=$_profTileFull '
+          'prog=$_profProgressive grace=$_profGracePeriod '
+          'direct=$_profDirectFallback other=$_profOther) | '
+          'CPU paint p50=${(p50 / 1000).toStringAsFixed(2)}ms '
+          'p99=${(p99 / 1000).toStringAsFixed(2)}ms '
+          'max=${(maxUs / 1000).toStringAsFixed(2)}ms | '
+          'GPU raster p99=${rasterMetrics.rasterP99Ms.toStringAsFixed(2)}ms');
+      _profPaintCalls = 0;
+      _profFastPath = 0;
+      _profTileFull = 0;
+      _profProgressive = 0;
+      _profGracePeriod = 0;
+      _profDirectFallback = 0;
+      _profOther = 0;
+      _profFrameTimesUs.clear();
+      _profWindowStartMs = nowMs;
+    }
+  }
+
+  /// Diagnostic profiler counters from the last 1s window. Free when
+  /// [profilerEnabled] is false. Snapshot is logged via print().
+  static void enableProfiler() => profilerEnabled = true;
+  static void disableProfiler() => profilerEnabled = false;
+  // ──────────────────────────────────────────────────────────────────────
 
   /// Current LOD tier: 0 = full, 1 = batched, 2 = sections.
   static int get currentLodTier => _cachedLodTier;
@@ -670,6 +770,7 @@ class DrawingPainter extends CustomPainter {
     // 🔬 DIAGNOSTIC: per-section timing
     _paintStopwatch.reset();
     _paintStopwatch.start();
+    _lastPaintPath = 'unknown';
 
     // 🏎️ PERFORMANCE MONITORING: measure frame time
     CanvasPerformanceMonitor.instance.startFrame();
@@ -691,6 +792,7 @@ class DrawingPainter extends CustomPainter {
     // Undo the widget-level transform to draw in viewport space,
     // then restore for canvas-space stroke rendering.
     if (paperType != null && backgroundColor != null && controller != null) {
+      _traceBegin('LOD/background');
       final s = controller!.scale;
       final ox = controller!.offset.dx;
       final oy = controller!.offset.dy;
@@ -716,6 +818,7 @@ class DrawingPainter extends CustomPainter {
       }
 
       canvas.restore();
+      _traceEnd();
     }
 
     // ✂️ Applica clipping se abilitato (per editing immagini)
@@ -847,6 +950,7 @@ class DrawingPainter extends CustomPainter {
     // 🏎️ PERFORMANCE MONITORING: end frame measurement
     _lastPaintDurationUs = _paintStopwatch.elapsedMicroseconds;
     CanvasPerformanceMonitor.instance.endFrame(_effectiveStrokes.length);
+    _recordPaintForProfiler(_lastPaintDurationUs);
 
     // 🧹 SCRATCH-OUT PREVIEW: Draw red tint overlay on strokes about to be deleted.
     if (scratchOutPreviewIds.isNotEmpty) {
@@ -1064,13 +1168,10 @@ class DrawingPainter extends CustomPainter {
     final isCurrentlyGesturing = controller?.isPanning ?? false;
     if (!isCurrentlyGesturing && _gestureBuiltTiles) {
       _gestureBuiltTiles = false;
-      // 🐛 FIX: Just mark tiles stale for gradual rebuild. DON'T enter
-      // progressive mode — that overwrites the cache with rendering at the
-      // wrong sub-tier scale (e.g., polylines at 0.24 replacing bounding
-      // boxes at 0.19, even though both are LOD tier 2).
-      // The LOD transition system (grace period + progressive mode at line
-      // 1110+) handles all tier changes correctly.
-      _tileCache.markAllStale();
+      // Tile pyramid keeps the cheap-rendered tiles around as parent
+      // fallback at higher tiers. The next non-gesture frame will rebuild
+      // the active tier's tiles at the correct quality and the pyramid
+      // will swap them in transparently.
     }
 
     final totalStrokes = _effectiveStrokes.length;
@@ -1125,9 +1226,10 @@ class DrawingPainter extends CustomPainter {
           viewport.top >= _cachedCacheViewport.top - tolerance &&
           viewport.right <= _cachedCacheViewport.right + tolerance &&
           viewport.bottom <= _cachedCacheViewport.bottom + tolerance)) {
-        // 🚀 P99 FIX: mark tiles stale + invalidate ONLY tiles outside
-        // the old cached viewport. Stroke cache stays as fallback.
-        _tileCache.markAllStale();
+        // 🚀 P99 FIX: stroke cache stays as fallback for the old viewport;
+        // tile pyramid will progressively rebuild tiles for the expanded
+        // area on the next frames (no invalidation needed — pyramid keeps
+        // existing tiles available as parent fallback).
         // Expand the cached viewport to include the new area
         _cachedCacheViewport = Rect.fromLTRB(
           viewport.left < _cachedCacheViewport.left ? viewport.left : _cachedCacheViewport.left,
@@ -1147,359 +1249,40 @@ class DrawingPainter extends CustomPainter {
     // Going UP: transition at 0.55/0.22 (early = restore quality sooner)
     final currentTier = computeLodTier(currentScale, _cachedLodTier);
 
-    // 🛡️ EDGE CASE: cancel progressive mode if scene changed (stroke added/removed)
-    // or if zoom crossed ANOTHER tier boundary during the transition.
-    if (_lodProgressiveMode) {
-      final sceneChanged = sceneGraph.version != _cachedSceneVersion;
-      final tierChangedAgain = currentTier != _cachedLodTier;
-      if (sceneChanged || tierChangedAgain) {
-        if (tierChangedAgain) {
-          // 🐛 FIX: Snapshot is from a different LOD tier — don't adopt stale
-          // rendering. Dispose it and force full rebuild at the correct tier.
-          // Old code adopted it, causing full-quality strokes to persist at
-          // low zoom during rapid zoom in/out cycles.
-          _lodSnapshotPicture?.dispose();
-          _lodSnapshotPicture = null;
-          _strokeCache.invalidateCache();
-          _tileCache.invalidateAll();
-          _cachedLodTier = currentTier;
-        } else {
-          // Scene changed but same tier — safe to adopt snapshot as fallback.
-          if (_lodSnapshotPicture != null) {
-            _strokeCache.adoptPicture(_lodSnapshotPicture!, totalStrokes);
-            _strokeCacheLodTier = _cachedLodTier;
-            _lodSnapshotPicture = null;
-          }
-        }
-        _lodProgressiveMode = false;
-      }
-    }
-
     // 🚀 LOD GRACE PERIOD: delay transition until tier is stable for 2 frames.
-    // This prevents the expensive snapshot+invalidation during rapid zoom.
-    if (currentTier != _cachedLodTier && !_lodProgressiveMode) {
+    // This prevents committing during rapid scroll-wheel zoom that flies
+    // through several tier boundaries in a single gesture.
+    if (currentTier != _cachedLodTier) {
       if (_lodPendingTier == currentTier) {
         _lodGraceFrames++;
       } else {
-        // Tier changed — reset grace counter
         _lodPendingTier = currentTier;
         _lodGraceFrames = 1;
       }
 
       if (_lodGraceFrames >= 2) {
-        // Tier stable for 2 frames — commit LOD transition
-        // 1. Save snapshot of current cache (before invalidation)
-        // 1. 🚀 STEAL the cache Picture directly (O(1), no PictureRecorder replay)
-        _lodSnapshotPicture?.dispose();
-        _lodSnapshotPicture = _strokeCache.stealPicture();
-        // stealPicture() already empties the cache — no need for invalidateCache()
-        // 🐛 FIX: invalidateAll() instead of markAllStale(). Stale tiles from
-        // the PREVIOUS LOD tier would persist as fallback during progressive
-        // rebuild, showing full-quality strokes after cross-fade completes.
-        // The snapshot already provides visual continuity during the cross-fade.
-        _tileCache.invalidateAll();
+        // 🗺️ TILE PYRAMID COMMIT (Google Maps-style)
+        // The tile cache keeps the previous tier's tiles around as parent
+        // fallback — see TileCacheManager.drawWithParentFallback. There is
+        // nothing to invalidate, snapshot, or cross-fade: the painter just
+        // starts asking for tiles at the new tier from this frame on, and
+        // the cache transparently replays old-tier tiles where the new
+        // ones haven't been built yet.
+        _strokeCache.invalidateCache();
         _cachedLodTier = currentTier;
         _cachedSceneVersion = sceneGraph.version;
         _lodPendingTier = -1;
         _lodGraceFrames = 0;
-        // 3. Enter progressive mode + reset cross-fade
-        _lodProgressiveMode = true;
-        _lodCrossFadeProgress = 0.0;
       } else {
-        // 🚀 Grace period: reuse OLD cached Picture (O(1) drawPicture).
-        // The old LOD is at wrong detail level but Flutter's transform
-        // scales it — visually fine during active zoom (1-2 frames).
-        if (_strokeCache.isCacheValid(totalStrokes) ||
-            _strokeCache.hasCacheForStrokes(totalStrokes)) {
-          _strokeCache.drawCached(canvas);
-        } else {
-          // No cache available (rare) — cheap direct render
-          _ensureRenderIndex();
-          _delegateRenderer.currentScale = currentScale;
-          _delegateRenderer.skipPdfNodes = true;
-          final cacheViewport = viewport.inflate(viewport.longestSide * 0.5);
-          _delegateRenderer.render(
-            canvas,
-            sceneGraph,
-            cacheViewport,
-            scale: currentScale,
-          );
-          _delegateRenderer.skipPdfNodes = false;
-        }
-        _drawEraserPreviews(canvas);
-        // Only schedule next frame when NOT gesturing — during gesture,
-        // the gesture handler already schedules frames. Avoids rebuild loop.
-        final isGracePeriodGesturing = controller?.isPanning ?? false;
-        if (!isGracePeriodGesturing) {
-          SchedulerBinding.instance.addPostFrameCallback((_) {
-            _lodRepaintNotifier.value++;
-          });
-        }
-        return;
+        // Grace period: keep drawing at the OLD tier so a flicker through
+        // multiple tier boundaries during a fast scroll doesn't trigger N
+        // commits. We fall through to the normal tile path below using the
+        // still-current _cachedLodTier.
       }
-    } else if (currentTier == _cachedLodTier) {
-      // Tier matches: reset pending state
+    } else {
+      // Tier matches: reset pending state.
       _lodPendingTier = -1;
       _lodGraceFrames = 0;
-    }
-
-    // 🚀 PROGRESSIVE LOD: rebuild tiles at new LOD progressively.
-    // Uses cross-fade: old snapshot fades out while new tiles fade in.
-    if (_lodProgressiveMode) {
-      // 🎬 CROSS-FADE: draw old snapshot with decreasing opacity
-      if (_lodSnapshotPicture != null && _lodCrossFadeProgress < 1.0) {
-        // 🎬 Smoothstep easing: perceptually linear fade (fast start, smooth end)
-        final t = _lodCrossFadeProgress;
-        final eased = t * t * (3.0 - 2.0 * t);
-        final snapshotOpacity = (1.0 - eased).clamp(0.0, 1.0);
-        // 🚀 PERF: skip saveLayer when fully opaque (no compositing cost)
-        if (snapshotOpacity >= 0.99) {
-          canvas.drawPicture(_lodSnapshotPicture!);
-        } else if (snapshotOpacity > 0.01) {
-          canvas.saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, snapshotOpacity));
-          canvas.drawPicture(_lodSnapshotPicture!);
-          canvas.restore();
-        }
-      }
-      // 🎬 SMOOTH CROSS-FADE: ~250ms transition (30 frames @120Hz)
-      _lodCrossFadeProgress = (_lodCrossFadeProgress + 0.05).clamp(0.0, 1.0);
-      // Dispose snapshot when fully faded out
-      if (_lodCrossFadeProgress >= 1.0 && _lodSnapshotPicture != null) {
-        _lodSnapshotPicture!.dispose();
-        _lodSnapshotPicture = null;
-      }
-
-      _ensureRenderIndex();
-
-      // 🎬 FADE-IN new tiles: match cross-fade progress for 2-way blend
-      final bool fadeInActive = _lodCrossFadeProgress < 1.0 && _lodCrossFadeProgress > 0.01;
-      if (fadeInActive) {
-        final t = _lodCrossFadeProgress;
-        final tileOpacity = t * t * (3.0 - 2.0 * t);
-        // 🚀 PERF: skip saveLayer when opacity is negligible or full
-        if (tileOpacity > 0.01 && tileOpacity < 0.99) {
-          canvas.saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, tileOpacity));
-        } else {
-          // No saveLayer needed — either fully transparent or opaque
-        }
-      }
-
-      // 🚀 Draw cached + stale tiles, collect missing for rebuild
-      final missingTiles = _tileCache.drawAndCollectMissing(canvas, viewport);
-
-      if (missingTiles.length > 1) {
-        TileCacheManager.sortByDistanceToCenter(missingTiles, viewport);
-      }
-
-      if (missingTiles.isNotEmpty) {
-        final sw = Stopwatch()..start();
-        // 🚀 ZOOM-AWARE BUDGET: at low zoom, more tiles are visible but each
-        // contains fewer strokes. Reduce budget to leave headroom for PDF/image work.
-        final effectiveScale = controller?.scale ?? canvasScale;
-        final budgetUs = effectiveScale < 0.3 ? 2000 : 4000;
-        _delegateRenderer.currentScale = effectiveScale;
-
-        for (final tileKey in missingTiles) {
-          if (sw.elapsedMicroseconds > budgetUs) break;
-
-          final tileBounds = TileCacheManager.tileBounds(tileKey);
-          final visibleNodes = _renderIndex.queryRange(tileBounds);
-
-          // 🚀 EMPTY TILE SKIP: no nodes → cache empty, zero cost
-          if (visibleNodes.isEmpty) {
-            final emptyRec = ui.PictureRecorder();
-            Canvas(emptyRec);
-            _tileCache.cacheTile(
-              tileKey,
-              emptyRec.endRecording(),
-              sceneGraph.version,
-            );
-            continue;
-          }
-
-          final recorder = ui.PictureRecorder();
-          final recCanvas = Canvas(recorder);
-
-          // 🐛 FIX: Use _cachedLodTier (not effectiveScale) to select
-          // rendering mode. This ensures consistency within each LOD tier.
-          // effectiveScale thresholds (0.2) don't match LOD tier boundaries
-          // (0.25), causing scale 0.22 to render polylines instead of
-          // bounding boxes even though it's in tier 2.
-          if (_cachedLodTier >= 2) {
-            // 🎯 Z-ORDER: Sections first
-            for (final node in visibleNodes) {
-              if (node is! SectionNode) continue;
-              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
-            }
-            final thumbBatches = <int, ui.Path>{};
-            for (final node in visibleNodes) {
-              if (node is StrokeNode) {
-                if (node.stroke.isStub || node.stroke.isFill) continue;
-                final b = node.stroke.bounds;
-                if (b.isEmpty || b.longestSide * effectiveScale < 3.0) continue;
-                final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
-                final colorKey = node.stroke.color.toARGB32();
-                final path = thumbBatches.putIfAbsent(
-                  colorKey,
-                  () => ui.Path(),
-                );
-                path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
-                continue;
-              }
-              if (node is SectionNode) continue; // Already rendered
-              if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
-              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
-            }
-            for (final entry in thumbBatches.entries) {
-              final color = Color(entry.key);
-              _lodThumbFillPaint.color = color.withValues(alpha: 0.15);
-              recCanvas.drawPath(entry.value, _lodThumbFillPaint);
-              _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
-              recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
-            }
-            // 🏷️ CLUSTER LABEL: stroke count per tile at extreme zoom-out
-            final strokeCount = visibleNodes.whereType<StrokeNode>().length;
-            if (strokeCount >= 3) {
-              final labelSize = 12.0 / effectiveScale;
-              final center = tileBounds.center;
-              // Background pill
-              final pillRect = RRect.fromRectAndRadius(
-                Rect.fromCenter(center: center, width: labelSize * 3, height: labelSize * 1.6),
-                Radius.circular(labelSize * 0.4),
-              );
-              _lodThumbFillPaint.color = const Color(0x80000000);
-              recCanvas.drawRRect(pillRect, _lodThumbFillPaint);
-              // Count text
-              final builder = ui.ParagraphBuilder(
-                ui.ParagraphStyle(
-                  textAlign: TextAlign.center,
-                  fontSize: labelSize * 0.8,
-                  maxLines: 1,
-                ),
-              );
-              builder.pushStyle(ui.TextStyle(color: const Color(0xDDFFFFFF)));
-              builder.addText('$strokeCount');
-              final paragraph = builder.build();
-              paragraph.layout(ui.ParagraphConstraints(width: labelSize * 3));
-              recCanvas.drawParagraph(
-                paragraph,
-                Offset(center.dx - labelSize * 1.5, center.dy - paragraph.height / 2),
-              );
-            }
-          } else if (_cachedLodTier >= 1) {
-            // 🎨 TIER 2: Color-batched simplified polylines
-            // 🎯 Z-ORDER: Render sections/non-stroke FIRST
-            for (final node in visibleNodes) {
-              if (node is StrokeNode) continue;
-              if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
-              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
-            }
-            final strokeOpacity =
-                effectiveScale < 0.3
-                    ? ((effectiveScale - 0.2) / 0.1).clamp(0.0, 1.0)
-                    : 1.0;
-            final batches = <int, _ColorBatch>{};
-            final step = (1.0 / effectiveScale).ceil().clamp(3, 10);
-
-            for (final node in visibleNodes) {
-              if (node is! StrokeNode) continue;
-              if (node.stroke.isStub || node.stroke.isFill) continue;
-              final stroke = node.stroke;
-              final points = stroke.points;
-              if (points.isEmpty) continue;
-              final screenSize = stroke.bounds.longestSide * effectiveScale;
-              if (screenSize < 4.0) continue;
-
-              final colorKey = stroke.color.toARGB32();
-              final batch = batches.putIfAbsent(
-                colorKey,
-                () => _ColorBatch(ui.Path(), stroke.color, stroke.baseWidth),
-              );
-
-              bool first = true;
-              for (int i = 0; i < points.length; i += step) {
-                final pos = points[i].position;
-                if (first) {
-                  batch.path.moveTo(pos.dx, pos.dy);
-                  first = false;
-                } else {
-                  batch.path.lineTo(pos.dx, pos.dy);
-                }
-              }
-              final lastPos = points.last.position;
-              batch.path.lineTo(lastPos.dx, lastPos.dy);
-              if (stroke.baseWidth > batch.maxWidth) {
-                batch.maxWidth = stroke.baseWidth;
-              }
-            }
-
-            for (final batch in batches.values) {
-              _lodBatchPaint
-                ..color = batch.color.withValues(alpha: strokeOpacity)
-                ..strokeWidth = (batch.maxWidth * effectiveScale * 2.0).clamp(
-                  0.5,
-                  batch.maxWidth,
-                )
-                ..isAntiAlias = true;
-              recCanvas.drawPath(batch.path, _lodBatchPaint);
-            }
-          } else {
-            // 🎯 Z-ORDER: Sections first, then everything else
-            for (final node in visibleNodes) {
-              if (node is! SectionNode) continue;
-              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
-            }
-            for (final node in visibleNodes) {
-              if (node is SectionNode) continue;
-              if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
-              if (node is StrokeNode && node.stroke.isStub) continue;
-              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
-            }
-          }
-
-          final picture = recorder.endRecording();
-          // Draw immediately so user sees the update this frame
-          canvas.drawPicture(picture);
-          _tileCache.cacheTile(tileKey, picture, sceneGraph.version);
-        }
-
-        final remaining = _tileCache.collectMissing(viewport);
-        if (remaining.isEmpty) {
-          // All tiles rebuilt — finalize
-          final globalRec = ui.PictureRecorder();
-          _tileCache.drawCachedOnly(Canvas(globalRec), viewport);
-          final globalPic = globalRec.endRecording();
-          _strokeCache.adoptPicture(globalPic, totalStrokes);
-          _strokeCacheLodTier = _cachedLodTier;
-          _cachedSceneVersion = sceneGraph.version;
-          final lodInflate =
-              viewport.longestSide * (1.5 / currentScale).clamp(1.5, 8.0);
-          _cachedCacheViewport = viewport.inflate(lodInflate);
-          _tileCache.markValid(totalStrokes, sceneGraph.version);
-          _lodProgressiveMode = false;
-        } else {
-          SchedulerBinding.instance.addPostFrameCallback((_) {
-            _lodRepaintNotifier.value++;
-          });
-        }
-      } else {
-        // No missing tiles — complete
-        _lodProgressiveMode = false;
-        _tileCache.markValid(totalStrokes, sceneGraph.version);
-      }
-
-      // 🎬 Close fade-in saveLayer if active (only if we actually pushed one)
-      if (fadeInActive) {
-        final t2 = _lodCrossFadeProgress;
-        final op2 = t2 * t2 * (3.0 - 2.0 * t2);
-        if (op2 > 0.01 && op2 < 0.99) {
-          canvas.restore();
-        }
-      }
-
-      _drawEraserPreviews(canvas);
-      _triggerPagingIfNeeded(viewport);
-      return; // Skip normal rendering path
     }
 
     // 🐛 FIX: Invalidate stroke cache if it was built at a different LOD tier.
@@ -1507,8 +1290,11 @@ class DrawingPainter extends CustomPainter {
     // that would otherwise render full-quality strokes at low zoom.
     if (_strokeCacheLodTier != _cachedLodTier &&
         _strokeCache.isCacheValid(totalStrokes)) {
+      // The global stroke cache was built at a different LOD tier; drop it.
+      // Tile-level data is preserved across tiers in the pyramid, so we do
+      // NOT invalidate _tileCache — old-tier tiles serve as parent fallback
+      // until the active tier catches up.
       _strokeCache.invalidateCache();
-      _tileCache.markAllStale();
       _strokeCacheLodTier = _cachedLodTier;
     }
 
@@ -1522,7 +1308,10 @@ class DrawingPainter extends CustomPainter {
 
     if (!hasEraserPreview && _strokeCache.isCacheValid(totalStrokes)) {
       // ✅ Perfect cache hit: replay all strokes in O(1)
+      _traceBegin('LOD/strokeCacheReplay');
       _strokeCache.drawCached(canvas);
+      _traceEnd();
+      _lastPaintPath = 'fast';
       return;
     }
 
@@ -1565,6 +1354,7 @@ class DrawingPainter extends CustomPainter {
         forceDirectRender ||
         _effectiveStrokes.length < 5) {
       // Fallback: direct render without caching
+      _traceBegin('LOD/directRender');
       final cacheViewport = viewport.inflate(viewport.longestSide * 1.5);
       final effectiveScale = controller?.scale ?? canvasScale;
       _delegateRenderer.skipPdfNodes = true;
@@ -1576,6 +1366,8 @@ class DrawingPainter extends CustomPainter {
       );
       _delegateRenderer.skipPdfNodes = false;
       _drawEraserPreviews(canvas);
+      _traceEnd();
+      _lastPaintPath = 'direct';
       return;
     }
 
@@ -1600,18 +1392,43 @@ class DrawingPainter extends CustomPainter {
     // 🌲 Ensure R-Tree is up to date for O(log N) tile queries
     _ensureRenderIndex();
 
-    // Draw cached tiles and collect missing ones
-    final missingTiles = _tileCache.drawAndCollectMissing(canvas, viewport);
+    // 🗺️ Draw the active tier; for any tile not yet built at that tier,
+    // the cache transparently falls back to the closest available picture
+    // from another tier (Google Maps-style parent fallback). The returned
+    // list is the keys still missing AT [_cachedLodTier] — those are the
+    // ones we'll rebuild this frame within the budget.
+    _traceBegin('LOD/drawPyramid');
+    final missingTiles = _tileCache.drawWithParentFallback(
+      canvas,
+      viewport,
+      _cachedLodTier,
+    );
+    _traceEnd();
 
     // 🎯 CENTER-FIRST: rebuild tiles closest to viewport center first
     if (missingTiles.length > 1) {
       TileCacheManager.sortByDistanceToCenter(missingTiles, viewport);
     }
 
-    // 🚀 PROGRESSIVE FIRST LOAD: budget-cap tile rebuilds.
-    // 🚀 GESTURE-AWARE: 2ms during gesture (fast frames), 4ms when idle.
+    // 🗺️ GOOGLE MAPS-STYLE DEFER: during an active pinch/pan gesture we do
+    // NOT rebuild tiles. The pyramid's parent fallback already served
+    // something visually for each visible key (a scaled old-tier picture
+    // handled by the GPU transform for free). Creating fresh pictures now
+    // would:
+    //   • enlarge the layer tree (raster-thread encode jumps 20–30ms
+    //     when multiple tier boundaries are crossed rapidly),
+    //   • waste work the next tier transition would throw away anyway.
+    // When the gesture ends the next paint re-enters this path with
+    // isPanning=false and rebuilds cleanly at the settled tier.
     final isCurrentGesture = controller?.isPanning ?? false;
-    final normalBudgetUs = isCurrentGesture ? 2000 : 4000;
+    if (isCurrentGesture) {
+      _triggerPagingIfNeeded(viewport);
+      _lastPaintPath = 'tile';
+      return;
+    }
+
+    // 🚀 PROGRESSIVE FIRST LOAD: budget-cap tile rebuilds.
+    final normalBudgetUs = 4000;
     final Stopwatch? normalSw =
         missingTiles.length > 2 ? (Stopwatch()..start()) : null;
 
@@ -1625,6 +1442,7 @@ class DrawingPainter extends CustomPainter {
     final isGesturing = controller?.isPanning ?? false;
     final renderScale = (isGesturing && effectiveScale < 0.5) ? 0.1 : effectiveScale;
 
+    _traceBegin('LOD/tileRebuild');
     int normalTilesRebuilt = 0;
     for (final tileKey in missingTiles) {
       // Budget check (skip for ≤2 tiles — not worth overhead)
@@ -1642,7 +1460,7 @@ class DrawingPainter extends CustomPainter {
       if (visibleNodes.isEmpty) {
         final emptyRec = ui.PictureRecorder();
         Canvas(emptyRec); // Must create Canvas to finalize recorder
-        _tileCache.cacheTile(
+        _tileCache.cacheTile(_cachedLodTier,
           tileKey,
           emptyRec.endRecording(),
           sceneGraph.version,
@@ -1814,11 +1632,12 @@ class DrawingPainter extends CustomPainter {
 
       final picture = recorder.endRecording();
       canvas.drawPicture(picture);
-      _tileCache.cacheTile(tileKey, picture, sceneGraph.version);
+      _tileCache.cacheTile(_cachedLodTier,tileKey, picture, sceneGraph.version);
       if (isGesturing)
         _gestureBuiltTiles = true; // Only when tile ACTUALLY rebuilt
       normalTilesRebuilt++;
     }
+    _traceEnd(); // LOD/tileRebuild
 
     // Check if all tiles were rebuilt
     final allNormalTilesBuilt = normalTilesRebuilt >= missingTiles.length;
@@ -1828,13 +1647,18 @@ class DrawingPainter extends CustomPainter {
     // and calls invalidateAll(), destroying all partially-built tiles.
     // This caused an infinite loop: build some → invalidate all → repeat.
     _tileCache.markValid(totalStrokes, sceneGraph.version);
+    // 🗑️ Drop tier caches the user hasn't visited recently. Active tier is
+    // never evicted. Cheap walk over 3 integers; only allocates work when
+    // some non-active tier has actually been idle past the threshold.
+    _tileCache.evictIdleTiers();
+    _lastPaintPath = 'tile';
 
     // 🚀 FIX: Update global stroke cache WITHOUT re-rendering all tiles.
     // Record the tiles we already drew into one Picture.
     if (normalTilesRebuilt > 0 && allNormalTilesBuilt) {
       final globalRecorder = ui.PictureRecorder();
       final globalCanvas = Canvas(globalRecorder);
-      _tileCache.drawCachedOnly(globalCanvas, viewport);
+      _tileCache.drawCachedOnlyForTier(_cachedLodTier, globalCanvas, viewport);
       final globalPicture = globalRecorder.endRecording();
       _strokeCache.adoptPicture(globalPicture, totalStrokes);
       _strokeCacheLodTier = _cachedLodTier;
@@ -1854,7 +1678,8 @@ class DrawingPainter extends CustomPainter {
         normalSw.elapsedMicroseconds < normalBudgetUs) {
       // 🚀 PRE-WARM: all visible tiles built, use remaining budget for surrounding tiles.
       // Pre-renders 2-ring of tiles outside viewport so panning is instant.
-      final preWarmTiles = _tileCache.collectMissingPreWarm(viewport);
+      _traceBegin('LOD/preWarm');
+      final preWarmTiles = _tileCache.collectMissingPreWarm(_cachedLodTier, viewport);
       if (preWarmTiles.isNotEmpty) {
         TileCacheManager.sortByPanPrediction(
           preWarmTiles,
@@ -1870,7 +1695,7 @@ class DrawingPainter extends CustomPainter {
           if (visibleNodes.isEmpty) {
             final emptyRec = ui.PictureRecorder();
             Canvas(emptyRec);
-            _tileCache.cacheTile(
+            _tileCache.cacheTile(_cachedLodTier,
               tileKey,
               emptyRec.endRecording(),
               sceneGraph.version,
@@ -1891,7 +1716,7 @@ class DrawingPainter extends CustomPainter {
             if (node is StrokeNode && node.stroke.isStub) continue;
             _delegateRenderer.renderNode(recCanvas, node, tileBounds);
           }
-          _tileCache.cacheTile(
+          _tileCache.cacheTile(_cachedLodTier,
             tileKey,
             recorder.endRecording(),
             sceneGraph.version,
@@ -1900,6 +1725,7 @@ class DrawingPainter extends CustomPainter {
         // Pre-warm is OPPORTUNISTIC only — never schedules additional frames.
         // This prevents infinite repaint loops with LRU eviction.
       }
+      _traceEnd(); // LOD/preWarm
     }
 
     // Draw eraser previews on top
@@ -3012,9 +2838,8 @@ class DrawingPainter extends CustomPainter {
     if (isGesturing) {
       // Allow repaints for content changes (stroke add/undo)
       if (oldDelegate._sceneGraphVersion != _sceneGraphVersion) return true;
-      // 🚀 Allow LOD repaints during gesture — so LOD transitions
-      // happen in real-time during pinch zoom, not just on release.
-      if (_lodProgressiveMode) return true;
+      // 🚀 Allow LOD repaints during gesture — so the active tier swaps
+      // in real-time during pinch zoom, not just on release.
       if (controller != null) {
         final s = controller!.scale;
         if (computeLodTier(s, _cachedLodTier) != _cachedLodTier) return true;
@@ -3089,11 +2914,6 @@ class DrawingPainter extends CustomPainter {
       if (computeLodTier(s) != _cachedLodTier) {
         return true;
       }
-    }
-
-    // 🚀 Progressive LOD: keep repainting until transition completes.
-    if (_lodProgressiveMode) {
-      return true;
     }
 
     return false;

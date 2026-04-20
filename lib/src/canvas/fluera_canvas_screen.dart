@@ -728,8 +728,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🧠 Learning step controller — gates AI subsystems by current step.
   /// Default: Step 1 (Appunti a Mano) — AI dormant, zero distractions.
-  final LearningStepController _learningStepController = LearningStepController(
+  late final LearningStepController _learningStepController =
+      LearningStepController(
     initialStep: LearningStep.step1Notes,
+    telemetry: widget.config.telemetry,
   );
 
   /// 🚦 Step gate controller — evaluates prerequisites for each step (A15).
@@ -752,11 +754,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       RecallPersistenceService();
 
   /// 🧠 SRS Blur: Review session controller for blur-on-return.
-  final SrsReviewSession _srsReviewSession = SrsReviewSession();
+  late final SrsReviewSession _srsReviewSession =
+      SrsReviewSession(telemetry: widget.config.telemetry);
 
   /// 🗺️ Ghost Map: Controller for AI-generated knowledge gap overlay.
   late final GhostMapController _ghostMapController = GhostMapController(
     provider: EngineScope.current.atlasProvider,
+    telemetry: widget.config.telemetry,
   );
 
   /// 🗺️ Ghost Map: Version notifier for painter repaint.
@@ -796,7 +800,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   late Map<RecallLevel, String> _recallLevelLabels;
 
   /// 🌫️ Fog of War: Controller for fog overlay + mastery map.
-  final FogOfWarController _fogOfWarController = FogOfWarController();
+  late final FogOfWarController _fogOfWarController =
+      FogOfWarController(telemetry: widget.config.telemetry);
 
   /// 🌫️ Fog of War: Version notifier for painter repaint.
   final ValueNotifier<int> _fogOfWarVersionNotifier = ValueNotifier(0);
@@ -852,7 +857,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Offset? _pendingFogTapPosition;
 
   // 🔶 Socratic Spatial fields
-  final SocraticController _socraticController = SocraticController();
+  late final SocraticController _socraticController =
+      SocraticController(telemetry: widget.config.telemetry);
   AnimationController? _socraticPulseController;
   /// null = not generating, non-null = current phase label
   String? _socraticGeneratingPhase;
@@ -884,10 +890,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Bounding rects of incomplete nodes (in canvas coordinates).
   List<Rect> _zeigarnikIncompleteNodeBounds = const [];
 
-  /// Animation phase [0..2π] for the pulsing effect.
-  double _zeigarnikAnimPhase = 0.0;
-
   /// Animation controller for the Zeigarnik pulse (4s period).
+  /// The phase [0..2π] is derived live from [AnimationController.value] in
+  /// the overlay builder — no redundant field needed.
   AnimationController? _zeigarnikAnimController;
 
   // ⭐ Golden Shimmer fields (SRS Stage 4+ mastered nodes)
@@ -897,10 +902,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Bounding rects of mastered nodes (in canvas coordinates).
   List<Rect> _goldenShimmerNodeBounds = const [];
 
-  /// Animation phase [0..2π] for the shimmer effect.
-  double _goldenShimmerAnimPhase = 0.0;
-
   /// Animation controller for the golden shimmer (6s period).
+  /// The phase [0..2π] is derived live from [AnimationController.value] in
+  /// the overlay builder — no redundant field needed.
   AnimationController? _goldenShimmerAnimController;
 
   /// 🌉 Cross-Zone Bridge controller (Passo 9, lazy-initialized).
@@ -2647,7 +2651,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _loadStepGateHistory();
 
     // 💳 Initialize tier gate controller (A17) with persisted usage counts.
-    _tierGateController = TierGateController(tier: _subscriptionTier);
+    _tierGateController = TierGateController(
+      tier: _subscriptionTier,
+      telemetry: widget.config.telemetry,
+    );
     _loadTierGateHistory();
 
     // 🔔 Listen for notification taps (SR review reminders)

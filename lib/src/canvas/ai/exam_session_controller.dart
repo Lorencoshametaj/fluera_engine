@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../ai/ai_provider.dart';
 import '../../ai/atlas_ai_service.dart';
+import '../../ai/telemetry_recorder.dart';
 import '../../utils/safe_path_provider.dart';
 import '../../config/v1_feature_gate.dart'; // 🚀 v1 DEFER kill switches
 import 'exam_session_model.dart';
@@ -55,9 +56,14 @@ class ExamSessionController extends ChangeNotifier {
     required AiProvider provider,
     this.language = 'Italian',
     this.onReviewScheduleReady,
-  }) : _provider = provider {
+    TelemetryRecorder? telemetry,
+  })  : _provider = provider,
+        _telemetry = telemetry ?? TelemetryRecorder.noop {
     _loadHistory();
   }
+
+  final TelemetryRecorder _telemetry;
+  DateTime? _sessionStartedAt;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Session lifecycle
@@ -88,6 +94,12 @@ class ExamSessionController extends ChangeNotifier {
         sessionId: 'exam_${DateTime.now().millisecondsSinceEpoch}',
         questions: questions,
       );
+      _sessionStartedAt = DateTime.now();
+      _telemetry.logEvent('step_11_exam_started', properties: {
+        'question_count': questions.length,
+        'topic_count': selectedClusters.length,
+        'language': language,
+      });
     } catch (e) {
       _error = 'Errore: ${e.toString().length > 100 ? '${e.toString().substring(0, 100)}...' : e}';
     } finally {
@@ -175,6 +187,21 @@ class ExamSessionController extends ChangeNotifier {
     if (_session!.isComplete) {
       _session!.completedAt = DateTime.now();
       _saveHistory();
+      final startedAt = _sessionStartedAt;
+      if (startedAt != null) {
+        final s = _session!;
+        final correctCount = s.questions
+            .where((q) => q.result == ExamAnswerResult.correct)
+            .length;
+        _telemetry.logEvent('step_11_exam_completed', properties: {
+          'question_count': s.questions.length,
+          'correct_count': correctCount,
+          'difficulty_boosted': s.difficultyBoosted,
+          'duration_sec':
+              DateTime.now().difference(startedAt).inSeconds,
+        });
+        _sessionStartedAt = null;
+      }
     }
     notifyListeners();
     return !_session!.isComplete;

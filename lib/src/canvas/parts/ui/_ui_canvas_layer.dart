@@ -61,6 +61,14 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
               child: AnimatedBuilder(
                 animation: _canvasController,
                 builder: (context, _) {
+                  final _s1 = _canvasController.scale;
+                  // 🚀 RASTER FIX: at tier 2 zoom (scale < 0.25) cluster
+                  // labels / word underlines / pills are pixel-sub-readable
+                  // anyway. Skipping them here cuts ~30–40ms of raster
+                  // encoding when the full overlay stack is active and the
+                  // user zooms out to the overview. Same threshold used by
+                  // TileCacheManager ([lod_config.dart] kLodTier2Threshold).
+                  if (_s1 < 0.25) return const SizedBox.shrink();
                   final m =
                       Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
@@ -70,7 +78,6 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   if (_canvasController.rotation != 0.0) {
                     m.rotateZ(_canvasController.rotation);
                   }
-                  final _s1 = _canvasController.scale;
                   m.scaleByDouble(_s1, _s1, 1.0, 1.0);
                   // 🧠 SEMANTIC MORPHING: Update morph progress from scale
                   _semanticMorphController?.updateFromScale(
@@ -228,105 +235,135 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             ),
           ),
           // Renders AFTER knowledge flow so bubbles appear on top of connections.
+          // 🚀 RASTER FIX (tier 2): expansion bubbles are sub-pixel at
+          // scale < 0.25, skip entirely.
           if (_radialExpansionController != null &&
               _radialExpansionController!.phase != RadialExpansionPhase.idle)
             IgnorePointer(
               child: AnimatedBuilder(
                 animation: _canvasController,
-                builder:
-                    (context, _) => CustomPaint(
-                      painter: RadialExpansionPainter(
-                        controller: _radialExpansionController!,
-                        canvasOffset: _canvasController.offset,
-                        canvasScale: _canvasController.scale,
-                        animationTime:
-                            DateTime.now().millisecondsSinceEpoch %
-                            10000 /
-                            1000.0,
-                      ),
-                      size: Size.infinite,
+                builder: (context, _) {
+                  if (_canvasController.scale < 0.25) {
+                    return const SizedBox.shrink();
+                  }
+                  return CustomPaint(
+                    painter: RadialExpansionPainter(
+                      controller: _radialExpansionController!,
+                      canvasOffset: _canvasController.offset,
+                      canvasScale: _canvasController.scale,
+                      animationTime:
+                          DateTime.now().millisecondsSinceEpoch %
+                          10000 /
+                          1000.0,
                     ),
+                    size: Size.infinite,
+                  );
+                },
               ),
             ),
           // 💛 ZEIGARNIK PULSE: Ambient amber glow on incomplete nodes.
           // Rendered ABOVE radial expansion, BELOW SRS blur.
+          //
+          // 🎨 RASTER FIX: RepaintBoundary + merged Listenable so that the
+          // 60–120Hz animation tick and the pan/zoom events both rebuild only
+          // this subtree, not the whole canvas screen.
           if (_zeigarnikEnabled &&
               _zeigarnikIncompleteNodeBounds.isNotEmpty &&
               _zeigarnikAnimController != null)
-            IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _canvasController,
-                builder: (context, _) {
-                  final zm = Matrix4.identity()
-                    ..translateByDouble(
-                      _canvasController.offset.dx,
-                      _canvasController.offset.dy,
-                      0.0, 1.0,
-                    );
-                  if (_canvasController.rotation != 0.0) {
-                    zm.rotateZ(_canvasController.rotation);
-                  }
-                  final zs = _canvasController.scale;
-                  zm.scaleByDouble(zs, zs, 1.0, 1.0);
-                  return Transform(
-                    transform: zm,
-                    child: CustomPaint(
-                      painter: ZeigarnikPulsePainter(
-                        incompleteNodeBounds: _zeigarnikIncompleteNodeBounds,
-                        animPhase: _zeigarnikAnimPhase,
-                        canvasScale: _canvasController.scale,
-                        isSuppressed: _flowGuard.isFlowProtected,
-                        isDarkMode: Theme.of(context).brightness == Brightness.dark,
+            RepaintBoundary(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([
+                    _canvasController,
+                    _zeigarnikAnimController,
+                  ]),
+                  builder: (context, _) {
+                    final zm = Matrix4.identity()
+                      ..translateByDouble(
+                        _canvasController.offset.dx,
+                        _canvasController.offset.dy,
+                        0.0, 1.0,
+                      );
+                    if (_canvasController.rotation != 0.0) {
+                      zm.rotateZ(_canvasController.rotation);
+                    }
+                    final zs = _canvasController.scale;
+                    zm.scaleByDouble(zs, zs, 1.0, 1.0);
+                    return Transform(
+                      transform: zm,
+                      child: CustomPaint(
+                        painter: ZeigarnikPulsePainter(
+                          incompleteNodeBounds: _zeigarnikIncompleteNodeBounds,
+                          animPhase:
+                              _zeigarnikAnimController!.value * 2 * 3.14159,
+                          canvasScale: _canvasController.scale,
+                          isSuppressed: _flowGuard.isFlowProtected,
+                          isDarkMode:
+                              Theme.of(context).brightness == Brightness.dark,
+                        ),
+                        size: Size.infinite,
                       ),
-                      size: Size.infinite,
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           // ⭐ GOLDEN SHIMMER: Subtle golden glow on mastered nodes (SRS Stage 4+).
-          // Rendered AFTER Zeigarnik pulse, BEFORE SRS blur.
+          // Rendered AFTER Zeigarnik pulse, BEFORE SRS blur. Same isolation
+          // pattern as the Zeigarnik pulse above.
           if (_goldenShimmerEnabled &&
               _goldenShimmerNodeBounds.isNotEmpty &&
               _goldenShimmerAnimController != null)
-            IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _canvasController,
-                builder: (context, _) {
-                  final gsM = Matrix4.identity()
-                    ..translateByDouble(
-                      _canvasController.offset.dx,
-                      _canvasController.offset.dy,
-                      0.0, 1.0,
-                    );
-                  if (_canvasController.rotation != 0.0) {
-                    gsM.rotateZ(_canvasController.rotation);
-                  }
-                  final gsS = _canvasController.scale;
-                  gsM.scaleByDouble(gsS, gsS, 1.0, 1.0);
-                  return Transform(
-                    transform: gsM,
-                    child: CustomPaint(
-                      painter: GoldenShimmerPainter(
-                        masteredNodeBounds: _goldenShimmerNodeBounds,
-                        animPhase: _goldenShimmerAnimPhase,
-                        canvasScale: _canvasController.scale,
-                        isSuppressed: _flowGuard.isFlowProtected,
-                        isDarkMode: Theme.of(context).brightness == Brightness.dark,
+            RepaintBoundary(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([
+                    _canvasController,
+                    _goldenShimmerAnimController,
+                  ]),
+                  builder: (context, _) {
+                    final gsM = Matrix4.identity()
+                      ..translateByDouble(
+                        _canvasController.offset.dx,
+                        _canvasController.offset.dy,
+                        0.0, 1.0,
+                      );
+                    if (_canvasController.rotation != 0.0) {
+                      gsM.rotateZ(_canvasController.rotation);
+                    }
+                    final gsS = _canvasController.scale;
+                    gsM.scaleByDouble(gsS, gsS, 1.0, 1.0);
+                    return Transform(
+                      transform: gsM,
+                      child: CustomPaint(
+                        painter: GoldenShimmerPainter(
+                          masteredNodeBounds: _goldenShimmerNodeBounds,
+                          animPhase:
+                              _goldenShimmerAnimController!.value * 2 * 3.14159,
+                          canvasScale: _canvasController.scale,
+                          isSuppressed: _flowGuard.isFlowProtected,
+                          isDarkMode:
+                              Theme.of(context).brightness == Brightness.dark,
+                        ),
+                        size: Size.infinite,
                       ),
-                      size: Size.infinite,
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           // 🧠 SRS BLUR ON RETURN: Frosted overlay on due-for-review clusters.
           // Rendered ABOVE strokes/knowledge flow, BELOW gesture layer.
+          // 🚀 RASTER FIX (tier 2): glass blur + saveLayer are the single
+          // most expensive raster op; skip below tier 2 where the blur is
+          // visually meaningless (every cluster < 25px on screen).
           if (_srsReviewSession.isActive)
             IgnorePointer(
               child: AnimatedBuilder(
                 animation: _canvasController,
                 builder: (context, _) {
+                  final _s2 = _canvasController.scale;
+                  if (_s2 < 0.25) return const SizedBox.shrink();
                   final m =
                       Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
@@ -336,7 +373,6 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   if (_canvasController.rotation != 0.0) {
                     m.rotateZ(_canvasController.rotation);
                   }
-                  final _s2 = _canvasController.scale;
                   m.scaleByDouble(_s2, _s2, 1.0, 1.0);
                   return Transform(
                     transform: m,
@@ -373,6 +409,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   child: AnimatedBuilder(
                     animation: _canvasController,
                     builder: (context, _) {
+                      final gs = _canvasController.scale;
+                      // 🚀 RASTER FIX (tier 2): ghost nodes and gap markers
+                      // are unreadable dots at scale < 0.25; skip the entire
+                      // painter + its viewport culling math.
+                      if (gs < 0.25) return const SizedBox.shrink();
                       final gmc = _ghostMapController;
                       final gm = Matrix4.identity()
                         ..translateByDouble(
@@ -383,7 +424,6 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       if (_canvasController.rotation != 0.0) {
                         gm.rotateZ(_canvasController.rotation);
                       }
-                      final gs = _canvasController.scale;
                       gm.scaleByDouble(gs, gs, 1.0, 1.0);
 
                       // 🚀 Compute viewport rect in canvas coordinates for culling
@@ -499,6 +539,12 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 ]),
                 builder: (context, _) {
                   final fs = _canvasController.scale;
+                  // 🚀 RASTER FIX (tier 2): fog clip + mastery heatmap path
+                  // operations scale linearly with the number of visible
+                  // clusters; at scale < 0.25 those clusters are all on
+                  // screen simultaneously and the painter's single-frame cost
+                  // jumps to ~20ms. Skip — the user is in overview mode.
+                  if (fs < 0.25) return const SizedBox.shrink();
                   final fm = Matrix4.identity()
                     ..translateByDouble(
                       _canvasController.offset.dx,

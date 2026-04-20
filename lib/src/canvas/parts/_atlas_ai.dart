@@ -106,9 +106,9 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
                 .getTextMapForStrokes(_canvasId, strokeIds)
           : <String, String>{};
 
-      print('🔍 Atlas debug: ${strokeIds.length} stroke IDs, ${recognizedTexts.length} recognized');
+      debugPrint('🔍 Atlas debug: ${strokeIds.length} stroke IDs, ${recognizedTexts.length} recognized');
       for (final e in recognizedTexts.entries) {
-        print('  📝 ${e.key} → "${e.value}"');
+        debugPrint('  📝 ${e.key} → "${e.value}"');
       }
 
       final extractor = CanvasStateExtractor(recognizedTexts: recognizedTexts);
@@ -208,7 +208,7 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
         });
       }
     } catch (e) {
-      print('❌ Atlas error: $e');
+      debugPrint('❌ Atlas error: $e');
       if (mounted) {
         setState(() {
           _atlasIsLoading = false;
@@ -347,15 +347,15 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
         .toList();
 
     // Strategy 1: Multi-stroke recognition
-    print('🔤 Strategy 1: Multi-stroke (lang=${inkService.languageCode})...');
+    debugPrint('🔤 Strategy 1: Multi-stroke (lang=${inkService.languageCode})...');
     final result = await inkService.recognizeMultiStroke(strokeSets);
     if (result != null && result.trim().isNotEmpty) {
-      print('🔤 ✅ Multi-stroke result: "$result"');
+      debugPrint('🔤 ✅ Multi-stroke result: "$result"');
       return result;
     }
 
     // Strategy 2: Single-stroke per stroke
-    print('🔤 Strategy 2: Single-stroke...');
+    debugPrint('🔤 Strategy 2: Single-stroke...');
     final parts = <String>[];
     for (final points in strokeSets) {
       if (points.length < 5) continue;
@@ -366,23 +366,23 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
     }
     if (parts.isNotEmpty) {
       final joined = parts.toSet().join(' ');
-      print('🔤 ✅ Single-stroke result: "$joined"');
+      debugPrint('🔤 ✅ Single-stroke result: "$joined"');
       return joined;
     }
 
     // Strategy 3: Database fallback
-    print('🔤 Strategy 3: Database fallback...');
+    debugPrint('🔤 Strategy 3: Database fallback...');
     final strokeIds = strokeNodes.map((n) => n.id.toString()).toList();
     final textMap = await HandwritingIndexService.instance
         .getTextMapForStrokes(_canvasId, strokeIds);
     if (textMap.isNotEmpty) {
       final uniqueTexts = textMap.values.toSet().toList();
       final result = uniqueTexts.join(' ');
-      print('🔤 ✅ Database result: "$result"');
+      debugPrint('🔤 ✅ Database result: "$result"');
       return result;
     }
 
-    print('🔤 ❌ No recognition from any strategy');
+    debugPrint('🔤 ❌ No recognition from any strategy');
     return null;
   }
 
@@ -536,7 +536,7 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
       }
 
       final userContent = contentParts.join('\n');
-      print('🔍 Analyze: ${contentParts.length} parts, types: $detectedTypes');
+      debugPrint('🔍 Analyze: ${contentParts.length} parts, types: $detectedTypes');
 
       // ── Phase 3: AI analysis (streaming) ──────────────────────────────
       if (mounted) setState(() => _atlasLoadingPhase = '🌌 Atlas scanning...');
@@ -590,11 +590,11 @@ extension AtlasAiWiring on _FlueraCanvasScreenState {
       }
     } on TimeoutException {
       // (D) Timeout — show in response card
-      print('⏱️ Analyze timeout');
+      debugPrint('⏱️ Analyze timeout');
       _showErrorInCard('⏱️ Atlas took too long. Try again with less content.');
     } catch (e) {
       // (E) All errors route to the holographic card, not prompt overlay
-      print('❌ Analyze error: $e');
+      debugPrint('❌ Analyze error: $e');
       final errorMsg = e.toString();
       final userMessage = errorMsg.contains('SocketException') ||
               errorMsg.contains('ClientException') ||
@@ -722,7 +722,7 @@ Do NOT repeat previous scans verbatim — BUILD upon them with NEW depth.''';
         _updateCardText(cardId, '⚠️ Atlas returned an empty response.');
       }
     } catch (e) {
-      print('❌ Go deeper error: $e');
+      debugPrint('❌ Go deeper error: $e');
       if (mounted) _updateCardText(cardId, '❌ Error: ${e.toString().length > 80 ? '${e.toString().substring(0, 80)}...' : e}');
     }
   }
@@ -783,7 +783,7 @@ You MUST respond ENTIRELY in ${_deviceLanguageName}. Do NOT switch to another la
         _updateCardText(cardId, '⚠️ Atlas returned an empty response.');
       }
     } catch (e) {
-      print('❌ Follow-up error: $e');
+      debugPrint('❌ Follow-up error: $e');
       if (mounted) _updateCardText(cardId, '❌ Error: ${e.toString().length > 80 ? '${e.toString().substring(0, 80)}...' : e}');
     }
   }
@@ -972,6 +972,7 @@ You MUST respond ENTIRELY in ${_deviceLanguageName}. Do NOT switch to another la
     final examController = ExamSessionController(
       provider: provider,
       language: _deviceLanguageName,
+      telemetry: widget.config.telemetry,
     );
 
     // Mount overlay

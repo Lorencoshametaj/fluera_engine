@@ -30,16 +30,19 @@ extension ZeigarnikEffectExtension on _FlueraCanvasScreenState {
 
     _zeigarnikIncompleteNodeBounds = bounds;
 
-    // Create a repeating animation controller (period = 4s)
+    // Create a repeating animation controller (period = 4s).
+    //
+    // 🎨 RASTER FIX: we do NOT wire a setState() listener on the controller.
+    // That pattern triggers a full rebuild of _FlueraCanvasScreenState every
+    // frame at 60–120Hz, which invalidates the whole widget tree including
+    // canvas, toolbar and overlays — the root cause of the viewport-wide
+    // Repaint Rainbow flicker. Instead, [buildZeigarnikOverlay] binds an
+    // AnimatedBuilder directly to the controller, so only the pulse painter
+    // rebuilds per tick, inside its own RepaintBoundary.
     _zeigarnikAnimController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
     );
-    _zeigarnikAnimController!.addListener(() {
-      // Convert controller value [0..1] → phase [0..2π]
-      _zeigarnikAnimPhase = _zeigarnikAnimController!.value * 2 * 3.14159;
-      if (mounted) setState(() {});
-    });
     _zeigarnikAnimController!.repeat();
 
     debugPrint('💛 Zeigarnik: pulsing ${bounds.length} incomplete nodes');
@@ -51,7 +54,6 @@ extension ZeigarnikEffectExtension on _FlueraCanvasScreenState {
     _zeigarnikAnimController?.dispose();
     _zeigarnikAnimController = null;
     _zeigarnikIncompleteNodeBounds = const [];
-    _zeigarnikAnimPhase = 0.0;
     if (mounted) setState(() {});
   }
 
@@ -69,17 +71,26 @@ extension ZeigarnikEffectExtension on _FlueraCanvasScreenState {
   Widget? buildZeigarnikOverlay() {
     if (!_zeigarnikEnabled) return null;
     if (_zeigarnikIncompleteNodeBounds.isEmpty) return null;
-    if (_zeigarnikAnimController == null) return null;
+    final controller = _zeigarnikAnimController;
+    if (controller == null) return null;
 
-    return IgnorePointer(
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: ZeigarnikPulsePainter(
-          incompleteNodeBounds: _zeigarnikIncompleteNodeBounds,
-          animPhase: _zeigarnikAnimPhase,
-          canvasScale: _canvasController.scale,
-          isSuppressed: _flowGuard.isFlowProtected,
-          isDarkMode: Theme.of(context).brightness == Brightness.dark,
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    return RepaintBoundary(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            return CustomPaint(
+              size: Size.infinite,
+              painter: ZeigarnikPulsePainter(
+                incompleteNodeBounds: _zeigarnikIncompleteNodeBounds,
+                animPhase: controller.value * 2 * 3.14159,
+                canvasScale: _canvasController.scale,
+                isSuppressed: _flowGuard.isFlowProtected,
+                isDarkMode: isDarkMode,
+              ),
+            );
+          },
         ),
       ),
     );

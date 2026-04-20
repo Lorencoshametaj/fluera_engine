@@ -29,17 +29,17 @@ extension GoldenShimmerExtension on _FlueraCanvasScreenState {
 
     _goldenShimmerNodeBounds = bounds;
 
-    // Create a repeating animation controller (period = 6s)
+    // Create a repeating animation controller (period = 6s).
+    //
+    // 🎨 RASTER FIX: no setState() listener on the controller — see the same
+    // comment in [ZeigarnikEffectExtension.startZeigarnikEffect]. The shimmer
+    // painter binds to the controller via AnimatedBuilder in
+    // [buildGoldenShimmerOverlay], so only that painter repaints per tick,
+    // isolated in a RepaintBoundary.
     _goldenShimmerAnimController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 6),
     );
-    _goldenShimmerAnimController!.addListener(() {
-      // Convert controller value [0..1] → phase [0..2π]
-      _goldenShimmerAnimPhase =
-          _goldenShimmerAnimController!.value * 2 * 3.14159;
-      if (mounted) setState(() {});
-    });
     _goldenShimmerAnimController!.repeat();
 
     debugPrint('⭐ Golden Shimmer: shimmering ${bounds.length} mastered nodes');
@@ -51,7 +51,6 @@ extension GoldenShimmerExtension on _FlueraCanvasScreenState {
     _goldenShimmerAnimController?.dispose();
     _goldenShimmerAnimController = null;
     _goldenShimmerNodeBounds = const [];
-    _goldenShimmerAnimPhase = 0.0;
     if (mounted) setState(() {});
   }
 
@@ -69,17 +68,26 @@ extension GoldenShimmerExtension on _FlueraCanvasScreenState {
   Widget? buildGoldenShimmerOverlay() {
     if (!_goldenShimmerEnabled) return null;
     if (_goldenShimmerNodeBounds.isEmpty) return null;
-    if (_goldenShimmerAnimController == null) return null;
+    final controller = _goldenShimmerAnimController;
+    if (controller == null) return null;
 
-    return IgnorePointer(
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: GoldenShimmerPainter(
-          masteredNodeBounds: _goldenShimmerNodeBounds,
-          animPhase: _goldenShimmerAnimPhase,
-          canvasScale: _canvasController.scale,
-          isSuppressed: _flowGuard.isFlowProtected,
-          isDarkMode: Theme.of(context).brightness == Brightness.dark,
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    return RepaintBoundary(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            return CustomPaint(
+              size: Size.infinite,
+              painter: GoldenShimmerPainter(
+                masteredNodeBounds: _goldenShimmerNodeBounds,
+                animPhase: controller.value * 2 * 3.14159,
+                canvasScale: _canvasController.scale,
+                isSuppressed: _flowGuard.isFlowProtected,
+                isDarkMode: isDarkMode,
+              ),
+            );
+          },
         ),
       ),
     );

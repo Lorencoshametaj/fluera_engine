@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../ai/ai_provider.dart';
 import '../../ai/atlas_ai_service.dart';
+import '../../ai/telemetry_recorder.dart';
 import '../../l10n/fluera_localizations.dart';
 import '../../reflow/content_cluster.dart';
 import '../../reflow/knowledge_connection.dart';
@@ -209,7 +210,14 @@ class GhostMapController extends ChangeNotifier {
   int get correctAttempts =>
       _attemptResults.values.where((v) => v).length;
 
-  GhostMapController({required AiProvider provider}) : _provider = provider;
+  GhostMapController({
+    required AiProvider provider,
+    TelemetryRecorder? telemetry,
+  })  : _provider = provider,
+        _telemetry = telemetry ?? TelemetryRecorder.noop;
+
+  final TelemetryRecorder _telemetry;
+  DateTime? _sessionStartedAt;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Generation
@@ -249,6 +257,11 @@ class GhostMapController extends ChangeNotifier {
       _isActive = true;
       _dismissedNodeIds.clear();
       _bumpVersion();
+      _sessionStartedAt = DateTime.now();
+      _telemetry.logEvent('step_4_ghost_map_started', properties: {
+        'trigger': 'cache',
+        'cluster_count': clusters.length,
+      });
       notifyListeners();
       return;
     }
@@ -257,6 +270,11 @@ class GhostMapController extends ChangeNotifier {
     _error = null;
     _loadingHint = _l10n?.ghostMap_loadingAnalyzing
         ?? '🌌 Atlas sta analizzando i tuoi appunti...';
+    _sessionStartedAt = DateTime.now();
+    _telemetry.logEvent('step_4_ghost_map_started', properties: {
+      'trigger': 'fresh',
+      'cluster_count': clusters.length,
+    });
     notifyListeners();
 
     try {
@@ -723,6 +741,24 @@ class GhostMapController extends ChangeNotifier {
 
   /// Dismiss the ghost map overlay and clear state.
   void dismiss() {
+    // 📊 Emit completion before clearing state.
+    final startedAt = _sessionStartedAt;
+    if (startedAt != null) {
+      final attemptedCorrect =
+          _attemptResults.values.where((v) => v).length;
+      _telemetry.logEvent('step_4_ghost_map_completed', properties: {
+        'total_missing': totalMissing,
+        'total_weak': totalWeak,
+        'total_correct': totalCorrect,
+        'attempts_total': _userAttempts.length,
+        'attempts_correct': attemptedCorrect,
+        'nodes_dismissed': _dismissedNodeIds.length,
+        'duration_sec':
+            DateTime.now().difference(startedAt).inSeconds,
+      });
+      _sessionStartedAt = null;
+    }
+
     _isActive = false;
     _activeAttemptNodeId = null;
     _autoCompleteScheduled = false; // Fix #11: reset guard

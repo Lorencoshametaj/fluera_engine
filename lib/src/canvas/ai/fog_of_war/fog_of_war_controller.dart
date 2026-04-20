@@ -22,6 +22,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../ai/telemetry_recorder.dart';
 import '../../../l10n/generated/fluera_localizations.g.dart';
 import '../../../reflow/content_cluster.dart';
 import 'fog_of_war_model.dart';
@@ -42,6 +43,11 @@ import 'fog_of_war_model.dart';
 /// fogController.dismiss(); // → back to normal canvas
 /// ```
 class FogOfWarController extends ChangeNotifier {
+  FogOfWarController({TelemetryRecorder? telemetry})
+      : _telemetry = telemetry ?? TelemetryRecorder.noop;
+
+  final TelemetryRecorder _telemetry;
+
   // ─────────────────────────────────────────────────────────────────────────
   // STATE
   // ─────────────────────────────────────────────────────────────────────────
@@ -281,6 +287,11 @@ class FogOfWarController extends ChangeNotifier {
     }
 
     _phase = FogPhase.active;
+    _telemetry.logEvent('step_10_fog_of_war_aperture', properties: {
+      'fog_level': fogLevel.name,
+      'total_nodes': clustersInZone.length,
+      'zone_id': zoneId,
+    });
     notifyListeners();
   }
 

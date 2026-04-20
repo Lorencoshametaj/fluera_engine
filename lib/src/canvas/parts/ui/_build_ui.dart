@@ -199,12 +199,21 @@ extension on _FlueraCanvasScreenState {
                   Expanded(
                     child: Stack(
                       children: [
+                        // 🎨 RASTER FIX: ExcludeSemantics removes the
+                        // per-stroke/per-node semantic tree that would
+                        // otherwise be walked every frame by
+                        // RenderSemanticsAnnotations (~1.5ms p99 from the
+                        // DevTools trace). The canvas content isn't consumed
+                        // by assistive tech anyway — toolbar / dialogs carry
+                        // their own semantics.
                         RepaintBoundary(
                           key: _canvasRepaintBoundaryKey,
-                          child: ValueListenableBuilder<int>(
-                            valueListenable: _multiviewVersionNotifier,
-                            builder: (context, _, __) =>
-                                _buildCanvasArea(context),
+                          child: ExcludeSemantics(
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: _multiviewVersionNotifier,
+                              builder: (context, _, __) =>
+                                  _buildCanvasArea(context),
+                            ),
                           ),
                         ),
 
@@ -212,13 +221,21 @@ extension on _FlueraCanvasScreenState {
                         // These widgets listen to _canvasController via AnimatedBuilder,
                         // triggering rebuilds on every pan/zoom frame. During drawing,
                         // the user isn't navigating — suppress to save 0.5–2ms.
+                        //
+                        // 🎨 RASTER FIX: wrap the navigation-overlay stack in its own
+                        // RepaintBoundary so the AnimatedBuilders inside each widget
+                        // (ZoomLevelIndicator, OriginCrosshair, ContentRadarOverlay,
+                        // ReturnToContentFab) don't force the SurfaceFrame::Encode
+                        // pass to re-walk the entire UI chrome every pan/zoom frame.
+                        // Each overlay repaints into a single isolated raster layer.
                         ValueListenableBuilder<bool>(
                           valueListenable: _isDrawingNotifier,
                           builder: (context, isDrawing, child) {
                             if (isDrawing) return const SizedBox.shrink();
                             return child!;
                           },
-                          child: Stack(
+                          child: RepaintBoundary(
+                            child: Stack(
                             children: [
                               // ✛ Navigation: Origin crosshair at (0,0)
                               Positioned.fill(
@@ -283,15 +300,21 @@ extension on _FlueraCanvasScreenState {
                               ),
                             ],
                           ),
+                          ),
                         ),
 
                         // 🗺️ Navigation: Minimap (bottom-right)
                         // Auto-hides when no content exists on the canvas.
                         // NOTE: Minimap handles its own drawing state via isDrawing param.
+                        // 🎨 RASTER FIX: RepaintBoundary isolates the minimap's
+                        // inner AnimatedBuilder(_canvasController) so repaints stay
+                        // within a single raster layer instead of propagating into
+                        // the ancestor Stack.
                         Positioned(
                           bottom: 0,
                           right: 0,
-                          child: ValueListenableBuilder<List>(
+                          child: RepaintBoundary(
+                            child: ValueListenableBuilder<List>(
                             valueListenable: _contentBoundsTracker.regions,
                             builder: (context, regions, child) {
                               final hasContent = regions.isNotEmpty;
@@ -325,6 +348,7 @@ extension on _FlueraCanvasScreenState {
                                 bookmarkLocations: _bookmarkLocations(),
                               );
                             },
+                          ),
                           ),
                         ),
 

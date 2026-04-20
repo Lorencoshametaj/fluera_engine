@@ -190,7 +190,7 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
         await provider.initialize();
       } catch (e) {
         // AI not available — silently fall back to OCR text
-        print('🧠 Semantic titles: Atlas not available, using OCR fallback');
+        debugPrint('🧠 Semantic titles: Atlas not available, using OCR fallback');
         return;
       }
     }
@@ -230,7 +230,7 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
         _canvasController.markNeedsPaint();
       }
     } catch (e) {
-      print('🧠 Semantic titles: AI batch error: $e');
+      debugPrint('🧠 Semantic titles: AI batch error: $e');
     } finally {
       // Clear pending flags
       for (final id in batch) {
@@ -295,7 +295,7 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
         }
       }
     } catch (e) {
-      print('🧠 Batched title error: $e — falling back to individual');
+      debugPrint('🧠 Batched title error: $e — falling back to individual');
       // Fallback: individual requests
       final futures = <Future<void>>[];
       for (final entry in clusterTexts.entries) {
@@ -368,7 +368,7 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
         );
       }
     } catch (e) {
-      print('🧠 Semantic title error for $clusterId: $e');
+      debugPrint('🧠 Semantic title error for $clusterId: $e');
     }
   }
 
@@ -889,7 +889,7 @@ TITOLO:''';
 
       if (mounted) _canvasController.markNeedsPaint();
     } catch (e) {
-      print('👻 Ghost label error: $e');
+      debugPrint('👻 Ghost label error: $e');
     }
   }
 
@@ -1035,7 +1035,7 @@ TITOLO:''';
       }
       if (mounted) _canvasController.markNeedsPaint();
     } catch (e) {
-      print('🌍 God view theme error: $e');
+      debugPrint('🌍 God view theme error: $e');
       for (final sn in superNodes) {
         _semanticMorphController!.pendingGodViewAi.remove(sn.id);
       }
