@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/generated/fluera_localizations.g.dart';
 import '../ai/exam_session_model.dart';
 import '../ai/exam_session_controller.dart';
 import '../widgets/latex_preview_card.dart';
@@ -250,7 +251,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
       Expanded(child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Seleziona gli argomenti (max 10)',
+          Text(FlueraLocalizations.of(context)!.exam_selectTopicsHint,
             style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12)),
           const SizedBox(height: 12),
           Wrap(spacing: 9, runSpacing: 9, children: [
@@ -1111,7 +1112,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
                         : Colors.white.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text('Salva',
+                  child: Text(FlueraLocalizations.of(context)!.save,
                     style: TextStyle(
                       color: _elaborationCtrl.text.trim().length >= 15
                           ? _cyan
@@ -1135,7 +1136,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           child: Row(children: [
             Text('✓', style: TextStyle(color: _green, fontSize: 13, fontWeight: FontWeight.w700)),
             const SizedBox(width: 8),
-            Expanded(child: Text('Elaborazione salvata — ti aiuterà a ricordare!',
+            Expanded(child: Text(FlueraLocalizations.of(context)!.exam_elaborationSaved,
               style: TextStyle(color: _green.withValues(alpha: 0.7), fontSize: 11))),
           ]),
         ),
@@ -1224,7 +1225,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           Text('Blocco ${chunk + 1}/${session.totalChunks} completato',
             style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
           const SizedBox(height: 10),
-          Text('$correct/$total consolidate in questo blocco',
+          Text(FlueraLocalizations.of(context)!.exam_chunkBreakSummary(correct, total),
             style: TextStyle(color: _cyan.withValues(alpha: 0.7), fontSize: 14)),
           const SizedBox(height: 20),
           Container(
@@ -1234,12 +1235,12 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: _green.withValues(alpha: 0.15)),
             ),
-            child: Text('🌱 $msg',
+            child: Text(FlueraLocalizations.of(context)!.exam_growthPrefix(msg),
               textAlign: TextAlign.center,
               style: TextStyle(color: _green.withValues(alpha: 0.8), fontSize: 13, height: 1.4, fontStyle: FontStyle.italic)),
           ),
           const SizedBox(height: 24),
-          _btn(label: 'Continua →', color: _cyan, onTap: () {
+          _btn(label: FlueraLocalizations.of(context)!.exam_continueArrow, color: _cyan, onTap: () {
             HapticFeedback.selectionClick();
             setState(() => _showingChunkBreak = false);
             _startTimer();
@@ -1265,16 +1266,17 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
     }
     final avgDelta = sumDelta / answered.length; // positive = overconfident
 
+    final l10n = FlueraLocalizations.of(context)!;
     final String insight;
     final Color barColor;
     if (avgDelta > 0.3) {
-      insight = 'Tendi a sopravvalutarti — prova a essere più cauto prima di rispondere';
+      insight = l10n.exam_insightOverconfident;
       barColor = _orange;
     } else if (avgDelta < -0.3) {
-      insight = 'Ti sottovaluti — fidati di più delle tue conoscenze!';
+      insight = l10n.exam_insightUnderconfident;
       barColor = _cyan;
     } else {
-      insight = 'Ottima calibrazione metacognitiva — conosci bene i tuoi limiti';
+      insight = l10n.exam_insightCalibrated;
       barColor = _green;
     }
 
@@ -1289,7 +1291,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         border: Border.all(color: barColor.withValues(alpha: 0.20)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('📊 La tua calibrazione', style: TextStyle(
+        Text(l10n.exam_calibrationTitle, style: TextStyle(
           color: Colors.white.withValues(alpha: 0.7), fontSize: 12, fontWeight: FontWeight.w600)),
         const SizedBox(height: 10),
         // Calibration bar
@@ -1306,9 +1308,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
               ),
             )),
             // Labels
-            Positioned(top: 0, left: 0, child: Text('Sottovaluti',
+            Positioned(top: 0, left: 0, child: Text(l10n.exam_calibrationUnder,
               style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 8))),
-            Positioned(top: 0, right: 0, child: Text('Sopravvaluti',
+            Positioned(top: 0, right: 0, child: Text(l10n.exam_calibrationOver,
               style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 8))),
             // Indicator dot
             Positioned(top: 4, left: indicatorX - 6, child: Container(
@@ -1334,9 +1336,10 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
     final review = session.clustersToReview;
     final mins = session.durationSeconds ~/ 60;
     final secs = session.durationSeconds % 60;
+    final l10n = FlueraLocalizations.of(context)!;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _buildHeader('Risultati', showClose: false),
+      _buildHeader(l10n.exam_resultsTitle, showClose: false),
       Expanded(child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
@@ -1356,10 +1359,10 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           // Score circle
           _ScoreCircle(score: score, color: _progressColor(session)),
           const SizedBox(height: 6),
-          Text('Hai affrontato ${session.questions.length} sfide — ${session.correctCount} consolidate',
+          Text(l10n.exam_resultsSummary(session.questions.length, session.correctCount),
             style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 13)),
           const SizedBox(height: 4),
-          Text('Durata: ${mins}m ${secs.toString().padLeft(2, '0')}s',
+          Text(l10n.exam_resultsDuration(mins, secs.toString().padLeft(2, '0')),
             style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 11)),
           const SizedBox(height: 20),
 
@@ -1370,7 +1373,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           // 📦 PER-CHUNK BREAKDOWN
           if (session.totalChunks > 1) ...[
             Align(alignment: Alignment.centerLeft,
-              child: Text('📦 Rendimento per blocco:', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12))),
+              child: Text(l10n.exam_chunkPerformance, style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12))),
             const SizedBox(height: 8),
             ...List.generate(session.totalChunks, (chunk) {
               final correct = session.chunkCorrectCount(chunk);
@@ -1405,7 +1408,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           if (review.isNotEmpty) ...[
             const SizedBox(height: 20),
             Align(alignment: Alignment.centerLeft,
-              child: Text('⏰ Da ripassare:', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12))),
+              child: Text(l10n.exam_reviewNeeded, style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12))),
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8,
               children: review.take(6).map((t) => Container(
@@ -1425,14 +1428,14 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         child: Column(children: [
           // Error replay button
           if (widget.controller.incorrectQuestions.isNotEmpty) ...[
-            _btn(label: '🔄 Rafforza ${widget.controller.incorrectQuestions.length} concetti — ogni ripasso è crescita', color: _orange, onTap: () {
+            _btn(label: l10n.exam_errorReplay(widget.controller.incorrectQuestions.length), color: _orange, onTap: () {
               HapticFeedback.mediumImpact();
               setState(() { _scopeSelected = true; _revealed = false; _evalText = ''; _confidenceLevel = 0; });
               widget.controller.startErrorReplay();
             }),
             const SizedBox(height: 8),
           ],
-          _btn(label: 'Torna al canvas', color: _cyan, onTap: () {
+          _btn(label: l10n.exam_backToCanvas, color: _cyan, onTap: () {
             widget.onComplete(widget.controller.masteredConcepts, widget.controller.reviewSchedule);
             widget.onClose();
           }),
@@ -1514,7 +1517,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
       ],
       Expanded(
         child: history.isEmpty
-          ? Center(child: Text('Nessuna sessione completata finora.',
+          ? Center(child: Text(FlueraLocalizations.of(context)!.exam_historyEmpty,
               style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 13)))
           : ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1554,6 +1557,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
   // ─── SHARED ─────────────────────────────────────────────────────────────
 
   Widget _buildHeader(String title, {required bool showClose}) {
+    final l10n = FlueraLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
       child: Row(children: [
@@ -1567,7 +1571,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             child: Icon(Icons.school_rounded, size: 11, color: _cyan.withValues(alpha: 0.85)),
           )),
         const SizedBox(width: 9),
-        Text('Esame', style: TextStyle(color: _cyan.withValues(alpha: 0.85), fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.2)),
+        Text(l10n.exam_headerLabel, style: TextStyle(color: _cyan.withValues(alpha: 0.85), fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.2)),
         const SizedBox(width: 6),
         Text('·', style: TextStyle(color: Colors.white.withValues(alpha: 0.18))),
         const SizedBox(width: 6),
@@ -1607,7 +1611,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         const SizedBox(height: 14),
         Text(message, style: TextStyle(color: Colors.white.withValues(alpha: 0.65), fontSize: 14), textAlign: TextAlign.center),
         const SizedBox(height: 22),
-        _btn(label: 'Chiudi', color: Colors.white.withValues(alpha: 0.14), onTap: widget.onClose),
+        _btn(label: FlueraLocalizations.of(context)!.close, color: Colors.white.withValues(alpha: 0.14), onTap: widget.onClose),
       ]),
     ));
   }
@@ -1663,15 +1667,16 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
   void _confirmClose() {
     final session = widget.controller.session;
     if (session != null && !session.isComplete && session.answeredCount > 0) {
+      final l10n = FlueraLocalizations.of(context)!;
       showDialog(context: context, builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A2E),
-        title: const Text('Uscire dall\'esame?', style: TextStyle(color: Colors.white)),
-        content: Text('Hai già risposto a ${session.answeredCount} domande.',
+        title: Text(l10n.exam_exitTitle, style: const TextStyle(color: Colors.white)),
+        content: Text(l10n.exam_exitBody(session.answeredCount),
           style: TextStyle(color: Colors.white.withValues(alpha: 0.55))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Continua')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(l10n.exam_exitContinue)),
           TextButton(onPressed: () { Navigator.pop(context); widget.onClose(); },
-            child: const Text('Esci', style: TextStyle(color: Color(0xFFFF5252)))),
+            child: Text(l10n.exam_exitConfirm, style: const TextStyle(color: Color(0xFFFF5252)))),
         ],
       ));
     } else {

@@ -62,15 +62,28 @@ Sweep disciplinato B1 iniziato. Metodologia: una dimensione (copy → ARB), uno 
 - `restore_banner.dart`: 6 stringhe migrate (success singular/multi con ICU-like split, expired, banner title/body con placeholder `{count}`/`{hoursLeft}`, discard, restore action).
 - Verifica: `flutter analyze` su tutti e 3 i file → **zero issue**.
 
+**Slice 3 shipped — consent CTAs (2026-04-21)**
+
+- 2 chiavi `consent_acceptAll` + `consent_continueWithChoices`. Callsite button migrati in `fluera_consent_screen.dart`. Tile titles/descriptions non-scopo dello slice (migration future per pannello settings-style).
+
+**Slice 4 shipped — exam_overlay (2026-04-21)**
+
+- 22 chiavi `exam_*` aggiunte (6 con placeholder: `{message}`, `{total}+{correct}`, `{minutes}+{seconds}`, `{count}`, `{correct}+{total}`, `{count}` exit body).
+- Callsite migrati in `exam_overlay.dart`: header label "Esame", topic selector hint, save button (riuso `l10n.save`), elaboration saved toast, chunk break (summary + growth message + continue button), calibration (titolo + 3 insight strings + sotto/sopravvaluti labels), results (title + summary + duration + chunk performance + review needed), error replay button, back-to-canvas, history empty, exam close error button (riuso `l10n.close`), exit confirmation dialog (title + body + continue + exit).
+- Import strategia engine-interna: `import '../../l10n/generated/fluera_localizations.g.dart';` (engine locale, no package re-import).
+- Verifica: `flutter analyze exam_overlay.dart` → **zero issue**.
+
+**Slice 5/6/7 shipped — canvas dialogs + function graph + text toolbar (2026-04-21)**
+
+- **Slice 5** (`fluera_canvas_screen.dart`): 5 nuove chiavi `bookmark_*` (renameTitle, deleteTitle, deleteBody con `{label}`, newTitle, nameHint). Migrati 3 dialog (rename, delete, `_BookmarkNameDialog`). Riuso `cancel`, `save`, `delete`. Uso `_l10n` cached per extension methods, `FlueraLocalizations.of(context)!` in `_BookmarkNameDialog` separato.
+- **Slice 6** (`_drawing_handlers.dart` + `latex_function_graph.dart`): 7 nuove chiavi `graph_*` (menu: Edit/Table/Duplicate/ResetViewport/Delete + copyTable tooltip + reportCopied). Migrato graph context menu (5 voci `PopupMenuItem` da const → non-const), close button dialog con `_l10n.close`. In `latex_function_graph.dart`: tabella values header, copy tooltip, report-copied snackbar, cancel button in editor dialog (riuso `l10n.cancel`).
+- **Slice 7** (`inline_text_toolbar.dart`): 10 nuove chiavi `textToolbar_*` (3 tab labels + 5 effect labels + 2 action labels). Refactor signature: `_buildTabContent` + `_buildEffectsTab` + `_buildActionsTab` ora prendono `FlueraLocalizations l10n` come first param. Import engine-locale generated l10n.
+- Verifica: `flutter analyze` su 4 file toccati → **zero issue**.
+
 **Slice rimanenti (documentati per prossimo rush):**
 
 | Slice | File | Strings | Effort |
 |-------|------|---------|--------|
-| 3 onboarding | `fluera_consent_screen.dart` | ~2 | XS |
-| 4 exam overlay | `exam_overlay.dart` | ~13 | M |
-| 5 canvas dialogs | `fluera_canvas_screen.dart` (bookmark/text edit dialogs) | ~8 | S |
-| 6 function graph | `_drawing_handlers.dart` + `latex_function_graph.dart` | ~10 | S |
-| 7 inline text toolbar | `inline_text_toolbar.dart` | ~10 | S |
 | 8 PDF reader | `_text_sheet.dart` | ~2 | XS |
 | 9 fog of war | `_fog_of_war.dart` + `fog_of_war_info_screen.dart` | ~8 | S |
 | 10 atlas overlays | `atlas_response_card.dart` + `chat_overlay.dart` | ~6 | S |

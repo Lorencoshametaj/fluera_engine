@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/latex/latex_evaluator.dart';
+import '../../l10n/generated/fluera_localizations.g.dart';
 import 'graph_painter.dart';
 import 'graph_widgets.dart';
 
@@ -704,7 +705,7 @@ class _LatexFunctionGraphState extends State<LatexFunctionGraph>
                   Icon(Icons.table_chart_rounded, size: 18, color: cs.primary),
                   const SizedBox(width: 8),
                   Text(
-                    'Tabella Valori',
+                    FlueraLocalizations.of(ctx)!.graph_menuTable,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -737,7 +738,7 @@ class _LatexFunctionGraphState extends State<LatexFunctionGraph>
                         ),
                       );
                     },
-                    tooltip: 'Copia tabella',
+                    tooltip: FlueraLocalizations.of(ctx)!.graph_copyTable,
                     visualDensity: VisualDensity.compact,
                   ),
                   const SizedBox(width: 4),
@@ -964,8 +965,8 @@ class _LatexFunctionGraphState extends State<LatexFunctionGraph>
           children: [
             Icon(Icons.check_circle_rounded, color: cs.inversePrimary, size: 18),
             const SizedBox(width: 8),
-            const Expanded(
-              child: Text('Report analisi copiato', style: TextStyle(fontWeight: FontWeight.w500)),
+            Expanded(
+              child: Text(FlueraLocalizations.of(context)!.graph_reportCopied, style: const TextStyle(fontWeight: FontWeight.w500)),
             ),
           ],
         ),
@@ -1261,7 +1262,7 @@ class _LatexFunctionGraphState extends State<LatexFunctionGraph>
                                       ],
                                     ),
                                     actions: [
-                                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')),
+                                      TextButton(onPressed: () => Navigator.pop(ctx), child: Text(FlueraLocalizations.of(ctx)!.cancel)),
                                       FilledButton(
                                         onPressed: () {
                                           final x0 = double.tryParse(xMinC.text);

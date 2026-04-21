@@ -1455,43 +1455,43 @@ extension on _FlueraCanvasScreenState {
         screenPos.dy,
       ),
       items: [
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'edit',
           child: ListTile(
-            leading: Icon(Icons.edit, size: 20),
-            title: Text('Modifica'),
+            leading: const Icon(Icons.edit, size: 20),
+            title: Text(_l10n.graph_menuEdit),
             dense: true,
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'table',
           child: ListTile(
-            leading: Icon(Icons.table_chart, size: 20),
-            title: Text('Tabella Valori'),
+            leading: const Icon(Icons.table_chart, size: 20),
+            title: Text(_l10n.graph_menuTable),
             dense: true,
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'duplicate',
           child: ListTile(
-            leading: Icon(Icons.copy, size: 20),
-            title: Text('Duplica'),
+            leading: const Icon(Icons.copy, size: 20),
+            title: Text(_l10n.graph_menuDuplicate),
             dense: true,
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'reset',
           child: ListTile(
-            leading: Icon(Icons.refresh, size: 20),
-            title: Text('Reset Viewport'),
+            leading: const Icon(Icons.refresh, size: 20),
+            title: Text(_l10n.graph_menuResetViewport),
             dense: true,
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'delete',
           child: ListTile(
-            leading: Icon(Icons.delete_outline, size: 20, color: Colors.red),
-            title: Text('Elimina', style: TextStyle(color: Colors.red)),
+            leading: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+            title: Text(_l10n.graph_menuDelete, style: const TextStyle(color: Colors.red)),
             dense: true,
           ),
         ),
@@ -1647,7 +1647,7 @@ extension on _FlueraCanvasScreenState {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Chiudi'),
+                child: Text(_l10n.close),
               ),
             ],
           ),

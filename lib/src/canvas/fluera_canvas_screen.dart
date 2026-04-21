@@ -1581,7 +1581,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Rinomina bookmark'),
+            title: Text(_l10n.bookmark_renameTitle),
             content: TextField(
               controller: controller,
               autofocus: true,
@@ -1592,11 +1592,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(null),
-                child: const Text('Annulla'),
+                child: Text(_l10n.cancel),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-                child: const Text('Salva'),
+                child: Text(_l10n.save),
               ),
             ],
           ),
@@ -1612,19 +1612,19 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Eliminare il bookmark?'),
-            content: Text('"${bm.label}" sarà rimosso definitivamente.'),
+            title: Text(_l10n.bookmark_deleteTitle),
+            content: Text(_l10n.bookmark_deleteBody(bm.label)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Annulla'),
+                child: Text(_l10n.cancel),
               ),
               FilledButton(
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFFE53935),
                 ),
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Elimina'),
+                child: Text(_l10n.delete),
               ),
             ],
           ),
@@ -3648,24 +3648,25 @@ class _BookmarkNameDialogState extends State<_BookmarkNameDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     return AlertDialog(
-      title: const Text('Nuovo bookmark'),
+      title: Text(l10n.bookmark_newTitle),
       content: TextField(
         controller: _controller,
         autofocus: true,
         maxLength: 40,
-        decoration: const InputDecoration(
-          hintText: 'Nome del bookmark',
-          border: OutlineInputBorder(),
+        decoration: InputDecoration(
+          hintText: l10n.bookmark_nameHint,
+          border: const OutlineInputBorder(),
         ),
         onSubmitted: (_) => _submit(),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(null),
-          child: const Text('Annulla'),
+          child: Text(l10n.cancel),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Salva')),
+        FilledButton(onPressed: _submit, child: Text(l10n.save)),
       ],
     );
   }

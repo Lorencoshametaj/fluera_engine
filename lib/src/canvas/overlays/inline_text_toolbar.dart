@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/generated/fluera_localizations.g.dart';
+
 /// 📝 Mini formatting toolbar — floats above the inline text editor.
 ///
 /// V3: Two-row tabbed design with grouped categories.
@@ -166,6 +168,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = FlueraLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor =
         isDark
@@ -473,7 +476,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
                         children: [
                           _TabIcon(
                             icon: Icons.text_format_rounded,
-                            label: 'Formato',
+                            label: l10n.textToolbar_tabFormat,
                             isActive: _activeTab == 'format',
                             accentColor: accentColor,
                             mutedColor: mutedColor,
@@ -481,7 +484,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
                           ),
                           _TabIcon(
                             icon: Icons.auto_awesome_outlined,
-                            label: 'Effetti',
+                            label: l10n.textToolbar_tabEffects,
                             isActive: _activeTab == 'effects',
                             accentColor: accentColor,
                             mutedColor: mutedColor,
@@ -489,7 +492,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
                           ),
                           _TabIcon(
                             icon: Icons.dashboard_customize_outlined,
-                            label: 'Azioni',
+                            label: l10n.textToolbar_tabActions,
                             isActive: _activeTab == 'actions',
                             accentColor: accentColor,
                             mutedColor: mutedColor,
@@ -529,6 +532,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: _buildTabContent(
+                                        l10n,
                                         isDark,
                                         accentColor,
                                         mutedColor,
@@ -553,6 +557,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
   // ── Tab Content Dispatcher ──────────────────────────────────────────────
 
   List<Widget> _buildTabContent(
+    FlueraLocalizations l10n,
     bool isDark,
     Color accentColor,
     Color mutedColor,
@@ -566,12 +571,14 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         dividerColor,
       ),
       'effects' => _buildEffectsTab(
+        l10n,
         isDark,
         accentColor,
         mutedColor,
         dividerColor,
       ),
       'actions' => _buildActionsTab(
+        l10n,
         isDark,
         accentColor,
         mutedColor,
@@ -702,6 +709,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
   // ── EFFECTS TAB ─────────────────────────────────────────────────────────
 
   List<Widget> _buildEffectsTab(
+    FlueraLocalizations l10n,
     bool isDark,
     Color accentColor,
     Color mutedColor,
@@ -712,7 +720,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         _effectCard(
           isDark, accentColor, mutedColor,
           icon: Icons.wb_sunny_outlined,
-          label: 'Ombra',
+          label: l10n.textToolbar_effectShadow,
           isActive: widget.hasShadow,
           activeColor: widget.shadowColor,
           onTap: () {
@@ -726,7 +734,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         _effectCard(
           isDark, accentColor, mutedColor,
           icon: Icons.format_color_fill_outlined,
-          label: 'Sfondo',
+          label: l10n.textToolbar_effectBackground,
           isActive: widget.hasBackground,
           activeColor: widget.bgColor,
           onTap: () {
@@ -740,7 +748,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         _effectCard(
           isDark, accentColor, mutedColor,
           icon: Icons.border_color_outlined,
-          label: 'Bordo',
+          label: l10n.textToolbar_effectBorder,
           isActive: widget.hasOutline,
           activeColor: widget.outlineColor,
           onTap: () {
@@ -754,7 +762,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         _effectCard(
           isDark, accentColor, mutedColor,
           icon: Icons.gradient_outlined,
-          label: 'Gradient',
+          label: l10n.textToolbar_effectGradient,
           isActive: widget.hasGradient,
           activeColor: null,
           useGradientPreview: true,
@@ -768,7 +776,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
         _effectCard(
           isDark, accentColor, mutedColor,
           icon: Icons.auto_awesome,
-          label: 'Glow',
+          label: l10n.textToolbar_effectGlow,
           isActive: widget.hasGlow,
           activeColor: widget.glowColor,
           onTap: () {
@@ -981,6 +989,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
   // ── ACTIONS TAB ─────────────────────────────────────────────────────────
 
   List<Widget> _buildActionsTab(
+    FlueraLocalizations l10n,
     bool isDark,
     Color accentColor,
     Color mutedColor,
@@ -992,7 +1001,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
           onTap: widget.onDuplicate,
           child: _ToggleIcon(
             icon: Icons.copy_outlined,
-            label: 'Duplica',
+            label: l10n.textToolbar_actionDuplicate,
             isActive: false,
             accentColor: accentColor,
             mutedColor: mutedColor,
@@ -1005,7 +1014,7 @@ class _InlineTextToolbarState extends State<InlineTextToolbar>
           onTap: widget.onCopyStyle,
           child: _ToggleIcon(
             icon: Icons.format_paint_outlined,
-            label: 'Copia',
+            label: l10n.textToolbar_actionCopy,
             isActive: false,
             accentColor: accentColor,
             mutedColor: mutedColor,
