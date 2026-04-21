@@ -818,19 +818,36 @@ extension on _FlueraCanvasScreenState {
         _vulkanStrokeOverlay.clear(); // Clear previous stroke
         final rb =
             _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
-        // Use full screen dimensions: the Metal overlay covers the entire
-        // FlutterViewController view, not just the canvas area below the toolbar.
-        final screenSize = MediaQuery.of(context).size;
         final dpr = MediaQuery.of(context).devicePixelRatio;
-        // Canvas origin within the screen (accounts for toolbar height).
-        final canvasOrigin = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
-        _vulkanStrokeOverlay.setTransform(
-          _canvasController,
-          (screenSize.width * dpr).toInt(),
-          (screenSize.height * dpr).toInt(),
-          dpr,
-          canvasOrigin,
-        );
+
+        // Platform split:
+        //  • iOS/Metal: overlay covers the full FlutterViewController view →
+        //    use screenSize + canvasOrigin (toolbar offset) so the transform
+        //    matrix maps canvas-space points to the correct screen Y.
+        //  • Android/Vulkan: the Texture widget hosting the Vulkan surface
+        //    is sized to the canvas area (below toolbar). Using screenSize +
+        //    canvasOrigin here caused live stroke to render shifted down by
+        //    toolbar height. Instead use canvasSize + Offset.zero so the
+        //    transform matches the actual texture extent.
+        if (Platform.isIOS || Platform.isMacOS) {
+          final screenSize = MediaQuery.of(context).size;
+          final canvasOrigin = rb?.localToGlobal(Offset.zero) ?? Offset.zero;
+          _vulkanStrokeOverlay.setTransform(
+            _canvasController,
+            (screenSize.width * dpr).toInt(),
+            (screenSize.height * dpr).toInt(),
+            dpr,
+            canvasOrigin,
+          );
+        } else {
+          final canvasSize = rb?.size ?? MediaQuery.of(context).size;
+          _vulkanStrokeOverlay.setTransform(
+            _canvasController,
+            (canvasSize.width * dpr).toInt(),
+            (canvasSize.height * dpr).toInt(),
+            dpr,
+          );
+        }
       }
     }
 
