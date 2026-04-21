@@ -58,6 +58,8 @@ import '../export/export_preset.dart';
 import '../export/saved_export_area.dart';
 import '../config/multi_page_config.dart';
 import '../drawing/input/drawing_input_handler.dart';
+import '../drawing/input/predicted_touch_service.dart';
+import '../drawing/input/predicted_touch_debug_overlay.dart';
 import '../rendering/canvas/background_painter.dart';
 import '../rendering/shaders/shader_brush_service.dart';
 import '../rendering/gpu/gpu_texture_service.dart';
@@ -730,9 +732,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Default: Step 1 (Appunti a Mano) — AI dormant, zero distractions.
   late final LearningStepController _learningStepController =
       LearningStepController(
-    initialStep: LearningStep.step1Notes,
-    telemetry: widget.config.telemetry,
-  );
+        initialStep: LearningStep.step1Notes,
+        telemetry: widget.config.telemetry,
+      );
 
   /// 🚦 Step gate controller — evaluates prerequisites for each step (A15).
   /// Loaded from KeyValueStore on init, saved on step completion.
@@ -754,8 +756,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       RecallPersistenceService();
 
   /// 🧠 SRS Blur: Review session controller for blur-on-return.
-  late final SrsReviewSession _srsReviewSession =
-      SrsReviewSession(telemetry: widget.config.telemetry);
+  late final SrsReviewSession _srsReviewSession = SrsReviewSession(
+    telemetry: widget.config.telemetry,
+  );
 
   /// 🗺️ Ghost Map: Controller for AI-generated knowledge gap overlay.
   late final GhostMapController _ghostMapController = GhostMapController(
@@ -800,8 +803,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   late Map<RecallLevel, String> _recallLevelLabels;
 
   /// 🌫️ Fog of War: Controller for fog overlay + mastery map.
-  late final FogOfWarController _fogOfWarController =
-      FogOfWarController(telemetry: widget.config.telemetry);
+  late final FogOfWarController _fogOfWarController = FogOfWarController(
+    telemetry: widget.config.telemetry,
+  );
 
   /// 🌫️ Fog of War: Version notifier for painter repaint.
   final ValueNotifier<int> _fogOfWarVersionNotifier = ValueNotifier(0);
@@ -857,13 +861,17 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Offset? _pendingFogTapPosition;
 
   // 🔶 Socratic Spatial fields
-  late final SocraticController _socraticController =
-      SocraticController(telemetry: widget.config.telemetry);
+  late final SocraticController _socraticController = SocraticController(
+    telemetry: widget.config.telemetry,
+  );
   AnimationController? _socraticPulseController;
+
   /// null = not generating, non-null = current phase label
   String? _socraticGeneratingPhase;
+
   /// IDs of resolved bubbles the user swiped away.
   final Set<String> _dismissedSocraticIds = {};
+
   /// Cluster IDs currently showing hypercorrection pulse (⚡ P3-23).
   final Set<String> _hypercorrectionPulseClusterIds = {};
 
@@ -924,7 +932,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Set<String> _recallNewStrokeIds = const {};
   bool _recallShowingOriginals = true; // Toggle for comparison view
   Rect _recallReconstructionZone = Rect.zero; // Adjacent zone for writing
-  Rect? _recallAttemptBounds;            // Bounding rect of user's new strokes
+  Rect? _recallAttemptBounds; // Bounding rect of user's new strokes
   List<Offset> _recallBlankMarkers = []; // "Non ricordo" markers
 
   /// 🚀 PERFORMANCE: Tratto corrente con notifier ottimizzato
@@ -1034,6 +1042,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🆕 Drawing input handler (logica condivisa)
   late final DrawingInputHandler _drawingHandler;
+
+  /// Subscription to native coalesced touches (Apple Pencil ~240 Hz path).
+  /// Lives for the widget lifetime; gated internally per-event.
+  StreamSubscription<List<PredictedTouchPoint>>? _realTouchSubscription;
 
   /// Brush settings
   ProBrushSettings _brushSettings = const ProBrushSettings();
@@ -1279,9 +1291,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     if (_canvasController.scale >= 0.30) return;
     if (_clusterCache.isEmpty) return;
 
-    final missing = _clusterCache
-        .where((c) => !_clusterTextCache.containsKey(c.id))
-        .length;
+    final missing =
+        _clusterCache.where((c) => !_clusterTextCache.containsKey(c.id)).length;
     if (missing == 0) return;
 
     _populatingLandmarkTexts = true;
@@ -1349,8 +1360,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
       if (strokeSets.isNotEmpty && inkService.isAvailable) {
         try {
-          final recognized =
-              await inkService.engine.recognizeTextMode(strokeSets);
+          final recognized = await inkService.engine.recognizeTextMode(
+            strokeSets,
+          );
           final parts = [...textParts];
           if (recognized != null && recognized.isNotEmpty) {
             parts.add(recognized);
@@ -1380,9 +1392,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// Convenience: bookmark id → world centroid for the minimap layer.
   Map<String, Offset> _bookmarkLocations() => {
-        for (final bm in _bookmarkController.bookmarks)
-          bm.id: bm.canvasPosition,
-      };
+    for (final bm in _bookmarkController.bookmarks) bm.id: bm.canvasPosition,
+  };
 
   /// Triggered every time the bookmark list mutates (add/remove/rename/
   /// recordVisit). Persists asynchronously and rebuilds so the minimap
@@ -1420,8 +1431,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       if (nearest != null) {
         final txt = _clusterTextCache[nearest.id] ?? '';
         if (txt.isNotEmpty) {
-          suggested =
-              TextLabelPicker.pickFromSingle(txt, maxWords: 2, maxChars: 30);
+          suggested = TextLabelPicker.pickFromSingle(
+            txt,
+            maxWords: 2,
+            maxChars: 30,
+          );
         }
       }
     }
@@ -1481,14 +1495,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => BookmarkListSheet(
-        controller: _bookmarkController,
-        thumbnailCache: _bookmarkThumbnailCache,
-        thumbnailLoader: _generateBookmarkThumbnail,
-        onNavigate: _navigateToBookmark,
-        onRename: _promptRenameBookmark,
-        onDelete: _confirmDeleteBookmark,
-      ),
+      builder:
+          (ctx) => BookmarkListSheet(
+            controller: _bookmarkController,
+            thumbnailCache: _bookmarkThumbnailCache,
+            thumbnailLoader: _generateBookmarkThumbnail,
+            onNavigate: _navigateToBookmark,
+            onRename: _promptRenameBookmark,
+            onDelete: _confirmDeleteBookmark,
+          ),
     );
   }
 
@@ -1529,8 +1544,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       final curOffset = _canvasController.offset;
       final deltaOffset = (targetOffset - curOffset).distance;
       final viewportDiag = math.sqrt(
-        viewport.width * viewport.width +
-            viewport.height * viewport.height,
+        viewport.width * viewport.width + viewport.height * viewport.height,
       );
       // `screenDistance` is in "viewport diagonals" units. A jump of 1
       // viewport diagonal ≈ a big swipe across the screen.
@@ -1539,11 +1553,11 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       final scaleRatio = (bm.scale / _canvasController.scale).abs();
       // Combined progress: geometric + zoom magnitude. A large zoom
       // change (e.g. 0.1 → 1.5) matters even at small pixel delta.
-      final zoomFactor = scaleRatio >= 1
-          ? math.log(scaleRatio) / math.ln2
-          : math.log(1 / scaleRatio) / math.ln2; // log2 ratio, always ≥0
-      final distanceScore =
-          (screenDistance + zoomFactor * 0.5).clamp(0.0, 4.0);
+      final zoomFactor =
+          scaleRatio >= 1
+              ? math.log(scaleRatio) / math.ln2
+              : math.log(1 / scaleRatio) / math.ln2; // log2 ratio, always ≥0
+      final distanceScore = (screenDistance + zoomFactor * 0.5).clamp(0.0, 4.0);
       // 0.25s minimum (snappy for neighbours), 1.0s maximum (cinematic
       // for continent-crossings). Linear map with a mild curve.
       final durationSeconds = 0.25 + (distanceScore / 4.0) * 0.75;
@@ -1565,26 +1579,27 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     final controller = TextEditingController(text: bm.label);
     final newLabel = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rinomina bookmark'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 40,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
-            child: const Text('Annulla'),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Rinomina bookmark'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 40,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+              onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(null),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                child: const Text('Salva'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Salva'),
-          ),
-        ],
-      ),
     );
     controller.dispose();
     if (newLabel != null && newLabel.isNotEmpty) {
@@ -1595,23 +1610,24 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   Future<void> _confirmDeleteBookmark(SpatialBookmark bm) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminare il bookmark?'),
-        content: Text('"${bm.label}" sarà rimosso definitivamente.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Annulla'),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Eliminare il bookmark?'),
+            content: Text('"${bm.label}" sarà rimosso definitivamente.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE53935),
+                ),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Elimina'),
+              ),
+            ],
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFE53935),
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Elimina'),
-          ),
-        ],
-      ),
     );
     if (ok == true) {
       _bookmarkController.remove(bm.id);
@@ -2665,10 +2681,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // Delay slightly to let the canvas UI settle before adding the card
       Future.delayed(const Duration(milliseconds: 800), () {
         if (mounted) {
-          _handleNotificationTap(FNotificationTapEvent(
-            notificationId: 'router_pending',
-            data: {'concept': widget.pendingReviewConcept!},
-          ));
+          _handleNotificationTap(
+            FNotificationTapEvent(
+              notificationId: 'router_pending',
+              data: {'concept': widget.pendingReviewConcept!},
+            ),
+          );
         }
       });
     }
@@ -2931,6 +2949,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     );
     _drawingHandler.stabilizerLevel = _brushSettings.stabilizerLevel;
 
+    // 🖊️ Apple Pencil 240 Hz path: ingest coalesced native samples directly
+    // so fast writing doesn't lose sub-frame samples that Flutter's 120 Hz
+    // PointerEvent stream drops. See PredictedTouchPlugin.swift.
+    _realTouchSubscription = PredictedTouchService.instance.realTouchStream
+        .listen(_onNativeCoalescedBatch);
+
     // 🎛️ Load brush settings persistenti
     _loadBrushSettings();
 
@@ -3153,7 +3177,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
       // 🌫️ FOG OF WAR: Gracefully end and save session if app goes to background.
       // Prevents data loss — unvisited nodes become blind spots, session is persisted.
-      if (mounted && _fogOfWarController.isActive && _fogOfWarController.isFogActive) {
+      if (mounted &&
+          _fogOfWarController.isActive &&
+          _fogOfWarController.isFogActive) {
         _fogOfWarController.endSession();
         _fogOfWarController.updateRevealProgress(1.0); // Skip animation.
         _applyFogOfWarSrsReset();
@@ -3497,6 +3523,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _autoScrollTimer?.cancel();
     _imageEvictionTimer?.cancel();
     _metricsSubscription?.cancel();
+    _realTouchSubscription?.cancel();
     _penPickerTimer?.cancel();
     _swipeHudTimer?.cancel();
     _stylusButtonSub?.cancel();
@@ -3638,10 +3665,7 @@ class _BookmarkNameDialogState extends State<_BookmarkNameDialog> {
           onPressed: () => Navigator.of(context).pop(null),
           child: const Text('Annulla'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Salva')),
       ],
     );
   }

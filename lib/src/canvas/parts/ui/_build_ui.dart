@@ -1481,6 +1481,13 @@ extension on _FlueraCanvasScreenState {
               // 🏎️ Performance Monitor: now managed as a global OverlayEntry
               // (see CanvasPerformanceMonitor.showGlobalOverlay) so it persists
               // across Navigator routes (ImageViewer, PDF Reader, LaTeX, etc.).
+
+              // 🖊️ TEMP: Apple Pencil 240 Hz debug overlay. Visible whenever
+              // PredictedTouchService.debugLogEventRate is true. Remove the
+              // flag (and this widget) once the native path is verified.
+              if (PredictedTouchService.debugLogEventRate ||
+                  DrawingInputHandler.debugLogSampleRate)
+                const PredictedTouchDebugOverlay(),
             ],
           ),
           ), // CanvasScope

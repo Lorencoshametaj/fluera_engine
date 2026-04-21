@@ -4050,6 +4050,396 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Smart review + Challenge'**
   String get paywall_featureFsrsChallenge;
+
+  /// No description provided for @auth_heroWelcomeBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome back'**
+  String get auth_heroWelcomeBack;
+
+  /// No description provided for @auth_heroCreateAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Create Account'**
+  String get auth_heroCreateAccount;
+
+  /// No description provided for @auth_subtitleLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to sync your notes'**
+  String get auth_subtitleLogin;
+
+  /// No description provided for @auth_subtitleSignup.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign up to get started'**
+  String get auth_subtitleSignup;
+
+  /// No description provided for @auth_fieldEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get auth_fieldEmail;
+
+  /// No description provided for @auth_fieldPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get auth_fieldPassword;
+
+  /// No description provided for @auth_fieldConfirmPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Password'**
+  String get auth_fieldConfirmPassword;
+
+  /// No description provided for @auth_validatorEmailRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Email required'**
+  String get auth_validatorEmailRequired;
+
+  /// No description provided for @auth_validatorEmailInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid email format'**
+  String get auth_validatorEmailInvalid;
+
+  /// No description provided for @auth_validatorPasswordMin.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimum 6 characters'**
+  String get auth_validatorPasswordMin;
+
+  /// No description provided for @auth_validatorPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Passwords do not match'**
+  String get auth_validatorPasswordMismatch;
+
+  /// No description provided for @auth_strengthWeak.
+  ///
+  /// In en, this message translates to:
+  /// **'Weak'**
+  String get auth_strengthWeak;
+
+  /// No description provided for @auth_strengthFair.
+  ///
+  /// In en, this message translates to:
+  /// **'Fair'**
+  String get auth_strengthFair;
+
+  /// No description provided for @auth_strengthGood.
+  ///
+  /// In en, this message translates to:
+  /// **'Good'**
+  String get auth_strengthGood;
+
+  /// No description provided for @auth_strengthStrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Strong'**
+  String get auth_strengthStrong;
+
+  /// No description provided for @auth_checkLength.
+  ///
+  /// In en, this message translates to:
+  /// **'At least 6 characters'**
+  String get auth_checkLength;
+
+  /// No description provided for @auth_checkCase.
+  ///
+  /// In en, this message translates to:
+  /// **'Uppercase and lowercase'**
+  String get auth_checkCase;
+
+  /// No description provided for @auth_checkNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'A number'**
+  String get auth_checkNumber;
+
+  /// No description provided for @auth_checkSpecial.
+  ///
+  /// In en, this message translates to:
+  /// **'A special character'**
+  String get auth_checkSpecial;
+
+  /// No description provided for @auth_ctaLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign In'**
+  String get auth_ctaLogin;
+
+  /// No description provided for @auth_ctaSignup.
+  ///
+  /// In en, this message translates to:
+  /// **'Create Account'**
+  String get auth_ctaSignup;
+
+  /// No description provided for @auth_toggleQuestionNoAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t have an account? '**
+  String get auth_toggleQuestionNoAccount;
+
+  /// No description provided for @auth_toggleQuestionHasAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Already have an account? '**
+  String get auth_toggleQuestionHasAccount;
+
+  /// No description provided for @auth_toggleActionSignup.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign Up'**
+  String get auth_toggleActionSignup;
+
+  /// No description provided for @auth_toggleActionLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign In'**
+  String get auth_toggleActionLogin;
+
+  /// No description provided for @auth_magicLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in without password'**
+  String get auth_magicLink;
+
+  /// No description provided for @auth_forgotPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Forgot password?'**
+  String get auth_forgotPassword;
+
+  /// No description provided for @auth_socialGoogle.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue with Google'**
+  String get auth_socialGoogle;
+
+  /// No description provided for @auth_socialApple.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue with Apple'**
+  String get auth_socialApple;
+
+  /// No description provided for @auth_forgotPasswordHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset Password'**
+  String get auth_forgotPasswordHeader;
+
+  /// No description provided for @auth_forgotPasswordSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your email and we\'ll send you\na link to reset your password.'**
+  String get auth_forgotPasswordSubtitle;
+
+  /// No description provided for @auth_ctaSendResetLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Send Reset Link'**
+  String get auth_ctaSendResetLink;
+
+  /// No description provided for @auth_toggleQuestionRememberPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Remember your password? '**
+  String get auth_toggleQuestionRememberPassword;
+
+  /// No description provided for @auth_toggleActionBackToLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to login'**
+  String get auth_toggleActionBackToLogin;
+
+  /// No description provided for @auth_emailSentHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Check your inbox'**
+  String get auth_emailSentHeader;
+
+  /// No description provided for @auth_emailSentMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a reset link to\n{email}'**
+  String auth_emailSentMessage(String email);
+
+  /// No description provided for @auth_resendCooldown.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend in {seconds}s'**
+  String auth_resendCooldown(int seconds);
+
+  /// No description provided for @auth_resendEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend Email'**
+  String get auth_resendEmail;
+
+  /// No description provided for @auth_verifyEmailHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify your Email'**
+  String get auth_verifyEmailHeader;
+
+  /// No description provided for @auth_verifyEmailMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a confirmation link to\n{email}'**
+  String auth_verifyEmailMessage(String email);
+
+  /// No description provided for @auth_verifyEmailHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Click the link in the email to activate your account,\nthen come back here to sign in.'**
+  String get auth_verifyEmailHint;
+
+  /// No description provided for @auth_resendVerification.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend Verification Email'**
+  String get auth_resendVerification;
+
+  /// No description provided for @auth_ctaAlreadyVerified.
+  ///
+  /// In en, this message translates to:
+  /// **'I already verified — Sign In'**
+  String get auth_ctaAlreadyVerified;
+
+  /// No description provided for @auth_conflictTitleProvider.
+  ///
+  /// In en, this message translates to:
+  /// **'Account {identifier} already linked'**
+  String auth_conflictTitleProvider(String identifier);
+
+  /// No description provided for @auth_conflictTitleEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'This email is already registered'**
+  String get auth_conflictTitleEmail;
+
+  /// No description provided for @auth_conflictBodyProvider.
+  ///
+  /// In en, this message translates to:
+  /// **'This {identifier} account is linked to another Fluera profile. Continuing will switch to the other profile and you\'ll lose the work done as a guest:'**
+  String auth_conflictBodyProvider(String identifier);
+
+  /// No description provided for @auth_conflictBodyEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'You already have a Fluera account with this email. Signing in now will lose the work done as a guest:'**
+  String get auth_conflictBodyEmail;
+
+  /// No description provided for @auth_conflictStatCanvases.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} canvas'**
+  String auth_conflictStatCanvases(int count);
+
+  /// No description provided for @auth_conflictStatTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'{tokens} AI tokens used'**
+  String auth_conflictStatTokens(String tokens);
+
+  /// No description provided for @auth_conflictRestoreHint.
+  ///
+  /// In en, this message translates to:
+  /// **'You can restore canvases from the gallery within 24h.'**
+  String get auth_conflictRestoreHint;
+
+  /// No description provided for @auth_conflictUseOtherEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Use another email'**
+  String get auth_conflictUseOtherEmail;
+
+  /// No description provided for @auth_conflictLoginAndDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in and discard'**
+  String get auth_conflictLoginAndDiscard;
+
+  /// No description provided for @auth_reauthFallbackAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'your account'**
+  String get auth_reauthFallbackAccount;
+
+  /// No description provided for @auth_reauthErrorEmptyPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your password'**
+  String get auth_reauthErrorEmptyPassword;
+
+  /// No description provided for @auth_reauthErrorConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection error. Try again.'**
+  String get auth_reauthErrorConnection;
+
+  /// No description provided for @auth_reauthTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Session expired'**
+  String get auth_reauthTitle;
+
+  /// No description provided for @auth_reauthBody.
+  ///
+  /// In en, this message translates to:
+  /// **'For security, you need to sign in again to {email}.'**
+  String auth_reauthBody(String email);
+
+  /// No description provided for @auth_reauthContinueAsGuest.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue as guest'**
+  String get auth_reauthContinueAsGuest;
+
+  /// No description provided for @auth_restoreSuccessSingle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restored 1 canvas 🎉'**
+  String get auth_restoreSuccessSingle;
+
+  /// No description provided for @auth_restoreSuccessMulti.
+  ///
+  /// In en, this message translates to:
+  /// **'Restored {count} canvases 🎉'**
+  String auth_restoreSuccessMulti(int count);
+
+  /// No description provided for @auth_restoreExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'No canvases to restore (expired after 24h).'**
+  String get auth_restoreExpired;
+
+  /// No description provided for @auth_restoreBannerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} guest canvas pending'**
+  String auth_restoreBannerTitle(int count);
+
+  /// No description provided for @auth_restoreBannerBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore within {hoursLeft}h or they\'ll be deleted.'**
+  String auth_restoreBannerBody(int hoursLeft);
+
+  /// No description provided for @auth_restoreDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get auth_restoreDiscard;
+
+  /// No description provided for @auth_restoreAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get auth_restoreAction;
 }
 
 class _FlueraLocalizationsDelegate

@@ -24,6 +24,11 @@ extension FlueraSmartInkExtension on _FlueraCanvasScreenState {
   static ProStroke? _pendingSmartInkStroke;
   static Offset? _pendingSmartInkScreenPos;
 
+  // OPT-IN (default off): user sovereignty (Assiomi 1, 10). Tap-to-reveal
+  // recognition is power-user behavior — surfaces only when enabled in
+  // settings, avoiding incidental pop-ups during study.
+  static bool smartInkEnabled = false;
+
   /// Whether the Smart Ink overlay is currently showing.
   bool get isSmartInkActive => _activeSmartInk != null;
 

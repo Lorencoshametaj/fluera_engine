@@ -33,6 +33,81 @@
 
 ---
 
+## 📌 PASS 5 — B1 sweep disciplinato, slice 1/N: auth login form (2026-04-21)
+
+Sweep disciplinato B1 iniziato. Metodologia: una dimensione (copy → ARB), uno slice alla volta, a completamento.
+
+**Slice 1 shipped — `fluera_login_screen.dart` primary auth form path**
+
+- **Survey esaustivo** completato: ~130 stringhe IT hardcoded in 28 file (engine + app). Log in memoria di sessione.
+- **Design naming:** convenzione `auth_<contextKey>` (camelCase post-prefix) allineata alle esistenti (`proCanvas_*`, `socratic_*`).
+- **Keys added:** 26 nuove chiavi `auth_*` in `app_it.arb` + `app_en.arb` (entrambe complete, nessuna untranslated introdotta).
+- **Callsites migrati:** 20+ sostituzioni in `fluera_login_screen.dart`:
+  - Hero title/subtitle · field labels (Email/Password/Conferma) · 4 validators · 4 strength labels · 4 requirement checks · primary CTA (Accedi/Crea Account) · toggle row · magic link · forgot password link · Google/Apple social CTAs.
+- **Refactor:** `_strengthLabels` da `static const` → metodo con `BuildContext`. `_passwordChecks` da 1 arg → 2 args (aggiunto context).
+- **Verifica:** `flutter analyze lib/auth/fluera_login_screen.dart` → zero issue. Engine clean.
+
+**Slice 1.b shipped — forgot/emailSent/verify subviews (2026-04-21)**
+
+- 16 nuove chiavi `auth_*` (inclusi 3 con placeholder: `auth_emailSentMessage({email})`, `auth_resendCooldown({seconds:int})`, `auth_verifyEmailMessage({email})`).
+- Callsites migrati in `_buildForgotPasswordView`, `_buildEmailSentView`, `_buildVerifyEmailView`: 16 stringhe totali (header + subtitle + email field + 2 validators + CTA + toggle + resend cooldown + resend button + verify header/message/hint + resend verification + already-verified CTA).
+- Placeholder ARB usati correttamente (funzioni generate: `l10n.auth_emailSentMessage(email)` etc).
+- Verifica: `flutter analyze lib/auth/fluera_login_screen.dart` → **zero issue**. Il file è ora completamente l10n-ready (except `_buildTermsRow` che è inter-linked — prossimo slice).
+
+**Slice 2 shipped — auth edges (2026-04-21)**
+
+- 21 nuove chiavi `auth_*` (9 con placeholder: `{identifier}`, `{count:int}`, `{tokens:String}`, `{email}`, `{hoursLeft:int}`).
+- `conflict_dialog.dart`: 9 stringhe migrate (titoli provider/email, body provider/email, stat canvases/tokens con placeholder, restore hint, CTA cancel/otherEmail/loginDiscard). Riuso `l10n.cancel` esistente.
+- `reauth_modal.dart`: 7 stringhe migrate (fallback account, empty password error, connection error, title, body con `{email}`, password field label con riuso `auth_fieldPassword`, continue as guest, CTA `auth_ctaLogin`). `_email` getter → `_emailFor(context)` per accesso a l10n.
+- `restore_banner.dart`: 6 stringhe migrate (success singular/multi con ICU-like split, expired, banner title/body con placeholder `{count}`/`{hoursLeft}`, discard, restore action).
+- Verifica: `flutter analyze` su tutti e 3 i file → **zero issue**.
+
+**Slice rimanenti (documentati per prossimo rush):**
+
+| Slice | File | Strings | Effort |
+|-------|------|---------|--------|
+| 3 onboarding | `fluera_consent_screen.dart` | ~2 | XS |
+| 4 exam overlay | `exam_overlay.dart` | ~13 | M |
+| 5 canvas dialogs | `fluera_canvas_screen.dart` (bookmark/text edit dialogs) | ~8 | S |
+| 6 function graph | `_drawing_handlers.dart` + `latex_function_graph.dart` | ~10 | S |
+| 7 inline text toolbar | `inline_text_toolbar.dart` | ~10 | S |
+| 8 PDF reader | `_text_sheet.dart` | ~2 | XS |
+| 9 fog of war | `_fog_of_war.dart` + `fog_of_war_info_screen.dart` | ~8 | S |
+| 10 atlas overlays | `atlas_response_card.dart` + `chat_overlay.dart` | ~6 | S |
+| 11 paywall/quota | `fluera_paywall.dart` + `ai_quota_exceeded_sheet.dart` + `subscription_service.dart` | ~4 | S |
+| 12 main exit | `main.dart` | ~2 | XS |
+
+**Totale residuo:** ~110 stringhe, ~12 slice. Pattern stabilito (ARB key + BuildContext getter dove serve) — slice successivi seguono il template di slice 1.
+
+---
+
+## 📌 PASS 4 — Accessibility hardening (2026-04-21)
+
+| Ticket | Stato | Note |
+|--------|:-----:|------|
+| **A3** Touch targets | ✅ già compliant | Verificata: `chipHeight` già 40dp (bumped in commit `e7d1ced`), color swatch 40→44 quando selected. Uniche istanze <40dp residue in LaTeX editor (gated `V1FeatureGate.latexRecognition = false`) → non user-facing in beta. |
+| **A4** Contrast body text | ✅ | 8 offender peggiori fixati: `atlas_prompt_overlay` (close icon 0.4→0.75, hint 0.2→0.55) · `chat_overlay` (action icons 0.4→0.7, body text 0.3→0.65, empty state 0.35→0.65, date 0.3→0.6) · `handwriting_scratchpad` placeholder 0.2→0.55 · `exam_overlay` label 0.45→0.7. Code-comment italic monospace 0.3 preservato (semantic low-weight). Restanti occorrenze shadow/border/bg, legittime. |
+| **B1** + **A5** | 📝 Plan dedicato | ~50 stringhe IT hardcoded + ~30 fontSize hardcoded in `fluera_settings.dart`. Audit le classifica M-L effort; farle mezze in rush peggiora il debito. Rimandate come sweep dedicato con QA visivo. |
+
+`flutter analyze` clean.
+
+---
+
+## 📌 PASS 3 — Polish Batch (2026-04-21)
+
+Quattro ticket a basso effort / alto impatto su coerenza enterprise.
+
+| Ticket | Stato | Note |
+|--------|:-----:|------|
+| **F07** Action flash overlay sobrio | ✅ | Rewrite completo: rimossi glow holographic + scale-pop + cyan rim + HUD centrato. Toast bottom-centered, pill nera 78% alpha, icone Material (undo/redo rounded), 180ms fade-in + 1100ms visible + fade-out. API preservata (`showUndo`/`showRedo`/`showText`). |
+| **F08** Smart ink opt-in | ✅ | Default `FlueraSmartInkExtension.smartInkEnabled = false`. Gate in `_drawing_handlers.dart:693` — tap-to-reveal non si innesca finché l'utente non abilita dalla settings (wiring settings → Plan). |
+| **A6** Reduced motion helper | ✅ | Nuovo `fluera_engine/lib/src/utils/reduced_motion.dart` esporta `effectiveDuration(ctx, full)` e `shortenedDuration`. Wired in `action_flash_overlay.dart` + `fluera_splash.dart`. WCAG 2.3.3 compliance + Assioma 2 (silenzio). Sweep esteso ai restanti 835 AnimationController → Plan dedicato. |
+| **P2P-Duel** rebrand no-competition | ✅ | Card in `p2p_mode_selection_sheet.dart:106`: title "Duello (7c)" → "Richiamo a tempo", icon `sports_esports_outlined` → `timer_outlined`, color `0xFFC62828` (red) → `0xFF00897B` (teal), subtitle neutralizzato ("Ricostruite in parallelo dalla memoria"). Classi/FSM interni (`P2PCollabMode.duel`, `DuelPhase`) preservati. |
+
+**Verifica globale:** `flutter analyze` zero nuovi errori (132 issue, tutti pre-esistenti).
+
+---
+
 ## 📌 PASS 2 — Accessibility + Copy Quality + Dead Code (2026-04-20)
 
 Secondo giro dell'audit su dimensioni non coperte dal Pass 1.

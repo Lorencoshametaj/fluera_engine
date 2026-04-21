@@ -104,12 +104,12 @@ class P2PModeSelectionSheet extends StatelessWidget {
             const SizedBox(height: 12),
 
             _ModeCard(
-              icon: Icons.sports_esports_outlined,
-              title: 'Duello (7c)',
+              icon: Icons.timer_outlined,
+              title: 'Richiamo a tempo',
               subtitle:
-                  'Richiamo a tempo! Entrambi ricostruite dalla '
-                  'memoria, poi confrontate i risultati.',
-              color: const Color(0xFFC62828),
+                  'Ricostruite in parallelo dalla memoria, '
+                  'poi confrontate i risultati.',
+              color: const Color(0xFF00897B),
               mode: P2PCollabMode.duel,
               onTap: () => Navigator.of(context).pop(P2PCollabMode.duel),
             ),

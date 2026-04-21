@@ -246,7 +246,7 @@ class _HandwritingScratchpadState extends State<HandwritingScratchpad> with Tick
               child: Text(
                 'Scrivi qui la tua risposta a mano...',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: Colors.white.withValues(alpha: 0.55),
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                 ),

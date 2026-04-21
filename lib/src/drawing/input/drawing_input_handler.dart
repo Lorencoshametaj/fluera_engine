@@ -82,6 +82,47 @@ class DrawingInputHandler {
   /// 🚀 Subscription to native predicted touches
   StreamSubscription<List<PredictedTouchPoint>>? _predictedTouchSubscription;
 
+  /// Toggle runtime logging of per-stroke sample rate.
+  /// TEMP: on by default so the in-app debug overlay exposes per-stroke hz.
+  /// Flip back to false once the 240 Hz path is confirmed on device.
+  static bool debugLogSampleRate = true;
+
+  /// Live per-stroke metrics (hz/count/duration) for the in-app debug overlay.
+  /// Updated on endStroke so the overlay stays readable between strokes.
+  static final ValueNotifier<String> debugStrokeNotifier =
+      ValueNotifier<String>('');
+
+  int _ingestedSampleCount = 0;
+  int _strokeStartMs = 0;
+
+  /// Last time (ms since epoch) a native coalesced batch was ingested. Used
+  /// as a rolling watchdog: while the native EventChannel is feeding samples,
+  /// Flutter-side [updateStroke] calls become no-ops to avoid duplicates.
+  /// If the native stream goes quiet (non-Pencil, Android, bug), Flutter
+  /// resumes driving the stroke after [_nativeStaleThresholdMs].
+  int _lastNativeIngestMs = 0;
+
+  /// If no native batch has arrived for this many ms, fall back to the
+  /// Flutter 120 Hz path. Keep small — at 120 Hz Flutter events arrive every
+  /// ~8.3 ms, so one missed native frame should still be bridged.
+  static const int _nativeStaleThresholdMs = 20;
+
+  /// True while the native EventChannel is currently authoritative for the
+  /// stroke (recent native batch observed). Readers use this to gate
+  /// ancillary behaviors that were previously tied to Flutter pointer events.
+  bool get nativeInputAuthoritative {
+    if (_lastNativeIngestMs == 0) return false;
+    return DateTime.now().millisecondsSinceEpoch - _lastNativeIngestMs <
+        _nativeStaleThresholdMs;
+  }
+
+  bool _nativeWasUsedThisStroke = false;
+
+  /// True if any native batch was ingested during the current (or just-ended)
+  /// stroke. Used e.g. to suppress rendered-count trimming on commit since
+  /// the extra samples are real user motion, not lookahead.
+  bool get nativeWasUsedThisStroke => _nativeWasUsedThisStroke;
+
   /// Callback called when a nuovo punto is added
   /// 🚀 PERFORMANCE: Passa la lista originale, non una copia!
   final void Function(List<ProDrawingPoint> points)? onPointsUpdated;
@@ -110,7 +151,10 @@ class DrawingInputHandler {
     _initNativePredictedTouches();
   }
 
-  /// 🚀 Initialize native predicted touches subscription (iOS only)
+  /// 🚀 Initialize native predicted touches subscription (iOS only).
+  /// Subscribes to the predicted (visual anti-lag) stream. Real coalesced
+  /// touches have a separate subscription owned by the canvas screen — see
+  /// [PredictedTouchService.realTouchStream].
   void _initNativePredictedTouches() {
     final service = PredictedTouchService.instance;
     service.initialize().then((_) {
@@ -118,20 +162,17 @@ class DrawingInputHandler {
         _predictedTouchSubscription = service.predictedTouchStream.listen((
           points,
         ) {
-          // Convert native points to ProDrawingPoint
           _nativePredictedPoints.clear();
           for (final point in points) {
-            if (point.isPredicted) {
-              _nativePredictedPoints.add(
-                ProDrawingPoint(
-                  position: Offset(point.x, point.y),
-                  pressure: point.pressure,
-                  timestamp: point.timestamp,
-                ),
-              );
-            }
+            if (!point.isPredicted) continue;
+            _nativePredictedPoints.add(
+              ProDrawingPoint(
+                position: Offset(point.x, point.y),
+                pressure: point.pressure,
+                timestamp: point.timestamp,
+              ),
+            );
           }
-          // Notify listener about predicted points
           if (_nativePredictedPoints.isNotEmpty) {
             onPredictedPointsUpdated?.call(_nativePredictedPoints);
           }
@@ -215,6 +256,11 @@ class DrawingInputHandler {
 
     _currentStroke.add(point);
 
+    _ingestedSampleCount = 1;
+    _strokeStartMs = DateTime.now().millisecondsSinceEpoch;
+    _lastNativeIngestMs = 0;
+    _nativeWasUsedThisStroke = false;
+
     // Notify callback - passa lista originale (il painter non deve modificarla!)
     // 🚀 PERFORMANCE: No copies created
     onPointsUpdated?.call(_currentStroke);
@@ -242,6 +288,11 @@ class DrawingInputHandler {
     double orientation = 0.0,
     bool silent = false,
   }) {
+    // Native EventChannel is feeding the stroke at 240 Hz — skip this
+    // 120 Hz sample to avoid duplicates. Rolling watchdog: auto-fallback if
+    // the native stream goes quiet.
+    if (nativeInputAuthoritative) return;
+
     // 🚀 PHASE 1: Coordinate transform happens HERE (single place)
     final docPosition =
         (screenPosition != null && scaleFactor != null && scaleFactor > 0)
@@ -304,6 +355,7 @@ class DrawingInputHandler {
     );
 
     _currentStroke.add(point);
+    _ingestedSampleCount++;
 
     // 🚀 PERFORMANCE: Skip callback for silent (interpolated) points.
     // The final real point will trigger the callback once, causing ONE repaint
@@ -330,6 +382,7 @@ class DrawingInputHandler {
     List<double>? orientations,
     int? baseTimestamp,
     int? timeDeltaPerPoint, // e.g., 1ms per point for interpolation
+    List<int>? timestamps, // Per-point timestamps (ms); overrides base+delta.
   }) {
     if (positions.isEmpty) return;
 
@@ -346,7 +399,10 @@ class DrawingInputHandler {
               ? Offset(pos.dx / scaleFactor, pos.dy / scaleFactor)
               : pos;
 
-      final ts = startTs + (i * dt);
+      final ts =
+          (timestamps != null && i < timestamps.length)
+              ? timestamps[i]
+              : startTs + (i * dt);
       final pressure = i < pressures.length ? pressures[i] : 1.0;
       final tx = (tiltsX != null && i < tiltsX.length) ? tiltsX[i] : 0.0;
       final ty = (tiltsY != null && i < tiltsY.length) ? tiltsY[i] : 0.0;
@@ -384,9 +440,30 @@ class DrawingInputHandler {
 
       _currentStroke.add(point);
     }
+    _ingestedSampleCount += count;
 
     // 🚀 Notify once for the whole batch
     onPointsUpdated?.call(_currentStroke);
+  }
+
+  /// Ingest a batch of real coalesced samples coming from the native
+  /// EventChannel (Apple Pencil ~240 Hz). [canvasSpacePositions] must already
+  /// be in canvas/document coordinates — callers run screenToCanvas upstream
+  /// because this handler is transform-agnostic. [timestamps] are ms on the
+  /// uptime clock (as emitted by UITouch).
+  void ingestCoalescedBatch({
+    required List<Offset> canvasSpacePositions,
+    required List<double> pressures,
+    required List<int> timestamps,
+  }) {
+    if (canvasSpacePositions.isEmpty) return;
+    _lastNativeIngestMs = DateTime.now().millisecondsSinceEpoch;
+    _nativeWasUsedThisStroke = true;
+    addPointsBatch(
+      positions: canvasSpacePositions,
+      pressures: pressures,
+      timestamps: timestamps,
+    );
   }
 
   /// 🎨 Complete the current stroke
@@ -431,6 +508,26 @@ class DrawingInputHandler {
     // 🌱 Notify pattern tracker for adaptive intensity
     OrganicBehaviorEngine.notifyStrokeCompleted(_currentStroke.length);
 
+    if (debugLogSampleRate && _strokeStartMs > 0) {
+      final durationMs = DateTime.now().millisecondsSinceEpoch - _strokeStartMs;
+      final hz = durationMs > 0
+          ? (_ingestedSampleCount * 1000.0 / durationMs)
+          : 0.0;
+      final line =
+          'stroke hz=${hz.toStringAsFixed(0)}  '
+          'count=$_ingestedSampleCount  '
+          'ms=$durationMs  '
+          'native=${_nativeWasUsedThisStroke ? "Y" : "N"}';
+      debugPrint('[DrawingInputHandler] $line');
+      debugStrokeNotifier.value = line;
+    }
+    _ingestedSampleCount = 0;
+    _strokeStartMs = 0;
+    _lastNativeIngestMs = 0;
+    // Keep _nativeWasUsedThisStroke alive: callers consult it *after*
+    // endStroke() (commit path) to decide whether to suppress
+    // rendered-count trimming. Next startStroke resets it.
+
     // Create copia defensiva to avoid modifiche future
     final finalPoints = List<ProDrawingPoint>.unmodifiable(_currentStroke);
 
@@ -454,6 +551,10 @@ class DrawingInputHandler {
   /// Erases the current stroke without completing it
   void cancelStroke() {
     _currentStroke = [];
+    _ingestedSampleCount = 0;
+    _strokeStartMs = 0;
+    _lastNativeIngestMs = 0;
+    _nativeWasUsedThisStroke = false;
     onPointsUpdated?.call(const []);
   }
 
@@ -482,6 +583,10 @@ class DrawingInputHandler {
   void reset() {
     _currentStroke = [];
     _nativePredictedPoints.clear();
+    _ingestedSampleCount = 0;
+    _strokeStartMs = 0;
+    _lastNativeIngestMs = 0;
+    _nativeWasUsedThisStroke = false;
     _oneEuroFilter.reset();
     _stabilizer.reset();
     _inkSimulator.reset();

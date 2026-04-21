@@ -13,7 +13,8 @@ extension on _FlueraCanvasScreenState {
 
     // 🧠 SEMANTIC VIEW GUARD: Block drawing when zoomed out to semantic nodes.
     // Taps in semantic view are handled by onSingleTap → _handleSemanticNodeTap.
-    if (_semanticMorphController != null && _semanticMorphController!.isActive) {
+    if (_semanticMorphController != null &&
+        _semanticMorphController!.isActive) {
       return;
     }
 
@@ -161,9 +162,13 @@ extension on _FlueraCanvasScreenState {
         final crop = _imageTool.selectedImage!.cropRect;
         final w = rawImage.width.toDouble();
         final h = rawImage.height.toDouble();
-        final imageSize = crop != null
-            ? Size((crop.right - crop.left) * w, (crop.bottom - crop.top) * h)
-            : Size(w, h);
+        final imageSize =
+            crop != null
+                ? Size(
+                  (crop.right - crop.left) * w,
+                  (crop.bottom - crop.top) * h,
+                )
+                : Size(w, h);
         if (_imageTool.hitTestRotationHandle(canvasPosition, imageSize)) {
           _imageTool.startHandleRotation(canvasPosition);
           _uiRebuildNotifier.value++;
@@ -181,7 +186,8 @@ extension on _FlueraCanvasScreenState {
         _imageTool.clearSelection();
       });
       _imageRepaintNotifier.value++;
-      _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer so image rotation callbacks update
+      _gestureRebuildNotifier
+          .value++; // 🌀 Rebuild gesture layer so image rotation callbacks update
       _uiRebuildNotifier.value++;
     }
 
@@ -260,7 +266,8 @@ extension on _FlueraCanvasScreenState {
             // 📍 Save initial position to detect movement
             _initialTapPosition = canvasPosition;
 
-            _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer so onImageScaleStart becomes non-null
+            _gestureRebuildNotifier
+                .value++; // 🌀 Rebuild gesture layer so onImageScaleStart becomes non-null
             _uiRebuildNotifier.value++;
             return; // 🛑 Block other tools when touching image in pan mode
           }
@@ -270,7 +277,8 @@ extension on _FlueraCanvasScreenState {
         setState(() {
           _imageTool.clearSelection();
         });
-        _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer so onImageScaleStart becomes null
+        _gestureRebuildNotifier
+            .value++; // 🌀 Rebuild gesture layer so onImageScaleStart becomes null
         _uiRebuildNotifier.value++;
         // Do not return - continua con gli altri tool
       }
@@ -386,9 +394,9 @@ extension on _FlueraCanvasScreenState {
       final gBounds = gn.localBounds.translate(gPos.x, gPos.y);
       final hitRadius = 20.0 / _canvasController.scale;
       final corners = [
-        gBounds.topLeft,     // 0=TL
-        gBounds.topRight,    // 1=TR
-        gBounds.bottomLeft,  // 2=BL
+        gBounds.topLeft, // 0=TL
+        gBounds.topRight, // 1=TR
+        gBounds.bottomLeft, // 2=BL
         gBounds.bottomRight, // 3=BR
       ];
       for (int i = 0; i < corners.length; i++) {
@@ -496,7 +504,8 @@ extension on _FlueraCanvasScreenState {
     // 🐛 FIX: Set drawing flag ONLY when actual drawing/erasing starts,
     // not during image/text/table selection — keeps Image Actions visible.
     _isDrawingNotifier.value = true;
-    CanvasPerformanceMonitor.instance.notifyDrawingStarted(); // 🚀 Pause overlay
+    CanvasPerformanceMonitor.instance
+        .notifyDrawingStarted(); // 🚀 Pause overlay
 
     // If l'eraser is active, cancella at the point
     if (_effectiveIsEraser) {
@@ -672,11 +681,14 @@ extension on _FlueraCanvasScreenState {
       if (_knowledgeFlowController != null && _clusterCache.isNotEmpty) {
         final scale = _canvasController.scale;
         final hitConn = _knowledgeFlowController!.hitTestConnection(
-          canvasPosition, _clusterCache, maxDistance: 20.0 / scale,
+          canvasPosition,
+          _clusterCache,
+          maxDistance: 20.0 / scale,
         );
         if (hitConn != null) {
           final midCanvas = _knowledgeFlowController!.getConnectionMidpoint(
-            hitConn, _clusterCache,
+            hitConn,
+            _clusterCache,
           );
           if (midCanvas != null) {
             final screenPos = _canvasController.canvasToScreen(midCanvas);
@@ -690,12 +702,14 @@ extension on _FlueraCanvasScreenState {
       // ✍️ SMART INK: Tap stroke with gesture tool → DEFER to touch-up
       // Don't open overlay on touch-down — might be a pan gesture.
       // Store as pending; _onDrawEnd will open the overlay if no drag happened.
-      final strokeHit = _hitTestStroke(canvasPosition);
-      if (strokeHit != null) {
-        FlueraSmartInkExtension._pendingSmartInkStroke = strokeHit.stroke;
-        FlueraSmartInkExtension._pendingSmartInkScreenPos =
-            _canvasController.canvasToScreen(canvasPosition);
-        // Don't return — let canvas pan handle the touch normally.
+      if (FlueraSmartInkExtension.smartInkEnabled) {
+        final strokeHit = _hitTestStroke(canvasPosition);
+        if (strokeHit != null) {
+          FlueraSmartInkExtension._pendingSmartInkStroke = strokeHit.stroke;
+          FlueraSmartInkExtension._pendingSmartInkScreenPos = _canvasController
+              .canvasToScreen(canvasPosition);
+          // Don't return — let canvas pan handle the touch normally.
+        }
       }
       return; // Pan mode, no page hit — let canvas pan handle it
     }
@@ -758,7 +772,8 @@ extension on _FlueraCanvasScreenState {
     if (_learningStepController.currentStep == LearningStep.step1Notes) {
       final activeLayer = _layerController.activeLayer;
       if (activeLayer != null) {
-        final zoneRadius = 200.0 / _canvasController.scale; // 200px in screen space
+        final zoneRadius =
+            200.0 / _canvasController.scale; // 200px in screen space
         final hasNearbyContent = activeLayer.strokes.any((s) {
           if (s.bounds.isEmpty) return false;
           return s.bounds.inflate(zoneRadius).contains(canvasPosition);
@@ -778,9 +793,11 @@ extension on _FlueraCanvasScreenState {
       // Marker: 0.7 → partial opacity for MSAA blending.
       // Others (incl. fountain pen): 1.0 → fully opaque Vulkan rendering.
       final brushOpacity =
-          _effectivePenType == ProPenType.highlighter ? 0.0
-          : _effectivePenType == ProPenType.marker ? 0.7
-          : 1.0;
+          _effectivePenType == ProPenType.highlighter
+              ? 0.0
+              : _effectivePenType == ProPenType.marker
+              ? 0.7
+              : 1.0;
       _vulkanTextureOpacity.value = brushOpacity;
 
       // 🚀 DIRECT OVERLAY: Enable CAMetalLayer bypass (iOS only).
@@ -911,7 +928,8 @@ extension on _FlueraCanvasScreenState {
 
     // 📝 INLINE TEXT CANCEL: If inline text creation was triggered by the
     // first finger, cancel it when a second finger arrives (pinch-zoom).
-    if (_isInlineEditing && _inlineEditingElement != null &&
+    if (_isInlineEditing &&
+        _inlineEditingElement != null &&
         _inlineEditingElement!.text.isEmpty) {
       _cancelInlineText();
     }
@@ -1086,7 +1104,6 @@ extension on _FlueraCanvasScreenState {
     _drawWasCancelled = true;
     _lastDrawCancelMs = DateTime.now().millisecondsSinceEpoch;
 
-
     // Reset del drawing handler se ha uno stroke in corso
     if (_drawingHandler.hasStroke) {
       _drawingHandler.endStroke(); // Svuota lo stroke, scarta i punti
@@ -1111,8 +1128,15 @@ extension on _FlueraCanvasScreenState {
   }
 
   /// Called continuously with rotation + scale + drag during two-finger gesture
-  void _onImageTransform(double rotationDelta, double scaleRatio, Offset focalDelta) {
-    final (updated, didSnap) = _imageTool.updateRotation(rotationDelta, scaleRatio);
+  void _onImageTransform(
+    double rotationDelta,
+    double scaleRatio,
+    Offset focalDelta,
+  ) {
+    final (updated, didSnap) = _imageTool.updateRotation(
+      rotationDelta,
+      scaleRatio,
+    );
     if (updated != null) {
       // 🖐️ Apply simultaneous drag: convert screen-space delta to canvas-space.
       // Must un-rotate by canvas rotation AND divide by scale.
@@ -1165,7 +1189,7 @@ extension on _FlueraCanvasScreenState {
   static const double _snapAngleStep = math.pi / 4; // 45°
   static const double _snapTolerance = 0.05; // ~3° in radians
   static const double _minSelectionScale = 0.10; // 10%
-  static const double _maxSelectionScale = 5.0;  // 500%
+  static const double _maxSelectionScale = 5.0; // 500%
 
   void _onSelectionScaleStart() {
     _isSelectionPinching = true;
@@ -1180,7 +1204,11 @@ extension on _FlueraCanvasScreenState {
     HapticFeedback.mediumImpact();
   }
 
-  void _onSelectionTransform(double rotation, double scaleRatio, Offset focalDelta) {
+  void _onSelectionTransform(
+    double rotation,
+    double scaleRatio,
+    Offset focalDelta,
+  ) {
     if (!_lassoTool.hasSelection) return;
 
     // 🌀 Rotation delta (gesture gives cumulative rotation)
@@ -1206,13 +1234,15 @@ extension on _FlueraCanvasScreenState {
     // 🔄 Snap to 45° increments with haptic
     double effectiveRotDelta = rotDelta;
     if (rotDelta.abs() > 0.001) {
-      final nearestSnap = (_selectionAccumRotation / _snapAngleStep).round() * _snapAngleStep;
+      final nearestSnap =
+          (_selectionAccumRotation / _snapAngleStep).round() * _snapAngleStep;
       final distToSnap = (_selectionAccumRotation - nearestSnap).abs();
       if (distToSnap < _snapTolerance) {
         final snappedAccum = nearestSnap;
         effectiveRotDelta = rotDelta + (snappedAccum - _selectionAccumRotation);
         _selectionAccumRotation = snappedAccum;
-        if (_selectionLastSnapAngle == null || (_selectionLastSnapAngle! - nearestSnap).abs() > 0.01) {
+        if (_selectionLastSnapAngle == null ||
+            (_selectionLastSnapAngle! - nearestSnap).abs() > 0.01) {
           _selectionLastSnapAngle = nearestSnap;
           HapticFeedback.lightImpact();
         }
@@ -1341,59 +1371,75 @@ extension on _FlueraCanvasScreenState {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => SizedBox(
-        height: MediaQuery.of(context).size.height * 0.7,
-        child: LatexFunctionGraph(
-          latexSource: graphNode.latexSource,
-          accentColor: graphNode.curveColor,
-          onInsertToCanvas: (latexSource, xMin, xMax, yMin, yMax, curveColor) {
-            // Update existing node instead of creating new
-            graphNode.latexSource = latexSource;
-            graphNode.curveColorValue = curveColor;
+      builder:
+          (_) => SizedBox(
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: LatexFunctionGraph(
+              latexSource: graphNode.latexSource,
+              accentColor: graphNode.curveColor,
+              onInsertToCanvas: (
+                latexSource,
+                xMin,
+                xMax,
+                yMin,
+                yMax,
+                curveColor,
+              ) {
+                // Update existing node instead of creating new
+                graphNode.latexSource = latexSource;
+                graphNode.curveColorValue = curveColor;
 
-            // A5: Smooth viewport transition (animate old → new over 300ms)
-            final viewportChanged =
-                xMin != oldXMin || xMax != oldXMax ||
-                yMin != oldYMin || yMax != oldYMax;
+                // A5: Smooth viewport transition (animate old → new over 300ms)
+                final viewportChanged =
+                    xMin != oldXMin ||
+                    xMax != oldXMax ||
+                    yMin != oldYMin ||
+                    yMax != oldYMax;
 
-            if (viewportChanged) {
-              final startMs = DateTime.now().millisecondsSinceEpoch;
-              const durationMs = 300;
-              void _animateViewport() {
-                if (!mounted) return;
-                final elapsed = DateTime.now().millisecondsSinceEpoch - startMs;
-                final t = (elapsed / durationMs).clamp(0.0, 1.0);
-                // Ease-out cubic
-                final ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+                if (viewportChanged) {
+                  final startMs = DateTime.now().millisecondsSinceEpoch;
+                  const durationMs = 300;
+                  void _animateViewport() {
+                    if (!mounted) return;
+                    final elapsed =
+                        DateTime.now().millisecondsSinceEpoch - startMs;
+                    final t = (elapsed / durationMs).clamp(0.0, 1.0);
+                    // Ease-out cubic
+                    final ease = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
 
-                graphNode.xMin = oldXMin + (xMin - oldXMin) * ease;
-                graphNode.xMax = oldXMax + (xMax - oldXMax) * ease;
-                graphNode.yMin = oldYMin + (yMin - oldYMin) * ease;
-                graphNode.yMax = oldYMax + (yMax - oldYMax) * ease;
-                graphNode.invalidateCache();
-                _layerController.sceneGraph.bumpVersion();
-                DrawingPainter.invalidateAllTiles();
-                DrawingPainter.triggerRepaint();
-                _uiRebuildNotifier.value++;
+                    graphNode.xMin = oldXMin + (xMin - oldXMin) * ease;
+                    graphNode.xMax = oldXMax + (xMax - oldXMax) * ease;
+                    graphNode.yMin = oldYMin + (yMin - oldYMin) * ease;
+                    graphNode.yMax = oldYMax + (yMax - oldYMax) * ease;
+                    graphNode.invalidateCache();
+                    _layerController.sceneGraph.bumpVersion();
+                    DrawingPainter.invalidateAllTiles();
+                    DrawingPainter.triggerRepaint();
+                    _uiRebuildNotifier.value++;
 
-                if (t < 1.0) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) => _animateViewport());
+                    if (t < 1.0) {
+                      WidgetsBinding.instance.addPostFrameCallback(
+                        (_) => _animateViewport(),
+                      );
+                    }
+                  }
+
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _animateViewport(),
+                  );
+                } else {
+                  graphNode.xMin = xMin;
+                  graphNode.xMax = xMax;
+                  graphNode.yMin = yMin;
+                  graphNode.yMax = yMax;
+                  graphNode.invalidateCache();
                 }
-              }
-              WidgetsBinding.instance.addPostFrameCallback((_) => _animateViewport());
-            } else {
-              graphNode.xMin = xMin;
-              graphNode.xMax = xMax;
-              graphNode.yMin = yMin;
-              graphNode.yMax = yMax;
-              graphNode.invalidateCache();
-            }
-            _layerController.sceneGraph.bumpVersion();
-            setState(() {});
-            _autoSaveCanvas();
-          },
-        ),
-      ),
+                _layerController.sceneGraph.bumpVersion();
+                setState(() {});
+                _autoSaveCanvas();
+              },
+            ),
+          ),
     );
   }
 
@@ -1402,13 +1448,53 @@ extension on _FlueraCanvasScreenState {
     HapticFeedback.mediumImpact();
     showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(screenPos.dx, screenPos.dy, screenPos.dx, screenPos.dy),
+      position: RelativeRect.fromLTRB(
+        screenPos.dx,
+        screenPos.dy,
+        screenPos.dx,
+        screenPos.dy,
+      ),
       items: [
-        const PopupMenuItem(value: 'edit',  child: ListTile(leading: Icon(Icons.edit, size: 20), title: Text('Modifica'), dense: true)),
-        const PopupMenuItem(value: 'table', child: ListTile(leading: Icon(Icons.table_chart, size: 20), title: Text('Tabella Valori'), dense: true)),
-        const PopupMenuItem(value: 'duplicate', child: ListTile(leading: Icon(Icons.copy, size: 20), title: Text('Duplica'), dense: true)),
-        const PopupMenuItem(value: 'reset', child: ListTile(leading: Icon(Icons.refresh, size: 20), title: Text('Reset Viewport'), dense: true)),
-        const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, size: 20, color: Colors.red), title: Text('Elimina', style: TextStyle(color: Colors.red)), dense: true)),
+        const PopupMenuItem(
+          value: 'edit',
+          child: ListTile(
+            leading: Icon(Icons.edit, size: 20),
+            title: Text('Modifica'),
+            dense: true,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'table',
+          child: ListTile(
+            leading: Icon(Icons.table_chart, size: 20),
+            title: Text('Tabella Valori'),
+            dense: true,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'duplicate',
+          child: ListTile(
+            leading: Icon(Icons.copy, size: 20),
+            title: Text('Duplica'),
+            dense: true,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'reset',
+          child: ListTile(
+            leading: Icon(Icons.refresh, size: 20),
+            title: Text('Reset Viewport'),
+            dense: true,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'delete',
+          child: ListTile(
+            leading: Icon(Icons.delete_outline, size: 20, color: Colors.red),
+            title: Text('Elimina', style: TextStyle(color: Colors.red)),
+            dense: true,
+          ),
+        ),
       ],
     ).then((value) {
       if (value == null) return;
@@ -1434,8 +1520,10 @@ extension on _FlueraCanvasScreenState {
           _autoSaveCanvas();
           break;
         case 'reset':
-          graphNode.xMin = -10; graphNode.xMax = 10;
-          graphNode.yMin = -10; graphNode.yMax = 10;
+          graphNode.xMin = -10;
+          graphNode.xMax = 10;
+          graphNode.yMin = -10;
+          graphNode.yMax = 10;
           graphNode.invalidateCache();
           _layerController.sceneGraph.bumpVersion();
           DrawingPainter.invalidateAllTiles();
@@ -1471,47 +1559,98 @@ extension on _FlueraCanvasScreenState {
     final rows = <TableRow>[];
 
     // Header
-    rows.add(TableRow(
-      decoration: BoxDecoration(
-        color: node.curveColor.withValues(alpha: 0.15),
+    rows.add(
+      TableRow(
+        decoration: BoxDecoration(
+          color: node.curveColor.withValues(alpha: 0.15),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(
+              'x',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(
+              'f(x)',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
       ),
-      children: [
-        Padding(padding: const EdgeInsets.all(8), child: Text('x', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'monospace', fontSize: 13))),
-        Padding(padding: const EdgeInsets.all(8), child: Text('f(x)', style: TextStyle(fontWeight: FontWeight.w700, fontFamily: 'monospace', fontSize: 13))),
-      ],
-    ));
+    );
 
     for (int i = 0; i <= 10; i++) {
       final x = node.xMin + step * i;
       final y = node.evaluateAt(x);
       final yStr = y != null && y.isFinite ? y.toStringAsFixed(4) : '—';
-      rows.add(TableRow(
-        decoration: BoxDecoration(
-          color: i.isEven ? Colors.transparent : Colors.grey.withValues(alpha: 0.06),
+      rows.add(
+        TableRow(
+          decoration: BoxDecoration(
+            color:
+                i.isEven
+                    ? Colors.transparent
+                    : Colors.grey.withValues(alpha: 0.06),
+          ),
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Text(
+                x.toStringAsFixed(2),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Text(
+                yStr,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+            ),
+          ],
         ),
-        children: [
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Text(x.toStringAsFixed(2), style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Text(yStr, style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
-        ],
-      ));
+      );
     }
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('f(x) = ${fns.first}', style: const TextStyle(fontSize: 14, fontFamily: 'monospace')),
-        content: SingleChildScrollView(
-          child: Table(
-            columnWidths: const {
-              0: FlexColumnWidth(1),
-              1: FlexColumnWidth(1.5),
-            },
-            border: TableBorder.all(color: Colors.grey.withValues(alpha: 0.2), width: 0.5),
-            children: rows,
+      builder:
+          (ctx) => AlertDialog(
+            title: Text(
+              'f(x) = ${fns.first}',
+              style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+            ),
+            content: SingleChildScrollView(
+              child: Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(1),
+                  1: FlexColumnWidth(1.5),
+                },
+                border: TableBorder.all(
+                  color: Colors.grey.withValues(alpha: 0.2),
+                  width: 0.5,
+                ),
+                children: rows,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Chiudi'),
+              ),
+            ],
           ),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Chiudi'))],
-      ),
     );
   }
 
@@ -2401,8 +2540,8 @@ extension on _FlueraCanvasScreenState {
     }
 
     // #3: Enable additive mode if there was a previous selection
-    final hadPreviousSelection = _lassoSelectionBackup != null &&
-        _lassoSelectionBackup!.isNotEmpty;
+    final hadPreviousSelection =
+        _lassoSelectionBackup != null && _lassoSelectionBackup!.isNotEmpty;
     if (hadPreviousSelection) {
       _lassoTool.additiveMode = true;
     }
@@ -2426,7 +2565,8 @@ extension on _FlueraCanvasScreenState {
       }
       // #8: Toast selection count via ActionFlashOverlay
       final count = _lassoTool.selectedIds.length;
-      final label = count == 1 ? '1 elemento selezionato' : '$count elementi selezionati';
+      final label =
+          count == 1 ? '1 elemento selezionato' : '$count elementi selezionati';
       _actionFlashKey.currentState?.showText(label);
     } else {
       // #1: No selection found — auto-return to previous tool
@@ -2448,3 +2588,62 @@ extension on _FlueraCanvasScreenState {
   }
 }
 
+/// 🖊️ Apple Pencil 240 Hz coalesced-sample ingestion.
+/// See [PredictedTouchPlugin.swift]. Gated to freehand-pen strokes driven
+/// by a Pencil; finger touches and non-freehand tools stay on the Flutter
+/// PointerEvent path. Coordinates arrive in FlutterView-local logical pixels
+/// and are converted to canvas-space via the canvas-area offset +
+/// [InfiniteCanvasController.screenToCanvas].
+extension _NativeCoalescedIngestion on _FlueraCanvasScreenState {
+  void _onNativeCoalescedBatch(List<PredictedTouchPoint> points) {
+    if (points.isEmpty) return;
+
+    // Only real coalesced samples flow through realTouchStream, but guard
+    // defensively in case of future service changes.
+    if (points.first.isPredicted) return;
+
+    // Pencil only. Finger draws stay on the Flutter 120 Hz path — same rate
+    // as the native EventChannel for non-Pencil touches.
+    if (points.first.touchType != 'pencil') return;
+
+    if (!_isDrawingNotifier.value) return;
+    if (_effectiveIsEraser) return;
+    if (_effectiveIsLasso) return;
+    if (_effectiveIsPanMode) return;
+    if (_toolController.isPenToolMode) return;
+    if (_effectivePenType == ProPenType.technicalPen) return;
+    if (!_drawingHandler.hasStroke) return;
+
+    final rb = _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+    if (rb == null) return;
+
+    // Native x/y are in the FlutterViewController.view coordinate space
+    // (logical pixels). The canvas widget is offset by toolbar/chrome, so
+    // subtract the canvas-area global origin before screenToCanvas.
+    final canvasOrigin = rb.localToGlobal(Offset.zero);
+
+    final canvasPositions = <Offset>[];
+    final pressures = <double>[];
+    final timestamps = <int>[];
+    for (final p in points) {
+      final screenPos = Offset(p.x, p.y);
+      final canvasAreaLocal = screenPos - canvasOrigin;
+      final canvasPoint = _canvasController.screenToCanvas(canvasAreaLocal);
+      canvasPositions.add(canvasPoint);
+      pressures.add(p.pressure);
+      timestamps.add(p.timestamp);
+    }
+
+    _drawingHandler.ingestCoalescedBatch(
+      canvasSpacePositions: canvasPositions,
+      pressures: pressures,
+      timestamps: timestamps,
+    );
+    // AdaptiveDebouncerService is notified via onPointsUpdated inside
+    // _drawingHandler. Scratch-out real-time partial analysis is not wired
+    // to this path: it lives in _onDrawUpdate and runs whenever the Flutter
+    // PointerEvent path is active. For Pencil-only strokes the partial
+    // preview may miss intra-stroke checks, but the final stroke is
+    // analyzed end-of-stroke via the accumulator state as usual.
+  }
+}

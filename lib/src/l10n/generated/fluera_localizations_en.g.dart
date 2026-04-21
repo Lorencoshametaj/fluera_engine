@@ -2211,4 +2211,226 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get paywall_featureFsrsChallenge => 'Smart review + Challenge';
+
+  @override
+  String get auth_heroWelcomeBack => 'Welcome back';
+
+  @override
+  String get auth_heroCreateAccount => 'Create Account';
+
+  @override
+  String get auth_subtitleLogin => 'Sign in to sync your notes';
+
+  @override
+  String get auth_subtitleSignup => 'Sign up to get started';
+
+  @override
+  String get auth_fieldEmail => 'Email';
+
+  @override
+  String get auth_fieldPassword => 'Password';
+
+  @override
+  String get auth_fieldConfirmPassword => 'Confirm Password';
+
+  @override
+  String get auth_validatorEmailRequired => 'Email required';
+
+  @override
+  String get auth_validatorEmailInvalid => 'Invalid email format';
+
+  @override
+  String get auth_validatorPasswordMin => 'Minimum 6 characters';
+
+  @override
+  String get auth_validatorPasswordMismatch => 'Passwords do not match';
+
+  @override
+  String get auth_strengthWeak => 'Weak';
+
+  @override
+  String get auth_strengthFair => 'Fair';
+
+  @override
+  String get auth_strengthGood => 'Good';
+
+  @override
+  String get auth_strengthStrong => 'Strong';
+
+  @override
+  String get auth_checkLength => 'At least 6 characters';
+
+  @override
+  String get auth_checkCase => 'Uppercase and lowercase';
+
+  @override
+  String get auth_checkNumber => 'A number';
+
+  @override
+  String get auth_checkSpecial => 'A special character';
+
+  @override
+  String get auth_ctaLogin => 'Sign In';
+
+  @override
+  String get auth_ctaSignup => 'Create Account';
+
+  @override
+  String get auth_toggleQuestionNoAccount => 'Don\'t have an account? ';
+
+  @override
+  String get auth_toggleQuestionHasAccount => 'Already have an account? ';
+
+  @override
+  String get auth_toggleActionSignup => 'Sign Up';
+
+  @override
+  String get auth_toggleActionLogin => 'Sign In';
+
+  @override
+  String get auth_magicLink => 'Sign in without password';
+
+  @override
+  String get auth_forgotPassword => 'Forgot password?';
+
+  @override
+  String get auth_socialGoogle => 'Continue with Google';
+
+  @override
+  String get auth_socialApple => 'Continue with Apple';
+
+  @override
+  String get auth_forgotPasswordHeader => 'Reset Password';
+
+  @override
+  String get auth_forgotPasswordSubtitle =>
+      'Enter your email and we\'ll send you\na link to reset your password.';
+
+  @override
+  String get auth_ctaSendResetLink => 'Send Reset Link';
+
+  @override
+  String get auth_toggleQuestionRememberPassword => 'Remember your password? ';
+
+  @override
+  String get auth_toggleActionBackToLogin => 'Back to login';
+
+  @override
+  String get auth_emailSentHeader => 'Check your inbox';
+
+  @override
+  String auth_emailSentMessage(String email) {
+    return 'We sent a reset link to\n$email';
+  }
+
+  @override
+  String auth_resendCooldown(int seconds) {
+    return 'Resend in ${seconds}s';
+  }
+
+  @override
+  String get auth_resendEmail => 'Resend Email';
+
+  @override
+  String get auth_verifyEmailHeader => 'Verify your Email';
+
+  @override
+  String auth_verifyEmailMessage(String email) {
+    return 'We sent a confirmation link to\n$email';
+  }
+
+  @override
+  String get auth_verifyEmailHint =>
+      'Click the link in the email to activate your account,\nthen come back here to sign in.';
+
+  @override
+  String get auth_resendVerification => 'Resend Verification Email';
+
+  @override
+  String get auth_ctaAlreadyVerified => 'I already verified — Sign In';
+
+  @override
+  String auth_conflictTitleProvider(String identifier) {
+    return 'Account $identifier already linked';
+  }
+
+  @override
+  String get auth_conflictTitleEmail => 'This email is already registered';
+
+  @override
+  String auth_conflictBodyProvider(String identifier) {
+    return 'This $identifier account is linked to another Fluera profile. Continuing will switch to the other profile and you\'ll lose the work done as a guest:';
+  }
+
+  @override
+  String get auth_conflictBodyEmail =>
+      'You already have a Fluera account with this email. Signing in now will lose the work done as a guest:';
+
+  @override
+  String auth_conflictStatCanvases(int count) {
+    return '$count canvas';
+  }
+
+  @override
+  String auth_conflictStatTokens(String tokens) {
+    return '$tokens AI tokens used';
+  }
+
+  @override
+  String get auth_conflictRestoreHint =>
+      'You can restore canvases from the gallery within 24h.';
+
+  @override
+  String get auth_conflictUseOtherEmail => 'Use another email';
+
+  @override
+  String get auth_conflictLoginAndDiscard => 'Sign in and discard';
+
+  @override
+  String get auth_reauthFallbackAccount => 'your account';
+
+  @override
+  String get auth_reauthErrorEmptyPassword => 'Enter your password';
+
+  @override
+  String get auth_reauthErrorConnection => 'Connection error. Try again.';
+
+  @override
+  String get auth_reauthTitle => 'Session expired';
+
+  @override
+  String auth_reauthBody(String email) {
+    return 'For security, you need to sign in again to $email.';
+  }
+
+  @override
+  String get auth_reauthContinueAsGuest => 'Continue as guest';
+
+  @override
+  String get auth_restoreSuccessSingle => 'Restored 1 canvas 🎉';
+
+  @override
+  String auth_restoreSuccessMulti(int count) {
+    return 'Restored $count canvases 🎉';
+  }
+
+  @override
+  String get auth_restoreExpired =>
+      'No canvases to restore (expired after 24h).';
+
+  @override
+  String auth_restoreBannerTitle(int count) {
+    return '$count guest canvas pending';
+  }
+
+  @override
+  String auth_restoreBannerBody(int hoursLeft) {
+    return 'Restore within ${hoursLeft}h or they\'ll be deleted.';
+  }
+
+  @override
+  String get auth_restoreDiscard => 'Discard';
+
+  @override
+  String get auth_restoreAction => 'Restore';
 }

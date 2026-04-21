@@ -284,7 +284,7 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
                 child: Icon(
                   Icons.close_rounded,
                   size: 16,
-                  color: Colors.white.withValues(alpha: 0.4),
+                  color: Colors.white.withValues(alpha: 0.75),
                 ),
               ),
             ],
@@ -344,7 +344,7 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
                         : 'Chiedi qualcosa\u2026',
                     hintStyle: TextStyle(
                       fontSize: 14,
-                      color: Colors.white.withValues(alpha: 0.2),
+                      color: Colors.white.withValues(alpha: 0.55),
                       fontWeight: FontWeight.w400,
                       fontStyle: FontStyle.italic,
                     ),

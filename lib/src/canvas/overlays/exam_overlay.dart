@@ -251,7 +251,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Seleziona gli argomenti (max 10)',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12)),
           const SizedBox(height: 12),
           Wrap(spacing: 9, runSpacing: 9, children: [
             _chip(id: '__all__', title: '🗂 Tutti', selected: _selectedIds.contains('__all__'),

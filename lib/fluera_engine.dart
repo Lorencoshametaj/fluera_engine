@@ -181,6 +181,7 @@ export 'src/drawing/input/drawing_input_handler.dart';
 export 'src/drawing/input/raw_input_processor_120hz.dart';
 export 'src/drawing/input/stylus_detector.dart';
 export 'src/drawing/input/predicted_touch_service.dart';
+export 'src/drawing/input/predicted_touch_debug_overlay.dart';
 export 'src/drawing/input/path_pool.dart';
 export 'src/drawing/input/stroke_point_pool.dart';
 
@@ -552,6 +553,9 @@ export 'src/config/multi_page_config.dart';
 export 'src/config/color_manager.dart';
 export 'src/config/split_panel_content.dart';
 export 'src/config/advanced_split_layout.dart';
+
+// ────────────────────────── UTILS ──────────────────────────
+export 'src/utils/reduced_motion.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/fluera_storage_adapter.dart';

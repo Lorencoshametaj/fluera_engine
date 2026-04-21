@@ -37,7 +37,9 @@ extension on _FlueraCanvasScreenState {
         // Too small — treat as cancel, show hint.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Area troppo piccola — trascina un rettangolo più grande'),
+            content: const Text(
+              'Area troppo piccola — trascina un rettangolo più grande',
+            ),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -93,7 +95,8 @@ extension on _FlueraCanvasScreenState {
       _pendingLabelScreenPos = null;
 
       // 📋 MULTI-SELECT MODE: If already selecting, toggle this connection
-      if (_knowledgeFlowController != null && _knowledgeFlowController!.isMultiSelecting) {
+      if (_knowledgeFlowController != null &&
+          _knowledgeFlowController!.isMultiSelecting) {
         _knowledgeFlowController!.toggleMultiSelect(pendingId);
         HapticFeedback.selectionClick();
         return;
@@ -101,10 +104,12 @@ extension on _FlueraCanvasScreenState {
 
       // 🌉 CROSS-ZONE BRIDGE: If tapped connection is a ghost bridge
       // suggestion, show Socratic accept/dismiss dialog instead of label editor.
-      if (_crossZoneBridgeController != null && _knowledgeFlowController != null) {
-        final conn = _knowledgeFlowController!.connections
-            .where((c) => c.id == pendingId)
-            .firstOrNull;
+      if (_crossZoneBridgeController != null &&
+          _knowledgeFlowController != null) {
+        final conn =
+            _knowledgeFlowController!.connections
+                .where((c) => c.id == pendingId)
+                .firstOrNull;
         if (conn != null && conn.isGhost) {
           final suggestion = _crossZoneBridgeController!
               .findSuggestionForConnection(conn);
@@ -161,7 +166,8 @@ extension on _FlueraCanvasScreenState {
     }
 
     // 📋 MULTI-SELECT: Tap on empty space → clear multi-selection
-    if (_knowledgeFlowController != null && _knowledgeFlowController!.isMultiSelecting) {
+    if (_knowledgeFlowController != null &&
+        _knowledgeFlowController!.isMultiSelecting) {
       _knowledgeFlowController!.clearMultiSelect();
     }
 
@@ -170,12 +176,14 @@ extension on _FlueraCanvasScreenState {
       if (_connectionSnapTargetClusterId != null &&
           _connectionDragSourceClusterId != null) {
         // Create the connection with frozen anchor points!
-        final srcCluster = _clusterCache
-            .where((c) => c.id == _connectionDragSourceClusterId)
-            .firstOrNull;
-        final tgtCluster = _clusterCache
-            .where((c) => c.id == _connectionSnapTargetClusterId)
-            .firstOrNull;
+        final srcCluster =
+            _clusterCache
+                .where((c) => c.id == _connectionDragSourceClusterId)
+                .firstOrNull;
+        final tgtCluster =
+            _clusterCache
+                .where((c) => c.id == _connectionSnapTargetClusterId)
+                .firstOrNull;
         final conn = _knowledgeFlowController!.addConnection(
           sourceClusterId: _connectionDragSourceClusterId!,
           targetClusterId: _connectionSnapTargetClusterId!,
@@ -187,16 +195,22 @@ extension on _FlueraCanvasScreenState {
           HapticFeedback.heavyImpact(); // Success!
 
           // 🏷️ Auto-populate label from recognized cluster text
-          final srcText = _clusterTextCache[_connectionDragSourceClusterId!] ?? '';
-          final tgtText = _clusterTextCache[_connectionSnapTargetClusterId!] ?? '';
+          final srcText =
+              _clusterTextCache[_connectionDragSourceClusterId!] ?? '';
+          final tgtText =
+              _clusterTextCache[_connectionSnapTargetClusterId!] ?? '';
           if (srcText.isNotEmpty && tgtText.isNotEmpty) {
-            final truncSrc = srcText.length > 12 ? '${srcText.substring(0, 10)}…' : srcText;
-            final truncTgt = tgtText.length > 12 ? '${tgtText.substring(0, 10)}…' : tgtText;
+            final truncSrc =
+                srcText.length > 12 ? '${srcText.substring(0, 10)}…' : srcText;
+            final truncTgt =
+                tgtText.length > 12 ? '${tgtText.substring(0, 10)}…' : tgtText;
             conn.label = '$truncSrc → $truncTgt';
           } else if (srcText.isNotEmpty) {
-            conn.label = srcText.length > 20 ? '${srcText.substring(0, 18)}…' : srcText;
+            conn.label =
+                srcText.length > 20 ? '${srcText.substring(0, 18)}…' : srcText;
           } else if (tgtText.isNotEmpty) {
-            conn.label = tgtText.length > 20 ? '${tgtText.substring(0, 18)}…' : tgtText;
+            conn.label =
+                tgtText.length > 20 ? '${tgtText.substring(0, 18)}…' : tgtText;
           }
 
           // Start particle animation if not already running
@@ -214,9 +228,10 @@ extension on _FlueraCanvasScreenState {
         // Short drag (< 70 canvas px) = intentional radial expansion release.
         // Long drag = user tried to connect to empty space → cancel charge.
         final dragPt = _connectionDragCurrentPoint ?? canvasPosition;
-        final dragDist = (_connectionDragSourcePoint != null)
-            ? (dragPt - _connectionDragSourcePoint!).distance
-            : double.infinity;
+        final dragDist =
+            (_connectionDragSourcePoint != null)
+                ? (dragPt - _connectionDragSourcePoint!).distance
+                : double.infinity;
         final shortDragThreshold = 70.0 / _canvasController.scale;
 
         if (dragDist < shortDragThreshold) {
@@ -345,7 +360,9 @@ extension on _FlueraCanvasScreenState {
           if (_focusedSectionNode != null) {
             _focusedSectionNode = null;
             _uiRebuildNotifier.value++;
-            debugPrint('[Section] 🔓 Unfocused section (tap on empty while focused)');
+            debugPrint(
+              '[Section] 🔓 Unfocused section (tap on empty while focused)',
+            );
           } else {
             // 📓 TAP ON EMPTY CANVAS: Create a notebook-sized section (A4)
             // centered on the tap point — instant page creation.
@@ -686,7 +703,8 @@ extension on _FlueraCanvasScreenState {
         }
 
         // Enable additive mode if gestural lasso has a previous selection backup
-        final useAdditive = _wasGesturalLassoActivated &&
+        final useAdditive =
+            _wasGesturalLassoActivated &&
             _lassoSelectionBackup != null &&
             _lassoSelectionBackup!.isNotEmpty;
         if (useAdditive) {
@@ -862,9 +880,15 @@ extension on _FlueraCanvasScreenState {
     // 🎯 SNAP FIX: Trim finalPoints to the count actually rendered on-screen.
     // This prevents "forward snap" from unrendered tail points that arrived
     // in the same event batch as pointer-up (never visible to the user).
-    final renderedCount = CurrentStrokePainter.lastRenderedCount;
-    if (renderedCount > 2 && renderedCount < finalPoints.length) {
-      finalPoints = List.unmodifiable(finalPoints.sublist(0, renderedCount));
+    //
+    // Skip when the stroke was fed by the native 240 Hz coalesced path:
+    // those "extra" samples are real user motion (Apple Pencil sub-frame
+    // samples), not look-ahead — trimming them corrupts the committed stroke.
+    if (!_drawingHandler.nativeWasUsedThisStroke) {
+      final renderedCount = CurrentStrokePainter.lastRenderedCount;
+      if (renderedCount > 2 && renderedCount < finalPoints.length) {
+        finalPoints = List.unmodifiable(finalPoints.sublist(0, renderedCount));
+      }
     }
 
     // 🔷 Shape Recognition: check if freehand stroke matches a geometric shape
@@ -928,7 +952,8 @@ extension on _FlueraCanvasScreenState {
     // progressive haptics, undo, particles, confirmation, sound.
     // 🔒 GUARD: Skip if draw was cancelled by zoom (finger-up after pinch)
     if (!_drawWasCancelled &&
-        !_effectiveIsEraser && _effectivePenType != ProPenType.technicalPen) {
+        !_effectiveIsEraser &&
+        _effectivePenType != ProPenType.technicalPen) {
       final scratchResult = ScratchOutDetector.analyze(finalPoints);
 
       // 🧹 v5: Clear preview regardless of recognition
@@ -957,8 +982,10 @@ extension on _FlueraCanvasScreenState {
         // more forgiving at low zoom. Multi-layer: scan ALL visible layers.
         final strokesToDelete = <ProStroke>[];
         final scratchBounds = scratchResult.scratchBounds;
-        final proximityThreshold = (30.0 / _canvasController.scale)
-            .clamp(15.0, 80.0); // adaptive to zoom
+        final proximityThreshold = (30.0 / _canvasController.scale).clamp(
+          15.0,
+          80.0,
+        ); // adaptive to zoom
 
         for (final layer in _layerController.layers) {
           if (!layer.isVisible) continue;
@@ -1036,10 +1063,12 @@ extension on _FlueraCanvasScreenState {
           _scratchOutDissolveTicker!.start();
 
           // ↩️ Push undo command (deletion will execute after dissolve)
-          _commandHistory.pushWithoutExecute(ScratchOutCommand(
-            deletedStrokes: deletedStrokesCopy,
-            layerController: _layerController,
-          ));
+          _commandHistory.pushWithoutExecute(
+            ScratchOutCommand(
+              deletedStrokes: deletedStrokesCopy,
+              layerController: _layerController,
+            ),
+          );
 
           // ⚡ CONFIRMATION: Progressive haptics for large deletions
           if (deleteCount > 5) {
@@ -1070,15 +1099,17 @@ extension on _FlueraCanvasScreenState {
             for (int i = 0; i < perStroke; i++) {
               final x = bounds.left + rng.nextDouble() * bounds.width;
               final y = bounds.top + rng.nextDouble() * bounds.height;
-              particles.add(_ScratchOutParticle(
-                position: Offset(x, y),
-                velocity: Offset(
-                  (rng.nextDouble() - 0.5) * 200,
-                  -50 - rng.nextDouble() * 150,
+              particles.add(
+                _ScratchOutParticle(
+                  position: Offset(x, y),
+                  velocity: Offset(
+                    (rng.nextDouble() - 0.5) * 200,
+                    -50 - rng.nextDouble() * 150,
+                  ),
+                  color: stroke.color,
+                  size: stroke.baseWidth.clamp(2.0, 6.0),
                 ),
-                color: stroke.color,
-                size: stroke.baseWidth.clamp(2.0, 6.0),
-              ));
+              );
             }
           }
           _scratchOutParticles = particles;
@@ -1116,13 +1147,15 @@ extension on _FlueraCanvasScreenState {
       InkPredictionService.instance
           .feedStroke(predPoints, canvasAnchor: canvasEnd)
           .then((prediction) {
-        if (prediction != null && prediction.isNotEmpty && mounted &&
-            InkPredictionService.instance.strokeCount >= 3) {
-          _showPredictionBubble(prediction, predAnchor);
-        } else if (prediction == null && mounted) {
-          _dismissPredictionBubble();
-        }
-      });
+            if (prediction != null &&
+                prediction.isNotEmpty &&
+                mounted &&
+                InkPredictionService.instance.strokeCount >= 3) {
+              _showPredictionBubble(prediction, predAnchor);
+            } else if (prediction == null && mounted) {
+              _dismissPredictionBubble();
+            }
+          });
     }
 
     // 🎤 NOTIFICA ESTERNA (per Sync Recording) - PRE-CREATION
@@ -1260,7 +1293,9 @@ extension on _FlueraCanvasScreenState {
               // Interpolate the crossing point
               if (pi > 0) {
                 final edgePt = _interpolateEdgeCrossing(
-                  stroke.points[pi - 1].position, pt.position, targetImageRect,
+                  stroke.points[pi - 1].position,
+                  pt.position,
+                  targetImageRect,
                 );
                 if (edgePt != null) {
                   final crossPt = pt.copyWith(position: edgePt);
@@ -1278,7 +1313,9 @@ extension on _FlueraCanvasScreenState {
               // Crossed outside — finalize inside segment
               if (pi > 0) {
                 final edgePt = _interpolateEdgeCrossing(
-                  stroke.points[pi - 1].position, pt.position, targetImageRect,
+                  stroke.points[pi - 1].position,
+                  pt.position,
+                  targetImageRect,
                 );
                 if (edgePt != null) {
                   final crossPt = pt.copyWith(position: edgePt);
@@ -1302,20 +1339,23 @@ extension on _FlueraCanvasScreenState {
         for (final seg in insideSegments) {
           if (seg.length < 2) continue;
           // Transform: canvas → image-local
-          final localPoints = seg.map((p) {
-            final dx = p.position.dx - img.position.dx;
-            final dy = p.position.dy - img.position.dy;
-            final rx = dx * cosR - dy * sinR;
-            final ry = dx * sinR + dy * cosR;
-            return p.copyWith(position: Offset(rx, ry));
-          }).toList();
+          final localPoints =
+              seg.map((p) {
+                final dx = p.position.dx - img.position.dx;
+                final dy = p.position.dy - img.position.dy;
+                final rx = dx * cosR - dy * sinR;
+                final ry = dx * sinR + dy * cosR;
+                return p.copyWith(position: Offset(rx, ry));
+              }).toList();
 
-          newDrawingStrokes.add(stroke.copyWith(
-            id: insideSegments.length == 1 ? stroke.id : generateUid(),
-            points: localPoints,
-            baseWidth: stroke.baseWidth,
-            referenceScale: img.scale,
-          ));
+          newDrawingStrokes.add(
+            stroke.copyWith(
+              id: insideSegments.length == 1 ? stroke.id : generateUid(),
+              points: localPoints,
+              baseWidth: stroke.baseWidth,
+              referenceScale: img.scale,
+            ),
+          );
         }
         final updated = _imageElements[idx].copyWith(
           drawingStrokes: newDrawingStrokes,
@@ -1331,10 +1371,7 @@ extension on _FlueraCanvasScreenState {
         // (previously discarded — strokes going outside the image were lost)
         for (final seg in outsideSegments) {
           if (seg.length < 2) continue;
-          final outsideStroke = stroke.copyWith(
-            id: generateUid(),
-            points: seg,
-          );
+          final outsideStroke = stroke.copyWith(id: generateUid(), points: seg);
           _layerController.addStroke(outsideStroke);
           _broadcastStrokeAdded(outsideStroke);
         }
@@ -1728,16 +1765,15 @@ extension on _FlueraCanvasScreenState {
       final cross = dFrom.dx * dEdge.dy - dFrom.dy * dEdge.dx;
       if (cross.abs() < 1e-10) return; // Parallel
 
-      final t = ((a.dx - from.dx) * dEdge.dy - (a.dy - from.dy) * dEdge.dx) / cross;
-      final u = ((a.dx - from.dx) * dFrom.dy - (a.dy - from.dy) * dFrom.dx) / cross;
+      final t =
+          ((a.dx - from.dx) * dEdge.dy - (a.dy - from.dy) * dEdge.dx) / cross;
+      final u =
+          ((a.dx - from.dx) * dFrom.dy - (a.dy - from.dy) * dFrom.dx) / cross;
 
       if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
         if (bestT == null || t < bestT!) {
           bestT = t;
-          bestPt = Offset(
-            from.dx + t * dFrom.dx,
-            from.dy + t * dFrom.dy,
-          );
+          bestPt = Offset(from.dx + t * dFrom.dx, from.dy + t * dFrom.dy);
         }
       }
     }

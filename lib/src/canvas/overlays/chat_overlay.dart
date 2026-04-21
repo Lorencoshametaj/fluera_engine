@@ -270,7 +270,7 @@ class _ChatOverlayState extends State<ChatOverlay>
         // New chat
         IconButton(
           icon: Icon(Icons.add_comment_outlined,
-              color: Colors.white.withValues(alpha: 0.4), size: 20),
+              color: Colors.white.withValues(alpha: 0.7), size: 20),
           onPressed: () {
             HapticFeedback.selectionClick();
             widget.controller.clearSession();
@@ -285,7 +285,7 @@ class _ChatOverlayState extends State<ChatOverlay>
         ),
         IconButton(
           icon: Icon(Icons.close,
-              color: Colors.white.withValues(alpha: 0.4), size: 20),
+              color: Colors.white.withValues(alpha: 0.7), size: 20),
           onPressed: _close,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
@@ -405,7 +405,7 @@ class _ChatOverlayState extends State<ChatOverlay>
             'Conosco le tue note, i PDF e le trascrizioni audio.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.3),
+              color: Colors.white.withValues(alpha: 0.65),
               fontSize: 12,
             ),
           ),
@@ -1119,7 +1119,7 @@ class _ChatOverlayState extends State<ChatOverlay>
                 Text(
                   'Nessuna conversazione salvata',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.35),
+                    color: Colors.white.withValues(alpha: 0.65),
                     fontSize: 14,
                   ),
                 ),
@@ -1194,7 +1194,7 @@ class _ChatOverlayState extends State<ChatOverlay>
         subtitle: Text(
           dateStr,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.3),
+            color: Colors.white.withValues(alpha: 0.6),
             fontSize: 11,
           ),
         ),
