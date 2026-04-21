@@ -2595,4 +2595,121 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get textToolbar_actionCopy => 'Copy';
+
+  @override
+  String pdfText_pageHeader(int page) {
+    return 'Page $page — Extracted text';
+  }
+
+  @override
+  String pdfText_stats(int words, int chars) {
+    return '$words words · $chars characters';
+  }
+
+  @override
+  String get pdfText_searchTooltip => 'Search in text';
+
+  @override
+  String get pdfText_searchHint => 'Search in text…';
+
+  @override
+  String get pdfText_copied => 'Copied!';
+
+  @override
+  String get pdfText_copy => 'Copy';
+
+  @override
+  String get pdfText_extracting => 'Extracting…';
+
+  @override
+  String get pdfText_empty => 'No text found.\nThis might be a scanned PDF.';
+
+  @override
+  String pdfText_noResults(String query) {
+    return 'No results for \"$query\".';
+  }
+
+  @override
+  String get fow_resultsTitleMilestone => 'Memory Palace Strong!';
+
+  @override
+  String get fow_resultsTitleRedWall => 'Zones to Strengthen Identified';
+
+  @override
+  String get fow_resultsTitleDefault => 'Challenge Results';
+
+  @override
+  String get fow_historyEmpty => 'No previous sessions';
+
+  @override
+  String get fowInfo_nodeHidden => 'Hidden';
+
+  @override
+  String get fowInfo_nodeRecalled => 'Recalled';
+
+  @override
+  String get fowInfo_nodeForgotten => 'Forgotten';
+
+  @override
+  String get fowInfo_nodeBlindSpot => 'Blind Spot';
+
+  @override
+  String get fowInfo_nodeRevealed => 'Revealed';
+
+  @override
+  String get atlas_extractFn => 'Extract ƒ';
+
+  @override
+  String atlas_formulaCount(int count) {
+    return '$count formulas';
+  }
+
+  @override
+  String atlas_extractCount(int count) {
+    return 'Extract ($count)';
+  }
+
+  @override
+  String get paywall_done => 'Done';
+
+  @override
+  String get paywall_featureAll => 'All';
+
+  @override
+  String get paywall_featureCanvasPen => 'Canvas + pen';
+
+  @override
+  String get paywall_featurePdfImport => 'PDF/Image import';
+
+  @override
+  String get paywall_featureAudioSync => 'Audio sync';
+
+  @override
+  String get paywall_featureBrushes => 'Brushes';
+
+  @override
+  String get paywall_featureExport => 'Export';
+
+  @override
+  String get paywall_featureCloudSync => 'Cloud Sync';
+
+  @override
+  String get paywall_brushesBase => '3 base';
+
+  @override
+  String get paywall_purchaseLinkNotFound =>
+      'Purchase link not found for this plan.';
+
+  @override
+  String get logout_tooltip => 'Sign out';
+
+  @override
+  String get logout_dialogTitle => 'Sign out?';
+
+  @override
+  String get logout_dialogBody =>
+      'Your canvases stay safely saved, visible only to you when you sign back in. Another account won\'t be able to see them.';
+
+  @override
+  String get logout_exit => 'Sign out';
 }

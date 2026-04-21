@@ -4728,6 +4728,216 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Copy'**
   String get textToolbar_actionCopy;
+
+  /// No description provided for @pdfText_pageHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} — Extracted text'**
+  String pdfText_pageHeader(int page);
+
+  /// No description provided for @pdfText_stats.
+  ///
+  /// In en, this message translates to:
+  /// **'{words} words · {chars} characters'**
+  String pdfText_stats(int words, int chars);
+
+  /// No description provided for @pdfText_searchTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in text'**
+  String get pdfText_searchTooltip;
+
+  /// No description provided for @pdfText_searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in text…'**
+  String get pdfText_searchHint;
+
+  /// No description provided for @pdfText_copied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied!'**
+  String get pdfText_copied;
+
+  /// No description provided for @pdfText_copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get pdfText_copy;
+
+  /// No description provided for @pdfText_extracting.
+  ///
+  /// In en, this message translates to:
+  /// **'Extracting…'**
+  String get pdfText_extracting;
+
+  /// No description provided for @pdfText_empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No text found.\nThis might be a scanned PDF.'**
+  String get pdfText_empty;
+
+  /// No description provided for @pdfText_noResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No results for \"{query}\".'**
+  String pdfText_noResults(String query);
+
+  /// No description provided for @fow_resultsTitleMilestone.
+  ///
+  /// In en, this message translates to:
+  /// **'Memory Palace Strong!'**
+  String get fow_resultsTitleMilestone;
+
+  /// No description provided for @fow_resultsTitleRedWall.
+  ///
+  /// In en, this message translates to:
+  /// **'Zones to Strengthen Identified'**
+  String get fow_resultsTitleRedWall;
+
+  /// No description provided for @fow_resultsTitleDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Challenge Results'**
+  String get fow_resultsTitleDefault;
+
+  /// No description provided for @fow_historyEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No previous sessions'**
+  String get fow_historyEmpty;
+
+  /// No description provided for @fowInfo_nodeHidden.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden'**
+  String get fowInfo_nodeHidden;
+
+  /// No description provided for @fowInfo_nodeRecalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Recalled'**
+  String get fowInfo_nodeRecalled;
+
+  /// No description provided for @fowInfo_nodeForgotten.
+  ///
+  /// In en, this message translates to:
+  /// **'Forgotten'**
+  String get fowInfo_nodeForgotten;
+
+  /// No description provided for @fowInfo_nodeBlindSpot.
+  ///
+  /// In en, this message translates to:
+  /// **'Blind Spot'**
+  String get fowInfo_nodeBlindSpot;
+
+  /// No description provided for @fowInfo_nodeRevealed.
+  ///
+  /// In en, this message translates to:
+  /// **'Revealed'**
+  String get fowInfo_nodeRevealed;
+
+  /// No description provided for @atlas_extractFn.
+  ///
+  /// In en, this message translates to:
+  /// **'Extract ƒ'**
+  String get atlas_extractFn;
+
+  /// No description provided for @atlas_formulaCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} formulas'**
+  String atlas_formulaCount(int count);
+
+  /// No description provided for @atlas_extractCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Extract ({count})'**
+  String atlas_extractCount(int count);
+
+  /// No description provided for @paywall_done.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get paywall_done;
+
+  /// No description provided for @paywall_featureAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get paywall_featureAll;
+
+  /// No description provided for @paywall_featureCanvasPen.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas + pen'**
+  String get paywall_featureCanvasPen;
+
+  /// No description provided for @paywall_featurePdfImport.
+  ///
+  /// In en, this message translates to:
+  /// **'PDF/Image import'**
+  String get paywall_featurePdfImport;
+
+  /// No description provided for @paywall_featureAudioSync.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio sync'**
+  String get paywall_featureAudioSync;
+
+  /// No description provided for @paywall_featureBrushes.
+  ///
+  /// In en, this message translates to:
+  /// **'Brushes'**
+  String get paywall_featureBrushes;
+
+  /// No description provided for @paywall_featureExport.
+  ///
+  /// In en, this message translates to:
+  /// **'Export'**
+  String get paywall_featureExport;
+
+  /// No description provided for @paywall_featureCloudSync.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud Sync'**
+  String get paywall_featureCloudSync;
+
+  /// No description provided for @paywall_brushesBase.
+  ///
+  /// In en, this message translates to:
+  /// **'3 base'**
+  String get paywall_brushesBase;
+
+  /// No description provided for @paywall_purchaseLinkNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Purchase link not found for this plan.'**
+  String get paywall_purchaseLinkNotFound;
+
+  /// No description provided for @logout_tooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get logout_tooltip;
+
+  /// No description provided for @logout_dialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out?'**
+  String get logout_dialogTitle;
+
+  /// No description provided for @logout_dialogBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your canvases stay safely saved, visible only to you when you sign back in. Another account won\'t be able to see them.'**
+  String get logout_dialogBody;
+
+  /// No description provided for @logout_exit.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get logout_exit;
 }
 
 class _FlueraLocalizationsDelegate

@@ -80,15 +80,16 @@ Sweep disciplinato B1 iniziato. Metodologia: una dimensione (copy → ARB), uno 
 - **Slice 7** (`inline_text_toolbar.dart`): 10 nuove chiavi `textToolbar_*` (3 tab labels + 5 effect labels + 2 action labels). Refactor signature: `_buildTabContent` + `_buildEffectsTab` + `_buildActionsTab` ora prendono `FlueraLocalizations l10n` come first param. Import engine-locale generated l10n.
 - Verifica: `flutter analyze` su 4 file toccati → **zero issue**.
 
-**Slice rimanenti (documentati per prossimo rush):**
+**Slice 8-12 shipped — sweep finale (2026-04-21)**
 
-| Slice | File | Strings | Effort |
-|-------|------|---------|--------|
-| 8 PDF reader | `_text_sheet.dart` | ~2 | XS |
-| 9 fog of war | `_fog_of_war.dart` + `fog_of_war_info_screen.dart` | ~8 | S |
-| 10 atlas overlays | `atlas_response_card.dart` + `chat_overlay.dart` | ~6 | S |
-| 11 paywall/quota | `fluera_paywall.dart` + `ai_quota_exceeded_sheet.dart` + `subscription_service.dart` | ~4 | S |
-| 12 main exit | `main.dart` | ~2 | XS |
+- **Slice 8** `_text_sheet.dart` (PDF reader): 10 nuove chiavi `pdfText_*` con placeholder (page header, stats, search tooltip/hint, copied/copy, extracting, empty state, noResults).
+- **Slice 9** `_fog_of_war.dart` + `fog_of_war_info_screen.dart`: 9 nuove chiavi (3 `fow_resultsTitle*` + history empty + 5 `fowInfo_node*` labels). Refactor: `_stateData` `static const` map — rimosso `label` dal record, aggiunta `_stateLabel()` helper context-based.
+- **Slice 10** `atlas_response_card.dart`: 4 nuove chiavi `atlas_*` (extractFn, formulaCount con `{count}`, extractCount con `{count}`). Riuso `save` e `cancel`. Rimossi i pattern `lang == 'it' ? X : Y`.
+- **Slice 11** `fluera_paywall.dart` + `ai_quota_exceeded_sheet.dart`: 10 nuove chiavi `paywall_*` (done button, tutti label, 6 feature labels per comparison table, brushesBase, purchaseLinkNotFound). Quota sheet migrato con riuso `close`. `subscription_service.dart` skip (const PurchaseResult messages — refactor architetturale separato).
+- **Slice 12** `main.dart`: 4 nuove chiavi `logout_*` (tooltip, dialogTitle, dialogBody, exit). Riuso `cancel`.
+- **Verifica globale:** engine → 0 errori. Fluera → 0 errori dai file migrati (pre-esistenti `tray_manager`/`supabase_collab_providers` irrilevanti).
+
+**Sweep B1 status:** 12/12 slice pianificati ✅ shipped. Totale ~126 stringhe migrate, ~110 chiavi ARB aggiunte in IT+EN. File 100% l10n-ready: `fluera_login_screen.dart`, `conflict_dialog.dart`, `reauth_modal.dart`, `restore_banner.dart`, `fluera_consent_screen.dart` (CTA), `exam_overlay.dart`, `fluera_canvas_screen.dart` (bookmark dialogs), `inline_text_toolbar.dart`, `_text_sheet.dart`, `atlas_response_card.dart` (principal actions), `fluera_paywall.dart`, `ai_quota_exceeded_sheet.dart`, `main.dart` (logout). Stringhe residue hardcoded nella codebase: marginali (debug prints, class invariants come brand "canvas"/"Gradient"/"Glow", error messages in service layer).
 
 **Totale residuo:** ~110 stringhe, ~12 slice. Pattern stabilito (ARB key + BuildContext getter dove serve) — slice successivi seguono il template di slice 1.
 

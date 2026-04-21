@@ -142,7 +142,9 @@ class BrushEngine {
     // ⚡ Exception: Highlighter — its translucent multiply-blend
     // appearance is visible even at small sizes (opaque vs translucent).
     // ──────────────────────────────────────────────────────────────
-    if (scale < 0.5 && !isLive && blendMode == null &&
+    if (scale < 0.5 &&
+        !isLive &&
+        blendMode == null &&
         penType != ProPenType.highlighter) {
       BallpointBrush.drawStrokeWithSettings(
         canvas,
@@ -162,23 +164,32 @@ class BrushEngine {
     // pressure curve + no stamp. Avoids: EngineScope lookup, surface
     // material, wetness, texture resolve, compositing, saveLayer.
     // ──────────────────────────────────────────────────────────────
-    if ((penType == ProPenType.ballpoint || penType == ProPenType.technicalPen) &&
+    if ((penType == ProPenType.ballpoint ||
+            penType == ProPenType.technicalPen) &&
         blendMode == null &&
         settings.textureType == 'none' &&
         settings.pressureCurve.isLinear &&
         !settings.stampEnabled) {
       if (penType == ProPenType.technicalPen) {
         TechnicalPenBrush.drawStroke(
-          canvas, points, color, baseWidth,
-          isLive: isLive, cachedPath: cachedPath,
+          canvas,
+          points,
+          color,
+          baseWidth,
+          isLive: isLive,
+          cachedPath: cachedPath,
           settings: settings,
         );
       } else {
         BallpointBrush.drawStrokeWithSettings(
-          canvas, points, color, baseWidth,
+          canvas,
+          points,
+          color,
+          baseWidth,
           minPressure: settings.ballpointMinPressure,
           maxPressure: settings.ballpointMaxPressure,
-          isLive: isLive, cachedPath: cachedPath,
+          isLive: isLive,
+          cachedPath: cachedPath,
         );
       }
       return;
@@ -429,6 +440,8 @@ class BrushEngine {
             pressureRate: settings.fountainPressureRate,
             nibAngleRad: settings.fountainNibAngleDeg * 3.14159265 / 180.0,
             nibStrength: settings.fountainNibStrength,
+            velocityCurve: settings.fountainVelocityCurve,
+            velocityReference: settings.fountainVelocityReference,
             // 🚀 Always use live-quality rendering: eliminates the visual
             // "jump" on pointer-up. 1 Chaikin + no feathering is visually
             // indistinguishable on-screen and ensures consistency.
@@ -574,7 +587,10 @@ class BrushEngine {
           }
         case ProPenType.technicalPen:
           TechnicalPenBrush.drawStroke(
-            canvas, effectivePoints, color, baseWidth,
+            canvas,
+            effectivePoints,
+            color,
+            baseWidth,
             isLive: isLive,
             settings: settings,
           );

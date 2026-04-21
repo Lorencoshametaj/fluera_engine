@@ -73,7 +73,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
                         _canvasController.offset.dy,
-                        0.0, 1.0,
+                        0.0,
+                        1.0,
                       );
                   if (_canvasController.rotation != 0.0) {
                     m.rotateZ(_canvasController.rotation);
@@ -167,8 +168,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                               monumentImportance:
                                   _monumentsOrCompute().importance,
                               zoneLabels: _zonesOrCompute().zones,
-                              zoneMembership:
-                                  _zonesOrCompute().membership,
+                              zoneMembership: _zonesOrCompute().membership,
                               hiddenForRecallClusterIds:
                                   _clustersHiddenForRecall(),
                             ),
@@ -202,7 +202,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         Matrix4.identity()..translateByDouble(
                           _canvasController.offset.dx,
                           _canvasController.offset.dy,
-                          0.0, 1.0,
+                          0.0,
+                          1.0,
                         );
                     if (_canvasController.rotation != 0.0) {
                       m.rotateZ(_canvasController.rotation);
@@ -224,7 +225,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                           labelOriginalZone: _l10n.recall_zoneOriginal,
                           labelAttemptZone: _l10n.recall_zoneAttempt,
                           labelReconstruct: _l10n.recall_reconstructFromMemory,
-                          levelLabels: _recallLevelLabels, // cached in didChangeDependencies
+                          levelLabels:
+                              _recallLevelLabels, // cached in didChangeDependencies
                         ),
                         size: Size.infinite,
                       ),
@@ -278,12 +280,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     _zeigarnikAnimController,
                   ]),
                   builder: (context, _) {
-                    final zm = Matrix4.identity()
-                      ..translateByDouble(
-                        _canvasController.offset.dx,
-                        _canvasController.offset.dy,
-                        0.0, 1.0,
-                      );
+                    final zm =
+                        Matrix4.identity()..translateByDouble(
+                          _canvasController.offset.dx,
+                          _canvasController.offset.dy,
+                          0.0,
+                          1.0,
+                        );
                     if (_canvasController.rotation != 0.0) {
                       zm.rotateZ(_canvasController.rotation);
                     }
@@ -322,12 +325,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     _goldenShimmerAnimController,
                   ]),
                   builder: (context, _) {
-                    final gsM = Matrix4.identity()
-                      ..translateByDouble(
-                        _canvasController.offset.dx,
-                        _canvasController.offset.dy,
-                        0.0, 1.0,
-                      );
+                    final gsM =
+                        Matrix4.identity()..translateByDouble(
+                          _canvasController.offset.dx,
+                          _canvasController.offset.dy,
+                          0.0,
+                          1.0,
+                        );
                     if (_canvasController.rotation != 0.0) {
                       gsM.rotateZ(_canvasController.rotation);
                     }
@@ -368,7 +372,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
                         _canvasController.offset.dy,
-                        0.0, 1.0,
+                        0.0,
+                        1.0,
                       );
                   if (_canvasController.rotation != 0.0) {
                     m.rotateZ(_canvasController.rotation);
@@ -378,21 +383,26 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     transform: m,
                     child: ListenableBuilder(
                       listenable: _srsReviewSession,
-                      builder: (_, __) => CustomPaint(
-                        painter: SrsBlurOverlayPainter(
-                          clusters: _clusterCache,
-                          blurredClusterIds: _srsReviewSession.blurredClusterIds,
-                          revealedClusterIds: _srsReviewSession.revealedClusterIds,
-                          revealResults: _srsReviewSession.revealResults,
-                          animationTime:
-                              DateTime.now().millisecondsSinceEpoch %
-                              10000 /
-                              1000.0,
-                          canvasScale: _canvasController.scale,
-                          isDarkMode: Theme.of(context).brightness == Brightness.dark,
-                        ),
-                        size: Size.infinite,
-                      ),
+                      builder:
+                          (_, __) => CustomPaint(
+                            painter: SrsBlurOverlayPainter(
+                              clusters: _clusterCache,
+                              blurredClusterIds:
+                                  _srsReviewSession.blurredClusterIds,
+                              revealedClusterIds:
+                                  _srsReviewSession.revealedClusterIds,
+                              revealResults: _srsReviewSession.revealResults,
+                              animationTime:
+                                  DateTime.now().millisecondsSinceEpoch %
+                                  10000 /
+                                  1000.0,
+                              canvasScale: _canvasController.scale,
+                              isDarkMode:
+                                  Theme.of(context).brightness ==
+                                  Brightness.dark,
+                            ),
+                            size: Size.infinite,
+                          ),
                     ),
                   );
                 },
@@ -404,88 +414,109 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             IgnorePointer(
               child: ValueListenableBuilder<double>(
                 valueListenable: _ghostMapOpacity,
-                builder: (context, opacity, _) => Opacity(
-                  opacity: opacity,
-                  child: AnimatedBuilder(
-                    animation: _canvasController,
-                    builder: (context, _) {
-                      final gs = _canvasController.scale;
-                      // 🚀 RASTER FIX (tier 2): ghost nodes and gap markers
-                      // are unreadable dots at scale < 0.25; skip the entire
-                      // painter + its viewport culling math.
-                      if (gs < 0.25) return const SizedBox.shrink();
-                      final gmc = _ghostMapController;
-                      final gm = Matrix4.identity()
-                        ..translateByDouble(
-                          _canvasController.offset.dx,
-                          _canvasController.offset.dy,
-                          0.0, 1.0,
-                        );
-                      if (_canvasController.rotation != 0.0) {
-                        gm.rotateZ(_canvasController.rotation);
-                      }
-                      gm.scaleByDouble(gs, gs, 1.0, 1.0);
+                builder:
+                    (context, opacity, _) => Opacity(
+                      opacity: opacity,
+                      child: AnimatedBuilder(
+                        animation: _canvasController,
+                        builder: (context, _) {
+                          final gs = _canvasController.scale;
+                          // 🚀 RASTER FIX (tier 2): ghost nodes and gap markers
+                          // are unreadable dots at scale < 0.25; skip the entire
+                          // painter + its viewport culling math.
+                          if (gs < 0.25) return const SizedBox.shrink();
+                          final gmc = _ghostMapController;
+                          final gm =
+                              Matrix4.identity()..translateByDouble(
+                                _canvasController.offset.dx,
+                                _canvasController.offset.dy,
+                                0.0,
+                                1.0,
+                              );
+                          if (_canvasController.rotation != 0.0) {
+                            gm.rotateZ(_canvasController.rotation);
+                          }
+                          gm.scaleByDouble(gs, gs, 1.0, 1.0);
 
-                      // 🚀 Compute viewport rect in canvas coordinates for culling
-                      final viewSize = MediaQuery.of(context).size;
-                      final viewportRect = Rect.fromLTWH(
-                        -_canvasController.offset.dx / gs,
-                        -_canvasController.offset.dy / gs,
-                        viewSize.width / gs,
-                        viewSize.height / gs,
-                      );
-
-                      return Transform(
-                        transform: gm,
-                        child: AnimatedBuilder(
-                          animation: Listenable.merge([
-                            gmc.version,
-                            if (_ghostMapAnimController != null) _ghostMapAnimController!,
-                          ]),
-                          builder: (_, __) {
-                            // Build reveal timestamps for cross-fade animation.
-                            // Records animationTime when each node first appears in revealedNodeIds.
-                            final currentRevealed = gmc.revealedNodeIds;
-                            for (final id in currentRevealed) {
-                              _ghostRevealTimestamps.putIfAbsent(id, () => _ghostMapAnimTime);
-                            }
-                            // Clean up IDs no longer in the revealed set
-                            _ghostRevealTimestamps.removeWhere(
-                              (id, _) => !currentRevealed.contains(id),
-                            );
-
-                            return CustomPaint(
-                            painter: GhostMapOverlayPainter(
-                              result: gmc.result!,
-                              revealedNodeIds: gmc.revealedNodeIds,
-                              dismissedNodeIds: gmc.dismissedNodeIds,
-                              clusters: _clusterCache,
-                              canvasScale: gs,
-                              animationTime: _ghostMapAnimTime,
-                              isDarkMode: Theme.of(context).brightness == Brightness.dark,
-                              viewportRect: viewportRect,
-                              // O-3: Use pre-cached Set from controller (avoids 60 alloc/sec)
-                              visibleMissingNodeIds: gmc.visibleMissingNodeIdsSet,
-                              revealTimestamps: Map<String, double>.of(_ghostRevealTimestamps),
-                              // O-8: Localized painter labels
-                              labelTapToAttempt: _l10n.ghostMap_tapToAttempt,
-                              labelHypercorrection: _l10n.ghostMap_hypercorrectionLabel,
-                              labelBelowZPD: _l10n.ghostMap_belowZPDLabel,
-                              labelWriteHere: _l10n.ghostMap_drawHereHint,
-                              // On-canvas attempt: active node rendering
-                              activeAttemptNodeId: FlueraGhostMapOverlaysExtension._canvasAttemptNode?.id,
-                              hasStrokesInAttemptZone: FlueraGhostMapOverlaysExtension._hasStrokesInZone,
-                              // U-1: Staggered entry animation
-                              entryProgress: _ghostMapEntryTimer.elapsedMilliseconds / 1000.0,
-                            ),
-                            size: Size.infinite,
+                          // 🚀 Compute viewport rect in canvas coordinates for culling
+                          final viewSize = MediaQuery.of(context).size;
+                          final viewportRect = Rect.fromLTWH(
+                            -_canvasController.offset.dx / gs,
+                            -_canvasController.offset.dy / gs,
+                            viewSize.width / gs,
+                            viewSize.height / gs,
                           );
-                          },
-                        ),
-                      );
-                    },
-                  ),
-                ),
+
+                          return Transform(
+                            transform: gm,
+                            child: AnimatedBuilder(
+                              animation: Listenable.merge([
+                                gmc.version,
+                                if (_ghostMapAnimController != null)
+                                  _ghostMapAnimController!,
+                              ]),
+                              builder: (_, __) {
+                                // Build reveal timestamps for cross-fade animation.
+                                // Records animationTime when each node first appears in revealedNodeIds.
+                                final currentRevealed = gmc.revealedNodeIds;
+                                for (final id in currentRevealed) {
+                                  _ghostRevealTimestamps.putIfAbsent(
+                                    id,
+                                    () => _ghostMapAnimTime,
+                                  );
+                                }
+                                // Clean up IDs no longer in the revealed set
+                                _ghostRevealTimestamps.removeWhere(
+                                  (id, _) => !currentRevealed.contains(id),
+                                );
+
+                                return CustomPaint(
+                                  painter: GhostMapOverlayPainter(
+                                    result: gmc.result!,
+                                    revealedNodeIds: gmc.revealedNodeIds,
+                                    dismissedNodeIds: gmc.dismissedNodeIds,
+                                    clusters: _clusterCache,
+                                    canvasScale: gs,
+                                    animationTime: _ghostMapAnimTime,
+                                    isDarkMode:
+                                        Theme.of(context).brightness ==
+                                        Brightness.dark,
+                                    viewportRect: viewportRect,
+                                    // O-3: Use pre-cached Set from controller (avoids 60 alloc/sec)
+                                    visibleMissingNodeIds:
+                                        gmc.visibleMissingNodeIdsSet,
+                                    revealTimestamps: Map<String, double>.of(
+                                      _ghostRevealTimestamps,
+                                    ),
+                                    // O-8: Localized painter labels
+                                    labelTapToAttempt:
+                                        _l10n.ghostMap_tapToAttempt,
+                                    labelHypercorrection:
+                                        _l10n.ghostMap_hypercorrectionLabel,
+                                    labelBelowZPD: _l10n.ghostMap_belowZPDLabel,
+                                    labelWriteHere: _l10n.ghostMap_drawHereHint,
+                                    // On-canvas attempt: active node rendering
+                                    activeAttemptNodeId:
+                                        FlueraGhostMapOverlaysExtension
+                                            ._canvasAttemptNode
+                                            ?.id,
+                                    hasStrokesInAttemptZone:
+                                        FlueraGhostMapOverlaysExtension
+                                            ._hasStrokesInZone,
+                                    // U-1: Staggered entry animation
+                                    entryProgress:
+                                        _ghostMapEntryTimer
+                                            .elapsedMilliseconds /
+                                        1000.0,
+                                  ),
+                                  size: Size.infinite,
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
               ),
             ),
           // 🌫️ FOG OF WAR: PLACEHOLDER — moved below Vulkan texture.
@@ -529,6 +560,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 child: Texture(textureId: _vulkanTextureId!),
               ),
             ),
+          // 🖊️ PREDICTED TAIL: Apple Pencil anti-lag ghost (iOS only; empty
+          // on other platforms). Must sit above the Vulkan/Metal overlay
+          // because the native tessellator refuses predicted samples.
+          _predictedTailHost,
           // 🌫️ FOG OF WAR: Fog overlay + mastery heatmap.
           // Rendered ABOVE Vulkan texture so fog actually hides strokes.
           if (_fogOfWarController.isActive)
@@ -553,12 +588,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   // screen simultaneously and the painter's single-frame cost
                   // jumps to ~20ms. Skip — the user is in overview mode.
                   if (fs < 0.25) return const SizedBox.shrink();
-                  final fm = Matrix4.identity()
-                    ..translateByDouble(
-                      _canvasController.offset.dx,
-                      _canvasController.offset.dy,
-                      0.0, 1.0,
-                    );
+                  final fm =
+                      Matrix4.identity()..translateByDouble(
+                        _canvasController.offset.dx,
+                        _canvasController.offset.dy,
+                        0.0,
+                        1.0,
+                      );
                   if (_canvasController.rotation != 0.0) {
                     fm.rotateZ(_canvasController.rotation);
                   }
@@ -583,14 +619,18 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         animationTime: _fogOfWarAnimTime,
                         viewportCenterCanvas: vpCenter,
                         viewportCanvasRect: Rect.fromPoints(vpTL, vpBR),
-                        isDarkMode: Theme.of(context).brightness == Brightness.dark,
-                        isMuroRossoActive: _fogOfWarController.isMuroRossoActive,
-                        surgicalPathNodeIds: _fogSurgicalPathActive
-                            ? _fogOfWarController.surgicalPlanNodeIds
-                            : const [],
-                        surgicalVisitedIds: _fogSurgicalPathActive
-                            ? _fogSurgicalVisitedIds
-                            : const {},
+                        isDarkMode:
+                            Theme.of(context).brightness == Brightness.dark,
+                        isMuroRossoActive:
+                            _fogOfWarController.isMuroRossoActive,
+                        surgicalPathNodeIds:
+                            _fogSurgicalPathActive
+                                ? _fogOfWarController.surgicalPlanNodeIds
+                                : const [],
+                        surgicalVisitedIds:
+                            _fogSurgicalPathActive
+                                ? _fogSurgicalVisitedIds
+                                : const {},
                       ),
                       size: Size.infinite,
                     ),
@@ -973,7 +1013,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
                         _canvasController.offset.dy,
-                        0.0, 1.0,
+                        0.0,
+                        1.0,
                       );
                   if (_canvasController.rotation != 0.0) {
                     m.rotateZ(_canvasController.rotation);
@@ -1102,7 +1143,8 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     Matrix4.identity()..translateByDouble(
                       _canvasController.offset.dx,
                       _canvasController.offset.dy,
-                      0.0, 1.0,
+                      0.0,
+                      1.0,
                     );
                 if (_canvasController.rotation != 0.0) {
                   m.rotateZ(_canvasController.rotation);
@@ -1652,6 +1694,30 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     );
   }
 
+  /// 🖊️ LAYER 4.2: APPLE PENCIL PREDICTED TAIL — visual anti-lag overlay.
+  /// Mounted above the Metal/Vulkan live overlay because the native
+  /// tessellator cannot accept predicted samples (Catmull-Rom + fluttering
+  /// endpoints = trembling). No-op when predictedTail is empty; listens only
+  /// to _currentStrokeNotifier so it repaints with the stroke and auto-clears
+  /// when the notifier is cleared on endStroke / cancel.
+  Widget _buildPredictedTailLayer() {
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: PredictedTailPainter(
+            repaint: _currentStrokeNotifier,
+            getRealStroke: () => _currentStrokeNotifier.value,
+            getPredictedTail: () => _currentStrokeNotifier.predictedTail,
+            color: _effectiveColor,
+            width: _effectiveWidth,
+            controller: _canvasController,
+          ),
+          size: Size.infinite,
+        ),
+      ),
+    );
+  }
+
   /// ☁️ LAYER 4.5: REMOTE LIVE STROKES — strokes in progress from collaborators
   Widget _buildRemoteLiveStrokesLayer() {
     final strokes = CollaborationExtension.remoteLiveStrokes;
@@ -1928,7 +1994,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 }
               }
             }
-            debugPrint('[Section] ✥ Drag start: ${_draggedSectionContents!.length} contained nodes');
+            debugPrint(
+              '[Section] ✥ Drag start: ${_draggedSectionContents!.length} contained nodes',
+            );
           },
           onDragUpdate: (delta) {
             final canvasDelta = delta / scale;
@@ -1962,11 +2030,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
               for (final node in _draggedSectionContents!) {
                 if (node is StrokeNode) {
                   final oldStroke = node.stroke;
-                  final newPoints = oldStroke.points.map((p) {
-                    return p.copyWith(
-                      position: p.position + delta,
-                    );
-                  }).toList();
+                  final newPoints =
+                      oldStroke.points.map((p) {
+                        return p.copyWith(position: p.position + delta);
+                      }).toList();
                   node.stroke = ProStroke(
                     id: oldStroke.id,
                     points: newPoints,
@@ -1986,7 +2053,9 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
               _layerController.sceneGraph.bumpVersion();
               DrawingPainter.invalidateAllTiles();
             }
-            debugPrint('[Section] ✥ Drag end: translated ${_draggedSectionContents?.length ?? 0} nodes by $delta');
+            debugPrint(
+              '[Section] ✥ Drag end: translated ${_draggedSectionContents?.length ?? 0} nodes by $delta',
+            );
             _draggedSectionContents = null;
             _dragAccumulatedDelta = Offset.zero;
             _autoSaveCanvas();

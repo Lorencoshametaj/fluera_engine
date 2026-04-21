@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/generated/fluera_localizations.g.dart';
 import '../widgets/latex_preview_card.dart';
 
 /// 🔮 ATLAS RESPONSE CARD — Iron Man HUD holographic floating card.
@@ -1385,7 +1386,7 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
           }, gp),
         const SizedBox(width: 6),
         if (widget.onSaveAsNote != null && !_isErrorResponse)
-          _actionBtn(Icons.note_add_rounded, lang == 'it' ? 'Salva' : 'Save', () {
+          _actionBtn(Icons.note_add_rounded, FlueraLocalizations.of(context)!.save, () {
             _autoDismissTimer?.cancel(); HapticFeedback.selectionClick();
             widget.onSaveAsNote?.call(_activeText); _dismiss();
           }, gp),
@@ -1403,7 +1404,7 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
   Widget _buildExtractButton(String lang, double gp) {
     final formulas = _extractedLatex;
     final count = formulas.length;
-    final label = lang == 'it' ? 'Estrai ƒ' : 'Extract ƒ';
+    final label = FlueraLocalizations.of(context)!.atlas_extractFn;
 
     return Expanded(child: GestureDetector(
       onTap: () {
@@ -1447,7 +1448,7 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
         title: Row(children: [
           Icon(Icons.functions_rounded, color: _cyan, size: 20),
           const SizedBox(width: 8),
-          Text('${formulas.length} formule', style: TextStyle(color: _cyan, fontSize: 16)),
+          Text(FlueraLocalizations.of(context)!.atlas_formulaCount(formulas.length), style: TextStyle(color: _cyan, fontSize: 16)),
         ]),
         content: SizedBox(width: double.maxFinite, child: ListView.builder(
           shrinkWrap: true, itemCount: formulas.length,
@@ -1460,13 +1461,13 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
         )),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx),
-            child: Text('Annulla', style: TextStyle(color: _cyan.withValues(alpha: 0.6)))),
+            child: Text(FlueraLocalizations.of(context)!.cancel, style: TextStyle(color: _cyan.withValues(alpha: 0.6)))),
           TextButton(onPressed: () {
             Navigator.pop(ctx);
             final picked = <String>[];
             for (int i = 0; i < formulas.length; i++) { if (selected[i]) picked.add(formulas[i]); }
             if (picked.isNotEmpty) widget.onExtractLatex?.call(picked);
-          }, child: Text('Estrai (${selected.where((s) => s).length})', style: TextStyle(color: _cyan, fontWeight: FontWeight.w600))),
+          }, child: Text(FlueraLocalizations.of(context)!.atlas_extractCount(selected.where((s) => s).length), style: TextStyle(color: _cyan, fontWeight: FontWeight.w600))),
         ],
       ),
     ));

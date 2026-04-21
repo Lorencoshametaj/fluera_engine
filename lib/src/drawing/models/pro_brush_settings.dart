@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import './pressure_curve.dart';
+import './velocity_curve.dart';
 import './pro_drawing_point.dart';
 
 /// 🎛️ Modello per i parametri personalizzabili di un pennello professionale
@@ -99,6 +100,16 @@ class ProBrushSettings {
 
   // === PRESSURE CURVE (Phase 4A) ===
   final PressureCurve pressureCurve;
+
+  // === VELOCITY CURVE (fountain pen only for now).
+  // Remaps normalized velocity (distance/time/velocityReference) to the
+  // speed factor that modulates stroke width.
+  final VelocityCurve fountainVelocityCurve;
+
+  // Reference velocity in px/ms that corresponds to "fast" (curve x=1.0).
+  // Apple Pencil on ProMotion iPad Pro typically reaches ~2.0-3.0 px/ms on
+  // fast handwriting, so 2.0 is a reasonable default.
+  final double fountainVelocityReference;
 
   // === STABILIZER (Phase 4B) ===
   final int stabilizerLevel; // 0 = off, 10 = max smoothing
@@ -210,6 +221,11 @@ class ProBrushSettings {
     this.stampColorPressure = 0.0,
     // Pressure Curve (Phase 4A)
     this.pressureCurve = PressureCurve.linear,
+    // Velocity Curve (fountain pen) — goodnotes preset by default for a
+    // perceptual swoosh closer to GoodNotes. Override with .linear via
+    // copyWith if the old feel is desired.
+    this.fountainVelocityCurve = VelocityCurve.goodnotes,
+    this.fountainVelocityReference = 2.0,
     // Stabilizer (Phase 4B)
     this.stabilizerLevel = 0,
     // Watercolor
@@ -316,6 +332,9 @@ class ProBrushSettings {
     double? stampColorPressure,
     // Pressure Curve (Phase 4A)
     PressureCurve? pressureCurve,
+    // Velocity Curve (fountain pen)
+    VelocityCurve? fountainVelocityCurve,
+    double? fountainVelocityReference,
     // Stabilizer (Phase 4B)
     int? stabilizerLevel,
     // Watercolor
@@ -426,6 +445,10 @@ class ProBrushSettings {
       stampGrainScale: stampGrainScale ?? this.stampGrainScale,
       stampColorPressure: stampColorPressure ?? this.stampColorPressure,
       pressureCurve: pressureCurve ?? this.pressureCurve,
+      fountainVelocityCurve:
+          fountainVelocityCurve ?? this.fountainVelocityCurve,
+      fountainVelocityReference:
+          fountainVelocityReference ?? this.fountainVelocityReference,
       stabilizerLevel: stabilizerLevel ?? this.stabilizerLevel,
       watercolorSpread: watercolorSpread ?? this.watercolorSpread,
       markerFlatness: markerFlatness ?? this.markerFlatness,
@@ -532,6 +555,9 @@ class ProBrushSettings {
     if (stampColorPressure > 0) 'stmCP': stampColorPressure,
     // Pressure Curve (Phase 4A) — omit if linear
     if (!pressureCurve.isLinear) 'pCurve': pressureCurve.toJson(),
+    if (!fountainVelocityCurve.isLinear)
+      'fVCurve': fountainVelocityCurve.toJson(),
+    if (fountainVelocityReference != 2.0) 'fVRef': fountainVelocityReference,
     // Stabilizer (Phase 4B) — omit if 0
     if (stabilizerLevel > 0) 'stab': stabilizerLevel,
     // Color Management (Phase 4D) — omit if false
@@ -652,6 +678,13 @@ class ProBrushSettings {
             ? Map<String, dynamic>.from(json['pCurve'] as Map)
             : null,
       ),
+      // Velocity Curve (fountain pen)
+      fountainVelocityCurve: VelocityCurve.fromJson(
+        json['fVCurve'] is Map
+            ? Map<String, dynamic>.from(json['fVCurve'] as Map)
+            : null,
+      ),
+      fountainVelocityReference: (json['fVRef'] as num?)?.toDouble() ?? 2.0,
       // Stabilizer (Phase 4B)
       stabilizerLevel: (json['stab'] as num?)?.toInt() ?? 0,
       // Watercolor
@@ -751,6 +784,8 @@ class ProBrushSettings {
       stampGrainScale == 1.0 &&
       stampColorPressure == 0.0 &&
       pressureCurve.isLinear &&
+      fountainVelocityCurve == VelocityCurve.goodnotes &&
+      fountainVelocityReference == 2.0 &&
       stabilizerLevel == 0 &&
       watercolorSpread == 1.0 &&
       markerFlatness == 0.4 &&
@@ -833,6 +868,8 @@ class ProBrushSettings {
         other.stampGrainScale == stampGrainScale &&
         other.stampColorPressure == stampColorPressure &&
         other.pressureCurve == pressureCurve &&
+        other.fountainVelocityCurve == fountainVelocityCurve &&
+        other.fountainVelocityReference == fountainVelocityReference &&
         other.stabilizerLevel == stabilizerLevel &&
         other.watercolorSpread == watercolorSpread &&
         other.markerFlatness == markerFlatness &&
@@ -925,6 +962,8 @@ class ProBrushSettings {
     stampGrainScale,
     stampColorPressure,
     pressureCurve,
+    fountainVelocityCurve,
+    fountainVelocityReference,
     stabilizerLevel,
     watercolorSpread,
     markerFlatness,

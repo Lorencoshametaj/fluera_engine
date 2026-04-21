@@ -1806,10 +1806,10 @@ class _FogMasterySummarySheet extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               milestoneText.isNotEmpty
-                  ? 'Palazzo della Memoria Solido!'
+                  ? FlueraLocalizations.of(context)!.fow_resultsTitleMilestone
                   : isMuroRosso
-                      ? 'Zone da Rafforzare Identificate'
-                      : 'Risultati Sfida',
+                      ? FlueraLocalizations.of(context)!.fow_resultsTitleRedWall
+                      : FlueraLocalizations.of(context)!.fow_resultsTitleDefault,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -2461,7 +2461,7 @@ class _FogSetupSheetState extends State<_FogSetupSheet>
     if (_sessionHistory.isEmpty) {
       return Center(
         child: Text(
-          'Nessuna sessione precedente',
+          FlueraLocalizations.of(context)!.fow_historyEmpty,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),

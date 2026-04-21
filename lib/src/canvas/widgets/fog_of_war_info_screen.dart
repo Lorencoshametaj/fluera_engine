@@ -1159,13 +1159,24 @@ class _MasteryMapDemoState extends State<_MasteryMapDemo> {
     'Mitocondrio', 'ATP', 'Krebs', 'Fotosintesi', 'DNA', 'Ribosoma'
   ];
 
-  static const _stateData = <_DemoNodeState, ({String emoji, String label, Color color})>{
-    _DemoNodeState.hidden: (emoji: '🌫️', label: 'Nascosto', color: Color(0xFF455A64)),
-    _DemoNodeState.recalled: (emoji: '✅', label: 'Ricordato', color: Color(0xFF4CAF50)),
-    _DemoNodeState.forgotten: (emoji: '❌', label: 'Dimenticato', color: Color(0xFFEF5350)),
-    _DemoNodeState.blindSpot: (emoji: '👁‍🗨', label: 'Punto Cieco', color: Color(0xFF9E9E9E)),
-    _DemoNodeState.explored: (emoji: '📖', label: 'Rivelato', color: Color(0xFF64B5F6)),
+  static const _stateData = <_DemoNodeState, ({String emoji, Color color})>{
+    _DemoNodeState.hidden: (emoji: '🌫️', color: Color(0xFF455A64)),
+    _DemoNodeState.recalled: (emoji: '✅', color: Color(0xFF4CAF50)),
+    _DemoNodeState.forgotten: (emoji: '❌', color: Color(0xFFEF5350)),
+    _DemoNodeState.blindSpot: (emoji: '👁‍🗨', color: Color(0xFF9E9E9E)),
+    _DemoNodeState.explored: (emoji: '📖', color: Color(0xFF64B5F6)),
   };
+
+  String _stateLabel(BuildContext context, _DemoNodeState state) {
+    final l10n = FlueraLocalizations.of(context)!;
+    return switch (state) {
+      _DemoNodeState.hidden => l10n.fowInfo_nodeHidden,
+      _DemoNodeState.recalled => l10n.fowInfo_nodeRecalled,
+      _DemoNodeState.forgotten => l10n.fowInfo_nodeForgotten,
+      _DemoNodeState.blindSpot => l10n.fowInfo_nodeBlindSpot,
+      _DemoNodeState.explored => l10n.fowInfo_nodeRevealed,
+    };
+  }
 
   void _cycleState(int index) {
     setState(() {
@@ -1241,7 +1252,7 @@ class _MasteryMapDemoState extends State<_MasteryMapDemo> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          data.label,
+                          _stateLabel(context, _states[i]),
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.4),
                             fontSize: 9,

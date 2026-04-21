@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../fluera_canvas_config.dart';
+import '../../l10n/generated/fluera_localizations.g.dart';
 import '../../core/models/pdf_document_model.dart';
 import '../../core/models/pdf_page_model.dart';
 import '../../core/models/pdf_text_rect.dart';

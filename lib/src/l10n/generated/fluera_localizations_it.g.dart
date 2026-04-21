@@ -2604,4 +2604,122 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get textToolbar_actionCopy => 'Copia';
+
+  @override
+  String pdfText_pageHeader(int page) {
+    return 'Pagina $page — Testo estratto';
+  }
+
+  @override
+  String pdfText_stats(int words, int chars) {
+    return '$words parole · $chars caratteri';
+  }
+
+  @override
+  String get pdfText_searchTooltip => 'Cerca nel testo';
+
+  @override
+  String get pdfText_searchHint => 'Cerca nel testo…';
+
+  @override
+  String get pdfText_copied => 'Copiato!';
+
+  @override
+  String get pdfText_copy => 'Copia';
+
+  @override
+  String get pdfText_extracting => 'Estrazione in corso…';
+
+  @override
+  String get pdfText_empty =>
+      'Nessun testo trovato.\nPotrebbe essere un PDF scansionato.';
+
+  @override
+  String pdfText_noResults(String query) {
+    return 'Nessun risultato per \"$query\".';
+  }
+
+  @override
+  String get fow_resultsTitleMilestone => 'Palazzo della Memoria Solido!';
+
+  @override
+  String get fow_resultsTitleRedWall => 'Zone da Rafforzare Identificate';
+
+  @override
+  String get fow_resultsTitleDefault => 'Risultati Sfida';
+
+  @override
+  String get fow_historyEmpty => 'Nessuna sessione precedente';
+
+  @override
+  String get fowInfo_nodeHidden => 'Nascosto';
+
+  @override
+  String get fowInfo_nodeRecalled => 'Ricordato';
+
+  @override
+  String get fowInfo_nodeForgotten => 'Dimenticato';
+
+  @override
+  String get fowInfo_nodeBlindSpot => 'Punto Cieco';
+
+  @override
+  String get fowInfo_nodeRevealed => 'Rivelato';
+
+  @override
+  String get atlas_extractFn => 'Estrai ƒ';
+
+  @override
+  String atlas_formulaCount(int count) {
+    return '$count formule';
+  }
+
+  @override
+  String atlas_extractCount(int count) {
+    return 'Estrai ($count)';
+  }
+
+  @override
+  String get paywall_done => 'Fatto';
+
+  @override
+  String get paywall_featureAll => 'Tutti';
+
+  @override
+  String get paywall_featureCanvasPen => 'Canvas + penna';
+
+  @override
+  String get paywall_featurePdfImport => 'Import PDF/Immagini';
+
+  @override
+  String get paywall_featureAudioSync => 'Sync audio';
+
+  @override
+  String get paywall_featureBrushes => 'Pennelli';
+
+  @override
+  String get paywall_featureExport => 'Export';
+
+  @override
+  String get paywall_featureCloudSync => 'Cloud Sync';
+
+  @override
+  String get paywall_brushesBase => '3 base';
+
+  @override
+  String get paywall_purchaseLinkNotFound =>
+      'Link di acquisto non trovato per questo piano.';
+
+  @override
+  String get logout_tooltip => 'Esci dall\'account';
+
+  @override
+  String get logout_dialogTitle => 'Vuoi uscire?';
+
+  @override
+  String get logout_dialogBody =>
+      'I tuoi canvas restano salvati in modo sicuro, visibili solo a te quando riaccedi. Un altro account non potrà vederli.';
+
+  @override
+  String get logout_exit => 'Esci';
 }

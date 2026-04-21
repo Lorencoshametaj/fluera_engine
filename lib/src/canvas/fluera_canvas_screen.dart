@@ -61,6 +61,7 @@ import '../drawing/input/drawing_input_handler.dart';
 import '../drawing/input/predicted_touch_service.dart';
 import '../drawing/input/predicted_touch_debug_overlay.dart';
 import '../rendering/canvas/background_painter.dart';
+import '../rendering/canvas/predicted_tail_painter.dart';
 import '../rendering/shaders/shader_brush_service.dart';
 import '../rendering/gpu/gpu_texture_service.dart';
 import '../rendering/canvas/drawing_painter.dart';
@@ -535,6 +536,24 @@ class _StrokeNotifier extends ValueNotifier<List<ProDrawingPoint>> {
   void clear() {
     value = [];
     lastRenderedCount = 0;
+    _predictedTail = const [];
+  }
+
+  /// Apple Pencil native predicted tail (visual anti-lag). These points are
+  /// drawn by [PredictedTailPainter] above the live stroke overlay with a
+  /// fade-to-alpha shader, and are never part of the committed stroke.
+  List<ProDrawingPoint> _predictedTail = const [];
+  List<ProDrawingPoint> get predictedTail => _predictedTail;
+
+  void setPredictedTail(List<ProDrawingPoint> tail) {
+    _predictedTail = tail;
+    notifyListeners();
+  }
+
+  void clearPredictedTail() {
+    if (_predictedTail.isEmpty) return;
+    _predictedTail = const [];
+    notifyListeners();
   }
 }
 
@@ -960,6 +979,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Much more targeted than listening to the full _toolController.
   final _gestureRebuildNotifier = ValueNotifier<int>(0);
   late final Widget _currentStrokeHost;
+  late final Widget _predictedTailHost;
   late final Widget _remoteLiveStrokesHost;
   late final Widget _pdfPlaceholdersHost;
 
@@ -2770,6 +2790,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     );
 
     _currentStrokeHost = Builder(builder: (_) => _buildCurrentStrokeLayer());
+    _predictedTailHost = Builder(builder: (_) => _buildPredictedTailLayer());
     _remoteLiveStrokesHost = Builder(
       builder: (_) => _buildRemoteLiveStrokesLayer(),
     );
@@ -2946,6 +2967,33 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         _currentStrokeNotifier.forceRepaint();
         AdaptiveDebouncerService.instance.notifyInput();
       },
+      onPredictedPointsUpdated: (predicted) {
+        // Anti-lag tail: only mount while a Pencil stroke is in progress.
+        // When the native path is not feeding (finger/Android/quiet), skip.
+        if (!_isDrawingNotifier.value) return;
+        if (!_drawingHandler.nativeInputAuthoritative) return;
+        // Predicted arrive in FlutterView-local screen pixels; transform to
+        // canvas-space the same way coalesced batches are transformed in
+        // _onNativeCoalescedBatch so they align with _currentStroke.
+        final rb =
+            _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
+        if (rb == null) return;
+        final canvasOrigin = rb.localToGlobal(Offset.zero);
+        final mapped = <ProDrawingPoint>[];
+        for (final p in predicted) {
+          final canvasPos = _canvasController.screenToCanvas(
+            p.position - canvasOrigin,
+          );
+          mapped.add(
+            ProDrawingPoint(
+              position: canvasPos,
+              pressure: p.pressure,
+              timestamp: p.timestamp,
+            ),
+          );
+        }
+        _currentStrokeNotifier.setPredictedTail(mapped);
+      },
     );
     _drawingHandler.stabilizerLevel = _brushSettings.stabilizerLevel;
 
@@ -3063,6 +3111,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
           PedagogicalSoundEngine.instance.suppressForWriting();
         } else {
           _flowGuard.onDrawingEnded();
+          // 🖊️ Clear Apple Pencil anti-lag tail so no predicted ghost
+          // lingers after pen-up / cancel.
+          _currentStrokeNotifier.clearPredictedTail();
           // 🎵 A13-05: Resume sounds 2s after pen up (via FlowGuard cooldown)
           Future.delayed(FlowGuard.cooldownDuration, () {
             if (mounted && !_isDrawingNotifier.value) {

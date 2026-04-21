@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../rendering/optimization/optimization.dart';
 import '../input/path_pool.dart';
+import '../models/velocity_curve.dart';
 import 'fountain_pen_buffers.dart';
 import 'fountain_pen_path_builder.dart';
 
@@ -151,6 +152,9 @@ class FountainPenBrush {
     double? pressureRate,
     double? nibAngleRad,
     double? nibStrength,
+    // 🆕 Velocity curve (perceptual remap for GoodNotes-like swoosh).
+    VelocityCurve? velocityCurve,
+    double velocityReference = 2.0,
     ui.Image? textureImage,
     double textureScale = 0.0,
     int drawFromIndex = 0,
@@ -192,6 +196,8 @@ class FountainPenBrush {
         pressureRate: pressureRate,
         nibAngleRad: nibAngleRad,
         nibStrength: nibStrength,
+        velocityCurve: velocityCurve,
+        velocityReference: velocityReference,
       );
 
       // 2. Tapering — both entry AND exit taper now applied uniformly.
@@ -273,6 +279,8 @@ class FountainPenBrush {
     double? pressureRate,
     double? nibAngleRad,
     double? nibStrength,
+    VelocityCurve? velocityCurve,
+    double velocityReference = 2.0,
   }) {
     // Resolve dynamic vs default constants
     final effThinning = thinning ?? _thinning;
@@ -396,7 +404,22 @@ class FountainPenBrush {
       }
 
       if (!isFingerInput && velInfluence > 0 && distance > 0) {
-        final sp = math.min(1.0, distance / baseWidth);
+        // Velocity is distance/time (px/ms). Timestamp-based so the 240 Hz
+        // coalesced path doesn't collapse `sp` by halving the per-sample
+        // distance. Fallback to distance-based when timestamps are absent
+        // or degenerate (stabilizer catch-up, interpolated silent points).
+        final int dtMs =
+            i > 0 ? (points[i].timestamp - points[i - 1].timestamp) : 0;
+        double sp;
+        if (dtMs >= 1 && dtMs <= 100) {
+          sp = math.min(1.0, (distance / dtMs) / velocityReference);
+        } else {
+          sp = math.min(1.0, distance / baseWidth);
+        }
+        // Optional perceptual remap via cubic Bézier (GoodNotes-style swoosh).
+        if (velocityCurve != null && !velocityCurve.isLinear) {
+          sp = velocityCurve.evaluate(sp);
+        }
         final velMod = 1.15 - sp * 0.5 * velInfluence;
         width *= velMod.clamp(0.5, 1.3);
       }

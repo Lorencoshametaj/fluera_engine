@@ -64,11 +64,11 @@ class _PdfTextSheetState extends State<_PdfTextSheet> {
             Padding(padding: const EdgeInsets.fromLTRB(16, 0, 12, 8), child: Row(children: [
               const Icon(Icons.text_snippet_rounded, color: Color(0xFF80DEEA), size: 18), const SizedBox(width: 8),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Pagina ${widget.pageIndex + 1} — Testo estratto', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
-                if (!isLoading && hasText) Text('${_wordCount(text)} parole · ${text.length} caratteri', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                Text(FlueraLocalizations.of(context)!.pdfText_pageHeader(widget.pageIndex + 1), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+                if (!isLoading && hasText) Text(FlueraLocalizations.of(context)!.pdfText_stats(_wordCount(text), text.length), style: const TextStyle(color: Colors.white38, fontSize: 11)),
               ])),
               IconButton(onPressed: () => setState(() { _showSearch = !_showSearch; if (!_showSearch) { _searchCtrl.clear(); _query = ''; } }),
-                icon: Icon(_showSearch ? Icons.search_off_rounded : Icons.search_rounded, color: _showSearch ? const Color(0xFF80DEEA) : Colors.white38, size: 20), visualDensity: VisualDensity.compact, tooltip: 'Cerca nel testo'),
+                icon: Icon(_showSearch ? Icons.search_off_rounded : Icons.search_rounded, color: _showSearch ? const Color(0xFF80DEEA) : Colors.white38, size: 20), visualDensity: VisualDensity.compact, tooltip: FlueraLocalizations.of(context)!.pdfText_searchTooltip),
               if (hasText && !isLoading) GestureDetector(
                 onTap: () async { await Clipboard.setData(ClipboardData(text: text)); setState(() => _copied = true); await Future.delayed(const Duration(seconds: 2)); if (mounted) setState(() => _copied = false); },
                 child: AnimatedContainer(duration: const Duration(milliseconds: 200), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), margin: const EdgeInsets.only(left: 4),
@@ -78,14 +78,14 @@ class _PdfTextSheetState extends State<_PdfTextSheet> {
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(_copied ? Icons.check_rounded : Icons.copy_rounded, size: 13, color: _copied ? const Color(0xFF4CAF50) : const Color(0xFF80DEEA)),
                     const SizedBox(width: 4),
-                    Text(_copied ? 'Copiato!' : 'Copia', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _copied ? const Color(0xFF4CAF50) : const Color(0xFF80DEEA))),
+                    Text(_copied ? FlueraLocalizations.of(context)!.pdfText_copied : FlueraLocalizations.of(context)!.pdfText_copy, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _copied ? const Color(0xFF4CAF50) : const Color(0xFF80DEEA))),
                   ]))),
             ])),
             AnimatedSize(duration: const Duration(milliseconds: 200), curve: Curves.easeOut,
               child: _showSearch ? Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: TextField(
                 controller: _searchCtrl, autofocus: true, onChanged: (v) => setState(() => _query = v.toLowerCase()),
                 style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: InputDecoration(hintText: 'Cerca nel testo…', hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                decoration: InputDecoration(hintText: FlueraLocalizations.of(context)!.pdfText_searchHint, hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
                   prefixIcon: const Icon(Icons.search_rounded, color: Colors.white38, size: 18),
                   suffixIcon: _query.isNotEmpty ? IconButton(icon: const Icon(Icons.clear_rounded, color: Colors.white38, size: 16), onPressed: () { _searchCtrl.clear(); setState(() => _query = ''); }) : null,
                   filled: true, fillColor: Colors.white10, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -93,12 +93,12 @@ class _PdfTextSheetState extends State<_PdfTextSheet> {
             const Divider(color: Colors.white10, height: 1),
             Expanded(child: SingleChildScrollView(controller: scrollCtrl, padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                if (isLoading) const Padding(padding: EdgeInsets.symmetric(vertical: 40), child: Center(child: Column(children: [
-                  CircularProgressIndicator(color: Color(0xFF80DEEA), strokeWidth: 2), SizedBox(height: 16),
-                  Text('Estrazione in corso…', style: TextStyle(color: Colors.white38, fontSize: 13))])))
-                else if (!hasText) const Padding(padding: EdgeInsets.symmetric(vertical: 40), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(Icons.text_fields_rounded, color: Colors.white24, size: 40), SizedBox(height: 12),
-                  Text('Nessun testo trovato.\nPotrebbe essere un PDF scansionato.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 13, height: 1.5))]))
+                if (isLoading) Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: Center(child: Column(children: [
+                  const CircularProgressIndicator(color: Color(0xFF80DEEA), strokeWidth: 2), const SizedBox(height: 16),
+                  Text(FlueraLocalizations.of(context)!.pdfText_extracting, style: const TextStyle(color: Colors.white38, fontSize: 13))])))
+                else if (!hasText) Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Icon(Icons.text_fields_rounded, color: Colors.white24, size: 40), const SizedBox(height: 12),
+                  Text(FlueraLocalizations.of(context)!.pdfText_empty, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white38, fontSize: 13, height: 1.5))]))
                 else if (_query.isNotEmpty) ..._buildFilteredParagraphs(text, _query)
                 else SelectableText(text, style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 13.5, height: 1.7, letterSpacing: 0.1)),
                 if (!isLoading && hasText) ...[
@@ -117,7 +117,7 @@ class _PdfTextSheetState extends State<_PdfTextSheet> {
   List<Widget> _buildFilteredParagraphs(String text, String query) {
     final paragraphs = text.split('\n').where((p) => p.trim().isNotEmpty).toList();
     final matches = paragraphs.where((p) => p.toLowerCase().contains(query)).toList();
-    if (matches.isEmpty) return [Padding(padding: const EdgeInsets.symmetric(vertical: 20), child: Text('Nessun risultato per "$_query".', style: const TextStyle(color: Colors.white38, fontSize: 13)))];
+    if (matches.isEmpty) return [Padding(padding: const EdgeInsets.symmetric(vertical: 20), child: Text(FlueraLocalizations.of(context)!.pdfText_noResults(_query), style: const TextStyle(color: Colors.white38, fontSize: 13)))];
     return [
       Text('${matches.length} risultat${matches.length == 1 ? 'o' : 'i'} per "$_query"', style: const TextStyle(color: Color(0xFF80DEEA), fontSize: 11, fontWeight: FontWeight.w600)),
       const SizedBox(height: 10),
