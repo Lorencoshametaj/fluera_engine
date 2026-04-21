@@ -51,3 +51,6 @@ app.*.map.json
 *.pt
 test_results.json
 android/src/main/cpp/rnnoise/src/rnnoise_data.c
+
+# Android native build cache (C++/Vulkan)
+/android/.cxx/
