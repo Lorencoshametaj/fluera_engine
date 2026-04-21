@@ -4440,6 +4440,294 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Restore'**
   String get auth_restoreAction;
+
+  /// No description provided for @consent_acceptAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept all'**
+  String get consent_acceptAll;
+
+  /// No description provided for @consent_continueWithChoices.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue with these choices'**
+  String get consent_continueWithChoices;
+
+  /// No description provided for @exam_headerLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam'**
+  String get exam_headerLabel;
+
+  /// No description provided for @exam_selectTopicsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Select topics (max 10)'**
+  String get exam_selectTopicsHint;
+
+  /// No description provided for @exam_elaborationSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Elaboration saved — it\'ll help you remember!'**
+  String get exam_elaborationSaved;
+
+  /// No description provided for @exam_growthPrefix.
+  ///
+  /// In en, this message translates to:
+  /// **'🌱 {message}'**
+  String exam_growthPrefix(String message);
+
+  /// No description provided for @exam_calibrationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'📊 Your calibration'**
+  String get exam_calibrationTitle;
+
+  /// No description provided for @exam_calibrationUnder.
+  ///
+  /// In en, this message translates to:
+  /// **'Underconfident'**
+  String get exam_calibrationUnder;
+
+  /// No description provided for @exam_calibrationOver.
+  ///
+  /// In en, this message translates to:
+  /// **'Overconfident'**
+  String get exam_calibrationOver;
+
+  /// No description provided for @exam_insightOverconfident.
+  ///
+  /// In en, this message translates to:
+  /// **'You tend to overestimate yourself — try being more cautious before answering'**
+  String get exam_insightOverconfident;
+
+  /// No description provided for @exam_insightUnderconfident.
+  ///
+  /// In en, this message translates to:
+  /// **'You underestimate yourself — trust your knowledge more!'**
+  String get exam_insightUnderconfident;
+
+  /// No description provided for @exam_insightCalibrated.
+  ///
+  /// In en, this message translates to:
+  /// **'Excellent metacognitive calibration — you know your limits well'**
+  String get exam_insightCalibrated;
+
+  /// No description provided for @exam_resultsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Results'**
+  String get exam_resultsTitle;
+
+  /// No description provided for @exam_resultsSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'You faced {total} challenges — {correct} consolidated'**
+  String exam_resultsSummary(int total, int correct);
+
+  /// No description provided for @exam_resultsDuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Duration: {minutes}m {seconds}s'**
+  String exam_resultsDuration(int minutes, String seconds);
+
+  /// No description provided for @exam_chunkPerformance.
+  ///
+  /// In en, this message translates to:
+  /// **'📦 Per-block performance:'**
+  String get exam_chunkPerformance;
+
+  /// No description provided for @exam_reviewNeeded.
+  ///
+  /// In en, this message translates to:
+  /// **'⏰ To review:'**
+  String get exam_reviewNeeded;
+
+  /// No description provided for @exam_errorReplay.
+  ///
+  /// In en, this message translates to:
+  /// **'🔄 Strengthen {count} concepts — every review is growth'**
+  String exam_errorReplay(int count);
+
+  /// No description provided for @exam_backToCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to canvas'**
+  String get exam_backToCanvas;
+
+  /// No description provided for @exam_historyEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No completed sessions yet.'**
+  String get exam_historyEmpty;
+
+  /// No description provided for @exam_chunkBreakSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{correct}/{total} consolidated in this block'**
+  String exam_chunkBreakSummary(int correct, int total);
+
+  /// No description provided for @exam_continueArrow.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue →'**
+  String get exam_continueArrow;
+
+  /// No description provided for @exam_exitTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit exam?'**
+  String get exam_exitTitle;
+
+  /// No description provided for @exam_exitBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve already answered {count} questions.'**
+  String exam_exitBody(int count);
+
+  /// No description provided for @exam_exitContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get exam_exitContinue;
+
+  /// No description provided for @exam_exitConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit'**
+  String get exam_exitConfirm;
+
+  /// No description provided for @bookmark_renameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename bookmark'**
+  String get bookmark_renameTitle;
+
+  /// No description provided for @bookmark_deleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete bookmark?'**
+  String get bookmark_deleteTitle;
+
+  /// No description provided for @bookmark_deleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'\"{label}\" will be removed permanently.'**
+  String bookmark_deleteBody(String label);
+
+  /// No description provided for @bookmark_newTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New bookmark'**
+  String get bookmark_newTitle;
+
+  /// No description provided for @bookmark_nameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmark name'**
+  String get bookmark_nameHint;
+
+  /// No description provided for @graph_menuEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get graph_menuEdit;
+
+  /// No description provided for @graph_menuTable.
+  ///
+  /// In en, this message translates to:
+  /// **'Values Table'**
+  String get graph_menuTable;
+
+  /// No description provided for @graph_menuDuplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get graph_menuDuplicate;
+
+  /// No description provided for @graph_menuResetViewport.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset Viewport'**
+  String get graph_menuResetViewport;
+
+  /// No description provided for @graph_menuDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get graph_menuDelete;
+
+  /// No description provided for @graph_copyTable.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy table'**
+  String get graph_copyTable;
+
+  /// No description provided for @graph_reportCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Analysis report copied'**
+  String get graph_reportCopied;
+
+  /// No description provided for @textToolbar_tabFormat.
+  ///
+  /// In en, this message translates to:
+  /// **'Format'**
+  String get textToolbar_tabFormat;
+
+  /// No description provided for @textToolbar_tabEffects.
+  ///
+  /// In en, this message translates to:
+  /// **'Effects'**
+  String get textToolbar_tabEffects;
+
+  /// No description provided for @textToolbar_tabActions.
+  ///
+  /// In en, this message translates to:
+  /// **'Actions'**
+  String get textToolbar_tabActions;
+
+  /// No description provided for @textToolbar_effectShadow.
+  ///
+  /// In en, this message translates to:
+  /// **'Shadow'**
+  String get textToolbar_effectShadow;
+
+  /// No description provided for @textToolbar_effectBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Background'**
+  String get textToolbar_effectBackground;
+
+  /// No description provided for @textToolbar_effectBorder.
+  ///
+  /// In en, this message translates to:
+  /// **'Border'**
+  String get textToolbar_effectBorder;
+
+  /// No description provided for @textToolbar_effectGradient.
+  ///
+  /// In en, this message translates to:
+  /// **'Gradient'**
+  String get textToolbar_effectGradient;
+
+  /// No description provided for @textToolbar_effectGlow.
+  ///
+  /// In en, this message translates to:
+  /// **'Glow'**
+  String get textToolbar_effectGlow;
+
+  /// No description provided for @textToolbar_actionDuplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get textToolbar_actionDuplicate;
+
+  /// No description provided for @textToolbar_actionCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get textToolbar_actionCopy;
 }
 
 class _FlueraLocalizationsDelegate

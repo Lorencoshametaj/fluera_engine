@@ -2433,4 +2433,166 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get auth_restoreAction => 'Restore';
+
+  @override
+  String get consent_acceptAll => 'Accept all';
+
+  @override
+  String get consent_continueWithChoices => 'Continue with these choices';
+
+  @override
+  String get exam_headerLabel => 'Exam';
+
+  @override
+  String get exam_selectTopicsHint => 'Select topics (max 10)';
+
+  @override
+  String get exam_elaborationSaved =>
+      'Elaboration saved — it\'ll help you remember!';
+
+  @override
+  String exam_growthPrefix(String message) {
+    return '🌱 $message';
+  }
+
+  @override
+  String get exam_calibrationTitle => '📊 Your calibration';
+
+  @override
+  String get exam_calibrationUnder => 'Underconfident';
+
+  @override
+  String get exam_calibrationOver => 'Overconfident';
+
+  @override
+  String get exam_insightOverconfident =>
+      'You tend to overestimate yourself — try being more cautious before answering';
+
+  @override
+  String get exam_insightUnderconfident =>
+      'You underestimate yourself — trust your knowledge more!';
+
+  @override
+  String get exam_insightCalibrated =>
+      'Excellent metacognitive calibration — you know your limits well';
+
+  @override
+  String get exam_resultsTitle => 'Results';
+
+  @override
+  String exam_resultsSummary(int total, int correct) {
+    return 'You faced $total challenges — $correct consolidated';
+  }
+
+  @override
+  String exam_resultsDuration(int minutes, String seconds) {
+    return 'Duration: ${minutes}m ${seconds}s';
+  }
+
+  @override
+  String get exam_chunkPerformance => '📦 Per-block performance:';
+
+  @override
+  String get exam_reviewNeeded => '⏰ To review:';
+
+  @override
+  String exam_errorReplay(int count) {
+    return '🔄 Strengthen $count concepts — every review is growth';
+  }
+
+  @override
+  String get exam_backToCanvas => 'Back to canvas';
+
+  @override
+  String get exam_historyEmpty => 'No completed sessions yet.';
+
+  @override
+  String exam_chunkBreakSummary(int correct, int total) {
+    return '$correct/$total consolidated in this block';
+  }
+
+  @override
+  String get exam_continueArrow => 'Continue →';
+
+  @override
+  String get exam_exitTitle => 'Exit exam?';
+
+  @override
+  String exam_exitBody(int count) {
+    return 'You\'ve already answered $count questions.';
+  }
+
+  @override
+  String get exam_exitContinue => 'Continue';
+
+  @override
+  String get exam_exitConfirm => 'Exit';
+
+  @override
+  String get bookmark_renameTitle => 'Rename bookmark';
+
+  @override
+  String get bookmark_deleteTitle => 'Delete bookmark?';
+
+  @override
+  String bookmark_deleteBody(String label) {
+    return '\"$label\" will be removed permanently.';
+  }
+
+  @override
+  String get bookmark_newTitle => 'New bookmark';
+
+  @override
+  String get bookmark_nameHint => 'Bookmark name';
+
+  @override
+  String get graph_menuEdit => 'Edit';
+
+  @override
+  String get graph_menuTable => 'Values Table';
+
+  @override
+  String get graph_menuDuplicate => 'Duplicate';
+
+  @override
+  String get graph_menuResetViewport => 'Reset Viewport';
+
+  @override
+  String get graph_menuDelete => 'Delete';
+
+  @override
+  String get graph_copyTable => 'Copy table';
+
+  @override
+  String get graph_reportCopied => 'Analysis report copied';
+
+  @override
+  String get textToolbar_tabFormat => 'Format';
+
+  @override
+  String get textToolbar_tabEffects => 'Effects';
+
+  @override
+  String get textToolbar_tabActions => 'Actions';
+
+  @override
+  String get textToolbar_effectShadow => 'Shadow';
+
+  @override
+  String get textToolbar_effectBackground => 'Background';
+
+  @override
+  String get textToolbar_effectBorder => 'Border';
+
+  @override
+  String get textToolbar_effectGradient => 'Gradient';
+
+  @override
+  String get textToolbar_effectGlow => 'Glow';
+
+  @override
+  String get textToolbar_actionDuplicate => 'Duplicate';
+
+  @override
+  String get textToolbar_actionCopy => 'Copy';
 }

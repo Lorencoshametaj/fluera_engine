@@ -2442,4 +2442,166 @@ class FlueraLocalizationsIt extends FlueraLocalizations {
 
   @override
   String get auth_restoreAction => 'Ripristina';
+
+  @override
+  String get consent_acceptAll => 'Accetta tutto';
+
+  @override
+  String get consent_continueWithChoices => 'Continua con queste scelte';
+
+  @override
+  String get exam_headerLabel => 'Esame';
+
+  @override
+  String get exam_selectTopicsHint => 'Seleziona gli argomenti (max 10)';
+
+  @override
+  String get exam_elaborationSaved =>
+      'Elaborazione salvata — ti aiuterà a ricordare!';
+
+  @override
+  String exam_growthPrefix(String message) {
+    return '🌱 $message';
+  }
+
+  @override
+  String get exam_calibrationTitle => '📊 La tua calibrazione';
+
+  @override
+  String get exam_calibrationUnder => 'Sottovaluti';
+
+  @override
+  String get exam_calibrationOver => 'Sopravvaluti';
+
+  @override
+  String get exam_insightOverconfident =>
+      'Tendi a sopravvalutarti — prova a essere più cauto prima di rispondere';
+
+  @override
+  String get exam_insightUnderconfident =>
+      'Ti sottovaluti — fidati di più delle tue conoscenze!';
+
+  @override
+  String get exam_insightCalibrated =>
+      'Ottima calibrazione metacognitiva — conosci bene i tuoi limiti';
+
+  @override
+  String get exam_resultsTitle => 'Risultati';
+
+  @override
+  String exam_resultsSummary(int total, int correct) {
+    return 'Hai affrontato $total sfide — $correct consolidate';
+  }
+
+  @override
+  String exam_resultsDuration(int minutes, String seconds) {
+    return 'Durata: ${minutes}m ${seconds}s';
+  }
+
+  @override
+  String get exam_chunkPerformance => '📦 Rendimento per blocco:';
+
+  @override
+  String get exam_reviewNeeded => '⏰ Da ripassare:';
+
+  @override
+  String exam_errorReplay(int count) {
+    return '🔄 Rafforza $count concetti — ogni ripasso è crescita';
+  }
+
+  @override
+  String get exam_backToCanvas => 'Torna al canvas';
+
+  @override
+  String get exam_historyEmpty => 'Nessuna sessione completata finora.';
+
+  @override
+  String exam_chunkBreakSummary(int correct, int total) {
+    return '$correct/$total consolidate in questo blocco';
+  }
+
+  @override
+  String get exam_continueArrow => 'Continua →';
+
+  @override
+  String get exam_exitTitle => 'Uscire dall\'esame?';
+
+  @override
+  String exam_exitBody(int count) {
+    return 'Hai già risposto a $count domande.';
+  }
+
+  @override
+  String get exam_exitContinue => 'Continua';
+
+  @override
+  String get exam_exitConfirm => 'Esci';
+
+  @override
+  String get bookmark_renameTitle => 'Rinomina bookmark';
+
+  @override
+  String get bookmark_deleteTitle => 'Eliminare il bookmark?';
+
+  @override
+  String bookmark_deleteBody(String label) {
+    return '\"$label\" sarà rimosso definitivamente.';
+  }
+
+  @override
+  String get bookmark_newTitle => 'Nuovo bookmark';
+
+  @override
+  String get bookmark_nameHint => 'Nome del bookmark';
+
+  @override
+  String get graph_menuEdit => 'Modifica';
+
+  @override
+  String get graph_menuTable => 'Tabella Valori';
+
+  @override
+  String get graph_menuDuplicate => 'Duplica';
+
+  @override
+  String get graph_menuResetViewport => 'Reset Viewport';
+
+  @override
+  String get graph_menuDelete => 'Elimina';
+
+  @override
+  String get graph_copyTable => 'Copia tabella';
+
+  @override
+  String get graph_reportCopied => 'Report analisi copiato';
+
+  @override
+  String get textToolbar_tabFormat => 'Formato';
+
+  @override
+  String get textToolbar_tabEffects => 'Effetti';
+
+  @override
+  String get textToolbar_tabActions => 'Azioni';
+
+  @override
+  String get textToolbar_effectShadow => 'Ombra';
+
+  @override
+  String get textToolbar_effectBackground => 'Sfondo';
+
+  @override
+  String get textToolbar_effectBorder => 'Bordo';
+
+  @override
+  String get textToolbar_effectGradient => 'Gradient';
+
+  @override
+  String get textToolbar_effectGlow => 'Glow';
+
+  @override
+  String get textToolbar_actionDuplicate => 'Duplica';
+
+  @override
+  String get textToolbar_actionCopy => 'Copia';
 }
