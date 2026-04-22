@@ -36,9 +36,16 @@ extension _SpellcheckMixin on _FlueraCanvasScreenState {
   //   _spellcheckPopupPosition — Offset? (screen position for popup)
 
   /// 🔍 Run spellcheck AND grammar check on all digital text elements.
+  ///
+  /// Grammar check is skipped while an active-learning mode (Socratic /
+  /// Ghost Map) is running: real-time correction undermines the generation
+  /// effect and desirable difficulties we want the student to experience.
   void runSpellcheck() {
     final newSpellOverlays = <String, SpellcheckOverlay>{};
     final newGrammarOverlays = <String, _GrammarOverlayData>{};
+
+    final learningActive =
+        _socraticController.isActive || _ghostMapController.isActive;
 
     for (final element in _digitalTextElements) {
       final text = element.plainText;
@@ -52,42 +59,16 @@ extension _SpellcheckMixin on _FlueraCanvasScreenState {
         );
       }
 
-      // Grammar (rule-based — instant, offline)
-      final grammarResult = GrammarCheckService.instance.checkText(text);
-      if (grammarResult.hasErrors) {
-        newGrammarOverlays[element.id] = _GrammarOverlayData(
-          elementId: element.id,
-          errors: grammarResult.errors,
-        );
-      }
-      // 🧠 AI Grammar (Gemini — background, debounced)
-      // Lazy-initialize with the same API key as Atlas
-      if (!AiGrammarService.instance.enabled) {
-        final apiKey = EngineScope.current.geminiApiKey;
-        if (apiKey != null && apiKey.isNotEmpty) {
-          AiGrammarService.instance.initialize(apiKey);
+      // Grammar (rule-based — instant, offline).
+      // Disabled during Socratic/Ghost Map to protect retrieval practice.
+      if (!learningActive) {
+        final grammarResult = GrammarCheckService.instance.checkText(text);
+        if (grammarResult.hasErrors) {
+          newGrammarOverlays[element.id] = _GrammarOverlayData(
+            elementId: element.id,
+            errors: grammarResult.errors,
+          );
         }
-      }
-      if (AiGrammarService.instance.enabled && text.trim().length >= 10) {
-        AiGrammarService.instance.onResultReady = () {
-          final aiResult = AiGrammarService.instance.lastResult;
-          if (aiResult != null && aiResult.hasErrors && mounted) {
-            setState(() {
-              // Merge AI errors with existing rule-based errors
-              final existing = _grammarOverlays[element.id];
-              final ruleErrors = existing?.errors ?? [];
-              final merged = AiGrammarService.mergeErrors(
-                ruleErrors,
-                aiResult.errors,
-              );
-              _grammarOverlays[element.id] = _GrammarOverlayData(
-                elementId: element.id,
-                errors: merged,
-              );
-            });
-          }
-        };
-        AiGrammarService.instance.scheduleCheck(text);
       }
     }
 

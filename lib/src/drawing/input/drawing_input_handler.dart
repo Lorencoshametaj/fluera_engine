@@ -83,9 +83,8 @@ class DrawingInputHandler {
   StreamSubscription<List<PredictedTouchPoint>>? _predictedTouchSubscription;
 
   /// Toggle runtime logging of per-stroke sample rate.
-  /// TEMP: on by default so the in-app debug overlay exposes per-stroke hz.
-  /// Flip back to false once the 240 Hz path is confirmed on device.
-  static bool debugLogSampleRate = true;
+  /// Set to true to show the in-app debug overlay with per-stroke hz/count.
+  static bool debugLogSampleRate = false;
 
   /// Live per-stroke metrics (hz/count/duration) for the in-app debug overlay.
   /// Updated on endStroke so the overlay stays readable between strokes.

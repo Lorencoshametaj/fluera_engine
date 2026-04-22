@@ -1109,6 +1109,31 @@ class _ChatOverlayState extends State<ChatOverlay>
             );
           }
 
+          if (snap.hasError) {
+            return Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.cloud_off_rounded, size: 40,
+                    color: Colors.white.withValues(alpha: 0.35)),
+                const SizedBox(height: 10),
+                Text(
+                  'Impossibile caricare la cronologia',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: () => setState(() {}),
+                  icon: Icon(Icons.refresh_rounded, size: 16, color: _cyan),
+                  label: Text('Riprova',
+                      style: TextStyle(color: _cyan, fontSize: 12)),
+                ),
+              ]),
+            );
+          }
+
           final history = snap.data ?? [];
           if (history.isEmpty) {
             return Center(

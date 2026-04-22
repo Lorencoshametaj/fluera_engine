@@ -33,12 +33,22 @@ class FGeminiResponse {
 
 class FGeminiUsageMetadata {
   final int? totalTokenCount;
-  const FGeminiUsageMetadata({this.totalTokenCount});
+  final int? promptTokenCount;
+  final int? candidatesTokenCount;
+  const FGeminiUsageMetadata({
+    this.totalTokenCount,
+    this.promptTokenCount,
+    this.candidatesTokenCount,
+  });
 }
 
 /// Contract every Gemini backend implements. [featureTag] is propagated to
 /// the server-side quota ledger when the proxy is in use.
 abstract class GeminiClient {
+  /// Human-readable model identifier (e.g. "gemini-2.5-flash-lite"). Used
+  /// for per-model cost breakdown in telemetry.
+  String get modelName;
+
   Future<FGeminiResponse> generateContent(
     List<Content> contents, {
     required String featureTag,
@@ -58,7 +68,9 @@ abstract class GeminiClient {
 
 class DirectGeminiClient implements GeminiClient {
   final GenerativeModel _model;
-  DirectGeminiClient(this._model);
+  @override
+  final String modelName;
+  DirectGeminiClient(this._model, {required this.modelName});
 
   @override
   Future<FGeminiResponse> generateContent(
@@ -73,6 +85,8 @@ class DirectGeminiClient implements GeminiClient {
           ? null
           : FGeminiUsageMetadata(
               totalTokenCount: resp.usageMetadata!.totalTokenCount,
+              promptTokenCount: resp.usageMetadata!.promptTokenCount,
+              candidatesTokenCount: resp.usageMetadata!.candidatesTokenCount,
             ),
     );
   }
@@ -90,6 +104,9 @@ class DirectGeminiClient implements GeminiClient {
             ? null
             : FGeminiUsageMetadata(
                 totalTokenCount: chunk.usageMetadata!.totalTokenCount,
+                promptTokenCount: chunk.usageMetadata!.promptTokenCount,
+                candidatesTokenCount:
+                    chunk.usageMetadata!.candidatesTokenCount,
               ),
       );
     }
@@ -129,6 +146,7 @@ class GeminiProxyConfig {
 }
 
 class ProxiedGeminiClient implements GeminiClient {
+  @override
   final String modelName;
   final String? _systemInstructionText;
   final Map<String, dynamic>? _generationConfig;
@@ -299,6 +317,9 @@ class ProxiedGeminiClient implements GeminiClient {
     if (meta != null) {
       usage = FGeminiUsageMetadata(
         totalTokenCount: (meta['totalTokenCount'] as num?)?.toInt(),
+        promptTokenCount: (meta['promptTokenCount'] as num?)?.toInt(),
+        candidatesTokenCount:
+            (meta['candidatesTokenCount'] as num?)?.toInt(),
       );
     }
 

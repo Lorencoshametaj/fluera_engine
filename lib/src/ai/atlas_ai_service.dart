@@ -36,10 +36,11 @@ class GeminiProvider implements AiProvider {
   static const _modelFlash = 'gemini-2.5-flash';
 
   GeminiClient? _model; // Flash Lite, JSON — canvas actions (askAtlas, hint)
-  GeminiClient? _streamModel; // Flash Lite, no JSON — chat, stream, socratic
+  GeminiClient? _streamModel; // Flash Lite, no JSON — chat, stream
   GeminiClient? _ghostMapModel; // 🗺️ Flash, JSON, low temp — Ghost Map
   GeminiClient? _examModel; // 🎓 Flash, JSON — exam generation
   GeminiClient? _evaluationModel; // 🎓 Flash, streaming — answer evaluation
+  GeminiClient? _socraticModel; // 🔶 Flash Lite, JSON — Socratic batch (system-cached rules)
   bool _initialized = false;
 
   /// Direct-mode Gemini API key (baked into the client binary). Null when
@@ -93,19 +94,26 @@ class GeminiProvider implements AiProvider {
   Future<T> _meter<T>(
     String feature, {
     required int estimate,
+    required GeminiClient client,
     required Future<({T value, FGeminiResponse response})> Function() run,
   }) async {
     // Client-side pre-flight from cached snapshot — saves a round trip if
     // the user is obviously over budget.
-    await _tracker.ensureBalance(estimate: estimate);
+    await _tracker.ensureBalance(estimate: estimate, feature: feature);
     final sw = Stopwatch()..start();
     try {
       final r = await run();
-      final tokens = r.response.usageMetadata?.totalTokenCount ?? estimate;
+      final meta = r.response.usageMetadata;
+      final tokens = meta?.totalTokenCount ?? estimate;
+      final inputTokens = meta?.promptTokenCount;
+      final outputTokens = meta?.candidatesTokenCount;
       sw.stop();
       _telemetry.logEvent('ai_call', properties: {
         'feature': feature,
         'tokens_used': tokens,
+        if (inputTokens != null) 'input_tokens': inputTokens,
+        if (outputTokens != null) 'output_tokens': outputTokens,
+        'model': client.modelName,
         'latency_ms': sw.elapsedMilliseconds,
         'mode': usesProxy ? 'proxy' : 'direct',
       });
@@ -116,7 +124,13 @@ class GeminiProvider implements AiProvider {
         // the new balance.
         unawaited(_tracker.refresh());
       } else {
-        unawaited(_tracker.recordUsage(tokens, feature));
+        unawaited(_tracker.recordUsage(
+          tokens,
+          feature,
+          inputTokens: inputTokens,
+          outputTokens: outputTokens,
+          model: client.modelName,
+        ));
       }
       return r.value;
     } on GeminiProxyQuotaExceededException {
@@ -134,16 +148,26 @@ class GeminiProvider implements AiProvider {
   Stream<String> _meterStream(
     String feature, {
     required int estimate,
+    required GeminiClient client,
     required Stream<FGeminiResponse> Function() start,
   }) async* {
-    await _tracker.ensureBalance(estimate: estimate);
+    await _tracker.ensureBalance(estimate: estimate, feature: feature);
     int tokens = estimate; // fallback if the stream ends without metadata
+    int? inputTokens;
+    int? outputTokens;
     final sw = Stopwatch()..start();
     try {
       try {
         await for (final response in start()) {
-          final m = response.usageMetadata?.totalTokenCount;
+          final meta = response.usageMetadata;
+          final m = meta?.totalTokenCount;
           if (m != null && m > 0) tokens = m;
+          if (meta?.promptTokenCount != null) {
+            inputTokens = meta!.promptTokenCount;
+          }
+          if (meta?.candidatesTokenCount != null) {
+            outputTokens = meta!.candidatesTokenCount;
+          }
           if (response.text != null && response.text!.isNotEmpty) {
             yield response.text!;
           }
@@ -156,6 +180,9 @@ class GeminiProvider implements AiProvider {
       _telemetry.logEvent('ai_call', properties: {
         'feature': feature,
         'tokens_used': tokens,
+        if (inputTokens != null) 'input_tokens': inputTokens,
+        if (outputTokens != null) 'output_tokens': outputTokens,
+        'model': client.modelName,
         'latency_ms': sw.elapsedMilliseconds,
         'mode': usesProxy ? 'proxy' : 'direct',
         'streaming': true,
@@ -163,7 +190,13 @@ class GeminiProvider implements AiProvider {
       if (usesProxy) {
         unawaited(_tracker.refresh());
       } else {
-        unawaited(_tracker.recordUsage(tokens, feature));
+        unawaited(_tracker.recordUsage(
+          tokens,
+          feature,
+          inputTokens: inputTokens,
+          outputTokens: outputTokens,
+          model: client.modelName,
+        ));
       }
     }
   }
@@ -242,8 +275,49 @@ class GeminiProvider implements AiProvider {
           'You MUST always respond in $langName.',
     );
 
+    // 🔶 Socratic batch: rules in systemInstruction (cached by Gemini),
+    // per-call input is just the cluster list → ~60% input-token savings.
+    _socraticModel = _buildClient(
+      modelName: _modelFlashLite,
+      systemInstruction: _socraticSystemPrompt(langName),
+      generationConfig: const {
+        'responseMimeType': 'application/json',
+        'temperature': 0.4,
+        'maxOutputTokens': 800,
+      },
+    );
+
     _initialized = true;
   }
+
+  /// Socratic invariant rules. Lives in systemInstruction so Gemini can
+  /// cache it across calls; the per-call prompt only carries cluster data.
+  static String _socraticSystemPrompt(String langName) =>
+      '''You are a Socratic tutor inside Fluera. Activate RETRIEVAL PRACTICE: students PRODUCE answers from memory, never recognize them. Always respond in $langName.
+
+PIPELINE per call:
+1. OCR cleanup: correct handwriting artifacts in each cluster's text.
+2. Identify discipline + level from the cluster set; keep ALL questions inside that discipline.
+3. For each cluster, generate ONE question of the specified type.
+
+QUESTION TYPES:
+- "lacuna" (recall 1-2, forgotten): ask what CONNECTS concepts or what's MISSING in a causal chain. Generative verbs (explain, describe, relation between X and Y). Specific, not "what do you know about X".
+- "sfida" (recall 3, false confidence): present a counterexample or edge case; force the student to DEFEND or REVISE. Anchor to a concrete concept from the notes.
+- "profondità" (recall 4, knows what not why): ask for the MECHANISM, CAUSE, underlying PRINCIPLE — causal explanation, not description.
+- "transfer" (recall 5, mastery): ask for analogies in OTHER domains or novel applications.
+
+BREADCRUMBS (3 per question, progressive scaffolding — Vygotsky ZPD):
+1. Eco lontano: vague direction, semantic priming (≤12 words).
+2. Sentiero: narrows the domain (≤15 words).
+3. Soglia: final scaffold, answer is one step away but NEVER given (≤20 words).
+
+SPECIFICITY: every question must name at least ONE concept from the student's notes. If 3+ clusters, the LAST one should bridge two clusters (interleaving).
+
+FORBIDDEN: yes/no questions, "what do you know about X", meta-descriptions, questions about a scientist's biography instead of their discipline, vague prompts, giving the answer (even partially, even in breadcrumbs), multiple choice, LaTeX or markdown (write F=ma, not \$F=ma\$).
+
+OUTPUT — strict JSON, nothing else:
+{"clusters":[{"q":"question, ≤2 sentences, same language as notes","h":["eco lontano","sentiero","soglia"]}, …]}
+One object per input cluster, in order.''';
 
   /// Build a GeminiClient pointing at either the direct Gemini API (dev)
   /// or the Supabase Edge Function proxy (prod).
@@ -274,7 +348,7 @@ class GeminiProvider implements AiProvider {
       generationConfig: genConfig,
       systemInstruction: Content.system(systemInstruction),
     );
-    return DirectGeminiClient(model);
+    return DirectGeminiClient(model, modelName: modelName);
   }
 
   @override
@@ -321,6 +395,7 @@ class GeminiProvider implements AiProvider {
       return await _meter<AtlasResponse>(
         'askAtlas',
         estimate: 500,
+        client: _model!,
         run: () async {
           final response = await _model!.generateContent(
             [Content.text(payload)],
@@ -353,8 +428,41 @@ class GeminiProvider implements AiProvider {
     }
   }
 
+  /// 🔶 Socratic batch — rules live in the model's systemInstruction (cached
+  /// by Gemini), so the per-call input only carries cluster data. Returns
+  /// raw JSON text: `{"clusters":[{"q":"...","h":["...","...","..."]}, …]}`.
+  @override
+  Future<String> askSocraticBatch(String userPrompt) async {
+    if (!_initialized || _socraticModel == null) {
+      throw StateError('Atlas non inizializzato. Chiama initialize() prima.');
+    }
+
+    const estimate = 1000;
+    try {
+      return await _meter<String>(
+        'askSocraticBatch',
+        estimate: estimate,
+        client: _socraticModel!,
+        run: () async {
+          final response = await _socraticModel!.generateContent(
+            [Content.text(userPrompt)],
+            featureTag: 'askSocraticBatch',
+            estimate: estimate,
+          );
+          final text = response.text?.trim() ?? '';
+          return (value: text, response: response);
+        },
+      );
+    } on AiQuotaExceededException {
+      rethrow;
+    } catch (e) {
+      debugPrint('⚠️ askSocraticBatch error: $e');
+      return '';
+    }
+  }
+
   /// 🔶 Free-text prompt — sends raw text, returns raw text.
-  /// Used for Socratic questions, breadcrumbs, and other non-structured prompts.
+  /// Used for breadcrumbs and other ad-hoc non-structured prompts.
   /// Uses _streamModel (no JSON constraint, no canvas system prompt).
   @override
   Future<String> askFreeText(String prompt) async {
@@ -366,6 +474,7 @@ class GeminiProvider implements AiProvider {
       return await _meter<String>(
         'askFreeText',
         estimate: 500,
+        client: _streamModel!,
         run: () async {
           final response = await _streamModel!.generateContent(
             [Content.text(prompt)],
@@ -400,6 +509,7 @@ class GeminiProvider implements AiProvider {
     yield* _meterStream(
       'askAtlasStream',
       estimate: 1500,
+      client: _streamModel!,
       start: () => _streamModel!.generateContentStream(
         [Content.text(payload)],
         featureTag: 'askAtlasStream',
@@ -444,6 +554,7 @@ ATLAS:''';
     yield* _meterStream(
       'askChatStream',
       estimate: 1500,
+      client: _streamModel!,
       start: () => _streamModel!.generateContentStream(
         [Content.text(prompt)],
         featureTag: 'askChatStream',
@@ -583,6 +694,7 @@ Field "cluster_id" must use the note labels: appunto_1, appunto_2, etc.
       return await _meter<List<ExamQuestion>>(
         'generateExamQuestions',
         estimate: 2500,
+        client: _examModel!,
         run: () async {
           final response = await _examModel!.generateContent(
             [Content.text(prompt)],
@@ -715,9 +827,11 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
     String fullText = '';
     ExamAnswerResult result = ExamAnswerResult.incorrect;
     int tokens = 800; // fallback estimate
+    int? inputTokens;
+    int? outputTokens;
 
     try {
-      await _tracker.ensureBalance(estimate: 800);
+      await _tracker.ensureBalance(estimate: 800, feature: 'evaluateOpenAnswer');
       try {
         final stream = _evaluationModel!.generateContentStream(
           [Content.text(prompt)],
@@ -725,8 +839,11 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
           estimate: 800,
         );
         await for (final chunk in stream) {
-          final m = chunk.usageMetadata?.totalTokenCount;
+          final meta = chunk.usageMetadata;
+          final m = meta?.totalTokenCount;
           if (m != null && m > 0) tokens = m;
+          if (meta?.promptTokenCount != null) inputTokens = meta!.promptTokenCount;
+          if (meta?.candidatesTokenCount != null) outputTokens = meta!.candidatesTokenCount;
           if (chunk.text != null && chunk.text!.isNotEmpty) {
             fullText += chunk.text!;
             onTextChunk(chunk.text!);
@@ -746,7 +863,13 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
         if (usesProxy) {
           unawaited(_tracker.refresh());
         } else {
-          unawaited(_tracker.recordUsage(tokens, 'evaluateOpenAnswer'));
+          unawaited(_tracker.recordUsage(
+            tokens,
+            'evaluateOpenAnswer',
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            model: _evaluationModel!.modelName,
+          ));
         }
       }
     } on GeminiProxyQuotaExceededException {
@@ -997,7 +1120,7 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
 
     int ghostMapTokens = 3500; // fallback if usageMetadata missing (e.g. timeout)
     try {
-      await _tracker.ensureBalance(estimate: 3500);
+      await _tracker.ensureBalance(estimate: 3500, feature: 'generateGhostMap');
       // 🗺️ Use dedicated ghost map model (temperature 0.3) with 12s timeout (A3-03)
       final ghostModel = _ghostMapModel ?? _model!;
       final response = await ghostModel
@@ -1012,12 +1135,19 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
               'Ghost Map generation exceeded 12s timeout',
             ),
           );
-      final m = response.usageMetadata?.totalTokenCount;
+      final meta = response.usageMetadata;
+      final m = meta?.totalTokenCount;
       if (m != null && m > 0) ghostMapTokens = m;
       if (usesProxy) {
         unawaited(_tracker.refresh());
       } else {
-        unawaited(_tracker.recordUsage(ghostMapTokens, 'generateGhostMap'));
+        unawaited(_tracker.recordUsage(
+          ghostMapTokens,
+          'generateGhostMap',
+          inputTokens: meta?.promptTokenCount,
+          outputTokens: meta?.candidatesTokenCount,
+          model: ghostModel.modelName,
+        ));
       }
       if (response.text == null) return GhostMapResult.empty();
 
@@ -1353,6 +1483,7 @@ Provide EXACTLY ONE short, conceptual hint in $language.
       return await _meter<String>(
         'generateHint',
         estimate: 200,
+        client: _model!,
         run: () async {
           final result = await _model!.generateContent(
             [Content.text(prompt)],

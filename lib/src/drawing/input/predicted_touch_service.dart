@@ -56,9 +56,9 @@ class PredictedTouchService {
   bool _isSupported = false;
 
   /// Toggle runtime logging of per-event coalesced/predicted sample counts.
-  /// TEMP: on by default so the in-app debug overlay exposes the Apple Pencil
-  /// 240 Hz delivery rate on TestFlight. Flip back to false once confirmed.
-  static bool debugLogEventRate = true;
+  /// Set to true to expose the native 240 Hz delivery rate in the in-app
+  /// debug overlay.
+  static bool debugLogEventRate = false;
 
   /// Live, human-readable status line. Drives the in-app debug overlay so
   /// you can verify the native 240 Hz path from the iPad itself without

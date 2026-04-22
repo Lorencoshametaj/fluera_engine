@@ -12,7 +12,7 @@ import 'package:flutter/painting.dart';
 
 import '../core/models/canvas_layer.dart';
 import 'canvas_creation_options.dart';
-import 'section_summary.dart';
+import 'spatial_bookmark.dart';
 
 /// Metadata for a stored canvas (used for listing / browsing).
 class CanvasMetadata {
@@ -46,8 +46,11 @@ class CanvasMetadata {
   /// Total number of strokes across all layers.
   final int strokeCount;
 
-  /// Sections in this canvas (extracted from scene graph on save).
-  final List<SectionSummary> sections;
+  /// Spatial bookmarks in this canvas (navigable metadata anchors).
+  ///
+  /// Introduced in schema v16. Replaces the legacy `sections` field that
+  /// lived on pre-v17 metadata — the migration converts them on read.
+  final List<SpatialBookmark> bookmarks;
 
   /// Total content bounding box in canvas world space.
   /// Null if the canvas has no content yet.
@@ -67,7 +70,7 @@ class CanvasMetadata {
     this.parentFolderId,
     this.layerCount = 0,
     this.strokeCount = 0,
-    this.sections = const [],
+    this.bookmarks = const [],
     this.contentBounds,
     this.lastViewport,
   });
@@ -83,8 +86,8 @@ class CanvasMetadata {
     if (parentFolderId != null) 'parentFolderId': parentFolderId,
     'layerCount': layerCount,
     'strokeCount': strokeCount,
-    if (sections.isNotEmpty)
-      'sections': sections.map((s) => s.toJson()).toList(),
+    if (bookmarks.isNotEmpty)
+      'bookmarks': bookmarks.map((b) => b.toJson()).toList(),
     if (contentBounds != null)
       'contentBounds': {
         'left': contentBounds!.left,
@@ -102,11 +105,11 @@ class CanvasMetadata {
 
   /// Deserialize from JSON.
   factory CanvasMetadata.fromJson(Map<String, dynamic> json) {
-    // Parse sections
-    final sectionsJson = json['sections'] as List<dynamic>?;
-    final sections = sectionsJson
-        ?.map((s) => SectionSummary.fromJson(s as Map<String, dynamic>))
-        .toList() ?? const [];
+    // Parse bookmarks (v16+)
+    final bookmarksJson = json['bookmarks'] as List<dynamic>?;
+    final bookmarks = bookmarksJson
+        ?.map((b) => SpatialBookmark.fromJson(b as Map<String, dynamic>))
+        .toList() ?? const <SpatialBookmark>[];
 
     // Parse content bounds
     final boundsJson = json['contentBounds'] as Map<String, dynamic>?;
@@ -139,7 +142,7 @@ class CanvasMetadata {
       parentFolderId: json['parentFolderId'] as String?,
       layerCount: json['layerCount'] as int? ?? 0,
       strokeCount: json['strokeCount'] as int? ?? 0,
-      sections: sections,
+      bookmarks: bookmarks,
       contentBounds: contentBounds,
       lastViewport: lastViewport,
     );
@@ -354,16 +357,25 @@ abstract class FlueraStorageAdapter {
 
   // ─────────────────────── SECTION METADATA ─────────────────────────────────
 
-  /// Save pre-computed section summaries for a canvas.
-  ///
-  /// Called during auto-save to persist lightweight section metadata
-  /// that the gallery can query without loading the full canvas JSON.
-  /// Also persists content bounds and last viewport state.
-  ///
-  /// Default: no-op (gallery falls back to metadata without sections).
-  Future<void> saveSectionSummaries(
+  /// Persist the current content bounds and last viewport for the canvas,
+  /// without touching the bookmark list. Called on every auto-save so the
+  /// gallery Hub and Workspace Dashboard stay fresh.
+  Future<void> saveViewportMeta(
     String canvasId, {
-    required List<SectionSummary> sections,
+    Rect? contentBounds,
+    ({double dx, double dy, double scale})? lastViewport,
+  }) async {}
+
+  /// Save spatial bookmarks for a canvas (schema v16+).
+  ///
+  /// Bookmarks are navigable metadata anchors — pure metadata, never drawn
+  /// on the canvas. Called when the user explicitly pins a view or renames
+  /// an existing bookmark. Also persists content bounds and last viewport.
+  ///
+  /// Default: no-op.
+  Future<void> saveBookmarks(
+    String canvasId, {
+    required List<SpatialBookmark> bookmarks,
     Rect? contentBounds,
     ({double dx, double dy, double scale})? lastViewport,
   }) async {}

@@ -18,13 +18,27 @@ class NoopAiUsageTracker implements AiUsageTracker {
       const Stream<AiQuotaExceededException>.empty();
 
   @override
+  Stream<AiRateLimitedException> get rateLimitedEvents =>
+      const Stream<AiRateLimitedException>.empty();
+
+  @override
+  Stream<GhostMapCapExceededException> get ghostMapCapEvents =>
+      const Stream<GhostMapCapExceededException>.empty();
+
+  @override
   Future<AiQuotaSnapshot?> refresh() async => null;
 
   @override
-  Future<void> ensureBalance({int estimate = 500}) async {}
+  Future<void> ensureBalance({int estimate = 500, String? feature}) async {}
 
   @override
-  Future<void> recordUsage(int tokens, String feature) async {}
+  Future<void> recordUsage(
+    int tokens,
+    String feature, {
+    int? inputTokens,
+    int? outputTokens,
+    String? model,
+  }) async {}
 
   @override
   void dispose() {

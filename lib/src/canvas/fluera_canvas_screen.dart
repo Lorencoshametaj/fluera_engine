@@ -156,7 +156,6 @@ import '../canvas/parts/ui/spellcheck_context_menu.dart';
 import '../canvas/parts/ui/grammar_settings_sheet.dart';
 import '../canvas/parts/ui/dictionary_lookup_sheet.dart';
 import '../services/dictionary_lookup_service.dart';
-import '../services/ai_grammar_service.dart';
 import '../services/reading_level_service.dart';
 import '../canvas/parts/ui/reading_level_sheet.dart';
 import '../canvas/parts/ui/synonym_popup.dart';
@@ -214,7 +213,6 @@ import './helpers/responsive_design_helper.dart';
 import './helpers/prototype_animation_helper.dart';
 import './fluera_canvas_config.dart';
 import '../storage/sqlite_storage_adapter.dart';
-import '../storage/section_summary.dart';
 import '../storage/save_isolate_service.dart';
 import '../rendering/gpu/vulkan_stroke_overlay_service.dart';
 import '../rendering/gpu/webgpu_overlay_view.dart';
@@ -306,8 +304,8 @@ import '../rendering/canvas/latex_provenance_overlay_painter.dart';
 import './navigation/content_bounds_tracker.dart';
 import './navigation/camera_actions.dart';
 import './navigation/canvas_minimap.dart';
-import './navigation/spatial_bookmark.dart';
 import './navigation/spatial_bookmark_controller.dart';
+import './../storage/spatial_bookmark.dart';
 import './navigation/bookmark_thumbnail_cache.dart';
 import './overlays/bookmark_list_sheet.dart';
 import './navigation/content_radar_overlay.dart';
@@ -1402,28 +1400,25 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   }
 
   // 📌 SPATIAL BOOKMARKS: student-placed navigation anchors (§1972-1977).
-  // Persistent per canvas via KV store; thumbnails cached separately
-  // (lazy + LRU). Loaded asynchronously in initState alongside the SR
-  // schedule so they're ready before the canvas is interacted with.
-  final SpatialBookmarkController _bookmarkController =
-      SpatialBookmarkController();
+  // v16+: persisted via the engine's FlueraStorageAdapter (schema column
+  // `bookmarks_json`). The controller owns the in-memory list; every
+  // mutation fires a fire-and-forget save on the adapter.
+  late final SpatialBookmarkController _bookmarkController =
+      SpatialBookmarkController(adapter: _config.storageAdapter);
   final BookmarkThumbnailCache _bookmarkThumbnailCache =
       BookmarkThumbnailCache();
 
   /// Convenience: bookmark id → world centroid for the minimap layer.
   Map<String, Offset> _bookmarkLocations() => {
-    for (final bm in _bookmarkController.bookmarks) bm.id: bm.canvasPosition,
+    for (final bm in _bookmarkController.bookmarks) bm.id: bm.center,
   };
 
-  /// Triggered every time the bookmark list mutates (add/remove/rename/
-  /// recordVisit). Persists asynchronously and rebuilds so the minimap
-  /// landmark layer redraws with the new orange dots.
+  /// Triggered every time the bookmark list mutates. Rebuilds so the
+  /// minimap landmark layer refreshes; persistence is driven by the
+  /// controller itself.
   void _onBookmarksChanged() {
     if (!mounted) return;
     setState(() {});
-    // Fire-and-forget; failures logged inside the controller.
-    // ignore: discarded_futures
-    _bookmarkController.saveToKVStore(_canvasId);
   }
 
   /// 📌 Handler — invoked by the radial menu when the student picks
@@ -1474,7 +1469,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     );
     if (result == null || result.isEmpty) return;
 
-    final bm = _bookmarkController.add(
+    final bm = await _bookmarkController.add(
+      canvasId: _canvasId,
       label: result,
       canvasPosition: canvasPosition,
       scale: _canvasController.scale,
@@ -1496,7 +1492,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       orElse: () => _layerController.layers.first,
     );
     final bounds = Rect.fromCenter(
-      center: bm.canvasPosition,
+      center: bm.center,
       width: 600,
       height: 600,
     );
@@ -1540,12 +1536,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   ///
   /// Records the visit so LRU eviction prefers never-visited entries.
   void _navigateToBookmark(SpatialBookmark bm) {
-    _bookmarkController.recordVisit(bm.id);
+    // ignore: discarded_futures
+    _bookmarkController.recordVisit(_canvasId, bm.id);
     final viewport = MediaQuery.sizeOf(context);
     final centre = Offset(viewport.width / 2, viewport.height / 2);
     final targetOffset = Offset(
-      centre.dx - bm.canvasPosition.dx * bm.scale,
-      centre.dy - bm.canvasPosition.dy * bm.scale,
+      centre.dx - bm.cx * bm.zoom,
+      centre.dy - bm.cy * bm.zoom,
     );
     // The bottom sheet pop animation takes ~200ms. If we fire
     // animateToTransform synchronously, it overlaps with the sheet
@@ -1570,7 +1567,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // viewport diagonal ≈ a big swipe across the screen.
       final screenDistance =
           viewportDiag > 0 ? deltaOffset / viewportDiag : 0.0;
-      final scaleRatio = (bm.scale / _canvasController.scale).abs();
+      final scaleRatio = (bm.zoom / _canvasController.scale).abs();
       // Combined progress: geometric + zoom magnitude. A large zoom
       // change (e.g. 0.1 → 1.5) matters even at small pixel delta.
       final zoomFactor =
@@ -1586,7 +1583,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         keyframes: [
           CameraKeyframe(
             targetOffset: targetOffset,
-            targetScale: bm.scale,
+            targetScale: bm.zoom,
             durationSeconds: durationSeconds,
             curve: Curves.easeInOutCubic,
           ),
@@ -1596,7 +1593,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   }
 
   Future<void> _promptRenameBookmark(SpatialBookmark bm) async {
-    final controller = TextEditingController(text: bm.label);
+    final controller = TextEditingController(text: bm.name);
     final newLabel = await showDialog<String>(
       context: context,
       builder:
@@ -1623,7 +1620,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     );
     controller.dispose();
     if (newLabel != null && newLabel.isNotEmpty) {
-      _bookmarkController.rename(bm.id, newLabel);
+      await _bookmarkController.rename(_canvasId, bm.id, newLabel);
     }
   }
 
@@ -1633,7 +1630,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       builder:
           (ctx) => AlertDialog(
             title: Text(_l10n.bookmark_deleteTitle),
-            content: Text(_l10n.bookmark_deleteBody(bm.label)),
+            content: Text(_l10n.bookmark_deleteBody(bm.name)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
@@ -1650,7 +1647,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
           ),
     );
     if (ok == true) {
-      _bookmarkController.remove(bm.id);
+      // ignore: discarded_futures
+      _bookmarkController.remove(_canvasId, bm.id);
       _bookmarkThumbnailCache.invalidate(bm.id);
     }
   }
@@ -2747,7 +2745,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // the KV key is scoped per-canvas. Fire-and-forget; the listener
     // registered earlier triggers setState so the minimap landmark layer
     // picks up the restored set as soon as it's ready.
-    _bookmarkController.loadFromKVStore(_canvasId);
+    // ignore: discarded_futures
+    _bookmarkController.loadFromStorage(_canvasId);
 
     // 🆕 Initialize titolo
     _noteTitle = widget.title;
@@ -3015,9 +3014,44 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // 🖊️ Stylus side button → cycle preset (Apple Pencil / S-Pen)
       _initStylusButtonListener();
 
-      // Center canvas
+      // Center canvas, then override with initialViewport if the caller
+      // (gallery Hub Sheet, Workspace Dashboard bookmark, auto-resume)
+      // provided one. For bookmark jumps we settle in with a brief
+      // zoom-out tween instead of hard-snapping, so the student *feels*
+      // the camera land on the bookmark rather than teleport there.
       final size = MediaQuery.of(context).size;
       _canvasController.centerCanvas(size, canvasSize: _canvasSize);
+      final iv = widget.initialViewport;
+      if (iv != null) {
+        // Start frame: target offset but 8% more zoomed-in than the
+        // final scale. The subsequent ease-out tween de-zooms toward
+        // `iv.scale`, creating a gentle "settle" motion reminiscent of
+        // a camera arriving at its mark.
+        const zoomInBoost = 1.08;
+        _canvasController.updateTransform(
+          offset: Offset(iv.dx, iv.dy),
+          scale: iv.scale * zoomInBoost,
+        );
+        // ⚡ Defer the settle animation to the NEXT frame so the first
+        // frame is spent purely on heavy canvas init (reflow / knowledge
+        // flow / ghost map / …). Starting the tween in the same post-
+        // frame callback as the init competes for CPU and shows up as
+        // a ~2-frame stutter at 120fps; pushing it one frame out keeps
+        // the animation perfectly smooth from its very first step.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _canvasController.animateMultiPhase(
+            keyframes: [
+              CameraKeyframe(
+                targetOffset: Offset(iv.dx, iv.dy),
+                targetScale: iv.scale,
+                durationSeconds: 0.45,
+                curve: Curves.easeOutCubic,
+              ),
+            ],
+          );
+        });
+      }
 
       // 🌊 REFLOW: Initialize cluster detector and physics engine
       final reflowConfig = _canvasController.liquidConfig.reflow;

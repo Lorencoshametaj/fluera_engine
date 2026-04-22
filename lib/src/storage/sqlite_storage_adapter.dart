@@ -29,7 +29,7 @@ import 'sqflite_stub_web.dart'
 import 'package:path/path.dart' as p;
 
 import 'fluera_storage_adapter.dart';
-import 'section_summary.dart';
+import 'spatial_bookmark.dart';
 import 'canvas_creation_options.dart';
 import '../core/models/canvas_layer.dart';
 import '../core/nodes/pdf_document_node.dart';
@@ -44,7 +44,12 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 15;
+const int _kSchemaVersion = 17;
+
+/// Default viewport size used to compute a bookmark zoom that inscribes
+/// the former [SectionSummary] rectangle (v15 → v16 migration heuristic).
+const double _kBookmarkMigrationViewportW = 1200;
+const double _kBookmarkMigrationViewportH = 800;
 
 /// Database file name.
 const String _kDatabaseName = 'fluera_canvas.db';
@@ -200,7 +205,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         connections_json TEXT,
         semantic_titles_json TEXT,
         snapshot_png   BLOB,
-        sections_json  TEXT,
+        bookmarks_json TEXT,
         content_bounds_json TEXT,
         last_viewport_json TEXT,
         schema_version INTEGER NOT NULL DEFAULT 1,
@@ -384,6 +389,86 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       // 🗺️ R10: Ghost Map sessions — atomic persistence.
       await _createGhostMapSessionsTable(db);
     }
+    if (oldVersion < 16) {
+      // 🔖 v16: SpatialBookmark replaces SectionSummary as the navigation
+      // primitive. Adds `bookmarks_json` column and migrates existing rows.
+      try {
+        await db.execute(
+          'ALTER TABLE canvases ADD COLUMN bookmarks_json TEXT',
+        );
+      } catch (_) {}
+      await _migrateSectionsToBookmarks(db);
+    }
+    if (oldVersion < 17) {
+      // 🧹 v17: drop legacy `sections_json`. Any row reaching v17 has
+      // already had its sections materialized into `bookmarks_json` by v16,
+      // so the column is no longer referenced by code. SQLite 3.35+
+      // supports DROP COLUMN natively; on older engines the ALTER is a
+      // no-op (column hangs around, unread).
+      try {
+        await db.execute(
+          'ALTER TABLE canvases DROP COLUMN sections_json',
+        );
+      } catch (_) {
+        // Legacy SQLite — column stays, harmless.
+      }
+    }
+  }
+
+  /// v15 → v16: convert each SectionSummary in `sections_json` into a
+  /// SpatialBookmark stored in `bookmarks_json`. Preserves name, center,
+  /// and background color. Zoom is derived so the former section rectangle
+  /// would roughly fit a default viewport.
+  Future<void> _migrateSectionsToBookmarks(Database db) async {
+    final rows = await db.query(
+      'canvases',
+      columns: ['canvas_id', 'sections_json'],
+    );
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    for (final row in rows) {
+      final sectionsJson = row['sections_json'] as String?;
+      if (sectionsJson == null || sectionsJson.isEmpty) continue;
+      List<dynamic> parsed;
+      try {
+        parsed = jsonDecode(sectionsJson) as List<dynamic>;
+      } catch (_) {
+        continue;
+      }
+      if (parsed.isEmpty) continue;
+      final bookmarks = parsed.map((raw) {
+        final s = raw as Map<String, dynamic>;
+        final x = (s['x'] as num?)?.toDouble() ?? 0;
+        final y = (s['y'] as num?)?.toDouble() ?? 0;
+        final w = (s['width'] as num?)?.toDouble() ?? 800;
+        final h = (s['height'] as num?)?.toDouble() ?? 600;
+        final zoom = _fitZoom(w, h);
+        return {
+          'id': s['id'] ?? 'bm_${nowMs}_${raw.hashCode}',
+          'name': s['name'] ?? 'Bookmark',
+          'cx': x + w / 2,
+          'cy': y + h / 2,
+          'zoom': zoom,
+          if (s['bgColor'] != null) 'color': s['bgColor'],
+          'createdAt': nowMs,
+        };
+      }).toList();
+      await db.update(
+        'canvases',
+        {'bookmarks_json': jsonEncode(bookmarks)},
+        where: 'canvas_id = ?',
+        whereArgs: [row['canvas_id']],
+      );
+    }
+  }
+
+  /// Zoom level that inscribes a rectangle of [w]×[h] in the default
+  /// viewport (see [_kBookmarkMigrationViewportW/H]).
+  static double _fitZoom(double w, double h) {
+    if (w <= 0 || h <= 0) return 1.0;
+    final sx = _kBookmarkMigrationViewportW / w;
+    final sy = _kBookmarkMigrationViewportH / h;
+    final s = sx < sy ? sx : sy;
+    return s.clamp(0.1, 4.0);
   }
 
   /// Create the recordings table (shared by _onCreate and _onUpgrade).
@@ -947,7 +1032,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         'stroke_count',
         'created_at',
         'updated_at',
-        'sections_json',
+        'bookmarks_json',
         'content_bounds_json',
         'last_viewport_json',
       ],
@@ -957,14 +1042,14 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     );
 
     return rows.map((row) {
-      // 📐 Parse section summaries
-      List<SectionSummary> sections = const [];
-      final sectionsStr = row['sections_json'] as String?;
-      if (sectionsStr != null) {
+      // 🔖 Parse spatial bookmarks (v16+)
+      List<SpatialBookmark> bookmarks = const [];
+      final bookmarksStr = row['bookmarks_json'] as String?;
+      if (bookmarksStr != null) {
         try {
-          final list = jsonDecode(sectionsStr) as List<dynamic>;
-          sections = list
-              .map((s) => SectionSummary.fromJson(s as Map<String, dynamic>))
+          final list = jsonDecode(bookmarksStr) as List<dynamic>;
+          bookmarks = list
+              .map((b) => SpatialBookmark.fromJson(b as Map<String, dynamic>))
               .toList();
         } catch (_) {}
       }
@@ -1012,7 +1097,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         updatedAt: DateTime.fromMillisecondsSinceEpoch(
           row['updated_at'] as int,
         ),
-        sections: sections,
+        bookmarks: bookmarks,
         contentBounds: contentBounds,
         lastViewport: lastViewport,
       );
@@ -1438,13 +1523,14 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   }
 
   // ===========================================================================
-  // 📐 SECTION SUMMARIES (WORKSPACE HUB)
+  // 📐 VIEWPORT META (v17+) — content bounds + last viewport persisted on
+  // every auto-save. Writes only these columns so the bookmark list isn't
+  // disturbed by unrelated canvas updates.
   // ===========================================================================
 
   @override
-  Future<void> saveSectionSummaries(
+  Future<void> saveViewportMeta(
     String canvasId, {
-    required List<SectionSummary> sections,
     Rect? contentBounds,
     ({double dx, double dy, double scale})? lastViewport,
   }) async {
@@ -1452,12 +1538,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
 
     final updates = <String, dynamic>{};
 
-    // Sections JSON
-    updates['sections_json'] = sections.isNotEmpty
-        ? jsonEncode(sections.map((s) => s.toJson()).toList())
-        : null;
-
-    // Content bounds JSON
     if (contentBounds != null && contentBounds != Rect.zero) {
       updates['content_bounds_json'] = jsonEncode({
         'left': contentBounds.left,
@@ -1467,7 +1547,6 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       });
     }
 
-    // Last viewport JSON
     if (lastViewport != null) {
       updates['last_viewport_json'] = jsonEncode({
         'dx': lastViewport.dx,
@@ -1487,6 +1566,54 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       } catch (_) {
         // Columns may not exist if migration hasn't run — safe to ignore.
       }
+    }
+  }
+
+  // ===========================================================================
+  // 🔖 SPATIAL BOOKMARKS (v16+)
+  // ===========================================================================
+
+  @override
+  Future<void> saveBookmarks(
+    String canvasId, {
+    required List<SpatialBookmark> bookmarks,
+    Rect? contentBounds,
+    ({double dx, double dy, double scale})? lastViewport,
+  }) async {
+    final db = _ensureInitialized();
+
+    final updates = <String, dynamic>{
+      'bookmarks_json': bookmarks.isNotEmpty
+          ? jsonEncode(bookmarks.map((b) => b.toJson()).toList())
+          : null,
+    };
+
+    if (contentBounds != null && contentBounds != Rect.zero) {
+      updates['content_bounds_json'] = jsonEncode({
+        'left': contentBounds.left,
+        'top': contentBounds.top,
+        'right': contentBounds.right,
+        'bottom': contentBounds.bottom,
+      });
+    }
+
+    if (lastViewport != null) {
+      updates['last_viewport_json'] = jsonEncode({
+        'dx': lastViewport.dx,
+        'dy': lastViewport.dy,
+        'scale': lastViewport.scale,
+      });
+    }
+
+    try {
+      await db.update(
+        'canvases',
+        updates,
+        where: 'canvas_id = ?',
+        whereArgs: [canvasId],
+      );
+    } catch (_) {
+      // Columns may not exist if migration hasn't run — safe to ignore.
     }
   }
 

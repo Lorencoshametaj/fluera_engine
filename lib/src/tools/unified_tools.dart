@@ -12,4 +12,3 @@ export './base/base_tool.dart';
 export './shape/unified_shape_tool.dart';
 export './pen/pen_tool.dart';
 export './pen/pen_tool_painter.dart';
-export './section/section_tool.dart';

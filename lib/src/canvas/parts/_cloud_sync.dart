@@ -534,58 +534,30 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
     }
   }
 
-  /// 📐 Save section summaries, content bounds, and last viewport state.
-  ///
-  /// Extracts `SectionNode` data from the scene graph and persists
-  /// lightweight `SectionSummary` objects alongside the current viewport
-  /// and content bounds. This data powers the gallery's Canvas Hub
-  /// without requiring the full canvas JSON to be loaded.
+  /// 📐 Save content bounds + last viewport for the gallery Hub.
   ///
   /// Runs fire-and-forget after each auto-save (same pattern as snapshot).
+  /// Does not touch bookmarks — those are managed by SpatialBookmarkController.
   void _saveSectionMetadata(String canvasId) {
     Future(() async {
       try {
         final adapter = _config.storageAdapter;
         if (adapter == null) return;
 
-        // Extract sections from scene graph
-        final sections = <SectionSummary>[];
-        for (final layer in _layerController.sceneGraph.layers) {
-          for (final child in layer.children) {
-            if (child is SectionNode && child.isVisible) {
-              final tx = child.worldTransform.getTranslation();
-              sections.add(SectionSummary(
-                id: child.id.value,
-                name: child.sectionName,
-                x: tx.x,
-                y: tx.y,
-                width: child.sectionSize.width,
-                height: child.sectionSize.height,
-                bgColor: child.backgroundColor?.toARGB32(),
-                preset: child.preset?.name,
-              ));
-            }
-          }
-        }
-
-        // Content bounds from tracker
         final contentBounds = _contentBoundsTracker.bounds.value;
-
-        // Current viewport state
         final lastViewport = (
           dx: _canvasController.offset.dx,
           dy: _canvasController.offset.dy,
           scale: _canvasController.scale,
         );
 
-        await adapter.saveSectionSummaries(
+        await adapter.saveViewportMeta(
           canvasId,
-          sections: sections,
           contentBounds: contentBounds,
           lastViewport: lastViewport,
         );
       } catch (_) {
-        // Non-critical — gallery will work without section data.
+        // Non-critical — gallery will work without viewport meta.
       }
     });
   }

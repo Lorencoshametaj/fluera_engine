@@ -237,7 +237,6 @@ export 'src/tools/pen/pen_tool.dart';
 export 'src/tools/pen/pen_tool_painter.dart';
 export 'src/tools/unified_tools.dart';
 export 'src/tools/unified_tool_controller.dart';
-export 'src/tools/section/section_tool.dart';
 export 'src/tools/pdf/pdf_grid_controller.dart';
 export 'src/tools/pdf/pdf_text_selection_controller.dart';
 export 'src/tools/pdf/pdf_import_controller.dart';
@@ -559,7 +558,8 @@ export 'src/utils/reduced_motion.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/fluera_storage_adapter.dart';
-export 'src/storage/section_summary.dart';
+export 'src/storage/spatial_bookmark.dart';
+export 'src/storage/pin_this_view.dart';
 export 'src/storage/canvas_creation_options.dart';
 export 'src/storage/fluera_cloud_adapter.dart';
 export 'src/storage/sqlite_storage_adapter.dart';

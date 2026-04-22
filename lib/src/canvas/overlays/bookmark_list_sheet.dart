@@ -2,8 +2,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../storage/spatial_bookmark.dart';
 import '../navigation/bookmark_thumbnail_cache.dart';
-import '../navigation/spatial_bookmark.dart';
 import '../navigation/spatial_bookmark_controller.dart';
 
 /// 📌 BOOKMARK LIST SHEET — bottom sheet showing a grid of saved bookmarks.
@@ -231,7 +231,7 @@ class _BookmarkCell extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                bookmark.label,
+                bookmark.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(

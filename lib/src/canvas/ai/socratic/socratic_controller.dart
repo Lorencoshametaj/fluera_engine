@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'socratic_model.dart';
 import 'socratic_output_filter.dart';
@@ -234,86 +235,12 @@ class SocraticController extends ChangeNotifier {
       );
     }
 
-    final prompt = '''Sei un tutor socratico esperto che opera nel contesto di Fluera, un motore cognitivo per studenti universitari.
-Il tuo obiettivo è attivare il RETRIEVAL PRACTICE: lo studente deve PRODURRE la risposta dalla memoria, non riconoscerla.
+    // Invariant rules live in the Socratic model's systemInstruction
+    // (cached by Gemini). Per-call prompt only carries the cluster list.
+    final prompt = 'CLUSTERS (${clusters.length}):\n'
+        '${clusterDescriptions.toString().trim()}';
 
-═══ STEP 1 — RICOSTRUZIONE OCR ═══
-Il testo proviene da OCR su scrittura a mano. Correggi e ricostruisci il significato reale:
-${clusterDescriptions.toString().trim()}
-
-═══ STEP 2 — IDENTIFICA MATERIA E LIVELLO ═══
-Dai testi ricostruiti:
-- Identifica la DISCIPLINA specifica (es: "fisica meccanica", "biologia molecolare", "letteratura italiana del '900")
-- Identifica il LIVELLO (universitario base, avanzato, specialistico)
-- TUTTE le domande devono restare DENTRO questa disciplina
-
-═══ STEP 3 — GENERA DOMANDE ═══
-Per OGNI cluster, genera UNA domanda socratica. Segui ESATTAMENTE il tipo indicato:
-
-TIPO "lacuna" (recall 1-2 → lo studente ha DIMENTICATO):
-Principio: Zeigarnik Effect + Active Recall. Crea un "vuoto cognitivo" che lo studente sente il bisogno di colmare.
-- Chiedi cosa COLLEGA due concetti, cosa MANCA nella catena causale
-- Usa verbi generativi: "spiega", "descrivi", "che relazione c'è tra..."
-✅ BUONO: "Quale passaggio collega la forza applicata al cambiamento di velocità nel caso di Newton?"
-❌ CATTIVO: "Cosa sai di Newton?" (troppo vago, non attiva retrieval specifico)
-
-TIPO "sfida" (recall 3 → lo studente crede di sapere):
-Principio: Desirable Difficulties (Bjork) + Ipercorrezione. Metti in crisi una certezza per provocare rielaborazione profonda.
-- Presenta un controesempio o un'eccezione
-- Forza lo studente a DIFENDERE o RIVEDERE la sua comprensione
-✅ BUONO: "Se F=ma vale sempre, come spieghi il moto di un corpo a velocità vicine a c?"
-❌ CATTIVO: "Sei sicuro che questa cosa sia corretta?" (troppo generico, nessun ancoraggio)
-
-TIPO "profondità" (recall 4 → sa il COSA ma non il PERCHÉ):
-Principio: Levels of Processing (Craik & Lockhart). Sposta dall'encoding superficiale a quello profondo.
-- Chiedi il MECCANISMO, la CAUSA, il PRINCIPIO sottostante
-- Forza la spiegazione causale, non la descrizione
-✅ BUONO: "Quale meccanismo molecolare permette al gene di essere trascritto solo quando necessario?"
-❌ CATTIVO: "Puoi spiegare il perché?" (non specifica COSA spiegare)
-
-TIPO "transfer" (recall 5 → padronanza):
-Principio: Transfer Learning + Interleaving. Crea ponti tra domini diversi.
-- Chiedi analogie con ALTRE materie o applicazioni in contesti NUOVI
-✅ BUONO: "Il meccanismo di feedback negativo nell'omeostasi ti ricorda qualche sistema in ingegneria o economia?"
-❌ CATTIVO: "Questo concetto ti ricorda qualcosa?" (troppo aperto)
-
-═══ BREADCRUMBS (3 per domanda) ═══
-Funzionano come scaffolding progressivo (Vygotsky ZPD):
-1. L'Eco Lontano — direzione vaga, attiva il priming semantico (max 12 parole)
-2. Il Sentiero — circoscrive il dominio, riduce lo spazio di ricerca (max 15 parole)
-3. La Soglia — ultimo scaffolding, la risposta è a un passo MA NON VIENE DATA (max 20 parole)
-
-═══ SPECIFICITÀ (regola d'oro) ═══
-- Ogni domanda DEVE menzionare almeno UN concetto specifico presente negli appunti dello studente
-- Se gli appunti dicono "Newton" e "gene", la domanda su Newton deve menzionare "Newton" o "forza" o "massa", NON essere generica
-- Se ci sono 3+ cluster, l'ULTIMO cluster dovrebbe avere una domanda PONTE che collega 2 cluster (interleaving)
-  Esempio: se i cluster sono "forza" e "accelerazione", chiedi "che relazione quantitativa lega forza e accelerazione?"
-
-═══ ANTI-PATTERN (vietato) ═══
-❌ Domande sì/no o a risposta chiusa
-❌ Domande tipo "cosa sai di X?" (non attivano retrieval specifico)
-❌ Meta-descrizioni ("sto generando una domanda...")
-❌ Domande sulla STORIA di uno scienziato se la materia è la SUA DISCIPLINA
-❌ Domande troppo vaghe che permettono qualsiasi risposta
-❌ Fornire la risposta, nemmeno parzialmente, nemmeno nei breadcrumbs
-❌ Opzioni multiple o vero/falso
-❌ Domande che non citano NESSUN concetto dagli appunti
-❌ LaTeX o markdown (scrivi F=ma, NON \$F=ma\$)
-
-═══ FORMATO OUTPUT ═══
----CLUSTER 1---
-DOMANDA: [la domanda, max 2 frasi, stessa lingua degli appunti]
-INDIZIO1: [eco lontano]
-INDIZIO2: [sentiero]
-INDIZIO3: [soglia]
----CLUSTER 2---
-DOMANDA: [la domanda]
-INDIZIO1: [eco lontano]
-INDIZIO2: [sentiero]
-INDIZIO3: [soglia]
-...per tutti i ${clusters.length} cluster. SOLO questo formato, nient'altro.''';
-
-    final text = await provider.askFreeText(prompt).timeout(
+    final text = await provider.askSocraticBatch(prompt).timeout(
       const Duration(seconds: 8),
       onTimeout: () {
         debugPrint('⚠️ Socratic AI call timed out after 8s → fallback');
@@ -322,55 +249,63 @@ INDIZIO3: [soglia]
     );
     debugPrint('🔶 Socratic batch response (${text.length} chars)');
 
-    // Parse the response
+    // Parse the JSON response
     return _parseBatchResponse(text, clusters.length);
   }
 
-  // Cached regex for batch parsing (O2 optimization).
-  // Accepts: ---CLUSTER 1---, ---CLUSTER 1 (NEWTON)---, ---CLUSTER 1: NEWTON---
-  static final _clusterSplitRegex = RegExp(r'---CLUSTER\s*\d+.*?---', caseSensitive: false);
-
-  /// Parse the batch response into structured data
+  /// Parse the batch response (JSON: {"clusters":[{"q":"...","h":[...]}...]})
+  /// into structured data. Tolerant to fenced code blocks and extra whitespace.
   List<Map<String, dynamic>> _parseBatchResponse(String text, int expected) {
-    final results = <Map<String, dynamic>>[];
-    
-    // Split by cluster markers
-    final sections = text.split(_clusterSplitRegex);
-    
-    for (final section in sections) {
-      if (section.trim().isEmpty) continue;
-      
-      String? question;
-      final breadcrumbs = <String>[];
-      
-      for (final line in section.split('\n')) {
-        final trimmed = line.trim();
-        if (trimmed.startsWith('DOMANDA:')) {
-          question = trimmed.substring('DOMANDA:'.length).trim();
-        } else if (trimmed.startsWith('INDIZIO1:')) {
-          breadcrumbs.add(trimmed.substring('INDIZIO1:'.length).trim());
-        } else if (trimmed.startsWith('INDIZIO2:')) {
-          breadcrumbs.add(trimmed.substring('INDIZIO2:'.length).trim());
-        } else if (trimmed.startsWith('INDIZIO3:')) {
-          breadcrumbs.add(trimmed.substring('INDIZIO3:'.length).trim());
-        }
-      }
-      
-      if (question != null && question.isNotEmpty) {
-        // Ensure 3 breadcrumbs
-        while (breadcrumbs.length < 3) {
-          breadcrumbs.add('Ripensa a questo concetto da un\'angolazione diversa.');
-        }
+    if (text.trim().isEmpty) return const [];
 
-        // G2 guardrail is applied later in the question creation loop
-        // where cluster context is available for contextual fallbacks.
-        results.add({
-          'question': _stripLatex(question),
-          'breadcrumbs': breadcrumbs.take(3).map(_stripLatex).toList(),
-        });
+    // Strip optional ```json fences the model sometimes adds.
+    final cleaned = text
+        .replaceAll('```json', '')
+        .replaceAll('```', '')
+        .trim();
+
+    List<dynamic>? items;
+    try {
+      final decoded = jsonDecode(cleaned);
+      if (decoded is Map<String, dynamic>) {
+        items = decoded['clusters'] as List<dynamic>?;
+      } else if (decoded is List<dynamic>) {
+        items = decoded;
       }
+    } catch (e) {
+      debugPrint('⚠️ Socratic JSON parse error: $e');
+      return const [];
     }
-    
+    if (items == null) return const [];
+
+    const fallbackBreadcrumb =
+        "Ripensa a questo concetto da un'angolazione diversa.";
+    final results = <Map<String, dynamic>>[];
+    for (final item in items) {
+      if (item is! Map<String, dynamic>) continue;
+      final question = (item['q'] as String?)?.trim();
+      if (question == null || question.isEmpty) continue;
+
+      final rawHints = item['h'];
+      final breadcrumbs = <String>[];
+      if (rawHints is List) {
+        for (final h in rawHints) {
+          if (h is String && h.trim().isNotEmpty) {
+            breadcrumbs.add(h.trim());
+          }
+        }
+      }
+      while (breadcrumbs.length < 3) {
+        breadcrumbs.add(fallbackBreadcrumb);
+      }
+
+      // G2 guardrail is applied later in the question creation loop
+      // where cluster context is available for contextual fallbacks.
+      results.add({
+        'question': _stripLatex(question),
+        'breadcrumbs': breadcrumbs.take(3).map(_stripLatex).toList(),
+      });
+    }
     return results;
   }
 

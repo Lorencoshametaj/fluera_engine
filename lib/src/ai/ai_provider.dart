@@ -81,6 +81,18 @@ abstract class AiProvider {
     return response.explanation ?? '';
   }
 
+  /// Socratic batch generation — sends only the per-call variable data
+  /// (cluster list). The invariant Socratic rules live in the model's
+  /// systemInstruction, which Gemini caches across calls to cut input
+  /// tokens by ~60%.
+  ///
+  /// [userPrompt] — plain text with the clusters (OCR, recall, type).
+  ///
+  /// Returns raw JSON text: `{"clusters":[{"q":"...","h":["...","...","..."]}, …]}`.
+  /// Default implementation falls back to [askFreeText] (unoptimized path).
+  Future<String> askSocraticBatch(String userPrompt) =>
+      askFreeText(userPrompt);
+
   /// Release resources held by this provider.
   void dispose();
 }
