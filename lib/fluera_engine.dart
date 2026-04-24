@@ -46,48 +46,14 @@ export 'src/core/nodes/shape_node.dart';
 export 'src/core/nodes/stroke_node.dart';
 export 'src/core/nodes/text_node.dart';
 export 'src/core/nodes/image_node.dart';
-export 'src/core/nodes/clip_group_node.dart';
-export 'src/core/nodes/path_node.dart';
-export 'src/core/nodes/rich_text_node.dart';
-export 'src/core/nodes/symbol_system.dart';
-export 'src/core/nodes/variant_property.dart';
-export 'src/core/nodes/frame_node.dart'
-    hide CrossAxisAlignment, MainAxisAlignment;
-export 'src/core/nodes/advanced_mask_node.dart';
-export 'src/core/nodes/boolean_group_node.dart';
-export 'src/core/nodes/pdf_page_node.dart';
-export 'src/core/nodes/pdf_document_node.dart';
-export 'src/core/nodes/section_node.dart';
-export 'src/core/nodes/adjustment_layer_node.dart';
-export 'src/core/models/pdf_layout_preset.dart';
-export 'src/canvas/toolbar/pdf_contextual_toolbar.dart';
 
 // Vector
-export 'src/core/vector/vector_path.dart';
-export 'src/core/vector/anchor_point.dart';
-export 'src/core/vector/shape_presets.dart';
-export 'src/core/vector/boolean_ops.dart';
-export 'src/core/vector/vector_network.dart';
-export 'src/core/nodes/vector_network_node.dart';
-export 'src/core/vector/vector_network_svg.dart';
-export 'src/core/vector/spatial_index.dart';
-export 'src/core/vector/bezier_clipping.dart';
-export 'src/core/vector/exact_boolean_ops.dart';
-export 'src/core/vector/constraints.dart';
-export 'src/rendering/scene_graph/network_lod.dart';
 
 // NOTE: LaTeX and Tabular modules are available as separate add-on
 // packages (fluera_engine_latex, fluera_engine_tabular) and are not
 // included in the core SDK.
 
 // Effects
-export 'src/core/effects/node_effect.dart';
-export 'src/core/effects/gradient_fill.dart';
-export 'src/core/effects/mesh_gradient.dart';
-export 'src/core/effects/shader_effect.dart';
-export 'src/core/effects/shader_effect_wrapper.dart';
-export 'src/core/effects/paint_stack.dart';
-export 'src/core/scene_graph/paint_stack_mixin.dart';
 
 // Core Models
 export 'src/core/models/canvas_layer.dart';
@@ -95,11 +61,7 @@ export 'src/core/models/digital_text_element.dart';
 export 'src/core/models/image_element.dart';
 export 'src/core/models/recording_pin.dart';
 export 'src/core/models/shape_type.dart';
-export 'src/core/models/pdf_page_model.dart';
-export 'src/core/models/pdf_document_model.dart';
-export 'src/core/models/pdf_text_rect.dart';
 export 'src/core/models/ocr_result.dart';
-export 'src/tools/shape/shape_recognizer.dart';
 
 // Utilities
 export 'src/core/engine_logger.dart';
@@ -109,56 +71,10 @@ export 'src/core/engine_event.dart';
 export 'src/core/engine_event_bus.dart';
 export 'src/core/engine_telemetry.dart';
 export 'src/systems/engine_theme.dart';
-export 'src/core/assets/asset_handle.dart';
-export 'src/core/assets/asset_metadata.dart';
-export 'src/core/assets/asset_validator.dart' hide ValidationSeverity;
-export 'src/core/assets/asset_dependency_graph.dart';
-export 'src/core/assets/asset_registry.dart';
-export 'src/core/error_recovery_service.dart';
-export 'src/core/audit/audit_entry.dart';
-export 'src/core/audit/audit_log_service.dart';
-export 'src/core/audit/audit_event_bridge.dart';
-export 'src/core/audit/audit_exporter.dart';
-export 'src/core/rbac/engine_permission.dart';
-export 'src/core/rbac/permission_policy.dart';
-export 'src/core/rbac/permission_service.dart';
-export 'src/core/rbac/permission_interceptor.dart';
 // Internal testing utilities (golden_snapshot, pixel_diff, visual_regression,
 // performance_baseline) are not part of the public SDK API.
-export 'src/core/layout/auto_layout_config.dart'
-    hide
-        LayoutDirection,
-        MainAxisAlignment,
-        CrossAxisAlignment,
-        OverflowBehavior;
-export 'src/core/layout/flex_layout_solver.dart';
-export 'src/core/layout/grid_layout_solver.dart';
-export 'src/core/layout/layout_template.dart';
-export 'src/core/color/color_space_converter.dart';
-export 'src/core/color/color_blindness_simulator.dart';
-export 'src/core/color/soft_proof_engine.dart';
-export 'src/core/color/color_palette_store.dart' hide ColorPalette;
-export 'src/core/editing/adjustment_layer.dart';
-export 'src/core/editing/smart_filter_stack.dart';
-export 'src/core/editing/blend_mode_engine.dart';
-export 'src/core/editing/mask_channel.dart' hide MaskType;
-export 'src/core/analytics/usage_analytics.dart';
-export 'src/core/analytics/metric_exporter.dart';
-export 'src/core/analytics/dashboard_endpoint.dart' hide AlertSeverity;
-export 'src/core/analytics/feature_flag_service.dart';
 // NOTE: Marketplace (plugin signing, update manager) is available as a
 // separate enterprise add-on.
-export 'src/core/formats/format_registry.dart';
-export 'src/core/formats/format_parser.dart';
-export 'src/core/formats/batch_export_pipeline.dart' hide ExportResult;
-export 'src/core/formats/format_converter.dart';
-export 'src/core/schema_version.dart';
-export 'src/core/scene_graph/scene_graph_integrity.dart';
-export 'src/core/scene_graph/invalidation_graph.dart';
-export 'src/core/scene_graph/node_constraint.dart';
-export 'src/core/scene_graph/scene_graph_snapshot.dart';
-export 'src/core/scene_graph/scene_graph_interceptor.dart';
-export 'src/history/node_constraint_commands.dart';
 
 // ────────────────────────── DRAWING ──────────────────────────
 
@@ -171,10 +87,6 @@ export 'src/drawing/brushes/brushes.dart';
 export 'src/drawing/brushes/ballpoint_brush.dart';
 export 'src/drawing/brushes/pencil_brush.dart';
 export 'src/drawing/brushes/highlighter_brush.dart';
-export 'src/drawing/brushes/fountain_pen_brush.dart';
-export 'src/drawing/brushes/fountain_pen_buffers.dart';
-export 'src/drawing/brushes/fountain_pen_path_builder.dart';
-export 'src/drawing/brushes/brush_texture.dart';
 
 // Input
 export 'src/drawing/input/drawing_input_handler.dart';
@@ -222,29 +134,16 @@ export 'src/tools/eraser/eraser_spatial_index.dart';
 export 'src/tools/eraser/eraser_analytics.dart';
 export 'src/tools/eraser/eraser_preset_manager.dart';
 
-export 'src/tools/lasso/lasso_tool.dart';
-export 'src/tools/lasso/lasso_path_painter.dart';
-export 'src/tools/lasso/lasso_selection_overlay.dart';
 
 export 'src/tools/shape/unified_shape_tool.dart';
 export 'src/tools/text/digital_text_tool.dart';
 
 export 'src/tools/image/image_tool.dart';
 
-export 'src/tools/ruler/ruler_guide_system.dart';
-export 'src/tools/flood_fill/flood_fill_tool.dart';
 export 'src/tools/pen/pen_tool.dart';
 export 'src/tools/pen/pen_tool_painter.dart';
 export 'src/tools/unified_tools.dart';
 export 'src/tools/unified_tool_controller.dart';
-export 'src/tools/pdf/pdf_grid_controller.dart';
-export 'src/tools/pdf/pdf_text_selection_controller.dart';
-export 'src/tools/pdf/pdf_import_controller.dart';
-export 'src/tools/pdf/pdf_search_controller.dart';
-export 'src/tools/pdf/pdf_annotation_controller.dart';
-export 'src/core/models/pdf_annotation_model.dart';
-export 'src/canvas/toolbar/pdf_thumbnail_sidebar.dart';
-export 'src/tools/pdf/pdf_module.dart';
 
 // ────────────────────────── RENDERING ──────────────────────────
 
@@ -272,24 +171,8 @@ export 'src/rendering/canvas/paper_pattern_painter.dart';
 export 'src/rendering/canvas/pro_stroke_painter.dart';
 export 'src/rendering/canvas/ruler_painter.dart';
 export 'src/rendering/canvas/canvas_painters.dart';
-export 'src/rendering/canvas/pdf_page_painter.dart';
-export 'src/rendering/canvas/pdf_memory_budget.dart';
 
 // Shaders
-export 'src/rendering/shaders/shader_brush_service.dart';
-export 'src/rendering/shaders/adjustment_shader_service.dart';
-export 'src/rendering/shaders/shader_pencil_renderer.dart';
-export 'src/rendering/shaders/shader_fountain_pen_renderer.dart';
-export 'src/rendering/shaders/shader_stamp_renderer.dart';
-export 'src/rendering/shaders/shader_texture_renderer.dart';
-export 'src/rendering/shaders/shader_watercolor_renderer.dart';
-export 'src/rendering/shaders/shader_marker_renderer.dart';
-export 'src/rendering/shaders/shader_charcoal_renderer.dart';
-export 'src/rendering/shaders/shader_oil_paint_renderer.dart';
-export 'src/rendering/shaders/shader_spray_paint_renderer.dart';
-export 'src/rendering/shaders/shader_neon_glow_renderer.dart';
-export 'src/rendering/shaders/shader_ink_wash_renderer.dart';
-export 'src/rendering/shaders/render_isolate_pool.dart';
 
 // NOTE: GPU-accelerated pen renderers (dart:gpu pipeline) are available
 // as a separate add-on when dart:gpu reaches Flutter stable.
@@ -297,102 +180,41 @@ export 'src/rendering/shaders/render_isolate_pool.dart';
 // Optimization
 export 'src/rendering/optimization/spatial_index.dart';
 export 'src/rendering/optimization/viewport_culler.dart';
-export 'src/rendering/optimization/stroke_cache_manager.dart';
-export 'src/rendering/optimization/stroke_data_manager.dart';
-export 'src/rendering/optimization/disk_stroke_manager.dart';
-export 'src/rendering/optimization/lod_manager.dart';
-export 'src/rendering/optimization/frame_budget_manager.dart';
 export 'src/rendering/optimization/stroke_optimizer.dart';
 export 'src/rendering/optimization/optimized_path_builder.dart';
 export 'src/rendering/optimization/paint_pool.dart';
 export 'src/rendering/optimization/optimization.dart';
 export 'src/rendering/optimization/dirty_region_tracker.dart';
-export 'src/rendering/optimization/snapshot_cache_manager.dart';
 export 'src/rendering/render_profiler.dart';
-export 'src/rendering/optimization/memory_managed_cache.dart';
-export 'src/rendering/optimization/memory_budget_controller.dart';
-export 'src/rendering/optimization/memory_event.dart';
-export 'src/rendering/optimization/occlusion_culler.dart';
-export 'src/rendering/optimization/layer_picture_cache.dart';
 export 'src/rendering/canvas/incremental_paint_mixin.dart';
 
 // ────────────────────────── TIME TRAVEL ──────────────────────────
-export 'src/time_travel/models/time_travel_session.dart';
-export 'src/time_travel/models/synchronized_recording.dart';
-export 'src/time_travel/services/time_travel_playback_engine.dart';
-export 'src/time_travel/services/time_travel_recorder.dart';
-export 'src/time_travel/services/time_travel_compressor.dart';
-export 'src/time_travel/widgets/time_travel_timeline_widget.dart';
-export 'src/time_travel/widgets/time_travel_lasso_overlay.dart';
-export 'src/time_travel/controllers/synchronized_playback_controller.dart';
-export 'src/time_travel/widgets/synchronized_playback_overlay.dart';
 
 // ────────────────────────── HISTORY ──────────────────────────
 export 'src/history/command_history.dart';
 export 'src/history/version_history.dart';
-export 'src/core/layout/layout_grid.dart';
-export 'src/core/transforms/transform_3d.dart';
-export 'src/systems/preferred_values.dart';
-export 'src/systems/component_set.dart';
 
 // ────────────────────────── UI WIRING ──────────────────────────
-export 'src/canvas/overlays/layout_grid_overlay.dart';
-export 'src/canvas/overlays/design_comments_overlay.dart';
-export 'src/canvas/widgets/version_history_panel.dart';
-export 'src/canvas/toolbar/svg_import_action.dart';
-export 'src/rendering/scene_graph/transform_3d_interceptor.dart';
-export 'src/rendering/scene_graph/nested_instance_interceptor.dart';
-export 'src/canvas/widgets/preferred_value_picker.dart';
-export 'src/canvas/widgets/component_set_browser.dart';
-export 'src/history/command_journal.dart';
-export 'src/history/journal_recovery_middleware.dart';
-export 'src/history/command_middlewares.dart';
-export 'src/history/guide_commands.dart';
-export 'src/history/vector_network_commands.dart';
-export 'src/history/constraint_commands.dart';
-export 'src/history/variant_commands.dart';
-export 'src/history/variant_transactions.dart';
 export 'src/history/undo_redo_manager.dart';
 export 'src/history/canvas_delta_tracker.dart';
-export 'src/history/models/canvas_branch.dart';
-export 'src/history/models/branch_merge_result.dart';
-export 'src/history/branching_manager.dart';
-export 'src/history/background_checkpoint_service.dart';
-export 'src/history/async_command.dart';
 // NOTE: LaTeX/Tabular history commands are in their add-on packages.
-export 'src/history/widgets/branch_explorer_sheet.dart';
 
 // ────────────────────────── LAYERS ──────────────────────────
 export 'src/layers/layer_controller.dart';
-export 'src/layers/fluera_layer_controller.dart';
 export 'src/layers/adapters/canvas_adapter.dart';
 export 'src/layers/adapters/infinite_canvas_adapter.dart';
 export 'src/layers/widgets/layer_panel.dart';
 export 'src/layers/widgets/adjustment_panel_dialog.dart';
 
 // ────────────────────────── COLLABORATION ──────────────────────────
-export 'src/collaboration/widgets/canvas_presence_overlay.dart';
-export 'src/collaboration/fluera_realtime_adapter.dart';
-export 'src/collaboration/widgets/connected_users_strip.dart';
-export 'src/collaboration/realtime_enterprise.dart' hide AuditAction;
-export 'src/collaboration/conflict_resolution.dart';
-export 'src/collaboration/widgets/conflict_resolution_dialog.dart';
-export 'src/collaboration/design_comment.dart';
-export 'src/collaboration/ready_to_use_adapters.dart';
 
 // ────────────────────────── EXPORT ──────────────────────────
 export 'src/export/export_pipeline.dart';
 export 'src/export/export_preset.dart' hide ExportFormat, ExportConfig;
 export 'src/export/saved_export_area.dart';
-export 'src/export/timelapse_export_config.dart';
 export 'src/export/binary_canvas_format.dart';
-export 'src/export/pdf_annotation_exporter.dart';
-export 'src/export/pdf_export_writer.dart';
-export 'src/export/svg_importer.dart';
 export 'src/export/raster_image_encoder.dart';
 export 'src/export/raster_encoder_channel.dart';
-export 'src/export/fluera_file_format.dart';
-export 'src/export/fluera_file_export_service.dart';
 
 // ────────────────────────── AUDIO ──────────────────────────
 export 'src/audio/audio_module.dart';
@@ -404,127 +226,32 @@ export 'src/audio/platform_channels/audio_player_channel.dart';
 export 'src/audio/platform_channels/audio_recorder_channel.dart';
 
 // ────────────────────────── SYSTEMS ──────────────────────────
-export 'src/systems/smart_snap_engine.dart';
-export 'src/systems/layout_engine.dart';
-export 'src/systems/animation_timeline.dart';
 export 'src/systems/selection_manager.dart';
 export 'src/systems/selection_query.dart';
 export 'src/systems/dirty_tracker.dart';
 export 'src/systems/spatial_index.dart';
-export 'src/systems/style_system.dart';
-export 'src/systems/prototype_flow.dart';
-export 'src/systems/smart_animate_engine.dart';
-export 'src/systems/smart_animate_snapshot.dart';
-export 'src/systems/nested_instance_resolver.dart';
-export 'src/systems/plugin_api.dart';
-export 'src/systems/plugin_budget.dart';
-export 'src/systems/sandboxed_event_stream.dart';
-export 'src/systems/accessibility_tree.dart';
-export 'src/systems/accessibility_bridge.dart';
-export 'src/systems/animation_player.dart';
-export 'src/systems/animation_commands.dart';
-export 'src/systems/design_linter.dart';
-export 'src/systems/responsive_breakpoint.dart';
-export 'src/systems/responsive_variant.dart';
-export 'src/systems/design_variables.dart';
-export 'src/systems/variable_binding.dart';
-export 'src/systems/variable_commands.dart';
-export 'src/systems/variable_resolver.dart';
-export 'src/systems/variable_scope.dart';
-export 'src/systems/design_token_exporter.dart';
 
 // Dev Handoff / Inspect Mode
-export 'src/systems/dev_handoff/inspect_engine.dart';
-export 'src/systems/dev_handoff/code_generator.dart';
-export 'src/systems/dev_handoff/asset_manifest.dart';
-export 'src/systems/dev_handoff/redline_overlay.dart';
-export 'src/systems/dev_handoff/token_resolver.dart';
 
 // Component Interactive States
-export 'src/systems/component_state_machine.dart';
-export 'src/systems/component_state_resolver.dart';
 
 // Semantic Tokens & Theme Switching
-export 'src/systems/semantic_token.dart';
-export 'src/systems/theme_manager.dart';
 
 // Advanced Animation
-export 'src/systems/spring_simulation.dart';
-export 'src/systems/path_motion.dart';
-export 'src/systems/stagger_animation.dart';
 
 // Advanced Typography
-export 'src/systems/variable_font.dart';
-export 'src/systems/opentype_features.dart';
-export 'src/systems/text_auto_resize.dart';
 
 // Advanced Image Editing
-export 'src/systems/image_adjustment.dart';
-export 'src/systems/image_fill_mode.dart';
 
 // ────────────────────────── CANVAS (Screen) ──────────────────────────
-export 'src/canvas/fluera_canvas_screen.dart';
-export 'src/canvas/fluera_canvas_config.dart';
 export 'src/canvas/infinite_canvas_controller.dart';
 
 // SRS (Pedagogical Engine — host app integration)
-export 'src/canvas/ai/srs_due_count_provider.dart'; // 📊 Gallery badge: due review count
-export 'src/canvas/ai/srs_stage_indicator.dart'; // 🌱→👻 5-stage mastery enum
 
 // Pedagogical Subsystems (P0 — 12-Step Methodology)
-export 'src/canvas/ai/pedagogical_accessibility_config.dart'; // ♿ A11 accessibility
-export 'src/canvas/ai/content_taxonomy.dart'; // 📋 A20.3 input method tracking
-export 'src/canvas/ai/passeggiata_controller.dart'; // 🚶 A10 contemplative mode
-export 'src/canvas/ai/red_wall_controller.dart'; // 🧱 A20.4 crisis response
-export 'src/canvas/ai/interleaving_path_controller.dart' hide PathNode; // ✨ P6-15 sentiero luminoso
-export 'src/canvas/ai/step_transition_choreographer.dart'; // 🎭 A13.2 step transitions
-export 'src/canvas/ai/socratic/socratic_output_filter.dart'; // 🛡️ A2-04 G2 guardrail
-export 'src/canvas/ai/onboarding_controller.dart'; // 🎓 A20.1 onboarding esperienziale
-export 'src/canvas/ai/celebration_controller.dart'; // 🎉 A13.8 discrete celebrations
-export 'src/canvas/ai/tier_gate_controller.dart'; // 💳 A17 feature gating
-export 'src/canvas/ai/step_onboarding_controller.dart'; // 📖 A13.6 per-step onboarding
-export 'src/canvas/ai/hypercorrection_effect.dart'; // ⚡ P3-21 visual shock
-export 'src/canvas/ai/fog_cinematic_controller.dart'; // 🌫️ P10-21 cinematic reveal
-export 'src/canvas/ai/ghost_map_cache.dart'; // 🗺️ A3-04 concept map cache
-export 'src/canvas/ai/fsrs_calibration.dart'; // 📊 A5-06 personal calibration
-export 'src/canvas/ai/srs_pull_controller.dart'; // 📅 A9 pull mechanism
-export 'src/services/semantic_embedding_service.dart'; // 🧠 A7 MiniLM embeddings
-export 'src/canvas/ai/gdpr_consent_manager.dart'; // 📋 A16 GDPR consent
-export 'src/canvas/ai/data_deletion_service.dart'; // 🗑️ A16 Art.17 deletion
-export 'src/canvas/ai/user_data_export_service.dart'; // 📦 A16 Art.20 export
-export 'src/canvas/ai/llm_payload_anonymizer.dart'; // 🔒 A16 Art.25 anonymizer
-export 'src/storage/encrypted_database_provider.dart'; // 🔐 A16 Art.32 SQLCipher
-export 'src/canvas/ai/pedagogical_telemetry_service.dart'; // 📊 A19 telemetry
-export 'src/canvas/ai/knowledge_type_controller.dart'; // 📚 A20.6 knowledge types
-export 'src/canvas/ai/degraded_mode_controller.dart'; // 📱 A20.7 degraded mode
-export 'src/canvas/ai/celebration_painters.dart'; // 🎨 A13.8 celebration rendering
 
 // P2P Collaboration (A4, Passo 7)
-export 'src/p2p/p2p_session_state.dart'; // 🤝 A4 FSM
-export 'src/p2p/p2p_message_types.dart'; // 📡 A4 wire protocol
-export 'src/p2p/p2p_session_controller.dart'; // 🤝 A4 session orchestrator
-export 'src/p2p/channels/ghost_cursor_channel.dart'; // 👻 A4-03 cursor sync
-export 'src/p2p/channels/viewport_sync_channel.dart'; // 🖥️ A4-03 viewport sync
-export 'src/p2p/p2p_privacy_guard.dart'; // 🛡️ A4-09, P7-31 hidden areas
-export 'src/p2p/collab_invite_service.dart'; // 🔗 P7-02 invite links
-export 'src/p2p/p2p_session_data.dart'; // 📊 P7-07 session data
-export 'src/p2p/p2p_engine.dart'; // ⚙️ A4 central orchestrator
-export 'src/p2p/channels/voice_channel.dart'; // 🎙️ A4-05 voice state
-export 'src/p2p/channels/laser_pointer_channel.dart'; // ✨ P7-15 laser pointer
-export 'src/p2p/in_memory_p2p_adapters.dart'; // 🧪 testing adapters
-export 'src/p2p/fluera_p2p_connector.dart'; // 🔌 abstract P2P connector
-export 'src/p2p/canvas_rasterizer.dart'; // 🎬 canvas frame capture
-export 'src/rendering/canvas/ghost_cursor_painter.dart'; // 👻 P7-05 ghost cursor
-export 'src/rendering/canvas/laser_pointer_painter.dart'; // ✨ P7-15 laser pointer
-export 'src/rendering/canvas/p2p_marker_painter.dart'; // 📌 P7-08 markers
-export 'src/canvas/overlays/p2p_session_overlay.dart'; // 🤝 P2P session overlay
-export 'src/canvas/overlays/p2p_mode_selection_sheet.dart'; // 🎯 mode selection
-export 'src/canvas/overlays/p2p_invite_sheet.dart'; // 🔗 invite sharing
-export 'src/canvas/overlays/p2p_duel_overlay.dart'; // ⚔️ duel countdown/timer
-export 'src/canvas/overlays/invite_code_painter.dart'; // 📱 visual invite code
 export 'src/canvas/infinite_canvas_gesture_detector.dart';
-export 'src/canvas/liquid_canvas_config.dart';
-export 'src/canvas/spring_animation_controller.dart';
 
 // Navigation & Orientation
 export 'src/canvas/navigation/content_bounds_tracker.dart';
@@ -557,11 +284,9 @@ export 'src/config/advanced_split_layout.dart';
 export 'src/utils/reduced_motion.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
-export 'src/storage/fluera_storage_adapter.dart';
 export 'src/storage/spatial_bookmark.dart';
 export 'src/storage/pin_this_view.dart';
 export 'src/storage/canvas_creation_options.dart';
-export 'src/storage/fluera_cloud_adapter.dart';
 export 'src/storage/sqlite_storage_adapter.dart';
 export 'src/storage/recording_storage_service.dart';
 
@@ -580,15 +305,11 @@ export 'src/platform/native_vibration.dart';
 export 'src/platform/native_notifications.dart';
 export 'src/platform/native_stylus_input.dart';
 export 'src/platform/native_performance_monitor.dart' hide PerformanceMetrics;
-export 'src/platform/native_pdf_provider.dart';
 
 
 // ────────────────────────── AI ──────────────────────────
 // Usage tracking: host apps implement AiUsageTracker to persist quota
 // server-side. The engine ships a no-op default.
-export 'src/ai/ai_usage_tracker.dart';
-export 'src/ai/noop_ai_usage_tracker.dart';
-export 'src/ai/telemetry_recorder.dart'; // 📊 Product telemetry sink
 
 // Gemini proxy: when the app constructs EngineScope with a GeminiProxyConfig,
 // all Gemini calls route through a Supabase Edge Function that holds the
@@ -598,7 +319,6 @@ export 'src/ai/gemini_client.dart'
          GeminiProxyQuotaExceededException;
 
 // ────────────────────────── L10N ──────────────────────────
-export 'src/l10n/fluera_localizations.dart';
 
 // NOTE: Internal testing utilities (brush_testing, brush_test_screen)
 // are not part of the public SDK API. Import directly from
