@@ -66,7 +66,7 @@ flutter pub get
 The fastest way to see what the SDK can do is to run the example app:
 
 ```shell
-git clone https://github.com/looponia/fluera_engine.git
+git clone https://github.com/Lorencoshametaj/fluera_engine.git
 cd fluera_engine/fluera_engine_examples/example
 flutter run
 ```
@@ -157,9 +157,9 @@ see that package's LICENSE for details.
 
 - **Docs**: <https://fluera.dev/docs>
 - **Pricing**: <https://fluera.dev/pricing>
-- **Issues**: <https://github.com/looponia/fluera_engine/issues>
+- **Issues**: <https://github.com/Lorencoshametaj/fluera_engine/issues>
 - **Commercial inquiries**: <hello@fluera.dev>
 
 ---
 
-<sub>Made with 💜 in Italy by <a href="https://fluera.com">Looponia</a>.</sub>
+<sub>Made with 💜 in Italy by Lorenzo Shametaj.</sub>

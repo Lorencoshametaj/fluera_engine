@@ -42,8 +42,8 @@ So I extracted the engine and split it into two packages:
                      PDF/SVG export, tile-cached rendering with
                      LOD + occlusion culling.
 
-The repo: https://github.com/looponia/fluera_engine
-The 5-example demo app: https://github.com/looponia/fluera_engine_examples
+The repo: https://github.com/Lorencoshametaj/fluera_engine
+The 5-example demo app: https://github.com/Lorencoshametaj/fluera_engine_examples
 The landing: https://fluera.dev/sdk
 Pricing: €499 one-time + €149/yr updates for Startup, €1,499 + €399/yr
 for Pro, custom for Enterprise — with a perpetual-fallback clause
@@ -92,8 +92,8 @@ find, and they all fell apart somewhere:
 Mine had to ship into a shippable consumer app, so I built it
 properly. Now I'm releasing the engine so you don't have to.
 
-**Repo:** https://github.com/looponia/fluera_engine
-**Examples:** https://github.com/looponia/fluera_engine_examples (5 runnable demos)
+**Repo:** https://github.com/Lorencoshametaj/fluera_engine
+**Examples:** https://github.com/Lorencoshametaj/fluera_engine_examples (5 runnable demos)
 **Landing:** https://fluera.dev/sdk
 
 **Quick start (literally the whole drawing pipeline):**
@@ -147,7 +147,7 @@ How I built a pressure-sensitive infinite canvas in Flutter (and what I learned 
 
 6. Publishing the SDK — monorepo with Melos, two barrels (public
    + internal), one companion package for Pro. Commit history:
-   https://github.com/looponia/fluera_engine/commits/main
+   https://github.com/Lorencoshametaj/fluera_engine/commits/main
 
 7. What I still haven't solved — 60Hz predicted touch on Android,
    Impeller edge cases on iOS 18.
@@ -155,7 +155,7 @@ How I built a pressure-sensitive infinite canvas in Flutter (and what I learned 
 If you're building anything canvas-shaped in Flutter, you can
 probably skip 3-6 months of this by starting from my repo.
 
-→ https://github.com/looponia/fluera_engine
+→ https://github.com/Lorencoshametaj/fluera_engine
 ```
 
 **Call-to-action at bottom:** Pricing link + "hello@fluera.dev if you
@@ -235,7 +235,7 @@ Perpetual fallback — keep what you bought.
 **Tweet 6 (close):**
 
 ```
-Repo: github.com/looponia/fluera_engine
+Repo: github.com/Lorencoshametaj/fluera_engine
 Docs: fluera.dev/sdk
 Pricing: fluera.dev/sdk#pricing
 
@@ -268,7 +268,7 @@ GPU rendering, real-time collab.
 
 If you're ever handed a "we need a whiteboard in our app" ticket,
 this saves you 3-6 months. 5 runnable demos here:
-  https://github.com/looponia/fluera_engine_examples
+  https://github.com/Lorencoshametaj/fluera_engine_examples
 
 Pricing is consulting-cheap (€499 Startup, €1,499 Pro, perpetual-
 fallback licence). If it looks useful for [their agency / project],
@@ -325,7 +325,7 @@ only. Aim for 20 personalised emails over 2 weeks, not 100 in one day.
 | Metric | Target (realistic) | How to measure |
 |---|---|---|
 | Landing unique visitors | 2k-5k | Plausible |
-| GitHub stars on core | 100-500 | github.com/looponia/fluera_engine |
+| GitHub stars on core | 100-500 | github.com/Lorencoshametaj/fluera_engine |
 | Paid conversions | 2-8 Startup, 0-2 Pro | Stripe dashboard |
 | Email volume (hello@) | 15-50 inquiries | inbox count |
 | Bug reports filed | 5-20 | GitHub issues |

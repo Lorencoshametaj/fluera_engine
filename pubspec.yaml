@@ -5,8 +5,8 @@ description: >
   export pipeline, and 60 FPS rendering with GPU shaders.
 version: 1.0.0
 homepage: https://fluera.dev
-repository: https://github.com/looponia/fluera_engine
-issue_tracker: https://github.com/looponia/fluera_engine/issues
+repository: https://github.com/Lorencoshametaj/fluera_engine
+issue_tracker: https://github.com/Lorencoshametaj/fluera_engine/issues
 topics:
   - canvas
   - drawing
