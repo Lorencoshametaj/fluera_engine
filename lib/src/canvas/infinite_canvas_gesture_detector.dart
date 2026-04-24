@@ -10,18 +10,40 @@ import '../drawing/input/stylus_detector.dart';
 import '../services/handedness_settings.dart';
 import './overlays/stylus_hover_overlay.dart';
 
-/// Widget canvas infinito con zoom e pan
-///
-/// Supporta:
-/// - Pinch zoom (due dita)
-/// - Pan (two fingers to move)
-/// - Drawing (one finger)
-/// - Pan with a dito (se enableSingleFingerPan = true)
-/// - 🖊️ Stylus Mode: stylus draws, finger pans
 bool _defaultBlockPanZoom() => false;
 bool _defaultShouldRotateImage(Offset _) => false;
 bool _defaultShouldTransformSelection(Offset _) => false;
 
+/// Widget that handles all multi-touch and stylus input for an infinite canvas.
+///
+/// Supports:
+/// - **Pinch zoom** (two-finger gesture) — delegates scale updates to
+///   [InfiniteCanvasController.setScale].
+/// - **Pan** (two-finger, or one-finger when `enableSingleFingerPan: true`) —
+///   translates via [InfiniteCanvasController.setOffset]; momentum-based
+///   deceleration is applied after lift-off.
+/// - **Drawing** (single-finger or stylus) — emits [onDrawStart] /
+///   [onDrawUpdate] / [onDrawEnd] callbacks with pressure and tilt values.
+/// - **Stylus mode**: when a stylus is detected (Apple Pencil, S Pen), the
+///   stylus draws regardless of how many fingers are touching the screen, and
+///   fingers pan instead of drawing. Disable by setting
+///   `enableStylusMode: false`.
+/// - **Palm rejection**: large contact areas from a resting palm are filtered
+///   out of the drawing stream automatically.
+///
+/// The widget is a thin input shell — it owns no state about what was drawn.
+/// Feed the callbacks into your own scene graph, storage, or the example
+/// `InfiniteCanvas` widget included with the SDK for a ready-made pipeline.
+///
+/// ```dart
+/// InfiniteCanvasGestureDetector(
+///   controller: myController,
+///   onDrawStart: (pos, pressure, tiltX, tiltY) { ... },
+///   onDrawUpdate: (pos, pressure, tiltX, tiltY) { ... },
+///   onDrawEnd: (pos) { ... },
+///   child: CustomPaint(painter: myPainter, size: Size.infinite),
+/// );
+/// ```
 class InfiniteCanvasGestureDetector extends StatefulWidget {
   final InfiniteCanvasController controller;
   final Widget child;
